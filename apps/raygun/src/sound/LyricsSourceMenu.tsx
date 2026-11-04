@@ -7,10 +7,11 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
-import { trackKey } from '../music/trackKey';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { lyricsSourceName } from './lyricsSource';
+import { TranscriptionStatus } from './TranscriptionStatus';
+import { useSongTranscription } from './useSongTranscription';
 import { useSongEdit } from './useSound';
 
 const firstLine = (lyrics: Lyrics) =>
@@ -46,17 +47,15 @@ export const LyricsSourceMenu: FC<{ query: TrackQuery; current: Lyrics | undefin
     staleTime: 10 * 60_000,
   });
   const { edit, save } = useSongEdit(query);
-  const hear = useMutation({
-    mutationFn: () => unwrapResult(commands.lyricsTranscribe(query)),
-    onSettled: () =>
-      client.invalidateQueries({
-        queryKey: ['captions', `song:${trackKey(query.title, query.artist)}`],
-      }),
-  });
+  const transcription = useSongTranscription(query);
   const name = (provider: string) => lyricsSourceName(provider, t);
   // Everything kept of this song's lyrics goes (M46.46): the source's, the transcription, its own.
+  // Hearing it stops first, or it would keep adding to what was just deleted.
   const forget = useMutation({
-    mutationFn: () => unwrapResult(commands.lyricsForget(query)),
+    mutationFn: async () => {
+      await commands.captionsStop(transcription.key);
+      return unwrapResult(commands.lyricsForget(query));
+    },
     onSettled: () => {
       setAnchor(null);
       void client.invalidateQueries({ queryKey: ['lyrics'] });
@@ -145,18 +144,22 @@ export const LyricsSourceMenu: FC<{ query: TrackQuery; current: Lyrics | undefin
                 </button>
               );
             })}
-            <button
-              type="button"
-              disabled={hear.isPending}
-              onClick={() => {
-                hear.mutate();
-                setAnchor(null);
-              }}
-              className={`${row} disabled:opacity-60`}
-            >
-              <AudioLines aria-hidden size={15} className="text-muted shrink-0" />
-              <span className="flex-1">{t('lyricsEdit.hear')}</span>
-            </button>
+            {transcription.canTranscribe ? (
+              <button
+                type="button"
+                disabled={transcription.busy}
+                onClick={() => {
+                  transcription.start();
+                  setAnchor(null);
+                }}
+                className={`${row} disabled:opacity-60`}
+              >
+                <AudioLines aria-hidden size={15} className="text-muted shrink-0" />
+                <span className="flex-1">{t('lyricsEdit.hear')}</span>
+              </button>
+            ) : (
+              <p className="text-muted px-3 py-2 text-xs">{t('lyricsEdit.hearSetUp')}</p>
+            )}
             <button
               type="button"
               disabled={forget.isPending}
@@ -169,7 +172,7 @@ export const LyricsSourceMenu: FC<{ query: TrackQuery; current: Lyrics | undefin
           </div>
         </Sheet>
       )}
-      {hear.error && <SourceIssue>{hear.error.message}</SourceIssue>}
+      <TranscriptionStatus transcription={transcription} compact />
     </>
   );
 };

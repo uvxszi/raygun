@@ -85,6 +85,11 @@ pub struct ImportEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct CaptionsEvent(pub String);
 
+/// A song's transcription finished and its words are now the song's lyrics; carries its
+/// captions key (`song:<track key>`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct LyricsTranscribedEvent(pub String);
+
 /// How far a song's lyrics translation on this device is (M46.48), a few times a second.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LyricsTranslationEvent(pub raygun_model::LyricsTranslationProgress);

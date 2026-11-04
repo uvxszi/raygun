@@ -7,6 +7,7 @@ import type { CSSProperties, FC } from 'react';
 
 import { TrackActionsSheet } from '../collections/TrackActionsSheet';
 import { SongEditSheet } from '../sound/SongEditSheet';
+import { useTranscribedLyricsSync } from '../sound/useSongTranscription';
 import { CoverSheet } from '../music/CoverSheet';
 import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
@@ -132,6 +133,7 @@ export const AppShell: FC = () => {
   // Phones keep their own layouts on their side: no side panel.
   const phone = useIsPhone();
   useSpeechHost();
+  useTranscribedLyricsSync();
   useFullscreenKey();
   useHorizontalWheel();
   useMediaSession();

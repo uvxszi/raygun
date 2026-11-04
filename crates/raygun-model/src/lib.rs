@@ -847,6 +847,12 @@ pub struct Captions {
     /// The episode's feed has a transcript of its own (M46.36: the listener can go back to it).
     #[serde(default)]
     pub has_feed: bool,
+    /// A song waiting to be heard: its place in line, 1 being next.
+    #[serde(default)]
+    pub queued: Option<u32>,
+    /// How long the recording being heard is, when known: with `covered`, how far it got.
+    #[serde(default)]
+    pub duration_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

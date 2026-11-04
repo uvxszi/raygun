@@ -1,6 +1,8 @@
 //! Whisper on the CPU with candle: one 30-second window per call, greedy decoding with
 //! timestamps and OpenAI's timestamp rules (pairs, never backwards, timestamp-first), the
-//! language detected from the first window unless given.
+//! language detected from the first window unless given. Greedy decoding loops on music and
+//! noise ("la la la…" to the token limit): a repeating tail is cut, and the rest of the window
+//! is skipped.
 
 use std::path::Path;
 
@@ -14,6 +16,12 @@ use super::{Segment, SpeechError, Tokens, mel_filters};
 const TIMESTAMP_MS: u32 = 20;
 /// The first timestamp may be at most this far in (OpenAI's `max_initial_timestamp`, 1 s).
 const MAX_INITIAL_TIMESTAMP: u32 = 50;
+/// A run of text tokens repeated back to back is a decoding loop when it spans at least this
+/// many tokens (and repeats at least [`LOOP_REPEATS`] times)…
+const LOOP_SPAN: usize = 24;
+const LOOP_REPEATS: usize = 3;
+/// …with a repeating unit of at most this many tokens.
+const LOOP_UNIT: usize = 16;
 
 pub struct Whisper {
     model: model::Whisper,
@@ -41,7 +49,9 @@ pub struct Heard {
 }
 
 impl Whisper {
-    /// Loads `config.json`, `tokenizer.json` and `model.safetensors` from a model folder.
+    /// Loads `config.json`, `tokenizer.json` and `model.safetensors` from a model folder. The
+    /// weights are memory-mapped rather than read into a buffer first, which halves what a load
+    /// takes at its peak (a phone's memory killer could end the app mid-load).
     pub fn load(dir: &Path) -> Result<Self, SpeechError> {
         let read = |name: &str| {
             std::fs::read(dir.join(name))
@@ -51,8 +61,14 @@ impl Whisper {
             .map_err(|error| SpeechError::Files(format!("config.json: {error}")))?;
         let tokens = Tokens::from_json(&String::from_utf8_lossy(&read("tokenizer.json")?))?;
         let device = Device::Cpu;
+        let weights_path = dir.join("model.safetensors");
+        if !weights_path.is_file() {
+            return Err(SpeechError::Files("model.safetensors is missing".into()));
+        }
+        // SAFETY: the file is the catalogue's download, pinned by its SHA-256 and only replaced
+        // by a new download into a fresh folder; nothing writes to it while it's mapped.
         let weights =
-            VarBuilder::from_buffered_safetensors(read("model.safetensors")?, m::DTYPE, &device)?;
+            unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], m::DTYPE, &device)? };
         let model = model::Whisper::load(&weights, config.clone())?;
         let special = |name: &str| {
             tokens
@@ -100,6 +116,20 @@ impl Whisper {
         samples: &[f32],
         language: Option<&str>,
     ) -> Result<Heard, SpeechError> {
+        self.transcribe_until(samples, language, &|| false)
+    }
+
+    /// [`Self::transcribe`], giving up with [`SpeechError::Cancelled`] once `cancelled` says so
+    /// (checked between tokens: a window takes seconds on a phone).
+    pub fn transcribe_until(
+        &mut self,
+        samples: &[f32],
+        language: Option<&str>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Heard, SpeechError> {
+        if cancelled() {
+            return Err(SpeechError::Cancelled);
+        }
         let content = samples.len().min(m::N_SAMPLES);
         let content_ms = (content as u64 * 1000 / m::SAMPLE_RATE as u64) as u32;
         let mut padded = samples[..content].to_vec();
@@ -142,7 +172,11 @@ impl Whisper {
         let mut sampled: Vec<u32> = Vec::new();
         let mut sum_logprob = 0.0f64;
         let mut ended = false;
+        let mut looped = false;
         for step in 0..limit {
+            if cancelled() {
+                return Err(SpeechError::Cancelled);
+            }
             let mut sequence = prompt.clone();
             sequence.extend(&sampled);
             let mut logits = self.logits(&sequence, &features, step == 0)?;
@@ -162,6 +196,12 @@ impl Whisper {
                 break;
             }
             sampled.push(next);
+            if let Some(cut) = self.loop_start(&sampled) {
+                sampled.truncate(cut);
+                ended = true;
+                looped = true;
+                break;
+            }
         }
         let avg_logprob = sum_logprob / (sampled.len() + 1) as f64;
         if no_speech_prob > m::NO_SPEECH_THRESHOLD && avg_logprob < m::LOGPROB_THRESHOLD {
@@ -172,11 +212,24 @@ impl Whisper {
             });
         }
         let (segments, consumed_ms) = self.segments(&sampled, ended, content_ms);
+        // A loop would be heard again in the same place: go past it.
+        let consumed_ms = if looped { content_ms } else { consumed_ms };
         Ok(Heard {
             segments,
             consumed_ms,
             language,
         })
+    }
+
+    /// Where a decoding loop's second round starts in `sampled`, when its text tokens end in one
+    /// unit repeated back to back (timestamps between rounds don't count).
+    fn loop_start(&self, sampled: &[u32]) -> Option<usize> {
+        let text: Vec<usize> = (0..sampled.len())
+            .filter(|index| sampled[*index] < self.timestamp_begin)
+            .collect();
+        let tokens: Vec<u32> = text.iter().map(|index| sampled[*index]).collect();
+        let cut = loop_start(&tokens)?;
+        Some(text[cut])
     }
 
     /// The next token's logits after `sequence`.
@@ -303,6 +356,29 @@ impl Whisper {
     }
 }
 
+/// Where the second round of a loop at the end of `tokens` starts: the shortest unit repeated
+/// back to back at least [`LOOP_REPEATS`] times over at least [`LOOP_SPAN`] tokens.
+fn loop_start(tokens: &[u32]) -> Option<usize> {
+    for unit in 1..=LOOP_UNIT {
+        let repeats = LOOP_SPAN.div_ceil(unit).max(LOOP_REPEATS);
+        let span = unit * repeats;
+        if tokens.len() < span {
+            continue;
+        }
+        let tail = &tokens[tokens.len() - span..];
+        let first = &tail[..unit];
+        if tail.chunks(unit).all(|chunk| chunk == first) {
+            // Back to where the run began.
+            let mut start = tokens.len() - span;
+            while start >= unit && tokens[start - unit..start] == tokens[start..start + unit] {
+                start -= unit;
+            }
+            return Some(start + unit);
+        }
+    }
+    None
+}
+
 fn softmax_at(logits: &[f32], index: usize) -> f64 {
     log_softmax_at(logits, index).exp()
 }
@@ -313,4 +389,28 @@ fn log_softmax_at(logits: &[f32], index: usize) -> f64 {
     logits
         .get(index)
         .map_or(f64::NEG_INFINITY, |logit| *logit as f64 - max - sum.ln())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decoding_loops_are_cut_after_their_first_round() {
+        // "la" said 30 times: one is kept.
+        let mut tokens = vec![7, 8, 9];
+        tokens.extend(std::iter::repeat_n(5, 30));
+        assert_eq!(loop_start(&tokens), Some(4));
+        // A three-token phrase eight times.
+        let mut phrase = vec![1, 2];
+        for _ in 0..8 {
+            phrase.extend([10, 11, 12]);
+        }
+        assert_eq!(loop_start(&phrase), Some(5));
+        // A chorus sung twice isn't a loop.
+        let mut chorus: Vec<u32> = (100..112).collect();
+        chorus.extend(100..112);
+        assert_eq!(loop_start(&chorus), None);
+        assert_eq!(loop_start(&[1, 2, 3, 3, 3]), None);
+    }
 }

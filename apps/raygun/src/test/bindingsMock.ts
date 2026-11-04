@@ -72,6 +72,7 @@ type EventPayloads = {
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
   captionsEvent: string;
+  lyricsTranscribedEvent: string;
   lyricsTranslationEvent: LyricsTranslationProgress;
   localFilesEvent: string;
   settingsChangedEvent: string;
@@ -665,6 +666,7 @@ export const bindingsMock = {
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
     captionsEvent: makeEvent('captionsEvent'),
+    lyricsTranscribedEvent: makeEvent('lyricsTranscribedEvent'),
     lyricsTranslationEvent: makeEvent('lyricsTranslationEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
@@ -820,6 +822,9 @@ export const seedBindings = () => {
       error: null,
       canTranscribe: false,
       engine: 'off',
+      hasFeed: false,
+      queued: null,
+      durationMs: null,
     }),
   );
   commands.captionsVideoTranscribe.mockResolvedValue(ok(null));

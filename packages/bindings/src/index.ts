@@ -1313,6 +1313,7 @@ export const events = {
 	incognitoEvent: makeEvent<IncognitoEvent>("incognito-event"),
 	libraryScanEvent: makeEvent<LibraryScanEvent>("library-scan-event"),
 	localFilesEvent: makeEvent<LocalFilesEvent>("local-files-event"),
+	lyricsTranscribedEvent: makeEvent<LyricsTranscribedEvent>("lyrics-transcribed-event"),
 	lyricsTranslationEvent: makeEvent<LyricsTranslationEvent>("lyrics-translation-event"),
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
@@ -1760,6 +1761,10 @@ export type Captions = {
 	engine: TranscriptionEngine,
 	/**  The episode's feed has a transcript of its own (M46.36: the listener can go back to it). */
 	hasFeed?: boolean,
+	/**  A song waiting to be heard: its place in line, 1 being next. */
+	queued?: number | null,
+	/**  How long the recording being heard is, when known: with `covered`, how far it got. */
+	durationMs?: number | null,
 };
 
 /**
@@ -2729,6 +2734,12 @@ export type LyricsClearScope = "all" |
 "notSaved" | "favorites" | 
 /**  Favorites and playlists. */
 "saved" | "downloaded";
+
+/**
+ *  A song's transcription finished and its words are now the song's lyrics; carries its
+ *  captions key (`song:<track key>`).
+ */
+export type LyricsTranscribedEvent = string;
 
 /**  Lyrics in another language, or romanized, line for line (M46.48). */
 export type LyricsTranslation = {

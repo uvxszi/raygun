@@ -137,13 +137,15 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.downloads(),
     ));
     app.manage(podcasts.clone());
-    // Captions for podcasts and audiobooks (M46.32).
-    app.manage(crate::captions::CaptionService::new(
+    // Captions for podcasts and audiobooks (M46.32), and songs' words waiting from the last run.
+    let captions = crate::captions::CaptionService::new(
         app.handle().clone(),
         raygun_net::http_client()?,
         paths.downloads(),
         paths.cache(raygun_paths::CacheKind::Captions),
-    ));
+    );
+    app.manage(captions.clone());
+    captions.resume_songs();
     app.manage(crate::local_network::LocalNetwork::new(
         app.handle().clone(),
     ));

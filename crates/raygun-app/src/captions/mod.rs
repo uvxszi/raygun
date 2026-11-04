@@ -3,35 +3,50 @@
 //! playback, then the rest. On this device that's Whisper (`raygun_ai::speech::Whisper`, a model
 //! from the AI catalogue); online, an OpenAI-compatible provider from Settings → AI. One episode
 //! is transcribed at a time; what's heard is kept (`raygun_db::captions`).
+//!
+//! Songs (M46.36) have a lane of their own: a queue heard one song at a time from the start,
+//! beside whatever episode or video is being transcribed (both share the one loaded model). A
+//! song stopped partway goes on from where it stopped; the queue is kept across restarts
+//! (`local_value` [`SONG_QUEUE_VALUE`]); a song heard to the end becomes its own synced lyrics.
 
 mod audio;
 mod cues;
 pub(crate) mod video_audio;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures_util::StreamExt;
-use raygun_ai::speech::{self, Whisper};
+use futures_util::{FutureExt, StreamExt};
+use raygun_ai::speech::{self, SpeechError, Whisper};
 use raygun_db::captions::{self as store, CaptionProgress, CaptionRow};
 use raygun_db::podcasts::{self as episodes, EpisodeRow};
-use raygun_model::{Caption, CaptionSource, Captions, TranscriptionEngine, TranscriptionPrefs};
+use raygun_model::{
+    Caption, CaptionSource, Captions, TrackQuery, TranscriptionEngine, TranscriptionPrefs,
+};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio::io::AsyncWriteExt;
 
 use self::audio::AudioReader;
 use self::video_audio::VideoAudio;
-use crate::events::CaptionsEvent;
+use crate::events::{CaptionsEvent, LyricsTranscribedEvent};
 use crate::startup::AppDb;
 
 /// Online transcription costs money: it runs at most this far ahead of the listener.
 const ONLINE_AHEAD_MS: u64 = 10 * 60 * 1000;
 /// How often a job that's far enough ahead looks at the listener again.
 const WAIT_STEP: Duration = Duration::from_secs(10);
+/// A stream that stops sending fails the job instead of leaving it hearing forever.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+/// Songs waiting to be heard, kept across restarts: a JSON list of track queries.
+pub const SONG_QUEUE_VALUE: &str = "captions.songQueue";
+/// A queue kept from the last run starts again this long after start, out of the way.
+const RESUME_AFTER: Duration = Duration::from_secs(20);
 
 pub struct CaptionService {
     app: AppHandle,
@@ -42,6 +57,13 @@ pub struct CaptionService {
     state: Mutex<State>,
     /// The loaded on-device model and its catalogue id.
     whisper: Arc<Mutex<Option<(String, Whisper)>>>,
+    /// Which model `whisper` holds, readable without waiting for a window to finish.
+    loaded: Mutex<Option<String>>,
+    /// Held while the model loads, so the two lanes never load it twice.
+    loading: tokio::sync::Mutex<()>,
+    /// The song queue's saves are numbered; an older one never overwrites a newer one.
+    queue_version: AtomicU64,
+    saved_version: Arc<tokio::sync::Mutex<u64>>,
 }
 
 #[derive(Default)]
@@ -55,6 +77,56 @@ struct State {
     fetched: HashSet<String>,
     /// The show or book whose next episodes are transcribed when they come up.
     follow: Option<String>,
+    /// How long each recording being heard is, when known.
+    durations: HashMap<String, u64>,
+    songs: SongLane,
+}
+
+/// Songs whose words are heard, one at a time.
+#[derive(Default)]
+struct SongLane {
+    queue: VecDeque<(String, TrackQuery)>,
+    current: Option<SongJob>,
+    /// The worker that goes through the queue is running.
+    working: bool,
+}
+
+impl SongLane {
+    /// Adds songs at the back, or at the front in the order given when `first`. A song already
+    /// waiting moves up when `first` and stays put otherwise; the one being heard isn't added.
+    fn add(&mut self, items: Vec<(String, TrackQuery)>, first: bool) {
+        let mut added: Vec<(String, TrackQuery)> = Vec::new();
+        for (key, query) in items {
+            if self.current.as_ref().is_some_and(|job| job.key == key)
+                || added.iter().any(|(other, _)| *other == key)
+            {
+                continue;
+            }
+            match self.queue.iter().position(|(queued, _)| *queued == key) {
+                Some(index) if first => {
+                    self.queue.remove(index);
+                }
+                Some(_) => continue,
+                None => {}
+            }
+            added.push((key, query));
+        }
+        if first {
+            for item in added.into_iter().rev() {
+                self.queue.push_front(item);
+            }
+        } else {
+            self.queue.extend(added);
+        }
+    }
+}
+
+struct SongJob {
+    key: String,
+    query: TrackQuery,
+    stop: Arc<AtomicBool>,
+    /// Finding the song's sound and loading the model, before the first window.
+    preparing: bool,
 }
 
 enum Engine {
@@ -85,6 +157,11 @@ impl CaptionService {
         downloads_dir: PathBuf,
         work_dir: PathBuf,
     ) -> Arc<Self> {
+        let client = raygun_net::client_builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .build()
+            .unwrap_or(client);
         Arc::new(Self {
             app,
             client,
@@ -92,6 +169,10 @@ impl CaptionService {
             work_dir,
             state: Mutex::default(),
             whisper: Arc::default(),
+            loaded: Mutex::default(),
+            loading: tokio::sync::Mutex::const_new(()),
+            queue_version: AtomicU64::new(0),
+            saved_version: Arc::default(),
         })
     }
 
@@ -163,10 +244,24 @@ impl CaptionService {
         }
         let cues = store::cues(&db, episode_id).await.map_err(to_message)?;
         let state = self.state();
-        let running = state
+        let episode_job = state
             .job
             .as_ref()
             .is_some_and(|(id, _, _)| id == episode_id);
+        let song_job = state
+            .songs
+            .current
+            .as_ref()
+            .filter(|job| job.key == episode_id);
+        let running = episode_job || song_job.is_some();
+        let preparing =
+            (episode_job && state.preparing) || song_job.is_some_and(|job| job.preparing);
+        let queued = state
+            .songs
+            .queue
+            .iter()
+            .position(|(key, _)| key == episode_id)
+            .map(|index| index as u32 + 1);
         let progress = progress.unwrap_or_default();
         Ok(Captions {
             episode_id: episode_id.to_owned(),
@@ -186,13 +281,18 @@ impl CaptionService {
                 .collect(),
             complete: progress.complete,
             running,
-            preparing: running && state.preparing,
+            preparing,
             error: state.errors.get(episode_id).cloned(),
             can_transcribe,
             engine: prefs.engine,
             has_feed: episode
                 .as_ref()
                 .is_some_and(|episode| episode.fields.transcript.is_some()),
+            queued,
+            duration_ms: state
+                .durations
+                .get(episode_id)
+                .map(|ms| clamp_ms(*ms as i64)),
         })
     }
 
@@ -240,7 +340,7 @@ impl CaptionService {
                     duration,
                     follow: Follow::Episode,
                     anchor: &anchor,
-                    stop: &stop,
+                    stop: stop.clone(),
                 };
                 let result = service.run(job, Sound::Episode(reader)).await;
                 if fetched {
@@ -286,7 +386,7 @@ impl CaptionService {
                 duration,
                 follow: if all { Follow::Whole } else { Follow::Viewer },
                 anchor: &anchor,
-                stop: &stop,
+                stop: stop.clone(),
             };
             let result = service.run(job, Sound::Video(Box::new(sound))).await;
             service.write_track(&video_key).await;
@@ -296,48 +396,270 @@ impl CaptionService {
 
     /// Hears a song's words (M46.36): from its downloaded copy, else a stream one of the sources
     /// has (YouTube's player gives none). The lines become the song's synced lyrics, to edit like
-    /// any others. The job's key is [`song_key`].
-    pub async fn transcribe_song(
+    /// any others. The job's key is [`song_key`]. The song goes first in the song queue; one
+    /// heard to the end before is heard anew, one stopped partway goes on from there.
+    pub async fn transcribe_song(self: &Arc<Self>, query: TrackQuery) -> Result<(), String> {
+        let prefs = self.prefs().await;
+        self.engine(&prefs).await?;
+        let key = song_key(&query);
+        if !self.song_waiting(&key) && self.heard_whole(&key).await {
+            store::clear(&self.db(), &key).await.map_err(to_message)?;
+        }
+        self.enqueue(vec![(key, query)], true);
+        Ok(())
+    }
+
+    /// Hears several songs' words, one after another in the order given (M46.46: songs
+    /// selected in a list), after those already waiting. Songs heard to the end before are left
+    /// as they are. Fails at once when transcription isn't set up.
+    pub async fn transcribe_songs(
         self: &Arc<Self>,
-        query: raygun_model::TrackQuery,
+        queries: Vec<TrackQuery>,
+    ) -> Result<(), String> {
+        let prefs = self.prefs().await;
+        self.engine(&prefs).await?;
+        let mut items = Vec::new();
+        for query in queries {
+            let key = song_key(&query);
+            if items.iter().any(|(added, _)| *added == key) || self.heard_whole(&key).await {
+                continue;
+            }
+            items.push((key, query));
+        }
+        self.enqueue(items, false);
+        Ok(())
+    }
+
+    /// Puts the songs kept from the last run back in line, a little after start, when
+    /// transcription is still set up.
+    pub fn resume_songs(self: &Arc<Self>) {
+        let service = self.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(RESUME_AFTER).await;
+            let kept = raygun_db::local_value(&service.db(), SONG_QUEUE_VALUE)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|json| serde_json::from_str::<Vec<TrackQuery>>(&json).ok())
+                .unwrap_or_default();
+            if kept.is_empty() {
+                return;
+            }
+            let prefs = service.prefs().await;
+            if service.engine(&prefs).await.is_err() {
+                return;
+            }
+            let items = kept
+                .into_iter()
+                .map(|query| (song_key(&query), query))
+                .collect();
+            service.enqueue(items, false);
+        });
+    }
+
+    /// Whether a song is being heard or waits to be.
+    fn song_waiting(&self, key: &str) -> bool {
+        let state = self.state();
+        state
+            .songs
+            .current
+            .as_ref()
+            .is_some_and(|job| job.key == key)
+            || state.songs.queue.iter().any(|(queued, _)| queued == key)
+    }
+
+    async fn heard_whole(&self, key: &str) -> bool {
+        store::progress(&self.db(), key)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|progress| progress.complete)
+    }
+
+    /// Adds songs to the queue (at its front, in the order given, when `first`), and starts
+    /// the worker that hears them if it isn't running. A song already waiting moves up when
+    /// `first`; the one being heard stays.
+    fn enqueue(self: &Arc<Self>, items: Vec<(String, TrackQuery)>, first: bool) {
+        let (start_worker, keys) = {
+            let mut state = self.state();
+            let lane = &mut state.songs;
+            lane.add(items, first);
+            let start_worker = !lane.working && !lane.queue.is_empty();
+            if start_worker {
+                lane.working = true;
+            }
+            let keys: Vec<String> = lane.queue.iter().map(|(key, _)| key.clone()).collect();
+            for key in &keys {
+                state.errors.remove(key);
+            }
+            (start_worker, keys)
+        };
+        self.save_queue();
+        for key in &keys {
+            self.announce(key);
+        }
+        if start_worker {
+            let service = self.clone();
+            tauri::async_runtime::spawn(async move { service.hear_songs().await });
+        }
+    }
+
+    /// The song queue's worker: one song at a time until none wait.
+    async fn hear_songs(self: Arc<Self>) {
+        loop {
+            let next = {
+                let mut state = self.state();
+                let lane = &mut state.songs;
+                match lane.queue.pop_front() {
+                    Some((key, query)) => {
+                        let stop = Arc::new(AtomicBool::new(false));
+                        lane.current = Some(SongJob {
+                            key: key.clone(),
+                            query: query.clone(),
+                            stop: stop.clone(),
+                            preparing: true,
+                        });
+                        Some((key, query, stop))
+                    }
+                    None => {
+                        lane.current = None;
+                        lane.working = false;
+                        None
+                    }
+                }
+            };
+            let Some((key, query, stop)) = next else {
+                break;
+            };
+            // Everyone waiting moved up one.
+            self.announce_songs();
+            let outcome = AssertUnwindSafe(self.hear_song(&key, &query, stop))
+                .catch_unwind()
+                .await
+                .unwrap_or_else(|_| Err(UNEXPECTED.into()));
+            {
+                let mut state = self.state();
+                state.songs.current = None;
+                state.durations.remove(&key);
+                if let Err(error) = &outcome {
+                    tracing::info!(%error, song = %key, "couldn't transcribe a song");
+                    state.errors.insert(key.clone(), error.clone());
+                }
+            }
+            self.save_queue();
+            self.announce(&key);
+        }
+        self.release_model_if_idle();
+        self.save_queue();
+    }
+
+    /// Hears one song from where it stopped (the start, the first time); heard to the end, its
+    /// words become its lyrics. Stopped, it answers `Ok` and keeps what was heard.
+    async fn hear_song(
+        &self,
+        key: &str,
+        query: &TrackQuery,
+        stop: Arc<AtomicBool>,
     ) -> Result<(), String> {
         let prefs = self.prefs().await;
         let engine = self.engine(&prefs).await?;
-        let key = song_key(&query);
-        let service = self.clone();
-        let job_key = key.clone();
-        self.start(&key, 0, move |stop, anchor| async move {
-            // Earlier words of the song are heard again.
-            let _ = store::clear(&service.db(), &job_key).await;
-            let sound = service.song_sound(&query).await?;
-            let duration = sound.duration_ms();
-            let job = Job {
-                key: &job_key,
-                engine,
-                duration,
-                follow: Follow::Whole,
-                anchor: &anchor,
-                stop: &stop,
-            };
-            let result = service.run(job, Sound::Video(Box::new(sound))).await;
-            service.save_song_lyrics(&job_key, &query).await?;
-            result
-        })
+        let sound = self.song_sound(query).await?;
+        if stop.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let duration = sound.duration_ms();
+        let anchor = AtomicU64::new(0);
+        let job = Job {
+            key,
+            engine,
+            duration,
+            follow: Follow::Whole,
+            anchor: &anchor,
+            stop: stop.clone(),
+        };
+        if let Err(error) = self.run(job, Sound::Video(Box::new(sound))).await {
+            let heard = store::progress(&self.db(), key)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|progress| !progress.ranges.is_empty());
+            return Err(song_failure(&error, heard));
+        }
+        if stop.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        self.save_song_lyrics(key, query).await?;
+        let _ = LyricsTranscribedEvent(key.to_owned()).emit(&self.app);
+        Ok(())
+    }
+
+    /// Tells every song waiting or being heard that the queue changed.
+    fn announce_songs(&self) {
+        let keys: Vec<String> = {
+            let state = self.state();
+            state
+                .songs
+                .current
+                .iter()
+                .map(|job| job.key.clone())
+                .chain(state.songs.queue.iter().map(|(key, _)| key.clone()))
+                .collect()
+        };
+        for key in keys {
+            self.announce(&key);
+        }
+    }
+
+    /// Keeps the song queue (the song being heard first) for the next start.
+    fn save_queue(&self) {
+        let (version, json) = {
+            let state = self.state();
+            let queries: Vec<&TrackQuery> = state
+                .songs
+                .current
+                .iter()
+                .map(|job| &job.query)
+                .chain(state.songs.queue.iter().map(|(_, query)| query))
+                .collect();
+            (
+                self.queue_version.fetch_add(1, Ordering::Relaxed) + 1,
+                serde_json::to_string(&queries).unwrap_or_else(|_| "[]".into()),
+            )
+        };
+        let Some(db) = self.app.try_state::<AppDb>().map(|db| db.0.clone()) else {
+            return;
+        };
+        let saved = self.saved_version.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut last = saved.lock().await;
+            if *last > version {
+                return;
+            }
+            *last = version;
+            if let Err(error) = raygun_db::set_local_value(&db, SONG_QUEUE_VALUE, &json).await {
+                tracing::warn!(%error, "couldn't keep the songs waiting to be transcribed");
+            }
+        });
     }
 
     /// What a song sounds like, for hearing its words: its downloaded copy, else the first stream
-    /// the resolver finds that names it (not YouTube's).
-    async fn song_sound(&self, query: &raygun_model::TrackQuery) -> Result<VideoAudio, String> {
+    /// the resolver finds that names it (not YouTube's, whose player gives no sound to hear).
+    /// Errors say what was tried, in words, with the details on the lines after.
+    async fn song_sound(&self, query: &TrackQuery) -> Result<VideoAudio, String> {
         let songs = self
             .app
             .state::<Arc<crate::music_downloads::SongDownloadService>>()
             .inner()
             .clone();
+        let mut failures: Vec<(String, String)> = Vec::new();
         if let Some(path) = songs.offline_file(&raygun_resolver::track_key(query)) {
-            let reader = tauri::async_runtime::spawn_blocking(move || AudioReader::open(&path))
+            match tauri::async_runtime::spawn_blocking(move || AudioReader::open(&path))
                 .await
-                .map_err(to_message)??;
-            return Ok(VideoAudio::File(reader));
+                .map_err(to_message)?
+            {
+                Ok(reader) => return Ok(VideoAudio::File(reader)),
+                Err(error) => failures.push(("the downloaded copy".into(), error)),
+            }
         }
         let resolver = self
             .app
@@ -346,48 +668,56 @@ impl CaptionService {
             .clone();
         let media = self.app.state::<raygun_net::MediaLinks>().inner().clone();
         let mut exclusions = crate::resolution::Exclusions::default();
-        let mut last_error = None;
+        let mut youtube = false;
+        let mut unresolved = None;
         for _ in 0..SONG_TRIES {
             let pick = match resolver.resolve(query, &exclusions).await {
                 Ok(pick) => pick,
                 Err(error) => {
-                    last_error = Some(error);
+                    unresolved = Some(error);
                     break;
                 }
             };
             exclusions.tried.push(pick.key.clone());
-            let raygun_model::MediaSource::Url { url, headers } = &pick.source else {
-                continue;
+            exclusions.failed_sources.push(pick.source.clone());
+            let opened = match &pick.source {
+                raygun_model::MediaSource::Url { url, headers } => {
+                    let Some(link) = media.link(url, headers) else {
+                        continue;
+                    };
+                    let client = self.client.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        VideoAudio::open(client, &link, None)
+                    })
+                    .await
+                    .map_err(to_message)?
+                }
+                raygun_model::MediaSource::LocalFile { path } => {
+                    let path = PathBuf::from(path);
+                    tauri::async_runtime::spawn_blocking(move || AudioReader::open(&path))
+                        .await
+                        .map_err(to_message)?
+                        .map(VideoAudio::File)
+                }
+                raygun_model::MediaSource::YouTube { .. } => {
+                    youtube = true;
+                    continue;
+                }
+                raygun_model::MediaSource::Lookup { .. } => continue,
             };
-            let Some(link) = media.link(url, headers) else {
-                continue;
-            };
-            let client = self.client.clone();
-            match tauri::async_runtime::spawn_blocking(move || {
-                VideoAudio::open(client, &link, None)
-            })
-            .await
-            .map_err(to_message)?
-            {
+            match opened {
                 Ok(sound) => return Ok(sound),
-                Err(error) => last_error = Some(error),
+                Err(error) => failures.push((format!("{}'s stream", pick.provider_name), error)),
             }
         }
-        Err(last_error.unwrap_or_else(|| {
-            "Only YouTube has this song, and its player gives no sound to hear: download it first"
-                .into()
-        }))
+        Err(no_sound(&failures, youtube, unresolved.as_deref()))
     }
 
     /// Keeps what was heard of a song as its own synced lyrics (M46.36).
-    async fn save_song_lyrics(
-        &self,
-        key: &str,
-        query: &raygun_model::TrackQuery,
-    ) -> Result<(), String> {
+    async fn save_song_lyrics(&self, key: &str, query: &TrackQuery) -> Result<(), String> {
         let cues = store::cues(&self.db(), key).await.map_err(to_message)?;
         if cues.is_empty() {
-            return Err("No words were heard in this song".into());
+            return Err(NO_WORDS.into());
         }
         let synced = cues
             .into_iter()
@@ -402,7 +732,11 @@ impl CaptionService {
             synced,
             plain: None,
         });
-        sound.set(query, edit).await.map(|_| ())
+        sound
+            .set(query, edit)
+            .await
+            .map(|_| ())
+            .map_err(|error| format!("Couldn't keep the words as the song's lyrics\n{error}"))
     }
 
     /// Goes back to an episode's own transcript (M46.36: the listener picks the captions'
@@ -460,39 +794,15 @@ impl CaptionService {
             .is_some()
     }
 
-    /// Hears several songs' words, one after another in the order given (M46.46: songs
-    /// selected in a list). Fails at once when transcription isn't set up.
-    pub async fn transcribe_songs(
-        self: &Arc<Self>,
-        queries: Vec<raygun_model::TrackQuery>,
-    ) -> Result<(), String> {
-        let prefs = self.prefs().await;
-        self.engine(&prefs).await?;
-        let service = self.clone();
-        tauri::async_runtime::spawn(async move {
-            // One list at a time; a second waits for the first.
-            let _turn = SONG_BATCH.lock().await;
-            for query in queries {
-                let key = song_key(&query);
-                if let Err(error) = service.transcribe_song(query).await {
-                    tracing::warn!(%error, song = %key, "couldn't transcribe a song");
-                    continue;
-                }
-                while service.is_running(&key) {
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                }
-            }
-        });
-        Ok(())
-    }
-
     /// The words a transcription heard in a song, kept from its last run (M46.45): offered with
     /// the lyrics sources' versions, so switching back costs nothing.
-    pub async fn song_transcript(
-        &self,
-        query: &raygun_model::TrackQuery,
-    ) -> Option<raygun_model::Lyrics> {
-        let cues = store::cues(&self.db(), &song_key(query)).await.ok()?;
+    pub async fn song_transcript(&self, query: &TrackQuery) -> Option<raygun_model::Lyrics> {
+        // Only a whole song: part of one would read as lyrics that stop.
+        let key = song_key(query);
+        if !self.heard_whole(&key).await {
+            return None;
+        }
+        let cues = store::cues(&self.db(), &key).await.ok()?;
         if cues.is_empty() {
             return None;
         }
@@ -536,28 +846,43 @@ impl CaptionService {
         let service = self.clone();
         let id = key.to_owned();
         tauri::async_runtime::spawn(async move {
-            let result = work(stop, anchor).await;
+            // A panic must not leave the job marked as running forever.
+            let result = AssertUnwindSafe(work(stop, anchor))
+                .catch_unwind()
+                .await
+                .unwrap_or_else(|_| Err(UNEXPECTED.into()));
             {
                 let mut state = service.state();
                 if state.job.as_ref().is_some_and(|(job, _, _)| *job == id) {
                     state.job = None;
                     state.preparing = false;
+                    state.durations.remove(&id);
                 }
                 if let Err(error) = &result {
                     tracing::info!(%error, "transcribing stopped");
                     state.errors.insert(id.clone(), error.clone());
                 }
-                // The model holds 150 to 300 MB: let it go until it's needed again.
-                if state.job.is_none() {
-                    *service.whisper.lock().unwrap_or_else(|p| p.into_inner()) = None;
-                }
             }
+            service.release_model_if_idle();
             service.announce(&id);
         });
         Ok(())
     }
 
-    /// Stops transcribing an episode; what was heard is kept. Its show isn't followed anymore.
+    /// The model holds 150 to 300 MB: it's let go while nothing is being heard.
+    fn release_model_if_idle(&self) {
+        let idle = {
+            let state = self.state();
+            state.job.is_none() && state.songs.current.is_none() && state.songs.queue.is_empty()
+        };
+        if idle {
+            *self.loaded.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            *self.whisper.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        }
+    }
+
+    /// Stops transcribing an episode, a video or a song (taken out of the song queue too); what
+    /// was heard is kept. A stopped episode's show isn't followed anymore.
     pub fn stop(&self, episode_id: &str) {
         let mut state = self.state();
         if state
@@ -568,8 +893,25 @@ impl CaptionService {
         {
             stop.store(true, Ordering::Relaxed);
         }
-        state.follow = None;
+        if let Some(job) = state
+            .songs
+            .current
+            .as_ref()
+            .filter(|job| job.key == episode_id)
+        {
+            job.stop.store(true, Ordering::Relaxed);
+        }
+        let waiting = state.songs.queue.len();
+        state.songs.queue.retain(|(key, _)| key != episode_id);
+        let dequeued = state.songs.queue.len() != waiting;
+        if !episode_id.starts_with(SONG_PREFIX) {
+            state.follow = None;
+        }
         drop(state);
+        if dequeued {
+            self.save_queue();
+            self.announce_songs();
+        }
         self.announce(episode_id);
     }
 
@@ -631,7 +973,18 @@ impl CaptionService {
         if let Engine::Local { model, dir } = &engine {
             self.load_whisper(model, dir).await?;
         }
-        self.state().preparing = false;
+        {
+            let mut state = self.state();
+            if state.job.as_ref().is_some_and(|(job, _, _)| job == id) {
+                state.preparing = false;
+            }
+            if let Some(job) = state.songs.current.as_mut().filter(|job| job.key == id) {
+                job.preparing = false;
+            }
+            if let Some(duration) = duration {
+                state.durations.insert(id.to_owned(), duration);
+            }
+        }
         self.announce(id);
 
         let mut language: Option<String> = None;
@@ -677,7 +1030,8 @@ impl CaptionService {
             .await
             .map_err(to_message)?;
             sound = back;
-            let samples = samples?;
+            let samples = samples
+                .map_err(|error| format!("Couldn't read the sound at {}\n{error}", clock(at)))?;
             if samples.is_empty() {
                 let end = duration.unwrap_or(at + 1).max(at + 1);
                 store::add(
@@ -696,18 +1050,35 @@ impl CaptionService {
             let (segments, consumed) = match &engine {
                 // Whisper makes words up for silence and scraps ("you"): nothing to hear there.
                 _ if is_quiet(&samples) || window_ms < MIN_WINDOW_MS => (Vec::new(), window_ms),
-                Engine::Local { .. } => {
+                Engine::Local { model, dir } => {
+                    // The other lane may have let the model go between two windows.
+                    self.load_whisper(model, dir).await?;
                     let whisper = self.whisper.clone();
                     let wanted = language.clone();
+                    let stop = job.stop.clone();
                     let heard = tauri::async_runtime::spawn_blocking(move || {
                         let mut loaded = whisper.lock().unwrap_or_else(|p| p.into_inner());
-                        let (_, model) = loaded.as_mut().ok_or("The speech model isn't loaded")?;
-                        model
-                            .transcribe(&samples, wanted.as_deref())
-                            .map_err(|error| error.to_string())
+                        let (_, model) = loaded
+                            .as_mut()
+                            .ok_or_else(|| SpeechError::Model("it isn't loaded".into()))?;
+                        model.transcribe_until(&samples, wanted.as_deref(), &|| {
+                            stop.load(Ordering::Relaxed)
+                        })
                     })
                     .await
-                    .map_err(to_message)??;
+                    .map_err(to_message)?;
+                    let heard = match heard {
+                        Ok(heard) => heard,
+                        Err(SpeechError::Cancelled) if job.stop.load(Ordering::Relaxed) => {
+                            return Ok(());
+                        }
+                        Err(error) => {
+                            return Err(format!(
+                                "The speech model failed at {}\n{error}",
+                                clock(at)
+                            ));
+                        }
+                    };
                     // The language is kept once a window had real speech in it: music or a
                     // quiet opening can be mistaken for any language.
                     if language.is_none() && heard.segments.len() >= 2 {
@@ -729,12 +1100,17 @@ impl CaptionService {
                         None,
                     )
                     .await
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| {
+                        format!("The transcription provider didn't answer\n{error}")
+                    })?;
                     (segments, window_ms)
                 }
             };
+            if job.stop.load(Ordering::Relaxed) {
+                return Ok(());
+            }
             let consumed = u64::from(consumed.clamp(1000.min(window_ms), window_ms.max(1)));
-            let rows: Vec<CaptionRow> = segments
+            let mut rows: Vec<CaptionRow> = segments
                 .into_iter()
                 .map(|segment| CaptionRow {
                     start_ms: (at + u64::from(segment.start_ms)) as i64,
@@ -742,6 +1118,10 @@ impl CaptionService {
                     text: segment.text,
                 })
                 .collect();
+            let before = store::cue_before(&db, id, at as i64)
+                .await
+                .map_err(to_message)?;
+            drop_repeated_start(before.as_ref(), &mut rows);
             let covered = (at as i64, (at + consumed) as i64);
             store::add(
                 &db,
@@ -752,7 +1132,7 @@ impl CaptionService {
                 duration.map(|ms| ms as i64),
             )
             .await
-            .map_err(to_message)?;
+            .map_err(|error| format!("Couldn't keep what was heard\n{error}"))?;
             self.announce(id);
         }
         Ok(())
@@ -785,23 +1165,42 @@ impl CaptionService {
         Some(relative)
     }
 
+    /// Loads the on-device model unless it's the one loaded. The model's own lock is held for a
+    /// whole window, so it's only taken on blocking threads; `loaded` says which model is in.
     async fn load_whisper(&self, model: &str, dir: &Path) -> Result<(), String> {
-        let loaded = self
-            .whisper
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_ref()
-            .is_some_and(|(id, _)| id == model);
-        if loaded {
+        let is_loaded = || self.loaded_model().as_deref() == Some(model);
+        if is_loaded() {
             return Ok(());
         }
+        // One load at a time: the other lane waits for it rather than loading a second copy.
+        let _loading = self.loading.lock().await;
+        if is_loaded() {
+            return Ok(());
+        }
+        let whisper = self.whisper.clone();
+        let id = model.to_owned();
         let dir = dir.to_owned();
-        let whisper = tauri::async_runtime::spawn_blocking(move || Whisper::load(&dir))
-            .await
-            .map_err(to_message)?
-            .map_err(|error| error.to_string())?;
-        *self.whisper.lock().unwrap_or_else(|p| p.into_inner()) = Some((model.to_owned(), whisper));
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut slot = whisper.lock().unwrap_or_else(|p| p.into_inner());
+            // The old model goes first, so two are never in memory at once.
+            *slot = None;
+            *slot = Some((id, Whisper::load(&dir)?));
+            Ok::<_, SpeechError>(())
+        })
+        .await
+        .map_err(to_message)?
+        .map_err(|error| {
+            format!("The speech model couldn't load: download it again in Settings → AI\n{error}")
+        })?;
+        *self.loaded.lock().unwrap_or_else(|p| p.into_inner()) = Some(model.to_owned());
         Ok(())
+    }
+
+    fn loaded_model(&self) -> Option<String> {
+        self.loaded
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// The episode's audio as a file: its download, else fetched into the work folder (removed
@@ -886,18 +1285,75 @@ fn is_quiet(samples: &[f32]) -> bool {
 /// Streams tried when looking for a song's sound to hear (M46.36).
 const SONG_TRIES: usize = 4;
 
-/// The captions key of a song's transcription (M46.36): `song:` and its track key.
-/// Songs heard one list at a time (M46.46).
-static SONG_BATCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 /// Where a source's captions wait while the listener uses the other (M46.45).
 const AI_SHELF: &str = "#ai";
 const FEED_SHELF: &str = "#feed";
 /// The lyrics source name of a song's transcription; the UI names it.
 pub const TRANSCRIBED: &str = "transcribed";
+/// Song keys start with this.
+const SONG_PREFIX: &str = "song:";
+const UNEXPECTED: &str = "Transcribing stopped unexpectedly: try again";
+const NO_WORDS: &str = "No words were heard in this song";
+const YOUTUBE_ONLY: &str =
+    "Only YouTube has this song, and its player gives no sound to hear: download the song first";
 
-pub fn song_key(query: &raygun_model::TrackQuery) -> String {
-    format!("song:{}", raygun_resolver::track_key(query))
+/// The captions key of a song's transcription (M46.36): `song:` and its track key.
+pub fn song_key(query: &TrackQuery) -> String {
+    format!("{SONG_PREFIX}{}", raygun_resolver::track_key(query))
+}
+
+/// Why no sound was found for a song: the first line says it in words, the rest are details.
+fn no_sound(failures: &[(String, String)], youtube: bool, unresolved: Option<&str>) -> String {
+    let details: Vec<String> = failures
+        .iter()
+        .map(|(what, error)| format!("{what}: {error}"))
+        .chain(unresolved.map(str::to_owned))
+        .collect();
+    let headline = match failures.first() {
+        Some((what, _)) => format!("Couldn't read {what} of this song"),
+        None if youtube => YOUTUBE_ONLY.to_owned(),
+        None => "No source has this song to hear".to_owned(),
+    };
+    std::iter::once(headline)
+        .chain(details)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A song's job failing partway: what was heard is kept and the next try goes on from there.
+/// Errors that already say what failed keep their words, with that added.
+fn song_failure(error: &str, heard: bool) -> String {
+    let (headline, details) = error.split_once('\n').unwrap_or(("", error));
+    let headline = if headline.is_empty() {
+        "Couldn't hear this song's words"
+    } else {
+        headline
+    };
+    if heard {
+        format!("{headline}. What was heard is kept; trying again goes on from there\n{details}")
+    } else {
+        format!("{headline}\n{details}")
+    }
+}
+
+/// A window may start by hearing the line the window before ended on again.
+fn drop_repeated_start(before: Option<&CaptionRow>, rows: &mut Vec<CaptionRow>) {
+    let (Some(before), Some(first)) = (before, rows.first()) else {
+        return;
+    };
+    let same = |a: &str, b: &str| a.trim().eq_ignore_ascii_case(b.trim());
+    if same(&before.text, &first.text) && first.start_ms <= before.end_ms + REPEAT_GAP_MS {
+        rows.remove(0);
+    }
+}
+
+/// How close a line said again must start to the end of the same line to count as heard twice.
+const REPEAT_GAP_MS: i64 = 1_500;
+
+/// `m:ss`, for naming where something failed.
+fn clock(ms: u64) -> String {
+    let seconds = ms / 1000;
+    format!("{}:{:02}", seconds / 60, seconds % 60)
 }
 
 /// Who the job keeps up with.
@@ -917,7 +1373,7 @@ struct Job<'a> {
     duration: Option<u64>,
     follow: Follow,
     anchor: &'a AtomicU64,
-    stop: &'a AtomicBool,
+    stop: Arc<AtomicBool>,
 }
 
 /// What's heard: an episode's file or a video's stream.
@@ -1005,6 +1461,93 @@ mod tests {
         );
         assert_eq!(audio_extension("https://cdn.example/ep.php", None), "mp3");
         assert_eq!(safe_name("0193-ab/cd"), "0193-ab_cd");
+    }
+
+    fn song(title: &str) -> (String, TrackQuery) {
+        let query = TrackQuery {
+            title: title.into(),
+            artist: Some("Band".into()),
+            album: None,
+            duration_ms: None,
+        };
+        (song_key(&query), query)
+    }
+
+    fn order(lane: &SongLane) -> Vec<String> {
+        lane.queue
+            .iter()
+            .map(|(_, query)| query.title.clone())
+            .collect()
+    }
+
+    #[test]
+    fn songs_wait_in_line_and_a_tap_goes_first() {
+        let mut lane = SongLane::default();
+        lane.add(vec![song("A"), song("B"), song("A"), song("C")], false);
+        assert_eq!(order(&lane), ["A", "B", "C"]);
+        // A list added later waits behind; songs already waiting keep their place.
+        lane.add(vec![song("B"), song("D")], false);
+        assert_eq!(order(&lane), ["A", "B", "C", "D"]);
+        // One asked for on its own goes first, also when it was waiting.
+        lane.add(vec![song("C")], true);
+        assert_eq!(order(&lane), ["C", "A", "B", "D"]);
+        // The song being heard isn't queued again.
+        let (key, query) = song("E");
+        lane.current = Some(SongJob {
+            key,
+            query,
+            stop: Arc::default(),
+            preparing: false,
+        });
+        lane.add(vec![song("E")], true);
+        assert_eq!(order(&lane), ["C", "A", "B", "D"]);
+    }
+
+    #[test]
+    fn failures_say_what_was_tried_first() {
+        let youtube = no_sound(&[], true, Some("no stream"));
+        assert!(youtube.starts_with(YOUTUBE_ONLY), "{youtube}");
+        let none = no_sound(&[], false, Some("no stream matched"));
+        assert_eq!(none, "No source has this song to hear\nno stream matched");
+        let unreadable = no_sound(
+            &[("Audius's stream".into(), "unsupported codec".into())],
+            true,
+            None,
+        );
+        assert_eq!(
+            unreadable,
+            "Couldn't read Audius's stream of this song\nAudius's stream: unsupported codec"
+        );
+        assert_eq!(
+            song_failure("Couldn't read the sound at 1:30\nend of stream", true),
+            "Couldn't read the sound at 1:30. What was heard is kept; trying again goes on from \
+             there\nend of stream"
+        );
+        assert_eq!(
+            song_failure("database is locked", false),
+            "Couldn't hear this song's words\ndatabase is locked"
+        );
+        assert_eq!(clock(95_400), "1:35");
+    }
+
+    #[test]
+    fn a_line_heard_again_at_a_window_start_is_dropped() {
+        let row = |start_ms, end_ms, text: &str| CaptionRow {
+            start_ms,
+            end_ms,
+            text: text.into(),
+        };
+        let before = row(27_000, 30_000, "Who you gonna call?");
+        let mut rows = vec![
+            row(30_200, 32_000, "who you gonna call? "),
+            row(33_000, 35_000, "Ghostbusters!"),
+        ];
+        drop_repeated_start(Some(&before), &mut rows);
+        assert_eq!(rows.len(), 1);
+        // The same line much later is the chorus again, not a repeat.
+        let mut chorus = vec![row(60_000, 62_000, "Who you gonna call?")];
+        drop_repeated_start(Some(&before), &mut chorus);
+        assert_eq!(chorus.len(), 1);
     }
 
     #[test]
