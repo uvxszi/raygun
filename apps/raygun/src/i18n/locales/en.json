@@ -3848,12 +3848,7 @@
     }
   },
   "developer": {
-    "title": "Test sources",
-    "hint": "For testing Raygun with many sources, broken ones included: the suggested repository, Raygun’s sources that fail on purpose, and test video addons (legal films, live news). Not part of Raygun; remove them in Extensions and Addons.",
-    "add": "Add test sources",
-    "adding": "Adding…",
-    "report": "{{added}} added, {{already}} already there, {{failed}} couldn’t be added.",
-    "addFailed": "Couldn't add the test sources",
+    "title": "Developer",
     "installAll": "Install everything from repositories ({{count}})",
     "remove": "Remove test sources",
     "removed_one": "Removed {{count}} test source.",

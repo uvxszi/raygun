@@ -128,7 +128,6 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_song_credits,
             commands::music_open_info_page,
             commands::playback_restore,
-            commands::dev_add_test_sources,
             commands::podcast_queue,
             commands::connect_status,
             commands::connect_devices,

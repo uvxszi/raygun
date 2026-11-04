@@ -10,7 +10,7 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 
 ## Phase 1 — Foundation + "it plays"
 
-**Goal:** an Android APK and a portable Windows build share one responsive UI and can play local music plus a YouTube track, with all desktop state stored next to the exe.
+**Goal:** an Android APK and a portable Windows build share one responsive UI and can play local music plus a track from a YouTube embed, with all desktop state stored next to the exe.
 
 | M | Milestone | Done when |
 |---|---|---|
@@ -30,8 +30,8 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 - M12 `@raygun/sdk` package + extension template + build tooling, hot-reload in dev
 - M13 Repository format (`index.json`), install/update/uninstall UI, per-extension settings UI
 - M14 Resolver pipeline: candidate scoring, verification, caching, automatic fallback (direct → proxied → embed)
-- M15 First-party extensions: YouTube (official Data API with a personal key; embed streams), MusicBrainz/Cover Art, LRCLIB synced lyrics. *Decision (M15): no InnerTube direct-stream extraction in first-party code; it works around YouTube's protections and terms. Background YouTube audio on Android stays unavailable.*
-- M16 yt-dlp sidecar (desktop): download, verification, `music.stream` provider
+- M15 First-party extensions: MusicBrainz/Cover Art, plus generic support for YouTube-embed playback and synced lyrics from lyrics sources (the YouTube and LRCLIB extensions were removed in v1.2.0). *Decision (M15): no direct-stream extraction from YouTube in first-party code; it works around YouTube's protections and terms. Background YouTube audio on Android stays unavailable.*
+- M16 yt-dlp sidecar (desktop, a tool the person installs): download, verification, `music.stream` provider
 - M17 **Nuclear plugin compatibility**: Sucrase TS→CJS converter run in QuickJS at install, `NuclearPluginAPI` shim over the host API, React/UI stubs, compatibility report per plugin; tested against several real plugins from the Nuclear registry
 - M18 Playlists, favorites, history, search across providers
 - M19 **MCP server**: rmcp streamable HTTP, token + origin auth, meta-tools generated from the service catalog, resources, stdio shim
@@ -41,9 +41,9 @@ Legend: 📱 Android · 🖥 Windows · ⚗ spike (time-boxed; the outcome is a 
 - M23 Lyrics view with synced scrolling; Furigana/romaji via a lyrics post-processor (kuromoji-style tokenizer)
 
 ## Phase 3 — Manga
-- M24 Episodic library schema (title/unit/progress/category/external_id), library service, sync rules for these tables *(built together with M25 and MangaDex from M26 as the "manga foundation" slice; categories and sync rules later)*
+- M24 Episodic library schema (title/unit/progress/category/external_id), library service, sync rules for these tables *(built together with M25 and the first catalogue source from M26 as the "manga foundation" slice; categories and sync rules later)*
 - M25 `manga.source` capability + SDK types (Mihon-shaped: popular/latest/search+filters/details/chapters/pages)
-- M26 First-party sources: MangaDex, local CBZ/folder, Komga/Kavita
+- M26 Sources: catalogue sources, local CBZ/folder, Komga/Kavita (MangaDex removed in v1.2.0)
 - M27 Reader: paged (LTR/RTL), webtoon, spreads, zoom, tap zones, prefetch, page cache
 - M28 Library updates job (fetch intervals), updates feed, downloads queue
 - M29 Trackers: AniList, MyAnimeList (OAuth via loopback/deep link), sync of progress *(needs tracker accounts and sign-in; M30 went first)*
@@ -62,8 +62,8 @@ The re-plan set these goals: mobile only until the app is feature-complete; a **
 
 ## Phase 6 — Watch, podcasts and the cross-media library
 - M35 **Content filter + languages**: Settings toggle "Show NSFW content" (off by default) hiding NSFW extensions, sources and titles (repo `contentRating`, Stremio `adult`, Shosetsu/LNReader flags, adult genres), passed to extensions so they filter too; language picker (system default + every locale present), i18n structure and contributor guide, and translations imported from the reference apps where the English text matches exactly
-- M36 **Extension browsing across repositories**: suggested repositories to add with one tap (Raygun official, Shosetsu, Nuclear plugins, Stremio addons), Browse with search and filters (kind, language, repository, content rating), repository trust note; essentials published in the official repo (MangaDex, Project Gutenberg, podcast directory, public-domain films)
-- M37 **Podcasts** in the music tab: subscriptions, RSS/Atom feeds, `podcast.directory` capability + an Apple Podcasts directory extension, episode lists, resume position, played state, new-episode refresh, episode downloads
+- M36 **Extension browsing across repositories**: suggested repositories to add with one tap (Raygun official, Shosetsu, Nuclear plugins, Stremio addons), Browse with search and filters (kind, language, repository, content rating), repository trust note; essentials published in the official repo (Project Gutenberg, public-domain films; since v1.2.0 only public-domain sources, with Paraline as the one suggestion)
+- M37 **Podcasts** in the music tab: subscriptions, RSS/Atom feeds, `podcast.directory` capability for directory sources (the Apple Podcasts directory was removed in v1.2.0), episode lists, resume position, played state, new-episode refresh, episode downloads
 - M38 **Watch tab + native video player**: Media3 ExoPlayer activity in the Android plugin (gestures for seek/volume/brightness, PiP, subtitles .srt/.vtt/.ass, audio/subtitle track select, speed, resume, OP/ED skip), HLS/DASH, header injection
 - M39 **Library by media type and category**: Music, Podcasts, Manga, Novels, Videos; Mihon-style categories; search, filters, sort and genre tags
 - M40 **Search across media**: All or one type (music, podcasts, manga, novels, videos, your library), source filters and genre tags (include/exclude), sources that declare filters
@@ -109,18 +109,18 @@ The goal is the full depth of the reference apps, researched per app in `docs/re
   - Search picks sources with chips (several at once) and shows popular titles before anything is typed.
 - M46.5 **Customizable layout**: navigation tabs added, hidden and reordered (five on phones, the rest in More; any of them as the start screen), library tabs, Audio's chips, Home's sections, Browse's tabs and sections, and More's entries, edited by dragging or with buttons in Settings → Appearance → Layout. Pinned sources follow in M53.
 - M46.6 **Desktop: saving, sharing, read-aloud and websites**: exports to the system's Downloads and Pictures folders or a picked folder, Show in folder and copying pages, read-aloud with the system's voices, and the websites browser in windows of its own with the blocker; readers sized for wide windows.
-- M46.7 **Customization**: any accent colour; cover sizes (smaller by default on desktop, a setting); the manga reader's page fit, webtoon width, zoom (Ctrl+scroll, Ctrl±, buttons), pages to load ahead and a narrower page bar with chosen buttons; novels zoom with Ctrl+scroll; F11 full screen; hover labels on icon buttons; Search's catalog rows named; LRCLIB without an artist; long titles scroll; a Now playing side panel on desktop (art, lyrics, queue); YouTube search without an API key; a playhead that follows the audio; a wider full player with its own layout settings and Up next as a view; popovers beside buttons instead of full-window menus; one-click and bulk extension installs; scrollbars and animations as settings; no crash on script errors on Windows (release builds unwind); searches and addon requests a few at a time, rows loading as they're seen; the new app icon.
+- M46.7 **Customization**: any accent colour; cover sizes (smaller by default on desktop, a setting); the manga reader's page fit, webtoon width, zoom (Ctrl+scroll, Ctrl±, buttons), pages to load ahead and a narrower page bar with chosen buttons; novels zoom with Ctrl+scroll; F11 full screen; hover labels on icon buttons; Search's catalog rows named; lyrics lookups without an artist; long titles scroll; a Now playing side panel on desktop (art, lyrics, queue); YouTube-embed search for sources that give YouTube ids; a playhead that follows the audio; a wider full player with its own layout settings and Up next as a view; popovers beside buttons instead of full-window menus; one-click and bulk extension installs; scrollbars and animations as settings; no crash on script errors on Windows (release builds unwind); searches and addon requests a few at a time, rows loading as they're seen; the new app icon.
 - M46.8 **Music for power users**: song tables everywhere (sort, compact/list, columns shown, hidden, reordered and resized, filter, play in the shown order); a Plus that saves to Favorites and opens Spotify's Add to playlist popover; artist links and artist pages; resizable rail, side panel and full player, with playlists in the rail; a clickable video in the side panel; Play next, Add to queue and queue reordering; multi-select and right-click menus; shortcuts, media keys and the system media overlay; a sleep timer and playback speed; song details.
 - M46.9 **Music discovery and tags**:
-  - popular and trending music from open charts (Deezer charts, Apple's top songs feed, ListenBrainz's most played, YouTube Music's charts), as Home and Browse rows;
-  - songs tagged by genre and mood like Spotify's (Rock, Rap, Jazz, Breakcore, Energetic, Chill…) from MusicBrainz and Deezer genres mapped to moods;
+  - popular and trending music from chart sources, as Home and Browse rows;
+  - songs tagged by genre and mood like Spotify's (Rock, Rap, Jazz, Breakcore, Energetic, Chill…) from MusicBrainz and chart sources' genres mapped to moods;
   - tag chips that filter your songs; Browse → Music by tag.
   - Added: Spotify's desktop top bar (⋯ menu with File, Edit, View, Playback and Help, Back and Forward, Home, search with Browse, the window's buttons) and Browse all's tiles.
 - M46.9.1 **Sources that work**: fix the sources and converters that fail where they worked in their own apps (Shosetsu scripts, Nuclear plugins); fixed copies of sources for legitimate sites go to the separate **Paraline Raygun** repository (`uvxszi/paraline-raygun`, published 2026-11-02). ✅ Shosetsu hashes, TLS and DOM gaps; Nuclear hosts, kinds, page stubs and re-offered conversions; Paraline with Syosetsu and Wattpad.
 - M46.10 **Music downloads**, then everything downloadable:
   - songs downloaded into the app to play offline, from the stream a source gives;
   - exported as files (as downloaded, WAV or FLAC) to Music or a chosen folder;
-  - when no source gives a file (YouTube's embed), recording what plays: the audio element on desktop, the app's own sound through WASAPI process loopback on Windows, AudioPlaybackCapture on Android.
+  - when no source gives a file (a YouTube embed), recording what plays: the audio element on desktop, the app's own sound through WASAPI process loopback on Windows, AudioPlaybackCapture on Android.
   - ✅ Downloads → Music, offline playback by the song's key, files as downloaded, WAV or FLAC with tags, recording on Windows. Android recording (AudioPlaybackCapture) is queued.
 - M46.11 **Search and sources, and window polish**:
   - search results ranked across sources with each source named, "By source" to group them again; music search by songs, artists and albums, with album pages;
@@ -142,9 +142,9 @@ The goal is the full depth of the reference apps, researched per app in `docs/re
   - The playing mark in lists; reopening on the last song, paused; desktop sites reopen on their last page.
   - No mouse text selection, with right-click copy and selectable lyrics; the miniplayer opens in the app's colours and its text scales.
   - "Keep music playing with other media"; artist and credits cards in the side panel; podcast menus; Discord presence.
-- M46.17 **Calm source failures, a test pack, and video sources that learn**: ✅
+- M46.17 **Calm source failures and video sources that learn**: ✅
   - "Issue with source" cards with More info replace red errors.
-  - A developer test pack: broken-on-purpose extensions, legal test films and channels, every known repository.
+  - A developer test pack (removed in v1.2.0).
   - Video sources that failed lately are tried last and marked; a silent source no longer stalls searches (12 s).
 - M46.18 **Audio quality and downloads**: ✅
   - Streaming, mobile data and download quality settings that steer which stream plays (nearest bitrate among equal matches).
@@ -152,12 +152,12 @@ The goal is the full depth of the reference apps, researched per app in `docs/re
   - Save as MP3 (LAME), and choose a folder from the save sheet.
 - M46.19 **Fuller genres and more kinds of charts**: ✅
   - Any genre or mood has songs from every source that has some (`tagSongs`), above the library's own.
-  - Charts grouped by kind (top, trending, new, underground, decades, genres); Apple genre charts, Deezer decades, ListenBrainz fresh singles.
-  - Audius, a new first-party source: trending and underground charts, search and full streams.
+  - Charts grouped by kind (top, trending, new, underground, decades, genres); genre, decade and fresh-singles charts from chart sources.
+  - Trending and underground charts, search and full streams from chart sources.
 - M46.20 **Made for You**: ✅
   - Daily Mixes, Discover Weekly, Release Radar, On Repeat, a time-of-day mix, Repeat Rewind, "Because you listened to", artist radios, genre and mood mixes, listening numbers.
   - A Home row, a Browse all tile, mix pages with Play, Shuffle and Save as playlist.
-  - A new `music.recommend` kind (Deezer: similar artists, top songs, new releases, radio).
+  - A new `music.recommend` kind (similar artists, top songs, new releases and radio from recommendation sources).
 - M46.21 **Importing songs**: ✅
   - Spotify playlist, album and song links (the public embed page), CSV exports and pasted lists.
   - Screenshots of song lists, read by Windows' OCR or ocrs (downloaded once).
@@ -175,38 +175,46 @@ The goal is the full depth of the reference apps, researched per app in `docs/re
 - M46.25 **Search pills**: ✅ Music with Relevant, Songs, Artists, Albums and Podcasts (podcasts merged in); Movies & series with Relevant, Movies and Series.
 - M46.26 **Song lengths and cover images**: ✅ lengths learned and looked up for every list; covers shown large and saved as PNG, JPEG or WebP; downloaded songs keep their cover offline.
 - M46.27 **Local Files**: ✅ folders scanned for songs, comics, books and videos alike, on desktop and Android.
-- M46.28 **Paraline Community**: ✅ a local-only test repository of sources, and local repositories in Raygun.
+- M46.28 **Local repositories**: ✅ on desktop a repository can be a local index (the Paraline Community test repository was removed in v1.2.0).
 - M46.29 **Library blocks and a sidebar you arrange**: ✅ Downloaded (blue) and Local files (green) always shown; pin anything to the sidebar, drag it, or sort by recently played or opened; Local Files opens from the Library, not Browse.
 - M46.30 **Edit details**: ✅ your own titles, names and covers for songs, albums and artists, shown everywhere, with Reset.
 - M46.31 **Import review**: ✅ edit, add and reorder songs, compare sources with previews, import while matching continues, keep unavailable songs and find them a source later.
 - M46.32 **Spoken word**: ✅ audiobook authors and podcast shows link to their pages; captions from feeds or transcribed by Whisper on the device or an online provider, in 30-second batches.
 - M46.33 **Video player tools**: ✅ panels that fit and scroll; subtitles found in addons, typed delay, AI subtitles while watching or for a download; volume to 200 %; pick the external player; keys and a sheet listing them.
 - M46.34 **Title pages and trailers**: ✅ content higher on the backdrop; a small trailer plays beside it, paused, stopped or turned off in Settings.
-- M46.35 **Browse and search**: ✅ Comics, Books and Videos pills starting on Relevant; YouTube and PeerTube pills from their extensions; Sources by kind with a name field; search in more lists; Search → All's comics and books ranked across sources.
+- M46.35 **Browse and search**: ✅ Comics, Books and Videos pills starting on Relevant; pills from video sources that declare one; Sources by kind with a name field; search in more lists; Search → All's comics and books ranked across sources.
 - M46.36 **Music menus, explicit songs, artists**: ✅ Remove from downloads, Go to album, one set of copy items; Explicit music apart from 18+; discographies; Discord presence removed; lyrics and captions follow trims, lyrics from any source or heard by AI, captions from the feed or AI; covers from other sources; podcasts as a grid.
 - M46.37 **Shell**: ✅ Updates and Downloads popovers; All tabs in Library, Downloads and Updates; Your music with what was played from lately and the latest favorites; a closable "Nothing to pick up yet"; panels that don't jump; covers that stay shown.
 - M46.38 **Comics and books**: ✅ chapter sort and filters; a working website button; paged novels as narrow as scrolled ones; find a title in other sources; JPEG XL read from sources and saved as covers; other apps' repositories named. The reader's AI switches wait for the upscale and bubble-translation engines (queued item 8 below).
-- M46.39 **Playlists and lyrics sources**: ✅ playlist search with a Featured chip (YouTube Music, Deezer), playlist pages saved to the library, KuGou and YouTube Music lyrics beside LRCLIB, as Kreate and RiMusic have them.
+- M46.39 **Playlists and lyrics sources**: ✅ playlist search with a Featured chip, playlist pages saved to the library, and several lyrics sources to pick from, as Kreate and RiMusic have them.
 - M46.40 **Cached first**: ✅ pages start from what lists already showed; several screenshots imported in order; covers from other sources; Reload; menus that scroll; the trailer steps aside for videos; Videos → Sources; Not installed.
 - M46.41 **Quick access and history switches**: ✅ library additions pinned automatically (20 by default, up to 1000, or off); history and recently played can be turned off.
 - M46.42 **Follow artists**: ✅ follow from artist pages (library and quick access), a bell for new releases and coming shows, Updates → Releases.
 - M46.43 **Devices**: ✅ one Devices button: this device's speaker, headphones and other outputs, or a paired device; remote control under Settings → Devices.
 - M46.44 **Drag to reorder**: ✅ a grip on every playlist and Favorites song; works in any sort, which becomes the custom order.
-- M46.45 **Playlists, marks, import, video sites**: ✅ custom playlist covers and live covers in quick access; saved and downloaded marks on songs; Select all, merge and delete playlists; import into any playlist or Favorites; fix names while finding a source; discography sorts; tap a chapter to play; transcripts kept and one source dropdown; rating sources; 16:9 video sites, YouTube channels, playlists and comments.
+- M46.45 **Playlists, marks, import, video sites**: ✅ custom playlist covers and live covers in quick access; saved and downloaded marks on songs; Select all, merge and delete playlists; import into any playlist or Favorites; fix names while finding a source; discography sorts; tap a chapter to play; transcripts kept and one source dropdown; rating sources; 16:9 video sites, channels, playlists and comments from video sources.
 - M46.46 **Downloads, recordings, lyrics and covers kept**: ✅ downloads retry and fall back like Kreate's; songs on their way marked in lists; selections skip saved songs and Select all toggles; recordings in their own window with the player locked and trims kept; import albums from what sources agree on; lyrics kept, retried with simpler words, transcribed in batches, deleted per song or in Settings, forgotten after 30 days except favorites, downloads and local files; picked covers kept; playlist Edit as a pill.
-- M46.48 **Whole-app pass**: ✅ errors and many-source performance, Stremio rework, Shosetsu compatibility, Miru support, one Paraline repository, seven comics sources, song identity and picked sources, download queue, player watchdog and performance, Android background playback, permissions and download notifications, video track languages and seasons, one Continue rule, podcasts and audiobooks, lyrics translation, readers, Settings and screen-based sizes, incognito, Home menus.
-- M46.47 **Home, cached starts, YouTube, updates, one device link, v1.0.0**: ✅ more Home rows from Browse all; the query cache saved and restored, image links that survive restarts; search shows what's already seen; download source picker and truthful fallbacks; yt-dlp for YouTube addresses and YouTube-only songs; Audio in Browse; Loyal Books; the in-app updater (setup exe, MSI, Android, portable link); Connect, sync and the remote as one link with automatic syncing; test sources removable; Paraline Raygun's Raygun sources; release workflow with signed APKs.
+- M46.48 **Whole-app pass**: ✅ errors and many-source performance, Stremio rework, Shosetsu compatibility, Miru support, one Paraline repository, built-in comics sources (public-domain only since v1.2.0), song identity and picked sources, download queue, player watchdog and performance, Android background playback, permissions and download notifications, video track languages and seasons, one Continue rule, podcasts and audiobooks, lyrics translation, readers, Settings and screen-based sizes, incognito, Home menus.
+- M46.47 **Home, cached starts, YouTube, updates, one device link, v1.0.0**: ✅ more Home rows from Browse all; the query cache saved and restored, image links that survive restarts; search shows what's already seen; download source picker and truthful fallbacks; yt-dlp for YouTube addresses and songs only a YouTube embed has; Audio in Browse; Loyal Books; the in-app updater (setup exe, MSI, Android, portable link); Connect, sync and the remote as one link with automatic syncing; test sources removable (the test pack was removed in v1.2.0); Paraline Raygun's Raygun sources; release workflow with signed APKs.
+- M46.51 **v1.2.0: public-domain sources, extension guide, servers**: ✅
+  - Built-in sources serve public-domain or openly licensed content only: Internet Archive, Project Gutenberg, Standard Ebooks, Wikisource, LibriVox, Loyal Books, Wikimedia Commons, NASA, Blender open movies, Pepper&Carrot, xkcd and MusicBrainz. Paraline is the only suggested repository; any other source is added by the person.
+  - Generic support stays for sources people add: chart, lyrics, playlist, podcast-feed and video sources, the YouTube embed engine, Stremio, Shosetsu, Nuclear and Miru.
+  - An extension guide (`docs/extensions/`) and SDK tools for writing and testing extensions.
+  - Media servers: Jellyfin and Emby, Subsonic, Audiobookshelf and OPDS catalogues.
+  - LNReader plugins and Kodi repository listing.
+  - An on/off switch on every extension, source and addon, with Select all and bulk on/off.
+  - The developer test pack and its sources removed.
 - **Queued in this order** (each becomes a milestone with a spec):
   1. **Sound and lyrics editing** (now M46.12):
      - edit lyrics (words and timings) and shift them by an offset; the same for video subtitles;
      - per-song start and end trims and per-song volume;
      - loudness normalization, an equalizer and other sound effects for all songs;
      - crossfade into the next song, adjustable or off;
-     - desktop through Web Audio, Android through Media3's audio processors. YouTube's embedded player can only change its volume.
+     - desktop through Web Audio, Android through Media3's audio processors. A YouTube embed can only change its volume.
   2. **Artist and song info** (open sources, Spotify's "About the artist" and credits). Mostly ✅ in M46.14: bio, picture, facts, members and credits; similar artists, an online discography, samples and covers are still to do.
      - an online artist page (bio, picture, facts, members, discography, similar artists);
      - song credits and facts (writers, producers, samples, covers);
-     - from Wikipedia/Wikidata, MusicBrainz and ListenBrainz, through an extension capability;
+     - from Wikipedia/Wikidata and MusicBrainz, through an extension capability;
      - shown in the Now playing panel and the full player.
   3. **Keyboard and sorting:**
      - keyboard navigation through the whole app, with shortcuts everywhere and no mouse needed;

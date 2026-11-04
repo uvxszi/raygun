@@ -237,6 +237,16 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
       {catalog.data && catalog.data.length > 0 && (
         <Filters catalog={catalog.data} filter={filter} onChange={setFilter} />
       )}
+      {chosen.length === 0 && choosable.length > 1 && (
+        // Select all shows before anything is picked, so a whole repository is one tap away.
+        <button
+          type="button"
+          onClick={() => setSelected(new Set(choosable.map(entryKey)))}
+          className="bg-surface self-start rounded-full px-4 py-1.5 text-sm font-semibold"
+        >
+          {t('extensions.selectAll', { count: choosable.length })}
+        </button>
+      )}
       {chosen.length > 0 ? (
         <div
           role="toolbar"

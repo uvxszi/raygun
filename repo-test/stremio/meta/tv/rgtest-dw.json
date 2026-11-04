@@ -1,9 +1,0 @@
-{
-  "meta": {
-    "id": "rgtest-dw",
-    "type": "tv",
-    "name": "DW English",
-    "description": "DW English, live from the broadcaster.",
-    "genres": ["News"]
-  }
-}

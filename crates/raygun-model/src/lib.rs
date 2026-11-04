@@ -4183,24 +4183,6 @@ pub struct RemoteStatus {
     pub error: Option<String>,
 }
 
-// ---- Test sources (M46.17) ----
-
-/// What adding the test sources did: what was added and what couldn't be.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct TestSourcesReport {
-    pub added: Vec<String>,
-    pub already: Vec<String>,
-    pub failed: Vec<TestSourceFailure>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct TestSourceFailure {
-    pub url: String,
-    pub error: String,
-}
-
 // ---- Connect (M46.15) ----
 
 /// What one device sends another it plays on (M46.15): the same changes as its own player's.

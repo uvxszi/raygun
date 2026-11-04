@@ -18,7 +18,7 @@ const SITE = 'https://standardebooks.org';
 const PER_PAGE = 48;
 const HEADERS = {
   Accept: 'application/xhtml+xml',
-  'User-Agent': 'Raygun/1.0 (https://github.com/uvxszi/raygun)',
+  'User-Agent': 'Raygun/1.2 (https://github.com/uvxszi/raygun)',
 };
 /** Pages of a book's text with nothing to read: title pages, the imprint and the licence. */
 const FRAME_PAGES = new Set(['titlepage', 'imprint', 'halftitlepage', 'colophon', 'uncopyright']);
@@ -89,11 +89,51 @@ const paragraphs = (html: string) =>
 
 const absolute = (path: string) => (path.startsWith('http') ? path : `${SITE}${path}`);
 
-const fetchPage = async (path: string): Promise<{ text: string; url: string } | null> => {
-  const response = await raygun.http.fetch(`${SITE}${path}`, { headers: HEADERS });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`Standard Ebooks answered HTTP ${response.status}`);
-  return { text: await response.text(), url: response.url };
+/**
+ * Standard Ebooks is run by volunteers, and its catalogue feeds are for members, so this reads
+ * the public pages gently: one request at a time, at least 1.5 s apart (with some jitter), and a
+ * longer wait when the site asks for one (429, 503). Only `/ebooks/…` pages built from book ids
+ * are fetched; links found in pages are never followed (the site bans clients that do).
+ */
+const GAP_MS = 1500;
+const JITTER_MS = 700;
+const RETRIES = 2;
+let lastRequest = 0;
+let queue: Promise<unknown> = Promise.resolve();
+
+const pace = async () => {
+  const wait = lastRequest + GAP_MS + Math.random() * JITTER_MS - Date.now();
+  if (wait > 0) await raygun.time.sleep(wait);
+  lastRequest = Date.now();
+};
+
+const request = async (path: string) => {
+  for (let attempt = 0; ; attempt += 1) {
+    await pace();
+    const response = await raygun.http.fetch(`${SITE}${path}`, { headers: HEADERS });
+    if ((response.status === 429 || response.status === 503) && attempt < RETRIES) {
+      const asked = Number(response.headers?.['retry-after']);
+      // The host caps one sleep at 10 s.
+      await raygun.time.sleep(
+        Number.isFinite(asked) && asked > 0 ? Math.min(asked * 1000, 10_000) : 5000 * (attempt + 1),
+      );
+      continue;
+    }
+    return response;
+  }
+};
+
+const fetchPage = (path: string): Promise<{ text: string; url: string } | null> => {
+  const next = queue.then(async () => {
+    const response = await request(path);
+    if (response.status === 404) return null;
+    if (response.status === 429)
+      throw new Error('Standard Ebooks asked to slow down; try again in a minute');
+    if (!response.ok) throw new Error(`Standard Ebooks answered HTTP ${response.status}`);
+    return { text: await response.text(), url: response.url };
+  });
+  queue = next.catch(() => undefined);
+  return next;
 };
 
 const bookId = (id: string) => {

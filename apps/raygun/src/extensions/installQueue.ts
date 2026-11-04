@@ -5,7 +5,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
 
-import { CATALOG } from './useExtensions';
+import { CATALOG, EXTENSIONS } from './useExtensions';
 
 /** An install waiting its turn, running, just finished (shown a moment), or failed. */
 export type InstallStatus =
@@ -77,6 +77,13 @@ const receive = (queue: ExtensionInstallStatus) => {
     timers.add(timer);
   }
   if (ended) void follower?.client.invalidateQueries({ queryKey: CATALOG });
+  // Installed extensions load once the whole queue is through (the last step of `running`), so
+  // the catalogue and the installed list are read again then too; read only when an install
+  // ends, they still showed just-installed ones as not installed.
+  if (before.queue.running && !queue.running) {
+    void follower?.client.invalidateQueries({ queryKey: CATALOG });
+    void follower?.client.invalidateQueries({ queryKey: EXTENSIONS });
+  }
 };
 
 /** Follows Rust's queue once for the whole app, from its state now (the UI may have reloaded). */
@@ -109,7 +116,9 @@ export const useInstallQueue = () => {
       if (item.state === 'queued') byKey[key] = { state: 'queued' };
       else if (item.state === 'installing') byKey[key] = { state: 'installing', phase: item.phase };
       else if (item.state === 'failed') byKey[key] = { state: 'failed', message: item.error ?? '' };
-      else if (justDone.has(key)) byKey[key] = { state: 'done' };
+      // Done stays shown until the queue is through and the extensions have loaded.
+      else if (item.state === 'done' && (justDone.has(key) || queue.running))
+        byKey[key] = { state: 'done' };
     }
     return byKey;
   }, [queue, justDone]);
