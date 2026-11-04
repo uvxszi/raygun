@@ -205,6 +205,8 @@ pub struct LyricsTranslations {
     uses: Arc<AtomicU64>,
     /// One on-device translation at a time: the models use every core.
     device: tokio::sync::Mutex<()>,
+    /// Translations of this session while incognito is on (M47): kept in memory only.
+    held: Mutex<HashMap<String, Vec<TranslationRow>>>,
 }
 
 impl LyricsTranslations {
@@ -214,6 +216,7 @@ impl LyricsTranslations {
             loaded: Arc::default(),
             uses: Arc::default(),
             device: tokio::sync::Mutex::new(()),
+            held: Mutex::default(),
         })
     }
 
@@ -224,11 +227,45 @@ impl LyricsTranslations {
     /// `lyrics` with every kept translation of the song lined up under its lines.
     pub async fn attach(&self, query: &TrackQuery, mut lyrics: Lyrics) -> Lyrics {
         let key = raygun_resolver::track_key(query);
-        match store::translations(&self.db(), &key).await {
-            Ok(rows) => lyrics.translations = lay_onto(&lyrics, &rows),
-            Err(error) => tracing::warn!(%error, "couldn't read a song's lyrics translations"),
-        }
+        let mut rows = match store::translations(&self.db(), &key).await {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(%error, "couldn't read a song's lyrics translations");
+                Vec::new()
+            }
+        };
+        rows.extend(self.held_rows(&key));
+        lyrics.translations = lay_onto(&lyrics, &rows);
         lyrics
+    }
+
+    fn held_rows(&self, key: &str) -> Vec<TranslationRow> {
+        self.held
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(key)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Holds translations in memory while incognito is on (M47), replacing what the translators
+    /// in `replaced` gave before.
+    pub fn hold(&self, key: &str, replaced: &[String], rows: Vec<TranslationRow>) {
+        let mut held = self
+            .held
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let song = held.entry(key.to_owned()).or_default();
+        song.retain(|row| {
+            !replaced.contains(&row.translator)
+                && !rows.iter().any(|new| {
+                    new.translator == row.translator
+                        && new.language == row.language
+                        && new.kind == row.kind
+                })
+        });
+        song.extend(rows);
+        song.sort_by_key(|row| -row.made_at);
     }
 
     /// The lyrics that show for a song, every line kept: its own, else a source's.
@@ -364,9 +401,13 @@ impl LyricsTranslations {
             lines: serde_json::to_string(&kept_lines(&lyrics, &per_line)).map_err(to_message)?,
             made_at: now_ms(),
         };
-        store::put_translation(&self.db(), &key, &row)
-            .await
-            .map_err(to_message)?;
+        if crate::privacy::incognito(&self.app) {
+            self.hold(&key, &[], vec![row]);
+        } else {
+            store::put_translation(&self.db(), &key, &row)
+                .await
+                .map_err(to_message)?;
+        }
         tracing::info!(song = %key, %translator, %language, lines = distinct.len(), "lyrics translated");
         Ok(LyricsTranslation {
             language: language.to_owned(),
@@ -385,6 +426,10 @@ impl LyricsTranslations {
         language: &str,
         translator: &str,
     ) -> Result<(), String> {
+        // Nothing is remembered while incognito is on (M47); the menu's pick still shows.
+        if crate::privacy::incognito(&self.app) {
+            return Ok(());
+        }
         let key = raygun_resolver::track_key(query);
         store::pick_translation(&self.db(), &key, translator, language, now_ms())
             .await

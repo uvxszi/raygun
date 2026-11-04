@@ -2,6 +2,8 @@ import type { SpokenItem } from '@raygun/bindings';
 import { Link, useNavigate } from '@tanstack/react-router';
 import type { FC, KeyboardEvent, MouseEvent } from 'react';
 
+import { spokenName } from './spoken';
+
 const LINK = 'hover:text-foreground cursor-pointer hover:underline';
 
 /**
@@ -15,7 +17,7 @@ export const SpokenByline: FC<{
 }> = ({ spoken, className = '', nested = false }) => {
   const navigate = useNavigate();
   const book = spoken.kind === 'audiobook';
-  const name = book ? (spoken.author ?? spoken.show) : spoken.show;
+  const name = spokenName(spoken);
   const to = book ? '/audiobook' : '/podcast';
   const search = { id: spoken.podcastId };
   const open = (event: MouseEvent | KeyboardEvent) => {

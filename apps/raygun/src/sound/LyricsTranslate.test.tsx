@@ -2,7 +2,6 @@ import type {
   Lyrics,
   LyricsTranslation,
   LyricsTranslatorOption,
-  PlaybackState,
   QueueItem,
   SettingChange,
   Settings,
@@ -11,13 +10,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { LyricsView } from '../player/LyricsView';
-import {
-  DEFAULT_SETTINGS,
-  IDLE_STATE,
-  bindingsMock,
-  emitEvent,
-  seedBindings,
-} from '../test/bindingsMock';
+import { DEFAULT_SETTINGS, bindingsMock, emitEvent, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 import {
   coverage,
@@ -42,13 +35,6 @@ const ITEM: QueueItem = {
   artworkUrl: null,
   mediaKind: 'audio',
   source: { kind: 'url', url: 'https://example.com/night.flac', headers: {} },
-};
-const STATE: PlaybackState = {
-  ...IDLE_STATE,
-  status: 'paused',
-  currentItemId: 'q1',
-  positionMs: 1_500,
-  durationMs: 261_000,
 };
 
 const translation = (
@@ -116,7 +102,7 @@ const withSettings = (settings: Settings) => {
   });
 };
 
-const show = () => renderWithProviders(<LyricsView item={ITEM} state={STATE} />);
+const show = () => renderWithProviders(<LyricsView item={ITEM} />);
 
 describe('Lyrics translations', () => {
   beforeEach(() => {

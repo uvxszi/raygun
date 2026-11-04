@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "imdb_id": "tt22084616",
+    "description": "Fighting crime full-time as Spider-Man in a world that doesn't remember him.",
+    "director": ["Destin Daniel Cretton"],
+    "genre": ["Science Fiction", "Action", "Adventure"],
+    "imdbRating": "8.0",
+    "name": "Spider-Man: Brand New Day",
+    "released": "2026-07-29T00:00:00.000Z",
+    "type": "movie",
+    "year": "2026",
+    "releaseInfo": "2026",
+    "runtime": "2h25min",
+    "id": "tt22084616",
+    "poster": "https://image.tmdb.org/t/p/w500/bjiS5ipwxb9JFy3XRRN4OAilSeX.jpg",
+    "links": [
+      { "name": "8.0", "category": "imdb", "url": "https://imdb.com/title/tt22084616" },
+      { "name": "Spider-Man: Brand New Day", "category": "share", "url": "https://www.strem.io/s/movie/spider-man-22084616" },
+      { "name": "Action", "category": "Genres", "url": "stremio:///discover/https%3A%2F%2F94c8cb9f702d-tmdb-addon.baby-beamup.club%2Fen-US%2Fmanifest.json/movie/tmdb.top?genre=Action" }
+    ],
+    "trailers": [
+      { "source": "P3uI5sLosKU", "type": "Trailer" },
+      { "source": "abcdefghijk", "type": "Clip" }
+    ],
+    "trailerStreams": [{ "title": "Final Trailer", "ytId": "P3uI5sLosKU" }],
+    "behaviorHints": { "defaultVideoId": "tt22084616", "hasScheduledVideos": false }
+  }
+}

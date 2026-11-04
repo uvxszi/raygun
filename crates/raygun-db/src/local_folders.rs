@@ -113,6 +113,16 @@ pub async fn set_scanned(db: &Db, id: &str, counts: &str, now: i64) -> Result<()
     Ok(())
 }
 
+/// Changes what a folder's line says without counting it as scanned (it couldn't be opened).
+pub async fn set_counts(db: &Db, id: &str, counts: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE local_folder SET counts = ? WHERE id = ?")
+        .bind(counts)
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
 /// The files found in a folder before, by their path inside it.
 pub async fn files(db: &Db, folder_id: &str) -> Result<HashMap<String, FileRow>, DbError> {
     let rows = sqlx::query(
@@ -200,6 +210,15 @@ mod tests {
             Some(&file)
         );
         assert_eq!(folders(&db).await.unwrap()[0].scanned_at, Some(3));
+        // A folder that couldn't be opened keeps its last scan's time.
+        set_counts(&db, &id, r#"{"comics":1,"missing":true}"#)
+            .await
+            .unwrap();
+        let row = folder(&db, &id).await.unwrap().unwrap();
+        assert_eq!(
+            (row.scanned_at, row.counts.as_str()),
+            (Some(3), r#"{"comics":1,"missing":true}"#)
+        );
         remove(&db, &id).await.unwrap();
         assert!(folders(&db).await.unwrap().is_empty());
         assert!(files(&db, &id).await.unwrap().is_empty());

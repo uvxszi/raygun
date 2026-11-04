@@ -1,0 +1,18 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "methods": ["subtitles.get", "subtitles.find", "stats.get"],
+    "manifest": {
+      "methods": ["subtitles.get", "subtitles.find", "stats.get"],
+      "name": "OpenSubtitles",
+      "id": "org.stremio.opensubtitles",
+      "description": "The official add-on for subtitles from OpenSubtitles",
+      "version": "0.24.0",
+      "types": ["series", "movie", "other"],
+      "endpoint": "http://opensubtitles.strem.io/stremioget/stremio/v1",
+      "logo": "http://www.strem.io/images/addons/opensubtitles-logo.png",
+      "dontAnnounce": true
+    }
+  }
+}

@@ -27,6 +27,18 @@ pub async fn get(db: &Db, track_key: &str, now_ms: i64) -> Result<Option<CachedL
     }))
 }
 
+/// The song's kept row, if any, without marking its lyrics as shown (incognito, M47).
+pub async fn peek(db: &Db, track_key: &str) -> Result<Option<CachedLyrics>, DbError> {
+    let row = sqlx::query("SELECT lyrics, fetched_at FROM local_lyrics_cache WHERE track_key = ?1")
+        .bind(track_key)
+        .fetch_optional(db.pool())
+        .await?;
+    Ok(row.map(|row| CachedLyrics {
+        lyrics: row.get("lyrics"),
+        fetched_at: row.get("fetched_at"),
+    }))
+}
+
 /// Keeps what a source gave (or that none had any), shown now.
 pub async fn put(
     db: &Db,
@@ -363,5 +375,21 @@ mod tests {
             .unwrap();
         assert!(translations(&db, "a|one").await.unwrap().is_empty());
         assert!(translated_keys(&db).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn peeking_leaves_when_lyrics_were_shown() {
+        let temp = TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        put(&db, "a|one", Some("{\"x\":1}"), 10).await.unwrap();
+        let read = peek(&db, "a|one").await.unwrap().unwrap();
+        assert_eq!(read.lyrics.as_deref(), Some("{\"x\":1}"));
+        assert_eq!(read.fetched_at, 10);
+        assert_eq!(
+            stale(&db, 11).await.unwrap(),
+            ["a|one"],
+            "still shown last at 10"
+        );
+        assert!(peek(&db, "a|two").await.unwrap().is_none());
     }
 }

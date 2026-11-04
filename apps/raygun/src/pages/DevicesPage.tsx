@@ -15,6 +15,7 @@ import {
   useUndoLastSync,
 } from '../devices/useDeviceSync';
 import { PageHeader } from './PageHeader';
+import { TextField } from '../shell/TextField';
 import { LinkedDevices } from '../devices/LinkedDevices';
 import { RemoteCard } from '../settings/RemoteCard';
 
@@ -54,12 +55,13 @@ const ThisDevice: FC<{ status: SyncStatus }> = ({ status }) => {
         </div>
       ) : (
         <form onSubmit={submit} className="flex items-center gap-2">
-          <input
+          <TextField
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={setName}
             aria-label={t('devices.deviceName')}
             maxLength={40}
-            className="bg-background min-w-0 flex-1 rounded-lg px-3 py-2 outline-none"
+            className="bg-background flex-1 rounded-lg pr-0.5 pl-3"
+            inputClassName="py-2"
           />
           <button
             type="submit"

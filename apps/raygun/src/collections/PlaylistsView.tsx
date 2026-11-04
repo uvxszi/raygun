@@ -5,6 +5,7 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
+import { TextField } from '../shell/TextField';
 import { useCollectionSheets } from './collectionSheets';
 import { PlaylistCover } from './PlaylistCover';
 import { useCreatePlaylist, usePlaylists } from './useCollections';
@@ -22,14 +23,15 @@ export const NewPlaylistForm: FC<{ onDone: () => void }> = ({ onDone }) => {
     <Sheet title={t('collections.newPlaylist')} onClose={onDone}>
       <form onSubmit={submit} className="flex flex-col gap-3">
         <div className="flex flex-col gap-3">
-          <input
+          <TextField
             // Tapping "New playlist" asked for this field; focusing it saves a tap.
             autoFocus
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={setName}
             aria-label={t('collections.playlistName')}
             placeholder={t('collections.playlistName')}
-            className="bg-background placeholder:text-muted rounded-xl px-4 py-3 text-sm outline-none"
+            className="bg-background rounded-xl pr-1.5 pl-4"
+            inputClassName="py-3 text-sm"
           />
           <button
             type="submit"

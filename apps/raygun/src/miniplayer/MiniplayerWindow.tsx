@@ -1,5 +1,4 @@
 import { commands } from '@raygun/bindings';
-import type { PlaybackState, RepeatMode } from '@raygun/bindings';
 import {
   AppWindow,
   GripHorizontal,
@@ -14,7 +13,7 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -22,10 +21,15 @@ import { Artwork } from '../library/Artwork';
 import { FavoriteButton } from '../player/FavoriteButton';
 import { formatTime } from '../player/formatTime';
 import { useLivePosition } from '../player/useLivePosition';
-import { isActive, sendControl, useNowPlaying } from '../player/usePlayback';
+import {
+  isActive,
+  NEXT_REPEAT,
+  sendControl,
+  useCurrentItem,
+  usePlayerSelect,
+  usePlayerTiming,
+} from '../player/usePlayback';
 import { Marquee } from '../shell/Marquee';
-
-const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: 'all', all: 'one', one: 'off' };
 
 const ControlButton: FC<{
   label: string;
@@ -46,13 +50,22 @@ const ControlButton: FC<{
   </button>
 );
 
-/** Seeks by where the bar was clicked or dragged. */
-const SeekBar: FC<{ state: PlaybackState | undefined; position: number }> = ({
-  state,
-  position,
-}) => {
+/**
+ * Seeks to where the bar is let go (not on every step of a drag); the only part of the window
+ * that moves as a song plays.
+ */
+const SeekBar: FC = () => {
   const { t } = useTranslation();
+  const state = usePlayerTiming();
+  const live = useLivePosition(state, 1000);
+  const [scrubMs, setScrubMs] = useState<number | null>(null);
   const duration = state?.durationMs ?? 0;
+  const position = scrubMs ?? live;
+  const commit = () => {
+    if (scrubMs === null) return;
+    void sendControl({ type: 'seek', positionMs: scrubMs });
+    setScrubMs(null);
+  };
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex justify-between text-[clamp(11px,3.4vw,1.1rem)] text-white/85 tabular-nums">
@@ -67,9 +80,10 @@ const SeekBar: FC<{ state: PlaybackState | undefined; position: number }> = ({
         step={1000}
         value={Math.min(position, duration)}
         disabled={duration <= 0}
-        onChange={(event) =>
-          void sendControl({ type: 'seek', positionMs: Number(event.target.value) })
-        }
+        onChange={(event) => setScrubMs(Number(event.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
         className="accent-primary h-1 w-full cursor-pointer"
       />
     </div>
@@ -83,16 +97,16 @@ const SeekBar: FC<{ state: PlaybackState | undefined; position: number }> = ({
  */
 export const MiniplayerWindow: FC = () => {
   const { t } = useTranslation();
-  const { state, item } = useNowPlaying();
-  const position = useLivePosition(state);
-  const playing = isActive(state);
-  const volume = state?.volume ?? 1;
+  const item = useCurrentItem();
+  const playing = usePlayerSelect(isActive);
+  const volume = usePlayerSelect((state) => state?.volume ?? 1);
+  const shuffle = usePlayerSelect((state) => state?.shuffle ?? false);
   const lastVolume = useRef(volume > 0 ? volume : 1);
   // Unmuting goes back to the volume before muting.
   useEffect(() => {
     if (volume > 0) lastVolume.current = volume;
   }, [volume]);
-  const repeat = state?.repeat ?? 'off';
+  const repeat = usePlayerSelect((state) => state?.repeat ?? 'off');
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -158,8 +172,8 @@ export const MiniplayerWindow: FC = () => {
                 </ControlButton>
                 <ControlButton
                   label={t('player.shuffle')}
-                  pressed={state?.shuffle}
-                  onClick={() => void sendControl({ type: 'setShuffle', enabled: !state?.shuffle })}
+                  pressed={shuffle}
+                  onClick={() => void sendControl({ type: 'setShuffle', enabled: !shuffle })}
                 >
                   <Shuffle aria-hidden size={16} />
                 </ControlButton>
@@ -205,7 +219,7 @@ export const MiniplayerWindow: FC = () => {
                   <AppWindow aria-hidden size={16} />
                 </ControlButton>
               </div>
-              <SeekBar state={state} position={position} />
+              <SeekBar />
             </div>
           )}
         </div>
@@ -219,7 +233,7 @@ export const MiniplayerWindow: FC = () => {
                 text={item.title}
                 className="text-[clamp(1.05rem,6.5vw,2.75rem)] leading-tight font-extrabold"
               />
-              <p className="text-muted truncate text-[clamp(0.85rem,4.4vw,1.75rem)]">
+              <p className="text-muted mt-[clamp(0.125rem,1.2vw,0.5rem)] truncate text-[clamp(0.85rem,4.4vw,1.75rem)]">
                 {item.artist}
               </p>
             </div>

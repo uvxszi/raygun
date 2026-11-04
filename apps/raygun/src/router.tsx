@@ -19,21 +19,21 @@ import { MusicChartsPage } from './pages/MusicChartsPage';
 import { MusicTagPage } from './pages/MusicTagPage';
 import { MadeForYouPage } from './pages/MadeForYouPage';
 import { AudiobookPage } from './pages/AudiobookPage';
-import { AudiobooksBrowsePage } from './pages/AudiobooksBrowsePage';
 import { MixPage } from './pages/MixPage';
 import { BrowsePage } from './pages/BrowsePage';
+import { isExtensionList } from './extensions/tabs';
 import type { BrowseSection, ExtensionList } from './pages/BrowsePage';
 import { MorePage } from './pages/MorePage';
 import { ReposPage } from './pages/ReposPage';
-import { ExtensionSystemsPage } from './pages/ExtensionSystemsPage';
 import { LocalFilesPage } from './pages/LocalFilesPage';
 import { StremioAddonPage } from './pages/StremioAddonPage';
 import { WatchHistoryPage } from './pages/WatchHistoryPage';
 import { WatchTitlePage } from './pages/WatchTitlePage';
 import { VideoTitlePage } from './pages/VideoTitlePage';
-import { isSearchType, isSearchView } from './search/searchTypes';
+import { isSearchType, isSearchView, searchLink } from './search/searchTypes';
 import type { SearchType, SearchView } from './search/searchTypes';
 import { DevicesPage } from './pages/DevicesPage';
+import { HiddenPage } from './pages/HiddenPage';
 import { ExtensionDetailPage } from './pages/ExtensionDetailPage';
 import { MusicArtistPage } from './pages/MusicArtistPage';
 import { HomePage } from './pages/HomePage';
@@ -256,7 +256,10 @@ const routeTree = rootRoute.addChildren([
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/audiobooks',
-    component: AudiobooksBrowsePage,
+    // Finding audiobooks is Search → Audio's Audiobooks pill.
+    beforeLoad: () => {
+      throw redirect({ ...searchLink('music', 'audiobooks'), replace: true });
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -336,6 +339,11 @@ const routeTree = rootRoute.addChildren([
     path: '/settings/devices',
     component: DevicesPage,
   }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/settings/hidden',
+    component: HiddenPage,
+  }),
   createRoute({ getParentRoute: () => rootRoute, path: '/settings/ai', component: AiPage }),
   // Watch was a tab until M42.1; what it held now lives in Library → Videos and Browse.
   createRoute({
@@ -372,7 +380,12 @@ const routeTree = rootRoute.addChildren([
       search.tab === 'discover'
         ? { tab: search.tab }
         : {}),
-      ...(search.list === 'available' ? { list: 'available' as const } : {}),
+      // Installed is the default; "available" was the whole catalogue's name before.
+      ...(search.list === 'available'
+        ? { list: 'all' as const }
+        : isExtensionList(search.list) && search.list !== 'installed'
+          ? { list: search.list }
+          : {}),
       ...(text(search.q) ? { q: text(search.q) } : {}),
       ...(isSearchType(search.type) && search.type !== 'all' ? { type: search.type } : {}),
       ...(isSearchView(search.view) && search.view !== 'relevant' ? { view: search.view } : {}),
@@ -384,11 +397,6 @@ const routeTree = rootRoute.addChildren([
   createRoute({ getParentRoute: () => rootRoute, path: '/more', component: MorePage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/about', component: AboutPage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/extensions/repos', component: ReposPage }),
-  createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/extensions/systems',
-    component: ExtensionSystemsPage,
-  }),
   createRoute({ getParentRoute: () => rootRoute, path: '/local-files', component: LocalFilesPage }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -405,11 +413,13 @@ const routeTree = rootRoute.addChildren([
     component: WatchCatalogPage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { addon: string; type: string; catalog: string; genre?: string } => ({
-      addon: text(search.addon),
-      type: text(search.type),
-      catalog: text(search.catalog),
+    ): { addon?: string; type?: string; catalog?: string; genre?: string; extra?: string } => ({
+      ...(text(search.addon) ? { addon: text(search.addon) } : {}),
+      ...(text(search.type) ? { type: text(search.type) } : {}),
+      ...(text(search.catalog) ? { catalog: text(search.catalog) } : {}),
       ...(text(search.genre) ? { genre: text(search.genre) } : {}),
+      // Discover's other choices (a year...), as a query string.
+      ...(text(search.extra) ? { extra: text(search.extra) } : {}),
     }),
   }),
   createRoute({
@@ -468,7 +478,7 @@ const routeTree = rootRoute.addChildren([
             to: '/browse',
             search: {
               tab: 'extensions',
-              ...(search.tab === 'browse' ? { list: 'available' } : {}),
+              ...(search.tab === 'browse' ? { list: 'all' } : {}),
             },
             replace: true,
           });

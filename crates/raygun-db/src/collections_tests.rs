@@ -330,6 +330,183 @@ async fn favorites_keep_the_order_they_are_dragged_into() {
 }
 
 #[tokio::test]
+async fn saved_copies_are_listed_with_their_names_and_places() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let road = create_playlist(&db, "Road", 1).await.unwrap();
+    let gone = create_playlist(&db, "Gone", 2).await.unwrap();
+    add_to_playlist(&db, &road, &[track("a|one")], 30)
+        .await
+        .unwrap();
+    add_to_playlist(&db, &gone, &[track("a|two")], 20)
+        .await
+        .unwrap();
+    set_favorite(&db, &track("a|three"), true, 10)
+        .await
+        .unwrap();
+    delete_playlist(&db, &gone).await.unwrap();
+
+    let refs = saved_refs(&db).await.unwrap();
+    let listed: Vec<(&str, Option<&str>, i64)> = refs
+        .iter()
+        .map(|row| (row.title.as_str(), row.playlist_id.as_deref(), row.added_at))
+        .collect();
+    // Oldest first; a deleted playlist's items are gone with it.
+    assert_eq!(
+        listed,
+        [("three", None, 10), ("one", Some(road.as_str()), 30)]
+    );
+    assert!(refs[0].is_favorite());
+    assert_eq!(refs[1].artist.as_deref(), Some("a"));
+
+    // Tombstoned by id, both kinds in one write.
+    remove_saved(&db, &[refs[0].id.clone()], &[refs[1].id.clone()])
+        .await
+        .unwrap();
+    assert!(saved_refs(&db).await.unwrap().is_empty());
+    assert!(favorites(&db).await.unwrap().is_empty());
+    let dead: i64 = sqlx::query_scalar("SELECT deleted FROM music_playlist_item WHERE id = ?1")
+        .bind(&refs[1].id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(dead, 1, "removing leaves a tombstone for sync");
+}
+
+#[tokio::test]
+async fn sources_and_keys_are_set_by_row() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = create_playlist(&db, "Imported", 1).await.unwrap();
+    add_to_playlist(&db, &id, &[track("a b|song"), track("a|other")], 2)
+        .await
+        .unwrap();
+    set_favorite(&db, &track("a|song"), true, 3).await.unwrap();
+    let refs = saved_refs(&db).await.unwrap();
+    let favorite = refs.iter().find(|row| row.is_favorite()).unwrap();
+    let item = refs.iter().find(|row| row.track_key == "a b|song").unwrap();
+    let found = TrackFields {
+        album: Some("Found".into()),
+        source: Some(r#"{"kind":"url","url":"https://x.example/a.mp3","headers":{}}"#.into()),
+        ..track("a|song")
+    };
+    let changed = set_track_source_of(
+        &db,
+        std::slice::from_ref(&favorite.id),
+        std::slice::from_ref(&item.id),
+        &found,
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(changed, 2, "both copies, whatever their keys");
+    let items = playlist_items(&db, &id).await.unwrap();
+    assert_eq!(items[0].track.album.as_deref(), Some("Found"));
+    assert!(items[1].track.source.is_none(), "other songs stay");
+    assert!(favorites(&db).await.unwrap()[0].track.source.is_some());
+
+    set_keys(&db, &[], &[(item.id.clone(), "a|song".into())])
+        .await
+        .unwrap();
+    assert_eq!(
+        playlists_with_track(&db, "a|song").await.unwrap(),
+        vec![id.clone()]
+    );
+}
+
+#[tokio::test]
+async fn the_repair_migration_keeps_the_first_copy_of_a_song() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let road = create_playlist(&db, "Road", 1).await.unwrap();
+    let gym = create_playlist(&db, "Gym", 2).await.unwrap();
+    // The bug: the same song added again, to the same playlist.
+    add_to_playlist(&db, &road, &[track("a|one"), track("a|two")], 10)
+        .await
+        .unwrap();
+    add_to_playlist(&db, &road, &[track("a|one")], 20)
+        .await
+        .unwrap();
+    add_to_playlist(&db, &road, &[track("a|one")], 30)
+        .await
+        .unwrap();
+    add_to_playlist(&db, &gym, &[track("a|one")], 40)
+        .await
+        .unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT MAX(updated_at_hlc) FROM music_playlist_item")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+
+    sqlx::raw_sql(include_str!("../migrations/0031_song_identity.sql"))
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let items = playlist_items(&db, &road).await.unwrap();
+    assert_eq!(titles(&items), ["one", "two"], "the first copy stays");
+    assert_eq!(items[0].added_at, 10);
+    assert_eq!(
+        titles(&playlist_items(&db, &gym).await.unwrap()),
+        ["one"],
+        "another playlist's copy isn't a duplicate"
+    );
+    let stamps: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT updated_at_hlc, origin_device FROM music_playlist_item WHERE deleted = 1",
+    )
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(stamps.len(), 2);
+    for (hlc, device) in &stamps {
+        assert!(*hlc > before, "a tombstone is a newer write");
+        assert_eq!(device, &db.device_id().to_string());
+    }
+    // The clock goes on past the repair's stamps, after a restart too.
+    let tombstone = stamps[0].0;
+    db.close().await;
+    let db = open(&temp).await;
+    set_favorite(&db, &track("a|new"), true, 50).await.unwrap();
+    let next: i64 = sqlx::query_scalar("SELECT updated_at_hlc FROM music_favorite")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert!(next > tombstone);
+}
+
+#[tokio::test]
+async fn playlists_bring_their_first_items_for_covers() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let long = create_playlist(&db, "Long", 1).await.unwrap();
+    let short = create_playlist(&db, "Short", 2).await.unwrap();
+    let many: Vec<TrackFields> = (0..20).map(|n| track(&format!("a|song {n:02}"))).collect();
+    add_to_playlist(&db, &long, &many, 3).await.unwrap();
+    add_to_playlist(&db, &short, &[track("b|only")], 4)
+        .await
+        .unwrap();
+    let items = playlist_items(&db, &long).await.unwrap();
+    // The last song moved first: covers follow the playlist's order.
+    move_playlist_item(&db, &items[19].id, Some(&items[0].id))
+        .await
+        .unwrap();
+
+    let listed = playlists(&db).await.unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].item_count, 20);
+    assert_eq!(listed[0].first_items.len(), COVER_ITEMS as usize);
+    assert_eq!(listed[0].first_items[0].title, "song 19");
+    assert_eq!(listed[0].first_items[1].title, "song 00");
+    assert_eq!(listed[1].first_items.len(), 1);
+
+    let one = playlist(&db, &short).await.unwrap().unwrap();
+    assert_eq!((one.name.as_str(), one.item_count), ("Short", 1));
+    assert_eq!(one.first_items[0].title, "only");
+    delete_playlist(&db, &short).await.unwrap();
+    assert!(playlist(&db, &short).await.unwrap().is_none());
+}
+
+#[tokio::test]
 async fn a_playlist_takes_a_whole_new_order() {
     let temp = TempDir::new().unwrap();
     let db = open(&temp).await;
@@ -346,4 +523,18 @@ async fn a_playlist_takes_a_whole_new_order() {
         titles(&playlist_items(&db, &id).await.unwrap()),
         ["c", "a", "b"]
     );
+}
+
+#[tokio::test]
+async fn imported_songs_are_marked() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    mark_imported(&db, &["a|one".to_owned(), "a|two".to_owned()], 1)
+        .await
+        .unwrap();
+    mark_imported(&db, &["a|one".to_owned()], 2).await.unwrap();
+    let found = imported(&db, &["a|one".to_owned(), "a|three".to_owned()])
+        .await
+        .unwrap();
+    assert_eq!(found, ["a|one"]);
 }

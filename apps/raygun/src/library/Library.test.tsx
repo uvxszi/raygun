@@ -77,6 +77,55 @@ describe('Library', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('needs permission');
   });
 
+  it("doesn't call the library empty when it has playlists but no folders", async () => {
+    bindingsMock.commands.playlistsList.mockResolvedValue(
+      ok([
+        {
+          id: 'p1',
+          name: 'Road trip',
+          itemCount: 3,
+          artworkUrls: [],
+          coverUrl: null,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/library?media=music');
+    const overview = await screen.findByTestId('music-overview');
+    expect(await within(overview).findByText('Road trip')).toBeInTheDocument();
+    const card = await within(overview).findByTestId('library-first-run');
+    expect(card).toHaveTextContent('Songs on this device');
+    expect(card).not.toHaveTextContent('Your library is empty');
+  });
+
+  it('leads an empty library to Browse → Search', async () => {
+    await AppShellWrapper.mount('/library?media=music');
+    const card = await screen.findByTestId('library-first-run');
+    await vi.waitFor(() => expect(card).toHaveTextContent('Your library is empty'));
+    expect(within(card).getByRole('link', { name: 'Find something in Browse' })).toHaveAttribute(
+      'href',
+      '/browse?tab=search&type=music',
+    );
+  });
+
+  it('counts songs on the device in Library → All', async () => {
+    seedLibrary();
+    await AppShellWrapper.mount('/library?media=all');
+    const all = await screen.findByTestId('library-all');
+    expect(await within(all).findByRole('region', { name: 'Audio' })).toBeInTheDocument();
+    expect(within(all).queryByText('Your library is empty')).not.toBeInTheDocument();
+    // The same three blocks lead Audio's row as on Audio → All.
+    expect(within(all).getByRole('link', { name: /Downloaded/ })).toBeInTheDocument();
+    expect(within(all).getByRole('link', { name: /Local files/ })).toBeInTheDocument();
+  });
+
+  it('reads only the songs the overview shows', async () => {
+    seedLibrary();
+    await AppShellWrapper.mount('/library?media=music');
+    await screen.findByTestId('music-overview');
+    await vi.waitFor(() => expect(bindingsMock.commands.libraryTracks).toHaveBeenCalledWith(0, 8));
+    expect(bindingsMock.commands.libraryTracks).not.toHaveBeenCalledWith(0, 100_000);
+  });
+
   it('shows everything under All by default and albums with artwork', async () => {
     seedLibrary();
     await AppShellWrapper.mount('/library?media=music');

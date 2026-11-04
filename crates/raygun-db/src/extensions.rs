@@ -87,6 +87,79 @@ pub async fn rename_repo(db: &Db, id: &str, name: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Folds repositories that another one replaced into it (Paraline took over Raygun
+/// Extensions and both Paraline Raygun indexes). When this device still lists one of `retired`,
+/// `replacement` is added (under its id) or revived, and the retired rows are removed; either
+/// way, extensions installed from a retired address count as installed from the replacement.
+/// URLs compare without case or a trailing slash. Returns whether anything changed; safe to run
+/// on every start.
+pub async fn replace_repos(
+    db: &Db,
+    retired: &[&str],
+    replacement: &RepoRow,
+) -> Result<bool, DbError> {
+    // `?1` is the JSON array of retired URLs, each compared like `same_url`.
+    let retired = serde_json::Value::from(retired).to_string();
+    let listed: i64 = sqlx::query(
+        "SELECT (SELECT COUNT(*) FROM extension_repo WHERE deleted = 0
+                 AND lower(rtrim(trim(url), '/')) IN
+                     (SELECT lower(rtrim(trim(value), '/')) FROM json_each(?1)))
+              + (SELECT COUNT(*) FROM local_extension_install
+                 WHERE lower(rtrim(trim(repo_url), '/')) IN
+                     (SELECT lower(rtrim(trim(value), '/')) FROM json_each(?1))) AS n",
+    )
+    .bind(&retired)
+    .fetch_one(db.pool())
+    .await?
+    .get("n");
+    if listed == 0 {
+        return Ok(false);
+    }
+    let timestamp = db.tick();
+    let mut transaction = db.pool().begin().await?;
+    let live = sqlx::query(
+        "UPDATE extension_repo SET deleted = 1, updated_at_hlc = ?2, origin_device = ?3
+         WHERE deleted = 0 AND lower(rtrim(trim(url), '/')) IN
+             (SELECT lower(rtrim(trim(value), '/')) FROM json_each(?1))",
+    )
+    .bind(&retired)
+    .bind(timestamp as i64)
+    .bind(db.device_id().to_string())
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected();
+    if live > 0 {
+        sqlx::query(
+            "INSERT INTO extension_repo (id, url, name, updated_at_hlc, origin_device, deleted)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0)
+             ON CONFLICT (url) DO UPDATE SET
+                 name = excluded.name,
+                 updated_at_hlc = excluded.updated_at_hlc,
+                 origin_device = excluded.origin_device,
+                 deleted = 0",
+        )
+        .bind(&replacement.id)
+        .bind(&replacement.url)
+        .bind(&replacement.name)
+        .bind(timestamp as i64)
+        .bind(db.device_id().to_string())
+        .execute(&mut *transaction)
+        .await?;
+    }
+    sqlx::query(
+        "UPDATE local_extension_install SET repo_url = ?2
+         WHERE lower(rtrim(trim(repo_url), '/')) IN
+             (SELECT lower(rtrim(trim(value), '/')) FROM json_each(?1))",
+    )
+    .bind(&retired)
+    .bind(&replacement.url)
+    .execute(&mut *transaction)
+    .await?;
+    persist_hlc(&mut *transaction, timestamp).await?;
+    transaction.commit().await?;
+    Ok(true)
+}
+
 /// Tombstones a repository.
 pub async fn remove_repo(db: &Db, id: &str) -> Result<(), DbError> {
     let timestamp = db.tick();

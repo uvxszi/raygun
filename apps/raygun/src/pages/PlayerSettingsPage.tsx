@@ -1,4 +1,4 @@
-import type { SubtitleStyle } from '@raygun/bindings';
+import type { SubtitleMode, SubtitleStyle } from '@raygun/bindings';
 import { useParams } from '@tanstack/react-router';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +21,7 @@ import {
   SKIP_WAIT_SECONDS,
   SUBTITLE_EDGES,
   SUBTITLE_FONTS,
+  SUBTITLE_MODES,
   TAP_ACTIONS,
   TEXT_COLORS,
   withDefaults,
@@ -30,6 +31,7 @@ import { PrefChoice, PrefGroup, PrefSlider, PrefSwitch, PrefText } from '../sett
 import { SubtitlePreview } from '../settings/SubtitlePreview';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
+import { ORIGINAL_AUDIO } from '../video/trackPicking';
 
 /** Matches `SEEK_SECONDS` in raygun-model. */
 const SEEK_SECONDS = [5, 10, 15, 30, 60];
@@ -257,22 +259,32 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
   const style = prefs.subtitleStyle;
   const setStyle = (change: Partial<SubtitleStyle>) =>
     set({ subtitleStyle: { ...style, ...change } });
+  // Unset follows the older switch, as Rust reads it.
+  const mode: SubtitleMode = prefs.subtitleMode ?? (autoSubtitles ? 'always' : 'foreign');
   return (
     <>
       <PrefGroup title={t('settings.player.choosing')}>
-        <PrefSwitch
+        <PrefChoice<SubtitleMode>
           title={t('settings.autoSubtitles')}
-          summary={t('settings.autoSubtitlesHint')}
-          checked={autoSubtitles}
-          disabled={busy || update.isPending}
-          onChange={(value) => update.mutate({ key: 'autoSubtitles', value })}
+          summary={t('settings.player.subtitleModeHint')}
+          value={mode}
+          disabled={busy}
+          options={SUBTITLE_MODES.map((value) => ({
+            value,
+            label: t(`settings.player.subtitleModes.${value}`),
+          }))}
+          onChange={(subtitleMode) => set({ subtitleMode })}
         />
         <PrefChoice<string>
           title={t('settings.subtitleLanguage')}
-          summary={t('settings.subtitleLanguageHint')}
+          summary={
+            subtitleLanguage === ''
+              ? t('settings.player.yourLanguagesHint')
+              : t('settings.subtitleLanguageHint')
+          }
           value={subtitleLanguage}
           disabled={busy || update.isPending}
-          options={languageOptions(t('settings.subtitleLanguageApp'))}
+          options={languageOptions(t('settings.player.yourLanguages'))}
           onChange={(value) => update.mutate({ key: 'subtitleLanguage', value })}
         />
         <PrefChoice<string>
@@ -403,21 +415,30 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
 
 const AudioScreen: FC<ScreenProps> = ({ prefs, set, busy }) => {
   const { t } = useTranslation();
+  const [yours, ...languages] = languageOptions(t('settings.player.yourLanguages'));
   return (
     <PrefGroup>
       <PrefChoice<string>
         title={t('settings.player.audioLanguage')}
-        summary={t('settings.player.audioLanguageHint')}
+        summary={
+          prefs.audioLanguage === ''
+            ? t('settings.player.yourLanguagesHint')
+            : t('settings.player.audioLanguageHint')
+        }
         value={prefs.audioLanguage}
         disabled={busy}
-        options={languageOptions(t('settings.player.audioOriginal'))}
+        options={[
+          ...(yours ? [yours] : []),
+          { value: ORIGINAL_AUDIO, label: t('settings.player.audioOriginal') },
+          ...languages,
+        ]}
         onChange={(audioLanguage) => set({ audioLanguage })}
       />
       <PrefChoice<string>
         title={t('settings.player.audioFallback')}
         summary={t('settings.player.audioFallbackHint')}
         value={prefs.audioFallback}
-        disabled={busy || prefs.audioLanguage === ''}
+        disabled={busy || prefs.audioLanguage === ORIGINAL_AUDIO}
         options={languageOptions(t('settings.player.none'))}
         onChange={(audioFallback) => set({ audioFallback })}
       />

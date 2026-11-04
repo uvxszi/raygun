@@ -1,6 +1,6 @@
 # M40 — Search across media, with source filters and tags
 
-**Relevant docs:** M18 (music search), M25 (manga sources), M31 (novel sources), M37 (podcast directory), M39 (library), `docs/feature-parity.md` (global search, source filters). Asked for by the user on 2026-11-01: "in the search you should be able to search through types of media or all and filters and tags and such".
+**Relevant docs:** M18 (music search), M25 (manga sources), M31 (novel sources), M37 (podcast directory), M39 (library), `docs/feature-parity.md` (global search, source filters).
 
 ## Goal
 - **Search everything at once or one type:** All, Music, Podcasts, Manga, Novels, or Your library.
@@ -24,7 +24,7 @@
     - **Search:** `catalog_search(medium, source, query, page, filters)` with Load more.
     - **Filters:** `catalog_filters(medium, source)`, drawn in a Filters panel. A source can be browsed with filters alone (an empty query is allowed once a filter is set).
 - **Source filters** (new extension API, SDK `SourceFilter` and `FilterValues`):
-  - **Declaring:** a `manga.source` or `novel.source` provider may implement `filters()` returning `select`, `toggle` and `tags` filters. `search({query, page, filters})` receives only the values the user changed.
+  - **Declaring:** a `manga.source` or `novel.source` provider may implement `filters()` returning `select`, `toggle` and `tags` filters. `search({query, page, filters})` receives only the values that were changed.
   - **Checks:** the host checks declarations (known kinds, safe keys, labels up to 80 characters, at most 20 filters and 500 options). A source without `filters()` (or a Shosetsu script) simply has none.
   - **Tags** are three-state chips: tap once to include, again to exclude, again to clear. Long tag lists get a find box.
 - **MangaDex 1.2.0:**
