@@ -1,19 +1,11 @@
 import { commands } from '@raygun/bindings';
 import type { VideoDownloadItem } from '@raygun/bindings';
-import {
-  CircleAlert,
-  Clapperboard,
-  Pause,
-  Play,
-  RotateCw,
-  Sparkles,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { Clapperboard, Pause, Play, RotateCw, Sparkles, Trash2, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useCaptions } from '../player/spoken';
+import { ConfirmButton } from '../shell/ConfirmButton';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { EmptyState } from '../shell/EmptyState';
 import { formatBytes } from './episodeLabel';
@@ -146,15 +138,26 @@ const Row: FC<{ item: VideoDownloadItem; paused: boolean }> = ({ item, paused })
             <RotateCw aria-hidden size={18} />
           </button>
         )}
-        <button
-          type="button"
-          aria-label={t(running ? 'watch.cancelDownload' : 'watch.deleteDownload', { name })}
-          disabled={remove.isPending}
-          onClick={() => remove.mutate(item.id)}
-          className={`${ICON} text-muted`}
-        >
-          {running ? <X aria-hidden size={18} /> : <Trash2 aria-hidden size={18} />}
-        </button>
+        {running && (item.doneBytes ?? 0) === 0 ? (
+          // Nothing saved yet: nothing to lose.
+          <button
+            type="button"
+            aria-label={t('watch.cancelDownload', { name })}
+            disabled={remove.isPending}
+            onClick={() => remove.mutate(item.id)}
+            className={`${ICON} text-muted`}
+          >
+            <X aria-hidden size={18} />
+          </button>
+        ) : (
+          <ConfirmButton
+            label={t(running ? 'watch.cancelDownload' : 'watch.deleteDownload', { name })}
+            confirm={t(running ? 'watch.cancelConfirm' : 'watch.deleteConfirm')}
+            icon={running ? X : Trash2}
+            disabled={remove.isPending}
+            onConfirm={() => remove.mutate(item.id)}
+          />
+        )}
       </div>
       {item.state === 'downloading' && (
         <div
@@ -166,18 +169,21 @@ const Row: FC<{ item: VideoDownloadItem; paused: boolean }> = ({ item, paused })
           className="bg-background h-1 overflow-hidden rounded-full"
         >
           <div
-            className={`bg-primary h-full transition-[width] ${share === null ? 'w-1/3 animate-pulse' : ''}`}
-            style={share === null ? undefined : { width: `${share * 100}%` }}
+            className={`bg-primary h-full origin-left ${share === null ? 'w-1/3 animate-pulse' : 'transition-transform'}`}
+            style={share === null ? undefined : { transform: `scaleX(${Math.min(1, share)})` }}
           />
         </div>
       )}
       {item.state === 'failed' && item.error && (
-        <p className="text-primary flex items-start gap-1.5 text-xs wrap-anywhere">
-          <CircleAlert aria-hidden size={14} className="mt-px shrink-0" />
+        <SourceIssue compact title={t('watch.downloadFailed')}>
           {item.error}
-        </p>
+        </SourceIssue>
       )}
-      {play.error && <SourceIssue compact>{play.error.message}</SourceIssue>}
+      {play.error && (
+        <SourceIssue compact title={t('watch.playFailed')}>
+          {play.error.message}
+        </SourceIssue>
+      )}
     </li>
   );
 };
@@ -187,20 +193,22 @@ export const VideoDownloadsList: FC = () => {
   const { t, i18n } = useTranslation();
   const downloads = useVideoDownloads();
   const setPaused = useSetVideoDownloadsPaused();
+  const retry = useRetryVideoDownload();
   const list = downloads.data;
   const active = list?.items.filter((item) => item.state !== 'done') ?? [];
+  const failed = active.filter((item) => item.state === 'failed');
   const saved = list?.items.filter((item) => item.state === 'done') ?? [];
   const savedBytes = saved.reduce((sum, item) => sum + (item.doneBytes ?? 0), 0);
 
   return (
     <div data-testid="video-downloads" className="flex flex-col gap-4">
-      {downloads.error && <SourceIssue>{downloads.error.message}</SourceIssue>}
+      {downloads.error && (
+        <SourceIssue compact title={t('watch.downloadsUnreadable')}>
+          {downloads.error.message}
+        </SourceIssue>
+      )}
       {list && list.items.length === 0 && (
-        <EmptyState
-          icon={Clapperboard}
-          title={t('watch.noDownloads')}
-          body={t('watch.noDownloadsHint')}
-        />
+        <EmptyState icon={Clapperboard} title={t('watch.noDownloads')} />
       )}
       {list && list.items.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
@@ -217,6 +225,19 @@ export const VideoDownloadsList: FC = () => {
                 <Pause aria-hidden size={16} className="text-primary" />
               )}
               {t(list.paused ? 'manga.resumeDownloads' : 'manga.pauseDownloads')}
+            </button>
+          )}
+          {failed.length > 1 && (
+            <button
+              type="button"
+              disabled={retry.isPending}
+              onClick={() => {
+                for (const item of failed) retry.mutate(item.id);
+              }}
+              className="bg-surface flex items-center gap-2 rounded-full px-4 py-2 text-sm"
+            >
+              <RotateCw aria-hidden size={16} className="text-primary" />
+              {t('manga.retryFailed', { count: failed.length })}
             </button>
           )}
           {saved.length > 0 && (

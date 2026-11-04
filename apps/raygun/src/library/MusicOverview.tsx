@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { ArrowDown, ChevronRight, Heart } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -8,7 +8,7 @@ import { useFavorites, usePlaylists } from '../collections/useCollections';
 import { useDownloadedSongs } from '../music/useSongDownloads';
 import { useAudiobooks } from '../audiobooks/useAudiobooks';
 import { PodcastArt } from '../podcasts/PodcastArt';
-import { LocalFilesTile } from './LocalFilesTile';
+import { DownloadedTile, FavoritesTile, LocalFilesTile } from './LocalFilesTile';
 import {
   menuHandler,
   useAlbumMenuItems,
@@ -20,13 +20,15 @@ import { usePlaylistMenu } from '../collections/usePlaylistMenu';
 import { useSubscriptions } from '../podcasts/usePodcasts';
 import { Artwork } from './Artwork';
 import { FirstRunCard } from './FirstRunCard';
-import { TrackList } from './TrackList';
-import { playFromLibrary, useAlbums, useAllTracks, useArtists } from './useLibrary';
+import { TrackRow } from './TrackRow';
+import { playFromLibrary, useAlbums, useArtists, useFirstTracks } from './useLibrary';
 import type { LibraryView } from './views';
 import { Carousel } from '../shell/Carousel';
 
 /** How many songs the overview lists before "See all". */
 const SONGS_SHOWN = 8;
+/** Items a row shows; "See all" has the rest (a big library would draw thousands of covers). */
+const ROW_ITEMS = 20;
 
 const Section: FC<{ view: LibraryView; count: number; children: ReactNode }> = ({
   view,
@@ -67,7 +69,6 @@ export const MusicOverview: FC<{
   trackCount: number;
   ready: boolean;
 }> = ({ hasFolders, trackCount, ready }) => {
-  const { t } = useTranslation();
   // Every card's menu has its kind's basic items (play, save, pin…).
   const playlistMenu = usePlaylistMenu();
   const podcastMenu = usePodcastMenuItems();
@@ -79,91 +80,51 @@ export const MusicOverview: FC<{
   const audiobooks = useAudiobooks();
   const favorites = useFavorites();
   const downloaded = useDownloadedSongs();
+  const hasTracks = hasFolders && trackCount > 0;
   const albums = useAlbums();
   const artists = useArtists();
-  const tracks = useAllTracks();
-  const hasTracks = hasFolders && trackCount > 0;
-  const favoriteCount = favorites.data?.length ?? 0;
-  const downloadedCount = downloaded.data?.length ?? 0;
+  const tracks = useFirstTracks(SONGS_SHOWN);
   const playlistCount = playlists.data?.length ?? 0;
+  const podcastList = podcasts.data ?? [];
+  const bookList = audiobooks.data ?? [];
+  // Nothing anywhere: Browse → Search leads, not only the device's folders.
+  const nothing =
+    ready &&
+    !hasTracks &&
+    [playlists, podcasts, audiobooks, favorites, downloaded].every(
+      (list) => (list.data !== undefined || list.isError) && (list.data?.length ?? 0) === 0,
+    );
 
   return (
     <div data-testid="music-overview" className="flex flex-col gap-6">
       {/* Favorites, Downloaded and Local files are always the first three (M46.29). */}
-      {
-        <Section view="playlists" count={playlistCount}>
-          <Row>
-            {
-              <li className="w-28 shrink-0">
-                <Link
-                  to="/library"
-                  search={{ view: 'favorites' }}
-                  replace
-                  className="flex flex-col gap-1.5"
-                >
-                  <span className="bg-primary/20 text-primary grid aspect-square w-full place-items-center rounded-lg">
-                    <Heart aria-hidden size={36} fill="currentColor" />
-                  </span>
-                  <span className="truncate text-sm font-medium">{t('collections.favorites')}</span>
-                  <span className="text-muted -mt-1 truncate text-xs">
-                    {t('library.trackCount', { count: favoriteCount })}
-                  </span>
-                </Link>
-              </li>
-            }
-            {
-              <li className="w-28 shrink-0">
-                <Link
-                  to="/library"
-                  search={{ view: 'downloaded' }}
-                  replace
-                  className="flex flex-col gap-1.5"
-                >
-                  <span className="grid aspect-square w-full place-items-center rounded-lg bg-sky-500/20 text-sky-500">
-                    <span className="grid size-12 place-items-center rounded-full bg-sky-500 text-white">
-                      <ArrowDown aria-hidden size={28} strokeWidth={3} />
-                    </span>
-                  </span>
-                  <span className="truncate text-sm font-medium">
-                    {t('library.view.downloaded')}
-                  </span>
-                  <span className="text-muted -mt-1 truncate text-xs">
-                    {t('library.trackCount', { count: downloadedCount })}
-                  </span>
-                </Link>
-              </li>
-            }
-            <LocalFilesTile />
-            {playlists.data?.map((playlist) => (
-              <li
-                key={playlist.id}
-                className="w-28 shrink-0"
-                onContextMenu={playlistMenu(playlist)}
-              >
-                <Link
-                  to="/library/playlist"
-                  search={{ id: playlist.id }}
-                  className="flex flex-col gap-1.5"
-                >
+      <Section view="playlists" count={playlistCount}>
+        <Row>
+          <FavoritesTile />
+          <DownloadedTile />
+          <LocalFilesTile />
+          {playlists.data?.slice(0, ROW_ITEMS).map((playlist) => (
+            <li key={playlist.id} className="w-28 shrink-0" onContextMenu={playlistMenu(playlist)}>
+              <PlaylistTile
+                id={playlist.id}
+                name={playlist.name}
+                cover={
                   <PlaylistCover
                     artworkUrls={playlist.artworkUrls}
                     coverUrl={playlist.coverUrl}
                     className="aspect-square w-full rounded-lg"
                   />
-                  <span className="truncate text-sm font-medium">{playlist.name}</span>
-                  <span className="text-muted -mt-1 truncate text-xs">
-                    {t('library.trackCount', { count: playlist.itemCount })}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </Row>
-        </Section>
-      }
-      {podcasts.data && podcasts.data.length > 0 && (
-        <Section view="podcasts" count={podcasts.data.length}>
+                }
+                count={playlist.itemCount}
+              />
+            </li>
+          ))}
+        </Row>
+      </Section>
+      {podcastList.length > 0 && (
+        <Section view="podcasts" count={podcastList.length}>
           <Row>
-            {podcasts.data.map((podcast) => (
+            {podcastList.slice(0, ROW_ITEMS).map((podcast) => (
               <li
                 key={podcast.id}
                 className="w-28 shrink-0"
@@ -187,10 +148,10 @@ export const MusicOverview: FC<{
           </Row>
         </Section>
       )}
-      {audiobooks.data && audiobooks.data.length > 0 && (
-        <Section view="audiobooks" count={audiobooks.data.length}>
+      {bookList.length > 0 && (
+        <Section view="audiobooks" count={bookList.length}>
           <Row>
-            {audiobooks.data.map((book) => (
+            {bookList.slice(0, ROW_ITEMS).map((book) => (
               <li
                 key={book.id}
                 className="w-28 shrink-0"
@@ -213,14 +174,12 @@ export const MusicOverview: FC<{
           </Row>
         </Section>
       )}
-      {ready && !hasFolders && <FirstRunCard />}
-      {hasFolders && !hasTracks && ready && (
-        <p className="text-muted text-sm">{t('library.noTracksFound')}</p>
-      )}
+      {ready && !hasFolders && <FirstRunCard empty={nothing} />}
+      {hasFolders && !hasTracks && ready && <NoTracksYet />}
       {hasTracks && albums.data && albums.data.length > 0 && (
         <Section view="albums" count={albums.data.length}>
           <Row>
-            {albums.data.map((album) => (
+            {albums.data.slice(0, ROW_ITEMS).map((album) => (
               <li
                 key={`${album.artist}\u001f${album.title}`}
                 className="w-28 shrink-0"
@@ -249,7 +208,7 @@ export const MusicOverview: FC<{
       {hasTracks && artists.data && artists.data.length > 0 && (
         <Section view="artists" count={artists.data.length}>
           <Row>
-            {artists.data.map((artist) => (
+            {artists.data.slice(0, ROW_ITEMS).map((artist) => (
               <li
                 key={artist.name}
                 className="w-24 shrink-0"
@@ -272,18 +231,47 @@ export const MusicOverview: FC<{
       )}
       {hasTracks && tracks.data && tracks.data.length > 0 && (
         <Section view="tracks" count={trackCount}>
-          <TrackList
-            tracks={tracks.data.slice(0, SONGS_SHOWN)}
-            onPlay={(track) =>
-              void playFromLibrary({
-                selection: { kind: 'allTracks' },
-                startTrackId: track.id,
-                shuffle: false,
-              })
-            }
-          />
+          <div data-testid="track-list" className="flex flex-col">
+            {tracks.data.map((track) => (
+              <TrackRow
+                key={track.id}
+                track={track}
+                onPlay={(picked) =>
+                  void playFromLibrary({
+                    selection: { kind: 'allTracks' },
+                    startTrackId: picked.id,
+                    shuffle: false,
+                  })
+                }
+              />
+            ))}
+          </div>
         </Section>
       )}
     </div>
   );
+};
+
+const PlaylistTile: FC<{ id: string; name: string; cover: ReactNode; count: number }> = ({
+  id,
+  name,
+  cover,
+  count,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <Link to="/library/playlist" search={{ id }} className="flex flex-col gap-1.5">
+      {cover}
+      <span className="truncate text-sm font-medium">{name}</span>
+      <span className="text-muted -mt-1 truncate text-xs">
+        {t('library.trackCount', { count })}
+      </span>
+    </Link>
+  );
+};
+
+/** Folders are set, but their scan found no songs (yet). */
+const NoTracksYet: FC = () => {
+  const { t } = useTranslation();
+  return <p className="text-muted text-sm">{t('library.noTracksFound')}</p>;
 };

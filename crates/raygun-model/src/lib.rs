@@ -3991,6 +3991,13 @@ pub struct LocalFolder {
     /// Unix ms.
     pub scanned_at: Option<f64>,
     pub scanning: bool,
+    /// How far a running scan got with the comics and books it adds; `None` while it lists.
+    pub progress: Option<LocalScanProgress>,
+    /// Its songs and videos can't be read until media access is allowed (Android).
+    pub needs_access: bool,
+    /// The folder couldn't be opened at the last scan (moved, unplugged, or its access lost);
+    /// what it added stays until it's back.
+    pub missing: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -4000,6 +4007,19 @@ pub struct LocalCounts {
     pub comics: u32,
     pub books: u32,
     pub videos: u32,
+    /// Comics and books that couldn't be read or added.
+    pub failed: u32,
+    /// Songs and videos that can't play from where the folder is (a cloud or Downloads folder
+    /// the picker gave without a path).
+    pub unplayable: u32,
+}
+
+/// A Local Files scan adding comics and books: how many it has done of how many.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalScanProgress {
+    pub done: u32,
+    pub total: u32,
 }
 
 /// The file type a saved cover image gets (M46.26).

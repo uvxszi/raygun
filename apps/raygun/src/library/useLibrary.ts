@@ -63,6 +63,13 @@ export const useAllTracks = () =>
     queryFn: () => unwrapResult(commands.libraryTracks(0, ALL_TRACKS_LIMIT)),
   });
 
+/** The first `limit` tracks only, for an overview: a big library isn't read to show a few. */
+export const useFirstTracks = (limit: number) =>
+  useQuery({
+    queryKey: [LIBRARY, 'tracks', 'first', limit],
+    queryFn: () => unwrapResult(commands.libraryTracks(0, limit)),
+  });
+
 const useStatusMutation = (run: () => ReturnType<typeof commands.libraryStatus>) => {
   const queryClient = useQueryClient();
   return useMutation({

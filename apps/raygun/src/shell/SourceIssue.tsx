@@ -8,6 +8,8 @@ type SourceIssueProps = {
   children: ReactNode;
   /** The source's name, when known: "Issue with MangaDex". */
   source?: string | null;
+  /** What failed, when it isn't a source: "Couldn't add the folder". */
+  title?: string;
   /** Asks the source again. */
   onRetry?: () => void;
   /** One line, for rows and small spaces. */
@@ -24,6 +26,7 @@ type SourceIssueProps = {
 export const SourceIssue: FC<SourceIssueProps> = ({
   children,
   source,
+  title,
   onRetry,
   compact = false,
   testId,
@@ -54,7 +57,7 @@ export const SourceIssue: FC<SourceIssueProps> = ({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <CloudOff aria-hidden size={16} className="shrink-0" />
         <span className="text-foreground font-medium">
-          {source ? t('issue.withSource', { source }) : t('issue.title')}
+          {title ?? (source ? t('issue.withSource', { source }) : t('issue.title'))}
         </span>
         <span className="ml-auto flex items-center gap-1">
           {onRetry && (
@@ -77,7 +80,7 @@ export const SourceIssue: FC<SourceIssueProps> = ({
           </button>
         </span>
       </div>
-      {!compact && <p>{t('issue.calm')}</p>}
+      {!compact && !title && <p>{t('issue.calm')}</p>}
       <div hidden={!open} className="flex flex-col gap-1">
         <div
           ref={setDetails}

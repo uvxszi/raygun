@@ -307,8 +307,13 @@ export const commands = {
 	localFolderAdd: () => typedError<LocalFolder[] | null, string>(__TAURI_INVOKE("local_folder_add")),
 	/**  Takes a folder out of Local Files. */
 	localFolderRemove: (id: string) => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folder_remove", { id })),
-	/**  Scans every Local Files folder again. */
-	localFoldersRescan: () => typedError<null, string>(__TAURI_INVOKE("local_folders_rescan")),
+	/**  Scans a Local Files folder again, or every one; files that couldn't be added are tried again. */
+	localFoldersRescan: (id: string | null) => typedError<null, string>(__TAURI_INVOKE("local_folders_rescan", { id })),
+	/**
+	 *  Asks for the media access Local Files' songs and videos need (Android); opens Raygun's page
+	 *  in the system settings when the system won't ask. Whether it's allowed now.
+	 */
+	localFilesAllowAccess: () => typedError<boolean, string>(__TAURI_INVOKE("local_files_allow_access")),
 	/**
 	 *  Saves imported songs as a new playlist, into one, or into Favorites; returns the playlist's
 	 *  id or `favorites` (M46.21, M46.45).
@@ -391,6 +396,8 @@ export const commands = {
 	artistSetAlerts: (name: string, on: boolean) => typedError<null, string>(__TAURI_INVOKE("artist_set_alerts", { name, on })),
 	/**  New releases found for followed artists, newest first (M46.42). */
 	artistReleaseNews: () => typedError<ArtistReleaseNews_Serialize[], string>(__TAURI_INVOKE("artist_release_news")),
+	/**  Checks followed artists with alerts for new releases now; returns the news afterwards. */
+	artistReleasesCheck: () => typedError<ArtistReleaseNews_Serialize[], string>(__TAURI_INVOKE("artist_releases_check")),
 	/**  An artist's coming concerts and other events (M46.42). */
 	musicArtistEvents: (name: string) => typedError<ArtistEvent[], string>(__TAURI_INVOKE("music_artist_events", { name })),
 	/**  A source's playlist with its songs (M46.39). */
@@ -930,6 +937,8 @@ export const commands = {
 	websiteRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_remove", { id })),
 	/**  Forgets where a site was left. */
 	websiteReset: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_reset", { id })),
+	/**  Turns a site's own ad blocker on or off. */
+	websiteSetBlockAds: (id: string, on: boolean) => typedError<null, string>(__TAURI_INVOKE("website_set_block_ads", { id, on })),
 	/**  Opens a site in the built-in browser. */
 	websiteOpen: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_open", { id })),
 	websiteBlocklistStatus: () => typedError<BlocklistStatus, string>(__TAURI_INVOKE("website_blocklist_status")),
@@ -2268,6 +2277,13 @@ export type LocalCounts = {
 	comics: number,
 	books: number,
 	videos: number,
+	/**  Comics and books that couldn't be read or added. */
+	failed: number,
+	/**
+	 *  Songs and videos that can't play from where the folder is (a cloud or Downloads folder
+	 *  the picker gave without a path).
+	 */
+	unplayable: number,
 };
 
 /**  A Local Files folder was added, scanned or removed; carries its id (M46.27). */
@@ -2283,6 +2299,15 @@ export type LocalFolder = {
 	/**  Unix ms. */
 	scannedAt: number | null,
 	scanning: boolean,
+	/**  How far a running scan got with the comics and books it adds; `None` while it lists. */
+	progress: LocalScanProgress | null,
+	/**  Its songs and videos can't be read until media access is allowed (Android). */
+	needsAccess: boolean,
+	/**
+	 *  The folder couldn't be opened at the last scan (moved, unplugged, or its access lost);
+	 *  what it added stays until it's back.
+	 */
+	missing: boolean,
 };
 
 /**
@@ -2298,6 +2323,12 @@ export type LocalNetworkAccess = {
 	 *  settings can allow it. Settings can change that since, so this is a hint until the next ask.
 	 */
 	blocked: boolean,
+};
+
+/**  A Local Files scan adding comics and books: how many it has done of how many. */
+export type LocalScanProgress = {
+	done: number,
+	total: number,
 };
 
 /**  One timed line of synced lyrics. */

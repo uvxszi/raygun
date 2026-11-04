@@ -761,6 +761,16 @@ pub async fn artist_release_news(
     Ok(follows.news().await)
 }
 
+/// Checks followed artists with alerts for new releases now; returns the news afterwards.
+#[tauri::command]
+#[specta::specta]
+pub async fn artist_releases_check(
+    follows: tauri::State<'_, Arc<crate::follows::ArtistFollows>>,
+) -> Result<Vec<raygun_model::ArtistReleaseNews>, String> {
+    follows.check_now().await;
+    Ok(follows.news().await)
+}
+
 /// An artist's coming concerts and other events (M46.42).
 #[tauri::command]
 #[specta::specta]
@@ -1401,13 +1411,24 @@ pub async fn local_folder_remove(
     local.remove(&id).await
 }
 
-/// Scans every Local Files folder again.
+/// Scans a Local Files folder again, or every one; files that couldn't be added are tried again.
 #[tauri::command]
 #[specta::specta]
 pub async fn local_folders_rescan(
     local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+    id: Option<String>,
 ) -> Result<(), String> {
-    local.inner().rescan_all().await
+    local.inner().rescan(id.as_deref(), true).await
+}
+
+/// Asks for the media access Local Files' songs and videos need (Android); opens Raygun's page
+/// in the system settings when the system won't ask. Whether it's allowed now.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_files_allow_access(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+) -> Result<bool, String> {
+    local.inner().allow_access().await
 }
 
 /// The user's own details for a song, an album or an artist (M46.30).
@@ -3672,7 +3693,7 @@ pub async fn website_add(
     name: Option<String>,
     url: String,
 ) -> Result<raygun_model::Website, String> {
-    websites.add(name, &url).await
+    websites.inner().add(name, &url).await
 }
 
 #[tauri::command]
@@ -3697,6 +3718,17 @@ pub async fn website_remove(websites: Websites<'_>, id: String) -> Result<(), St
 #[specta::specta]
 pub async fn website_reset(websites: Websites<'_>, id: String) -> Result<(), String> {
     websites.reset(&id).await
+}
+
+/// Turns a site's own ad blocker on or off.
+#[tauri::command]
+#[specta::specta]
+pub async fn website_set_block_ads(
+    websites: Websites<'_>,
+    id: String,
+    on: bool,
+) -> Result<(), String> {
+    websites.set_block_ads(&id, on).await
 }
 
 /// Opens a site in the built-in browser.

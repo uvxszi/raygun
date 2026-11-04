@@ -39,6 +39,7 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
         {running(job) ? (
           <button
             type="button"
+            aria-label={t('export.cancelOne', { name: job.label })}
             onClick={() => cancel.mutate(job.id)}
             className="text-primary shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
           >
@@ -64,7 +65,10 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
           aria-valuenow={done}
           className="bg-background h-1.5 overflow-hidden rounded-full"
         >
-          <div className="bg-primary h-full" style={{ width: `${fraction * 100}%` }} />
+          <div
+            className="bg-primary h-full origin-left transition-transform"
+            style={{ transform: `scaleX(${fraction})` }}
+          />
         </div>
       )}
       {job.state === 'failed' ? (
@@ -113,15 +117,31 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
 export const ExportsList: FC = () => {
   const { t } = useTranslation();
   const jobs = useExportJobs();
+  const dismiss = useDismissExport();
   if (!jobs.data) return null;
   if (jobs.data.length === 0) {
     return <EmptyState icon={FileDown} title={t('export.noneTitle')} body={t('export.none')} />;
   }
+  const finished = jobs.data.filter((job) => !running(job));
   return (
-    <ul data-testid="exports-list" className="flex flex-col gap-2">
-      {jobs.data.map((job) => (
-        <JobCard key={job.id} job={job} />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-2">
+      {finished.length > 1 && (
+        <button
+          type="button"
+          onClick={() => {
+            for (const job of finished) dismiss.mutate(job.id);
+          }}
+          className="bg-surface flex items-center gap-2 self-start rounded-full px-4 py-2 text-sm"
+        >
+          <X aria-hidden size={16} className="text-primary" />
+          {t('export.clearFinished')}
+        </button>
+      )}
+      <ul data-testid="exports-list" className="flex flex-col gap-2">
+        {jobs.data.map((job) => (
+          <JobCard key={job.id} job={job} />
+        ))}
+      </ul>
+    </div>
   );
 };

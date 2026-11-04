@@ -272,6 +272,7 @@ export const bindingsMock = {
     localFolderAdd: vi.fn(),
     localFolderRemove: vi.fn(),
     localFoldersRescan: vi.fn(),
+    localFilesAllowAccess: vi.fn(),
     importSave: vi.fn(),
     audiobooks: vi.fn(),
     audiobook: vi.fn(),
@@ -292,6 +293,7 @@ export const bindingsMock = {
     artistUnfollow: vi.fn(),
     artistSetAlerts: vi.fn(),
     artistReleaseNews: vi.fn(),
+    artistReleasesCheck: vi.fn(),
     musicArtistEvents: vi.fn(),
     coverFallback: vi.fn(),
     musicSearchPlaylists: vi.fn(),
@@ -527,6 +529,7 @@ export const bindingsMock = {
     websiteEdit: vi.fn(),
     websiteRemove: vi.fn(),
     websiteReset: vi.fn(),
+    websiteSetBlockAds: vi.fn(),
     websiteOpen: vi.fn(),
     websiteBlocklistStatus: vi.fn(),
     websiteBlocklistUpdate: vi.fn(),
@@ -747,6 +750,7 @@ export const seedBindings = () => {
   commands.localFolderAdd.mockResolvedValue(ok(null));
   commands.localFolderRemove.mockResolvedValue(ok([]));
   commands.localFoldersRescan.mockResolvedValue(ok(null));
+  commands.localFilesAllowAccess.mockResolvedValue(ok(true));
   commands.audiobooks.mockResolvedValue(ok([]));
   commands.audiobookDirectory.mockResolvedValue(ok({ books: [], hasMore: false }));
   commands.audiobookPlay.mockResolvedValue(ok(null));
@@ -763,6 +767,7 @@ export const seedBindings = () => {
   commands.artistUnfollow.mockResolvedValue(ok(null));
   commands.artistSetAlerts.mockResolvedValue(ok(null));
   commands.artistReleaseNews.mockResolvedValue(ok([]));
+  commands.artistReleasesCheck.mockResolvedValue(ok([]));
   commands.musicArtistEvents.mockResolvedValue(ok([]));
   commands.coverFallback.mockResolvedValue(ok(null));
   commands.musicSearchPlaylists.mockResolvedValue(ok([]));
@@ -1019,6 +1024,7 @@ export const seedBindings = () => {
     commands.websiteEdit,
     commands.websiteRemove,
     commands.websiteReset,
+    commands.websiteSetBlockAds,
     commands.websiteOpen,
     commands.websiteClearData,
   ]) {

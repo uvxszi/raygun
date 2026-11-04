@@ -148,7 +148,7 @@ describe('Exports', () => {
     const card = await screen.findByRole('listitem', { name: 'Frieren' });
     expect(card).toHaveTextContent('CBZ · Writing 1 of 3');
     expect(within(card).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1');
-    await user.click(within(card).getByRole('button', { name: 'Cancel' }));
+    await user.click(within(card).getByRole('button', { name: 'Cancel Frieren' }));
     expect(commands.exportCancel).toHaveBeenCalledWith('j1');
 
     emitEvent(
