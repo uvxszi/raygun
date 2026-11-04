@@ -95,6 +95,8 @@ export const useRail = () => {
         save({ ...prefs, order: 'custom', pins: rest });
       },
       setOrder: (order: RailOrder) => save({ ...prefs, order }),
+      /** The phone's drawer: names beside the pins, or icons only. */
+      setDrawerExpanded: (drawerExpanded: boolean) => save({ ...prefs, drawerExpanded }),
       /** Stamps when a pinned page was opened or played from. */
       touch: (target: Pick<RailPin, 'to' | 'search'>, what: 'played' | 'opened') => {
         const found = prefs.pins.find((existing) => samePin(existing, target));

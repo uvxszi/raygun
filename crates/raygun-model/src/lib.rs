@@ -245,6 +245,9 @@ pub struct RailPrefs {
     /// Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay.
     #[serde(default = "auto_pin_limit")]
     pub limit: u32,
+    /// The phone's quick access drawer shows names beside the pins; off, icons only.
+    #[serde(default = "drawer_expanded")]
+    pub drawer_expanded: bool,
 }
 
 fn pin_added() -> bool {
@@ -253,6 +256,10 @@ fn pin_added() -> bool {
 
 fn auto_pin_limit() -> u32 {
     20
+}
+
+fn drawer_expanded() -> bool {
+    true
 }
 
 /// Automatic quick access pins allowed at most (M46.41).
@@ -266,6 +273,7 @@ impl Default for RailPrefs {
             seeded: false,
             auto_add: true,
             limit: auto_pin_limit(),
+            drawer_expanded: drawer_expanded(),
         }
     }
 }

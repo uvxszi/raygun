@@ -2,6 +2,7 @@ import type { PlayerLayout } from '@raygun/bindings';
 import { useSyncExternalStore } from 'react';
 
 import { useIsDesktop } from '../shell/useIsDesktop';
+import { useIsPhone } from '../shell/useIsPhone';
 import { useMediaQuery } from '../shell/useWideScreen';
 
 /** The root font size in px: phones scale it with Settings → Interface size (M46.24). */
@@ -36,7 +37,9 @@ export const usePlayerWide = () => {
   const desktop = useIsDesktop();
   const across = useMediaQuery(`(min-width: ${Math.round(48 * px)}px)`);
   const tall = useMediaQuery(`(min-height: ${Math.round(30 * px)}px)`);
-  return across && (desktop || tall);
+  // A phone keeps its own bar on its side, whatever the interface size.
+  const phone = useIsPhone();
+  return across && (desktop || tall) && !phone;
 };
 
 /**

@@ -48,7 +48,9 @@ import { useHorizontalWheel } from './useHorizontalWheel';
 import { NAV_TABS } from './navTabs';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 import { SideRail } from './SideRail';
+import { QuickAccessDrawer } from './QuickAccessDrawer';
 import { useIsDesktop } from './useIsDesktop';
+import { useIsPhone } from './useIsPhone';
 import { useLiveInvalidation } from './useLiveInvalidation';
 import { useRailStamps } from './useRail';
 import { movesFreely, useDeviceStateSync } from './deviceState';
@@ -122,9 +124,12 @@ export const AppShell: FC = () => {
   // Sizes from the screen, then Interface size (M46.48).
   useApplySize(desktop, settings.data?.zoom);
   useEngineHost();
-  // The sidebar is the desktop's (M46.29); incognito (M47) leaves its stamps alone.
+  // The sidebar's pins (M46.29), also the phone's quick access; incognito (M47) leaves their
+  // stamps alone.
   const incognito = useIncognitoSync();
-  useRailStamps(desktop && incognito === false);
+  useRailStamps(incognito === false);
+  // Phones keep their own layouts on their side: no side panel.
+  const phone = useIsPhone();
   useSpeechHost();
   useFullscreenKey();
   useHorizontalWheel();
@@ -185,13 +190,14 @@ export const AppShell: FC = () => {
               >
                 <Outlet />
               </main>
-              {!immersive && <SidePanel />}
+              {!immersive && !phone && <SidePanel />}
             </div>
             {!immersive && <MiniPlayer />}
             {!immersive && <BottomTabs />}
           </div>
         </div>
         <PlayerSheet />
+        <QuickAccessDrawer blocked={immersive} />
         <TrackActionsSheet />
         <SongEditSheet />
         <CoverSheet />

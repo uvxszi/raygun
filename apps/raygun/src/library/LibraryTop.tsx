@@ -8,6 +8,7 @@ import { OpenLinkSheet } from '../pages/OpenLinkSheet';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
+import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { Tabs } from '../shell/Tabs';
 import { TopBar } from '../shell/TopBar';
 import type { TopBarSearch } from '../shell/TopBar';
@@ -66,6 +67,7 @@ export const LibraryTop: FC<{
                 },
               ]}
             />
+            <QuickAccessButton />
           </>
         }
       />

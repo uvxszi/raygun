@@ -40,6 +40,7 @@ import { useRememberSearch } from '../search/useRecentSearches';
 import { SearchPanel } from '../search/SearchPanel';
 import { failingLast, useSourceHealth } from '../search/sourceHealth';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { SourceMenu } from '../search/SourceMenu';
 import { WebsitesSection } from '../websites/WebsitesSection';
@@ -483,6 +484,7 @@ export const BrowsePage: FC = () => {
               }
             />
             {menu}
+            <QuickAccessButton />
           </header>
           {tabs}
         </>
