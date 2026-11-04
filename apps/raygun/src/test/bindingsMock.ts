@@ -446,6 +446,9 @@ export const bindingsMock = {
     extensionInstallsDismiss: vi.fn(),
     extensionUninstall: vi.fn(),
     extensionSettingSet: vi.fn(),
+    serversList: vi.fn(),
+    serversAdd: vi.fn(),
+    serversRemove: vi.fn(),
     onlineSearch: vi.fn(),
     searchRecent: vi.fn(),
     searchRecentAdd: vi.fn(),
@@ -1011,6 +1014,9 @@ export const seedBindings = () => {
   }
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
+  commands.serversList.mockResolvedValue(ok([]));
+  commands.serversAdd.mockResolvedValue(ok([]));
+  commands.serversRemove.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
   commands.searchRecent.mockResolvedValue(ok([]));
   commands.searchRecentAdd.mockResolvedValue(ok([]));

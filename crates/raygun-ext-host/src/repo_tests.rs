@@ -252,7 +252,7 @@ async fn paraline_live() {
                 let (script, header) = crate::miru::package::verify_script(&bytes, entry).unwrap();
                 crate::miru::package::package(entry, script, &header).unwrap()
             }
-            repo::PackageFormat::Nuclear => continue,
+            repo::PackageFormat::Nuclear | repo::PackageFormat::Kodi => continue,
         };
         assert_eq!(verified.manifest.id, entry.id);
         assert_eq!(verified.manifest.version.to_string(), entry.version);

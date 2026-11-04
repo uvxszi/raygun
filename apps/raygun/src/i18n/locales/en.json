@@ -1216,6 +1216,7 @@
     "update": "Update",
     "upToDate": "Installed",
     "newerInstalled": "Newer version installed",
+    "cantInstall": "Can't install",
     "noRepos": "No repositories. Add one under Repositories.",
     "noReposYet": "No repositories yet.",
     "repoFailed": "Couldn't load this repository: {{message}}",
@@ -1245,7 +1246,8 @@
     "format": {
       "nuclear": "Nuclear plugins",
       "shosetsu": "Shosetsu scripts",
-      "miru": "Miru extensions"
+      "miru": "Miru extensions",
+      "kodi": "Kodi add-ons"
     },
     "settings": "Settings",
     "providers": "Provides",
@@ -1454,13 +1456,15 @@
       "addon": "This addon is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\".",
       "remote": "Your other devices on this Wi-Fi link with this one and play on it. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\".",
       "connect": "Your other device is on your Wi-Fi. Android asks before an app connects to devices on your network, so it will ask Raygun's permission to reach \"nearby devices\".",
-      "cast": "The TV is on your Wi-Fi. Android asks before an app connects to devices on your network, so it will ask Raygun's permission to reach \"nearby devices\"."
+      "cast": "The TV is on your Wi-Fi. Android asks before an app connects to devices on your network, so it will ask Raygun's permission to reach \"nearby devices\".",
+      "server": "This server is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\"."
     },
     "denied": {
       "addon": "Allow local network access to reach addons on your network.",
       "remote": "Allow local network access so your other devices can reach this one.",
       "connect": "Allow local network access to play on your other devices.",
-      "cast": "Allow local network access to play on a TV."
+      "cast": "Allow local network access to play on a TV.",
+      "server": "Allow local network access to reach servers on your network."
     },
     "settingsHint": "Android won't ask again. In Raygun's app settings, open Permissions, then Nearby devices, and choose Allow.",
     "allow": "Continue",
@@ -2504,6 +2508,41 @@
     "clearPagesOnStart": "Clear the page cache on start",
     "clearPagesOnStartHint": "Reader pages are fetched again each time the app opens."
   },
+  "servers": {
+    "title": "Servers",
+    "add": "Add server",
+    "empty": "No servers yet",
+    "kind": "Kind of server",
+    "kinds": {
+      "jellyfin": "Jellyfin",
+      "emby": "Emby",
+      "subsonic": "Subsonic",
+      "audiobookshelf": "Audiobookshelf",
+      "opds": "OPDS"
+    },
+    "address": "Address",
+    "username": "User name",
+    "usernameOptional": "User name (optional)",
+    "password": "Password",
+    "apiKey": "API key",
+    "useApiKey": "Use an API key",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "signInAgain": "Sign in again",
+    "remove": "Remove",
+    "removeConfirm": "Remove {{name}}",
+    "menu": "{{name}} options",
+    "loadFailed": "Couldn't read your servers",
+    "bringsLabel": "What it brings",
+    "brings": {
+      "videos": "Films and series",
+      "music": "Music",
+      "lyrics": "Lyrics",
+      "audiobooks": "Audiobooks",
+      "comics": "Comics",
+      "books": "Books"
+    }
+  },
   "websites": {
     "title": "Websites",
     "add": "Add website",
@@ -2695,7 +2734,8 @@
       "video": "Videos",
       "manga": "Comics",
       "novel": "Books",
-      "websites": "Websites"
+      "websites": "Websites",
+      "servers": "Servers"
     },
     "moreEntry": {
       "updates": "Updates",

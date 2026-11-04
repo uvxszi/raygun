@@ -113,6 +113,9 @@ pub enum Runtime {
     Shosetsu,
     /// A Miru JavaScript extension, run unchanged in Raygun's Miru runtime (`crate::miru`).
     Miru,
+    /// A server people connect (Jellyfin, Subsonic, Audiobookshelf, OPDS), answered in Rust
+    /// (`crate::servers`); the entry is its `server.json`.
+    Server,
 }
 
 /// A validated manifest.
@@ -182,6 +185,7 @@ impl Manifest {
             "js" => Runtime::Js,
             "shosetsu" => Runtime::Shosetsu,
             "miru" => Runtime::Miru,
+            "server" => Runtime::Server,
             _ => return Err(ManifestError::Runtime(raw.runtime)),
         };
         if !is_safe_entry(&raw.entry, runtime) {
@@ -293,6 +297,7 @@ fn is_safe_entry(entry: &str, runtime: Runtime) -> bool {
     let extension = match runtime {
         Runtime::Js | Runtime::Miru => ".js",
         Runtime::Shosetsu => ".lua",
+        Runtime::Server => ".json",
     };
     entry.ends_with(extension)
         && !entry.contains('\\')

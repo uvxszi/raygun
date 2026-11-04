@@ -694,7 +694,8 @@ impl<'js> IntoJs<'js> for Fetched {
 
 /// The runtime extensions' requests run on, apart from the lanes, so answers keep arriving while
 /// a lane is busy running script. `None` if it couldn't start: requests then run on the lane.
-fn network() -> Option<&'static tokio::runtime::Runtime> {
+/// Connected servers (`crate::servers`) send theirs here too.
+pub(crate) fn network() -> Option<&'static tokio::runtime::Runtime> {
     static NETWORK: OnceLock<Option<tokio::runtime::Runtime>> = OnceLock::new();
     NETWORK
         .get_or_init(|| {

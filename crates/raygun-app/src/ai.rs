@@ -82,6 +82,21 @@ impl AiService {
         })
     }
 
+    // ---- Connected servers' sign-ins (`crate::servers`) ----
+
+    /// A connected server's kept sign-in (a token, a password or an API key), by its
+    /// connection's extension id.
+    pub fn server_secret(&self, id: &str) -> Option<String> {
+        self.vault.get(&format!("server:{id}"))
+    }
+
+    /// Keeps, or with `None` forgets, a connected server's sign-in.
+    pub fn set_server_secret(&self, id: &str, secret: Option<&str>) -> Result<(), String> {
+        self.vault
+            .set(&format!("server:{id}"), secret)
+            .map_err(|error| error.to_string())
+    }
+
     // ---- Translators ----
 
     pub async fn providers(&self) -> Result<Vec<AiProvider>, String> {

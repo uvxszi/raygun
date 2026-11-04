@@ -114,8 +114,9 @@ const Filters: FC<{
   );
 };
 
+/** Another app's plugin Raygun lists but can't run (Kodi's add-ons) is never installable. */
 const installable = (entry: CatalogEntry) =>
-  entry.state === 'available' || entry.state === 'updateAvailable';
+  !entry.unsupported && (entry.state === 'available' || entry.state === 'updateAvailable');
 
 /** Install or Update, at once (M46.7): what it may access is behind the info button beside it. */
 const EntryAction: FC<{
@@ -125,6 +126,11 @@ const EntryAction: FC<{
   onCancel: () => void;
 }> = ({ entry, status, onInstall, onCancel }) => {
   const { t } = useTranslation();
+  if (entry.unsupported) {
+    return (
+      <span className="text-muted text-sm whitespace-nowrap">{t('extensions.cantInstall')}</span>
+    );
+  }
   if (status?.state === 'done') {
     return (
       <span
@@ -338,6 +344,9 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
                     </span>
                     {entry.description && (
                       <span className="text-muted line-clamp-2 text-xs">{entry.description}</span>
+                    )}
+                    {entry.unsupported && (
+                      <span className="text-muted text-xs">{entry.unsupported}</span>
                     )}
                     {status?.state === 'failed' && (
                       <SourceIssue compact title={t('extensions.installFailed')} className="mt-1">

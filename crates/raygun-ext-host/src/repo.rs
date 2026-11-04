@@ -80,7 +80,8 @@ pub struct RepoEntry {
 }
 
 /// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
-/// Shosetsu Lua script installed with its libraries (M32), or a Miru script (`crate::miru`).
+/// Shosetsu Lua script installed with its libraries (M32), a Miru script (`crate::miru`), or a
+/// Kodi add-on, listed but not installable (`crate::kodi`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PackageFormat {
@@ -89,6 +90,7 @@ pub enum PackageFormat {
     Nuclear,
     Shosetsu,
     Miru,
+    Kodi,
 }
 
 /// Shosetsu's repository index (`index.json` with `scripts` and `libraries`). Entries are read one
@@ -509,6 +511,16 @@ pub fn index_beside(url: &Url) -> Option<Url> {
 /// package is its script, and the libraries scripts need are the index's `libraries`, found at
 /// `lib/<name>.lua` beside it, as in a Shosetsu repository.
 pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
+    // Kodi's `addons.xml` (`crate::kodi`), the one index that isn't JSON.
+    if json
+        .trim_start_matches('\u{feff}')
+        .trim_start()
+        .starts_with('<')
+    {
+        return crate::kodi::parse(json).ok_or_else(|| {
+            RepoError::Index("it's XML, but not a Kodi add-on index (addons.xml)".into())
+        });
+    }
     if let Ok(registry) = serde_json::from_str::<NuclearRegistry>(json) {
         return Ok(from_nuclear(registry));
     }

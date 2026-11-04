@@ -3163,6 +3163,55 @@ pub struct CatalogEntry {
     pub installed_version: Option<String>,
     /// The icon the repository lists, through the cover cache (M46.2).
     pub icon: Option<String>,
+    /// Why Raygun can't install it, for another app's plugins listed but not runnable (Kodi's
+    /// Python add-ons); `None` when it can.
+    #[serde(default)]
+    #[specta(optional)]
+    pub unsupported: Option<String>,
+}
+
+/// What kind of server a connection is: servers people own, added by address and sign-in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ServerKind {
+    Jellyfin,
+    Emby,
+    Subsonic,
+    Audiobookshelf,
+    Opds,
+}
+
+/// What adding a server asks for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerInput {
+    pub kind: ServerKind,
+    /// The server's address, or an OPDS catalogue's.
+    pub address: String,
+    #[serde(default)]
+    pub username: String,
+    /// The password, or the API key when `api_key` is set; empty for none.
+    #[serde(default)]
+    pub secret: String,
+    #[serde(default)]
+    pub api_key: bool,
+}
+
+/// A connected server, as Browse → Sources → Servers lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerInfo {
+    /// The connection's extension id.
+    pub id: String,
+    pub kind: ServerKind,
+    pub name: String,
+    pub address: String,
+    /// Who signed in; empty for API keys and open catalogues.
+    pub username: String,
+    /// What it brings, as provider kinds (`video.source`, `music.metadata`...).
+    pub provides: Vec<String>,
+    /// Why it isn't working (signed out, a load that failed), when it isn't.
+    pub error: Option<String>,
 }
 
 /// One repository's listing; a repository that couldn't be read reports why.
@@ -5246,11 +5295,13 @@ fn browse_tab_known(tab: &str) -> Result<(), String> {
     }
 }
 
-pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 4] = [
+pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 5] = [
     ("video", true),
     ("manga", true),
     ("novel", true),
     ("websites", true),
+    // Servers people connect: Jellyfin, Subsonic, Audiobookshelf, OPDS catalogues.
+    ("servers", true),
 ];
 pub const LAYOUT_MORE_ENTRIES: [(&str, bool); 9] = [
     ("updates", true),
