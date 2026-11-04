@@ -2303,6 +2303,20 @@ pub async fn favorite_set(
     Ok(())
 }
 
+/// Favorites several songs, or takes them all out of Favorites, in one call (M46.49).
+#[tauri::command]
+#[specta::specta]
+pub async fn favorites_set_many(
+    collections: tauri::State<'_, CollectionsService>,
+    discovery: tauri::State<'_, Arc<DiscoveryService>>,
+    tracks: Vec<TrackInput>,
+    favorite: bool,
+) -> Result<(), String> {
+    collections.set_favorites(tracks, favorite).await?;
+    discovery.nudge();
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn playlists_list(

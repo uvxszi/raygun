@@ -1281,7 +1281,7 @@
       "action_one": "Merge {{count}} playlist",
       "action_other": "Merge {{count}} playlists"
     },
-    "rowButtons": "Move and remove buttons",
+    "rowButtons": "Edit songs",
     "editPlaylist": "Edit playlist"
   },
   "mcp": {
@@ -2682,6 +2682,11 @@
     "selected_one": "{{count}} song selected",
     "selected_other": "{{count}} songs selected",
     "remove": "Remove",
+    "favorite": "Favorite",
+    "unfavorite": "Remove from favorites",
+    "editOrder": "Edit",
+    "editOrderLabel": "Edit the order",
+    "doneEditing": "Done",
     "clearSelection": "Clear the selection",
     "playRow": "Play {{title}}",
     "sortButton": "Sort and view: {{sort}}",

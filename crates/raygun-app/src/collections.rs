@@ -301,6 +301,44 @@ impl CollectionsService {
             .map_err(to_message)
     }
 
+    /// Favorites several songs at once, or takes every copy of them out of Favorites, reading the
+    /// saved songs once (M46.49). The first song given is the newest favorite.
+    pub async fn set_favorites(
+        &self,
+        tracks: Vec<TrackInput>,
+        favorite: bool,
+    ) -> Result<(), String> {
+        let index = self.index().await?;
+        let favorites_of = |track: &TrackInput| -> Vec<String> {
+            index
+                .copies(&keys_of(&track.title, track.artist.as_deref()))
+                .into_iter()
+                .filter(|row| row.is_favorite())
+                .map(|row| row.id.clone())
+                .collect()
+        };
+        let db = self.db();
+        if !favorite {
+            let mut ids: Vec<String> = tracks.iter().flat_map(favorites_of).collect();
+            ids.sort();
+            ids.dedup();
+            return collections::remove_saved(db, &ids, &[])
+                .await
+                .map_err(to_message);
+        }
+        let now = now_ms();
+        for (place, track) in tracks.into_iter().enumerate() {
+            if !favorites_of(&track).is_empty() {
+                continue;
+            }
+            let added_at = now - i64::try_from(place).unwrap_or(i64::MAX / 2);
+            collections::set_favorite(db, &fields(track), true, added_at)
+                .await
+                .map_err(to_message)?;
+        }
+        Ok(())
+    }
+
     // ---- Playlists ----
 
     pub async fn playlists(&self) -> Result<Vec<PlaylistSummary>, String> {

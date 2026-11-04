@@ -423,6 +423,7 @@ export const bindingsMock = {
     connectAnswer: vi.fn(),
     playbackQueueTracks: vi.fn(),
     favoriteSet: vi.fn(),
+    favoritesSetMany: vi.fn(),
     playlistsList: vi.fn(),
     playlistGet: vi.fn(),
     playlistCreate: vi.fn(),
@@ -935,6 +936,7 @@ export const seedBindings = () => {
   commands.connectForget.mockResolvedValue(ok([]));
   commands.connectAnswer.mockResolvedValue(null);
   commands.favoriteSet.mockResolvedValue(ok(null));
+  commands.favoritesSetMany.mockResolvedValue(ok(null));
   commands.playlistsList.mockResolvedValue(ok([]));
   commands.playlistGet.mockResolvedValue(
     ok({ playlist: { id: 'p', name: 'Playlist', itemCount: 0, artworkUrls: [] }, items: [] }),

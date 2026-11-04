@@ -175,6 +175,21 @@ describe('Song tables', () => {
     expect(titles()).toEqual(['Alpha']);
   });
 
+  it('moves rows only in edit mode, turned on and off by Edit and Done (M46.49)', async () => {
+    setWide();
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/library?view=favorites');
+    await screen.findByTestId('track-table');
+    expect(screen.queryByRole('button', { name: 'Drag to move Bravo' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit the order' }));
+    expect(screen.getByRole('button', { name: 'Drag to move Bravo' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('button', { name: 'Drag to move Bravo' })).not.toBeInTheDocument();
+  });
+
   it('acts on several songs at once', async () => {
     setWide();
     const user = userEvent.setup();

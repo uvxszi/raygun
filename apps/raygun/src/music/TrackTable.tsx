@@ -27,10 +27,13 @@ import {
   Clock3,
   Download,
   GripVertical,
+  Heart,
+  HeartOff,
   List,
   ListChecks,
   ListEnd,
   ListStart,
+  Pencil,
   Play,
   Rows3,
   Search,
@@ -41,9 +44,11 @@ import { useMemo, useRef, useState } from 'react';
 import type { FC, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { commands } from '@raygun/bindings';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { SaveButton } from '../collections/SaveButton';
+import { savesIn, useSavedSongs } from '../collections/savedSongs';
+import { COLLECTIONS } from '../collections/useCollections';
 import { TrackMoreButton } from '../collections/TrackMoreButton';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
@@ -175,8 +180,14 @@ type TrackTableProps = {
   customLabel?: string;
   /** Takes rows out of this list (a playlist, Favorites). */
   onRemove?: (rows: TableTrack[]) => void;
-  /** Rows have a drag handle and keep the order they're dragged into (M46.44). */
+  /**
+   * Rows keep the order they're dragged into (M46.44). They move only in edit mode, which the
+   * table's Edit/Done button turns on (M46.49).
+   */
   onReorder?: (change: TableReorder) => void;
+  /** Edit mode, when the page holds it (a playlist's Edit sheet turns it on too). */
+  editing?: boolean;
+  onEditingChange?: (editing: boolean) => void;
   /** Replaces a row's Plus and more button (a playlist's edit controls). */
   actions?: (track: TableTrack, index: number) => ReactNode;
   toolbar?: ReactNode;
@@ -200,6 +211,8 @@ export const TrackTable: FC<TrackTableProps> = ({
   customLabel,
   onRemove,
   onReorder,
+  editing: givenEditing,
+  onEditingChange,
   actions,
   toolbar,
 }) => {
@@ -214,6 +227,11 @@ export const TrackTable: FC<TrackTableProps> = ({
   const [filter, setFilter] = useState('');
   const [filtering, setFiltering] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  // Rows have grips and move (by pointer or keyboard) only in edit mode (M46.49).
+  const [ownEditing, setOwnEditing] = useState(false);
+  const editing = Boolean(onReorder) && (givenEditing ?? ownEditing);
+  const setEditing = onEditingChange ?? setOwnEditing;
+  const reorderable = editing && Boolean(onReorder);
   const lastPicked = useRef<number | null>(null);
   const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
@@ -265,7 +283,7 @@ export const TrackTable: FC<TrackTableProps> = ({
   const headerRow = useRef<HTMLDivElement>(null);
   const [liveWidths, setLiveWidths] = useState<Partial<Record<TrackColumnId, number>> | null>(null);
   // The first column holds the grip too when rows move.
-  const template = `${onReorder ? '3.25rem' : '2.5rem'} minmax(12rem, 1.6fr) ${columns
+  const template = `${reorderable ? '3.25rem' : '2.5rem'} minmax(12rem, 1.6fr) ${columns
     .map((column) => {
       const width = liveWidths?.[column.id] ?? column.width;
       return width > 0 ? `${width}px` : COLUMN_TRACKS[column.id];
@@ -307,7 +325,31 @@ export const TrackTable: FC<TrackTableProps> = ({
     const widths = measured();
     saveWidths({ ...widths, [id]: clampColumn((widths[id] ?? COLUMN_FALLBACK) + by) });
   };
-  const chosen = shown.filter((track) => selected.has(track.rowKey));
+  const chosen = useMemo(
+    () => shown.filter((track) => selected.has(track.rowKey)),
+    [shown, selected],
+  );
+  // A selection all in Favorites offers to take them out, else to add them (M46.49).
+  const savedSongs = useSavedSongs().data;
+  const allFavorite = useMemo(
+    () =>
+      chosen.length > 0 &&
+      (kind === 'favorites' ||
+        (savedSongs !== undefined &&
+          chosen.every((track) => savesIn(savedSongs, track, track.trackKey).favorite))),
+    [chosen, kind, savedSongs],
+  );
+  const client = useQueryClient();
+  const favorite = useMutation({
+    mutationFn: ({ rows, on }: { rows: TableTrack[]; on: boolean }) =>
+      unwrapResult(
+        commands.favoritesSetMany(
+          rows.map((row) => row.input),
+          on,
+        ),
+      ),
+    onSettled: () => client.invalidateQueries({ queryKey: [COLLECTIONS] }),
+  });
   // Saved or on their way already: left out of the selection's Download (M46.46).
   const toDownload = chosen.filter(
     (track) => !downloadedKeys.has(track.trackKey) && !downloadingKeys.has(track.trackKey),
@@ -361,7 +403,7 @@ export const TrackTable: FC<TrackTableProps> = ({
   };
   // A dropped row (M46.44): what's shown becomes the order, whatever the sort was.
   const onRowDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!onReorder || !over || active.id === over.id) return;
+    if (!onReorder || !reorderable || !over || active.id === over.id) return;
     const from = shown.findIndex((track) => track.rowKey === active.id);
     const to = shown.findIndex((track) => track.rowKey === over.id);
     const moved = shown[from];
@@ -490,6 +532,22 @@ export const TrackTable: FC<TrackTableProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         {toolbar}
         <div className="ml-auto flex items-center gap-1">
+          {onReorder && (
+            <button
+              type="button"
+              aria-pressed={editing}
+              aria-label={editing ? t('tracks.doneEditing') : t('tracks.editOrderLabel')}
+              onClick={() => setEditing(!editing)}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm ${
+                editing
+                  ? 'bg-foreground text-background font-semibold'
+                  : 'text-muted hover:text-foreground'
+              }`}
+            >
+              {editing ? <Check aria-hidden size={16} /> : <Pencil aria-hidden size={16} />}
+              {editing ? t('tracks.doneEditing') : t('tracks.editOrder')}
+            </button>
+          )}
           <button
             type="button"
             aria-label={t('tracks.selectAll')}
@@ -582,6 +640,17 @@ export const TrackTable: FC<TrackTableProps> = ({
           >
             <ListEnd aria-hidden size={14} /> {t('menu.addToQueue')}
           </button>
+          {kind !== 'favorites' && (
+            <button
+              type="button"
+              disabled={favorite.isPending}
+              onClick={() => favorite.mutate({ rows: chosen, on: !allFavorite })}
+              className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
+            >
+              {allFavorite ? <HeartOff aria-hidden size={14} /> : <Heart aria-hidden size={14} />}{' '}
+              {allFavorite ? t('tracks.unfavorite') : t('tracks.favorite')}
+            </button>
+          )}
           <button
             type="button"
             disabled={toDownload.length === 0}
@@ -620,6 +689,11 @@ export const TrackTable: FC<TrackTableProps> = ({
               {t('lyricsEdit.transcribeQueued', { count: transcribe.variables.length })}
             </span>
           )}
+          {favorite.error && (
+            <span role="alert" className="text-primary w-full px-3 text-xs">
+              {favorite.error.message}
+            </span>
+          )}
           {transcribe.error && (
             <span role="alert" className="text-primary w-full px-3 text-xs">
               {transcribe.error.message}
@@ -655,7 +729,7 @@ export const TrackTable: FC<TrackTableProps> = ({
             style={{ gridTemplateColumns: template }}
             className="text-muted border-foreground/10 grid items-center gap-4 border-b px-2 pb-2 text-xs"
           >
-            <span role="columnheader" className={`text-center ${onReorder ? 'pl-4' : ''}`}>
+            <span role="columnheader" className={`text-center ${reorderable ? 'pl-4' : ''}`}>
               #
             </span>
             <div
@@ -722,9 +796,9 @@ export const TrackTable: FC<TrackTableProps> = ({
               const isSelected = selected.has(track.rowKey);
               const compact = view.view === 'compact';
               return (
-                <SortableRow key={track.rowKey} id={track.rowKey} enabled={Boolean(onReorder)}>
+                <SortableRow key={track.rowKey} id={track.rowKey} enabled={reorderable}>
                   {(sortable) => {
-                    // The grip (M46.44): on hover with a mouse, always (dimmed) on touch screens.
+                    // The grip (M46.44), shown on every row in edit mode (M46.49).
                     const grip = sortable && (
                       <button
                         type="button"
@@ -733,7 +807,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                         {...sortable.listeners}
                         aria-label={t('tracks.dragRow', { title: track.title })}
                         onClick={(event) => event.stopPropagation()}
-                        className="text-muted hover:text-foreground grid h-8 w-4 shrink-0 cursor-grab touch-none place-items-center opacity-0 outline-none group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing [@media(hover:none)]:opacity-50"
+                        className={`text-muted hover:text-foreground grid shrink-0 cursor-grab touch-none place-items-center outline-none active:cursor-grabbing ${wide ? 'h-8 w-4' : 'h-10 w-6'}`}
                       >
                         <GripVertical aria-hidden size={16} />
                       </button>
@@ -767,7 +841,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                               }
                             : {}),
                         }}
-                        className={`group grid items-center gap-4 rounded-lg px-2 outline-none ${compact ? 'py-1' : 'py-1.5'} ${
+                        className={`group grid items-center gap-4 rounded-lg px-2 outline-none ${compact ? 'py-1' : wide ? 'py-1.5' : 'py-2'} ${
                           wide ? '' : 'grid-cols-[minmax(0,1fr)_auto]'
                         } ${
                           sortable?.isDragging
@@ -808,8 +882,9 @@ export const TrackTable: FC<TrackTableProps> = ({
                             <Artwork
                               url={track.artworkUrl}
                               fallback={songCover(track)}
-                              className="size-10 shrink-0 rounded"
-                              iconSize={18}
+                              // Phones get larger rows, sized from the screen (M46.49).
+                              className={`shrink-0 rounded ${wide ? 'size-10' : 'size-[clamp(3rem,14vw,4.25rem)]'}`}
+                              iconSize={wide ? 18 : 22}
                             />
                           )}
                           <div
@@ -822,7 +897,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                                 if (!wide) onPlay(shown, index);
                                 else pick(event, index);
                               }}
-                              className={`flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium ${playing ? 'text-primary' : ''}`}
+                              className={`flex min-w-0 items-center gap-1.5 truncate text-left font-medium ${wide ? 'text-sm' : 'text-[clamp(0.9375rem,4vw,1.0625rem)]'} ${playing ? 'text-primary' : ''}`}
                             >
                               {playing && !wide && (
                                 <NowPlayingBars playing={playing === 'playing'} />
@@ -851,7 +926,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                             <ArtistLinks
                               credit={track.artist}
                               row
-                              className="text-muted block truncate text-xs"
+                              className={`text-muted block truncate ${wide ? 'text-xs' : 'text-[clamp(0.8125rem,3.4vw,0.9375rem)]'}`}
                             />
                           </div>
                         </div>
