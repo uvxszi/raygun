@@ -47,9 +47,12 @@ type VideoPlayerState = {
   showSources: number;
   /** The link loading was picked in Sources, not tried in turn. */
   pickedSource: boolean;
+  /** Loop this video (More): on until the player closes, across a session's episodes. */
+  looping: boolean;
   openWith: (request: PlayerRequest) => void;
   apply: (update: PlayerUpdate) => void;
   setNotice: (notice: Notice | null) => void;
+  setLooping: (looping: boolean) => void;
   close: () => void;
 };
 
@@ -106,6 +109,7 @@ const CLOSED = {
   chapters: [],
   showSources: 0,
   pickedSource: false,
+  looping: false,
 } satisfies Partial<VideoPlayerState>;
 
 /** The webview's video player (desktop, M46.4), driven by Rust's `videoPlayerEvent`s. */
@@ -171,6 +175,7 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
       }
     }),
   setNotice: (notice) => set({ notice }),
+  setLooping: (looping) => set({ looping }),
   close: () => set(CLOSED),
 }));
 

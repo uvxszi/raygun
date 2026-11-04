@@ -347,6 +347,10 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             }
             sheet.row(label("quality", "Quality"), quality) { quality() }
         }
+        sheet.row(label("loop", "Loop this video"), selected = host.looping) {
+            host.toggleLoop()
+            more()
+        }
         sheet.row(label("sleepTimer", "Sleep timer"), host.sleepNote() ?: label("off", "Off")) { sleep() }
         sheet.row(label("screenshot", "Screenshot")) { screenshot() }
         sheet.row(label("openElsewhere", "Open in another app")) {

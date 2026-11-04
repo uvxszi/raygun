@@ -345,4 +345,92 @@ describe('desktop video player', () => {
       screen.queryByRole('dialog', { name: 'Trailer · Hazbin Hotel' }),
     ).not.toBeInTheDocument();
   });
+
+  it('loops a video from the More menu without ending, moving on or finishing it', async () => {
+    const user = userEvent.setup();
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play');
+    await AppShellWrapper.mount('/');
+    open({ session: true, id: '', title: 'The Show', autoplay: true, nextPromptMs: 15_000 });
+    update({
+      type: 'episodes',
+      items: [
+        { label: 'S1E1 · Pilot', watched: false, downloaded: false, current: true },
+        { label: 'S1E2 · Two', watched: false, downloaded: false, current: false },
+      ],
+      hasNext: true,
+      hasPrevious: false,
+      autoplay: true,
+    });
+    update({
+      type: 'load',
+      request: { ...MOVIE, id: 'ep1', title: 'The Show', titleState: null, startMs: 0 },
+    });
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    const video = (await within(player).findByTestId('desktop-video')) as HTMLVideoElement;
+    Object.defineProperty(video, 'duration', { value: 100, configurable: true });
+    fireEvent(video, new Event('loadedmetadata'));
+    video.currentTime = 95;
+    fireEvent(video, new Event('timeupdate'));
+    expect(within(player).getByText(/Next episode/)).toBeInTheDocument();
+    expect(video.loop).toBe(false);
+
+    await user.click(within(player).getByRole('button', { name: 'More' }));
+    const loop = screen.getByRole('menuitemcheckbox', { name: 'Loop this video' });
+    expect(loop).toHaveAttribute('aria-checked', 'false');
+    await user.click(loop);
+    expect(loop).toHaveAttribute('aria-checked', 'true');
+    // A file loops in the element itself: same decoder, no reload.
+    expect(video.loop).toBe(true);
+    expect(video).toHaveAttribute('src', MOVIE.url);
+    // No next-episode prompt while it loops.
+    expect(within(player).queryByText(/Next episode/)).not.toBeInTheDocument();
+
+    // Going round: the start is saved as progress, marked as looping, never as a finish.
+    commands.videoPlayerReport.mockClear();
+    video.currentTime = 99.5;
+    fireEvent(video, new Event('timeupdate'));
+    video.currentTime = 0.1;
+    fireEvent(video, new Event('timeupdate'));
+    expect(reports()).toContainEqual(
+      expect.objectContaining({ id: 'ep1', state: 'progress', looping: true }),
+    );
+
+    // A stream's end (Media Source) goes back to the start of the same source.
+    play.mockClear();
+    video.currentTime = 100;
+    fireEvent(video, new Event('ended'));
+    expect(video.currentTime).toBe(0);
+    expect(play).toHaveBeenCalled();
+    expect(video).toHaveAttribute('src', MOVIE.url);
+    expect(reports()).not.toContainEqual(expect.objectContaining({ state: 'ended' }));
+    expect(reports()).not.toContainEqual(expect.objectContaining({ action: 'next' }));
+
+    // Off again: the end moves on as before.
+    await user.click(loop);
+    expect(loop).toHaveAttribute('aria-checked', 'false');
+    expect(video.loop).toBe(false);
+    fireEvent(video, new Event('ended'));
+    expect(reports()).toContainEqual(expect.objectContaining({ state: 'ended', looping: false }));
+    expect(reports()).toContainEqual(expect.objectContaining({ action: 'next' }));
+  });
+
+  it('forgets looping when the player closes', async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/');
+    open(MOVIE);
+    const player = await screen.findByRole('dialog', { name: 'Video player' });
+    await user.click(within(player).getByRole('button', { name: 'More' }));
+    await user.click(screen.getByRole('menuitemcheckbox', { name: 'Loop this video' }));
+    await user.click(within(player).getByRole('button', { name: 'Close the player' }));
+
+    open(MOVIE);
+    const again = await screen.findByRole('dialog', { name: 'Video player' });
+    const video = (await within(again).findByTestId('desktop-video')) as HTMLVideoElement;
+    expect(video.loop).toBe(false);
+    await user.click(within(again).getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Loop this video' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
 });
