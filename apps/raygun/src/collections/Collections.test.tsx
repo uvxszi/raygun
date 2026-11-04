@@ -212,11 +212,23 @@ describe('Favorites and playlists', () => {
       order: ['nina simone|one', 'nina simone|two', 'nina simone|three'],
     });
 
-    // Edit opens its options; the rows' move and remove buttons are one of them (M46.46).
+    // Rows have no grips outside edit mode (M46.49).
+    expect(
+      within(page).queryByRole('button', { name: 'Drag to move One' }),
+    ).not.toBeInTheDocument();
+    // Edit opens its options; edit mode is one of them (M46.46), shared with the table's button.
     await userEvent.click(within(page).getByRole('button', { name: 'Edit' }));
     const options = await screen.findByTestId('playlist-edit');
-    await userEvent.click(within(options).getByRole('switch', { name: 'Move and remove buttons' }));
+    // A sheet of its own on the page's body, never inside the scrolling list (M46.49).
+    expect(within(page).queryByTestId('playlist-edit')).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Edit playlist' })).toContainElement(options);
+    await userEvent.click(within(options).getByRole('switch', { name: 'Edit songs' }));
     await userEvent.keyboard('{Escape}');
+    expect(within(page).getByRole('button', { name: 'Done' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(page).getByRole('button', { name: 'Drag to move One' })).toBeInTheDocument();
     expect(within(page).getByRole('button', { name: 'Move One up' })).toBeDisabled();
     await userEvent.click(within(page).getByRole('button', { name: 'Move One down' }));
     expect(commands.playlistMoveItem).toHaveBeenCalledWith('i1', 'i3');
@@ -224,6 +236,48 @@ describe('Favorites and playlists', () => {
     expect(commands.playlistMoveItem).toHaveBeenLastCalledWith('i3', 'i2');
     await userEvent.click(within(page).getByRole('button', { name: 'Remove Two' }));
     expect(commands.playlistRemoveItem).toHaveBeenCalledWith('i2');
+  });
+
+  it('favorites a selection in one call, or takes it out when all are favorites', async () => {
+    showPlaylist();
+    commands.collectionsSavedIndex.mockResolvedValue(
+      ok(
+        ['one', 'two', 'three'].map((title) => ({
+          trackKey: `nina simone|${title}`,
+          songKeys: [`nina simone|${title}`],
+          favorite: title !== 'three',
+          playlistIds: ['p1'],
+        })),
+      ),
+    );
+    await AppShellWrapper.mount('/library/playlist?id=p1');
+    const page = await screen.findByTestId('playlist-page');
+    await userEvent.click(within(page).getByRole('button', { name: 'Select all' }));
+    const bar = within(page).getByRole('toolbar', { name: 'Selected songs' });
+    await userEvent.click(within(bar).getByRole('button', { name: 'Favorite' }));
+    expect(commands.favoritesSetMany).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ title: 'One' }),
+        expect.objectContaining({ title: 'Two' }),
+        expect.objectContaining({ title: 'Three' }),
+      ],
+      true,
+    );
+
+    // Two picked, both favorites already: the bar offers to take them out.
+    await userEvent.click(within(bar).getByRole('button', { name: 'Clear the selection' }));
+    const rows = within(page).getAllByTestId('track-table-row');
+    const user = userEvent.setup();
+    await user.click(rows[0] as HTMLElement);
+    await user.keyboard('{Control>}');
+    await user.click(rows[1] as HTMLElement);
+    await user.keyboard('{/Control}');
+    const picked = within(page).getByRole('toolbar', { name: 'Selected songs' });
+    await userEvent.click(within(picked).getByRole('button', { name: 'Remove from favorites' }));
+    expect(commands.favoritesSetMany).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ title: 'One' }), expect.objectContaining({ title: 'Two' })],
+      false,
+    );
   });
 
   it('lists playlists and favorites in the library without any folders', async () => {

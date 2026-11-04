@@ -558,6 +558,8 @@ export const commands = {
 	/**  Whether a track (by its artist and title) is a favorite. */
 	favoriteGet: (track: TrackInput) => typedError<boolean, string>(__TAURI_INVOKE("favorite_get", { track })),
 	favoriteSet: (track: TrackInput, favorite: boolean) => typedError<null, string>(__TAURI_INVOKE("favorite_set", { track, favorite })),
+	/**  Favorites several songs, or takes them all out of Favorites, in one call (M46.49). */
+	favoritesSetMany: (tracks: TrackInput[], favorite: boolean) => typedError<null, string>(__TAURI_INVOKE("favorites_set_many", { tracks, favorite })),
 	playlistsList: () => typedError<PlaylistSummary[], string>(__TAURI_INVOKE("playlists_list")),
 	playlistGet: (id: string) => typedError<PlaylistDetail, string>(__TAURI_INVOKE("playlist_get", { id })),
 	playlistCreate: (name: string) => typedError<PlaylistSummary, string>(__TAURI_INVOKE("playlist_create", { name })),

@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
 import type { FC, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { Popover } from './Popover';
@@ -56,7 +57,8 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
     return () => document.removeEventListener('keydown', escape);
   }, [onClose]);
 
-  return (
+  // On the document's body, so a transformed or scrolling ancestor never carries it along.
+  return createPortal(
     <div
       className="motion-fade fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
       onPointerDown={(event) => {
@@ -88,6 +90,7 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };

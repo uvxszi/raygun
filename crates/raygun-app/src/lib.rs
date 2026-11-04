@@ -243,6 +243,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::song_downloaded_keys,
             commands::favorite_get,
             commands::favorite_set,
+            commands::favorites_set_many,
             commands::playlists_list,
             commands::playlist_get,
             commands::playlist_create,

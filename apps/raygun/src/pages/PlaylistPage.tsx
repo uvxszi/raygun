@@ -11,6 +11,7 @@ import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
 import { Sheet } from '../shell/Sheet';
 import { TextField } from '../shell/TextField';
+import { useCoarsePointer } from '../shell/useWideScreen';
 import { DetailEditForm } from '../music/DetailEditForm';
 
 import { PlayButtons } from '../collections/PlayButtons';
@@ -76,7 +77,8 @@ const EditControls: FC<{ items: PlaylistItem[]; index: number }> = ({ items, ind
 };
 
 /**
- * The Edit popover (M46.46): rename, change cover, the rows' move and remove buttons, delete.
+ * The Edit popover (M46.46): rename, change cover, edit mode (grips, move and remove buttons),
+ * delete.
  */
 const PlaylistSettings: FC<{
   detail: PlaylistDetail;
@@ -212,6 +214,8 @@ export const PlaylistPage: FC = () => {
   const reorder = useReorderPlaylist(id);
   const [editing, setEditing] = useState(false);
   const [editAnchor, setEditAnchor] = useState<HTMLElement | null>(null);
+  // On touch screens the Edit sheet stands on its own, never tied to the list (M46.49).
+  const touch = useCoarsePointer();
 
   if (playlist.error) {
     return (
@@ -282,7 +286,7 @@ export const PlaylistPage: FC = () => {
       {editAnchor && (
         <Sheet
           title={t('collections.editPlaylist')}
-          anchor={editAnchor}
+          anchor={touch ? null : editAnchor}
           popoverWidth={360}
           onClose={() => setEditAnchor(null)}
         >
@@ -296,6 +300,8 @@ export const PlaylistPage: FC = () => {
           kind="playlist"
           tracks={detail.items.map((item) => savedRow(item.track, item.id, item.id))}
           onReorder={(change) => reorder.mutate(change)}
+          editing={editing}
+          onEditingChange={setEditing}
           // A sorted or filtered table plays in the order it shows (M46.8).
           onPlay={(ordered, index) =>
             void playCollection({

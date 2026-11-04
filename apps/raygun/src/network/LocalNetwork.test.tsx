@@ -30,7 +30,7 @@ const addAddonByAddress = async (user: ReturnType<typeof userEvent.setup>, addre
   const page = await screen.findByTestId('watch-addons-page');
   // The top bar's "+" opens the address sheet; the addon is looked at before it's added.
   await user.click(within(page).getByRole('button', { name: 'Add an addon by its address' }));
-  const sheet = await within(page).findByRole('dialog', { name: 'Add an addon by its address' });
+  const sheet = await screen.findByRole('dialog', { name: 'Add an addon by its address' });
   await user.type(
     within(sheet).getByRole('textbox', { name: 'Add an addon by its address' }),
     address,
