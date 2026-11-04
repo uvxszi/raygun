@@ -8,9 +8,12 @@
 pub mod ocr;
 pub mod parse;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use raygun_model::{ImportedList, ImportedSong, MatchedSong, MediaSource, TrackInput, TrackQuery};
+use raygun_model::{
+    ImportedList, ImportedSong, JoinedSong, MatchedSong, MediaSource, TrackInput, TrackQuery,
+};
 use raygun_resolver::{Candidate, History, MIN_SCORE, artist_agrees, score};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -24,6 +27,8 @@ use crate::uploads::Uploads;
 const EMBED_LIMIT: usize = 100;
 /// Songs matched at once.
 const MATCH_TOGETHER: usize = 4;
+/// Split rows the sources are asked about per import, at most (three searches each).
+const SPLIT_CHECKS: usize = 24;
 
 pub struct ImportService {
     app: AppHandle,
@@ -75,6 +80,7 @@ impl ImportService {
             artwork_url: list.artwork_url,
             songs: list.songs,
             capped,
+            joined: Vec::new(),
         })
     }
 
@@ -100,6 +106,7 @@ impl ImportService {
             artwork_url: None,
             songs,
             capped: false,
+            joined: Vec::new(),
         })
     }
 
@@ -125,7 +132,13 @@ impl ImportService {
     }
 
     /// Songs in screenshots of song lists, uploaded first (`upload_*`), in the pictures' order.
-    pub async fn read_screenshots(&self, upload_ids: Vec<String>) -> Result<ImportedList, String> {
+    /// With `join_split`, an artist line read as a row of its own is joined back to the song
+    /// above it (`parse::split_rows`); when the layout leaves it open, the sources decide.
+    pub async fn read_screenshots(
+        &self,
+        upload_ids: Vec<String>,
+        join_split: bool,
+    ) -> Result<ImportedList, String> {
         let models = if ocr::built_in() {
             None
         } else {
@@ -137,7 +150,7 @@ impl ImportService {
             )
         };
         let uploads = self.app.state::<Uploads>();
-        let mut songs: Vec<ImportedSong> = Vec::new();
+        let mut pictures: Vec<Vec<parse::ScreenRow>> = Vec::new();
         for id in upload_ids {
             let path = uploads.take(&id)?;
             let bytes = tokio::fs::read(&path)
@@ -149,13 +162,38 @@ impl ImportService {
                 .await
                 .map_err(|error| error.to_string())??;
             tracing::info!(lines = lines.len(), "read a screenshot");
-            for song in parse::screenshot_rows(lines) {
-                if !songs
+            pictures.push(parse::screenshot_layout(lines));
+        }
+        // Artists the pictures' whole rows name.
+        let known: HashSet<String> = pictures
+            .iter()
+            .flatten()
+            .filter_map(|row| row.song.artist.as_deref())
+            .map(raygun_resolver::normalize)
+            .collect();
+        let mut songs: Vec<ImportedSong> = Vec::new();
+        let mut joined: Vec<JoinedSong> = Vec::new();
+        let mut checks_left = SPLIT_CHECKS;
+        for rows in pictures {
+            let joins = if join_split {
+                self.joins(&rows, &known, &mut checks_left).await
+            } else {
+                Vec::new()
+            };
+            for (song, parts) in parse::join_rows(rows, &joins) {
+                if songs
                     .iter()
                     .any(|known| known.title == song.title && known.artist == song.artist)
                 {
-                    songs.push(song);
+                    continue;
                 }
+                if let Some(parts) = parts {
+                    joined.push(JoinedSong {
+                        index: songs.len() as u32,
+                        parts,
+                    });
+                }
+                songs.push(song);
             }
         }
         if songs.is_empty() {
@@ -169,7 +207,72 @@ impl ImportService {
             artwork_url: None,
             songs,
             capped: false,
+            joined,
         })
+    }
+
+    /// The rows of a screenshot to join to the row under them: the sure ones, and the unsure ones
+    /// whose joined reading the sources know better (at most `checks_left` of those asked).
+    async fn joins(
+        &self,
+        rows: &[parse::ScreenRow],
+        known: &HashSet<String>,
+        checks_left: &mut usize,
+    ) -> Vec<usize> {
+        let calls = parse::split_rows(rows, known);
+        let mut joins: Vec<usize> = calls
+            .iter()
+            .filter(|(_, call)| *call == parse::SplitCall::Join)
+            .map(|(at, _)| *at)
+            .collect();
+        let unsure: Vec<usize> = calls
+            .iter()
+            .filter(|(_, call)| *call == parse::SplitCall::Unsure)
+            .map(|(at, _)| *at)
+            .take(*checks_left)
+            .collect();
+        *checks_left -= unsure.len();
+        for group in unsure.chunks(MATCH_TOGETHER) {
+            let answers = futures_util::future::join_all(group.iter().map(|at| {
+                let (title, artist) = (&rows[*at].song.title, &rows[*at + 1].as_artist);
+                self.joined_reading_wins(title, artist)
+            }))
+            .await;
+            joins.extend(
+                group
+                    .iter()
+                    .zip(answers)
+                    .filter(|(_, wins)| *wins)
+                    .map(|(at, _)| *at),
+            );
+        }
+        joins
+    }
+
+    /// Searches the sources for both readings of two rows, "title by artist" or two songs, and
+    /// says whether the joined one matches better (scored by the resolver).
+    async fn joined_reading_wins(&self, title: &str, artist: &str) -> bool {
+        let extensions = self.extensions();
+        let query = |title: &str, artist: Option<&str>| TrackQuery {
+            title: title.to_owned(),
+            artist: artist.map(str::to_owned),
+            album: None,
+            duration_ms: None,
+        };
+        let readings = [
+            query(title, Some(artist)),
+            query(title, None),
+            query(artist, None),
+        ];
+        let (joined, title_alone, artist_alone) = tokio::join!(
+            find_song(&extensions, &readings[0]),
+            find_song(&extensions, &readings[1]),
+            find_song(&extensions, &readings[2]),
+        );
+        let points = |found: Option<(i32, String, raygun_model::OnlineTrack)>| {
+            found.map(|(points, _, _)| points)
+        };
+        parse::joined_reading_wins(points(joined), points(title_alone), points(artist_alone))
     }
 
     /// Matches songs against the music sources, a few at a time; each comes back with what the
@@ -620,6 +723,9 @@ mod tests {
                 line.y, line.x, line.height, line.text
             );
         }
+        let rows = super::parse::screenshot_layout(lines.clone());
+        let calls = super::parse::split_rows(&rows, &Default::default());
+        println!("split rows: {calls:?}");
         let songs = super::parse::screenshot_rows(lines);
         for song in &songs {
             println!("{:?} — {:?}", song.title, song.artist);

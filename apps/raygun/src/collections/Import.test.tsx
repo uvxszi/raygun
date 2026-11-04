@@ -23,6 +23,7 @@ const list = (songs: ImportedSong[], capped = false): ImportedList => ({
   artworkUrl: null,
   songs,
   capped,
+  joined: [],
 });
 
 const SONGS = [song('Loser', 'Tame Impala'), song('Housewife', 'Tate McRae')];
@@ -217,6 +218,58 @@ describe('Importing songs', () => {
     await user.click(within(sheet).getByRole('button', { name: 'Read songs' }));
     expect(commands.importReadText).toHaveBeenCalledWith('Tame Impala - Loser', null);
     expect(await within(sheet).findByTestId('import-review')).toBeInTheDocument();
+  });
+
+  it('reads screenshots joining split rows, and splits a joined row back', async () => {
+    const user = userEvent.setup();
+    const titleOnly = (title: string): ImportedSong => ({ ...song(title, ''), artist: null });
+    commands.importReadScreenshots.mockResolvedValue(
+      ok({
+        ...list([song('Espresso', 'Sabrina Carpenter'), song('Loser', 'Tame Impala')]),
+        joined: [{ index: 0, parts: [titleOnly('Espresso'), titleOnly('Sabrina Carpenter')] }],
+      }),
+    );
+    await AppShellWrapper.mount('/library?view=playlists');
+    await user.click(await screen.findByRole('button', { name: 'Import songs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
+    await user.click(within(sheet).getByRole('tab', { name: 'Screenshots' }));
+    await user.upload(
+      within(sheet).getByLabelText('Choose screenshots'),
+      new File(['png'], 'shot.png', { type: 'image/png' }),
+    );
+    const join = within(sheet).getByRole('checkbox', { name: 'Join split titles and artists' });
+    expect(join).toBeChecked();
+    await user.click(within(sheet).getByRole('button', { name: 'Read 1 screenshot' }));
+    expect(commands.importReadScreenshots).toHaveBeenCalledWith(['upload-1'], true);
+
+    const review = await within(sheet).findByTestId('import-review');
+    expect(within(review).getAllByText('Joined')).toHaveLength(1);
+    await user.click(
+      within(review).getByRole('button', { name: 'Split Espresso back into two songs' }),
+    );
+    expect(within(review).queryByText('Joined')).not.toBeInTheDocument();
+    const titles = within(review)
+      .getAllByRole('textbox', { name: 'Song title' })
+      .map((field) => (field as HTMLInputElement).value);
+    expect(titles).toEqual(['Espresso', 'Sabrina Carpenter', 'Loser']);
+  });
+
+  it('reads screenshots as read when joining is off', async () => {
+    const user = userEvent.setup();
+    commands.importReadScreenshots.mockResolvedValue(ok(list(SONGS)));
+    await AppShellWrapper.mount('/library?view=playlists');
+    await user.click(await screen.findByRole('button', { name: 'Import songs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
+    await user.click(within(sheet).getByRole('tab', { name: 'Screenshots' }));
+    await user.upload(
+      within(sheet).getByLabelText('Choose screenshots'),
+      new File(['png'], 'shot.png', { type: 'image/png' }),
+    );
+    await user.click(
+      within(sheet).getByRole('checkbox', { name: 'Join split titles and artists' }),
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Read 1 screenshot' }));
+    expect(commands.importReadScreenshots).toHaveBeenCalledWith(['upload-1'], false);
   });
 
   it('offers to download the text reader before reading screenshots', async () => {

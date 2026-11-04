@@ -3097,6 +3097,16 @@ pub struct ImportedList {
     pub songs: Vec<ImportedSong>,
     /// The source shared only part of the list (Spotify's embed stops at 100 songs).
     pub capped: bool,
+    /// Songs made by joining a screenshot row with the artist line read as a row of its own.
+    pub joined: Vec<JoinedSong>,
+}
+
+/// A song of an `ImportedList` joined from two screenshot rows, and the rows as they were read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinedSong {
+    pub index: u32,
+    pub parts: Vec<ImportedSong>,
 }
 
 /// A song after matching it against the music sources: what the best match added to it, which

@@ -1539,14 +1539,16 @@ pub async fn import_prepare_reader(
     import.prepare_reader().await
 }
 
-/// Songs in uploaded screenshots of song lists (M46.21).
+/// Songs in uploaded screenshots of song lists (M46.21); `join_split` joins artist lines read as
+/// rows of their own back to their songs.
 #[tauri::command]
 #[specta::specta]
 pub async fn import_read_screenshots(
     import: tauri::State<'_, crate::import::ImportService>,
     upload_ids: Vec<String>,
+    join_split: bool,
 ) -> Result<raygun_model::ImportedList, String> {
-    import.read_screenshots(upload_ids).await
+    import.read_screenshots(upload_ids, join_split).await
 }
 
 /// The folders in Local Files and what each holds (M46.27).

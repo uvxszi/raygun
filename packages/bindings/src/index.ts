@@ -319,8 +319,11 @@ export const commands = {
 	importReaderReady: () => __TAURI_INVOKE<boolean>("import_reader_ready"),
 	/**  Downloads the text reader for screenshots where it isn't built in (M46.21). */
 	importPrepareReader: () => typedError<null, string>(__TAURI_INVOKE("import_prepare_reader")),
-	/**  Songs in uploaded screenshots of song lists (M46.21). */
-	importReadScreenshots: (uploadIds: string[]) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_screenshots", { uploadIds })),
+	/**
+	 *  Songs in uploaded screenshots of song lists (M46.21); `join_split` joins artist lines read as
+	 *  rows of their own back to their songs.
+	 */
+	importReadScreenshots: (uploadIds: string[], joinSplit: boolean) => typedError<ImportedList, string>(__TAURI_INVOKE("import_read_screenshots", { uploadIds, joinSplit })),
 	/**  Matches imported songs against the music sources (M46.21). */
 	importMatch: (songs: ImportedSong[]) => typedError<MatchedSong[], string>(__TAURI_INVOKE("import_match", { songs })),
 	/**
@@ -2302,6 +2305,8 @@ export type ImportedList = {
 	songs: ImportedSong[],
 	/**  The source shared only part of the list (Spotify's embed stops at 100 songs). */
 	capped: boolean,
+	/**  Songs made by joining a screenshot row with the artist line read as a row of its own. */
+	joined: JoinedSong[],
 };
 
 /**  A song read from a link, a file, pasted text or a screenshot. */
@@ -2341,6 +2346,12 @@ export type InstallKind =
 "android" | 
 /**  Anything else (Linux, macOS, a development build): the release page. */
 "other";
+
+/**  A song of an `ImportedList` joined from two screenshot rows, and the rows as they were read. */
+export type JoinedSong = {
+	index: number,
+	parts: ImportedSong[],
+};
 
 /**  One entry of a list the user arranges (M46.5): a tab, a section, a chip, a menu entry. */
 export type LayoutItem = {
