@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Raygun's mark as the small icon of every notification: Android draws small icons as a
+  single-colour silhouette, so this is the logo's shapes in white (the bars, and the R with its
+  play hole and core), from apps/raygun/src-tauri/icons/source/raygun_r_icon_transparent.svg.
+  White on transparent, as Android requires.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="640"
+    android:viewportHeight="640">
+    <group
+        android:translateX="-177"
+        android:translateY="-181">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M242,340a22,22 0,0 1,22 22v288a22,22 0,0 1,-44 0v-288a22,22 0,0 1,22 -22z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M308,272a22,22 0,0 1,22 22v424a22,22 0,0 1,-44 0v-424a22,22 0,0 1,22 -22z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M375,214a23,23 0,0 1,23 23v528a23,23 0,0 1,-46 0v-528a23,23 0,0 1,23 -23z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M422,254.58A24,24 0,0 1,457.56 233.55L760.02,399.82A28,28 0,0 1,760.32 448.72L604.41,536.98A12,12 0,0 0,601.04 555.03L762.54,752.05A22,22 0,0 1,745.52 788L654.57,788A22,22 0,0 1,637.39 779.74L473.4,574.76A18,18 0,0 0,459.35 568L444,568A22,22 0,0 1,422 546Z M498,355.63A14,14 0,0 1,518.72 343.35L643.58,411.72A14,14 0,0 1,643.58 436.28L518.72,504.65A14,14 0,0 1,498 492.37Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M520,379.5A8,8 0,0 1,531.84 372.48L613.17,416.98A8,8 0,0 1,613.17 431.02L531.84,475.52A8,8 0,0 1,520 468.5Z" />
+    </group>
+</vector>

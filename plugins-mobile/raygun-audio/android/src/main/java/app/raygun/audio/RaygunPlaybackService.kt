@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -163,6 +164,11 @@ class RaygunPlaybackService : MediaSessionService() {
             shown.add(RaygunSessionPlayer(player, ::fromRaygun))
         }
         mirror = MirrorPlayer(this)
+        // Raygun's mark as the small icon. Media3's own default (a play button in a circle) is a
+        // values alias that a drawable of the same name doesn't reliably replace, so it's named.
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this).build().apply { setSmallIcon(R.drawable.ic_stat_raygun) },
+        )
         val builder = MediaSession.Builder(this, shown[0])
         // Tapping the notification opens the full player.
         openRaygunIntent(this, "player")?.let(builder::setSessionActivity)
