@@ -1,27 +1,15 @@
-import { commands } from '@raygun/bindings';
-import { useQuery } from '@tanstack/react-query';
 import { ArrowDownCircle, ArrowDownToLine, CircleCheck } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { COLLECTIONS } from '../collections/useCollections';
-import { unwrapResult } from '../lib/commandResult';
+import { useSongSaves } from '../collections/savedSongs';
 import { trackKey } from './trackKey';
 import { useDownloadedKeys, useDownloadingKeys } from './useSongDownloads';
 
-/** Keys of every saved song (Favorites or a playlist), refreshed with the collections. */
-const useSavedKeys = () => {
-  const keys = useQuery({
-    queryKey: [COLLECTIONS, 'savedKeys'],
-    queryFn: () => unwrapResult(commands.collectionsSavedKeys()),
-    staleTime: 60_000,
-  });
-  return new Set(keys.data ?? []);
-};
-
 /**
- * A song's marks beside its title, in every list (M46.45): saved (in Favorites or a playlist),
- * downloaded, and on its way (M46.46). The shell listens for download changes once for all.
+ * A song's marks beside its title, in every list (M46.45): saved (in Favorites or a playlist,
+ * under whatever names it was saved with, M46.48), downloaded, and on its way (M46.46). The shell
+ * listens for download changes once for all.
  */
 export const SongMarks: FC<{
   title: string;
@@ -30,13 +18,13 @@ export const SongMarks: FC<{
   trackKey?: string;
 }> = ({ title, artist, trackKey: known }) => {
   const { t } = useTranslation();
-  const saved = useSavedKeys();
+  const saves = useSongSaves({ title, artist }, known);
   const downloaded = useDownloadedKeys(false);
   const downloading = useDownloadingKeys();
   const keys = [trackKey(title, artist), ...(known ? [known] : [])];
   return (
     <>
-      {keys.some((key) => saved.has(key)) && (
+      {saves?.saved && (
         <CircleCheck
           role="img"
           aria-label={t('songs.saved')}

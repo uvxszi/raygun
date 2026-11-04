@@ -101,11 +101,15 @@ describe('Playing like a power user', () => {
     const panel = screen.getByRole('complementary', { name: 'Queue' });
     await user.click(within(panel).getByRole('button', { name: 'Save as playlist' }));
     await vi.waitFor(() =>
-      expect(commands.playlistAdd).toHaveBeenCalledWith('p9', [
-        expect.objectContaining({ title: 'Intro' }),
-        expect.objectContaining({ title: 'Second' }),
-        expect.objectContaining({ title: 'Third' }),
-      ]),
+      expect(commands.playlistAdd).toHaveBeenCalledWith(
+        'p9',
+        [
+          expect.objectContaining({ title: 'Intro' }),
+          expect.objectContaining({ title: 'Second' }),
+          expect.objectContaining({ title: 'Third' }),
+        ],
+        false,
+      ),
     );
     expect(await within(panel).findByText(/^Saved as/)).toBeInTheDocument();
   });

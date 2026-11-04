@@ -6,7 +6,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
 import { PlaylistCover } from './PlaylistCover';
-import { useCreatePlaylist, usePlaylists, useSetTrackSaves, useTrackSaves } from './useCollections';
+import { useSongSaves } from './savedSongs';
+import { useCreatePlaylist, usePlaylists, useSetTrackSaves } from './useCollections';
 
 const CHECK = 'grid size-5 shrink-0 place-items-center rounded-full border-2 transition-colors';
 
@@ -206,6 +207,7 @@ const SaveSheet: FC<{
 /**
  * Saving a song (M46.8), Spotify's way: a Plus that adds it to Favorites at once and opens the
  * Add to playlist popover; a check once it's saved anywhere, which opens the popover to change it.
+ * Where it's saved comes from the one list of saved songs, matched by the names shown (M46.48).
  */
 export const SaveButton: FC<{ track: TrackInput; compact?: boolean; className?: string }> = ({
   track,
@@ -213,11 +215,14 @@ export const SaveButton: FC<{ track: TrackInput; compact?: boolean; className?: 
   className = '',
 }) => {
   const { t } = useTranslation();
-  const saves = useTrackSaves(track);
+  const found = useSongSaves(track);
   const save = useSetTrackSaves();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const current = saves.data;
-  const saved = current ? current.favorite || current.playlistIds.length > 0 : false;
+  const current: TrackSaves | undefined = found && {
+    favorite: found.favorite,
+    playlistIds: found.playlistIds,
+  };
+  const saved = found?.saved ?? false;
   const size = compact ? 18 : 22;
 
   const press = (button: HTMLElement) => {

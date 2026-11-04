@@ -215,6 +215,11 @@ export const commands = {
 } | null, string>(__TAURI_INVOKE("song_download_for", { track })),
 	/**  Where a song is saved: Favorites and the playlists holding it (M46.8). */
 	collectionsSaves: (track: TrackInput) => typedError<TrackSaves, string>(__TAURI_INVOKE("collections_saves", { track })),
+	/**
+	 *  Every saved song with the keys it answers to and where it's saved (M46.48): what lists'
+	 *  saved marks and Save buttons read, matching a shown song with `sameSong`.
+	 */
+	collectionsSavedIndex: () => typedError<SavedSong[], string>(__TAURI_INVOKE("collections_saved_index")),
 	/**  Saves a song exactly where `saves` says (the Add to playlist popover's Done, M46.8). */
 	collectionsSetSaves: (track: TrackInput, saves: TrackSaves) => typedError<null, string>(__TAURI_INVOKE("collections_set_saves", { track, saves })),
 	/**  An artist's page: popular songs from the sources, and the library's albums and songs by them. */
@@ -279,11 +284,22 @@ export const commands = {
 	localFoldersRescan: () => typedError<null, string>(__TAURI_INVOKE("local_folders_rescan")),
 	/**
 	 *  Saves imported songs as a new playlist, into one, or into Favorites; returns the playlist's
-	 *  id or `favorites` (M46.21, M46.45).
+	 *  id or `favorites` (M46.21, M46.45). Songs already there stay out unless `add_existing`.
 	 */
-	importSave: (target: ImportTarget, songs: MatchedSong[]) => typedError<string, string>(__TAURI_INVOKE("import_save", { target, songs })),
+	importSave: (target: ImportTarget, songs: MatchedSong[], addExisting: boolean) => typedError<string, string>(__TAURI_INVOKE("import_save", { target, songs, addExisting })),
 	/**  Gives every saved copy of a song the source the user picked (M46.31). */
 	trackAssignSource: (song: TrackInput, chosen: OnlineTrack) => typedError<null, string>(__TAURI_INVOKE("track_assign_source", { song, chosen })),
+	/**
+	 *  A source picked for a song (M46.48): with `choice.assign`, its stream for every saved copy,
+	 *  the queue and the resolver's remembered pick; the details `choice` ticks become the song's
+	 *  own (Edit details reverts them).
+	 */
+	trackUseSource: (song: TrackInput, chosen: OnlineTrack, choice: SourceChoice) => typedError<null, string>(__TAURI_INVOKE("track_use_source", { song, chosen, choice })),
+	/**
+	 *  Whether a saved song came in through Import songs, and whether no source had it then
+	 *  (M46.48: picking a source offers its details by default for those).
+	 */
+	trackImportStatus: (song: TrackInput) => typedError<TrackImportStatus, string>(__TAURI_INVOKE("track_import_status", { song })),
 	/**  Which saved songs no source had when imported (M46.31). */
 	tracksUnavailable: (keys: string[]) => typedError<string[], string>(__TAURI_INVOKE("tracks_unavailable", { keys })),
 	/**  The audiobooks in the library (M46.22). */
@@ -397,8 +413,11 @@ export const commands = {
 	playlistCreate: (name: string) => typedError<PlaylistSummary, string>(__TAURI_INVOKE("playlist_create", { name })),
 	playlistRename: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("playlist_rename", { id, name })),
 	playlistDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("playlist_delete", { id })),
-	/**  Appends tracks to the end of a playlist. */
-	playlistAdd: (id: string, tracks: TrackInput[]) => typedError<null, string>(__TAURI_INVOKE("playlist_add", { id, tracks })),
+	/**
+	 *  Appends tracks to the end of a playlist; songs it already holds stay out unless `duplicates`
+	 *  (Add anyway, M46.48).
+	 */
+	playlistAdd: (id: string, tracks: TrackInput[], duplicates: boolean) => typedError<PlaylistAdded, string>(__TAURI_INVOKE("playlist_add", { id, tracks, duplicates })),
 	playlistRemoveItem: (itemId: string) => typedError<null, string>(__TAURI_INVOKE("playlist_remove_item", { itemId })),
 	/**  Moves an item before another one, or to the end when `before_item_id` is null. */
 	playlistMoveItem: (itemId: string, beforeItemId: string | null) => typedError<null, string>(__TAURI_INVOKE("playlist_move_item", { itemId, beforeItemId })),
@@ -2808,6 +2827,15 @@ export type PlayerViewPrefs = {
 	background?: boolean,
 };
 
+/**
+ *  What adding songs to a playlist did (M46.48): songs it already held stay out unless they're
+ *  added anyway.
+ */
+export type PlaylistAdded = {
+	added: number,
+	already: number,
+};
+
 export type PlaylistDetail = {
 	playlist: PlaylistSummary,
 	items: PlaylistItem[],
@@ -3088,6 +3116,18 @@ export type SavePrefs = {
 	pagesPerTitle?: boolean,
 	/**  How finished song downloads are also written out, when they are (M46.10). */
 	songFormat?: AudioFileFormat,
+};
+
+/**
+ *  A saved song as lists mark it (M46.48): the key it's stored under, every key its copies answer
+ *  to (their names', and the names they show with the user's details), and where it's saved.
+ *  `music/trackKey.ts` finds a shown song among them with `sameSong`.
+ */
+export type SavedSong = {
+	trackKey: string,
+	songKeys: string[],
+	favorite: boolean,
+	playlistIds: string[],
 };
 
 /**
@@ -3379,6 +3419,21 @@ export type SoundPrefs = {
 	normalizeTarget?: number,
 	/**  How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]). */
 	crossfadeMs?: number,
+};
+
+/**
+ *  What picking a source for a song does (M46.48): with `assign`, every saved copy, the queue
+ *  and the resolver's remembered pick take its stream (the download mode only downloads from
+ *  it); the details ticked become the song's own (Edit details reverts them). `source_name` is
+ *  the source's name, which the player shows the stream came from.
+ */
+export type SourceChoice = {
+	assign: boolean,
+	sourceName: string | null,
+	title: boolean,
+	artist: boolean,
+	album: boolean,
+	cover: boolean,
 };
 
 /**  A source that didn't answer, and why. */
@@ -3809,6 +3864,12 @@ export type TrackDuration = {
 
 /**  Song lengths Raygun just learned (M46.26). */
 export type TrackDurationsEvent = TrackDuration[];
+
+/**  Where a saved song came from (M46.48): Import songs, and whether no source had it then. */
+export type TrackImportStatus = {
+	imported: boolean,
+	unavailable: boolean,
+};
 
 /**  A track to save, from the player, the library or a search result. */
 export type TrackInput = {

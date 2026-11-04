@@ -14,6 +14,13 @@ import { playResults, useOnlineSearch } from '../search/useOnlineSearch';
 import { Sheet } from '../shell/Sheet';
 import { useSourcePickerStore } from './sourcePickerStore';
 import { SourceIssue } from '../shell/SourceIssue';
+import { differences, sourceChoice } from './sourcePick';
+import type { DetailField } from './sourcePick';
+import { SourcePickConfirm } from './SourcePickConfirm';
+
+/** A source's answer, and the details to take from it (M46.48). */
+type Picked = { track: OnlineTrack; source: string | undefined };
+type Confirmed = Picked & { ticked: ReadonlySet<DetailField> };
 
 /**
  * Find a source (M46.31): every source's answer for the song, with a preview, and Use this,
@@ -68,18 +75,40 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
           ),
         )?.provider.name,
     }));
+  const [picked, setPicked] = useState<Picked | null>(null);
   const downloadFrom = useMutation({
-    mutationFn: (chosen: { track: OnlineTrack; source: string | undefined }) =>
-      unwrapResult(commands.songDownloadUseSource(download ?? '', chosen.track)),
+    mutationFn: async (chosen: Confirmed) => {
+      await unwrapResult(commands.songDownloadUseSource(download ?? '', chosen.track));
+      // The details ticked become the song's (M46.48); the stream is only the download's.
+      if (chosen.ticked.size > 0) {
+        await unwrapResult(
+          commands.trackUseSource(
+            song,
+            chosen.track,
+            sourceChoice(false, chosen.source, chosen.ticked),
+          ),
+        );
+      }
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['songs'] });
+      void client.invalidateQueries({ queryKey: [COLLECTIONS] });
       onClose();
     },
   });
   const use = useMutation({
-    mutationFn: async (chosen: { track: OnlineTrack; source: string | undefined }) => {
-      await unwrapResult(commands.trackAssignSource(song, chosen.track));
-      if (!renamed || !names.title.trim()) return;
+    mutationFn: async (chosen: Confirmed) => {
+      // Every saved copy, the queue and the resolver take the stream (M46.48).
+      await unwrapResult(
+        commands.trackUseSource(
+          song,
+          chosen.track,
+          sourceChoice(true, chosen.source, chosen.ticked),
+        ),
+      );
+      const title = !chosen.ticked.has('title') && names.title.trim();
+      const artist = !chosen.ticked.has('artist');
+      if (!renamed || !title) return;
       // The fixed names show everywhere the song does (Edit details, M46.30).
       const target = {
         kind: 'song' as const,
@@ -89,16 +118,23 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
       await unwrapResult(
         commands.detailEditSet(target, {
           ...edit,
-          title: names.title.trim(),
-          artist: names.artist.trim() || null,
+          title,
+          ...(artist ? { artist: names.artist.trim() || null } : {}),
         }),
       );
     },
     onSuccess: () => {
+      setPicked(null);
       void client.invalidateQueries({ queryKey: [COLLECTIONS] });
       void client.invalidateQueries({ queryKey: ['unavailable'] });
+      void client.invalidateQueries({ queryKey: ['trackImportStatus'] });
     },
   });
+  // A pick whose details differ asks which to take first; others go at once.
+  const choose = (entry: Picked) => {
+    if (differences(song, entry.track).length > 0) setPicked(entry);
+    else (download ? downloadFrom : use).mutate({ ...entry, ticked: new Set() });
+  };
 
   return (
     <Sheet
@@ -106,8 +142,20 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
       onClose={onClose}
     >
       <div data-testid="source-picker" className="flex flex-col gap-3">
+        {picked && (
+          <SourcePickConfirm
+            song={song}
+            track={picked.track}
+            sourceName={picked.source}
+            confirmLabel={download ? t('sourcePicker.downloadFrom') : t('sourcePicker.useSource')}
+            busy={use.isPending || downloadFrom.isPending}
+            onConfirm={(ticked) => (download ? downloadFrom : use).mutate({ ...picked, ticked })}
+            onBack={() => setPicked(null)}
+          />
+        )}
+        {/* Kept while a pick is confirmed (hidden), so Back finds the list as it was. */}
         <form
-          className="flex flex-wrap items-center gap-2"
+          className={picked ? 'hidden' : 'flex flex-wrap items-center gap-2'}
           onSubmit={(event) => {
             event.preventDefault();
             setQuery([names.artist.trim(), names.title.trim()].filter(Boolean).join(' '));
@@ -136,16 +184,16 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
             {t('sourcePicker.search')}
           </button>
         </form>
-        {search.isPending && (
+        {search.isPending && !picked && (
           <p className="text-muted flex items-center gap-2 text-sm">
             <LoaderCircle aria-hidden size={14} className="animate-spin" />
             {t('sourcePicker.searching')}
           </p>
         )}
-        {search.isSuccess && ranked.length === 0 && (
+        {search.isSuccess && ranked.length === 0 && !picked && (
           <p className="text-muted text-sm">{t('sourcePicker.none')}</p>
         )}
-        <ul className="flex max-h-[50vh] flex-col overflow-y-auto">
+        <ul className={picked ? 'hidden' : 'flex max-h-[50vh] flex-col overflow-y-auto'}>
           {ranked.map((entry, index) => (
             <li key={`${entry.source ?? ''}-${index}`} className="flex items-center gap-2 py-1.5">
               <span className="flex min-w-0 flex-1 flex-col">
@@ -172,7 +220,7 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
                 <button
                   type="button"
                   disabled={downloadFrom.isPending}
-                  onClick={() => downloadFrom.mutate(entry)}
+                  onClick={() => choose(entry)}
                   className="bg-primary text-background rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-60"
                 >
                   {t('sourcePicker.downloadFrom')}
@@ -181,7 +229,7 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
                 <button
                   type="button"
                   disabled={use.isPending}
-                  onClick={() => use.mutate(entry)}
+                  onClick={() => choose(entry)}
                   className="bg-background rounded-full px-3 py-1 text-xs font-semibold"
                 >
                   {t('sourcePicker.use')}

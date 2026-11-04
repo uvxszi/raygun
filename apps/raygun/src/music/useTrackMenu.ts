@@ -4,7 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useFavorites } from '../collections/useCollections';
+import { savesIn, useSavedSongs } from '../collections/savedSongs';
 import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { trackKey } from './trackKey';
@@ -19,7 +19,7 @@ export const useTrackMenuItems = () => {
   const navigate = useNavigate();
   const client = useQueryClient();
   const downloaded = useDownloadedKeys(false);
-  const favorites = useFavorites();
+  const saved = useSavedSongs();
   return (track: TrackInput, extras: Extras, at: { x: number; y: number }): MenuItem[] => {
     const key = trackKey(track.title, track.artist);
     return trackMenu(track, {
@@ -28,7 +28,8 @@ export const useTrackMenuItems = () => {
       navigate: (target) => void navigate(target as never),
       at,
       downloaded: downloaded.has(key),
-      favorite: (favorites.data ?? []).some((saved) => saved.trackKey === key),
+      // Under whatever names it was favorited (M46.48).
+      favorite: saved.data ? savesIn(saved.data, track).favorite : false,
       ...extras,
     });
   };

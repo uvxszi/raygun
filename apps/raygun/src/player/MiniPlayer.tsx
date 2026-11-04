@@ -48,6 +48,7 @@ import { usePlayerUiStore } from './playerUiStore';
 import { onSeekKey } from './seekKeys';
 import { swipeAction } from './swipe';
 import { useSpokenItem } from './spoken';
+import { SkipNotice } from './SkipNotice';
 import { SpokenByline } from './SpokenByline';
 import { useLivePosition } from './useLivePosition';
 import { isActive, sendControl, sourceNote, useNowPlaying, useQueue } from './usePlayback';
@@ -85,6 +86,7 @@ export const MiniPlayer: FC = () => {
     <>
       <WideBar state={state} item={item} />
       <PlayingOn className="-mt-1 mx-2 mb-2 rounded-xl lg:mx-4" />
+      <SkipNotice />
     </>
   ) : (
     <PhoneBar state={state} item={item} />
@@ -170,6 +172,7 @@ const PhoneBar: FC<BarProps> = ({ state, item }) => {
         <PlayButton state={state} />
       </div>
       <PlayingOn />
+      <SkipNotice />
     </motion.div>
   );
 };

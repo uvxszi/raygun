@@ -65,6 +65,36 @@ fn enqueue_with_play_now_loads_the_first_new_item() {
 }
 
 #[test]
+fn queued_items_change_in_place() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    let picked = MediaSource::YouTube {
+        video_id: "v".into(),
+    };
+    let effects = core.update_items(|item| {
+        if item.title != "b" {
+            return false;
+        }
+        item.source = picked.clone();
+        item.media_kind = MediaKind::Video;
+        true
+    });
+    assert_eq!(effects, vec![Effect::QueueChanged]);
+    assert_eq!(
+        current_title(&core),
+        Some("a".into()),
+        "the current item stays"
+    );
+    let next = core.next();
+    let source = next.iter().find_map(|effect| match effect {
+        Effect::Load { item, .. } => Some(item.source.clone()),
+        _ => None,
+    });
+    assert_eq!(source, Some(picked), "b loads its new source");
+    assert!(core.update_items(|_| false).is_empty());
+}
+
+#[test]
 fn play_on_a_fresh_queue_starts_at_the_beginning() {
     let mut core = core_with(&["a", "b"]);
 
