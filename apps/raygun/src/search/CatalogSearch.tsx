@@ -13,8 +13,9 @@ import { ROUTES } from '../manga/medium';
 import { useInView } from '../shell/useInView';
 import { SourceMenu } from './SourceMenu';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
-import { rankResults } from './rankResults';
+import { rankResults, titleScore } from './rankResults';
 import type { RankedCard } from './rankResults';
+import { videoTitleScore } from '../watch/videoMatch';
 import { useSeenTitles } from './seenBefore';
 import { failingLast, useSourceHealth } from './sourceHealth';
 import {
@@ -179,6 +180,7 @@ export const RankedResults: FC<{
   const answers = rankResults(
     results.filter((result) => !result.error),
     query,
+    medium === 'video' ? videoTitleScore : titleScore,
   );
   // Titles already seen (Home, sources' pages, the library) show until every source has
   // answered (M46.47), after the answers that came.

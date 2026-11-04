@@ -17,6 +17,7 @@ use raygun_model::{
     StremioStreamGroup, StremioStreamKind, StremioSuggestion, StremioVideo, TitleRating,
     VideoRequest, VideoSubtitle, YouTubeVideo,
 };
+use raygun_resolver::video_match;
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -89,11 +90,102 @@ pub(crate) async fn at_most<T, F: Future<Output = T>>(
 pub struct StremioService {
     app: AppHandle,
     client: reqwest::Client,
+    known: std::sync::Mutex<KnownVideos>,
 }
+
+/// Titles opened lately, with what their videos are elsewhere: anime-kitsu maps each entry's
+/// episodes onto IMDb's seasons, so addons that only know IMDb ids (most stream and subtitle
+/// addons) can be asked for them too, and a stream's name can be checked in either numbering.
+#[derive(Default)]
+struct KnownVideos {
+    /// Meta ids, oldest first.
+    titles: std::collections::VecDeque<String>,
+    /// By video id (a movie's is its own id).
+    videos: std::collections::HashMap<String, KnownVideo>,
+}
+
+struct KnownVideo {
+    title: String,
+    alt_id: Option<String>,
+    numbers: Vec<video_match::EpisodeNumber>,
+}
+
+/// How many titles' videos are kept.
+const KNOWN_TITLES: usize = 8;
 
 impl StremioService {
     pub fn new(app: AppHandle, client: reqwest::Client) -> Self {
-        Self { app, client }
+        Self {
+            app,
+            client,
+            known: Default::default(),
+        }
+    }
+
+    /// Keeps what `meta`'s videos are elsewhere, for [`Self::alt_id`] and
+    /// [`Self::episode_numbers`].
+    fn know(&self, meta: &protocol::Meta) {
+        let title = meta.preview.id.clone();
+        let mut entries: Vec<(String, KnownVideo)> = meta
+            .videos
+            .iter()
+            .zip(numberings(meta))
+            .map(|(video, numbers)| {
+                (
+                    video.id.clone(),
+                    KnownVideo {
+                        title: title.clone(),
+                        alt_id: video.mapping.alt_id.clone(),
+                        numbers,
+                    },
+                )
+            })
+            .collect();
+        if meta.videos.is_empty() {
+            entries.push((
+                title.clone(),
+                KnownVideo {
+                    title: title.clone(),
+                    alt_id: meta.alt_id.clone(),
+                    numbers: Vec::new(),
+                },
+            ));
+        }
+        let mut known = self
+            .known
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        known.titles.retain(|known| *known != title);
+        known.titles.push_back(title.clone());
+        known.videos.retain(|_, video| video.title != title);
+        known.videos.extend(entries);
+        while known.titles.len() > KNOWN_TITLES {
+            if let Some(oldest) = known.titles.pop_front() {
+                known.videos.retain(|_, video| video.title != oldest);
+            }
+        }
+    }
+
+    /// The IMDb id a video of a title opened lately can also be asked for by.
+    fn alt_id(&self, video_id: &str) -> Option<String> {
+        let known = self
+            .known
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        known.videos.get(video_id)?.alt_id.clone()
+    }
+
+    /// The numberings a stream's name may give a video of a title opened lately by.
+    pub fn episode_numbers(&self, video_id: &str) -> Vec<video_match::EpisodeNumber> {
+        let known = self
+            .known
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        known
+            .videos
+            .get(video_id)
+            .map(|video| video.numbers.clone())
+            .unwrap_or_default()
     }
 
     // ---- Addons ----
@@ -370,6 +462,7 @@ impl StremioService {
                 None => return Err(error),
             },
         };
+        self.know(&meta);
         let stored = match stored {
             Some(row) if row.in_library_at.is_some() => match self.store(&meta).await {
                 Ok((row, _)) => Some(row),
@@ -518,20 +611,25 @@ impl StremioService {
         })
     }
 
-    /// Streams for a movie or episode from every addon that has them, in parallel.
+    /// Streams for a movie or episode from every addon that has them, in parallel. An addon that
+    /// doesn't know an anime entry's id is asked for its IMDb episode.
     pub async fn streams(
         &self,
         kind: &str,
         video_id: &str,
     ) -> Result<Vec<StremioStreamGroup>, String> {
         let loaded = self.loaded().await?;
+        let alt_id = self.alt_id(video_id);
         let asks = loaded
             .iter()
             .filter_map(|addon| Some((addon, addon.manifest()?)))
-            .filter(|(_, manifest)| manifest.serves("stream", kind, video_id))
-            .map(|(addon, manifest)| async move {
+            .filter_map(|(addon, manifest)| {
+                let id = asked_id(manifest, "stream", kind, video_id, alt_id.as_deref())?;
+                Some((addon, manifest, id.to_owned()))
+            })
+            .map(|(addon, manifest, id)| async move {
                 let url =
-                    protocol::resource_url(&addon.row.transport_url, "stream", kind, video_id, &[]);
+                    protocol::resource_url(&addon.row.transport_url, "stream", kind, &id, &[]);
                 let (streams, error) = match self.get_json(&url).await {
                     Ok(value) => (protocol::parse_streams(&value), None),
                     Err(error) => (Vec::new(), Some(error)),
@@ -556,18 +654,18 @@ impl StremioService {
         let Ok(loaded) = self.loaded().await else {
             return Vec::new();
         };
+        // OpenSubtitles knows IMDb ids only: an anime entry's episode is asked by its IMDb one.
+        let alt_id = self.alt_id(video_id);
         let asks = loaded
             .iter()
             .filter_map(|addon| Some((addon, addon.manifest()?)))
-            .filter(|(_, manifest)| manifest.serves("subtitles", kind, video_id))
-            .map(|(addon, _)| async move {
-                let url = protocol::resource_url(
-                    &addon.row.transport_url,
-                    "subtitles",
-                    kind,
-                    video_id,
-                    &[],
-                );
+            .filter_map(|(addon, manifest)| {
+                let id = asked_id(manifest, "subtitles", kind, video_id, alt_id.as_deref())?;
+                Some((addon, id.to_owned()))
+            })
+            .map(|(addon, id)| async move {
+                let url =
+                    protocol::resource_url(&addon.row.transport_url, "subtitles", kind, &id, &[]);
                 self.get_json(&url)
                     .await
                     .map(|value| protocol::parse_subtitles(&value))
@@ -590,11 +688,14 @@ impl StremioService {
         video_id: &str,
         language: &str,
     ) -> (Vec<VideoSubtitle>, bool) {
+        let alt_id = self.alt_id(video_id);
         let serves = self.loaded().await.is_ok_and(|loaded| {
             loaded
                 .iter()
                 .filter_map(|addon| addon.manifest())
-                .any(|manifest| manifest.serves("subtitles", kind, video_id))
+                .any(|manifest| {
+                    asked_id(manifest, "subtitles", kind, video_id, alt_id.as_deref()).is_some()
+                })
         });
         let found = self.subtitles(kind, video_id, language).await;
         (addon_subtitles(found), serves)
@@ -720,6 +821,7 @@ impl StremioService {
                     },
                     tag: binge_group,
                     failed: blocked,
+                    mismatch: false,
                     request,
                 });
             }
@@ -928,6 +1030,7 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
     let movie = units.len() == 1 && units[0].fields.remote_id == id;
     let fields = &row.fields;
     Ok(protocol::Meta {
+        alt_id: None,
         ratings: Vec::new(),
         preview: MetaPreview {
             kind: kind.to_owned(),
@@ -967,10 +1070,83 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
                     title: unit.fields.name,
                     thumbnail: None,
                     overview: None,
+                    mapping: Default::default(),
                 })
                 .collect()
         },
     })
+}
+
+/// The id `resource` is asked for at an addon: the video's own, else its IMDb one (an anime
+/// entry's episode at an addon that knows only IMDb ids); none when the addon serves neither.
+fn asked_id<'a>(
+    manifest: &Manifest,
+    resource: &str,
+    kind: &str,
+    id: &'a str,
+    alt_id: Option<&'a str>,
+) -> Option<&'a str> {
+    if manifest.serves(resource, kind, id) {
+        Some(id)
+    } else {
+        alt_id.filter(|alt| manifest.serves(resource, kind, alt))
+    }
+}
+
+/// The numberings a stream's name may give each of a title's videos by: its own season and
+/// episode, the IMDb season and episode an anime addon maps it to, and its number across
+/// seasons. A Kitsu entry numbers every episode "season 1" while its name says which season it
+/// is; its own number then goes with that season, or with none when its name doesn't say.
+pub(crate) fn numberings(meta: &protocol::Meta) -> Vec<Vec<video_match::EpisodeNumber>> {
+    let title = video_match::parse_title(&meta.preview.name);
+    let one_season = meta
+        .videos
+        .iter()
+        .all(|video| video.season.is_none_or(|season| season == 1));
+    let mut across = 0;
+    meta.videos
+        .iter()
+        .map(|video| {
+            let regular = video.season.is_some_and(|season| season >= 1);
+            if regular {
+                across += 1;
+            }
+            let Some(episode) = video.episode else {
+                return Vec::new();
+            };
+            let mapping = &video.mapping;
+            let season = if one_season && title.names_season() {
+                title.season
+            } else if mapping.season.is_some() {
+                // An entry numbered as its IMDb season is (Attack on Titan's first) is that
+                // season; one numbered across seasons (One Piece) isn't any one.
+                mapping.season.filter(|_| mapping.episode == Some(episode))
+            } else {
+                video.season
+            };
+            let mut numbers = vec![video_match::EpisodeNumber { season, episode }];
+            if let (Some(season), Some(episode)) = (mapping.season, mapping.episode) {
+                numbers.push(video_match::EpisodeNumber {
+                    season: Some(season),
+                    episode,
+                });
+            }
+            // Only when it differs: "episode 2 of any season" would let other seasons' files pass.
+            let absolute = mapping
+                .absolute
+                .or_else(|| (regular && mapping.season.is_none()).then_some(across))
+                .filter(|absolute| *absolute != episode);
+            if let Some(episode) = absolute {
+                numbers.push(video_match::EpisodeNumber {
+                    season: None,
+                    episode,
+                });
+            }
+            let mut seen = std::collections::HashSet::new();
+            numbers.retain(|number| seen.insert(*number));
+            numbers
+        })
+        .collect()
 }
 
 /// What a session plays for a Stremio movie or episode: the ids and what the player shows.
@@ -1196,10 +1372,72 @@ mod tests {
                 released: Some("1970-01-02T00:00:00.000Z".into()),
                 thumbnail: None,
                 overview: None,
+                mapping: Default::default(),
             }]
         );
         let movie = stored("movie:tt2", vec![unit("tt2", None, None)]).await;
         assert!(movie.videos.is_empty(), "a movie is its own one unit");
+    }
+
+    fn number(season: Option<u32>, episode: u32) -> video_match::EpisodeNumber {
+        video_match::EpisodeNumber { season, episode }
+    }
+
+    #[test]
+    fn episodes_are_numbered_as_streams_may_name_them() {
+        let meta = |json: Value| protocol::parse_meta(&json, "series").unwrap();
+        // Cinemeta: every season under one title; numbers across seasons are counted.
+        let cinemeta = meta(serde_json::json!({ "meta": {
+            "id": "tt2560140", "type": "series", "name": "Attack on Titan",
+            "videos": [
+                { "id": "tt2560140:1:1", "season": 1, "episode": 1 },
+                { "id": "tt2560140:1:2", "season": 1, "episode": 2 },
+                { "id": "tt2560140:2:1", "season": 2, "episode": 1 },
+                { "id": "tt2560140:0:1", "season": 0, "episode": 1 }
+            ]
+        }}));
+        assert_eq!(
+            numberings(&cinemeta),
+            vec![
+                vec![number(Some(1), 1)],
+                vec![number(Some(1), 2)],
+                vec![number(Some(2), 1), number(None, 3)],
+                vec![number(Some(0), 1)],
+            ]
+        );
+        // anime-kitsu: one entry per season, numbered from 1, mapped onto IMDb's.
+        let season_two = meta(serde_json::json!({ "meta": {
+            "id": "kitsu:8671", "type": "series", "name": "Attack on Titan Season 2",
+            "videos": [{ "id": "kitsu:8671:1", "season": 1, "episode": 1, "imdb_id": "tt2560140",
+                "imdbSeason": 2, "imdbEpisode": 1, "absoluteEpisode": 26 }]
+        }}));
+        assert_eq!(
+            numberings(&season_two),
+            vec![vec![number(Some(2), 1), number(None, 26)]]
+        );
+        let part_two = meta(serde_json::json!({ "meta": {
+            "id": "kitsu:41982", "type": "series", "name": "Attack on Titan Season 3 Part 2",
+            "videos": [{ "id": "kitsu:41982:1", "season": 1, "episode": 1, "imdb_id": "tt2560140",
+                "imdbSeason": 3, "imdbEpisode": 13, "absoluteEpisode": 50 }]
+        }}));
+        assert_eq!(
+            numberings(&part_two),
+            vec![vec![
+                number(Some(3), 1),
+                number(Some(3), 13),
+                number(None, 50)
+            ]]
+        );
+        // A long entry numbered across IMDb's seasons is no one season.
+        let long = meta(serde_json::json!({ "meta": {
+            "id": "kitsu:12", "type": "series", "name": "One Piece",
+            "videos": [{ "id": "kitsu:12:1071", "season": 1, "episode": 1071, "imdb_id": "tt0388629",
+                "imdbSeason": 21, "imdbEpisode": 179, "absoluteEpisode": 1071 }]
+        }}));
+        assert_eq!(
+            numberings(&long),
+            vec![vec![number(None, 1071), number(Some(21), 179)]]
+        );
     }
 
     #[test]

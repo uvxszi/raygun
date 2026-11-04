@@ -153,6 +153,62 @@ fn catalogs_and_meta() {
 }
 
 #[test]
+fn anime_entries_keep_their_imdb_numbering() {
+    // anime-kitsu: one entry per season, numbered from 1, mapped onto IMDb's seasons.
+    let meta = parse_meta(
+        &json!({ "meta": {
+            "id": "kitsu:8671", "type": "series", "name": "Attack on Titan Season 2",
+            "imdb_id": "tt2560140",
+            "videos": [
+                { "id": "kitsu:8671:2", "title": "I'm Home", "season": 1, "episode": 2,
+                  "imdb_id": "tt2560140", "imdbSeason": 2, "imdbEpisode": 2, "absoluteEpisode": 27 },
+                { "id": "kitsu:8671:1", "title": "Beast Titan", "season": "1", "episode": "1",
+                  "imdb_id": "tt2560140", "imdbSeason": 2, "imdbEpisode": 1, "absoluteEpisode": 26 },
+                { "id": "kitsu:8671:1", "title": "Beast Titan (again)", "season": 1, "episode": 1 }
+            ]
+        }}),
+        "series",
+    )
+    .unwrap();
+    assert_eq!(meta.alt_id.as_deref(), Some("tt2560140"));
+    assert_eq!(meta.videos.len(), 2, "a video listed twice shows once");
+    assert_eq!(
+        (meta.videos[0].season, meta.videos[0].episode),
+        (Some(1), Some(1)),
+        "numbers sent as text count"
+    );
+    assert_eq!(
+        meta.videos[0].mapping,
+        Mapping {
+            alt_id: Some("tt2560140:2:1".into()),
+            season: Some(2),
+            episode: Some(1),
+            absolute: Some(26),
+        }
+    );
+
+    // A movie's one video is the movie itself, not an episode.
+    let movie = parse_meta(
+        &json!({ "meta": {
+            "id": "kitsu:43212", "type": "movie", "name": "Attack on Titan: Chronicle",
+            "imdb_id": "tt12415546",
+            "videos": [{ "id": "kitsu:43212", "title": "Episode 1", "season": 1, "episode": 1 }]
+        }}),
+        "movie",
+    )
+    .unwrap();
+    assert!(movie.videos.is_empty());
+    assert_eq!(movie.alt_id.as_deref(), Some("tt12415546"));
+    let cinemeta = parse_meta(
+        &json!({ "meta": { "id": "tt0111161", "type": "movie", "name": "The Shawshank Redemption",
+            "imdb_id": "tt0111161" } }),
+        "movie",
+    )
+    .unwrap();
+    assert_eq!(cinemeta.alt_id, None, "an IMDb title needs no other id");
+}
+
+#[test]
 fn streams_and_subtitles() {
     let streams = parse_streams(&json!({ "streams": [
         { "name": "HD", "title": "1080p", "url": "https://cdn.example/v.m3u8",

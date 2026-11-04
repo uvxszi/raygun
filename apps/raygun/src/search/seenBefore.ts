@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 
 import type { Medium } from '../manga/medium';
 import { collectFromCache } from '../shell/queryMemory';
+import { videoTitleScore } from '../watch/videoMatch';
 import { titleScore } from './rankResults';
 
 /** A cached thing counts as an answer when its name shares every word of the query. */
@@ -97,8 +98,9 @@ export const useSeenTitles = (medium: Medium, query: string): MangaCard[] => {
       asCard,
       (card) => `${card.sourceId}:${card.id}`,
     );
+    const score = medium === 'video' ? videoTitleScore : titleScore;
     return cards
-      .map((card) => ({ card, score: titleScore(card.title, wanted) }))
+      .map((card) => ({ card, score: score(card.title, wanted) }))
       .filter((entry) => entry.score >= GOOD_ENOUGH)
       .sort((a, b) => b.score - a.score)
       .slice(0, SHOWN)

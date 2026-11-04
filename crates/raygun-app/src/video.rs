@@ -604,10 +604,31 @@ async fn record(app: &AppHandle, report: PlayerReport) {
 
 pub async fn continue_watching(app: &AppHandle) -> Result<Vec<ContinueWatching>, String> {
     let db = app.state::<AppDb>().0.clone();
-    let rows = store::continue_watching(&db, 30)
+    let rows = store::continue_watching(&db, 90)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(to_view(app, rows))
+    Ok(to_view(app, one_per_title(rows, 30)))
+}
+
+/// Each title once, at its episode played (or queued) last, as Stremio shows them: a series
+/// with several episodes begun is one card. At most `limit`.
+fn one_per_title(rows: Vec<store::VideoProgress>, limit: usize) -> Vec<store::VideoProgress> {
+    let mut seen = std::collections::HashSet::new();
+    rows.into_iter()
+        .filter(|row| seen.insert(title_of(&row.entry)))
+        .take(limit)
+        .collect()
+}
+
+/// The title a progress entry belongs to: its session's, else its request's group, else itself.
+fn title_of(entry: &VideoEntry) -> String {
+    if let Ok(episode) = serde_json::from_str::<EpisodeRef>(&entry.request) {
+        return episode.origin.group_key();
+    }
+    serde_json::from_str::<VideoRequest>(&entry.request)
+        .ok()
+        .and_then(|request| request.group)
+        .unwrap_or_else(|| entry.key.clone())
 }
 
 /// Everything watched or started, most recent first.
@@ -736,6 +757,58 @@ mod tests {
         assert_eq!(mp4.title, "A film");
         assert_eq!(mp4.format, None);
         assert_eq!(mp4.subtitles[0].url, "https://cdn.example/film.srt");
+    }
+
+    #[test]
+    fn continue_watching_shows_each_title_once() {
+        let row = |key: &str, request: String| store::VideoProgress {
+            entry: VideoEntry {
+                key: key.into(),
+                title: "T".into(),
+                subtitle: None,
+                poster: None,
+                request,
+            },
+            position_ms: 10,
+            duration_ms: None,
+            watched_at: None,
+            updated_at: 0,
+        };
+        let session = |episode: &str| {
+            serde_json::to_string(&EpisodeRef {
+                origin: crate::video_session::Origin::Stremio {
+                    kind: "series".into(),
+                    id: "tt1".into(),
+                },
+                episode: episode.into(),
+            })
+            .unwrap()
+        };
+        let mut picked = link_request("https://cdn.example/e3.mp4", None, None);
+        picked.group = Some("stremio:series:tt1".into());
+        let rows = vec![
+            row("stremio:series:tt1:1:4", session("tt1:1:4")),
+            row("stremio:series:tt1:1:2", session("tt1:1:2")),
+            row(
+                "stremio:series:tt1:1:3",
+                serde_json::to_string(&picked).unwrap(),
+            ),
+            row("url:https://cdn.example/a.mp4", "{}".into()),
+            row("url:https://cdn.example/b.mp4", "{}".into()),
+        ];
+        let keys: Vec<String> = one_per_title(rows, 30)
+            .into_iter()
+            .map(|row| row.entry.key)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "stremio:series:tt1:1:4",
+                "url:https://cdn.example/a.mp4",
+                "url:https://cdn.example/b.mp4"
+            ],
+            "the series at its latest episode; links are their own"
+        );
     }
 
     #[test]

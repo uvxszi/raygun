@@ -7,7 +7,10 @@ import { useTranslation } from 'react-i18next';
 import { groupByDay, useDayLabel } from '../manga/groupByDay';
 import { MangaCover } from '../manga/MangaCover';
 import { EmptyState } from '../shell/EmptyState';
-import { episodeLabel } from './episodeLabel';
+import { episodeLabel, showsSeasons } from './episodeLabel';
+
+/** An episode's label; a Kitsu entry's one "season 1" is left out (its name says the season). */
+const itemLabel = (item: VideoUpdateItem) => episodeLabel(item, showsSeasons(item.title, [item]));
 import { useVideoUpcoming, useVideoUpdates, videoTitleLink } from './useVideoLibrary';
 import { Carousel } from '../shell/Carousel';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -26,7 +29,7 @@ const Row: FC<{ item: VideoUpdateItem }> = ({ item }) => {
         <MangaCover url={item.coverUrl} video className="w-10 shrink-0 rounded" />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-sm font-medium">{item.title}</span>
-          <span className="text-muted truncate text-xs">{episodeLabel(item)}</span>
+          <span className="text-muted truncate text-xs">{itemLabel(item)}</span>
         </span>
         {item.downloaded && (
           <CircleCheck
@@ -45,7 +48,7 @@ const Row: FC<{ item: VideoUpdateItem }> = ({ item }) => {
 const UpcomingCard: FC<{ item: VideoUpdateItem; when: string }> = ({ item, when }) => {
   const link = videoTitleLink(item.sourceId, item.remoteId);
   return (
-    <li aria-label={`${item.title} · ${episodeLabel(item)}`} className="w-28 shrink-0">
+    <li aria-label={`${item.title} · ${itemLabel(item)}`} className="w-28 shrink-0">
       <Link to={link.to} search={link.search} className="flex flex-col gap-1.5">
         <span className="relative overflow-hidden rounded-xl">
           <MangaCover url={item.coverUrl} video className="w-full" />
@@ -54,7 +57,7 @@ const UpcomingCard: FC<{ item: VideoUpdateItem; when: string }> = ({ item, when 
           </span>
         </span>
         <span className="line-clamp-1 text-xs font-semibold">{item.title}</span>
-        <span className="text-muted line-clamp-1 text-xs">{episodeLabel(item)}</span>
+        <span className="text-muted line-clamp-1 text-xs">{itemLabel(item)}</span>
       </Link>
     </li>
   );

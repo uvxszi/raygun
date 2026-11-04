@@ -5089,6 +5089,7 @@ name = "raygun-resolver"
 version = "1.0.0"
 dependencies = [
  "raygun-model",
+ "regex",
  "unicode-normalization",
 ]
 

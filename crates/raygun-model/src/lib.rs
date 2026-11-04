@@ -5014,6 +5014,12 @@ pub struct AnimeEpisode {
     pub title: String,
     pub episode: u32,
     pub mal_id: Option<u32>,
+    /// The entry's Kitsu or AniList id, whose MyAnimeList id is looked up before searching by
+    /// name (each season has its own).
+    #[serde(default)]
+    pub kitsu_id: Option<u32>,
+    #[serde(default)]
+    pub anilist_id: Option<u32>,
 }
 
 /// What to play in the video player.

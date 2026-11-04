@@ -1,3 +1,4 @@
+import { commands } from '@raygun/bindings';
 import type { MangaCard } from '@raygun/bindings';
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
@@ -12,27 +13,47 @@ import { titleScore } from '../search/rankResults';
 import { sourceSearchOptions } from '../search/useCatalogSearch';
 import { collectFromCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
+import { videoTitleScore } from '../watch/videoMatch';
 import { MangaCover } from './MangaCover';
 import { catalogCommands, ROUTES } from './medium';
-import type { ReadingMedium } from './medium';
+import type { Medium } from './medium';
 import { useMangaSources } from './useManga';
 
 /** A match is at least this close to the title (search's own scale, 100 = the same). */
 const CLOSE_ENOUGH = 60;
 
+/** How close a found title is: a video's other seasons never are ("Overlord II" for "Overlord"). */
+const closeness = (medium: Medium, found: string, title: string) =>
+  medium === 'video' ? videoTitleScore(found, title, true) : titleScore(found, title);
+
+/** Opens a found title (storing it) and adds it to the library. */
+const addToLibrary = async (medium: Medium, card: MangaCard) => {
+  if (medium === 'video') {
+    const view = await unwrapResult(commands.videoTitle(card.sourceId, card.id, false));
+    await unwrapResult(commands.videoSetInLibrary(view.id, true));
+    return;
+  }
+  const catalog = catalogCommands(medium);
+  const view = await unwrapResult(catalog.title(card.sourceId, card.id, false));
+  await unwrapResult(catalog.setInLibrary(view.id, true));
+};
+
 /**
- * The same comic or book in the other sources (M46.38): every enabled source is searched for the
- * title and its close matches listed, to open or add to the library — when one source is slow,
- * gone or has more chapters.
+ * The same comic, book or video in the other sources (M46.38): every enabled source is searched
+ * for the title and its close matches listed, to open or add to the library — when one source
+ * is slow, gone or has more chapters. A video matches only the same season.
  */
-export const OtherSources: FC<{ medium: ReadingMedium; title: string; sourceId: string }> = ({
+export const OtherSources: FC<{ medium: Medium; title: string; sourceId: string }> = ({
   medium,
   title,
   sourceId,
 }) => {
   const { t } = useTranslation();
   const sources = useMangaSources(medium);
-  const others = (sources.data ?? []).filter((source) => source.enabled && source.id !== sourceId);
+  // A video site (its own Search pill: YouTube, PeerTube) holds videos, not a catalogue's titles.
+  const others = (sources.data ?? []).filter(
+    (source) => source.enabled && source.id !== sourceId && !source.searchPill,
+  );
   const results = useQueries({
     queries: others.map((source) => sourceSearchOptions(medium, source.id, title)),
   });
@@ -45,14 +66,27 @@ export const OtherSources: FC<{ medium: ReadingMedium; title: string; sourceId: 
       collectFromCache(
         client,
         [medium],
-        (record): MangaCard | null =>
-          typeof record.sourceId === 'string' &&
-          record.sourceId !== sourceId &&
-          typeof record.id === 'string' &&
-          typeof record.title === 'string' &&
-          'inLibrary' in record
-            ? (record as unknown as MangaCard)
-            : null,
+        (record): MangaCard | null => {
+          if (
+            typeof record.sourceId !== 'string' ||
+            record.sourceId === sourceId ||
+            typeof record.title !== 'string' ||
+            !('inLibrary' in record)
+          ) {
+            return null;
+          }
+          // A title's page carries the stored title's id; its card is by the source's.
+          const id = typeof record.remoteId === 'string' ? record.remoteId : record.id;
+          return typeof id === 'string'
+            ? {
+                sourceId: record.sourceId,
+                id,
+                title: record.title,
+                coverUrl: typeof record.coverUrl === 'string' ? record.coverUrl : null,
+                inLibrary: record.inLibrary === true,
+              }
+            : null;
+        },
         (card) => `${card.sourceId}:${card.id}`,
       ),
     [client, medium, sourceId],
@@ -71,7 +105,7 @@ export const OtherSources: FC<{ medium: ReadingMedium; title: string; sourceId: 
       .filter((card) => !liveKeys.has(`${card.sourceId}:${card.id}`))
       .map((card) => ({ card, sourceName: names.get(card.sourceId) ?? '' })),
   ]
-    .map((match) => ({ ...match, score: titleScore(match.card.title, title) }))
+    .map((match) => ({ ...match, score: closeness(medium, match.card.title, title) }))
     .filter((match) => match.score >= CLOSE_ENOUGH && match.sourceName !== '')
     .sort((a, b) => b.score - a.score);
   return (
@@ -100,7 +134,7 @@ export const OtherSources: FC<{ medium: ReadingMedium; title: string; sourceId: 
   );
 };
 
-const Match: FC<{ medium: ReadingMedium; card: MangaCard; sourceName: string }> = ({
+const Match: FC<{ medium: Medium; card: MangaCard; sourceName: string }> = ({
   medium,
   card,
   sourceName,
@@ -110,11 +144,7 @@ const Match: FC<{ medium: ReadingMedium; card: MangaCard; sourceName: string }> 
   const [added, setAdded] = useState(card.inLibrary);
   // Adding needs the title stored first: opening it does that.
   const add = useMutation({
-    mutationFn: async () => {
-      const commands = catalogCommands(medium);
-      const view = await unwrapResult(commands.title(card.sourceId, card.id, false));
-      await unwrapResult(commands.setInLibrary(view.id, true));
-    },
+    mutationFn: () => addToLibrary(medium, card),
     onSuccess: () => {
       setAdded(true);
       void client.invalidateQueries({ queryKey: [medium, 'library'] });
@@ -127,7 +157,11 @@ const Match: FC<{ medium: ReadingMedium; card: MangaCard; sourceName: string }> 
         search={{ source: card.sourceId, id: card.id }}
         className="flex min-w-0 flex-1 items-center gap-3"
       >
-        <MangaCover url={card.coverUrl} className="w-10 shrink-0 rounded" />
+        <MangaCover
+          url={card.coverUrl}
+          video={medium === 'video'}
+          className="w-10 shrink-0 rounded"
+        />
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium">{card.title}</span>
           <span className="text-muted truncate text-xs">{sourceName}</span>

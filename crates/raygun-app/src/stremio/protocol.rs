@@ -335,11 +335,27 @@ pub struct Video {
     pub released: Option<String>,
     pub thumbnail: Option<String>,
     pub overview: Option<String>,
+    pub mapping: Mapping,
+}
+
+/// What an anime addon (anime-kitsu) says a video is elsewhere: each Kitsu entry is one season,
+/// numbered from 1, while IMDb (and so most stream addons) numbers the show's seasons.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Mapping {
+    /// The IMDb id streams can be asked with: `tt2560140:2:1` (`imdb_id`, `imdbSeason`,
+    /// `imdbEpisode`), or a movie's `tt…`.
+    pub alt_id: Option<String>,
+    pub season: Option<u32>,
+    pub episode: Option<u32>,
+    /// Its number across seasons (`absoluteEpisode`).
+    pub absolute: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meta {
     pub preview: MetaPreview,
+    /// The title's IMDb id when its own id isn't one (Kitsu's movies).
+    pub alt_id: Option<String>,
     /// Ratings with their sources (M46.45).
     pub ratings: Vec<raygun_model::TitleRating>,
     pub background: Option<String>,
@@ -448,7 +464,18 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
             .filter_map(|trailer| text(trailer.get("source")))
             .collect();
     }
-    let number = |value: Option<&Value>| value.and_then(Value::as_u64).map(|number| number as u32);
+    // Some addons send numbers as text ("2").
+    let number = |value: Option<&Value>| {
+        value
+            .and_then(|value| {
+                value
+                    .as_u64()
+                    .or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()))
+            })
+            .and_then(|number| u32::try_from(number).ok())
+    };
+    let imdb_id = text(meta.get("imdb_id")).filter(|id| id.starts_with("tt"));
+    let mut seen = std::collections::HashSet::new();
     let mut videos: Vec<Video> = meta
         .get("videos")
         .and_then(Value::as_array)
@@ -457,6 +484,11 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
         .filter_map(|video| {
             let season = number(video.get("season"));
             let episode = number(video.get("episode")).or_else(|| number(video.get("number")));
+            let imdb_season = number(video.get("imdbSeason"));
+            let imdb_episode = number(video.get("imdbEpisode"));
+            let video_imdb = text(video.get("imdb_id"))
+                .filter(|id| id.starts_with("tt"))
+                .or_else(|| imdb_id.clone());
             Some(Video {
                 id: text(video.get("id"))?,
                 title: text(video.get("title"))
@@ -470,9 +502,26 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
                 released: text(video.get("released")).or_else(|| text(video.get("firstAired"))),
                 thumbnail: http(video.get("thumbnail")),
                 overview: text(video.get("overview")).or_else(|| text(video.get("description"))),
+                mapping: Mapping {
+                    alt_id: match (video_imdb, imdb_season, imdb_episode) {
+                        (Some(imdb), Some(season), Some(episode)) => {
+                            Some(format!("{imdb}:{season}:{episode}"))
+                        }
+                        _ => None,
+                    },
+                    season: imdb_season,
+                    episode: imdb_episode,
+                    absolute: number(video.get("absoluteEpisode")),
+                },
             })
         })
+        // An addon listing a video twice shows it once.
+        .filter(|video| seen.insert(video.id.clone()))
         .collect();
+    // A movie's one video is the movie itself (anime-kitsu lists it as "Episode 1").
+    if preview.kind == "movie" && videos.iter().all(|video| video.id == preview.id) {
+        videos.clear();
+    }
     videos.sort_by_key(|video| {
         (
             video.season.map_or(
@@ -494,6 +543,7 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
         }
     };
     Some(Meta {
+        alt_id: imdb_id.filter(|imdb| *imdb != preview.id),
         ratings: parse_ratings(meta, &preview.id, preview.rating.as_deref()),
         background: http(meta.get("background")),
         logo: http(meta.get("logo")),
