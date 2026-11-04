@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ConfirmButton } from '../shell/ConfirmButton';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { formatLength } from './formatLength';
 import { episodeMenu } from './podcastMenus';
@@ -170,15 +171,15 @@ export const EpisodeItem: FC<{
           <Check aria-hidden size={16} />
         </button>
         {downloadState === 'done' ? (
-          <button
-            type="button"
-            aria-label={t('podcasts.removeDownload')}
+          <ConfirmButton
+            label={t('podcasts.removeDownload')}
+            confirm={t('podcasts.removeDownloadConfirm')}
+            icon={Trash2}
+            iconSize={16}
             disabled={removeDownload.isPending}
-            onClick={() => removeDownload.mutate(episode.id)}
-            className={ICON_BUTTON}
-          >
-            <Trash2 aria-hidden size={16} />
-          </button>
+            onConfirm={() => removeDownload.mutate(episode.id)}
+            idleClassName={ICON_BUTTON}
+          />
         ) : downloadState === 'downloading' || downloadState === 'queued' ? (
           <button
             type="button"

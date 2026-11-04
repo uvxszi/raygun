@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { FC, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from './backLayers';
+
 /** One line of an app menu group (M46.9). */
 export type AppMenuItem =
   | {
@@ -54,6 +56,8 @@ export const AppMenu: FC<{ groups: AppMenuGroup[]; onOpen?: () => void }> = ({
     setActive(null);
     if (refocus) button.current?.focus();
   };
+  // Back closes it; Escape steps out of a submenu first, so the menu takes Escape itself.
+  useBackLayer(open, () => close(), { escape: false });
 
   useEffect(() => {
     if (!open) return;

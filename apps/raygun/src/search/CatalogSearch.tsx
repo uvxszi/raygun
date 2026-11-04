@@ -11,6 +11,7 @@ import { MangaGrid } from '../manga/MangaGrid';
 import type { Medium } from '../manga/medium';
 import { useMangaLibrary, useMangaSources } from '../manga/useManga';
 import { ROUTES } from '../manga/medium';
+import { AdultMark } from '../shell/AdultMark';
 import { ListSearchField } from '../shell/ListSearchField';
 import { matchesSearch } from '../shell/useListSearch';
 import { useInView } from '../shell/useInView';
@@ -21,11 +22,13 @@ import { SourceFiltersPanel } from './SourceFiltersPanel';
 import { rankResults, titleScore } from './rankResults';
 import type { RankedCard } from './rankResults';
 import { videoTitleScore } from '../watch/videoMatch';
+import { keepCards, keepSource, useSearchFilter } from './searchFilter';
 import { useSeenTitles } from './seenBefore';
-import { failingLast, useSourceHealth } from './sourceHealth';
+import { answeredFirst, failingLast, useSourceHealth } from './sourceHealth';
 import {
   sourceSearchOptions,
   useFilteredSearch,
+  useSourceAnswers,
   useSourceFilters,
   useSourceSearch,
 } from './useCatalogSearch';
@@ -41,6 +44,7 @@ const toGridItems = (items: MangaCard[]) =>
     title: item.title,
     coverUrl: item.coverUrl,
     inLibrary: item.inLibrary,
+    ...(item.adult ? { adult: true } : {}),
   }));
 
 /** One source's first results in a global search, as a short row. */
@@ -56,6 +60,7 @@ export const SourceRow: FC<{
       <div className="flex items-center justify-between">
         <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
           <span className="truncate">{result.source.name}</span>
+          {result.source.adult && <AdultMark />}
           <SourceMenu
             sourceId={result.source.id}
             extensionId={result.source.extensionId}
@@ -133,7 +138,10 @@ export const LazySourceRow: FC<{
         <SourceRow result={search.data} medium={medium} limit={limit} onMore={onMore} />
       ) : (
         <section aria-label={source.name} aria-busy={!search.error} className="flex flex-col gap-2">
-          <h3 className="text-muted text-sm font-medium">{source.name}</h3>
+          <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
+            <span className="truncate">{source.name}</span>
+            {source.adult && <AdultMark />}
+          </h3>
           {search.error ? (
             <SourceIssue compact source={source.name} onRetry={() => void search.refetch()}>
               {search.error.message}
@@ -203,8 +211,9 @@ export const RankedResults: FC<{
     },
     [ids],
   );
+  const filter = useSearchFilter();
   const searches = useQueries({
-    queries: sources.map((source) => sourceSearchOptions(medium, source.id, query)),
+    queries: sources.map((source) => sourceSearchOptions(medium, source.id, query, filter)),
     combine,
   });
   const { results, answered, errorKey } = searches;
@@ -222,6 +231,7 @@ export const RankedResults: FC<{
   const seen = useSeenTitles(medium, query);
   const searchedIds = new Set(sources.map((source) => source.id));
   const named = new Map(sources.map((source) => [source.id, source.name]));
+  const adultSources = new Set(sources.filter((source) => source.adult).map((source) => source.id));
   const ranked: RankedCard[] =
     answered < sources.length
       ? [
@@ -268,6 +278,7 @@ export const RankedResults: FC<{
           items={ranked.slice(0, cap).map(({ card, sourceName }) => ({
             ...toGridItems([card])[0]!,
             subtitle: sourceName,
+            ...(card.adult || adultSources.has(card.sourceId) ? { adult: true } : {}),
           }))}
         />
       )}
@@ -367,7 +378,8 @@ const SourceSearch: FC<{
   const [values, setValues] = useState<FilterValues>({});
   const filters = useSourceFilters(medium, sourceId);
   const search = useFilteredSearch(medium, sourceId, query, values);
-  const items = search.data?.pages.flatMap((page) => page.items) ?? [];
+  const filter = useSearchFilter();
+  const items = keepCards(filter, search.data?.pages.flatMap((page) => page.items) ?? []);
   const hasFilters = (filters.data?.length ?? 0) > 0;
   const active = Object.keys(values).length;
 
@@ -442,11 +454,14 @@ export const CatalogSearch: FC<{
 }> = ({ medium, query, only, withPills = false, onLibrary }) => {
   const { t } = useTranslation();
   const listed = useMangaSources(medium);
-  // A source with its own pill searches there, not among the rest (M46.35).
+  const filter = useSearchFilter();
+  // A source with its own pill searches there, not among the rest (M46.35); "No 18+" leaves
+  // adult sources out.
   const sources = {
     ...listed,
-    data: listed.data?.filter((source) =>
-      only ? source.id === only : withPills || !source.searchPill,
+    data: listed.data?.filter(
+      (source) =>
+        (only ? source.id === only : withPills || !source.searchPill) && keepSource(filter, source),
     ),
   };
   const [chosen, setChosenState] = useState(() => readChosen(medium));
@@ -488,6 +503,14 @@ export const CatalogSearch: FC<{
     failures,
     failingAtEnd,
   );
+  // By source, the rows that answered with titles lead, then those with none, then failures;
+  // a row still asking keeps its place.
+  const answers = useSourceAnswers(
+    medium,
+    searched.map((source) => source.id),
+    query,
+  );
+  const rows = answeredFirst(searched, (source) => answers(source.id));
   // Finding a source by name shows every match; otherwise the list folds after a dozen.
   const needle = finding.trim();
   const shown = needle
@@ -579,7 +602,7 @@ export const CatalogSearch: FC<{
             )}
           </div>
           {grouped || searched.length === 1 ? (
-            searched.map((source) => (
+            rows.map((source) => (
               <LazySourceRow
                 key={`${source.id}:${query.trim()}`}
                 source={source}

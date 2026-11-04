@@ -18,6 +18,7 @@ import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
+import { AdultMark } from '../shell/AdultMark';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
 import { Sheet } from '../shell/Sheet';
@@ -134,6 +135,7 @@ const AddonItem: FC<{
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="font-medium wrap-anywhere">
           {addon.name}
+          {addon.adult && <AdultMark className="ml-1.5" />}
           {addon.version && <span className="text-muted text-xs"> {addon.version}</span>}
         </span>
         {(!addon.enabled || (addon.failing && !addon.error)) && (
@@ -187,6 +189,7 @@ const AddonPreview: FC<{
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="font-medium wrap-anywhere">
             {addon.name}
+            {addon.adult && <AdultMark className="ml-1.5" />}
             {addon.version && <span className="text-muted text-xs"> {addon.version}</span>}
           </span>
           {addon.description && (

@@ -194,6 +194,7 @@ class RaygunPlaybackService : MediaSessionService() {
     /** The session shows Rust's player as it reports itself (the native engine holds nothing). */
     fun useMirror() {
         if (session?.player !== mirror) session?.player = mirror
+        mirror.show()
     }
 
     /** Plays through `device` (M46.43: Bluetooth headphones, the speakerâ€¦), or Android's choice. */

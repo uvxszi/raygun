@@ -19,6 +19,9 @@ import { useSubscriptions } from '../podcasts/usePodcasts';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { Carousel } from '../shell/Carousel';
 import { EmptyState } from '../shell/EmptyState';
+import { LetterAvatar } from '../shell/LetterAvatar';
+import { SourceIssue } from '../shell/SourceIssue';
+import { useOpenWebsite, useWebsites } from '../websites/useWebsites';
 import { videoTitleLink } from '../watch/useVideoLibrary';
 import { DownloadedTile, FavoritesTile, LocalFilesTile } from './LocalFilesTile';
 import { LibraryTop } from './LibraryTop';
@@ -99,6 +102,41 @@ const TitleRow: FC<{ medium: 'manga' | 'novel' | 'video'; title: string }> = ({
   );
 };
 
+/** Websites' row: each site opens in the built-in browser. */
+const WebsitesRow: FC = () => {
+  const { t } = useTranslation();
+  const websites = useWebsites();
+  const open = useOpenWebsite();
+  if (!websites.data?.length) return null;
+  const opened = websites.data.find((site) => site.id === open.variables);
+  return (
+    <>
+      <Row title={t('library.tabs.websites')} media="websites">
+        {websites.data.slice(0, ROW_ITEMS).map((site) => (
+          <li key={site.id} className="w-28 shrink-0">
+            <button
+              type="button"
+              aria-label={t('websites.open', { name: site.name })}
+              onClick={() => open.mutate(site.id)}
+              className={`${TILE} items-center text-center`}
+            >
+              <span className="bg-surface grid aspect-square w-full place-items-center rounded-xl">
+                <LetterAvatar name={site.name} logo={site.icon} size="lg" />
+              </span>
+              <span className="w-full truncate font-medium">{site.name}</span>
+            </button>
+          </li>
+        ))}
+      </Row>
+      {open.error && (
+        <SourceIssue compact title={t('websites.openFailed', { name: opened?.name ?? '' })}>
+          {open.error.message}
+        </SourceIssue>
+      )}
+    </>
+  );
+};
+
 /**
  * Audio's row: Favorites, Downloaded and Local files (always first, M46.29), then playlists,
  * followed podcasts and audiobooks.
@@ -153,7 +191,7 @@ const AudioRow: FC = () => {
 
 /**
  * Library → All (M46.37): a row of each kind the user shows, in their order — Audio (favorites,
- * playlists, podcasts), Comics, Books and Videos, read or watched lately first — each leading to
+ * playlists, podcasts), Comics, Books, Videos and Websites, read or watched lately first — each leading to
  * its own tab.
  */
 export const AllLibrary: FC = () => {
@@ -170,7 +208,18 @@ export const AllLibrary: FC = () => {
   const manga = useMangaLibrary('manga');
   const novels = useMangaLibrary('novel');
   const videos = useMangaLibrary('video');
-  const lists = [favorites, playlists, podcasts, audiobooks, downloaded, manga, novels, videos];
+  const websites = useWebsites();
+  const lists = [
+    favorites,
+    playlists,
+    podcasts,
+    audiobooks,
+    downloaded,
+    manga,
+    novels,
+    videos,
+    websites,
+  ];
   // Empty only when every kind answered with nothing, the device's own songs included; a list
   // that failed to load counts as nothing rather than leaving the page blank.
   const empty =
@@ -185,6 +234,7 @@ export const AllLibrary: FC = () => {
     manga: <TitleRow key="manga" medium="manga" title={t('library.tabs.manga')} />,
     novel: <TitleRow key="novel" medium="novel" title={t('library.tabs.novel')} />,
     video: <TitleRow key="video" medium="video" title={t('library.tabs.video')} />,
+    websites: <WebsitesRow key="websites" />,
   };
   return (
     <>

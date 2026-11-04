@@ -1,9 +1,15 @@
-import type { CatalogEntry, ExtensionInfo, RepoCatalog } from '@raygun/bindings';
+import type {
+  CatalogEntry,
+  ExtensionInfo,
+  ExtensionInstall,
+  ExtensionInstallStatus,
+  RepoCatalog,
+} from '@raygun/bindings';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { bindingsMock, emitEvent } from '../test/bindingsMock';
+import { NO_INSTALLS, bindingsMock, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -63,6 +69,24 @@ const entry = (overrides: Partial<CatalogEntry> = {}): CatalogEntry => ({
   installedVersion: null,
   nuclear: false,
   icon: null,
+  ...overrides,
+});
+
+const install = (overrides: Partial<ExtensionInstall> = {}): ExtensionInstall => ({
+  repoId: 'repo-1',
+  extensionId: 'dev.raygun.radio-browser',
+  name: 'Radio Browser',
+  state: 'queued',
+  phase: null,
+  error: null,
+  finishedAt: null,
+  batch: 1,
+  ...overrides,
+});
+
+const installs = (overrides: Partial<ExtensionInstallStatus> = {}): ExtensionInstallStatus => ({
+  ...NO_INSTALLS,
+  batch: 1,
   ...overrides,
 });
 
@@ -175,7 +199,6 @@ describe('Extensions', () => {
         ]),
       ),
     );
-    commands.extensionInstall.mockResolvedValue(ok([extension()]));
     await AppShellWrapper.mount('/extensions?tab=browse');
 
     const entries = await screen.findAllByTestId('catalog-entry');
@@ -188,11 +211,13 @@ describe('Extensions', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     await userEvent.click(within(entries[0]!).getByRole('button', { name: 'Install' }));
-    expect(commands.extensionInstall).toHaveBeenCalledWith('repo-1', 'dev.raygun.radio-browser');
+    expect(commands.extensionInstallsEnqueue).toHaveBeenCalledWith([
+      { repoId: 'repo-1', extensionId: 'dev.raygun.radio-browser', name: 'Radio Browser' },
+    ]);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('installs a selection, one after another', async () => {
+  it('queues a selection in Rust, in order', async () => {
     commands.extensionCatalog.mockResolvedValue(
       ok(
         catalog([
@@ -202,7 +227,6 @@ describe('Extensions', () => {
         ]),
       ),
     );
-    commands.extensionInstall.mockResolvedValue(ok([extension()]));
     await AppShellWrapper.mount('/extensions?tab=browse');
     await screen.findAllByTestId('catalog-entry');
 
@@ -212,13 +236,66 @@ describe('Extensions', () => {
     await userEvent.click(within(bar).getByRole('button', { name: 'Select all 3' }));
     await userEvent.click(within(bar).getByRole('button', { name: 'Install 3' }));
 
-    await vi.waitFor(() => expect(commands.extensionInstall).toHaveBeenCalledTimes(3));
-    expect(commands.extensionInstall.mock.calls.map(([, id]) => id)).toEqual([
-      'dev.raygun.radio-browser',
-      'dev.raygun.ia',
-      'dev.raygun.mb',
-    ]);
+    expect(commands.extensionInstallsEnqueue).toHaveBeenCalledTimes(1);
+    expect(
+      commands.extensionInstallsEnqueue.mock.calls[0]![0].map(
+        (item: { extensionId: string }) => item.extensionId,
+      ),
+    ).toEqual(['dev.raygun.radio-browser', 'dev.raygun.ia', 'dev.raygun.mb']);
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+  });
+
+  it('shows the queue with its progress and stops the rest on Cancel', async () => {
+    commands.extensionCatalog.mockResolvedValue(
+      ok(catalog([entry(), entry({ id: 'dev.raygun.ia', name: 'Internet Archive' })])),
+    );
+    // The queue was already running (the screen reloaded meanwhile).
+    const running = installs({
+      running: true,
+      total: 12,
+      done: 2,
+      current: 'Radio Browser',
+      phase: 'downloading',
+      items: [
+        install({ state: 'installing', phase: 'downloading' }),
+        install({ extensionId: 'dev.raygun.ia', name: 'Internet Archive' }),
+      ],
+    });
+    commands.extensionInstallsStatus.mockResolvedValue(running);
+    commands.extensionInstallsCancel.mockResolvedValue(running);
+    commands.extensionInstallsCancelAll.mockResolvedValue(running);
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    const progress = await screen.findByTestId('install-progress');
+    expect(progress).toHaveTextContent('Installing extensions · 3 of 12');
+    expect(progress).toHaveTextContent('Radio Browser · Downloading');
+    expect(within(progress).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2');
+    const [radio, archive] = screen.getAllByTestId('catalog-entry');
+    expect(radio).toHaveTextContent('Installing');
+    expect(archive).toHaveTextContent('Waiting');
+
+    await userEvent.click(
+      within(archive!).getByRole('button', { name: "Don't install Internet Archive" }),
+    );
+    expect(commands.extensionInstallsCancel).toHaveBeenCalledWith('repo-1', 'dev.raygun.ia');
+    await userEvent.click(within(progress).getByRole('button', { name: 'Cancel' }));
+    expect(commands.extensionInstallsCancelAll).toHaveBeenCalled();
+
+    const ended = installs({
+      total: 12,
+      done: 11,
+      failed: 1,
+      items: [install({ state: 'failed', error: 'the repository is offline' })],
+    });
+    commands.extensionInstallsRetry.mockResolvedValue(ended);
+    emitEvent('extensionInstallsEvent', ended);
+    expect(await screen.findByTestId('install-progress')).toHaveTextContent(
+      '11 installed · 1 failed',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(commands.extensionInstallsRetry).toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(commands.extensionInstallsDismiss).toHaveBeenCalledWith(null, null);
   });
 
   it('says a Shosetsu script may reach any public website', async () => {
@@ -250,17 +327,27 @@ describe('Extensions', () => {
         catalog([entry({ state: 'updateAvailable', version: '1.1.0', installedVersion: '1.0.0' })]),
       ),
     );
-    commands.extensionInstall.mockResolvedValue({
-      status: 'error',
-      error: "package checksum doesn't match the repository index",
-    });
+    commands.extensionInstallsEnqueue.mockResolvedValue(
+      installs({
+        total: 1,
+        failed: 1,
+        items: [
+          install({
+            state: 'failed',
+            error: "package checksum doesn't match the repository index",
+          }),
+        ],
+      }),
+    );
     await AppShellWrapper.mount('/extensions?tab=browse');
 
     const row = await screen.findByTestId('catalog-entry');
     expect(row).toHaveTextContent('1.0.0 → 1.1.0');
     await userEvent.click(within(row).getByRole('button', { name: 'Update' }));
 
-    expect(await within(row).findByRole('alert')).toHaveTextContent('checksum');
+    const issue = await within(row).findByRole('alert');
+    expect(issue).toHaveTextContent("Didn't install");
+    expect(issue).toHaveTextContent('checksum');
     expect(within(row).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 
@@ -278,6 +365,26 @@ describe('Extensions', () => {
     expect(row).toHaveTextContent('Nuclear');
     await userEvent.click(within(row).getByRole('button', { name: 'About LRCLIB' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('converts it when installing');
+  });
+
+  it('tags 18+ entries in the list and in their info, and no others', async () => {
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry({ id: 'dev.test.adult', name: 'After Dark', contentRating: 'nsfw' }),
+          entry({ id: 'dev.test.safe', name: 'Daylight', contentRating: 'safe' }),
+        ]),
+      ),
+    );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    const [adult, safe] = await screen.findAllByTestId('catalog-entry');
+    expect(within(adult!).getByRole('img', { name: 'For adults (18+)' })).toHaveTextContent('18+');
+    expect(within(safe!).queryByRole('img', { name: 'For adults (18+)' })).not.toBeInTheDocument();
+    await userEvent.click(within(adult!).getByRole('button', { name: 'About After Dark' }));
+    expect(
+      within(screen.getByTestId('entry-info')).getByRole('img', { name: 'For adults (18+)' }),
+    ).toBeInTheDocument();
   });
 
   it('offers plugins converted by an older converter again', async () => {

@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use raygun_model::{
     ConnectCommand, EngineCommand, EngineEvent, EngineReport, MediaSource, PlayContext,
-    PlaybackControl, PlaybackState, PlaybackStatus, QueueItem, QueueItemInput, QueueSnapshot,
-    SleepTimer, SoundPrefs, TrackQuery,
+    PlaybackControl, PlaybackState, QueueItem, QueueItemInput, QueueSnapshot, SleepTimer,
+    SoundPrefs, TrackQuery,
 };
 use raygun_net::StreamProxy;
 use raygun_playback::{Effect, PlaybackCore};
@@ -276,6 +276,8 @@ impl PlaybackService {
     /// itself plays elsewhere.
     pub fn apply(&self, command: ConnectCommand) {
         match command {
+            // A whole player moved here (Connect's transfer): its order and repeat as they were,
+            // loaded paused, then started, so it starts once at the right place.
             ConnectCommand::Replace {
                 items,
                 start_index,
@@ -283,6 +285,35 @@ impl PlaybackService {
                 start_ms,
                 play,
                 context,
+                order: Some(order),
+                repeat,
+            } => {
+                self.run(|core| {
+                    let repeat = repeat.unwrap_or(core.state().repeat);
+                    let mut effects = core.restore(
+                        items,
+                        order.into_iter().map(|index| index as usize).collect(),
+                        start_index.unwrap_or(0) as usize,
+                        start_ms,
+                        shuffle,
+                        repeat,
+                    );
+                    effects.extend(core.set_context(context));
+                    effects
+                });
+                if play {
+                    self.control_here(PlaybackControl::Play);
+                }
+            }
+            ConnectCommand::Replace {
+                items,
+                start_index,
+                shuffle,
+                start_ms,
+                play,
+                context,
+                order: None,
+                repeat,
             } => {
                 self.run(|core| {
                     let mut effects = core.replace_at(
@@ -292,11 +323,14 @@ impl PlaybackService {
                         start_ms,
                     );
                     effects.extend(core.set_context(context));
+                    if let Some(mode) = repeat {
+                        effects.extend(core.set_repeat(mode));
+                    }
+                    if !play {
+                        effects.extend(core.pause());
+                    }
                     effects
                 });
-                if !play {
-                    self.run(|core| core.pause());
-                }
             }
             ConnectCommand::Enqueue { items, play_now } => {
                 self.run(|core| core.enqueue(items, play_now));
@@ -353,6 +387,8 @@ impl PlaybackService {
                 start_ms: 0.0,
                 play: true,
                 context,
+                order: None,
+                repeat: None,
             });
         }
         self.run(|core| {
@@ -374,6 +410,8 @@ impl PlaybackService {
                 start_ms,
                 play: true,
                 context,
+                order: None,
+                repeat: None,
             });
         }
         self.run(|core| {
@@ -480,16 +518,10 @@ impl PlaybackService {
             if !matches!(item.source, MediaSource::YouTube { .. }) || in_embed {
                 return;
             }
-            let state = inner.core.state();
-            let autoplay = matches!(
-                state.status,
-                PlaybackStatus::Playing | PlaybackStatus::Buffering | PlaybackStatus::Loading
-            );
-            if inner
-                .tracker
-                .begin(load_id, &item, state.position_ms, autoplay)
-                == LoadPlan::Direct
-            {
+            let position_ms = inner.core.state().position_ms;
+            // It plays on if it played (a paused song stays paused there).
+            let autoplay = inner.core.plays_when_found();
+            if inner.tracker.begin(load_id, &item, position_ms) == LoadPlan::Direct {
                 let source = item.source.clone();
                 self.load_into(
                     &mut inner,
@@ -497,7 +529,7 @@ impl PlaybackService {
                     load_id,
                     &item,
                     &source,
-                    state.position_ms,
+                    position_ms,
                     autoplay,
                     0.0,
                 );
@@ -652,13 +684,13 @@ impl PlaybackService {
             match result {
                 Ok(pick) => {
                     let position = inner.core.state().position_ms;
-                    let Some((start_ms, autoplay)) =
-                        inner.tracker.resolved(load_id, pick.clone(), position)
+                    let Some(start_ms) = inner.tracker.resolved(load_id, pick.clone(), position)
                     else {
                         return;
                     };
-                    // Paused while it was being found (M46.16): it loads, and waits.
-                    let autoplay = autoplay && !inner.core.held();
+                    // Paused while it was being found (M46.16), it loads and waits; played
+                    // meanwhile (a song reopened paused), it starts.
+                    let autoplay = inner.core.plays_when_found();
                     let Some(item) = inner.core.current_item().cloned() else {
                         return;
                     };
@@ -757,7 +789,7 @@ impl PlaybackService {
                     // A downloaded song plays its saved copy (M46.10).
                     let item =
                         crate::music_downloads::offline_item(&self.app, &item).unwrap_or(item);
-                    match inner.tracker.begin(load_id, &item, start_ms, autoplay) {
+                    match inner.tracker.begin(load_id, &item, start_ms) {
                         LoadPlan::Direct => {
                             let source = item.source.clone();
                             self.load_into(
@@ -785,8 +817,12 @@ impl PlaybackService {
                     }
                 }
                 Effect::Engine(command) => {
-                    let engine = inner.active.unwrap_or(Engine::Webview);
-                    outbox.engine.push((engine, command));
+                    // With no engine holding the current item (its stream is still being found),
+                    // a play or seek would only wake what the last song left behind: a stopped
+                    // YouTube video would start again unseen. Volume and speed go with each load.
+                    if let Some(engine) = inner.active {
+                        outbox.engine.push((engine, command));
+                    }
                 }
                 Effect::StateChanged => {
                     outbox.state = Some(inner.core.state());

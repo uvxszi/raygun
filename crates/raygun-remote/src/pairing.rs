@@ -1,4 +1,4 @@
-//! Who may use the remote: one-time pairing codes and the devices they admitted. Pure, with the
+//! Who may use the server: one-time link codes and the devices admitted. Pure, with the
 //! time passed in, so expiry and lockout are testable.
 
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ const CODE_LENGTH: usize = 10;
 const CODE_ALPHABET: &[u8] = b"23456789abcdefghjkmnpqrstuvwxyz";
 const MAX_NAME_CHARS: usize = 40;
 
-/// A browser that paired. Stored device-local by the app.
+/// A device given a token (a linked Raygun). Stored device-local by the app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairedDevice {
@@ -65,8 +65,17 @@ impl Pairing {
             .map(|(code, _)| code.as_str())
     }
 
-    /// Admits a device with the open code. The code works once.
-    pub fn pair(&mut self, code: &str, name: &str, now_ms: i64) -> Result<PairedDevice, PairError> {
+    /// When the open code stops working (unix ms), unless it already did.
+    pub fn code_expires_at(&self, now_ms: i64) -> Option<i64> {
+        self.code
+            .as_ref()
+            .filter(|(_, expires)| now_ms < *expires)
+            .map(|(_, expires)| *expires)
+    }
+
+    /// Takes the open code if `code` is it (a link QR code's, M46.47): it works once. Wrong
+    /// codes count toward cancelling it, as with [`Pairing::pair`].
+    pub fn redeem(&mut self, code: &str, now_ms: i64) -> Result<(), PairError> {
         let Some(open) = self.current_code(now_ms) else {
             return Err(PairError::NoCode);
         };
@@ -79,9 +88,13 @@ impl Pairing {
         }
         self.code = None;
         self.failures = 0;
-        let device = new_device(name, now_ms);
-        self.devices.push(device.clone());
-        Ok(device)
+        Ok(())
+    }
+
+    /// Admits a device with the open code. The code works once.
+    pub fn pair(&mut self, code: &str, name: &str, now_ms: i64) -> Result<PairedDevice, PairError> {
+        self.redeem(code, now_ms)?;
+        Ok(self.admit(name, now_ms))
     }
 
     /// Admits a device this device's user allowed (Connect, M46.15): no code is needed.
@@ -114,7 +127,7 @@ fn new_device(name: &str, now_ms: i64) -> PairedDevice {
     PairedDevice {
         id: uuid::Uuid::now_v7().to_string(),
         name: if name.is_empty() {
-            "Browser".into()
+            "Another device".into()
         } else {
             name
         },
@@ -194,7 +207,7 @@ mod tests {
             pairing.pair(&fresh, "", 3).is_ok(),
             "a new code resets the count"
         );
-        assert_eq!(pairing.devices()[0].name, "Browser");
+        assert_eq!(pairing.devices()[0].name, "Another device");
     }
 
     #[test]

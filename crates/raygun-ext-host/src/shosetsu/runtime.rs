@@ -176,6 +176,7 @@ impl ShosetsuExtension {
 
     pub fn providers(&self) -> Vec<ProviderInfo> {
         vec![ProviderInfo {
+            adult: false,
             id: format!("{}/{PROVIDER}", self.manifest.id),
             extension_id: self.manifest.id.clone(),
             kind: NOVEL_SOURCE.to_owned(),

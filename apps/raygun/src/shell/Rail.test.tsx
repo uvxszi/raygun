@@ -117,6 +117,7 @@ describe('The sidebar (M46.29)', () => {
         order: { sort: 'date', descending: true, filters: [] },
         customOrder: false,
         episodeCount: 0,
+        downloaded: 0,
         speed: null,
       }),
     );

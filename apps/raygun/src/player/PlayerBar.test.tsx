@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
@@ -152,6 +152,34 @@ describe('Player bar', () => {
     // Lyrics open the full player on its lyrics.
     await user.click(within(bar).getByRole('button', { name: 'Lyrics' }));
     expect(await screen.findByTestId('lyrics-view')).toBeInTheDocument();
+  });
+
+  it('shows the volume slider beside the mute button while the bar has no room for it', async () => {
+    setWide(true);
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing(QUEUE, 0);
+    await AppShellWrapper.miniPlayer.title;
+    const bar = AppShellWrapper.miniPlayer.element;
+    const mute = within(bar).getByRole('button', { name: 'Mute' });
+    expect(screen.queryByTestId('volume-popover')).not.toBeInTheDocument();
+
+    // jsdom lays nothing out, so the bar's own slider counts as hidden (a narrow bar).
+    fireEvent.pointerOver(mute, { pointerType: 'mouse' });
+    const popover = await screen.findByTestId('volume-popover');
+    const slider = within(popover).getByRole('slider', { name: 'Volume' });
+    // From the button up to the slider, the pointer stays inside: still there.
+    fireEvent.pointerOut(mute, { pointerType: 'mouse', relatedTarget: slider });
+    fireEvent.pointerOver(slider, { pointerType: 'mouse', relatedTarget: mute });
+    fireEvent.change(slider, { target: { value: '0.3' } });
+    expect(commands.playbackControl).toHaveBeenLastCalledWith({ type: 'setVolume', volume: 0.3 });
+    expect(screen.getByTestId('volume-popover')).toBeInTheDocument();
+    // Leaving both closes it.
+    fireEvent.pointerOut(slider, { pointerType: 'mouse', relatedTarget: document.body });
+    await waitFor(() => expect(screen.queryByTestId('volume-popover')).not.toBeInTheDocument());
+
+    // A finger never opens it (a tap would only flash it).
+    fireEvent.pointerOver(mute, { pointerType: 'touch' });
+    expect(screen.queryByTestId('volume-popover')).not.toBeInTheDocument();
   });
 
   it('shows what plays beside the page: artwork, lyrics and what comes next', async () => {

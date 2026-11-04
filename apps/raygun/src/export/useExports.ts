@@ -1,5 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type { ExportJob, ExportRequest, Settings } from '@raygun/bindings';
+import type { ExportFolder, ExportJob, ExportRequest, Settings } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -40,6 +40,26 @@ export const useExportPlan = (request: ExportRequest | null) =>
     queryFn: () => unwrapResult(commands.exportPlan(request as ExportRequest)),
     enabled: request !== null,
   });
+
+const LAST_FOLDER = [...EXPORTS, 'lastFolder'] as const;
+
+/** The folder last chosen in the export sheet, offered there again. */
+export const useLastExportFolder = () =>
+  useQuery({
+    queryKey: LAST_FOLDER,
+    queryFn: () => unwrapResult(commands.exportLastFolder()),
+  });
+
+/** The system folder picker for one export; `null` when it was closed without a choice. */
+export const usePickExportFolder = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => unwrapResult(commands.exportPickFolder()),
+    onSuccess: (folder) => {
+      if (folder) queryClient.setQueryData<ExportFolder | null>(LAST_FOLDER, folder);
+    },
+  });
+};
 
 export const useStartExport = () => {
   const queryClient = useQueryClient();

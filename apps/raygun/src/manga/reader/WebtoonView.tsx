@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FC, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 
-import { sizedFrom } from '../readerDisplay';
+import { stripWidth } from '../readerDisplay';
 
 import { ReaderImage } from './ReaderImage';
 
@@ -67,7 +67,6 @@ export type WebtoonViewProps = {
   contentRef: RefObject<HTMLElement | null>;
   onCurrent: (page: number) => void;
   onTap: (event: ReactMouseEvent<HTMLElement>) => void;
-  onDoubleTap: (event: ReactMouseEvent<HTMLElement>) => void;
   onHideChrome: () => void;
   onPageMenu: (page: number) => void;
   endCard: ReactNode;
@@ -89,7 +88,6 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
   contentRef,
   onCurrent,
   onTap,
-  onDoubleTap,
   onHideChrome,
   onPageMenu,
   endCard,
@@ -188,7 +186,6 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
     <div
       role="presentation"
       onClick={onTap}
-      onDoubleClick={onDoubleTap}
       className="flex min-h-full flex-col select-none [-webkit-touch-callout:none]"
     >
       <div
@@ -199,9 +196,7 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
         // The column: the screen's width up to 768 px (M46.7), made bigger or smaller by the
         // webtoon size (M46.48), then zoomed.
         className="mx-auto flex max-w-none shrink-0 flex-col"
-        style={{
-          width: `calc(${sizedFrom('48rem', size)} * ${zoom})`,
-        }}
+        style={{ width: stripWidth(size, zoom) }}
       >
         {pages.map((url, index) => (
           <Slot

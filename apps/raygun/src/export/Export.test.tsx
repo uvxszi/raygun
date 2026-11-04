@@ -105,9 +105,11 @@ describe('Exports', () => {
       scope: { kind: 'all' },
       format: 'cbz',
       destination: 'downloads',
+      folder: null,
     });
-    // A folder isn't picked yet: it's offered but off.
-    expect(within(sheet).getByRole('radio', { name: 'Your folder' })).toBeDisabled();
+    // No folder is set in Settings: only Choose folder… offers one.
+    expect(within(sheet).queryByRole('radio', { name: 'Your folder' })).not.toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: 'Choose folder…' })).toBeInTheDocument();
 
     await user.click(within(sheet).getByRole('radio', { name: 'From one chapter to another' }));
     const from = within(sheet).getByRole('combobox', { name: 'From' });
@@ -135,10 +137,90 @@ describe('Exports', () => {
       scope: { kind: 'range', from: 'c1', to: 'c2' },
       format: 'pdf',
       destination: 'share',
+      folder: null,
     });
     expect(await within(sheet).findByText('Exporting Frieren.')).toBeInTheDocument();
     await user.click(within(sheet).getByRole('link', { name: 'See progress' }));
     expect(await screen.findByTestId('downloads-page')).toBeInTheDocument();
+  });
+
+  it('saves to a folder chosen on the spot, offered again next time', async () => {
+    const user = userEvent.setup();
+    commands.mangaTitle.mockResolvedValue(ok(TITLE));
+    commands.exportPlan.mockResolvedValue(ok({ chapters: 3, missing: 0, files: 3, problem: null }));
+    commands.exportStart.mockResolvedValue(ok(job({})));
+    commands.settingsGet.mockResolvedValue(
+      ok({
+        ...DEFAULT_SETTINGS,
+        save: {
+          ...SAVE_DEFAULTS,
+          location: 'folder',
+          folderUri: 'content://tree/comics',
+          folderName: 'Comics',
+        },
+      }),
+    );
+    const picked = { uri: 'content://tree/usb', name: 'USB stick' };
+    commands.exportPickFolder.mockResolvedValue(ok(picked));
+    await AppShellWrapper.mount(`/manga/title?source=${encodeURIComponent(SOURCE)}&id=m1`);
+    const page = await screen.findByTestId('manga-title-page');
+    await user.click(await within(page).findByRole('button', { name: 'Export' }));
+
+    const sheet = await screen.findByRole('dialog', { name: 'Export' });
+    // The Settings folder is chosen at first.
+    expect(await within(sheet).findByRole('radio', { name: 'Comics' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await vi.waitFor(() =>
+      expect(lastRequest()).toMatchObject({ destination: 'folder', folder: null }),
+    );
+
+    await user.click(within(sheet).getByRole('button', { name: 'Choose folder…' }));
+    expect(commands.exportPickFolder).toHaveBeenCalled();
+    expect(await within(sheet).findByRole('radio', { name: 'USB stick' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await vi.waitFor(() =>
+      expect(lastRequest()).toMatchObject({ destination: 'folder', folder: picked }),
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Export' }));
+    expect(commands.exportStart).toHaveBeenCalledWith(
+      expect.objectContaining({ destination: 'folder', folder: picked }),
+    );
+  });
+
+  it('keeps the last chosen folder as a choice beside the Settings default', async () => {
+    const user = userEvent.setup();
+    commands.mangaTitle.mockResolvedValue(ok(TITLE));
+    commands.exportLastFolder.mockResolvedValue(ok({ uri: '/media/usb', name: 'usb' }));
+    commands.exportPickFolder.mockResolvedValue(ok(null));
+    await AppShellWrapper.mount(`/manga/title?source=${encodeURIComponent(SOURCE)}&id=m1`);
+    const page = await screen.findByTestId('manga-title-page');
+    await user.click(await within(page).findByRole('button', { name: 'Export' }));
+
+    const sheet = await screen.findByRole('dialog', { name: 'Export' });
+    const last = await within(sheet).findByRole('radio', { name: 'usb' });
+    expect(last).toHaveAttribute('aria-checked', 'false');
+    expect(within(sheet).getByRole('radio', { name: 'Downloads folder' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // A closed picker changes nothing.
+    await user.click(within(sheet).getByRole('button', { name: 'Choose folder…' }));
+    await vi.waitFor(() => expect(commands.exportPickFolder).toHaveBeenCalled());
+    expect(within(sheet).getByRole('radio', { name: 'Downloads folder' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await user.click(last);
+    await vi.waitFor(() =>
+      expect(lastRequest()).toMatchObject({
+        destination: 'folder',
+        folder: { uri: '/media/usb', name: 'usb' },
+      }),
+    );
   });
 
   it('follows jobs in Downloads → Exports', async () => {

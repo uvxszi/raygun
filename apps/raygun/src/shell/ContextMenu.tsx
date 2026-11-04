@@ -20,9 +20,10 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
 import { Artwork } from '../library/Artwork';
-import { useCloseOnBack } from '../player/useCloseOnBack';
+import { backPastLayers, useBackLayer } from './backLayers';
 import { menuFromEvent, useContextMenuStore } from './contextMenuStore';
 import type { MenuItem } from './contextMenuStore';
+import { useIsDesktop } from './useIsDesktop';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 
 /** A touch screen: menus come up from the bottom as a sheet, with rows a finger can hit. */
@@ -178,7 +179,8 @@ const spotItems = (
 /**
  * Raygun's own right-click menu (M46.8), in the theme's colours and accent. Whatever is under the
  * pointer adds its options (a song, a cover, a source); the spot adds fields, text, links and
- * images; the page adds Back, Forward, Reload and full screen. The webview's menu never shows.
+ * images; the page adds Back, Forward, Reload and (on desktop) full screen. The webview's menu
+ * never shows.
  */
 export const ContextMenuHost: FC = () => {
   const { t } = useTranslation();
@@ -192,6 +194,8 @@ export const ContextMenuHost: FC = () => {
   const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   // Closing on the backdrop's click alone would close a drag that started in the menu.
   const pressedBackdrop = useRef(false);
+  // A phone app is full screen already: only a desktop window toggles it.
+  const desktop = useIsDesktop();
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const [active, setActive] = useState(-1);
   // An item that asks first (M46.45): the menu becomes its question.
@@ -231,7 +235,8 @@ export const ContextMenuHost: FC = () => {
                 label: t('menu.back'),
                 icon: ArrowLeft,
                 hint: 'Alt+←',
-                onSelect: () => router.history.back(),
+                // The menu's own entry goes along with the page's (backLayers).
+                onSelect: () => backPastLayers(() => router.history.back()),
               },
               {
                 label: t('menu.forward'),
@@ -240,12 +245,16 @@ export const ContextMenuHost: FC = () => {
                 onSelect: () => router.history.forward(),
               },
               { label: t('menu.reload'), icon: RotateCw, onSelect: () => void router.invalidate() },
-              {
-                label: t('menu.fullscreen'),
-                icon: Maximize,
-                hint: 'F11',
-                onSelect: () => void toggleWindowFullscreen(),
-              },
+              ...(desktop
+                ? [
+                    {
+                      label: t('menu.fullscreen'),
+                      icon: Maximize,
+                      hint: 'F11',
+                      onSelect: () => void toggleWindowFullscreen(),
+                    },
+                  ]
+                : []),
             ];
       const groups = [own, spot, page].filter((group) => group.length > 0);
       const items = groups.flatMap((group, index) =>
@@ -258,11 +267,11 @@ export const ContextMenuHost: FC = () => {
     };
     window.addEventListener('contextmenu', onContextMenu);
     return () => window.removeEventListener('contextmenu', onContextMenu);
-  }, [navigate, router, show, t]);
+  }, [navigate, router, show, t, desktop]);
 
-  // On a touch screen the menu is a sheet from the bottom, and Back closes it.
+  // On a touch screen the menu is a sheet from the bottom. Back and Escape close it first.
   const sheet = useMemo(() => open !== null && coarsePointer(), [open]);
-  useCloseOnBack(sheet, close);
+  useBackLayer(open !== null, close);
 
   // Kept on screen: flipped up or left when it would run off the edge.
   useLayoutEffect(() => {
@@ -405,8 +414,7 @@ export const ContextMenuHost: FC = () => {
       data-testid="context-menu"
       data-sheet={sheet ? '' : undefined}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') close();
-        else if (event.key === 'ArrowDown') step(1);
+        if (event.key === 'ArrowDown') step(1);
         else if (event.key === 'ArrowUp') step(-1);
         else if (event.key === 'Enter' && active >= 0) pick(open.items[active] as MenuItem);
         else return;

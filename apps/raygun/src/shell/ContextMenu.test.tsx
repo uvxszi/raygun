@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { bindingsMock } from '../test/bindingsMock';
+import { ANDROID_INFO, bindingsMock } from '../test/bindingsMock';
 import { AppShellWrapper } from './AppShell.test-wrapper';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -127,6 +127,12 @@ describe('Right-click menu', () => {
     expect(within(menu).getByRole('menuitem', { name: 'Copy title' })).toBeInTheDocument();
     expect(within(menu).queryByRole('menuitem', { name: /^Copy “/ })).not.toBeInTheDocument();
     await user.click(within(menu).getByRole('menuitem', { name: 'Remove from downloads' }));
+    // It asks first, in the menu's place.
+    expect(commands.songDownloadRemove).not.toHaveBeenCalled();
+    const question = within(menu).getByRole('alertdialog', {
+      name: /^Delete the downloaded copy of/,
+    });
+    await user.click(within(question).getByRole('button', { name: 'Remove from downloads' }));
     await vi.waitFor(() => expect(commands.songDownloadRemove).toHaveBeenCalledWith('dl-1'));
 
     fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
@@ -138,7 +144,10 @@ describe('Right-click menu', () => {
   });
 
   it('replaces the webview menu everywhere, with the page options', async () => {
+    // Full screen is a desktop window's.
+    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
     await AppShellWrapper.mount('/');
+    await screen.findByTestId('app-bar');
     const page = await screen.findByTestId('page-content');
     const shown = !fireEvent.contextMenu(page, { clientX: 10, clientY: 10 });
     expect(shown).toBe(true);

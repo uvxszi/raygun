@@ -46,7 +46,6 @@ struct Attempt {
     load_id: u32,
     query: TrackQuery,
     start_ms: f64,
-    autoplay: bool,
     exclusions: Exclusions,
     /// The resolver's pick now loaded in the engine.
     playing: Option<Pick>,
@@ -79,13 +78,7 @@ impl Tracker {
     }
 
     /// Starts tracking a new load.
-    pub fn begin(
-        &mut self,
-        load_id: u32,
-        item: &QueueItem,
-        start_ms: f64,
-        autoplay: bool,
-    ) -> LoadPlan {
+    pub fn begin(&mut self, load_id: u32, item: &QueueItem, start_ms: f64) -> LoadPlan {
         let mut exclusions = Exclusions::default();
         let (plan, concrete) = match &item.source {
             MediaSource::Lookup { .. } => (LoadPlan::Resolve, None),
@@ -103,7 +96,6 @@ impl Tracker {
             load_id,
             query: TrackQuery::for_item(item),
             start_ms,
-            autoplay,
             exclusions,
             playing: None,
             concrete,
@@ -125,9 +117,10 @@ impl Tracker {
             .map(|attempt| (attempt.query.clone(), attempt.exclusions.clone()))
     }
 
-    /// A resolution finished. Returns where to start and whether to autoplay, or `None` when the
-    /// load is stale and the pick should be dropped.
-    pub fn resolved(&mut self, load_id: u32, pick: Pick, position_ms: f64) -> Option<(f64, bool)> {
+    /// A resolution finished. Returns where to start, or `None` when the load is stale and the
+    /// pick should be dropped. Whether it plays is the player's call (`plays_when_found`): a
+    /// Play or Pause may have come while the stream was found.
+    pub fn resolved(&mut self, load_id: u32, pick: Pick, position_ms: f64) -> Option<f64> {
         let attempt = self.attempt(load_id)?;
         attempt.exclusions.tried.push(pick.key.clone());
         attempt.playing = Some(pick);
@@ -138,7 +131,7 @@ impl Tracker {
         } else {
             attempt.start_ms
         };
-        Some((start, attempt.autoplay))
+        Some(start)
     }
 
     /// The engine failed for `load_id`.
@@ -182,6 +175,7 @@ mod tests {
 
     fn item(source: MediaSource) -> QueueItem {
         QueueItem {
+            explicit: false,
             id: "item".into(),
             title: "Song".into(),
             artist: Some("Band".into()),
@@ -229,22 +223,19 @@ mod tests {
     #[test]
     fn lookups_wait_for_a_resolution() {
         let mut tracker = Tracker::default();
-        assert_eq!(
-            tracker.begin(1, &item(lookup()), 0.0, true),
-            LoadPlan::Resolve
-        );
+        assert_eq!(tracker.begin(1, &item(lookup()), 0.0), LoadPlan::Resolve);
         let (query, exclusions) = tracker.request(1).unwrap();
         assert_eq!(query.title, "Song");
         assert_eq!(query.artist.as_deref(), Some("Band"));
         assert_eq!(exclusions, Exclusions::default());
-        assert_eq!(tracker.resolved(1, pick("a"), 0.0), Some((0.0, true)));
+        assert_eq!(tracker.resolved(1, pick("a"), 0.0), Some(0.0));
     }
 
     #[test]
     fn stale_resolutions_are_dropped() {
         let mut tracker = Tracker::default();
-        tracker.begin(1, &item(lookup()), 0.0, true);
-        tracker.begin(2, &item(lookup()), 0.0, true);
+        tracker.begin(1, &item(lookup()), 0.0);
+        tracker.begin(2, &item(lookup()), 0.0);
         assert_eq!(tracker.request(1), None);
         assert_eq!(tracker.resolved(1, pick("a"), 0.0), None);
         assert_eq!(tracker.engine_error(1), ErrorPlan::Forward);
@@ -254,7 +245,7 @@ mod tests {
     #[test]
     fn errors_move_through_candidates_then_reach_the_core() {
         let mut tracker = Tracker::default();
-        tracker.begin(7, &item(lookup()), 0.0, true);
+        tracker.begin(7, &item(lookup()), 0.0);
         tracker.resolved(7, pick("a"), 0.0);
 
         // The loaded pick failed: retry, excluding it.
@@ -268,10 +259,7 @@ mod tests {
         assert_eq!(exclusions.tried, vec![pick("a").key]);
 
         // The next pick resumes from where playback got to.
-        assert_eq!(
-            tracker.resolved(7, pick("b"), 42_000.0),
-            Some((42_000.0, true))
-        );
+        assert_eq!(tracker.resolved(7, pick("b"), 42_000.0), Some(42_000.0));
         assert_eq!(tracker.engine_playing(7), Some(pick("b")));
         assert_eq!(tracker.engine_playing(7), None, "verified once");
 
@@ -285,7 +273,7 @@ mod tests {
     fn direct_sources_fall_back_once() {
         let mut tracker = Tracker::default();
         assert_eq!(
-            tracker.begin(3, &item(url("direct")), 0.0, true),
+            tracker.begin(3, &item(url("direct")), 0.0),
             LoadPlan::Direct
         );
         assert_eq!(
@@ -312,7 +300,7 @@ mod tests {
         let video = MediaSource::YouTube {
             video_id: "dQw4w9WgXcQ".into(),
         };
-        assert_eq!(tracker.begin(5, &item(video), 0.0, true), LoadPlan::Resolve);
+        assert_eq!(tracker.begin(5, &item(video), 0.0), LoadPlan::Resolve);
         let (query, exclusions) = tracker.request(5).unwrap();
         assert_eq!(query.title, "Song");
         assert_eq!(exclusions.youtube.as_deref(), Some("dQw4w9WgXcQ"));
@@ -340,7 +328,7 @@ mod tests {
         let video = MediaSource::YouTube {
             video_id: "dQw4w9WgXcQ".into(),
         };
-        assert_eq!(tracker.begin(6, &item(video), 0.0, true), LoadPlan::Direct);
+        assert_eq!(tracker.begin(6, &item(video), 0.0), LoadPlan::Direct);
         assert_eq!(tracker.playing(6), None);
     }
 
@@ -350,7 +338,7 @@ mod tests {
         let file = MediaSource::LocalFile {
             path: "/sdcard/Music/a.mp3".into(),
         };
-        assert_eq!(tracker.begin(4, &item(file), 0.0, true), LoadPlan::Direct);
+        assert_eq!(tracker.begin(4, &item(file), 0.0), LoadPlan::Direct);
         assert_eq!(tracker.engine_error(4), ErrorPlan::Forward);
     }
 }

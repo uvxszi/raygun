@@ -53,6 +53,7 @@ pub fn snapshot(core: &PlaybackCore, original: &dyn Fn(&str) -> String) -> Strin
                     source => source.clone(),
                 };
                 QueueItemInput {
+                    explicit: item.explicit,
                     title: item.title,
                     artist: item.artist,
                     album: item.album,
@@ -121,6 +122,7 @@ mod tests {
 
     fn input(title: &str, source: MediaSource) -> QueueItemInput {
         QueueItemInput {
+            explicit: false,
             title: title.into(),
             artist: Some("Artist".into()),
             album: None,

@@ -1,4 +1,4 @@
-import { namesSeason, parseTitle } from './videoMatch';
+import { namesSeason, parseTitle, withoutTitle } from './videoMatch';
 
 /** "12", or "12.5" (as Rust's `format_number`). */
 export const formatEpisodeNumber = (value: number) => String(value);
@@ -24,14 +24,17 @@ export const isGenericName = (name: string, season: number | null, value: number
 /**
  * "S1 E2 · Name", "E2 · Name" or the name alone; a name that only repeats the number
  * ("Episode 2") isn't repeated after it. As `video_match::episode_label` in Rust. `showSeason`
- * false leaves the season out (see `showsSeasons`).
+ * false leaves the season out (see `showsSeasons`). With `show`, the show's title is left out of
+ * the name ("Show - 03" as episode 3 is "E3"), as `video_match::episode_label_in`.
  */
 export const episodeLabel = (
   episode: { season: number | null; number: number | null; name: string },
   showSeason = true,
+  show?: string,
 ) => {
-  const name = episode.name.trim();
-  if (episode.number === null) return name;
+  const name = show ? withoutTitle(episode.name, show) : episode.name.trim();
+  // Only the title, and no number: the title it is (a movie's one entry).
+  if (episode.number === null) return name || episode.name.trim();
   const season = showSeason ? episode.season : null;
   const value = formatEpisodeNumber(episode.number);
   const generic = isGenericName(name, season, episode.number);

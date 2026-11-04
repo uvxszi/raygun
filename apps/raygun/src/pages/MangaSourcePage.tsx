@@ -19,6 +19,7 @@ import { LoadMore } from '../shell/LoadMore';
 import { TextField } from '../shell/TextField';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBarAction } from '../shell/TopBar';
+import { AdultMark } from '../shell/AdultMark';
 import { PageHeader } from './PageHeader';
 
 const LISTS: MangaBrowseMode[] = ['popular', 'latest'];
@@ -91,6 +92,7 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
         back
         fallback="/browse"
         title={source?.name ?? t('manga.source')}
+        titleMark={source?.adult && <AdultMark />}
         actions={
           id && (
             <TopBarAction

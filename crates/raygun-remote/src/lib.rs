@@ -1,8 +1,9 @@
-//! Raygun's LAN remote (ARCHITECTURE §9): a web page and a small JSON API that let a paired
-//! browser on the same network control playback. Off unless the user turns it on.
+//! The server other Raygun devices on the network link with and play through (ARCHITECTURE §9;
+//! Connect, M46.15; one link, M46.47). Off unless devices may find this one.
 //!
-//! The same server lets other Raygun devices play here (Connect, M46.15): they ask once (this
-//! device's user allows them), then send the queue and controls and follow the player by events.
+//! A device asks once (this device's user allows it; a link QR code's one-time code comes
+//! along when it was scanned), then sends the queue and controls and follows the player by
+//! events.
 //!
 //! What the API does lives behind [`Backend`], implemented by the app; this crate is the server,
 //! pairing and auth.
@@ -18,10 +19,10 @@ use std::time::Duration;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use futures_util::Stream;
 use serde::Deserialize;
@@ -33,25 +34,16 @@ pub use pairing::{PairError, PairedDevice, Pairing};
 
 /// Ports tried in order; the first free one is used.
 pub const PORTS: std::ops::RangeInclusive<u16> = 8820..=8829;
-/// How often the event stream checks for changes.
-const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 /// How often Connect's stream checks: another Raygun shows this player as its own.
 const CONNECT_INTERVAL: Duration = Duration::from_millis(300);
 /// Longest name a device asking to play here may give.
 const MAX_ASKER_NAME: usize = 40;
+/// Largest Connect command: a queue of some 30,000 songs.
+const MAX_COMMAND_BYTES: usize = 16 * 1024 * 1024;
 const KEEP_ALIVE: Duration = Duration::from_secs(15);
 
-const PAGE: &str = include_str!("remote.html");
-
-/// What the remote can see and do.
+/// What linked devices can see and do here.
 pub trait Backend: Send + Sync + 'static {
-    /// `{ playback, queue }` as the page renders it.
-    fn snapshot(&self) -> Value;
-    /// Applies `{ action, positionMs?, volume?, itemId? }`.
-    fn control(&self, command: &Value) -> Result<(), String>;
-    fn search(&self, query: &str) -> impl Future<Output = Result<Value, String>> + Send;
-    /// Plays `{ title, artist?, album? }` now.
-    fn play(&self, track: &Value) -> impl Future<Output = Result<(), String>> + Send;
     /// This device as Connect shows it (M46.15): `{ id, name, kind }`.
     fn device(&self) -> Value;
     /// The player's state and queue for another Raygun: `(PlaybackState, QueueSnapshot)`.
@@ -112,17 +104,14 @@ struct Shared<B> {
 
 pub fn router<B: Backend>(backend: B, access: Access) -> Router {
     Router::new()
-        .route("/", get(|| async { Html(PAGE) }))
-        .route("/api/pair", post(pair::<B>))
-        .route("/api/state", get(state::<B>))
-        .route("/api/events", get(events::<B>))
-        .route("/api/control", post(control::<B>))
-        .route("/api/search", get(search::<B>))
-        .route("/api/play", post(play::<B>))
         .route("/api/device", get(device::<B>))
         .route("/api/connect/hello", post(hello::<B>))
         .route("/api/connect/events", get(connect_events::<B>))
-        .route("/api/connect/command", post(connect_command::<B>))
+        // A whole queue moves in one command: a long one is past axum's 2 MB default.
+        .route(
+            "/api/connect/command",
+            post(connect_command::<B>).layer(DefaultBodyLimit::max(MAX_COMMAND_BYTES)),
+        )
         .with_state(Arc::new(Shared {
             backend,
             access,
@@ -201,144 +190,9 @@ fn usable_lan_ip(ip: IpAddr) -> bool {
 // ---- Handlers ----
 
 #[derive(Deserialize)]
-struct PairRequest {
-    code: String,
-    #[serde(default)]
-    name: String,
-}
-
-async fn pair<B: Backend>(
-    State(shared): State<Arc<Shared<B>>>,
-    Json(request): Json<PairRequest>,
-) -> Response {
-    let access = &shared.access;
-    let now = (access.clock)();
-    let result = {
-        let mut pairing = access.pairing.lock().expect("pairing lock poisoned");
-        pairing
-            .pair(&request.code, &request.name, now)
-            .map(|device| (device, pairing.devices().to_vec()))
-    };
-    match result {
-        Ok((device, devices)) => {
-            tracing::info!(name = %device.name, "remote device paired");
-            (access.on_change)(devices);
-            Json(json!({ "token": device.token, "deviceId": device.id })).into_response()
-        }
-        Err(PairError::WrongCode) => error(StatusCode::FORBIDDEN, "That pairing code is wrong."),
-        Err(PairError::NoCode) => error(
-            StatusCode::GONE,
-            "This pairing code expired. Show a new QR code in Raygun's Settings.",
-        ),
-    }
-}
-
-async fn state<B: Backend>(State(shared): State<Arc<Shared<B>>>, headers: HeaderMap) -> Response {
-    if let Err(refusal) = check(&shared.access, bearer(&headers)) {
-        return refusal;
-    }
-    Json(shared.backend.snapshot()).into_response()
-}
-
-#[derive(Deserialize)]
 struct EventsQuery {
     #[serde(default)]
     token: String,
-}
-
-async fn events<B: Backend>(
-    State(shared): State<Arc<Shared<B>>>,
-    Query(query): Query<EventsQuery>,
-) -> Response {
-    if let Err(refusal) = check(&shared.access, &query.token) {
-        return refusal;
-    }
-    Sse::new(snapshot_stream(shared, query.token))
-        .keep_alive(KeepAlive::new().interval(KEEP_ALIVE))
-        .into_response()
-}
-
-/// Sends the snapshot at once, then whenever it changes. Ends when the device loses access.
-fn snapshot_stream<B: Backend>(
-    shared: Arc<Shared<B>>,
-    token: String,
-) -> impl Stream<Item = Result<Event, Infallible>> {
-    futures_util::stream::unfold(
-        (shared, token, None::<String>, true),
-        |(shared, token, last, first)| async move {
-            loop {
-                if !first {
-                    tokio::time::sleep(EVENT_INTERVAL).await;
-                }
-                if !shared.access.authorize(&token) {
-                    return None;
-                }
-                let snapshot = shared.backend.snapshot().to_string();
-                if last.as_deref() != Some(snapshot.as_str()) {
-                    let event = Event::default().event("state").data(snapshot.clone());
-                    return Some((Ok(event), (shared, token, Some(snapshot), false)));
-                }
-                if first {
-                    return Some((
-                        Ok(Event::default().comment("ready")),
-                        (shared, token, last, false),
-                    ));
-                }
-            }
-        },
-    )
-}
-
-async fn control<B: Backend>(
-    State(shared): State<Arc<Shared<B>>>,
-    headers: HeaderMap,
-    Json(command): Json<Value>,
-) -> Response {
-    if let Err(refusal) = check(&shared.access, bearer(&headers)) {
-        return refusal;
-    }
-    match shared.backend.control(&command) {
-        Ok(()) => Json(shared.backend.snapshot()).into_response(),
-        Err(message) => error(StatusCode::BAD_REQUEST, &message),
-    }
-}
-
-#[derive(Deserialize)]
-struct SearchQuery {
-    #[serde(default)]
-    q: String,
-}
-
-async fn search<B: Backend>(
-    State(shared): State<Arc<Shared<B>>>,
-    headers: HeaderMap,
-    Query(query): Query<SearchQuery>,
-) -> Response {
-    if let Err(refusal) = check(&shared.access, bearer(&headers)) {
-        return refusal;
-    }
-    let text = query.q.trim();
-    if text.is_empty() {
-        return error(StatusCode::BAD_REQUEST, "Type something to search for.");
-    }
-    match shared.backend.search(text).await {
-        Ok(results) => Json(results).into_response(),
-        Err(message) => error(StatusCode::BAD_GATEWAY, &message),
-    }
-}
-
-async fn play<B: Backend>(
-    State(shared): State<Arc<Shared<B>>>,
-    headers: HeaderMap,
-    Json(track): Json<Value>,
-) -> Response {
-    if let Err(refusal) = check(&shared.access, bearer(&headers)) {
-        return refusal;
-    }
-    match shared.backend.play(&track).await {
-        Ok(()) => Json(shared.backend.snapshot()).into_response(),
-        Err(message) => error(StatusCode::BAD_REQUEST, &message),
-    }
 }
 
 // ---- Connect (M46.15) ----
@@ -354,6 +208,9 @@ struct HelloRequest {
     /// The asking device's link card (M46.47).
     #[serde(default)]
     link: Option<Value>,
+    /// The one-time code of this device's link QR code, when the asking device scanned it.
+    #[serde(default)]
+    code: Option<String>,
 }
 
 /// Another Raygun asks to play here: this device's user decides, and an allowed device gets a
@@ -374,6 +231,29 @@ async fn hello<B: Backend>(
             "That device is answering another request. Try again in a minute.",
         );
     };
+    // A scanned QR code's code works once, and only while that code is still shown.
+    if let Some(code) = request.code.as_deref() {
+        let access = &shared.access;
+        let now = (access.clock)();
+        let redeemed = access
+            .pairing
+            .lock()
+            .expect("pairing lock poisoned")
+            .redeem(code, now);
+        if let Err(problem) = redeemed {
+            return error(
+                StatusCode::FORBIDDEN,
+                match problem {
+                    PairError::NoCode => {
+                        "That QR code expired or was used. Show a new one on the other device."
+                    }
+                    PairError::WrongCode => {
+                        "That QR code isn't the one the other device shows now. Scan it again."
+                    }
+                },
+            );
+        }
+    }
     if !shared.backend.ask(&name).await {
         return error(StatusCode::FORBIDDEN, "That device didn't allow it.");
     }
@@ -480,7 +360,7 @@ fn check(access: &Access, token: &str) -> Result<(), Response> {
     } else {
         Err(error(
             StatusCode::UNAUTHORIZED,
-            "This device isn't paired. Scan the QR code in Raygun's Settings.",
+            "This device isn't linked. Link it again in Devices.",
         ))
     }
 }

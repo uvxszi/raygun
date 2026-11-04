@@ -29,7 +29,9 @@ import type { FC, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react'
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useSystemBars } from '../manga/reader/useSystemBars';
 import { useWakeLock } from '../manga/reader/useWakeLock';
+import { useReaderDisplay } from '../manga/readerDisplay';
 import {
   DEFAULT_PREFS,
   LINE_SPACING,
@@ -821,6 +823,9 @@ export const NovelReaderPage: FC = () => {
   const data = loaded.data;
   const theme = THEMES[prefs.theme ?? 'app'];
   useWakeLock((prefs.keepScreenOn ?? true) && data !== undefined);
+  // The comics reader's Full screen setting holds for books too.
+  const fullScreen = useReaderDisplay().display.fullScreen;
+  useSystemBars(fullScreen && !chrome && data !== undefined);
   useEffect(() => {
     if (!speechNotice) return;
     const timer = setTimeout(() => setSpeechNotice(null), 4000);

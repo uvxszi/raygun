@@ -4,6 +4,7 @@ import { FlaskConical, PackagePlus, Trash2 } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { InstallProgress } from '../extensions/InstallProgress';
 import { useInstallQueue } from '../extensions/installQueue';
 import { CATALOG, EXTENSIONS, useCatalog } from '../extensions/useExtensions';
 import { unwrapResult } from '../lib/commandResult';
@@ -78,6 +79,9 @@ export const DeveloperCard: FC = () => {
           disabled={missing.length === 0}
           onClick={() => queue.install(missing)}
         />
+        <li className="list-none px-1 py-1 empty:hidden">
+          <InstallProgress />
+        </li>
         <PrefAction
           icon={Trash2}
           title={t('developer.remove')}

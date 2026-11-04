@@ -40,14 +40,19 @@ type VideoPlayerState = {
   hasNext: boolean;
   hasPrevious: boolean;
   sources: SourceGroup[];
+  /** The source playing, once it has played a while. */
+  playingFrom: string | null;
   chapters: VideoChapter[];
   /** Asks the screen to show Sources (an update said no link worked). */
   showSources: number;
   /** The link loading was picked in Sources, not tried in turn. */
   pickedSource: boolean;
+  /** Loop this video (More): on until the player closes, across a session's episodes. */
+  looping: boolean;
   openWith: (request: PlayerRequest) => void;
   apply: (update: PlayerUpdate) => void;
   setNotice: (notice: Notice | null) => void;
+  setLooping: (looping: boolean) => void;
   close: () => void;
 };
 
@@ -100,9 +105,11 @@ const CLOSED = {
   hasNext: false,
   hasPrevious: false,
   sources: [],
+  playingFrom: null,
   chapters: [],
   showSources: 0,
   pickedSource: false,
+  looping: false,
 } satisfies Partial<VideoPlayerState>;
 
 /** The webview's video player (desktop, M46.4), driven by Rust's `videoPlayerEvent`s. */
@@ -152,7 +159,7 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
             autoplay: update.autoplay ?? state.autoplay,
           };
         case 'sources':
-          return { sources: update.groups };
+          return { sources: update.groups, playingFrom: update.playingFrom ?? null };
         case 'chapters': {
           if (update.id !== state.request?.id) return state;
           // AniSkip's, beside any the source gave.
@@ -168,6 +175,7 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
       }
     }),
   setNotice: (notice) => set({ notice }),
+  setLooping: (looping) => set({ looping }),
   close: () => set(CLOSED),
 }));
 

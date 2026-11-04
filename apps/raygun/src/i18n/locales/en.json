@@ -111,7 +111,8 @@
       "music": "Audio",
       "manga": "Comics",
       "novel": "Books",
-      "video": "Videos"
+      "video": "Videos",
+      "websites": "Websites"
     },
     "filter": {
       "search": "Search the library",
@@ -315,6 +316,13 @@
     "yourLibrary": "Your library",
     "topResults": "Top results",
     "typeLabel": "Search in",
+    "filter": {
+      "label": "Leave out",
+      "noAdult": "No 18+",
+      "noExplicit": "No explicit",
+      "adultHidden": "Show NSFW is off in Settings, so 18+ content is already hidden",
+      "explicitHidden": "Explicit music is off in Settings, so explicit songs are already hidden"
+    },
     "type": {
       "all": "All",
       "music": "Audio",
@@ -540,7 +548,7 @@
       },
       "connections": {
         "title": "Connections",
-        "summary": "Devices, remote control, AI and assistants"
+        "summary": "Devices, AI and assistants"
       },
       "sound": {
         "title": "Sound",
@@ -1110,6 +1118,8 @@
     "pausedMark": "Paused"
   },
   "common": {
+    "adult": "18+",
+    "adultLabel": "For adults (18+)",
     "coreUnavailable": "Core unavailable: {{message}}",
     "cancel": "Cancel",
     "clear": "Clear",
@@ -1234,7 +1244,26 @@
     "installSelected_one": "Install {{count}}",
     "installSelected_other": "Install {{count}}",
     "updateAll": "Update all ({{count}})",
-    "installedNow": "Installed"
+    "installedNow": "Installed",
+    "installFailed": "Didn't install",
+    "cancelInstall": "Don't install {{name}}",
+    "installs": {
+      "label": "Extension installs",
+      "title": "Installing extensions · {{position}} of {{total}}",
+      "phase": {
+        "downloading": "Downloading",
+        "converting": "Converting",
+        "installing": "Installing",
+        "loading": "Loading extensions"
+      },
+      "cancel": "Cancel",
+      "installed_one": "{{count}} installed",
+      "installed_other": "{{count}} installed",
+      "failed_one": "{{count}} failed",
+      "failed_other": "{{count}} failed",
+      "retry": "Retry",
+      "dismiss": "Dismiss"
+    }
   },
   "collections": {
     "moreActions": "More for {{title}}",
@@ -1305,20 +1334,6 @@
     "hint": "Clients send the token as “Authorization: Bearer …”. Only apps on this device can connect. A new token disconnects existing clients.",
     "problem": "The MCP server isn't running"
   },
-  "remote": {
-    "title": "Remote control",
-    "description": "Control playback from a phone or computer on the same Wi-Fi, in its browser.",
-    "qrAlt": "QR code to pair a device",
-    "scan": "Scan with the other device's camera, or open this address in its browser:",
-    "codeUsed": "The pairing code was used. Make a new one to pair another device.",
-    "newCode": "New pairing code",
-    "devices": "Paired devices",
-    "noDevices": "No devices yet.",
-    "pairedOn": "Paired {{date}}",
-    "forget": "Remove {{name}}",
-    "hint": "Only paired devices can control Raygun. Traffic on your Wi-Fi isn't encrypted, so pair only on networks you trust.",
-    "problem": "The browser remote isn't working"
-  },
   "permissions": {
     "kind": {
       "notifications": "Notifications",
@@ -1326,7 +1341,8 @@
       "media": "Songs and videos on this phone",
       "folders": "Picked folders",
       "localNetwork": "Local network",
-      "installApps": "Install updates"
+      "installApps": "Install updates",
+      "camera": "Camera, to scan link codes"
     },
     "state": {
       "granted": "Allowed",
@@ -1362,12 +1378,12 @@
     "title": "Local network access",
     "why": {
       "addon": "This addon is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\".",
-      "remote": "Phones and computers on your Wi-Fi connect to the remote. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\".",
+      "remote": "Your other devices on this Wi-Fi link with this one and play on it. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\".",
       "connect": "Your other device is on your Wi-Fi. Android asks before an app connects to devices on your network, so it will ask Raygun's permission to reach \"nearby devices\"."
     },
     "denied": {
       "addon": "Allow local network access to reach addons on your network.",
-      "remote": "Allow local network access so devices on your network can reach the remote.",
+      "remote": "Allow local network access so your other devices can reach this one.",
       "connect": "Allow local network access to play on your other devices."
     },
     "settingsHint": "Android won't ask again. In Raygun's app settings, open Permissions, then Nearby devices, and choose Allow.",
@@ -1381,7 +1397,6 @@
     "description": "Keep settings, favorites, playlists and history the same on your devices, over your own network.",
     "off": "Off",
     "syncProblem": "Sync isn't working",
-    "moreWays": "Other ways to connect",
     "noPeersShort": "On, no devices paired yet",
     "manage": "Manage",
     "thisDevice": "This device",
@@ -1390,23 +1405,8 @@
     "renameFailed": "Couldn't rename this device",
     "rename": "Rename",
     "save": "Save",
-    "key": "This device's key: {{fingerprint}}",
-    "pairTitle": "Show a code for another device",
     "pairExplain": "Show a pairing code here, then paste its text on the other device under Join a device.",
-    "pairHint": "On the other device: Devices → Link with a code, then paste this. It works once, for 10 minutes.",
-    "qrAlt": "QR code with the pairing text",
-    "showCode": "Show pairing code",
-    "newCode": "New pairing code",
-    "codeFailed": "Couldn't show a code",
-    "copyText": "Copy text",
-    "copied": "Copied",
-    "joinTitle": "Use a code from another device",
     "joinHint": "Paste the pairing text the other device shows.",
-    "pairingText": "Pairing text",
-    "pairingTextHint": "raygun-pair:…",
-    "join": "Link",
-    "joinFailed": "Couldn't link with that code",
-    "joined": "Linked. Syncing now.",
     "paired": "Paired devices",
     "noPeers": "No devices yet. Pair one with a code from either device.",
     "syncAll": "Sync all",
@@ -1503,6 +1503,7 @@
     "download": "Download {{name}}",
     "retryDownload": "Retry downloading {{name}}",
     "deleteDownload": "Delete the download of {{name}}",
+    "deleteConfirm": "Delete",
     "cancelQueued": "Cancel the queued download of {{name}}",
     "cancelDownloading": "Downloading {{name}}, {{percent}}%. Cancel",
     "cancelDownload": "Cancel {{name}}",
@@ -1701,7 +1702,11 @@
     "downloadWaiting": "Waiting to download",
     "cancelDownload": "Cancel download",
     "removeDownload": "Delete download",
+    "removeDownloadConfirm": "Delete",
+    "removeDownloadQuestion": "Delete the download of “{{name}}”?",
     "removeDownloads": "Delete downloads",
+    "removeDownloadsConfirm_one": "Delete {{count}} download?",
+    "removeDownloadsConfirm_other": "Delete {{count}} downloads?",
     "downloadFailed": "Download failed: {{message}}",
     "resumeTitle": "Resume {{title}}",
     "openWebsite": "Open website",
@@ -2079,6 +2084,9 @@
     "textColor": "Text colour",
     "edge": "Edge",
     "background": "Background",
+    "loop": "Loop this video",
+    "loopOn": "Looping this video",
+    "loopOff": "Loop off",
     "sleepTimer": "Sleep timer",
     "sleepMinutes": "{{n}} min",
     "sleepEndOfEpisode": "End of this episode",
@@ -2131,7 +2139,9 @@
     "edgeDepressed": "Depressed",
     "bold": "Bold",
     "italic": "Italic",
-    "unreliable": "didn't work lately"
+    "unreliable": "didn't work lately",
+    "workedLastTime": "worked last time",
+    "playingFrom": "Playing from {{n}}"
   },
   "export": {
     "title": "Export",
@@ -2170,6 +2180,8 @@
     "downloads": "Downloads folder",
     "folder": "Your folder",
     "folderHint": "Choose one in Settings → Downloads",
+    "chooseFolder": "Choose folder…",
+    "chooseFolderFailed": "Couldn't open the folder picker",
     "share": "Share",
     "plan_one": "{{count}} chapter",
     "plan_other": "{{count}} chapters",
@@ -2226,7 +2238,29 @@
         "kindle": "Kindle",
         "edge": "Edges",
         "sides": "Left and right",
-        "off": "Off"
+        "off": "Off",
+        "custom": "Custom"
+      },
+      "tapGrid": {
+        "label": "Tap zones for {{mode}}",
+        "paged": "Pages",
+        "webtoon": "Webtoon",
+        "cell": "Row {{row}}, column {{column}}: {{action}}",
+        "actions": "Tap action",
+        "presets": "Start from",
+        "reset": "Reset",
+        "action": {
+          "menu": "Menu",
+          "previous": "Previous",
+          "next": "Next",
+          "left": "Left",
+          "right": "Right",
+          "firstPage": "First page",
+          "lastPage": "Last page",
+          "previousChapter": "Chapter before",
+          "nextChapter": "Chapter after",
+          "nothing": "Nothing"
+        }
       },
       "invertTaps": "Mirror tap zones",
       "invert": {
@@ -2238,6 +2272,7 @@
       "doubleTapZoom": "Double tap to zoom",
       "skipDuplicates": "Skip other uploads of a chapter",
       "keepScreenOn": "Keep the screen on",
+      "fullScreen": "Full screen",
       "pageNumber": "Page number while reading",
       "byScreen": "By screen",
       "percent": "{{n}} %",
@@ -2253,6 +2288,7 @@
       "barChapters": "Chapter buttons in the page bar",
       "barZoom": "Zoom buttons in the page bar",
       "barMode": "Reading mode button in the page bar",
+      "barProgress": "Show progress",
       "barFullscreen": "Full screen button in the page bar",
       "preload": "Pages to load ahead",
       "pages_one": "{{count}} page",
@@ -2310,6 +2346,7 @@
     "name": "Name",
     "namePlaceholder": "Name (optional)",
     "empty": "No websites yet",
+    "find": "Find a website",
     "open": "Open {{name}}",
     "menu": "{{name}} options",
     "startOver": "Start from its home page",
@@ -2745,10 +2782,12 @@
     "downloaded": "Downloaded",
     "emptyTitle": "No songs downloaded yet",
     "emptyHint": "Download songs from their menu (right-click or ⋯) to play them offline.",
+    "emptyHintPhone": "Download songs from their ⋮ menu to play them offline.",
     "retry": "Try {{title}} again",
     "retryAll_one": "Try {{count}} again",
     "retryAll_other": "Try {{count}} again",
     "remove": "Remove {{title}}",
+    "removeConfirm": "Delete",
     "cancelOne": "Cancel {{title}}",
     "cancelAgain": "Stop downloading {{title}} again",
     "downloadAgain": "Download again",
@@ -2855,6 +2894,7 @@
       "failed": "Couldn't download"
     },
     "removeDownload": "Remove from downloads",
+    "removeDownloadQuestion": "Delete the downloaded copy of “{{title}}”?",
     "explicit": "Explicit",
     "saved": "Saved",
     "downloading": "Downloading",
@@ -3435,7 +3475,6 @@
     "neverSynced": "Not synced yet",
     "syncWith": "Sync with {{name}} now",
     "manage": "Manage devices",
-    "remote": "Control Raygun from another device",
     "playingOn": "Playing on {{name}}",
     "playingThere": "Playing there; this device controls it",
     "selectDevice": "Select a device",
@@ -3448,18 +3487,13 @@
       "playing": "Playing",
       "asking": "Waiting for {{name}} to allow it…",
       "ready": "Ready",
-      "asksFirst": "Asks on that device the first time",
+      "notLinked": "Not linked: link it in Devices",
       "away": "Not seen on the network"
     },
-    "noDevices": "No other devices yet. Turn on “Let your devices find this one” on your other device too, or add it by its address.",
-    "add": "Add a device by address",
-    "addressLabel": "Address of the other device",
-    "addButton": "Add",
-    "cancel": "Cancel",
+    "noDevices": "No linked devices yet. Link one in Devices.",
     "forget": "Forget {{name}}",
     "allowHere": "Let your devices find this one",
     "allowHereHint": "Your other Raygun devices can play on this one. The first time, this device asks you.",
-    "allowHereAddress": "Other devices find this one on your network, or at {{address}}.",
     "sync": "Device sync",
     "ask": {
       "title": "Link a device",
@@ -3624,7 +3658,9 @@
     "select": "Select chapters",
     "actions": "Selected chapters",
     "markPreviousRead": "Mark the chapters before as read",
-    "deleteDownloads": "Delete downloads"
+    "deleteDownloads": "Delete downloads",
+    "deleteDownloadsConfirm_one": "Delete {{count}} download",
+    "deleteDownloadsConfirm_other": "Delete {{count}} downloads"
   },
   "otherSources": {
     "find": "Find in other sources",
@@ -3777,7 +3813,6 @@
     "nearby": "On this network",
     "noneNearby": "No other Raygun on this network yet. Turn on the switch on your other device too.",
     "turnOnToFind": "Turn on the switch above to find your other devices.",
-    "turnOnFirst": "Turn on “Let your devices find this one” first",
     "link": "Link",
     "linkFailed": "Couldn't link with {{name}}",
     "waiting": "Allow it on {{name}}…",
@@ -3798,15 +3833,23 @@
     "away": "not around",
     "thatDevice": "that device",
     "syncOnly": "syncs only",
-    "address": "Address of a device",
-    "addressHint": "192.168.1.20:8820",
-    "add": "Add",
-    "addTitle": "Add a device by address",
-    "addFailed": "Couldn't add that device",
-    "withCode": "Link with a code",
-    "withCodeHint": "For devices that can't find each other: show a code on one and type it on the other. This links syncing only.",
-    "browserTitle": "Control from a web browser",
-    "browserHint": "Scan the code with any phone on this network to control playback from its browser.",
-    "browserOff": "Turn on \"Let your devices find this one\" above to control playback from a browser."
+    "byCode": "Link by QR code",
+    "showCode": "Show this device’s link code",
+    "scanCode": "Scan a link code",
+    "qrAlt": "QR code to link with this device",
+    "scanOnOther": "Scan it with your other device: Devices → Scan a link code",
+    "codeOnce": "Works once, for 10 minutes",
+    "copyCode": "Copy as text",
+    "copied": "Copied",
+    "codeUsed": "This code was used. Make a new one to link another device.",
+    "codeFailed": "Couldn’t make a link code",
+    "newCode": "New code",
+    "cameraView": "Camera",
+    "noCamera": "No camera here. Paste the code’s text instead.",
+    "cameraBlocked": "Raygun can’t use the camera. Allow it, or paste the code’s text.",
+    "allowCamera": "Allow the camera",
+    "scanAgain": "Scan again",
+    "pasteCode": "Paste a link code",
+    "notACode": "That isn’t a Raygun link code."
   }
 }

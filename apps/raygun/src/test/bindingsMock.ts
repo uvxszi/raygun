@@ -8,6 +8,7 @@ import type {
   EngineCommand,
   ExportJob,
   ExtensionInfo,
+  ExtensionInstallStatus,
   PermissionPrompt,
   IncognitoStatus,
   HiddenItem,
@@ -55,6 +56,7 @@ type EventPayloads = {
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  extensionInstallsEvent: ExtensionInstallStatus;
   searchProgressEvent: SearchProgress;
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
@@ -194,6 +196,7 @@ export const DEFAULT_SETTINGS: Settings = {
   zoom: 100,
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
+  searchFilter: { noAdult: false, noExplicit: false },
   manualBrowserChecks: false,
   userAgent: '',
   keepMusicPlaying: false,
@@ -243,6 +246,19 @@ export const IDLE_UPDATE: MangaUpdateStatus = {
 };
 
 export const EMPTY_LIBRARY: LibraryStatus = { roots: [], trackCount: 0, scanning: false };
+
+/** The extension install queue before anything was asked. */
+export const NO_INSTALLS: ExtensionInstallStatus = {
+  batch: 0,
+  items: [],
+  total: 0,
+  done: 0,
+  failed: 0,
+  cancelled: 0,
+  running: false,
+  current: null,
+  phase: null,
+};
 
 export const bindingsMock = {
   commands: {
@@ -307,6 +323,7 @@ export const bindingsMock = {
     musicFindAlbum: vi.fn(),
     audioOutputs: vi.fn(),
     audioOutputSet: vi.fn(),
+    readerSystemBars: vi.fn(),
     artistsFollowed: vi.fn(),
     artistFollow: vi.fn(),
     artistUnfollow: vi.fn(),
@@ -408,6 +425,12 @@ export const bindingsMock = {
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
     extensionInstall: vi.fn(),
+    extensionInstallsEnqueue: vi.fn(),
+    extensionInstallsStatus: vi.fn(),
+    extensionInstallsCancel: vi.fn(),
+    extensionInstallsCancelAll: vi.fn(),
+    extensionInstallsRetry: vi.fn(),
+    extensionInstallsDismiss: vi.fn(),
     extensionUninstall: vi.fn(),
     extensionSettingSet: vi.fn(),
     onlineSearch: vi.fn(),
@@ -432,7 +455,7 @@ export const bindingsMock = {
     podcastQueue: vi.fn(),
     connectStatus: vi.fn(),
     connectDevices: vi.fn(),
-    connectAdd: vi.fn(),
+    connectLinkCode: vi.fn(),
     connectTo: vi.fn(),
     connectDisconnect: vi.fn(),
     connectForget: vi.fn(),
@@ -459,7 +482,6 @@ export const bindingsMock = {
     remoteStatus: vi.fn(),
     remoteSetEnabled: vi.fn(),
     remoteNewCode: vi.fn(),
-    remoteForgetDevice: vi.fn(),
     syncStatus: vi.fn(),
     syncSetEnabled: vi.fn(),
     syncOpenPairing: vi.fn(),
@@ -564,6 +586,8 @@ export const bindingsMock = {
     saveFolderState: vi.fn(),
     exportPlan: vi.fn(),
     exportStart: vi.fn(),
+    exportPickFolder: vi.fn(),
+    exportLastFolder: vi.fn(),
     exportCancel: vi.fn(),
     exportDismiss: vi.fn(),
     exportJobs: vi.fn(),
@@ -604,6 +628,7 @@ export const bindingsMock = {
     videoDownloadsSetPaused: vi.fn(),
     videoSourceWatch: vi.fn(),
     stremioWatch: vi.fn(),
+    videoSourceOrder: vi.fn(),
     videoSetPlayerLabels: vi.fn(),
     stremioAddons: vi.fn(),
     stremioSuggestions: vi.fn(),
@@ -650,6 +675,7 @@ export const bindingsMock = {
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    extensionInstallsEvent: makeEvent('extensionInstallsEvent'),
     searchProgressEvent: makeEvent('searchProgressEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
@@ -852,6 +878,7 @@ export const seedBindings = () => {
   commands.musicFindAlbum.mockResolvedValue(ok(null));
   commands.audioOutputs.mockResolvedValue({ outputs: [], chosen: null });
   commands.audioOutputSet.mockResolvedValue(ok(null));
+  commands.readerSystemBars.mockResolvedValue(ok(null));
   commands.artistsFollowed.mockResolvedValue(ok([]));
   commands.artistFollow.mockResolvedValue(ok(null));
   commands.artistUnfollow.mockResolvedValue(ok(null));
@@ -936,6 +963,16 @@ export const seedBindings = () => {
   commands.extensionRepoRemove.mockResolvedValue(ok([]));
   commands.extensionCatalog.mockResolvedValue(ok([]));
   commands.extensionInstall.mockResolvedValue(ok([]));
+  for (const name of [
+    'extensionInstallsEnqueue',
+    'extensionInstallsStatus',
+    'extensionInstallsCancel',
+    'extensionInstallsCancelAll',
+    'extensionInstallsRetry',
+    'extensionInstallsDismiss',
+  ] as const) {
+    commands[name].mockResolvedValue(NO_INSTALLS);
+  }
   commands.extensionUninstall.mockResolvedValue(ok([]));
   commands.extensionSettingSet.mockResolvedValue(ok([]));
   commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
@@ -963,7 +1000,7 @@ export const seedBindings = () => {
   commands.podcastQueue.mockResolvedValue({ status: 'ok', data: null });
   commands.connectStatus.mockResolvedValue(CONNECT_IDLE);
   commands.connectDevices.mockResolvedValue(ok([]));
-  commands.connectAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.connectLinkCode.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.connectTo.mockResolvedValue(ok(CONNECT_IDLE));
   commands.connectDisconnect.mockResolvedValue(ok(CONNECT_IDLE));
   commands.connectForget.mockResolvedValue(ok([]));
@@ -998,15 +1035,14 @@ export const seedBindings = () => {
   const remoteOff = {
     enabled: false,
     url: null,
-    pairUrl: null,
-    pairQrSvg: null,
-    devices: [],
+    linkText: null,
+    linkQrSvg: null,
+    linkExpiresAt: null,
     error: null,
   };
   commands.remoteStatus.mockResolvedValue(ok(remoteOff));
   commands.remoteSetEnabled.mockResolvedValue(ok(remoteOff));
   commands.remoteNewCode.mockResolvedValue(ok(remoteOff));
-  commands.remoteForgetDevice.mockResolvedValue(ok(remoteOff));
   const syncOff = {
     enabled: false,
     deviceName: 'Android phone',
@@ -1127,6 +1163,8 @@ export const seedBindings = () => {
   commands.saveFolderState.mockResolvedValue(ok({ granted: true, name: null }));
   commands.exportPlan.mockResolvedValue(ok({ chapters: 0, missing: 0, files: 0, problem: null }));
   commands.exportStart.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.exportPickFolder.mockResolvedValue(ok(null));
+  commands.exportLastFolder.mockResolvedValue(ok(null));
   commands.exportCancel.mockResolvedValue(null);
   commands.exportDismiss.mockResolvedValue(null);
   commands.exportJobs.mockResolvedValue([]);
@@ -1171,6 +1209,21 @@ export const seedBindings = () => {
   commands.videoDownloadsSetPaused.mockResolvedValue(ok(null));
   commands.videoSourceWatch.mockResolvedValue(ok(null));
   commands.stremioWatch.mockResolvedValue(ok(null));
+  // The order given, nothing played before.
+  commands.videoSourceOrder.mockImplementation(
+    (_group: string, _title: string | null, sources: { links: unknown[] }[]) =>
+      Promise.resolve(
+        ok(
+          sources.map((source, index) => ({
+            index,
+            worked: false,
+            failing: false,
+            workedLink: null,
+            links: source.links.map((_link, place) => place),
+          })),
+        ),
+      ),
+  );
   commands.videoSetPlayerLabels.mockResolvedValue(undefined);
   commands.stremioAddons.mockResolvedValue(ok([]));
   commands.stremioSuggestions.mockResolvedValue(ok([]));

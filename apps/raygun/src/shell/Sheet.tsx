@@ -1,9 +1,10 @@
 import { X } from 'lucide-react';
-import { useEffect, useId, useRef } from 'react';
+import { useId, useRef } from 'react';
 import type { FC, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
+import { useBackLayer } from './backLayers';
 import { Popover } from './Popover';
 import { useWideScreen } from './useWideScreen';
 
@@ -49,13 +50,8 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
   const titleId = useId();
   // Closing on pointer down would let the tap's click land on whatever is under the sheet.
   const pressedBackdrop = useRef(false);
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', escape);
-    return () => document.removeEventListener('keydown', escape);
-  }, [onClose]);
+  // Back and Escape close it, and only it (not a sheet under it).
+  useBackLayer(true, onClose);
 
   // On the document's body, so a transformed or scrolling ancestor never carries it along.
   return createPortal(

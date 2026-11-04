@@ -7,6 +7,7 @@ import { useSettings } from '../settings/useSettings';
 import { openContextMenu } from '../shell/contextMenuStore';
 import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
 import { MangaCover } from './MangaCover';
+import { AdultMark } from '../shell/AdultMark';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
 
@@ -23,6 +24,8 @@ export type MangaGridItem = {
   link?: { to: string; search: Record<string, string> };
   /** A line under the cover, e.g. the source a search result came from (M46.9). */
   subtitle?: string;
+  /** Marked adult by its source, or from a source rated for adults: an 18+ tag. */
+  adult?: boolean;
 };
 
 /**
@@ -123,8 +126,13 @@ export const MangaGrid: FC<{
               )}
             </span>
             {!compact && <span className="line-clamp-2 text-xs font-medium">{item.title}</span>}
-            {item.subtitle && (
-              <span className="text-muted truncate text-[11px]">{item.subtitle}</span>
+            {(item.subtitle || item.adult) && (
+              <span className="flex min-w-0 items-center gap-1">
+                {item.adult && <AdultMark />}
+                {item.subtitle && (
+                  <span className="text-muted truncate text-[11px]">{item.subtitle}</span>
+                )}
+              </span>
             )}
           </Link>
         </li>

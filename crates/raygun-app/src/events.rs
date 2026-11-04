@@ -118,6 +118,10 @@ pub struct TtsEvent(pub raygun_model::TtsUpdate);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ExtensionsChangedEvent(pub Vec<raygun_model::ExtensionInfo>);
 
+/// The extension install queue changed: an install started, moved on a phase or ended.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ExtensionInstallsEvent(pub raygun_model::ExtensionInstallStatus);
+
 /// One source answered a music search that's still waiting for others; one event per source.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SearchProgressEvent(pub raygun_model::SearchProgress);

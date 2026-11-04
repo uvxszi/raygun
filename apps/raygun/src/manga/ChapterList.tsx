@@ -7,6 +7,7 @@ import type { FC, MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { SourceIssue } from '../shell/SourceIssue';
+import { ConfirmButton } from '../shell/ConfirmButton';
 import { DownloadButton } from './DownloadButton';
 import { ROUTES } from './medium';
 import type { ReadingMedium } from './medium';
@@ -180,9 +181,17 @@ const ChapterActions: FC<{
         {downloadable &&
           toDownload.length > 0 &&
           action(t('library.select.download'), Download, () => download.mutate(toDownload, finish))}
-        {downloadable &&
-          downloaded.length > 0 &&
-          action(t('chapters.deleteDownloads'), Trash2, () => remove.mutate(downloaded, finish))}
+        {downloadable && downloaded.length > 0 && (
+          <ConfirmButton
+            label={t('chapters.deleteDownloads')}
+            confirm={t('chapters.deleteDownloadsConfirm', { count: downloaded.length })}
+            icon={Trash2}
+            iconSize={20}
+            disabled={busy}
+            onConfirm={() => remove.mutate(downloaded, finish)}
+            idleClassName="hover:bg-background size-10"
+          />
+        )}
       </div>
     </>
   );

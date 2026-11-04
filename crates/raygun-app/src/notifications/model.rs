@@ -17,6 +17,8 @@ pub enum Kind {
     Models,
     Update,
     YtDlp,
+    /// The extension install queue, as one download: its batch.
+    Extensions,
 }
 
 impl Kind {
@@ -31,6 +33,7 @@ impl Kind {
             Kind::Models => "models",
             Kind::Update => "update",
             Kind::YtDlp => "ytdlp",
+            Kind::Extensions => "extensions",
         }
     }
 
@@ -45,6 +48,7 @@ impl Kind {
             "models" => Kind::Models,
             "update" => Kind::Update,
             "ytdlp" => Kind::YtDlp,
+            "extensions" => Kind::Extensions,
             _ => return None,
         })
     }
@@ -64,12 +68,15 @@ impl Kind {
             Kind::Podcasts => "/library?media=audio",
             Kind::Models => "/settings/ai",
             Kind::Update => "/about",
+            Kind::Extensions => "/browse?tab=extensions&list=all",
         }
     }
 
     /// "3 songs", "1 video".
     fn count(self, count: usize) -> String {
         let (one, many) = match self {
+            // A batch of installs counts as one.
+            Kind::Extensions => return "extension installs".to_owned(),
             Kind::Songs => ("song", "songs"),
             Kind::Videos => ("video", "videos"),
             Kind::Chapters => ("chapter", "chapters"),
@@ -120,6 +127,8 @@ pub enum Unit {
     Chapters,
     /// A share of the whole (yt-dlp's percent), as 0 to 1.
     Fraction,
+    /// Steps of a batch the title already counts ("3 of 12").
+    Steps,
 }
 
 /// What can be done to a download from its notification.
@@ -622,12 +631,68 @@ fn smooth(before: Option<f64>, now: f64) -> f64 {
 /// The notice at a batch's end: what was saved and what wasn't. Nothing when every download of
 /// the batch was removed.
 fn finish(batch: u64, ended: &[Download]) -> Option<Finished> {
+    // Extension installs end with their own summary ("11 installed · 1 failed"), as their title
+    // and text; with other downloads, it follows theirs.
+    let (installs, ended): (Vec<&Download>, Vec<&Download>) =
+        ended.iter().partition(|d| d.kind == Kind::Extensions);
+    let installs = installs.first().filter(|d| !d.title.is_empty());
+    let mut finished = finish_downloads(batch, &ended);
+    match (&mut finished, installs) {
+        (Some(finished), Some(installs)) => {
+            finished.text = join([
+                Some(finished.text.clone()),
+                installs
+                    .subtitle
+                    .clone()
+                    .or_else(|| Some(installs.title.clone())),
+            ]);
+            finished.failed |= installs.phase == Phase::Failed;
+            if installs.abilities.retry {
+                match finished.actions.first_mut() {
+                    Some(retry) => retry.keys.push(installs.key()),
+                    None => finished.actions.push(Action {
+                        id: "retry",
+                        label: "Retry",
+                        keys: vec![installs.key()],
+                    }),
+                }
+            }
+        }
+        (None, Some(installs)) => {
+            finished = Some(Finished {
+                batch,
+                title: installs.title.clone(),
+                text: installs.subtitle.clone().unwrap_or_default(),
+                failed: installs.phase == Phase::Failed,
+                actions: if installs.abilities.retry {
+                    vec![Action {
+                        id: "retry",
+                        label: "Retry",
+                        keys: vec![installs.key()],
+                    }]
+                } else {
+                    Vec::new()
+                },
+                route: installs.route.clone(),
+            });
+        }
+        _ => {}
+    }
+    finished
+}
+
+fn finish_downloads(batch: u64, ended: &[&Download]) -> Option<Finished> {
     // A downloaded update opens its installer, which says enough.
     let done: Vec<&Download> = ended
         .iter()
+        .copied()
         .filter(|d| d.phase == Phase::Done && d.kind != Kind::Update)
         .collect();
-    let failed: Vec<&Download> = ended.iter().filter(|d| d.phase == Phase::Failed).collect();
+    let failed: Vec<&Download> = ended
+        .iter()
+        .copied()
+        .filter(|d| d.phase == Phase::Failed)
+        .collect();
     if done.is_empty() && failed.is_empty() {
         return None;
     }
@@ -762,6 +827,7 @@ fn amount_text(download: &Download) -> Option<String> {
         },
         Unit::Chapters => count("chapters"),
         Unit::Fraction => Some(format!("{}%", percent(download.done))),
+        Unit::Steps => None,
     }
 }
 
@@ -838,5 +904,111 @@ pub fn left_text(ms: f64) -> String {
             0 => format!("about {} h left", minutes / 60),
             rest => format!("about {} h {rest} min left", minutes / 60),
         }
+    }
+}
+
+/// The extension install queue's batch as one download: "Installing extensions · 3 of 12" with
+/// the one installing now, then its summary ("11 installed · 1 failed"). Nothing before the first
+/// batch, or for one cancelled before anything ended.
+pub fn extension_installs(status: &raygun_model::ExtensionInstallStatus) -> Option<Download> {
+    use raygun_model::{ExtensionInstallPhase as Step, ExtensionInstallState as State};
+
+    if status.batch == 0 || status.total == 0 {
+        return None;
+    }
+    let ended = status.done + status.failed;
+    let batch: Vec<&raygun_model::ExtensionInstall> = status
+        .items
+        .iter()
+        .filter(|item| item.batch == status.batch)
+        .collect();
+    let waiting = batch
+        .iter()
+        .filter(|item| item.state == State::Queued)
+        .count();
+    let route = Kind::Extensions.route().to_owned();
+    let (phase, title, subtitle) = if status.running {
+        let position = (ended + 1).min(status.total);
+        let step = match status.phase {
+            Some(Step::Downloading) => Some("Downloading"),
+            Some(Step::Converting) => Some("Converting"),
+            Some(Step::Installing) => Some("Installing"),
+            Some(Step::Loading) => None,
+            None => None,
+        };
+        let subtitle = match (&status.current, step, status.phase) {
+            (_, _, Some(Step::Loading)) => Some("Loading extensions".to_owned()),
+            (Some(name), Some(step), _) => Some(format!("{name} · {step}")),
+            (Some(name), None, _) => Some(name.clone()),
+            (None, _, _) => None,
+        };
+        (
+            Phase::Running,
+            format!("Installing extensions · {position} of {}", status.total),
+            subtitle,
+        )
+    } else {
+        if ended == 0 {
+            return None;
+        }
+        let phase = if status.failed > 0 {
+            Phase::Failed
+        } else {
+            Phase::Done
+        };
+        if status.total == 1 {
+            let only = batch.first()?;
+            return Some(Download {
+                title: match only.state {
+                    State::Failed => format!("{} didn't install", only.name),
+                    _ => format!("{} installed", only.name),
+                },
+                subtitle: only.error.clone(),
+                ..installs_download(status, phase, String::new(), None, route)
+            });
+        }
+        let counts = join([
+            (status.done > 0).then(|| format!("{} installed", status.done)),
+            (status.failed > 0).then(|| format!("{} failed", status.failed)),
+            (status.cancelled > 0).then(|| format!("{} cancelled", status.cancelled)),
+        ]);
+        let title = if status.done > 0 {
+            "Extensions installed"
+        } else {
+            "Extensions didn't install"
+        };
+        (phase, title.to_owned(), Some(counts))
+    };
+    let mut download = installs_download(status, phase, title, subtitle, route);
+    download.abilities.cancel = status.running && waiting > 0;
+    Some(download)
+}
+
+fn installs_download(
+    status: &raygun_model::ExtensionInstallStatus,
+    phase: Phase,
+    title: String,
+    subtitle: Option<String>,
+    route: String,
+) -> Download {
+    Download {
+        kind: Kind::Extensions,
+        id: format!("batch-{}", status.batch),
+        title,
+        subtitle,
+        phase,
+        done: f64::from(status.done + status.failed),
+        total: Some(f64::from(status.total)),
+        unit: Unit::Steps,
+        bytes: None,
+        left_ms: None,
+        speed: None,
+        error: None,
+        abilities: Abilities {
+            pause: false,
+            cancel: false,
+            retry: phase == Phase::Failed,
+        },
+        route,
     }
 }

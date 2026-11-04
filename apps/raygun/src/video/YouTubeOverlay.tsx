@@ -6,6 +6,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useTrailerStore } from './trailerStore';
+import { useBackLayer } from '../shell/backLayers';
 import { SourceIssue } from '../shell/SourceIssue';
 
 /**
@@ -35,6 +36,8 @@ const TrailerScreen: FC<{ video: YouTubeVideo }> = ({ video }) => {
     if (fullscreen) void setWindowFullscreen(false);
     useTrailerStore.getState().close();
   };
+  // Back closes it; it takes Escape itself (full screen first).
+  useBackLayer(true, close, { escape: false });
   const toggleFullscreen = () => {
     void setWindowFullscreen(!fullscreen);
     setFullscreen(!fullscreen);

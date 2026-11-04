@@ -254,6 +254,19 @@ impl StremioService {
             .collect())
     }
 
+    /// Whether an installed addon (by its stored or its manifest's id) marks itself adult.
+    fn addon_adult(&self, addon_id: &str) -> bool {
+        !addon_id.is_empty()
+            && self
+                .manifests
+                .lock()
+                .expect("manifests poisoned")
+                .iter()
+                .any(|(row_id, (_, _, manifest))| {
+                    (row_id == addon_id || manifest.id == addon_id) && manifest.adult
+                })
+    }
+
     /// A stored manifest, read once per version of it.
     fn cached_manifest(&self, row: &AddonRow) -> Option<Manifest> {
         if let Some((url, fetched_at, manifest)) = self
@@ -606,6 +619,20 @@ impl StremioService {
             .find(|addon| addon.row.id == addon_id)
             .ok_or_else(|| "This addon was removed or turned off".to_owned())?;
         let manifest = addon.manifest().ok_or("This addon has no manifest")?;
+        // Search's "No 18+": an adult addon isn't asked.
+        if manifest.adult && crate::search_filter::current(&self.app).await.no_adult {
+            return Ok(StremioCatalogRow {
+                addon_id: addon_id.to_owned(),
+                addon_name: manifest.name.clone(),
+                kind: kind.to_owned(),
+                catalog_id: catalog_id.to_owned(),
+                name: String::new(),
+                items: Vec::new(),
+                genres: Vec::new(),
+                has_more: false,
+                error: None,
+            });
+        }
         let catalog = manifest
             .catalogs
             .iter()
@@ -626,9 +653,11 @@ impl StremioService {
             return Ok(Vec::new());
         }
         let active = self.active().await?;
+        let no_adult = crate::search_filter::current(&self.app).await.no_adult;
         let rows = active
             .iter()
             .filter_map(|addon| Some((addon, addon.manifest()?)))
+            .filter(|(_, manifest)| !(no_adult && manifest.adult))
             .flat_map(|(addon, manifest)| {
                 manifest
                     .catalogs
@@ -978,7 +1007,9 @@ impl StremioService {
         let downloaded = video_library::downloaded_keys(&db, &keys).await?;
         let own = progress.get(&own_key);
         let in_library = stored.is_some_and(|row| row.in_library_at.is_some());
+        let adult = crate::catalog::is_adult(&meta.genres) || self.addon_adult(addon_id);
         Ok(StremioMeta {
+            adult,
             continue_video_id,
             videos: meta
                 .videos
@@ -1412,7 +1443,7 @@ impl StremioService {
                     label: if label.is_empty() {
                         group.addon_name.clone()
                     } else {
-                        label
+                        video_session::link_label(&target.title, label)
                     },
                     tag: binge_group,
                     failed: blocked,

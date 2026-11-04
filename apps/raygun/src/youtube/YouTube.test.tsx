@@ -76,6 +76,8 @@ describe('YouTube addresses (M46.47)', () => {
     await AppShellWrapper.mount(`/browse?tab=search&q=${encodeURIComponent(ADDRESS)}`);
 
     const card = await screen.findByTestId('youtube-link');
+    await vi.waitFor(() => expect(commands.ytdlpStatus).toHaveBeenCalled());
+    expect(within(card).queryByText(/yt-dlp|FFmpeg/)).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'Download video' })).not.toBeInTheDocument();
     expect(within(card).queryByText(/needs Raygun on a computer/)).not.toBeInTheDocument();
     await user.click(await within(card).findByRole('button', { name: 'Download' }));

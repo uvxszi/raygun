@@ -259,6 +259,7 @@ impl MadeForYouService {
             .tracks
             .into_iter()
             .map(|track| TrackInput {
+                explicit: track.explicit,
                 title: track.title,
                 artist: track.artist,
                 album: track.album,

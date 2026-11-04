@@ -456,3 +456,132 @@ fn keys_name_their_kind() {
     }
     assert_eq!(Kind::from_tag("other"), None);
 }
+
+fn install(id: &str, state: raygun_model::ExtensionInstallState) -> raygun_model::ExtensionInstall {
+    raygun_model::ExtensionInstall {
+        repo_id: "repo".into(),
+        extension_id: id.into(),
+        name: format!("Ext {id}"),
+        state,
+        phase: None,
+        error: (state == raygun_model::ExtensionInstallState::Failed)
+            .then(|| "the repository no longer lists it".into()),
+        finished_at: None,
+        batch: 1,
+    }
+}
+
+fn installs(
+    states: &[raygun_model::ExtensionInstallState],
+    running: bool,
+) -> raygun_model::ExtensionInstallStatus {
+    use raygun_model::ExtensionInstallState as State;
+    let items: Vec<_> = states
+        .iter()
+        .enumerate()
+        .map(|(index, state)| install(&index.to_string(), *state))
+        .collect();
+    let count = |state: State| states.iter().filter(|s| **s == state).count() as u32;
+    raygun_model::ExtensionInstallStatus {
+        batch: 1,
+        total: states.len() as u32,
+        done: count(State::Done),
+        failed: count(State::Failed),
+        cancelled: 0,
+        running,
+        current: items
+            .iter()
+            .find(|item| item.state == State::Installing)
+            .map(|item| item.name.clone()),
+        phase: running.then_some(raygun_model::ExtensionInstallPhase::Converting),
+        items,
+    }
+}
+
+#[test]
+fn extension_installs_show_their_place_in_the_batch_with_a_cancel() {
+    use raygun_model::ExtensionInstallState as State;
+    let mut tracker = Tracker::default();
+    let status = installs(
+        &[State::Done, State::Failed, State::Installing, State::Queued],
+        true,
+    );
+    let update = tracker.update(0.0, &[extension_installs(&status).unwrap()]);
+    let summary = update.plan.summary.expect("a notification");
+    assert_eq!(summary.title, "Installing extensions · 3 of 4");
+    assert_eq!(summary.text, "Ext 2 · Converting");
+    assert_eq!(summary.progress, Some(0.5));
+    assert!(update.plan.foreground);
+    assert_eq!(summary.actions.len(), 1);
+    assert_eq!(summary.actions[0].id, "cancel");
+    assert_eq!(summary.actions[0].keys, ["extensions:batch-1"]);
+
+    // The last one: nothing left to cancel.
+    let status = installs(
+        &[State::Done, State::Failed, State::Done, State::Installing],
+        true,
+    );
+    let update = tracker.update(1_000.0, &[extension_installs(&status).unwrap()]);
+    assert!(update.plan.summary.unwrap().actions.is_empty());
+
+    let status = installs(
+        &[State::Done, State::Failed, State::Done, State::Done],
+        false,
+    );
+    let update = tracker.update(2_000.0, &[extension_installs(&status).unwrap()]);
+    assert!(update.plan.summary.is_none());
+    let finished = update.finished.expect("a summary");
+    assert_eq!(finished.title, "Extensions installed");
+    assert_eq!(finished.text, "3 installed · 1 failed");
+    assert!(finished.failed);
+    assert_eq!(finished.actions[0].id, "retry");
+    assert_eq!(finished.actions[0].keys, ["extensions:batch-1"]);
+}
+
+#[test]
+fn a_lone_extension_install_ends_with_its_name() {
+    use raygun_model::ExtensionInstallState as State;
+    let mut tracker = Tracker::default();
+    let running = installs(&[State::Installing], true);
+    tracker.update(0.0, &[extension_installs(&running).unwrap()]);
+    let failed = installs(&[State::Failed], false);
+    let finished = tracker
+        .update(1_000.0, &[extension_installs(&failed).unwrap()])
+        .finished
+        .unwrap();
+    assert_eq!(finished.title, "Ext 0 didn't install");
+    assert_eq!(finished.text, "the repository no longer lists it");
+
+    // A batch cancelled before anything ended says nothing.
+    let mut status = installs(&[], false);
+    status.cancelled = 3;
+    assert!(extension_installs(&status).is_none());
+}
+
+#[test]
+fn extension_installs_beside_downloads_add_their_summary() {
+    use raygun_model::ExtensionInstallState as State;
+    let mut tracker = Tracker::default();
+    let running = installs(&[State::Installing, State::Queued], true);
+    let update = tracker.update(
+        0.0,
+        &[
+            extension_installs(&running).unwrap(),
+            song("a", Phase::Running, 0.0),
+        ],
+    );
+    assert_eq!(update.plan.items.len(), 2);
+    let ended = installs(&[State::Done, State::Done], false);
+    let finished = tracker
+        .update(
+            1_000.0,
+            &[
+                extension_installs(&ended).unwrap(),
+                song("a", Phase::Done, 5_000_000.0),
+            ],
+        )
+        .finished
+        .unwrap();
+    assert_eq!(finished.title, "Song a");
+    assert_eq!(finished.text, "Downloaded · 2 installed");
+}

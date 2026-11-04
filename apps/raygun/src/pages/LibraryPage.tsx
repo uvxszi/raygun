@@ -34,6 +34,7 @@ import {
 } from '../library/useLibrary';
 import { AllLibrary } from '../library/AllLibrary';
 import { FollowedArtistList } from '../music/FollowedArtistList';
+import { WebsitesLibrary } from '../websites/WebsitesLibrary';
 
 const AlbumsView: FC = () => {
   const albums = useAlbums();
@@ -149,7 +150,7 @@ const MusicLibrary: FC<{ view: LibraryView }> = ({ view }) => {
 
 /**
  * The library: what you have, by kind of media (one top bar, one row of media tabs): Audio
- * (music and podcasts), Comics, Books and Videos.
+ * (music and podcasts), Comics, Books, Videos and Websites.
  */
 export const LibraryPage: FC = () => {
   const search = useSearch({ from: '/library' });
@@ -164,6 +165,7 @@ export const LibraryPage: FC = () => {
       {media === 'all' && <AllLibrary />}
       {media === 'music' && view === 'podcasts' && <PodcastsView />}
       {media === 'music' && view !== 'podcasts' && <MusicLibrary view={view} />}
+      {media === 'websites' && <WebsitesLibrary site={search.site} />}
       {(media === 'manga' || media === 'novel' || media === 'video') && (
         <MangaLibraryView key={media} medium={media} />
       )}

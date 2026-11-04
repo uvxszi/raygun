@@ -1,9 +1,11 @@
 import { commands } from '@raygun/bindings';
 import type { OnlineTrack, QueueItemInput, SearchResults } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 import { rememberPlay } from '../music/playContext';
+import { keepSongs, useSearchFilter } from './searchFilter';
 import { SEARCH_KEYS, streamed, useStreamedAnswers } from './searchStream';
 
 /** Results stay fresh for a while, so going back to Search doesn't re-run the query. */
@@ -35,7 +37,11 @@ export const useOnlineSearch = (query: string) => {
     search.isFetching && parts && parts.total > 0
       ? { answered: parts.answered.length, total: parts.total }
       : undefined;
-  return { ...search, data: search.data ?? partial, progress };
+  // Search's "No 18+" and "No explicit" cover answers kept from before they were set.
+  const filter = useSearchFilter();
+  const shown = search.data ?? partial;
+  const data = useMemo(() => shown && keepSongs(filter, shown), [shown, filter]);
+  return { ...search, data, progress };
 };
 
 /** A search result as a queue item. Results without a stream are found one when they play (M14). */
@@ -53,6 +59,7 @@ export const toQueueItem = (track: OnlineTrack): QueueItemInput => ({
     album: track.album,
     durationMs: track.durationMs,
   },
+  ...(track.explicit ? { explicit: true } : {}),
 });
 
 /** Replaces the queue with a provider's results, starting at `track`. */

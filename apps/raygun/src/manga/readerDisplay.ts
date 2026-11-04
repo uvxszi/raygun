@@ -1,6 +1,7 @@
 import type { MangaReaderPrefs, PagedScale, ReaderMode } from '@raygun/bindings';
 
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { DEFAULT_GRIDS, toGrid } from './reader/tapZones';
 
 export type ReaderDisplay = Required<MangaReaderPrefs>;
 
@@ -9,6 +10,7 @@ export const READER_DISPLAY_DEFAULTS: ReaderDisplay = {
   pagedScale: 'fitScreen',
   webtoonSize: 0,
   barSize: 0,
+  barProgress: true,
   barChapters: true,
   barZoom: true,
   barMode: true,
@@ -16,10 +18,13 @@ export const READER_DISPLAY_DEFAULTS: ReaderDisplay = {
   preloadPages: 3,
   defaultMode: 'webtoon',
   tapZones: 'auto',
+  tapGridPaged: toGrid(DEFAULT_GRIDS.paged),
+  tapGridWebtoon: toGrid(DEFAULT_GRIDS.webtoon),
   invertTaps: 'none',
   doubleTapZoom: true,
   pageNumber: true,
   keepScreenOn: true,
+  fullScreen: true,
   skipDuplicates: true,
 };
 
@@ -33,6 +38,14 @@ export const READER_SIZE = { min: -70, max: 100, step: 5 } as const;
 /** `percent` more or less than `base` (a CSS length), never wider than what holds it. */
 export const sizedFrom = (base: string, percent: number) =>
   percent === 0 ? `min(100%, ${base})` : `min(100%, calc(${base} * ${1 + percent / 100}))`;
+/**
+ * The strip's width: exactly its container's (the screen's, on phones) up to 768 px at the fit, then
+ * zoomed. A percentage of the container rather than of the viewport, so a scrollbar or safe area
+ * beside it never pushes the right edge off screen.
+ */
+export const stripWidth = (size: number, zoom: number) =>
+  zoom === 1 ? sizedFrom('48rem', size) : `calc(${sizedFrom('48rem', size)} * ${zoom})`;
+
 /** The reading modes, in the order the reader offers them. */
 export const READER_MODES: ReaderMode[] = ['webtoon', 'pagedRtl', 'pagedLtr'];
 

@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { TrackTagChips } from '../music/TrackTagChips';
 import { useTrackMenuItems } from '../music/useTrackMenu';
-import { useCloseOnBack } from '../player/useCloseOnBack';
+import { useBackLayer } from '../shell/backLayers';
 import { Popover } from '../shell/Popover';
 import { TextField } from '../shell/TextField';
 import { useWideScreen } from '../shell/useWideScreen';
@@ -169,12 +169,14 @@ export const TrackActionsSheet: FC = () => {
   const close = useTrackActionsStore((state) => state.close);
   const stableClose = useCallback(() => close(), [close]);
   const wide = useWideScreen();
-  useCloseOnBack(track !== null, stableClose);
+  const popover = anchor !== null && wide && anchor.isConnected;
+  // The popover is a back layer of its own; the sheet is one here.
+  useBackLayer(track !== null && !popover, stableClose);
 
   if (!track) {
     return null;
   }
-  if (anchor && wide && anchor.isConnected) {
+  if (anchor && popover) {
     return (
       <Popover anchor={anchor} label={track.title} onClose={stableClose} width={300}>
         <div className="flex flex-col gap-2 p-1">
@@ -278,6 +280,8 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
 const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onDone }) => {
   const { t } = useTranslation();
   const menu = useTrackMenuItems();
+  // A row that asks first (deleting a download) shows its question; a second tap does it.
+  const [asking, setAsking] = useState<number | null>(null);
   const above = new Set([
     t('collections.favorite'),
     t('collections.unfavorite'),
@@ -301,19 +305,25 @@ const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onD
         }
         if (item.kind === 'heading') return null;
         const Icon = item.icon;
+        const askingHere = asking === index && Boolean(item.confirm);
         return (
           <button
             key={index}
             type="button"
             disabled={item.disabled}
+            onBlur={() => askingHere && setAsking(null)}
             onClick={() => {
+              if (item.confirm && !askingHere) {
+                setAsking(index);
+                return;
+              }
               onDone();
               item.onSelect();
             }}
-            className={`${ROW_CLASS} ${item.danger ? 'text-red-400' : ''}`}
+            className={`${ROW_CLASS} ${askingHere ? 'text-primary font-semibold' : item.danger ? 'text-red-400' : ''}`}
           >
-            {Icon && <Icon aria-hidden size={18} className="text-muted" />}
-            <span className="truncate">{item.label}</span>
+            {Icon && <Icon aria-hidden size={18} className={askingHere ? '' : 'text-muted'} />}
+            <span className="truncate">{askingHere ? item.confirm : item.label}</span>
           </button>
         );
       })}

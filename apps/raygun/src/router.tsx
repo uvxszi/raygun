@@ -77,11 +77,20 @@ const routeTree = rootRoute.addChildren([
     component: LibraryPage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { view?: LibraryView; media?: LibraryMedia | 'music' | 'all' } => ({
+    ): {
+      view?: LibraryView;
+      media?: LibraryMedia | 'music' | 'all' | 'websites';
+      site?: string;
+    } => ({
       ...(isLibraryView(search.view) ? { view: search.view } : {}),
-      ...(isLibraryMedia(search.media) || search.media === 'music' || search.media === 'all'
+      ...(isLibraryMedia(search.media) ||
+      search.media === 'music' ||
+      search.media === 'all' ||
+      search.media === 'websites'
         ? { media: search.media }
         : {}),
+      // A website's quick access pin: Library → Websites opens it.
+      ...(search.media === 'websites' && text(search.site) ? { site: text(search.site) } : {}),
       // Podcasts were a media tab of their own before they joined Audio.
       ...(search.media === 'podcast' ? { view: 'podcasts' as const } : {}),
     }),

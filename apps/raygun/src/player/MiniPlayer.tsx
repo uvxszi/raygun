@@ -19,11 +19,12 @@ import { useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
 import type { PanInfo } from 'motion/react';
-import { useRef } from 'react';
-import type { FC, MouseEvent, ReactNode } from 'react';
+import { useRef, useState } from 'react';
+import type { FC, MouseEvent, ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { fromQueueItem } from '../collections/useCollections';
+import { ExplicitMark } from '../music/ExplicitMark';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ConnectButton } from '../devices/ConnectButton';
 import { Artwork } from '../library/Artwork';
@@ -343,11 +344,14 @@ const TrackText: FC<BarProps> = ({ item }) => {
       className="title-gap flex min-w-0 flex-col"
       onContextMenu={spoken ? spokenMenu : menu(fromQueueItem(item))}
     >
-      <Marquee
-        testId="mini-player-title"
-        text={item.title}
-        className="text-sm leading-tight font-medium"
-      />
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Marquee
+          testId="mini-player-title"
+          text={item.title}
+          className="min-w-0 text-sm leading-tight font-medium"
+        />
+        {item.explicit && <ExplicitMark />}
+      </span>
       {note?.kind === 'finding' ? (
         <span data-testid="source-note" className="text-muted truncate text-xs leading-tight">
           {t('player.findingSource')}
@@ -366,16 +370,46 @@ const TrackText: FC<BarProps> = ({ item }) => {
   );
 };
 
-/** Mute and a volume slider (on wide enough bars); unmuting returns to the volume before. */
+/**
+ * Mute and a volume slider; unmuting returns to the volume before. On a bar too narrow for the
+ * slider, pointing at the button shows it in a popover above, usable until the pointer leaves
+ * both.
+ */
 const VolumeControl: FC = () => {
   const { t } = useTranslation();
   const unmutedVolume = usePlayerUiStore((store) => store.unmutedVolume);
   const setUnmutedVolume = usePlayerUiStore((store) => store.setUnmutedVolume);
   const volume = usePlayerSelect((state) => state?.volume ?? 1);
+  const inline = useRef<HTMLInputElement>(null);
+  const [pointing, setPointing] = useState(false);
   const muted = volume <= 0;
   const Icon = muted ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
+  const slider = (className: string, ref?: RefObject<HTMLInputElement | null>) => (
+    <input
+      ref={ref}
+      type="range"
+      aria-label={t('player.volume')}
+      aria-valuetext={`${Math.round(volume * 100)} %`}
+      min={0}
+      max={1}
+      step={0.01}
+      value={volume}
+      onChange={(event) =>
+        void sendControl({ type: 'setVolume', volume: Number(event.target.value) })
+      }
+      className={className}
+    />
+  );
   return (
-    <div className="flex shrink-0 items-center">
+    <div
+      className="relative flex shrink-0 items-center"
+      onPointerEnter={(event) => {
+        // Only while the bar's own slider is hidden, and for a pointer that hovers.
+        const hidden = (inline.current?.getClientRects().length ?? 0) === 0;
+        if (event.pointerType !== 'touch' && hidden) setPointing(true);
+      }}
+      onPointerLeave={() => setPointing(false)}
+    >
       <BarButton
         label={muted ? t('player.unmute') : t('player.mute')}
         onClick={() => {
@@ -389,19 +423,18 @@ const VolumeControl: FC = () => {
       >
         <Icon aria-hidden size={18} />
       </BarButton>
-      <input
-        type="range"
-        aria-label={t('player.volume')}
-        aria-valuetext={`${Math.round(volume * 100)} %`}
-        min={0}
-        max={1}
-        step={0.01}
-        value={volume}
-        onChange={(event) =>
-          void sendControl({ type: 'setVolume', volume: Number(event.target.value) })
-        }
-        className="accent-primary hidden h-1 w-20 cursor-pointer @min-[80rem]:block"
-      />
+      {slider('accent-primary hidden h-1 w-20 cursor-pointer @min-[80rem]:block', inline)}
+      {pointing && (
+        // Padding rather than a gap above the button, so the pointer stays inside on its way up.
+        <div
+          data-testid="volume-popover"
+          className="absolute bottom-full left-1/2 z-20 -translate-x-1/2 pb-2 @min-[80rem]:hidden"
+        >
+          <div className="bg-surface motion-pop rounded-xl px-3 py-2.5 shadow-2xl ring-1 shadow-black/40 ring-white/5">
+            {slider('accent-primary block h-1 w-28 cursor-pointer')}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

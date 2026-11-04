@@ -1,7 +1,10 @@
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-/** The "E" beside an explicit song's title (M46.36), as music apps show it. */
+/**
+ * The "E" beside an explicit song's title (M46.36): a small gray tag, as music apps show it
+ * (the theme's gray with the page's color for the letter, so it reads in light and dark).
+ */
 export const ExplicitMark: FC = () => {
   const { t } = useTranslation();
   return (
@@ -9,7 +12,8 @@ export const ExplicitMark: FC = () => {
       role="img"
       aria-label={t('songs.explicit')}
       title={t('songs.explicit')}
-      className="bg-muted/30 text-muted shrink-0 rounded-sm px-1 text-[0.625rem] leading-4 font-bold"
+      data-testid="explicit-mark"
+      className="bg-muted text-background inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3px] align-middle text-[0.5625rem] leading-none font-bold"
     >
       E
     </span>

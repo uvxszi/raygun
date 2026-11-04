@@ -218,6 +218,8 @@ pub struct Settings {
     pub lyrics_translation: LyricsTranslationPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
+    /// Search's own switches: no 18+ sources or titles, no explicit songs; both off by default.
+    pub search_filter: SearchFilterPrefs,
     /// Sources that meet a browser check offer to open their site so it can be passed by hand
     /// (experimental, off by default; `raygun_ext_host::browser_check`).
     pub manual_browser_checks: bool,
@@ -290,7 +292,7 @@ impl Default for RailPrefs {
 #[serde(rename_all = "camelCase")]
 pub struct RailPin {
     /// `favorites`, `downloaded`, `localFiles`, `playlist`, `album`, `artist`, `podcast`,
-    /// `audiobook`, `manga`, `novel`, `video`, `mix`.
+    /// `audiobook`, `manga`, `novel`, `video`, `mix`, `website` (opens the site).
     pub kind: String,
     /// The page it opens: a route and its search parameters.
     pub to: String,
@@ -412,6 +414,16 @@ pub enum LyricsClearScope {
     /// Favorites and playlists.
     Saved,
     Downloaded,
+}
+
+/// What Search leaves out besides what Show NSFW and Explicit music already hide; both off.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SearchFilterPrefs {
+    /// "No 18+": sources rated for adults aren't asked, and titles marked adult are left out.
+    pub no_adult: bool,
+    /// "No explicit": songs marked explicit are left out, and 18+ music sources aren't asked.
+    pub no_explicit: bool,
 }
 
 /// What's remembered of listening (M46.41); both on by default.
@@ -1285,7 +1297,47 @@ pub enum TapZones {
     Sides,
     /// Taps only show and hide the controls.
     Off,
+    /// Each mode's own 3×3 grid (`MangaReaderPrefs::tap_grid_paged`, `tap_grid_webtoon`).
+    Custom,
 }
+
+/// What a tap on one cell of the reader's 3×3 tap grid does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TapCell {
+    /// Shows or hides the reader's bars.
+    #[default]
+    Menu,
+    /// The page before (paged) or a screen up (webtoon).
+    Previous,
+    /// The next page (paged) or a screen down (webtoon).
+    Next,
+    /// Toward the left: previous left to right, next right to left.
+    Left,
+    /// Toward the right: next left to right, previous right to left.
+    Right,
+    FirstPage,
+    LastPage,
+    PreviousChapter,
+    NextChapter,
+    /// The tap does nothing.
+    Nothing,
+}
+
+/// A 3×3 tap grid, row by row from the top left.
+pub type TapGrid = [TapCell; 9];
+
+/// The left and right thirds, as the reading direction has them (Mihon's paged default).
+pub const TAP_GRID_SIDES: TapGrid = {
+    use TapCell::{Left as L, Menu as M, Right as R};
+    [L, M, R, L, M, R, L, M, R]
+};
+
+/// The L shape: the top and the left of the middle go back, the rest on (Mihon's webtoon default).
+pub const TAP_GRID_L_SHAPED: TapGrid = {
+    use TapCell::{Menu as M, Next as N, Previous as P};
+    [P, P, P, P, M, N, N, N, N]
+};
 
 /// How the tap zones are mirrored.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1309,6 +1361,8 @@ pub struct MangaReaderPrefs {
     /// The page bar, in percent more or less than the screen's own: the full width on phones,
     /// 70 % on wide windows; never wider than the window.
     pub bar_size: i32,
+    /// The page bar's page slider and page count.
+    pub bar_progress: bool,
     /// The page bar's buttons beside the page slider.
     pub bar_chapters: bool,
     pub bar_zoom: bool,
@@ -1319,6 +1373,10 @@ pub struct MangaReaderPrefs {
     /// How titles without a reading mode of their own are read.
     pub default_mode: ReaderMode,
     pub tap_zones: TapZones,
+    /// The paged modes' grid when `tap_zones` is `Custom`.
+    pub tap_grid_paged: TapGrid,
+    /// The vertical strip's grid when `tap_zones` is `Custom`.
+    pub tap_grid_webtoon: TapGrid,
     pub invert_taps: TapInvert,
     /// A double tap zooms; single taps then wait a moment to tell the two apart.
     pub double_tap_zoom: bool,
@@ -1326,6 +1384,9 @@ pub struct MangaReaderPrefs {
     pub page_number: bool,
     /// The screen doesn't turn off while a chapter is open.
     pub keep_screen_on: bool,
+    /// Android's status and navigation bars are hidden while reading, and shown with the
+    /// reader's own bars.
+    pub full_screen: bool,
     /// Next and previous chapter skip other uploads of the same chapter number.
     pub skip_duplicates: bool,
 }
@@ -1336,6 +1397,7 @@ impl Default for MangaReaderPrefs {
             paged_scale: PagedScale::FitScreen,
             webtoon_size: 0,
             bar_size: 0,
+            bar_progress: true,
             bar_chapters: true,
             bar_zoom: true,
             bar_mode: true,
@@ -1343,10 +1405,13 @@ impl Default for MangaReaderPrefs {
             preload_pages: 3,
             default_mode: ReaderMode::Webtoon,
             tap_zones: TapZones::Auto,
+            tap_grid_paged: TAP_GRID_SIDES,
+            tap_grid_webtoon: TAP_GRID_L_SHAPED,
             invert_taps: TapInvert::None,
             double_tap_zoom: true,
             page_number: true,
             keep_screen_on: true,
+            full_screen: true,
             skip_duplicates: true,
         }
     }
@@ -1910,6 +1975,7 @@ impl Default for Settings {
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
             failing_sources_last: true,
+            search_filter: SearchFilterPrefs::default(),
             manual_browser_checks: false,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
@@ -1964,6 +2030,7 @@ impl Settings {
             SettingChange::WindowFrame(frame) => self.window_frame = frame,
             SettingChange::Zoom(percent) => self.zoom = percent,
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
+            SettingChange::SearchFilter(prefs) => self.search_filter = prefs,
             SettingChange::ManualBrowserChecks(on) => self.manual_browser_checks = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
             SettingChange::Sound(prefs) => self.sound = prefs,
@@ -2052,6 +2119,7 @@ pub enum SettingChange {
     Zoom(u32),
     Discovery(DiscoveryPrefs),
     FailingSourcesLast(bool),
+    SearchFilter(SearchFilterPrefs),
     ManualBrowserChecks(bool),
     UserAgent(String),
     Sound(SoundPrefs),
@@ -2112,6 +2180,7 @@ impl SettingChange {
             Self::Zoom(_) => "zoom",
             Self::Discovery(_) => "discovery",
             Self::FailingSourcesLast(_) => "failingSourcesLast",
+            Self::SearchFilter(_) => "searchFilter",
             Self::ManualBrowserChecks(_) => "manualBrowserChecks",
             Self::UserAgent(_) => "userAgent",
             Self::Sound(_) => "sound",
@@ -2148,6 +2217,7 @@ impl SettingChange {
             | Self::Motion(_)
             | Self::WindowFrame(_)
             | Self::FailingSourcesLast(_)
+            | Self::SearchFilter(_)
             | Self::ManualBrowserChecks(_)
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
@@ -2409,6 +2479,9 @@ pub struct QueueItemInput {
     pub artwork_url: Option<String>,
     pub media_kind: MediaKind,
     pub source: MediaSource,
+    /// The source marks it explicit: lists and the player show "E".
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -2422,6 +2495,9 @@ pub struct QueueItem {
     pub artwork_url: Option<String>,
     pub media_kind: MediaKind,
     pub source: MediaSource,
+    /// The source marks it explicit: lists and the player show "E".
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -2766,6 +2842,9 @@ pub struct ProviderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub search_pill: Option<String>,
+    /// Its extension is rated `nsfw`: the UI marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
 }
 
 /// A source that met a browser check, whose site can be opened to pass it by hand
@@ -2941,6 +3020,76 @@ pub struct RepoCatalog {
     pub repo: ExtensionRepo,
     pub entries: Vec<CatalogEntry>,
     pub error: Option<String>,
+}
+
+/// An extension to install from a repository, as the catalogue lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstallRequest {
+    pub repo_id: String,
+    pub extension_id: String,
+    pub name: String,
+}
+
+/// Where an install in the queue is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionInstallState {
+    Queued,
+    Installing,
+    Done,
+    Failed,
+}
+
+/// What the install running now does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionInstallPhase {
+    Downloading,
+    /// A Nuclear plugin converts, a Shosetsu script gathers its libraries, a package is checked.
+    Converting,
+    /// The files are written.
+    Installing,
+    /// The extensions load again with the new ones (once, at the end of a batch).
+    Loading,
+}
+
+/// One install in the queue.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstall {
+    pub repo_id: String,
+    pub extension_id: String,
+    pub name: String,
+    pub state: ExtensionInstallState,
+    /// While it installs.
+    pub phase: Option<ExtensionInstallPhase>,
+    /// Why it failed.
+    pub error: Option<String>,
+    /// When it ended (Unix ms).
+    pub finished_at: Option<f64>,
+    /// The batch it belongs to; failures of earlier batches stay listed until retried.
+    pub batch: u32,
+}
+
+/// The extension install queue (one at a time, in the order asked).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionInstallStatus {
+    /// Counts from 1; 0 before the first batch.
+    pub batch: u32,
+    /// Installs of this batch still queued or running, then ones that ended.
+    pub items: Vec<ExtensionInstall>,
+    /// This batch's installs, cancelled ones left out.
+    pub total: u32,
+    pub done: u32,
+    pub failed: u32,
+    pub cancelled: u32,
+    /// Something installs, waits to, or the extensions load again.
+    pub running: bool,
+    /// The extension installing now, by name.
+    pub current: Option<String>,
+    pub phase: Option<ExtensionInstallPhase>,
 }
 
 /// A track found by an online provider.
@@ -3611,6 +3760,9 @@ pub struct TrackInput {
     pub artwork_url: Option<String>,
     /// Local files and lookups aren't stored; the track is found again by its key.
     pub source: Option<MediaSource>,
+    /// The source marks it explicit: lists and the player show "E".
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 /// Where something was played from (M46.37: Home's Your music shows the latest): an album, a
@@ -3652,6 +3804,9 @@ pub struct SavedTrack {
     pub added_at: Option<f64>,
     /// Times it was played, from the history (M46.8).
     pub play_count: u32,
+    /// The source marks it explicit: lists and the player show "E".
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 /// Where a song is saved (M46.8): Favorites and the playlists that hold it. The Add to playlist
@@ -3795,29 +3950,22 @@ pub struct McpStatus {
     pub error: Option<String>,
 }
 
-// ---- LAN remote (M20) ----
+// ---- The server other devices link with and play through (M20, M46.15) ----
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteDevice {
-    pub id: String,
-    pub name: String,
-    /// Unix ms.
-    pub paired_at: f64,
-}
-
-/// The LAN remote's switch, address, open pairing code and paired devices.
+/// The server's switch, its address, and the open link code (M46.47).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteStatus {
     pub enabled: bool,
     /// `http://<LAN IP>:<port>` while it runs.
     pub url: Option<String>,
-    /// The address with the open pairing code, while a code is open.
-    pub pair_url: Option<String>,
-    /// `pair_url` as a QR code (SVG markup).
-    pub pair_qr_svg: Option<String>,
-    pub devices: Vec<RemoteDevice>,
+    /// What this device's link QR code says (`raygun:link?at=…&code=…&name=…`), while a
+    /// one-time code is open.
+    pub link_text: Option<String>,
+    /// `link_text` as a QR code (SVG markup).
+    pub link_qr_svg: Option<String>,
+    /// Unix ms when the open code stops working.
+    pub link_expires_at: Option<f64>,
     pub error: Option<String>,
 }
 
@@ -3856,6 +4004,13 @@ pub enum ConnectCommand {
         /// Where the queue was played from (`QueueSnapshot::context`).
         #[serde(default)]
         context: Option<PlayContext>,
+        /// The play order (indexes into `items`) when a whole player moves (Connect's transfer):
+        /// kept as it was, shuffled or not, instead of shuffled again.
+        #[serde(default)]
+        order: Option<Vec<u32>>,
+        /// The repeat mode that goes with a moved player.
+        #[serde(default)]
+        repeat: Option<RepeatMode>,
     },
     #[serde(rename_all = "camelCase")]
     Enqueue {
@@ -3995,6 +4150,9 @@ pub struct MangaSource {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub search_pill: Option<String>,
+    /// Its extension is rated `nsfw`: the UI marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -4016,6 +4174,9 @@ pub struct MangaCard {
     /// Through the local image proxy.
     pub cover_url: Option<String>,
     pub in_library: bool,
+    /// The source marks it adult: the UI marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -4416,7 +4577,7 @@ pub enum ImageDestination {
 pub enum SongDestination {
     /// `Music/Raygun/<artist>/`.
     Music,
-    /// The folder picked in Settings → Downloads.
+    /// The request's `folder`, else the folder picked in Settings → Downloads.
     Folder,
 }
 
@@ -4544,6 +4705,9 @@ pub struct MangaTitleView {
     pub in_library: bool,
     /// An adult title while NSFW content is hidden: the UI shows a notice instead (M35).
     pub hidden_nsfw: bool,
+    /// Adult genres, or a source rated `nsfw`: the page marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
     /// In the source's order (usually newest first).
     pub chapters: Vec<MangaChapterInfo>,
     /// Where "Continue" opens: the partly read chapter, else the first unread after the last read.
@@ -4777,13 +4941,15 @@ pub const LAYOUT_TABS: [(&str, bool); 13] = [
     ("downloads", false),
     ("settings", false),
 ];
-pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 5] = [
+pub const LAYOUT_LIBRARY_MEDIA: [(&str, bool); 6] = [
     // Every kind at once (M46.37), first so the Library opens on it.
     ("all", true),
     ("music", true),
     ("manga", true),
     ("novel", true),
     ("video", true),
+    // Sites added by address (M46.3).
+    ("websites", true),
 ];
 pub const LAYOUT_AUDIO_VIEWS: [(&str, bool); 9] = [
     ("all", true),
@@ -5196,7 +5362,7 @@ pub enum ExportScope {
 pub enum ExportDestination {
     /// `Download/Raygun/`.
     Downloads,
-    /// The folder picked in Settings → Downloads.
+    /// The request's `folder`, else the folder picked in Settings → Downloads.
     Folder,
     /// The share sheet (one file).
     Share,
@@ -5210,6 +5376,17 @@ pub struct ExportRequest {
     pub scope: ExportScope,
     pub format: ExportFormat,
     pub destination: ExportDestination,
+    /// A folder chosen in the export sheet: with `destination` `folder`, files go there instead
+    /// of the one set in Settings → Downloads.
+    pub folder: Option<ExportFolder>,
+}
+
+/// A folder exports can be written to: its tree URI on Android or its path on desktop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportFolder {
+    pub uri: String,
+    pub name: String,
 }
 
 /// What an export would do, shown before it starts.
@@ -5678,6 +5855,8 @@ pub struct PodcastView {
     pub custom_order: bool,
     /// Every episode, shown or filtered out.
     pub episode_count: u32,
+    /// Episodes with a download (finished, under way or failed), shown or filtered out.
+    pub downloaded: u32,
     /// The speed its episodes play at, when it has its own (M46.48).
     pub speed: Option<f64>,
 }
@@ -6198,6 +6377,9 @@ pub struct StremioMeta {
     pub addon_name: String,
     /// The addon whose details these are (empty when shown as stored).
     pub addon_id: String,
+    /// Adult genres, or an addon marked adult: the page marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
     /// What the title itself plays by (a movie, a channel): the details' default video, else
     /// its id.
     pub video_id: String,
@@ -6313,6 +6495,8 @@ pub enum PermissionKind {
     LocalNetwork,
     /// Installing Raygun's own updates.
     InstallApps,
+    /// The camera, to scan another device's link QR code.
+    Camera,
 }
 
 /// Where a permission stands.
@@ -6388,6 +6572,9 @@ pub struct VideoTitleView {
     pub in_library: bool,
     /// Adult content while NSFW is off: the page shows a notice instead.
     pub hidden_nsfw: bool,
+    /// Adult genres, or a source rated `nsfw`: the page marks it 18+.
+    #[serde(default)]
+    pub adult: bool,
     /// In the source's order; a movie has one.
     pub episodes: Vec<VideoEpisodeView>,
     /// The episode Continue plays (its stored id): the one watched last, or the next one that is

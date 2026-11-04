@@ -525,12 +525,15 @@ impl ExtensionHost {
     }
 
     /// Providers of `kind` that searches and lookups use: not the disabled ones, and those of
-    /// NSFW-rated extensions only while NSFW content is shown.
+    /// NSFW-rated extensions only while NSFW content is shown, and no adult ones inside
+    /// [`crate::without_adult_sources`].
     pub async fn providers(&self, kind: &str) -> Vec<ProviderInfo> {
+        let no_adult = crate::content::adult_left_out();
         self.listed_providers(kind)
             .await
             .into_iter()
             .filter(|provider| !self.shared.content.is_disabled(&provider.id))
+            .filter(|provider| !(no_adult && provider.adult))
             .collect()
     }
 
@@ -1830,7 +1833,14 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
             .iter()
             .map(ToString::to_string)
             .collect(),
-        providers: extension.providers(),
+        providers: extension
+            .providers()
+            .into_iter()
+            .map(|provider| ProviderInfo {
+                adult: manifest.content_rating.as_str() == "nsfw",
+                ..provider
+            })
+            .collect(),
         compatibility: manifest.nuclear.as_ref().and_then(compat_report),
         icon: None,
         website: extension.website(),

@@ -1,5 +1,5 @@
 import { episodeLabel, isGenericName, showsSeasons } from './episodeLabel';
-import { parseTitle, sameTitle, videoTitleScore } from './videoMatch';
+import { addsToTitle, parseTitle, sameTitle, videoTitleScore, withoutTitle } from './videoMatch';
 
 // The cases of `raygun_resolver::video_match`'s tests: the two parsers agree.
 describe('video titles and their seasons', () => {
@@ -143,6 +143,48 @@ describe('episode labels', () => {
     expect(showsSeasons('Attack on Titan', [{ season: 1 }, { season: 2 }])).toBe(true);
     expect(episodeLabel({ season: 1, number: 1, name: 'Beast Titan' }, false)).toBe(
       'E1 · Beast Titan',
+    );
+  });
+});
+
+describe('labels never repeat the title', () => {
+  it('drops the show from episode and link names, as Rust does', () => {
+    // Anime sites name episodes after the show.
+    expect(withoutTitle('Overlord II Episode 3', 'Overlord II')).toBe('Episode 3');
+    expect(withoutTitle('Overlord - 03', 'Overlord II')).toBe('03');
+    expect(withoutTitle('One Piece 1071', 'One Piece')).toBe('1071');
+    expect(withoutTitle('Episode 3 - Frieren', 'Frieren')).toBe('Episode 3');
+    // Stremio metas whose videos carry the series' name.
+    expect(withoutTitle('Planet Earth II', 'Planet Earth II')).toBe('');
+    expect(withoutTitle('planet earth ii: Islands', 'Planet Earth II')).toBe('Islands');
+    // Inside a name, ending one without a separator, or absent: kept.
+    expect(withoutTitle('Lost in Space', 'Space')).toBe('Lost in Space');
+    expect(withoutTitle('Breaking Badlands', 'Breaking Bad')).toBe('Breaking Badlands');
+    // Internet Archive films.
+    expect(withoutTitle('Night of the Living Dead (1968)', 'Night of the Living Dead')).toBe(
+      '1968',
+    );
+    expect(withoutTitle('Overlord II 1080p', 'Overlord II')).toBe('1080p');
+    expect(addsToTitle('Sintel', 'Sintel')).toBe(false);
+  });
+
+  it('labels episodes without the show', () => {
+    expect(episodeLabel({ season: 1, number: 3, name: 'Frieren 03' }, true, 'Frieren')).toBe(
+      'S1 E3',
+    );
+    expect(
+      episodeLabel({ season: null, number: 3, name: 'Frieren - Episode 3' }, true, 'Frieren'),
+    ).toBe('Episode 3');
+    expect(
+      episodeLabel(
+        { season: 1, number: 1, name: 'Planet Earth II: Islands' },
+        true,
+        'Planet Earth II',
+      ),
+    ).toBe('S1 E1 · Islands');
+    // A movie's one entry keeps its name.
+    expect(episodeLabel({ season: null, number: null, name: 'Sintel' }, true, 'Sintel')).toBe(
+      'Sintel',
     );
   });
 });

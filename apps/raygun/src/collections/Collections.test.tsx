@@ -280,6 +280,16 @@ describe('Favorites and playlists', () => {
     );
   });
 
+  it('marks the explicit songs among favorites', async () => {
+    commands.favoritesList.mockResolvedValue(
+      ok([{ ...saved('Sinnerman'), explicit: true }, saved('Feeling Good')]),
+    );
+    await AppShellWrapper.mount('/library?view=playlists');
+    await userEvent.click(await screen.findByTestId('library-view-favorites'));
+    expect(await screen.findByText('Feeling Good')).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: 'Explicit' })).toHaveLength(1);
+  });
+
   it('lists playlists and favorites in the library without any folders', async () => {
     commands.playlistsList.mockResolvedValue(
       ok([{ id: 'p1', name: 'Road trip', itemCount: 3, artworkUrls: [] }]),

@@ -580,6 +580,7 @@ pub(crate) fn track_arg(args: &Value) -> Result<TrackInput, String> {
             .map(str::to_owned)
     };
     Ok(TrackInput {
+        explicit: false,
         title: text_arg(args, "title")?,
         artist: optional("artist"),
         album: optional("album"),

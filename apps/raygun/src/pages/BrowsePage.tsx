@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
 import { updateCount } from '../extensions/catalogFilters';
 import { InstalledTab } from '../extensions/InstalledTab';
+import { InstallProgress } from '../extensions/InstallProgress';
 import { EXTENSION_LISTS } from '../extensions/tabs';
 import type { ExtensionList } from '../extensions/tabs';
 import {
@@ -28,6 +29,7 @@ import {
 } from '../extensions/useExtensions';
 import { useLayout } from '../layout/useLayout';
 import { useMangaSources } from '../manga/useManga';
+import { AdultMark } from '../shell/AdultMark';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
 import { TextField } from '../shell/TextField';
@@ -63,6 +65,8 @@ type SourceRow = {
   latest?: { to: string; search: Record<string, unknown> };
   /** An extension's source: its ⋯ menu, and whether the user turned it off (M46.8). */
   source?: { id: string; extensionId: string; enabled: boolean };
+  /** Rated for adults: an 18+ tag after the name. */
+  adult?: boolean;
 };
 
 const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }) => {
@@ -82,7 +86,10 @@ const SourceSection: FC<{ title: string; rows: SourceRow[] }> = ({ title, rows }
             >
               <LetterAvatar name={row.name} logo={row.logo} />
               <span className="flex min-w-0 flex-col">
-                <span className="truncate font-medium">{row.name}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate font-medium">{row.name}</span>
+                  {row.adult && <AdultMark />}
+                </span>
                 <span className="text-muted truncate text-xs">
                   {row.source?.enabled === false
                     ? t('sources.disabledNote', { detail: row.detail })
@@ -171,6 +178,7 @@ const SourcesList: FC = () => {
       search: { id: source.id },
       latest: { to: route, search: { id: source.id, mode: 'latest' } },
       source: { id: source.id, extensionId: source.extensionId, enabled: source.enabled },
+      adult: source.adult === true || extensionOf(source)?.contentRating === 'nsfw',
     }));
 
   const videoRows: SourceRow[] = [
@@ -183,6 +191,7 @@ const SourcesList: FC = () => {
         logo: addon.logo,
         to: '/watch/addon',
         search: { id: addon.id },
+        adult: addon.adult,
       })),
     ...catalogue(video.data, '/watch/source'),
   ];
@@ -532,6 +541,7 @@ export const BrowsePage: FC = () => {
               </Link>
             ))}
           </nav>
+          <InstallProgress />
           {list === 'installed' ? <InstalledTab /> : <AvailableExtensions show={list} />}
         </div>
       )}

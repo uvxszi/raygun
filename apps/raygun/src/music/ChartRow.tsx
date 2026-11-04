@@ -16,6 +16,7 @@ import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SongMarks } from './SongMarks';
+import { ExplicitMark } from './ExplicitMark';
 import { useHidden } from './hidden';
 import { songReveal } from './reveal';
 
@@ -56,6 +57,7 @@ const SongCard: FC<{
           className={`flex min-w-0 items-center gap-1 text-sm font-semibold ${playing ? 'text-primary' : ''}`}
         >
           <span className="truncate">{song.title}</span>
+          {song.explicit && <ExplicitMark />}
           <SongMarks title={song.title} artist={song.artist} />
         </span>
         <span className="text-muted -mt-1 truncate text-xs">{song.artist}</span>
