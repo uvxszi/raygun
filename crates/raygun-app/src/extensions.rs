@@ -1168,6 +1168,12 @@ impl ExtensionService {
                 raygun_ext_host::miru::package::package(entry, script, &header)
                     .map_err(|error| error.to_string())?
             }
+            PackageFormat::LnReader => {
+                let script = raygun_ext_host::lnreader::package::verify_script(&bytes, entry)
+                    .map_err(|error| error.to_string())?;
+                raygun_ext_host::lnreader::package::package(entry, script)
+                    .map_err(|error| error.to_string())?
+            }
             PackageFormat::Kodi => return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
         };
         phase(Phase::Installing);

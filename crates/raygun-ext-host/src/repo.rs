@@ -80,8 +80,9 @@ pub struct RepoEntry {
 }
 
 /// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
-/// Shosetsu Lua script installed with its libraries (M32), a Miru script (`crate::miru`), or a
-/// Kodi add-on, listed but not installable (`crate::kodi`).
+/// Shosetsu Lua script installed with its libraries (M32), a Miru script (`crate::miru`), an
+/// LNReader plugin (`crate::lnreader`), or a Kodi add-on, listed but not installable
+/// (`crate::kodi`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PackageFormat {
@@ -90,6 +91,8 @@ pub enum PackageFormat {
     Nuclear,
     Shosetsu,
     Miru,
+    #[serde(rename = "lnreader")]
+    LnReader,
     Kodi,
 }
 
@@ -530,6 +533,9 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
     if let Some(index) = crate::miru::index::parse(json) {
         return Ok(index);
     }
+    if let Some(index) = crate::lnreader::index::parse(json) {
+        return Ok(index);
+    }
     let mut index: RepoIndex = serde_json::from_str(json).map_err(|error| {
         foreign_format(json).map_or_else(|| RepoError::Index(error.to_string()), RepoError::Foreign)
     })?;
@@ -576,8 +582,8 @@ fn foreign_format(json: &str) -> Option<String> {
         "This is a Mihon or Aniyomi extension repository: its extensions are Android packages, which Raygun can't run"
     } else if has(Some(&value), &["pluginLists", "manifestVersion"]) {
         "This is a CloudStream repository: its plugins are Kotlin code, which Raygun can't run"
-    } else if has(first, &["site", "url", "iconUrl", "lang"]) {
-        "This is an LNReader plugin list: Raygun can't run LNReader plugins yet"
+    } else if has(first, &["internalName", "tvTypes", "url"]) {
+        "This is a CloudStream plugin list: its plugins are Kotlin code, which Raygun can't run"
     } else if has(Some(&value), &["resources", "types", "id"]) {
         "This is a Stremio addon, not a repository: add it in Browse → Sources → Addons"
     } else {

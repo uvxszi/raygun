@@ -195,9 +195,14 @@ impl JsExtension {
         limits: &Limits,
         content: ContentFilter,
     ) -> Result<Self, String> {
-        // A Miru script (M46.x) is checked and rewritten as Miru does before anything runs.
+        // A Miru script (M46.x) is checked and rewritten as Miru does before anything runs; an
+        // LNReader plugin is wrapped as LNReader evaluates it.
         let miru = match manifest.runtime {
             Runtime::Miru => Some(crate::miru::runtime::Prepared::new(&code)?),
+            _ => None,
+        };
+        let lnreader = match manifest.runtime {
+            Runtime::LnReader => Some(crate::lnreader::runtime::Prepared::new(&code)?),
             _ => None,
         };
         let policy = Arc::new(manifest.net.clone());
@@ -245,8 +250,8 @@ impl JsExtension {
             .with(move |ctx| -> Result<(), String> {
                 install_natives(&ctx, natives).map_err(|error| error.to_string())?;
                 eval_script(&ctx, PRELUDE, "raygun:prelude", true)?;
-                match &miru {
-                    Some(prepared) => crate::miru::runtime::install(
+                match (&miru, &lnreader) {
+                    (Some(prepared), _) => crate::miru::runtime::install(
                         &ctx,
                         prepared,
                         crate::miru::runtime::Hooks {
@@ -255,7 +260,15 @@ impl JsExtension {
                         },
                         &filename,
                     ),
-                    None => eval_script(&ctx, &code, &filename, true),
+                    (None, Some(prepared)) => crate::lnreader::runtime::install(
+                        &ctx,
+                        prepared,
+                        crate::lnreader::runtime::Hooks {
+                            settings: registered,
+                        },
+                        &filename,
+                    ),
+                    (None, None) => eval_script(&ctx, &code, &filename, true),
                 }
             })
             .await?;

@@ -446,7 +446,7 @@ impl ExtensionHost {
         let miru = batches
             .iter()
             .flatten()
-            .filter(|item| item.manifest.runtime == Runtime::Miru)
+            .filter(|item| item.manifest.runtime.declares_settings())
             .map(|item| item.manifest.id.clone())
             .collect();
         let placed: HashMap<String, usize> = batches
@@ -1631,12 +1631,13 @@ impl LaneState {
                 let _ = reply.send(infos);
             }
             Request::Settings { reply } => {
-                // A Miru script registers settings while it sets up, which may end after loading.
+                // A Miru script (or an LNReader plugin) registers settings while it sets up, which
+                // may end after loading.
                 let settings = self
                     .loaded
                     .borrow()
                     .iter()
-                    .filter(|(_, extension)| extension.manifest().runtime == Runtime::Miru)
+                    .filter(|(_, extension)| extension.manifest().runtime.declares_settings())
                     .map(|(id, extension)| (id.clone(), settings_info(extension)))
                     .collect();
                 let _ = reply.send(settings);
@@ -1755,8 +1756,9 @@ impl LaneState {
                 .map_err(|_| "loading timed out".to_owned())?
                 .map(|extension| Extension::Shosetsu(Box::new(extension)));
         }
-        // A Miru script declares its settings as it runs: its values are checked when listed.
-        if manifest.runtime != Runtime::Miru {
+        // A Miru script or an LNReader plugin declares its settings as it runs: its values are
+        // checked when listed.
+        if !manifest.runtime.declares_settings() {
             user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
         }
         let code = source.read(&manifest.entry)?;

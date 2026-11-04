@@ -70,7 +70,7 @@ fn escape_text(text: &str) -> String {
 }
 
 /// A new HTML element with these attributes.
-fn new_element(tag: &str, attributes: Vec<(String, String)>) -> Node {
+pub(crate) fn new_element(tag: &str, attributes: Vec<(String, String)>) -> Node {
     let name = QualName::new(
         None,
         Namespace::from(HTML_NAMESPACE),
@@ -539,7 +539,7 @@ impl LuaNode {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Place {
+pub(crate) enum Place {
     Before,
     After,
     Prepend,
@@ -547,7 +547,7 @@ enum Place {
 }
 
 /// Copies `source` (from another tree) into `tree` at `place` relative to `anchor`.
-fn copy(tree: &mut Tree<Node>, source: NodeRef<'_, Node>, anchor: NodeId, place: Place) {
+pub(crate) fn copy(tree: &mut Tree<Node>, source: NodeRef<'_, Node>, anchor: NodeId, place: Place) {
     let Some(mut target) = tree.get_mut(anchor) else {
         return;
     };

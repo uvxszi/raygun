@@ -253,6 +253,10 @@ async fn paraline_live() {
                 let (script, header) = crate::miru::package::verify_script(&bytes, entry).unwrap();
                 crate::miru::package::package(entry, script, &header).unwrap()
             }
+            repo::PackageFormat::LnReader => {
+                let script = crate::lnreader::package::verify_script(&bytes, entry).unwrap();
+                crate::lnreader::package::package(entry, script).unwrap()
+            }
             repo::PackageFormat::Nuclear | repo::PackageFormat::Kodi => continue,
         };
         assert_eq!(verified.manifest.id, entry.id);
@@ -326,11 +330,11 @@ fn shosetsu_indexes_are_named_after_their_address() {
 fn other_apps_repositories_are_named() {
     let mihon = r#"[{"name":"Tachiyomi: X","pkg":"eu.kanade.x","apk":"x.apk","lang":"en","code":1,"version":"1.4.1","nsfw":0,"sources":[]}]"#;
     let cloudstream = r#"{"name":"Repo","description":"","manifestVersion":1,"pluginLists":["https://example.com/plugins.json"]}"#;
-    let lnreader = r#"[{"id":"x","name":"X","site":"https://example.com","lang":"English","version":"1.0.0","url":"https://example.com/x.js","iconUrl":"https://example.com/x.png"}]"#;
+    let plugin_list = r#"[{"url":"https://example.com/x.cs3","status":1,"version":3,"internalName":"X","tvTypes":["Movie"],"name":"X"}]"#;
     for (json, word) in [
         (mihon, "Mihon"),
         (cloudstream, "CloudStream"),
-        (lnreader, "LNReader"),
+        (plugin_list, "CloudStream"),
     ] {
         match repo::parse_index(json) {
             Err(RepoError::Foreign(message)) => assert!(message.contains(word), "{message}"),
