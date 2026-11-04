@@ -544,6 +544,7 @@ fn keys_name_their_kind() {
         Kind::Models,
         Kind::Update,
         Kind::YtDlp,
+        Kind::Files,
     ] {
         assert_eq!(Kind::from_tag(kind.tag()), Some(kind));
     }

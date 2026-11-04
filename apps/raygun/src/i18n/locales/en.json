@@ -2081,7 +2081,30 @@
     "loading": "Loading downloads",
     "noneTitle": "Nothing downloaded yet",
     "makeSubtitles": "Make subtitles with AI",
-    "makingSubtitles": "Making subtitles…"
+    "makingSubtitles": "Making subtitles…",
+    "files": {
+      "tab": "Files",
+      "none": "No files from websites yet",
+      "ofSize": "{{done}} of {{total}}",
+      "speed": "{{speed}}/s",
+      "state": {
+        "queued": "Waiting",
+        "downloading": "Downloading",
+        "done": "Saved",
+        "failed": "Didn't download",
+        "cancelled": "Cancelled"
+      },
+      "cancelOne": "Cancel {{name}}",
+      "removeOne": "Remove {{name}} from the list",
+      "failed": "Couldn't download from {{site}}",
+      "retry": "Try again",
+      "resume": "Resume",
+      "open": "Open",
+      "showFolder": "Show in folder",
+      "delete": "Delete",
+      "deleteAsk": "Delete {{name}} from this device?",
+      "actionFailed": "That didn't work"
+    }
   },
   "videoPlayer": {
     "episodes": "Episodes",

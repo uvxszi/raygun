@@ -4514,6 +4514,43 @@ pub struct YtDlpJob {
     pub message: Option<String>,
 }
 
+/// Where a file saved from a website stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum WebsiteDownloadState {
+    Queued,
+    Downloading,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+/// A file saved from a site in Raygun's browser, as Downloads → Files lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WebsiteDownload {
+    pub id: String,
+    pub url: String,
+    /// The file's name (the one it was saved under once done).
+    pub name: String,
+    pub mime: Option<String>,
+    /// The site it came from (its host).
+    pub site: Option<String>,
+    pub state: WebsiteDownloadState,
+    pub done_bytes: f64,
+    pub total_bytes: Option<f64>,
+    pub bytes_per_second: Option<f64>,
+    /// The server takes ranges: a stopped download carries on where it was.
+    pub resumable: bool,
+    /// Where it goes, as the user sees it ("Download/Raygun", a picked folder's name).
+    pub folder: String,
+    /// Where it is once saved, as the user sees it.
+    pub shown: Option<String>,
+    pub error: Option<String>,
+    /// Unix ms.
+    pub created_at: f64,
+}
+
 /// What a saved song is written out as (M46.10).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

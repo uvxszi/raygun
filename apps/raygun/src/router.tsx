@@ -120,6 +120,7 @@ const routeTree = rootRoute.addChildren([
     validateSearch: (search: Record<string, unknown>): { tab?: DownloadsTab } =>
       search.tab === 'videos' ||
       search.tab === 'exports' ||
+      search.tab === 'files' ||
       search.tab === 'music' ||
       search.tab === 'chapters'
         ? { tab: search.tab }

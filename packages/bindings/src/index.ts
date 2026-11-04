@@ -1196,6 +1196,18 @@ export const commands = {
 	websiteBlocklistUpdate: () => typedError<BlocklistStatus, string>(__TAURI_INVOKE("website_blocklist_update")),
 	/**  Clears the built-in browser's cookies, storage and cache. */
 	websiteClearData: () => typedError<null, string>(__TAURI_INVOKE("website_clear_data")),
+	/**  Files saved from websites, newest first. */
+	websiteDownloads: () => __TAURI_INVOKE<WebsiteDownload[]>("website_downloads"),
+	/**  Stops a file download. */
+	websiteDownloadCancel: (id: string) => __TAURI_INVOKE<void>("website_download_cancel", { id }),
+	/**  Starts a failed or cancelled file download again. */
+	websiteDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_download_retry", { id })),
+	/**  Takes a file download off the list; `delete_file` deletes its file too. */
+	websiteDownloadRemove: (id: string, deleteFile: boolean) => typedError<null, string>(__TAURI_INVOKE("website_download_remove", { id, deleteFile })),
+	/**  Opens a downloaded file. */
+	websiteDownloadOpen: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_download_open", { id })),
+	/**  Shows a downloaded file in its folder. */
+	websiteDownloadReveal: (id: string) => typedError<null, string>(__TAURI_INVOKE("website_download_reveal", { id })),
 	/**  The filters a manga or novel source offers for its search. */
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
 	/**
@@ -1428,6 +1440,7 @@ export const events = {
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
 	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
 	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
+	websiteDownloadsEvent: makeEvent<WebsiteDownloadsEvent>("website-downloads-event"),
 	youTubeVideoEvent: makeEvent<YouTubeVideoEvent>("you-tube-video-event"),
 	ytDlpEvent: makeEvent<YtDlpEvent>("yt-dlp-event"),
 };
@@ -5687,6 +5700,36 @@ export type Website = {
 	lastUrl: string | null,
 	blockAds: boolean,
 };
+
+/**  A file saved from a site in Raygun's browser, as Downloads → Files lists it. */
+export type WebsiteDownload = {
+	id: string,
+	url: string,
+	/**  The file's name (the one it was saved under once done). */
+	name: string,
+	mime: string | null,
+	/**  The site it came from (its host). */
+	site: string | null,
+	state: WebsiteDownloadState,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	bytesPerSecond: number | null,
+	/**  The server takes ranges: a stopped download carries on where it was. */
+	resumable: boolean,
+	/**  Where it goes, as the user sees it ("Download/Raygun", a picked folder's name). */
+	folder: string,
+	/**  Where it is once saved, as the user sees it. */
+	shown: string | null,
+	error: string | null,
+	/**  Unix ms. */
+	createdAt: number | null,
+};
+
+/**  Where a file saved from a website stands. */
+export type WebsiteDownloadState = "queued" | "downloading" | "done" | "failed" | "cancelled";
+
+/**  Files saved from websites changed; carries the download's id (empty when the list did). */
+export type WebsiteDownloadsEvent = string;
 
 /**  The built-in browser and its blocker. One stored row; missing fields keep their defaults. */
 export type WebsitePrefs = {

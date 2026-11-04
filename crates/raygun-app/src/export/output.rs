@@ -48,6 +48,9 @@ pub struct Output {
     pub file: File,
     /// Where it is, as the user sees it ("Download/Raygun/Manga/Frieren/0001 Chapter 1.cbz").
     pub shown: String,
+    /// Its name, which `Outputs::create_new` may have told apart from a file already there.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub name: String,
     target: Target,
 }
 
@@ -66,6 +69,9 @@ pub struct Saved {
     pub path: Option<PathBuf>,
     /// Where a plain file is (desktop, and the share folder), to show it in the file manager.
     pub local: Option<PathBuf>,
+    /// The file Android made (MediaStore or a picked folder's document), to open or delete it.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub uri: Option<String>,
 }
 
 #[derive(Clone)]
@@ -104,7 +110,21 @@ impl Outputs {
         if *place == Place::Share {
             return plain(self.share.join(name), shown);
         }
-        self.create_native(place, path, name, mime, shown)
+        self.create_native(place, path, name, mime, shown, false)
+    }
+
+    /// Makes `name` in `place`'s top folder without replacing a file there: a name that's taken
+    /// becomes `name (1)`… (`Output::name`). Blocking.
+    #[cfg(target_os = "android")]
+    pub fn create_new(&self, place: &Place, name: &str, mime: &str) -> Result<Output, String> {
+        let shown = format!("{}/{name}", place.shown());
+        self.create_native(place, &[], name, mime, shown, true)
+    }
+
+    /// Where a place is on desktop.
+    #[cfg(not(target_os = "android"))]
+    pub fn folder(&self, place: &Place) -> PathBuf {
+        desktop_folder(place, &self.exports)
     }
 
     #[cfg(target_os = "android")]
@@ -115,6 +135,7 @@ impl Outputs {
         name: &str,
         mime: &str,
         shown: String,
+        unique: bool,
     ) -> Result<Output, String> {
         use std::os::fd::FromRawFd;
 
@@ -137,12 +158,21 @@ impl Outputs {
                 path,
                 name,
                 mime,
+                unique,
             })?;
         // SAFETY: Kotlin detached this descriptor for us (`detachFd`); nothing else owns it.
         let file = unsafe { File::from_raw_fd(made.fd) };
+        let name = made.name.unwrap_or_else(|| name.to_owned());
+        // The shown path ends with the name Android gave.
+        let shown = match shown.rsplit_once('/') {
+            Some((folder, _)) if unique => format!("{folder}/{name}"),
+            _ if unique => name.clone(),
+            _ => shown,
+        };
         Ok(Output {
             file,
             shown,
+            name,
             target: Target::Native(made.uri),
         })
     }
@@ -155,6 +185,7 @@ impl Outputs {
         name: &str,
         _mime: &str,
         shown: String,
+        _unique: bool,
     ) -> Result<Output, String> {
         let mut dir = desktop_folder(place, &self.exports);
         for part in path {
@@ -169,6 +200,7 @@ impl Outputs {
             mut file,
             shown,
             target,
+            ..
         } = output;
         let flushed = file.flush().and_then(|()| file.sync_all());
         drop(file);
@@ -188,6 +220,7 @@ impl Outputs {
                     shown,
                     path: None,
                     local: None,
+                    uri: Some(_uri),
                 })
             }
             Target::Path { partial, path } => {
@@ -202,6 +235,7 @@ impl Outputs {
                     shown,
                     path: shared,
                     local: Some(path),
+                    uri: None,
                 })
             }
         }
@@ -320,9 +354,14 @@ fn plain(path: PathBuf, shown: String) -> Result<Output, String> {
     partial.push(".part");
     let partial = PathBuf::from(partial);
     let file = File::create(&partial).map_err(|error| error.to_string())?;
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
     Ok(Output {
         file,
         shown,
+        name,
         target: Target::Path { partial, path },
     })
 }
