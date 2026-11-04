@@ -196,6 +196,11 @@ describe('the extensions guide', () => {
       for (const [, target = ''] of page.text.matchAll(/\]\(([^)\s]+)\)/g)) {
         if (/^[a-z]+:/.test(target)) continue;
         const [file = '', anchor] = target.split('#');
+        // A page in a folder of its own (`formats/`) only has to exist.
+        if (file.includes('/')) {
+          expect(existsSync(join(DOCS, file)), `${page.file} → ${target}`).toBe(true);
+          continue;
+        }
         const linked = file === '' ? page : all.find((candidate) => candidate.file === file);
         expect(linked, `${page.file} → ${target}`).toBeDefined();
         expect(existsSync(join(DOCS, linked?.file ?? '')), target).toBe(true);

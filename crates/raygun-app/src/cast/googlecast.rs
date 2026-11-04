@@ -783,6 +783,19 @@ mod tests {
                 "media": { "contentId": "http://elsewhere/old.mp4" } }]
         });
         send(&mut tv, "web-5", MEDIA, other).await;
+        // Controls need the media session the PLAYING status names: wait until it's been read,
+        // since commands and the TV's frames reach the sender by different paths.
+        for _ in 0..500 {
+            let playing = reports
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|report| report.state == Some(CastState::Playing));
+            if playing {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
 
         commands
             .send(Command::Control(CastControl::Seek {
