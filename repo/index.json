@@ -25,6 +25,28 @@
       "size": 2360
     },
     {
+      "id": "dev.raygun.archive-comics",
+      "name": "Internet Archive comics",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Comic strips, comic books and children's papers in the Internet Archive's comics collection that are in the public domain by age: published more than 95 years ago.",
+      "author": "Raygun",
+      "provides": [
+        "manga.source"
+      ],
+      "permissions": {
+        "net": [
+          "archive.org",
+          "*.archive.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.archive-comics-1.0.0.zip",
+      "sha256": "27c8e356b0a768519624318cc7cd2f03002eb9d6a9557687b7f55023551ca050",
+      "size": 3727
+    },
+    {
       "id": "dev.raygun.audius",
       "name": "Audius",
       "version": "1.0.0",
@@ -183,6 +205,49 @@
       "size": 2329
     },
     {
+      "id": "dev.raygun.lit2go",
+      "name": "Lit2Go",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Free audiobooks of classic stories, novels and poems from the University of South Florida's Lit2Go, by title, author or genre, played chapter by chapter.",
+      "author": "Raygun",
+      "provides": [
+        "audiobook.directory"
+      ],
+      "permissions": {
+        "net": [
+          "etc.usf.edu"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.lit2go-1.0.0.zip",
+      "sha256": "a6a109946a252cf86fe99a143b3f63e51efe08989e4e97efc5efa7cb8f47526f",
+      "size": 2885
+    },
+    {
+      "id": "dev.raygun.loyalbooks",
+      "name": "Loyal Books",
+      "version": "1.0.1",
+      "apiVersion": 1,
+      "description": "Free public-domain audiobooks from Loyal Books (Books Should Be Free), by popularity and genre, played chapter by chapter from each book's feed.",
+      "author": "Raygun",
+      "provides": [
+        "audiobook.directory"
+      ],
+      "permissions": {
+        "net": [
+          "www.loyalbooks.com",
+          "loyalbooks.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.loyalbooks-1.0.1.zip",
+      "sha256": "faf1a7c1706a37ca6f6fc572e919d6db4badd2af0f47e5a96b49485f40adf8b8",
+      "size": 2221
+    },
+    {
       "id": "dev.raygun.lrclib",
       "name": "LRCLIB",
       "version": "1.0.2",
@@ -206,7 +271,7 @@
     {
       "id": "dev.raygun.mangadex",
       "name": "MangaDex",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "apiVersion": 1,
       "description": "Manga from MangaDex, the scanlation library run by its community. Covers and pages load through Raygun.",
       "author": "Raygun",
@@ -220,9 +285,30 @@
         "webview": false
       },
       "contentRating": "suggestive",
-      "package": "packages/dev.raygun.mangadex-1.2.0.zip",
-      "sha256": "323a1262f666375368212b83f3bc54cf4c179ef788802bb979de269af78f8f69",
-      "size": 3928
+      "package": "packages/dev.raygun.mangadex-1.3.0.zip",
+      "sha256": "85782c6aa3e78424d59f10b6e0baa63cfafcb80a4a277ced4136c91640a2f9e1",
+      "size": 5780
+    },
+    {
+      "id": "dev.raygun.mangaplus-creators",
+      "name": "MANGA Plus Creators",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Manga that creators post themselves on Shueisha's MANGA Plus Creators, free to read, in English or Spanish.",
+      "author": "Raygun",
+      "provides": [
+        "manga.source"
+      ],
+      "permissions": {
+        "net": [
+          "mangaplus-creators.jp"
+        ],
+        "webview": false
+      },
+      "contentRating": "suggestive",
+      "package": "packages/dev.raygun.mangaplus-creators-1.0.0.zip",
+      "sha256": "bc88877dca85ef3232f79c100d646bc28092b02744b432301e5667c20422f280",
+      "size": 3456
     },
     {
       "id": "dev.raygun.musicbrainz",
@@ -250,6 +336,27 @@
       "size": 4974
     },
     {
+      "id": "dev.raygun.naver-webtoon",
+      "name": "Naver Webtoon",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Korean webtoons from Naver Webtoon, free to read: the weekly series, finished ones and genres, in Korean.",
+      "author": "Raygun",
+      "provides": [
+        "manga.source"
+      ],
+      "permissions": {
+        "net": [
+          "comic.naver.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "suggestive",
+      "package": "packages/dev.raygun.naver-webtoon-1.0.0.zip",
+      "sha256": "6ec0263a1a3fd67433d43ceb536d0443d5cb520e41c1f227b1bc42bb255864fc",
+      "size": 4035
+    },
+    {
       "id": "dev.raygun.peertube",
       "name": "PeerTube",
       "version": "1.0.0",
@@ -269,6 +376,27 @@
       "package": "packages/dev.raygun.peertube-1.0.0.zip",
       "sha256": "eca71066e36b0f99768e5f0e56e959f95c38fec75f3199f875f0ccb814332501",
       "size": 2178
+    },
+    {
+      "id": "dev.raygun.peppercarrot",
+      "name": "Pepper&Carrot",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "David Revoy's fantasy webcomic about a young witch and her cat, free under CC BY 4.0, in its readers' many translations.",
+      "author": "Raygun",
+      "provides": [
+        "manga.source"
+      ],
+      "permissions": {
+        "net": [
+          "www.peppercarrot.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.peppercarrot-1.0.0.zip",
+      "sha256": "37adabe1c25b09a1b8930278327ac88141e7f883d6e4c8587346b9d202f8f51a",
+      "size": 3175
     },
     {
       "id": "dev.raygun.podcast-directory",
@@ -312,6 +440,71 @@
       "package": "packages/dev.raygun.radio-browser-1.0.1.zip",
       "sha256": "da2ab6e6c7bdfa51a84ef391d47055c7f4e3e5e896cc94097f9ee6ac4548d940",
       "size": 2319
+    },
+    {
+      "id": "dev.raygun.tapas",
+      "name": "Tapas",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Comics from Tapas: its rankings, genres and search, with the episodes that are free to read without an account.",
+      "author": "Raygun",
+      "provides": [
+        "manga.source"
+      ],
+      "permissions": {
+        "net": [
+          "tapas.io",
+          "story-api.tapas.io"
+        ],
+        "webview": false
+      },
+      "contentRating": "suggestive",
+      "package": "packages/dev.raygun.tapas-1.0.0.zip",
+      "sha256": "399e6574a8dcb2602b4c64a350532d637f9d0e88d1eaa32505d946db49a50669",
+      "size": 3755
+    },
+    {
+      "id": "dev.raygun.webtoons",
+      "name": "WEBTOON",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Free episodes from WEBTOON: the publisher's Originals and its Canvas of creators' own series, in seven languages, with rankings, genres and search.",
+      "author": "Raygun",
+      "provides": [
+        "manga.source"
+      ],
+      "permissions": {
+        "net": [
+          "www.webtoons.com",
+          "m.webtoons.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "suggestive",
+      "package": "packages/dev.raygun.webtoons-1.0.0.zip",
+      "sha256": "4193c02114bc5c70809ac3de6ec96f6a09649f54b9a9d3b856636b2d3ca40bce",
+      "size": 5539
+    },
+    {
+      "id": "dev.raygun.xkcd",
+      "name": "xkcd",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Every xkcd comic by Randall Munroe, from the first to today's, each a chapter of its own (CC BY-NC 2.5).",
+      "author": "Raygun",
+      "provides": [
+        "manga.source"
+      ],
+      "permissions": {
+        "net": [
+          "xkcd.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.xkcd-1.0.0.zip",
+      "sha256": "1dabb9affa5d71bdf305c9cf7da2344342bcad152a582bf7d01c3a5523711495",
+      "size": 2252
     },
     {
       "id": "dev.raygun.youtube",
