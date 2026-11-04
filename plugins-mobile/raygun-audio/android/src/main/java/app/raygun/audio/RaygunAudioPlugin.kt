@@ -91,6 +91,22 @@ class FadeArgs {
     var fadeMs: Double? = null
 }
 
+/** A background capture of a stream's sound (M46.49, [SongCapture]). */
+@InvokeArg
+class CaptureStartArgs {
+    lateinit var session: String
+    lateinit var url: String
+    var mime: String? = null
+    var fromMs: Double = 0.0
+    var speed: Double = 4.0
+    lateinit var dir: String
+}
+
+@InvokeArg
+class CaptureArgs {
+    lateinit var session: String
+}
+
 @InvokeArg
 class SpeechItem {
     var id: String = ""
@@ -864,6 +880,31 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             DeviceState.start(activity)
             invoke.resolve(JSObject(DeviceState.snapshot().toString()))
         }
+    }
+
+    /** Starts capturing a stream's sound in the background (M46.49). */
+    @Command
+    fun captureStart(invoke: Invoke) {
+        val args = invoke.parseArgs(CaptureStartArgs::class.java)
+        try {
+            SongCapture.start(activity.applicationContext, args)
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "The capture didn't start")
+        }
+    }
+
+    @Command
+    fun captureStatus(invoke: Invoke) {
+        val args = invoke.parseArgs(CaptureArgs::class.java)
+        invoke.resolve(SongCapture.status(args.session))
+    }
+
+    @Command
+    fun captureStop(invoke: Invoke) {
+        val args = invoke.parseArgs(CaptureArgs::class.java)
+        SongCapture.stop(args.session)
+        invoke.resolve()
     }
 
     @Command

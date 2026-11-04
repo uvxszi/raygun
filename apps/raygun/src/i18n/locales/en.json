@@ -2736,12 +2736,28 @@
     "downloaded": "Downloaded",
     "emptyTitle": "No songs downloaded yet",
     "emptyHint": "Download songs from their menu (right-click or ⋯) to play them without the internet. They're listed here.",
-    "record": "Record",
     "retry": "Try {{title}} again",
     "retryAll_one": "Try {{count}} again",
     "retryAll_other": "Try {{count}} again",
     "remove": "Remove {{title}}",
     "cancelOne": "Cancel {{title}}",
+    "cancelAgain": "Stop downloading {{title}} again",
+    "downloadAgain": "Download again",
+    "downloadAllAgain_one": "Download {{count}} again",
+    "downloadAllAgain_other": "Download {{count}} again",
+    "againFailed": "Downloading it again didn’t work: {{why}}",
+    "check": "Check downloads",
+    "checking": "Checking…",
+    "checkedFine_one": "{{count}} download is fine",
+    "checkedFine_other": "All {{count}} downloads are fine",
+    "checkedProblems_one": "{{count}} needs attention",
+    "checkedProblems_other": "{{count}} need attention",
+    "problem": {
+      "missing": "The file is gone",
+      "damaged": "The file is damaged",
+      "sourceChanged": "Its source changed: {{change}}",
+      "detailsChanged": "Its details changed: {{change}}"
+    },
     "clearFailed_one": "Remove {{count}} failed",
     "clearFailed_other": "Remove {{count}} failed",
     "cancelWaiting_one": "Cancel {{count}} waiting",
@@ -2757,6 +2773,7 @@
     "sections": {
       "active": "Downloading",
       "failed": "Didn’t download",
+      "attention": "Needs attention",
       "done": "On this device"
     },
     "count_one": "{{count}} song",
@@ -2777,7 +2794,7 @@
       "flac": "FLAC"
     },
     "formatHints": {
-      "original": "The file as the source gave it (MP3, M4A…); recordings are FLAC",
+      "original": "The file as the source gave it (MP3, M4A…)",
       "mp3": "Plays anywhere; made at your Downloads audio quality (MP3 downloads are copied)",
       "wav": "Uncompressed, plays anywhere, large",
       "flac": "Lossless and smaller than WAV"
@@ -2795,12 +2812,18 @@
       "removeHint": "“{{title}}” won’t play offline anymore. You can download it again.",
       "cancelTitle": "Cancel this download?",
       "cancelHint": "What it saved so far is deleted.",
+      "againTitle": "Downloading again",
+      "againHint": "The copy it has plays until the new one is done.",
       "failedTitle": "This download didn’t work",
       "keep": "Keep",
       "remove": "Remove",
       "cancel": "Cancel download",
+      "stopAgain": "Stop",
       "retry": "Try again",
-      "chooseSource": "Choose a source"
+      "chooseSource": "Choose a source",
+      "check": "Check download",
+      "fine": "This download is fine.",
+      "again": "Download again"
     },
     "save": "Save",
     "saving": "Saving…",
@@ -2814,9 +2837,11 @@
       "finding": "Finding a source",
       "from": "Downloading from {{source}}",
       "downloading": "Downloading",
-      "recording": "Recording as it plays — let the song play to the end",
+      "again": "Downloading again",
+      "capturing": "Capturing",
+      "capturingFrom": "Capturing from {{source}}",
+      "captured": "Captured",
       "done": "On this device",
-      "needsRecording": "Can be recorded as it plays",
       "failed": "Couldn't download"
     },
     "removeDownload": "Remove from downloads",
@@ -2827,10 +2852,6 @@
     "allDownloaded": "All downloaded",
     "downloadSome_one": "Download {{count}} not saved yet",
     "downloadSome_other": "Download {{count}} not saved yet",
-    "recordingNow": "Recording",
-    "recordingProgress": "How far the recording is",
-    "recordingLocked": "The player is locked while it records: the song plays from its start trim to its end trim.",
-    "recordingCancel": "Stop without keeping it",
     "chooseSource": "Choose a source for {{title}}"
   },
   "audiobooks": {

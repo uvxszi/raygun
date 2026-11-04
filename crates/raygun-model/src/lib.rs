@@ -4018,45 +4018,78 @@ pub struct MangaChapterInfo {
 #[serde(rename_all = "camelCase")]
 pub enum SongDownloadState {
     Queued,
+    /// Downloading a source's file, or capturing a stream that plays (`kind` says which).
     Downloading,
-    /// Playing and being recorded (only YouTube had it).
-    Recording,
     Done,
     Failed,
-    /// Only YouTube has the song: it can be recorded as it plays.
-    NeedsRecording,
 }
 
 impl SongDownloadState {
     pub fn parse(text: &str) -> Self {
         match text {
             "downloading" => Self::Downloading,
-            "recording" => Self::Recording,
             "done" => Self::Done,
-            "failed" => Self::Failed,
-            "needsRecording" => Self::NeedsRecording,
+            // Also what versions that recorded songs as they played left.
+            "failed" | "needsRecording" | "recording" => Self::Failed,
             _ => Self::Queued,
         }
     }
 }
 
 /// How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
-/// recording of the song as it plays.
+/// capture of a stream that plays but gives no file: its pieces joined, or its sound decoded in
+/// the background and encoded (M46.49).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum SongDownloadKind {
     File,
-    Recording,
+    Capture,
 }
 
 impl SongDownloadKind {
     pub fn parse(text: &str) -> Option<Self> {
         match text {
             "file" => Some(Self::File),
-            "recording" => Some(Self::Recording),
+            "capture" | "recording" => Some(Self::Capture),
             _ => None,
         }
     }
+}
+
+/// What a check found wrong with a downloaded song (M46.49).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SongDownloadProblemKind {
+    /// Its file is gone.
+    Missing,
+    /// Its file changed size or doesn't decode.
+    Damaged,
+    /// The song was given another source after it downloaded (Find a source, a source switch).
+    SourceChanged,
+    /// The song's title or artist changed (Edit details) and the download was made for others.
+    DetailsChanged,
+}
+
+/// A downloaded song that should download again: what's wrong, what it was and what it is now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongDownloadProblem {
+    pub kind: SongDownloadProblemKind,
+    /// The source or names the download was made from.
+    pub was: Option<String>,
+    /// The song's source or names now.
+    pub now: Option<String>,
+    /// The file's own error, for More info.
+    pub detail: Option<String>,
+}
+
+/// What Check downloads found (M46.49).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongDownloadsChecked {
+    pub checked: u32,
+    /// Downloads with a problem now (each says which in its `problem`).
+    pub problems: u32,
 }
 
 /// A song saved (or being saved) into the app to play offline (M46.10). It is also the payload of
@@ -4073,8 +4106,7 @@ pub struct SongDownload {
     /// A cover link through the image cache.
     pub artwork_url: Option<String>,
     pub state: SongDownloadState,
-    /// How it's made: `file` while downloading, `recording` while recorded, and how it was made
-    /// once done.
+    /// How it's made: `file` or `capture` while downloading, and how it was made once done.
     pub kind: Option<SongDownloadKind>,
     /// Where the audio came from once done; while downloading, the source being tried now; while
     /// queued, the source picked for it, if any.
@@ -4084,22 +4116,74 @@ pub struct SongDownload {
     /// While downloading, what came so far; once done, the file's size.
     pub done_bytes: f64,
     pub total_bytes: Option<f64>,
-    /// How far it is, 0–1, when known: the file's bytes, or how much of a recording has played.
+    /// How far it is, 0–1, when known: the file's bytes, or how much of the song was captured.
     pub fraction: Option<f64>,
     /// How fast it downloads now, while it does.
     pub bytes_per_second: Option<f64>,
-    /// Time left in ms, when known: from the speed and the size, or the song left to record.
+    /// Time left in ms, when known.
     pub eta_ms: Option<f64>,
     /// What went wrong, in a line for the listener.
     pub error: Option<String>,
     /// Each source's own error behind `error` ("More info").
     pub error_detail: Option<String>,
-    /// This device can record what plays (Windows for now).
-    pub can_record: bool,
+    /// Downloading again while the copy it had still plays (M46.49); that one is replaced once the
+    /// new one is done.
+    pub replacing: bool,
+    /// What Check downloads found wrong with a downloaded song (M46.49).
+    pub problem: Option<SongDownloadProblem>,
     /// Its place in the queue (unix ms): queued songs download earliest first.
     pub queued_at: f64,
     /// When it finished, or stopped with an error (unix ms).
     pub finished_at: Option<f64>,
+}
+
+/// A stream for the desktop app to capture in the background (M46.49): played muted in a hidden
+/// media element at `speed`, its sound reported with `song_capture_report`. A request without a
+/// `url` stops the session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongCaptureRequest {
+    pub session: String,
+    /// The stream through the proxy's `/media/` route.
+    pub url: Option<String>,
+    /// `hls`, `dash`, or `None` for a file.
+    pub format: Option<String>,
+    pub from_ms: f64,
+    pub speed: f64,
+}
+
+/// What a background capture reports (M46.49).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SongCaptureReportKind {
+    /// Sound: `pcm` holds what played from `start_ms` on.
+    Sound,
+    /// The stream waits for data at `start_ms`.
+    Stalled,
+    /// The stream ended.
+    Ended,
+    /// The stream can't play (`error` says why).
+    Failed,
+}
+
+/// A piece of a background capture (M46.49).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongCaptureReport {
+    pub session: String,
+    pub kind: SongCaptureReportKind,
+    /// Where in the stream the piece starts, in ms.
+    pub start_ms: f64,
+    /// The audio context's sample rate: the stream's sound at `speed` times its own pace.
+    pub rate: u32,
+    pub channels: u32,
+    /// The speed it played at.
+    pub speed: f64,
+    /// Base64 of little-endian 16-bit interleaved samples.
+    pub pcm: Option<String>,
+    /// The stream's length, when known.
+    pub duration_ms: Option<f64>,
+    pub error: Option<String>,
 }
 
 /// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs only YouTube has.

@@ -11,7 +11,7 @@ import { CoverSheet } from '../music/CoverSheet';
 import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
 import { CollectionSheets } from '../collections/CollectionSheetsHost';
-import { RecordingWindow } from '../music/RecordingWindow';
+import { SongDownloadsHost } from '../music/SongDownloadsHost';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSpeechHost } from '../engine/useSpeechHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
@@ -196,7 +196,7 @@ export const AppShell: FC = () => {
         <CoverSheet />
         <SourcePickerSheet />
         <CollectionSheets />
-        <RecordingWindow />
+        <SongDownloadsHost />
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />

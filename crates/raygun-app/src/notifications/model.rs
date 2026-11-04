@@ -85,22 +85,17 @@ pub enum Phase {
     Running,
     /// Its queue is paused.
     Paused,
-    /// A song being recorded as it plays.
-    Recording,
     Done,
     Failed,
 }
 
 impl Phase {
     fn active(self) -> bool {
-        matches!(
-            self,
-            Phase::Queued | Phase::Running | Phase::Paused | Phase::Recording
-        )
+        matches!(self, Phase::Queued | Phase::Running | Phase::Paused)
     }
 
     fn moving(self) -> bool {
-        matches!(self, Phase::Running | Phase::Recording)
+        self == Phase::Running
     }
 }
 
@@ -538,46 +533,29 @@ impl Tracker {
     fn shown(&self, download: &Download) -> Shown {
         let speed = self.speed(download);
         let left = self.left(download);
-        let recording = download.phase == Phase::Recording;
-        let title = if recording {
-            format!("Recording {}", download.title)
-        } else {
-            download.title.clone()
-        };
         let amount = amount_text(download);
         let text = join([download.subtitle.clone(), amount]);
-        let info = if recording {
-            left.map(|left| format!("{} left", clock(left)))
-        } else {
-            Some(join([speed.map(speed_text), left.map(left_text)])).filter(|info| !info.is_empty())
-        };
+        let info = Some(join([speed.map(speed_text), left.map(left_text)]))
+            .filter(|info| !info.is_empty());
         let key = download.key();
         let mut actions = Vec::new();
-        if recording {
+        if download.abilities.pause {
             actions.push(Action {
-                id: "stop",
-                label: "Stop",
+                id: "pause",
+                label: "Pause",
                 keys: vec![key.clone()],
             });
-        } else {
-            if download.abilities.pause {
-                actions.push(Action {
-                    id: "pause",
-                    label: "Pause",
-                    keys: vec![key.clone()],
-                });
-            }
-            if download.abilities.cancel {
-                actions.push(Action {
-                    id: "cancel",
-                    label: "Cancel",
-                    keys: vec![key.clone()],
-                });
-            }
+        }
+        if download.abilities.cancel {
+            actions.push(Action {
+                id: "cancel",
+                label: "Cancel",
+                keys: vec![key.clone()],
+            });
         }
         Shown {
             key,
-            title,
+            title: download.title.clone(),
             text,
             info,
             progress: download.fraction(),
@@ -707,9 +685,6 @@ fn amount_text(download: &Download) -> Option<String> {
     if download.phase == Phase::Queued {
         return Some("Waiting".into());
     }
-    if download.phase == Phase::Recording {
-        return None;
-    }
     let count = |what: &str| match download.total {
         Some(total) if total > 0.0 => Some(format!(
             "{} of {} {what}",
@@ -817,16 +792,5 @@ pub fn left_text(ms: f64) -> String {
             0 => format!("about {} h left", minutes / 60),
             rest => format!("about {} h {rest} min left", minutes / 60),
         }
-    }
-}
-
-/// "2:31", "1:02:05".
-pub fn clock(ms: f64) -> String {
-    let seconds = (ms / 1000.0).ceil().max(0.0) as u64;
-    let (hours, minutes, seconds) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
     }
 }

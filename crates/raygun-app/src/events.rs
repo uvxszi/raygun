@@ -66,10 +66,15 @@ pub struct YtDlpEvent(pub String);
 pub struct SongDownloadsEvent(pub String);
 
 /// One song download as it is now: sent when its state or source changes, and while it downloads
-/// or is recorded, at most four times a second and only when what it shows moved on (its percent,
+/// or is captured, at most four times a second and only when what it shows moved on (its percent,
 /// or 100 KB without a known size). Not sent for removals (`SongDownloadsEvent` is).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadProgressEvent(pub raygun_model::SongDownload);
+
+/// A stream for the desktop webview to capture in the background, or (no `url`) to stop
+/// capturing (M46.49); it reports with `song_capture_report`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SongCaptureEvent(pub raygun_model::SongCaptureRequest);
 
 /// An import matched another song in the background; carries the playlist's id (M46.31).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]

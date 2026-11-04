@@ -260,10 +260,7 @@ export const commands = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**
-	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
-	 *  once done.
-	 */
+	/**  How it's made: `file` or `capture` while downloading, and how it was made once done. */
 	kind: SongDownloadKind | null,
 	/**
 	 *  Where the audio came from once done; while downloading, the source being tried now; while
@@ -275,18 +272,23 @@ export const commands = {
 	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
-	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of the song was captured. */
 	fraction: number | null,
 	/**  How fast it downloads now, while it does. */
 	bytesPerSecond: number | null,
-	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	/**  Time left in ms, when known. */
 	etaMs: number | null,
 	/**  What went wrong, in a line for the listener. */
 	error: string | null,
 	/**  Each source's own error behind `error` ("More info"). */
 	errorDetail: string | null,
-	/**  This device can record what plays (Windows for now). */
-	canRecord: boolean,
+	/**
+	 *  Downloading again while the copy it had still plays (M46.49); that one is replaced once the
+	 *  new one is done.
+	 */
+	replacing: boolean,
+	/**  What Check downloads found wrong with a downloaded song (M46.49). */
+	problem: SongDownloadProblem | null,
 	/**  Its place in the queue (unix ms): queued songs download earliest first. */
 	queuedAt: number | null,
 	/**  When it finished, or stopped with an error (unix ms). */
@@ -522,10 +524,7 @@ export const commands = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**
-	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
-	 *  once done.
-	 */
+	/**  How it's made: `file` or `capture` while downloading, and how it was made once done. */
 	kind: SongDownloadKind | null,
 	/**
 	 *  Where the audio came from once done; while downloading, the source being tried now; while
@@ -537,18 +536,23 @@ export const commands = {
 	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
-	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of the song was captured. */
 	fraction: number | null,
 	/**  How fast it downloads now, while it does. */
 	bytesPerSecond: number | null,
-	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	/**  Time left in ms, when known. */
 	etaMs: number | null,
 	/**  What went wrong, in a line for the listener. */
 	error: string | null,
 	/**  Each source's own error behind `error` ("More info"). */
 	errorDetail: string | null,
-	/**  This device can record what plays (Windows for now). */
-	canRecord: boolean,
+	/**
+	 *  Downloading again while the copy it had still plays (M46.49); that one is replaced once the
+	 *  new one is done.
+	 */
+	replacing: boolean,
+	/**  What Check downloads found wrong with a downloaded song (M46.49). */
+	problem: SongDownloadProblem | null,
 	/**  Its place in the queue (unix ms): queued songs download earliest first. */
 	queuedAt: number | null,
 	/**  When it finished, or stopped with an error (unix ms). */
@@ -568,8 +572,21 @@ export const commands = {
 	songDownloadsPaused: () => __TAURI_INVOKE<boolean>("song_downloads_paused"),
 	/**  Pauses song downloads (the running one waits, keeping what it saved) or resumes them. */
 	songDownloadsSetPaused: (paused: boolean) => __TAURI_INVOKE<void>("song_downloads_set_paused", { paused }),
-	/**  Plays a song only YouTube has and records it as it plays (M46.10). */
-	songDownloadRecord: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_record", { id })),
+	/**
+	 *  Checks downloaded songs (`ids`, else all, M46.49): files gone or damaged, songs given another
+	 *  source or other names since. Each download says what's wrong in its `problem`.
+	 */
+	songDownloadsCheck: (ids: string[] | null) => typedError<SongDownloadsChecked, string>(__TAURI_INVOKE("song_downloads_check", { ids })),
+	/**
+	 *  Downloads songs again, from the source each has now (M46.49): the copy that plays meanwhile is
+	 *  kept until the new one is done. Returns how many were queued.
+	 */
+	songDownloadsRedownload: (ids: string[]) => typedError<number, string>(__TAURI_INVOKE("song_downloads_redownload", { ids })),
+	/**
+	 *  A piece of a background capture from the desktop webview (M46.49). An error means the capture
+	 *  was stopped.
+	 */
+	songCaptureReport: (report: SongCaptureReport) => typedError<null, string>(__TAURI_INVOKE("song_capture_report", { report })),
 	/**  Writes saved songs out as files (M46.10). */
 	songsSave: (ids: string[], format: AudioFileFormat, destination: SongDestination) => typedError<SongsSaved, string>(__TAURI_INVOKE("songs_save", { ids, format, destination })),
 	/**  Keys of every downloaded song, to mark them in lists (M46.10). */
@@ -598,8 +615,6 @@ export const commands = {
 	playlistsMerge: (ids: string[], name: string, skipDuplicates: boolean, removeMerged: boolean) => typedError<PlaylistSummary, string>(__TAURI_INVOKE("playlists_merge", { ids, name, skipDuplicates, removeMerged })),
 	/**  Keys of every song in Favorites or a playlist, to mark them in lists (M46.45). */
 	collectionsSavedKeys: () => typedError<string[], string>(__TAURI_INVOKE("collections_saved_keys")),
-	/**  Stops the song being recorded without keeping it (M46.46: the recording window's Cancel). */
-	songDownloadCancelRecording: () => __TAURI_INVOKE<void>("song_download_cancel_recording"),
 	/**
 	 *  Downloads a song from a picked source (M46.47: Choose a source on a failed or YouTube-only
 	 *  download), first in the queue; the others are tried after it if it fails. `source` is the
@@ -1279,6 +1294,7 @@ export const events = {
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
 	searchProgressEvent: makeEvent<SearchProgressEvent_Deserialize>("search-progress-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
+	songCaptureEvent: makeEvent<SongCaptureEvent>("song-capture-event"),
 	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
@@ -4085,6 +4101,56 @@ export type SongCandidate = {
 	points: number,
 };
 
+/**
+ *  A stream for the desktop webview to capture in the background, or (no `url`) to stop
+ *  capturing (M46.49); it reports with `song_capture_report`.
+ */
+export type SongCaptureEvent = SongCaptureRequest;
+
+/**  A piece of a background capture (M46.49). */
+export type SongCaptureReport = {
+	session: string,
+	kind: SongCaptureReportKind,
+	/**  Where in the stream the piece starts, in ms. */
+	startMs: number | null,
+	/**  The audio context's sample rate: the stream's sound at `speed` times its own pace. */
+	rate: number,
+	channels: number,
+	/**  The speed it played at. */
+	speed: number | null,
+	/**  Base64 of little-endian 16-bit interleaved samples. */
+	pcm: string | null,
+	/**  The stream's length, when known. */
+	durationMs: number | null,
+	error: string | null,
+};
+
+/**  What a background capture reports (M46.49). */
+export type SongCaptureReportKind = 
+/**  Sound: `pcm` holds what played from `start_ms` on. */
+"sound" | 
+/**  The stream waits for data at `start_ms`. */
+"stalled" | 
+/**  The stream ended. */
+"ended" | 
+/**  The stream can't play (`error` says why). */
+"failed";
+
+/**
+ *  A stream for the desktop app to capture in the background (M46.49): played muted in a hidden
+ *  media element at `speed`, its sound reported with `song_capture_report`. A request without a
+ *  `url` stops the session.
+ */
+export type SongCaptureRequest = {
+	session: string,
+	/**  The stream through the proxy's `/media/` route. */
+	url: string | null,
+	/**  `hls`, `dash`, or `None` for a file. */
+	format: string | null,
+	fromMs: number | null,
+	speed: number | null,
+};
+
 /**  Who made a song (M46.14): the player's Credits card. */
 export type SongCredits = {
 	credits: CreditGroup[],
@@ -4114,10 +4180,7 @@ export type SongDownload = {
 	/**  A cover link through the image cache. */
 	artworkUrl: string | null,
 	state: SongDownloadState,
-	/**
-	 *  How it's made: `file` while downloading, `recording` while recorded, and how it was made
-	 *  once done.
-	 */
+	/**  How it's made: `file` or `capture` while downloading, and how it was made once done. */
 	kind: SongDownloadKind | null,
 	/**
 	 *  Where the audio came from once done; while downloading, the source being tried now; while
@@ -4129,18 +4192,23 @@ export type SongDownload = {
 	/**  While downloading, what came so far; once done, the file's size. */
 	doneBytes: number | null,
 	totalBytes: number | null,
-	/**  How far it is, 0–1, when known: the file's bytes, or how much of a recording has played. */
+	/**  How far it is, 0–1, when known: the file's bytes, or how much of the song was captured. */
 	fraction: number | null,
 	/**  How fast it downloads now, while it does. */
 	bytesPerSecond: number | null,
-	/**  Time left in ms, when known: from the speed and the size, or the song left to record. */
+	/**  Time left in ms, when known. */
 	etaMs: number | null,
 	/**  What went wrong, in a line for the listener. */
 	error: string | null,
 	/**  Each source's own error behind `error` ("More info"). */
 	errorDetail: string | null,
-	/**  This device can record what plays (Windows for now). */
-	canRecord: boolean,
+	/**
+	 *  Downloading again while the copy it had still plays (M46.49); that one is replaced once the
+	 *  new one is done.
+	 */
+	replacing: boolean,
+	/**  What Check downloads found wrong with a downloaded song (M46.49). */
+	problem: SongDownloadProblem | null,
 	/**  Its place in the queue (unix ms): queued songs download earliest first. */
 	queuedAt: number | null,
 	/**  When it finished, or stopped with an error (unix ms). */
@@ -4149,23 +4217,51 @@ export type SongDownload = {
 
 /**
  *  How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
- *  recording of the song as it plays.
+ *  capture of a stream that plays but gives no file: its pieces joined, or its sound decoded in
+ *  the background and encoded (M46.49).
  */
-export type SongDownloadKind = "file" | "recording";
+export type SongDownloadKind = "file" | "capture";
+
+/**  A downloaded song that should download again: what's wrong, what it was and what it is now. */
+export type SongDownloadProblem = {
+	kind: SongDownloadProblemKind,
+	/**  The source or names the download was made from. */
+	was: string | null,
+	/**  The song's source or names now. */
+	now: string | null,
+	/**  The file's own error, for More info. */
+	detail: string | null,
+};
+
+/**  What a check found wrong with a downloaded song (M46.49). */
+export type SongDownloadProblemKind = 
+/**  Its file is gone. */
+"missing" | 
+/**  Its file changed size or doesn't decode. */
+"damaged" | 
+/**  The song was given another source after it downloaded (Find a source, a source switch). */
+"sourceChanged" | 
+/**  The song's title or artist changed (Edit details) and the download was made for others. */
+"detailsChanged";
 
 /**
  *  One song download as it is now: sent when its state or source changes, and while it downloads
- *  or is recorded, at most four times a second and only when what it shows moved on (its percent,
+ *  or is captured, at most four times a second and only when what it shows moved on (its percent,
  *  or 100 KB without a known size). Not sent for removals (`SongDownloadsEvent` is).
  */
 export type SongDownloadProgressEvent = SongDownload;
 
 /**  Where a song saved into the app stands (M46.10). */
-export type SongDownloadState = "queued" | "downloading" | 
-/**  Playing and being recorded (only YouTube had it). */
-"recording" | "done" | "failed" | 
-/**  Only YouTube has the song: it can be recorded as it plays. */
-"needsRecording";
+export type SongDownloadState = "queued" | 
+/**  Downloading a source's file, or capturing a stream that plays (`kind` says which). */
+"downloading" | "done" | "failed";
+
+/**  What Check downloads found (M46.49). */
+export type SongDownloadsChecked = {
+	checked: number,
+	/**  Downloads with a problem now (each says which in its `problem`). */
+	problems: number,
+};
 
 /**  The song downloads changed; carries the download's id when one did (else empty) (M46.10). */
 export type SongDownloadsEvent = string;

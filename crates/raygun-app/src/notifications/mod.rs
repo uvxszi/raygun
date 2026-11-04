@@ -173,10 +173,7 @@ impl DownloadNotices {
                 std::mem::take(&mut *self.dirty.lock().expect("dirty poisoned"));
             // Ones still moving are read again: their speed and time left change.
             for (kind, list) in &lists {
-                if list
-                    .iter()
-                    .any(|download| matches!(download.phase, Phase::Running | Phase::Recording))
-                {
+                if list.iter().any(|download| download.phase == Phase::Running) {
                     kinds.insert(*kind);
                 }
             }
@@ -244,7 +241,7 @@ impl DownloadNotices {
             .values()
             .cloned()
             .collect();
-        songs(&self.app, list)
+        songs(list)
     }
 
     fn models_now(&self) -> Vec<Download> {
@@ -325,10 +322,6 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
     match (kind, action) {
         (Kind::Songs, "cancel") => state::<Arc<SongDownloadService>>(app)?.remove(id).await,
         (Kind::Songs, "retry") => state::<Arc<SongDownloadService>>(app)?.retry(id).await,
-        (Kind::Songs, "stop") => {
-            state::<Arc<SongDownloadService>>(app)?.cancel_recording();
-            Ok(())
-        }
         (Kind::Videos, "pause" | "resume") => {
             state::<Arc<VideoDownloadService>>(app)?.set_paused(action == "pause");
             Ok(())
@@ -407,45 +400,36 @@ struct Memory {
     episodes: HashMap<String, (String, String, String)>,
 }
 
-fn songs(app: &AppHandle, list: Vec<raygun_model::SongDownload>) -> Vec<Download> {
-    // A recording lasts as long as its song plays.
-    let left = app
-        .try_state::<crate::playback::PlaybackService>()
-        .and_then(|playback| {
-            let state = playback.state();
-            state
-                .duration_ms
-                .map(|duration| (duration - state.position_ms).max(0.0))
-        });
+fn songs(list: Vec<raygun_model::SongDownload>) -> Vec<Download> {
     list.into_iter()
         .map(|song| {
             let phase = match song.state {
                 SongDownloadState::Queued => Phase::Queued,
                 SongDownloadState::Downloading => Phase::Running,
-                SongDownloadState::Recording => Phase::Recording,
                 SongDownloadState::Done => Phase::Done,
-                SongDownloadState::Failed | SongDownloadState::NeedsRecording => Phase::Failed,
+                SongDownloadState::Failed => Phase::Failed,
             };
-            let error = song.error.clone().or_else(|| {
-                (song.state == SongDownloadState::NeedsRecording)
-                    .then(|| "Only YouTube has this song".to_owned())
-            });
+            // A capture (M46.49) counts the share of the song it holds.
+            let captured = (phase == Phase::Running
+                && song.kind == Some(raygun_model::SongDownloadKind::Capture))
+            .then_some(song.fraction)
+            .flatten();
+            let (done, total, unit) = match captured {
+                Some(share) => (share, Some(1.0), Unit::Fraction),
+                None => (song.done_bytes, song.total_bytes, Unit::Bytes),
+            };
             Download {
                 kind: Kind::Songs,
                 title: song.title,
                 subtitle: song.artist,
                 phase,
-                done: song.done_bytes,
-                total: song.total_bytes,
-                unit: Unit::Bytes,
-                bytes: None,
-                left_ms: if phase == Phase::Recording {
-                    left
-                } else {
-                    song.eta_ms
-                },
+                done,
+                total,
+                unit,
+                bytes: captured.map(|_| song.done_bytes),
+                left_ms: song.eta_ms,
                 speed: song.bytes_per_second,
-                error,
+                error: song.error,
                 abilities: Abilities {
                     pause: false,
                     cancel: true,

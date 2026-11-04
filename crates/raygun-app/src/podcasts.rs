@@ -1617,13 +1617,126 @@ impl DownloadJob {
                 return;
             }
             Err(Stop::Failed(error)) => {
-                tracing::warn!(episode = %self.episode.fields.title, %error, "episode download failed");
-                record.state = "failed".into();
-                record.error = Some(error);
+                tracing::info!(episode = %self.episode.fields.title, %error, "episode file failed; capturing its stream");
+                // The last resort (M46.49): the stream that plays it, captured.
+                match self.capture(&mut record).await {
+                    Ok(relative) => {
+                        record.state = "done".into();
+                        record.path = Some(relative);
+                        tracing::info!(episode = %self.episode.fields.title, "episode captured");
+                    }
+                    Err(Stop::Cancelled) => {
+                        self.forget().await;
+                        return;
+                    }
+                    Err(Stop::Failed(capture)) => {
+                        tracing::warn!(episode = %self.episode.fields.title, %error, %capture, "episode download failed");
+                        record.state = "failed".into();
+                        record.error = Some(format!(
+                            "{error}. Capturing it didn't work either: {capture}"
+                        ));
+                    }
+                }
             }
         }
         let _ = store::put_download(&self.db, &record, now_ms()).await;
         announce(&self.app, &self.episode.podcast_id);
+    }
+
+    /// Captures the episode's stream (M46.49): its bytes through the stream proxy by ranges, else
+    /// its sound as it decodes. Returns the file's path under the downloads folder.
+    async fn capture(&self, record: &mut store::EpisodeDownload) -> Result<String, Stop> {
+        use crate::music_downloads::capture;
+
+        let dir = self
+            .downloads_dir
+            .join(FOLDER)
+            .join(&self.episode.podcast_id);
+        let stop = Arc::new(tokio::sync::Notify::new());
+        // Cancelling stops the capture too.
+        let watcher = {
+            let (cancelled, id, stop) = (
+                self.cancelled.clone(),
+                self.episode.id.clone(),
+                stop.clone(),
+            );
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    if cancelled
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .contains(&id)
+                    {
+                        stop.notify_one();
+                        return;
+                    }
+                }
+            })
+        };
+        let quality = crate::settings::load(&self.db)
+            .await
+            .unwrap_or_default()
+            .audio_quality
+            .download;
+        let source = raygun_model::MediaSource::Url {
+            url: self.episode.fields.audio_url.clone(),
+            headers: Default::default(),
+        };
+        let (app, podcast_id) = (self.app.clone(), self.episode.podcast_id.clone());
+        let last = std::sync::Mutex::new(std::time::Instant::now());
+        let progress = |bytes: u64, _share: Option<f64>| {
+            let mut told = last.lock().unwrap_or_else(|p| p.into_inner());
+            if bytes > 0 && told.elapsed() >= Duration::from_secs(1) {
+                *told = std::time::Instant::now();
+                announce(&app, &podcast_id);
+            }
+        };
+        let stem = format!("{}.captured", self.episode.id);
+        let captured = capture::capture(
+            &self.app,
+            &self.client,
+            capture::Request {
+                source: &source,
+                dir: &dir,
+                stem: &stem,
+                expected: capture::Expected {
+                    duration_ms: self
+                        .episode
+                        .fields
+                        .duration_ms
+                        .and_then(|ms| u64::try_from(ms).ok()),
+                    start_ms: 0,
+                    end_ms: None,
+                },
+                quality,
+                tags: Some(crate::music_downloads::transcode::SongTags {
+                    title: self.episode.fields.title.clone(),
+                    artist: None,
+                    album: None,
+                    cover: None,
+                }),
+            },
+            &progress,
+            &stop,
+        )
+        .await;
+        watcher.abort();
+        let captured = captured.map_err(|error| match error {
+            capture::CaptureError::Stopped => Stop::Cancelled,
+            capture::CaptureError::Device(error) | capture::CaptureError::Failed(error) => {
+                Stop::Failed(error)
+            }
+        })?;
+        record.received_bytes = tokio::fs::metadata(dir.join(&captured.file))
+            .await
+            .map(|meta| meta.len() as i64)
+            .unwrap_or(0);
+        record.total_bytes = Some(record.received_bytes);
+        Ok(format!(
+            "{FOLDER}/{}/{}",
+            self.episode.podcast_id, captured.file
+        ))
     }
 
     fn is_cancelled(&self) -> bool {

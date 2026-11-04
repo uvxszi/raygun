@@ -47,7 +47,8 @@ const download = (
   etaMs: null,
   error: null,
   errorDetail: null,
-  canRecord: true,
+  replacing: false,
+  problem: null,
   queuedAt: 1,
   finishedAt: null,
   ...extra,
@@ -137,7 +138,7 @@ describe('Song downloads', () => {
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
   });
 
-  it('lists downloads with progress, records songs that need it and saves files', async () => {
+  it('lists downloads with progress, captures and saves files', async () => {
     const user = userEvent.setup();
     commands.songDownloads.mockResolvedValue(
       ok([
@@ -147,9 +148,6 @@ describe('Song downloads', () => {
           doneBytes: 450,
           totalBytes: 1000,
           fraction: 0.45,
-        }),
-        download('3', 'Only on YouTube', 'needsRecording', {
-          error: 'Only YouTube has this song. Record it as it plays, or choose another source.',
         }),
         BROKEN,
         download('5', 'Saved song', 'done', { format: 'mp3', provider: 'Internet Archive' }),
@@ -173,10 +171,23 @@ describe('Song downloads', () => {
     expect(row('Broken')).not.toHaveTextContent('404');
     await user.click(within(row('Broken')).getByRole('button', { name: 'More info' }));
     expect(row('Broken')).toHaveTextContent('Audius: The server answered 404 Not Found');
-    expect(row('Only on YouTube')).toHaveTextContent('Can be recorded as it plays');
+    expect(screen.queryByRole('button', { name: 'Record' })).not.toBeInTheDocument();
 
-    await user.click(within(row('Only on YouTube')).getByRole('button', { name: 'Record' }));
-    expect(commands.songDownloadRecord).toHaveBeenCalledWith('3');
+    // A stream that gave no file is captured in the background, like any download (M46.49).
+    emitEvent(
+      'songDownloadProgressEvent',
+      download('2', 'Coming in', 'downloading', {
+        kind: 'capture',
+        provider: 'Radio',
+        doneBytes: 2_000_000,
+        fraction: 0.4,
+      }),
+    );
+    expect(await within(row('Coming in')).findByText(/Capturing from Radio · 40%/)).toBeVisible();
+    expect(within(row('Coming in')).getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '40',
+    );
     await user.click(
       within(row('Queued song')).getByRole('button', { name: 'Cancel Queued song' }),
     );
@@ -347,7 +358,7 @@ describe('Song downloads', () => {
         download('qa', 'Queued A', 'queued', { queuedAt: 10 }),
         download('qb', 'Queued B', 'queued', { queuedAt: 20 }),
         BROKEN,
-        download('3', 'Only here', 'needsRecording', { error: 'Only YouTube has this song.' }),
+        download('3', 'Only here', 'failed', { error: 'Only YouTube has this song.' }),
       ]),
     );
     await AppShellWrapper.mount('/downloads?tab=music');
@@ -383,6 +394,78 @@ describe('Song downloads', () => {
     expect(commands.songDownloadsRetryFailed).toHaveBeenCalled();
     await vi.waitFor(() => expect(queue()).toEqual(['Now', 'Broken', 'Only here']));
     expect(screen.queryByRole('button', { name: /failed$/ })).not.toBeInTheDocument();
+  });
+
+  it('checks downloads and downloads the mismatched ones again, keeping their copies', async () => {
+    const user = userEvent.setup();
+    const fine = download('ok', 'Fine song', 'done', { format: 'mp3', finishedAt: 30 });
+    const moved = download('moved', 'Moved song', 'done', {
+      format: 'mp3',
+      provider: 'Audius',
+      finishedAt: 20,
+    });
+    const gone = download('gone', 'Gone song', 'done', { format: 'flac', finishedAt: 10 });
+    commands.songDownloads.mockResolvedValue(ok([fine, moved, gone]));
+    await AppShellWrapper.mount('/downloads?tab=music');
+    await list();
+    expect(screen.queryByRole('list', { name: 'Needs attention' })).not.toBeInTheDocument();
+
+    // Rust checks every download and tells of the ones with a problem now.
+    const movedNow: SongDownload = {
+      ...moved,
+      problem: { kind: 'sourceChanged', was: 'Audius', now: 'archive.org', detail: null },
+    };
+    const goneNow: SongDownload = {
+      ...gone,
+      problem: { kind: 'missing', was: null, now: null, detail: null },
+    };
+    commands.songDownloadsCheck.mockImplementation(async () => {
+      emitEvent('songDownloadProgressEvent', movedNow);
+      emitEvent('songDownloadProgressEvent', goneNow);
+      return ok({ checked: 3, problems: 2 });
+    });
+    await user.click(screen.getByRole('button', { name: 'Check downloads' }));
+    expect(commands.songDownloadsCheck).toHaveBeenCalledWith(null);
+    expect(await within(await list()).findByRole('status')).toHaveTextContent('2 need attention');
+    const attention = await screen.findByRole('list', { name: 'Needs attention' });
+    expect(
+      within(attention)
+        .getAllByRole('listitem')
+        .map((item) => item.ariaLabel),
+    ).toEqual(['Moved song', 'Gone song']);
+    expect(row('Moved song')).toHaveTextContent('Its source changed: Audius → archive.org');
+    expect(row('Gone song')).toHaveTextContent('The file is gone');
+
+    // One again from its source now: its copy plays until the new one is done.
+    await user.click(within(row('Moved song')).getByRole('button', { name: 'Download again' }));
+    expect(commands.songDownloadsRedownload).toHaveBeenCalledWith(['moved']);
+    await vi.waitFor(() =>
+      expect(row('Moved song')).toHaveTextContent('Queued · Downloading again'),
+    );
+    expect(
+      within(row('Moved song')).getByRole('button', { name: 'Stop downloading Moved song again' }),
+    ).toBeInTheDocument();
+
+    // Every mismatched one at once.
+    await user.click(screen.getByRole('button', { name: 'Check downloads' }));
+    await user.click(await screen.findByRole('button', { name: 'Download 2 again' }));
+    expect(commands.songDownloadsRedownload).toHaveBeenLastCalledWith(['moved', 'gone']);
+  });
+
+  it('says when every download is fine', async () => {
+    const user = userEvent.setup();
+    const saved = download('s', 'Saved song', 'done', {
+      trackKey: 'a|saved song',
+      format: 'mp3',
+      provider: 'Audius',
+    });
+    commands.songDownloads.mockResolvedValue(ok([saved]));
+    commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 1, problems: 0 }));
+    await AppShellWrapper.mount('/downloads?tab=music');
+    await list();
+    await user.click(screen.getByRole('button', { name: 'Check downloads' }));
+    expect(await within(await list()).findByRole('status')).toHaveTextContent('1 download is fine');
+    expect(screen.queryByRole('list', { name: 'Needs attention' })).not.toBeInTheDocument();
   });
 
   it('chooses how songs are written in Settings → Downloads', async () => {

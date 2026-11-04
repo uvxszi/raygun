@@ -23,10 +23,11 @@ import {
   Disc3,
   FileDown,
   GripVertical,
+  ListChecks,
   ListMusic,
-  Mic,
   Pause,
   Play,
+  RefreshCw,
   RotateCw,
   Settings2,
   Trash2,
@@ -40,7 +41,15 @@ import { Artwork } from '../library/Artwork';
 import { EmptyState } from '../shell/EmptyState';
 import { formatBytes } from '../watch/episodeLabel';
 import { SaveSongsSheet } from './SaveSongsSheet';
-import { GLIDE, isBusy, isFailed, sectionsOf, shareOf, useStateLine } from './songDownloadState';
+import {
+  GLIDE,
+  isBusy,
+  isFailed,
+  sectionsOf,
+  shareOf,
+  useProblemLine,
+  useStateLine,
+} from './songDownloadState';
 import { chooseDownloadSource } from './sourcePickerStore';
 import {
   useSongDownloadActions,
@@ -121,11 +130,18 @@ type RowProps = {
 const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProps) => {
   const { t } = useTranslation();
   const line = useStateLine();
-  const { remove, retry, record } = useSongDownloadActions();
+  const problemLine = useProblemLine();
+  const { remove, retry, redownload } = useSongDownloadActions();
   const share = shareOf(item);
   const failed = isFailed(item);
   const busy = isBusy(item);
-  const refusal = record.error ?? retry.error ?? remove.error;
+  const refusal = retry.error ?? remove.error ?? redownload.error;
+  // Stopping a song downloading again keeps the copy it had.
+  const cancelLabel = item.replacing
+    ? 'songs.cancelAgain'
+    : busy
+      ? 'songs.cancelOne'
+      : 'songs.remove';
   return (
     <li
       ref={drag?.setNodeRef}
@@ -150,7 +166,17 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
         <span className="truncate font-medium">{item.title}</span>
         {item.artist && <span className="text-muted truncate text-sm">{item.artist}</span>}
         <span className="text-muted truncate text-xs">{line(item, paused)}</span>
-        {failed && item.error && <Issue summary={item.error} detail={item.errorDetail} />}
+        {(failed || item.state === 'done') && item.error && (
+          <Issue
+            summary={
+              item.state === 'done' ? t('songs.againFailed', { why: item.error }) : item.error
+            }
+            detail={item.errorDetail}
+          />
+        )}
+        {item.state === 'done' && item.problem && (
+          <Issue summary={problemLine(item.problem)} detail={item.problem.detail} />
+        )}
         {share !== null && <ProgressBar share={share} label={item.title} />}
         {refusal && (
           <span role="alert" className="text-primary text-xs wrap-anywhere">
@@ -169,15 +195,15 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
           <ArrowUpToLine aria-hidden size={18} />
         </button>
       )}
-      {item.state === 'needsRecording' && item.canRecord && (
+      {item.state === 'done' && item.problem && (
         <button
           type="button"
-          disabled={record.isPending}
-          onClick={() => record.mutate(item.id)}
+          disabled={redownload.isPending}
+          onClick={() => redownload.mutate([item.id])}
           className="bg-primary text-background flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold disabled:opacity-60"
         >
-          <Mic aria-hidden size={14} />
-          {t('songs.record')}
+          <RefreshCw aria-hidden size={14} />
+          {t('songs.downloadAgain')}
         </button>
       )}
       {failed && (
@@ -214,18 +240,16 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
           <FileDown aria-hidden size={18} />
         </button>
       )}
-      {item.state !== 'recording' && (
-        <button
-          type="button"
-          aria-label={t(busy ? 'songs.cancelOne' : 'songs.remove', { title: item.title })}
-          data-hint={t(busy ? 'songs.cancelOne' : 'songs.remove', { title: item.title })}
-          disabled={remove.isPending}
-          onClick={() => remove.mutate(item.id)}
-          className={ICON}
-        >
-          {busy ? <X aria-hidden size={18} /> : <Trash2 aria-hidden size={18} />}
-        </button>
-      )}
+      <button
+        type="button"
+        aria-label={t(cancelLabel, { title: item.title })}
+        data-hint={t(cancelLabel, { title: item.title })}
+        disabled={remove.isPending}
+        onClick={() => remove.mutate(item.id)}
+        className={ICON}
+      >
+        {busy ? <X aria-hidden size={18} /> : <Trash2 aria-hidden size={18} />}
+      </button>
     </li>
   );
 });
@@ -342,11 +366,12 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
   const { t, i18n } = useTranslation();
   const downloads = useSongDownloads();
   const paused = useSongDownloadsPaused().data ?? false;
-  const { setPaused, retryFailed, removeMany } = useSongDownloadActions();
+  const { setPaused, retryFailed, removeMany, check, redownload } = useSongDownloadActions();
   const [saving, setSaving] = useState<string[] | null>(null);
   const [allDone, setAllDone] = useState(false);
   const items = useMemo(() => downloads.data ?? [], [downloads.data]);
-  const { running, queued, failed, done } = useMemo(() => sectionsOf(items), [items]);
+  const { running, queued, failed, attention, done } = useMemo(() => sectionsOf(items), [items]);
+  const checked = check.data;
   const saveOne = useCallback((id: string) => setSaving([id]), []);
   const doneBytes = done.reduce((sum, item) => sum + (item.totalBytes ?? 0), 0);
   const doneLine = [
@@ -429,6 +454,31 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
           </ul>
         </Group>
       )}
+      {attention.length > 0 && !compact && (
+        <Group
+          label={t('songs.sections.attention')}
+          count={attention.length}
+          aside={
+            attention.length > 1 && (
+              <button
+                type="button"
+                disabled={redownload.isPending}
+                onClick={() => redownload.mutate(attention.map((item) => item.id))}
+                className={`${CHIP} ml-auto`}
+              >
+                <RefreshCw aria-hidden size={16} className="text-primary" />
+                {t('songs.downloadAllAgain', { count: attention.length })}
+              </button>
+            )
+          }
+        >
+          <ul aria-label={t('songs.sections.attention')} className="flex flex-col">
+            {attention.map((item) => (
+              <Row key={item.id} item={item} paused={paused} />
+            ))}
+          </ul>
+        </Group>
+      )}
       {done.length > 0 && compact && (
         <Link
           to="/downloads"
@@ -438,7 +488,7 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
           {t('songs.onDevice', { songs: doneLine })}
         </Link>
       )}
-      {done.length > 0 && !compact && (
+      {(done.length > 0 || attention.length > 0) && !compact && (
         <Group
           label={t('songs.sections.done')}
           count={done.length}
@@ -456,16 +506,39 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
             </span>
           }
         >
-          {done.length > 1 && (
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setSaving(done.map((item) => item.id))}
-              className={`${CHIP} self-start`}
+              disabled={check.isPending}
+              onClick={() => check.mutate(null)}
+              className={CHIP}
             >
-              <FileDown aria-hidden size={16} />
-              {t('songs.saveAll', { count: done.length })}
+              <ListChecks aria-hidden size={16} className="text-primary" />
+              {check.isPending ? t('songs.checking') : t('songs.check')}
             </button>
-          )}
+            {done.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setSaving(done.map((item) => item.id))}
+                className={CHIP}
+              >
+                <FileDown aria-hidden size={16} />
+                {t('songs.saveAll', { count: done.length })}
+              </button>
+            )}
+            {checked && !check.isPending && (
+              <span role="status" className="text-muted text-sm">
+                {checked.problems > 0
+                  ? t('songs.checkedProblems', { count: checked.problems })
+                  : t('songs.checkedFine', { count: checked.checked })}
+              </span>
+            )}
+            {check.isError && (
+              <span role="alert" className="text-primary text-sm wrap-anywhere">
+                {check.error.message}
+              </span>
+            )}
+          </div>
           <ul aria-label={t('songs.title')} className="flex flex-col">
             {shownDone.map((item) => (
               <Row key={item.id} item={item} paused={paused} onSave={saveOne} />

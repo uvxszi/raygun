@@ -20,6 +20,7 @@ import type {
   QueueSnapshot,
   SearchProgress,
   Settings,
+  SongCaptureRequest,
   SongDownload,
   SpeechCommand,
   StorageInfo,
@@ -66,6 +67,7 @@ type EventPayloads = {
   videoDownloadsEvent: string;
   songDownloadsEvent: string;
   songDownloadProgressEvent: SongDownload;
+  songCaptureEvent: SongCaptureRequest;
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
@@ -326,7 +328,6 @@ export const bindingsMock = {
     lyricsTranslate: vi.fn(),
     lyricsTranslateOptions: vi.fn(),
     lyricsTranslationPick: vi.fn(),
-    songDownloadCancelRecording: vi.fn(),
     songDownloadUseSource: vi.fn(),
     youtubeLink: vi.fn(),
     youtubePlay: vi.fn(),
@@ -353,7 +354,9 @@ export const bindingsMock = {
     songDownloadsReorder: vi.fn(),
     songDownloadsPaused: vi.fn(),
     songDownloadsSetPaused: vi.fn(),
-    songDownloadRecord: vi.fn(),
+    songDownloadsCheck: vi.fn(),
+    songDownloadsRedownload: vi.fn(),
+    songCaptureReport: vi.fn(),
     songsSave: vi.fn(),
     songDownloadedKeys: vi.fn(),
     songDownloadFor: vi.fn(),
@@ -652,6 +655,7 @@ export const bindingsMock = {
     videoDownloadsEvent: makeEvent('videoDownloadsEvent'),
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
     songDownloadProgressEvent: makeEvent('songDownloadProgressEvent'),
+    songCaptureEvent: makeEvent('songCaptureEvent'),
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
@@ -856,7 +860,6 @@ export const seedBindings = () => {
   commands.lyricsCacheClear.mockResolvedValue(ok(0));
   commands.lyricsTranslateOptions.mockResolvedValue(ok([]));
   commands.lyricsTranslationPick.mockResolvedValue(ok(null));
-  commands.songDownloadCancelRecording.mockResolvedValue(null);
   commands.songDownloadUseSource.mockResolvedValue(ok(null));
   commands.youtubeLink.mockResolvedValue(ok(null));
   commands.youtubePlay.mockResolvedValue(ok(null));
@@ -883,7 +886,9 @@ export const seedBindings = () => {
   commands.songDownloadsReorder.mockResolvedValue(ok(null));
   commands.songDownloadsPaused.mockResolvedValue(false);
   commands.songDownloadsSetPaused.mockResolvedValue(null);
-  commands.songDownloadRecord.mockResolvedValue(ok(null));
+  commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 0, problems: 0 }));
+  commands.songDownloadsRedownload.mockResolvedValue(ok(0));
+  commands.songCaptureReport.mockResolvedValue(ok(null));
   commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));
   commands.songDownloadedKeys.mockResolvedValue([]);
   commands.songDownloadFor.mockResolvedValue(ok(null));
