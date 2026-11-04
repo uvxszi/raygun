@@ -319,7 +319,8 @@ describe('Lyrics translations', () => {
       }),
     );
     const issue = await within(view).findByTestId('source-issue');
-    expect(issue).toHaveTextContent('Issue with Claude');
+    // A refused key reads as the translator refusing access (lib/issue.ts).
+    expect(issue).toHaveTextContent('Claude refused access');
     await user.click(within(issue).getByRole('button', { name: 'More info' }));
     expect(issue).toHaveTextContent('invalid x-api-key');
     await user.click(within(issue).getByRole('button', { name: 'Try again' }));
