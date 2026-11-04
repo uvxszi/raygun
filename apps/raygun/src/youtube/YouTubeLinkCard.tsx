@@ -125,9 +125,6 @@ const LinkCard: FC<{ link: YouTubeLink }> = ({ link }) => {
       ) : (
         <p className="text-muted text-sm">{t('youtube.needsExtension')}</p>
       )}
-      {link.kind === 'video' && status.data && !supported && (
-        <p className="text-muted text-xs">{t('youtube.desktopOnly')}</p>
-      )}
       {supported && status.data && (
         <p className="text-muted text-xs">
           {status.data.version

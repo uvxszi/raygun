@@ -3,6 +3,8 @@
  * the group it sits in there. A result opens the screen and scrolls to the row (`useFoundPref`).
  * `only` marks rows a platform doesn't show.
  */
+import type { PlatformOnly } from '../shell/useIsDesktop';
+
 export type IndexedSetting = {
   /** The row's title key; the row is found by that title. */
   title: string;
@@ -10,13 +12,17 @@ export type IndexedSetting = {
   at: string;
   /** The group's title key, for the result's second line. */
   group?: string;
-  only?: 'desktop' | 'phone';
+  only?: PlatformOnly;
 };
 
 const on =
   (at: string, group?: string) =>
   (...titles: string[]): IndexedSetting[] =>
     titles.map((title) => ({ title, at, group }));
+
+/** The same rows, shown on one platform only. */
+const onlyOn = (only: PlatformOnly, rows: IndexedSetting[]): IndexedSetting[] =>
+  rows.map((row) => ({ ...row, only }));
 
 const player = (page: string) => `/settings/player/${page}`;
 
@@ -63,25 +69,34 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.showEmptySources',
   ),
   ...on(player('controls'), 'settings.player.section.controls.title')(
-    'settings.player.orientation',
     'settings.player.aspect',
     'settings.player.controlsTimeout',
     'settings.player.showRemaining',
-    'settings.player.rememberBrightness',
     'settings.player.defaultSpeed',
     'settings.player.speedPresets',
-    'settings.player.holdSpeed',
   ),
-  ...on(player('gestures'), 'settings.player.section.gestures.title')(
-    'settings.player.brightnessGesture',
-    'settings.player.volumeGesture',
-    'settings.player.swapSides',
-    'settings.player.seekGesture',
-    'settings.player.doubleTapLeft',
-    'settings.player.doubleTapCenter',
-    'settings.player.doubleTapRight',
-    'settings.seekSeconds',
-    'settings.player.mediaKeys',
+  // The phone player's own rows (Media3); the desktop player has none of them.
+  ...onlyOn(
+    'phone',
+    on(player('controls'), 'settings.player.section.controls.title')(
+      'settings.player.orientation',
+      'settings.player.rememberBrightness',
+      'settings.player.holdSpeed',
+    ),
+  ),
+  ...onlyOn(
+    'phone',
+    on(player('gestures'), 'settings.player.section.gestures.title')(
+      'settings.player.brightnessGesture',
+      'settings.player.volumeGesture',
+      'settings.player.swapSides',
+      'settings.player.seekGesture',
+      'settings.player.doubleTapLeft',
+      'settings.player.doubleTapCenter',
+      'settings.player.doubleTapRight',
+      'settings.seekSeconds',
+      'settings.player.mediaKeys',
+    ),
   ),
   ...on(player('subtitles'), 'settings.player.section.subtitles.title')(
     'settings.autoSubtitles',
@@ -94,31 +109,45 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.textColor',
     'settings.player.backgroundColor',
     'settings.player.subtitlePosition',
-    'settings.player.ignoreEmbedded',
+  ),
+  ...onlyOn(
+    'phone',
+    on(
+      player('subtitles'),
+      'settings.player.section.subtitles.title',
+    )('settings.player.ignoreEmbedded'),
   ),
   ...on(player('audio'), 'settings.player.section.audio.title')(
     'settings.player.audioLanguage',
     'settings.player.audioFallback',
     'settings.player.pitchCorrection',
-    'settings.player.volumeBoost',
+  ),
+  ...onlyOn(
+    'phone',
+    on(player('audio'), 'settings.player.section.audio.title')('settings.player.volumeBoost'),
   ),
   ...on(player('skip'), 'settings.player.section.skip.title')(
     'settings.player.skipButton',
     'settings.player.introSeconds',
     'settings.player.autoSkip',
-    'settings.player.skipCountdown',
     'settings.player.aniskip',
   ),
-  ...on(player('pip'), 'settings.player.section.pip.title')(
-    'settings.player.pipOnLeave',
-    'settings.player.pipOnBack',
-  ),
-  ...on(player('advanced'), 'settings.player.section.advanced.title')(
-    'settings.player.decoder',
-    'settings.player.titleTrailers',
-    'settings.player.externalPlayer',
-    'settings.player.externalPackage',
-  ),
+  ...onlyOn('phone', [
+    ...on(player('skip'), 'settings.player.section.skip.title')('settings.player.skipCountdown'),
+    ...on(player('pip'), 'settings.player.section.pip.title')(
+      'settings.player.pipOnLeave',
+      'settings.player.pipOnBack',
+    ),
+    ...on(player('advanced'), 'settings.player.section.advanced.title')(
+      'settings.player.decoder',
+      'settings.player.externalPlayer',
+      'settings.player.externalPackage',
+    ),
+  ]),
+  ...on(
+    player('advanced'),
+    'settings.player.section.advanced.title',
+  )('settings.player.titleTrailers'),
 
   ...on('sound', 'sound.equalizer')('sound.equalizer'),
   ...on('sound', 'sound.effects')('sound.bassBoost', 'sound.reverb', 'sound.balance', 'sound.mono'),
@@ -154,8 +183,8 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.chapterFormat',
     'songs.songFormat',
     'settings.pagesPerTitle',
-    'settings.downloadsInBatterySaver',
   ),
+  { title: 'settings.downloadsInBatterySaver', at: 'downloads', only: 'phone' },
 
   ...on('reader', 'reader.display.mangaTitle')(
     'reader.display.pagedScale',

@@ -39,6 +39,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
 import { EmptyState } from '../shell/EmptyState';
+import { useIsDesktop } from '../shell/useIsDesktop';
 import { formatBytes } from '../watch/episodeLabel';
 import { SaveSongsSheet } from './SaveSongsSheet';
 import {
@@ -380,9 +381,17 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
   ]
     .filter(Boolean)
     .join(' · ');
+  // Phones have no right click: songs' menus open from ⋮.
+  const desktop = useIsDesktop();
 
   if (downloads.isSuccess && items.length === 0) {
-    return <EmptyState icon={Disc3} title={t('songs.emptyTitle')} body={t('songs.emptyHint')} />;
+    return (
+      <EmptyState
+        icon={Disc3}
+        title={t('songs.emptyTitle')}
+        body={t(desktop ? 'songs.emptyHint' : 'songs.emptyHintPhone')}
+      />
+    );
   }
   const waiting = running.length + queued.length;
   const shownDone = allDone ? done : done.slice(0, SHOWN);

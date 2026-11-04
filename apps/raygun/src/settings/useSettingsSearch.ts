@@ -3,7 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { matchesSearch } from '../shell/useListSearch';
-import { useIsDesktop } from '../shell/useIsDesktop';
+import { shownOn, useIsDesktop } from '../shell/useIsDesktop';
 import { SETTINGS_INDEX } from './searchIndex';
 import { SETTINGS_ENTRIES, settingsEntry } from './sections';
 
@@ -28,8 +28,8 @@ export const useSettingsSearch = (query: string): Result[] => {
   return useMemo(() => {
     if (!query.trim()) return [];
     const sectionTitle = (id: string) => t(`settings.section.${id}.title`);
-    const entries: Result[] = SETTINGS_ENTRIES.filter((entry) =>
-      matchesSearch(query, [sectionTitle(entry.id)]),
+    const entries: Result[] = SETTINGS_ENTRIES.filter(
+      (entry) => shownOn(entry.only, desktop) && matchesSearch(query, [sectionTitle(entry.id)]),
     ).map((entry) => ({
       key: `entry:${entry.id}`,
       title: sectionTitle(entry.id),
@@ -38,7 +38,9 @@ export const useSettingsSearch = (query: string): Result[] => {
     }));
     const rows: Result[] = SETTINGS_INDEX.filter(
       (row) =>
-        i18n.exists(row.title) && (row.only === undefined || (row.only === 'desktop') === desktop),
+        i18n.exists(row.title) &&
+        shownOn(row.only, desktop) &&
+        shownOn(settingsEntry(row.at)?.only, desktop),
     )
       .map((row) => {
         const title = t(row.title);

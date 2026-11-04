@@ -23,6 +23,7 @@ import { Artwork } from '../library/Artwork';
 import { useCloseOnBack } from '../player/useCloseOnBack';
 import { menuFromEvent, useContextMenuStore } from './contextMenuStore';
 import type { MenuItem } from './contextMenuStore';
+import { useIsDesktop } from './useIsDesktop';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
 
 /** A touch screen: menus come up from the bottom as a sheet, with rows a finger can hit. */
@@ -178,7 +179,8 @@ const spotItems = (
 /**
  * Raygun's own right-click menu (M46.8), in the theme's colours and accent. Whatever is under the
  * pointer adds its options (a song, a cover, a source); the spot adds fields, text, links and
- * images; the page adds Back, Forward, Reload and full screen. The webview's menu never shows.
+ * images; the page adds Back, Forward, Reload and (on desktop) full screen. The webview's menu
+ * never shows.
  */
 export const ContextMenuHost: FC = () => {
   const { t } = useTranslation();
@@ -192,6 +194,8 @@ export const ContextMenuHost: FC = () => {
   const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   // Closing on the backdrop's click alone would close a drag that started in the menu.
   const pressedBackdrop = useRef(false);
+  // A phone app is full screen already: only a desktop window toggles it.
+  const desktop = useIsDesktop();
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const [active, setActive] = useState(-1);
   // An item that asks first (M46.45): the menu becomes its question.
@@ -240,12 +244,16 @@ export const ContextMenuHost: FC = () => {
                 onSelect: () => router.history.forward(),
               },
               { label: t('menu.reload'), icon: RotateCw, onSelect: () => void router.invalidate() },
-              {
-                label: t('menu.fullscreen'),
-                icon: Maximize,
-                hint: 'F11',
-                onSelect: () => void toggleWindowFullscreen(),
-              },
+              ...(desktop
+                ? [
+                    {
+                      label: t('menu.fullscreen'),
+                      icon: Maximize,
+                      hint: 'F11',
+                      onSelect: () => void toggleWindowFullscreen(),
+                    },
+                  ]
+                : []),
             ];
       const groups = [own, spot, page].filter((group) => group.length > 0);
       const items = groups.flatMap((group, index) =>
@@ -258,7 +266,7 @@ export const ContextMenuHost: FC = () => {
     };
     window.addEventListener('contextmenu', onContextMenu);
     return () => window.removeEventListener('contextmenu', onContextMenu);
-  }, [navigate, router, show, t]);
+  }, [navigate, router, show, t, desktop]);
 
   // On a touch screen the menu is a sheet from the bottom, and Back closes it.
   const sheet = useMemo(() => open !== null && coarsePointer(), [open]);

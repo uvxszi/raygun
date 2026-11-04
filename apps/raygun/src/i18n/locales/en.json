@@ -2765,6 +2765,7 @@
     "downloaded": "Downloaded",
     "emptyTitle": "No songs downloaded yet",
     "emptyHint": "Download songs from their menu (right-click or ⋯) to play them without the internet. They're listed here.",
+    "emptyHintPhone": "Download songs from their ⋮ menu to play them without the internet. They're listed here.",
     "retry": "Try {{title}} again",
     "retryAll_one": "Try {{count}} again",
     "retryAll_other": "Try {{count}} again",
@@ -3729,7 +3730,6 @@
       "channel": "Open the channel"
     },
     "needsExtension": "Install the YouTube extension (Browse → Extensions) to open playlists and channels.",
-    "desktopOnly": "Downloading from YouTube needs Raygun on a computer (yt-dlp).",
     "ytdlpVersion": "Downloads with yt-dlp {{version}}.",
     "ytdlpFetched": "yt-dlp is fetched from its GitHub releases the first time you download",
     "noFfmpeg": "Videos save at up to 360p without FFmpeg.",

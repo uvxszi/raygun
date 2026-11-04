@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { withSave } from '../export/saveDefaults';
 import type { Save } from '../export/saveDefaults';
 import { useFolderState, usePickFolder } from '../export/useExports';
+import { useIsPhone } from '../shell/useIsDesktop';
 import { PrefAction, PrefChoice, PrefGroup, PrefSwitch } from './prefs';
 import { Problem } from './Problem';
 import { useSettings, useUpdateSetting } from './useSettings';
@@ -22,6 +23,8 @@ export const DownloadSettings: FC = () => {
   const settings = useSettings();
   const update = useUpdateSetting();
   const pick = usePickFolder();
+  // Only Android reports battery saver (`device_state.rs`).
+  const phone = useIsPhone();
   const save = withSave(settings.data?.save);
   const folder = useFolderState(save.location === 'folder' ? save.folderUri : null);
   if (!settings.data) return null;
@@ -89,11 +92,13 @@ export const DownloadSettings: FC = () => {
         checked={save.pagesPerTitle}
         onChange={(pagesPerTitle) => change({ pagesPerTitle })}
       />
-      <PrefSwitch
-        title={t('settings.downloadsInBatterySaver')}
-        checked={settings.data.downloadsInBatterySaver ?? false}
-        onChange={(value) => update.mutate({ key: 'downloadsInBatterySaver', value })}
-      />
+      {phone && (
+        <PrefSwitch
+          title={t('settings.downloadsInBatterySaver')}
+          checked={settings.data.downloadsInBatterySaver ?? false}
+          onChange={(value) => update.mutate({ key: 'downloadsInBatterySaver', value })}
+        />
+      )}
     </PrefGroup>
   );
 };
