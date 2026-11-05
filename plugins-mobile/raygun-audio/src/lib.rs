@@ -300,6 +300,7 @@ const WINDOW_COMMANDS: &[&str] = &[
     "openFile",
     "openPermissionSettings",
     "openUrl",
+    "pickDocuments",
     "pickFile",
     "pickFolder",
     "recordingConsent",
@@ -575,21 +576,17 @@ impl<R: Runtime> NativeAudio<R> {
     /// What Raygun may read of shared storage (M46.51).
     #[cfg(target_os = "android")]
     pub fn storage_access(&self) -> Result<StorageAccess, String> {
-        self.handle
-            .run_mobile_plugin("storageAccess", ())
-            .map_err(|error| error.to_string())
+        self.run("storageAccess", ())
     }
 
     /// A folder of shared storage (an absolute path) as MediaStore lists it: the folders in it
     /// holding files with these extensions, and how many (M46.51). Blocking.
     #[cfg(target_os = "android")]
     pub fn browse_media(&self, path: &str, extensions: &[&str]) -> Result<MediaListing, String> {
-        self.handle
-            .run_mobile_plugin(
-                "browseMedia",
-                serde_json::json!({ "path": path, "extensions": extensions }),
-            )
-            .map_err(|error| error.to_string())
+        self.run(
+            "browseMedia",
+            serde_json::json!({ "path": path, "extensions": extensions }),
+        )
     }
 
     /// Shows the system's file picker for several files of these types (M46.51); none when the
@@ -601,10 +598,8 @@ impl<R: Runtime> NativeAudio<R> {
             #[serde(default)]
             files: Vec<PickedDocument>,
         }
-        self.handle
-            .run_mobile_plugin::<Picked>("pickDocuments", serde_json::json!({ "mimes": mimes }))
+        self.run::<Picked>("pickDocuments", serde_json::json!({ "mimes": mimes }))
             .map(|picked| picked.files)
-            .map_err(|error| error.to_string())
     }
 
     /// Gives up the grant of a folder no longer used.
