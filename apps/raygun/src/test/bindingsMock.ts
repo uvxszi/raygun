@@ -994,7 +994,9 @@ export const seedBindings = () => {
   commands.miniplayerClose.mockResolvedValue(ok(null));
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.browserCheckTarget.mockResolvedValue(ok(null));
-  commands.browserCheckOpen.mockResolvedValue(ok(0));
+  commands.browserCheckOpen.mockResolvedValue(
+    ok({ outcome: 'notPassed', cookies: 0, error: null }),
+  );
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
   commands.extensionRepoPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });

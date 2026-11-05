@@ -19,17 +19,20 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use raygun_model::{
-    ArtistEvent, ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine,
-    Lyrics, LyricsTranslation, LyricsTranslationKind, LyricsTranslationOrigin, MediaSource,
-    MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist, MusicPlaylistDetail,
-    OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
+    ArtistEvent, BrowserCheckOutcome, BrowserCheckResult, ExtensionInfo, ExtensionOrigin,
+    ExtensionSetting, ExtensionStatus, LyricLine, Lyrics, LyricsTranslation, LyricsTranslationKind,
+    LyricsTranslationOrigin, MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart,
+    MusicPlaylist, MusicPlaylistDetail, OnlineTrack, ProviderInfo, ProviderSearchResult,
+    SettingKind, SettingValue, TrackQuery,
 };
 use raygun_net::{Issue, IssueKind};
 use raygun_resolver::Candidate;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::browser_check::{BrowserCookie, Challenge, Challenges};
+use crate::browser_check::{
+    BrowserCookie, Challenge, Challenges, CheckWindow, FailedCall, Met, WindowOutcome,
+};
 use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
 use crate::failure::{self, Failure};
@@ -315,8 +318,8 @@ struct HostShared {
     catalog_turns: Arc<Turns>,
     /// Where extensions' cookie jars are saved (`HostConfig::storage_dir`).
     storage_dir: Option<PathBuf>,
-    /// Browser checks sources met lately (`crate::browser_check`).
-    challenges: Challenges,
+    /// Browser checks sources met lately (`crate::browser_check`), noted by the lanes.
+    challenges: Arc<Challenges>,
 }
 
 /// What's loaded, as of the last load.
@@ -350,13 +353,15 @@ impl ExtensionHost {
         } else {
             config.lanes
         };
+        let challenges = Arc::new(Challenges::default());
         let mut lanes = Vec::with_capacity(count);
         for index in 0..count {
             let (requests, receiver) = mpsc::unbounded_channel();
             let config = config.clone();
+            let challenges = challenges.clone();
             std::thread::Builder::new()
                 .name(format!("raygun-ext-{index}"))
-                .spawn(move || run_lane(config, receiver))?;
+                .spawn(move || run_lane(config, receiver, challenges))?;
             lanes.push(requests);
         }
         Ok(Self {
@@ -367,7 +372,7 @@ impl ExtensionHost {
                 health: Health::default(),
                 catalog_turns: Turns::new(CATALOG_SEARCHES),
                 storage_dir: config.storage_dir.clone(),
-                challenges: Challenges::default(),
+                challenges,
             }),
         })
     }
@@ -671,25 +676,7 @@ impl ExtensionHost {
                 reply,
             })
             .map_err(|_| CallError::HostStopped)?;
-        let answer = answer.await.unwrap_or(Err(CallError::HostStopped));
-        if let Err(error) = &answer
-            && error.kind() == Some(IssueKind::BotCheck)
-        {
-            let website = self
-                .directory()
-                .infos
-                .iter()
-                .find(|info| info.id == extension_id)
-                .and_then(|info| info.website.clone());
-            self.shared.challenges.note(
-                error.kind(),
-                extension_id,
-                &self.provider_name(provider),
-                &error.detail(),
-                website.as_deref(),
-            );
-        }
-        answer
+        answer.await.unwrap_or(Err(CallError::HostStopped))
     }
 
     /// The browser check behind an error text (`crate::browser_check`): `source` when the page
@@ -704,13 +691,15 @@ impl ExtensionHost {
     }
 
     /// Puts cookies a browser gave for `url` (a browser check passed by hand) into
-    /// `extension_id`'s cookie jar, and lets its sources be asked again at once. Returns how many
+    /// `extension_id`'s cookie jar, with the `user_agent` the browser passed it with (the
+    /// extension's requests to the site go with it while those cookies last). Returns how many
     /// cookies were taken.
     pub fn import_browser_cookies(
         &self,
         extension_id: &str,
         url: &str,
         cookies: &[BrowserCookie],
+        user_agent: Option<&str>,
     ) -> Result<usize, String> {
         let url = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
         let dir = self
@@ -724,23 +713,80 @@ impl ExtensionHost {
         {
             return Err(format!("not an extension id: {extension_id}"));
         }
-        let taken =
-            CookieJar::at(&dir.join(extension_id).join("cookies.json")).import(&url, cookies);
-        if taken > 0 {
-            self.shared.challenges.clear(extension_id);
-            let prefix = format!("{extension_id}/");
-            let providers: Vec<String> = self
-                .directory()
-                .names
-                .keys()
-                .filter(|id| id.starts_with(&prefix))
-                .cloned()
-                .collect();
-            for provider in providers {
-                self.shared.health.forget(&provider);
+        Ok(CookieJar::at(&dir.join(extension_id).join("cookies.json"))
+            .import(&url, cookies, user_agent))
+    }
+
+    /// Forgets `extension_id`'s browser checks and its sources' failures, so they're asked again
+    /// at once.
+    fn forget_failures(&self, extension_id: &str) {
+        self.shared.challenges.clear(extension_id);
+        let prefix = format!("{extension_id}/");
+        let providers: Vec<String> = self
+            .directory()
+            .names
+            .keys()
+            .filter(|id| id.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for provider in providers {
+            self.shared.health.forget(&provider);
+        }
+    }
+
+    /// Ends a browser check opened by hand (`crate::browser_check`), from what its `window` saw
+    /// and the browser's `cookies` and `user_agent` for the checked request's address. Only a
+    /// passed check changes anything: the extension then takes the cookies and the User-Agent,
+    /// its failures are forgotten, and the call that failed on the check is asked again, which
+    /// tells whether the source works now. A page that loaded without a check says so.
+    pub async fn finish_browser_check(
+        &self,
+        challenge: &Challenge,
+        window: &CheckWindow,
+        cookies: &[BrowserCookie],
+        user_agent: Option<&str>,
+    ) -> Result<BrowserCheckResult, String> {
+        let result = |outcome, cookies, error| BrowserCheckResult {
+            outcome,
+            cookies,
+            error,
+        };
+        match window.outcome() {
+            WindowOutcome::Passed => {}
+            WindowOutcome::NoCheck => return Ok(result(BrowserCheckOutcome::NoCheck, 0, None)),
+            WindowOutcome::NotPassed | WindowOutcome::NotLoaded => {
+                return Ok(result(BrowserCheckOutcome::NotPassed, 0, None));
             }
         }
-        Ok(taken)
+        let taken = self.import_browser_cookies(
+            &challenge.extension_id,
+            challenge.url(),
+            cookies,
+            user_agent,
+        )?;
+        let taken = u32::try_from(taken).unwrap_or(u32::MAX);
+        self.forget_failures(&challenge.extension_id);
+        let Some(call) = &challenge.call else {
+            return Ok(result(BrowserCheckOutcome::Passed, taken, None));
+        };
+        Ok(
+            match self
+                .call(&call.provider, &call.method, call.args.clone())
+                .await
+            {
+                Ok(_) => result(BrowserCheckOutcome::Passed, taken, None),
+                Err(error) if error.kind() == Some(IssueKind::BotCheck) => result(
+                    BrowserCheckOutcome::StillBlocked,
+                    taken,
+                    Some(error.to_string()),
+                ),
+                Err(error) => result(
+                    BrowserCheckOutcome::StillFailing,
+                    taken,
+                    Some(error.to_string()),
+                ),
+            },
+        )
     }
 
     /// Asks every `music.metadata` provider, a few at a time; each answers with tracks or an
@@ -1584,10 +1630,7 @@ impl Extension {
     ) -> Result<serde_json::Value, Failure> {
         match self {
             Self::Js(extension) => extension.call(local_id, method, args).await,
-            Self::Shosetsu(extension) => extension
-                .call(local_id, method, args)
-                .await
-                .map_err(Failure::said),
+            Self::Shosetsu(extension) => extension.call_reporting(local_id, method, args).await,
             Self::Server(extension) => extension.call(local_id, method, args).await,
         }
     }
@@ -1597,9 +1640,15 @@ impl Extension {
 struct LaneState {
     config: HostConfig,
     loaded: RefCell<BTreeMap<String, Rc<Extension>>>,
+    /// Where calls that fail on a browser check are noted (the host's).
+    challenges: Arc<Challenges>,
 }
 
-fn run_lane(config: HostConfig, mut receiver: mpsc::UnboundedReceiver<Request>) {
+fn run_lane(
+    config: HostConfig,
+    mut receiver: mpsc::UnboundedReceiver<Request>,
+    challenges: Arc<Challenges>,
+) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1615,6 +1664,7 @@ fn run_lane(config: HostConfig, mut receiver: mpsc::UnboundedReceiver<Request>) 
         let state = Rc::new(LaneState {
             config,
             loaded: RefCell::new(BTreeMap::new()),
+            challenges,
         });
         while let Some(request) = receiver.recv().await {
             let state = state.clone();
@@ -1808,7 +1858,31 @@ impl LaneState {
         };
         match tokio::time::timeout(timeout, extension.call(local_id, method, args)).await {
             Ok(Ok(value)) => Ok(value),
-            Ok(Err(failure)) => Err(failure::into_error(failure, &name, provider, method)),
+            Ok(Err(mut failure)) => {
+                let request = failure.checked.take().map(|request| *request);
+                let error = failure::into_error(failure, &name, provider, method);
+                if error.kind() == Some(IssueKind::BotCheck) {
+                    // A check to pass by hand (`crate::browser_check`): the request that met it,
+                    // and the call, to ask again.
+                    let website = extension.website();
+                    self.challenges.note(
+                        error.kind(),
+                        Met {
+                            extension_id,
+                            source: &name,
+                            detail: &error.detail(),
+                            website: website.as_deref(),
+                            request,
+                            call: Some(FailedCall {
+                                provider: provider.to_owned(),
+                                method: method.to_owned(),
+                                args: args.clone(),
+                            }),
+                        },
+                    );
+                }
+                Err(error)
+            }
             Err(_) => Err(CallError::Timeout {
                 name,
                 after: timeout,

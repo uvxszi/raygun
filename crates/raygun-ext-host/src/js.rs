@@ -21,6 +21,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::{Notify, Semaphore};
 
+use crate::browser_check::CheckedRequest;
 use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
 use crate::failure::{Failure, Trouble};
@@ -70,6 +71,9 @@ struct Shared {
     manifest: Manifest,
     policy: Arc<NetPolicy>,
     client: reqwest::Client,
+    /// The jar the client keeps cookies in, which also knows the User-Agent each site's passed
+    /// browser check holds for.
+    cookies: Arc<CookieJar>,
     storage: RefCell<KvStore>,
     settings: BTreeMap<String, serde_json::Value>,
     /// Settings the script declared while running (Miru's `registerSetting`), after the
@@ -91,8 +95,13 @@ struct Shared {
 enum NetEvent {
     /// The site answered (2xx or 3xx).
     Answered,
-    Trouble(Trouble),
+    /// What went wrong, with the request as it was sent when a browser check answered it.
+    Trouble(Trouble, Option<Box<CheckedRequest>>),
 }
+
+/// What a call's requests met: the worst trouble, whether one got a good answer, and the request
+/// a browser check answered when that's the trouble.
+type RequestsMet = (Option<Trouble>, bool, Option<Box<CheckedRequest>>);
 
 impl Shared {
     fn restart_budget(&self) {
@@ -107,22 +116,26 @@ impl Shared {
         log.push_back((Instant::now(), event));
     }
 
-    /// The worst trouble requests met since `since`, and whether one got a good answer.
-    fn since(&self, since: Instant) -> (Option<Trouble>, bool) {
+    /// The worst trouble requests met since `since` (the first of the worst), whether one got a
+    /// good answer, and the request that met a browser check when that's the trouble.
+    fn since(&self, since: Instant) -> RequestsMet {
         let log = self.net_log.borrow();
-        let mut worst: Option<&Trouble> = None;
+        let mut worst: Option<(&Trouble, Option<&CheckedRequest>)> = None;
         let mut answered = false;
         for (_, event) in log.iter().filter(|(at, _)| *at >= since) {
             match event {
                 NetEvent::Answered => answered = true,
-                NetEvent::Trouble(trouble) => {
-                    if worst.is_none_or(|worst| trouble.kind.weight() > worst.kind.weight()) {
-                        worst = Some(trouble);
+                NetEvent::Trouble(trouble, checked) => {
+                    if worst.is_none_or(|(worst, _)| trouble.kind.weight() > worst.kind.weight()) {
+                        worst = Some((trouble, checked.as_deref()));
                     }
                 }
             }
         }
-        (worst.cloned(), answered)
+        let checked = worst
+            .and_then(|(_, checked)| checked.cloned())
+            .map(Box::new);
+        (worst.map(|(trouble, _)| trouble.clone()), answered, checked)
     }
 
     /// Resolves once no call is running.
@@ -214,6 +227,7 @@ impl JsExtension {
             manifest,
             policy,
             client,
+            cookies: cookies.clone(),
             storage: RefCell::new(storage),
             settings,
             registered: registered.clone(),
@@ -359,11 +373,12 @@ impl JsExtension {
             })
             .await;
         answer.map_err(|message| {
-            let (trouble, answered) = self.shared.since(started);
+            let (trouble, answered, checked) = self.shared.since(started);
             Failure {
                 message,
                 trouble,
                 answered,
+                checked,
             }
         })
     }
@@ -770,14 +785,43 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     let host = url.host_str().unwrap_or_default().to_owned();
     // Requests take turns per server: the host and its port.
     let site = format!("{host}:{}", url.port_or_known_default().unwrap_or_default());
-    let mut request = shared.client.request(method, url);
+    // The extension's own User-Agent, else the one a browser check on the site was passed with
+    // (the pass holds only for it), else the one sources send.
+    let own_agent = options
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+        .map(|(_, agent)| agent.clone());
+    let agent = own_agent
+        .clone()
+        .or_else(|| shared.cookies.user_agent_for(&url))
+        .unwrap_or_else(raygun_net::user_agent);
+    let address = url.to_string();
+    let mut request = shared.client.request(method.clone(), url);
     for (name, value) in &options.headers {
         request = request.header(name, value);
     }
-    request = raygun_net::with_user_agent(request, options.headers.keys().map(String::as_str));
-    if let Some(body) = options.body {
+    if own_agent.is_none() {
+        request = request.header(reqwest::header::USER_AGENT, &agent);
+    }
+    if let Some(body) = options.body.clone() {
         request = request.body(body);
     }
+    // The request as sent, kept when a browser check answers it: the check window opens it.
+    let checked = |trouble: &Trouble| {
+        (trouble.kind == IssueKind::BotCheck).then(|| {
+            Box::new(CheckedRequest::new(
+                &address,
+                method.as_str(),
+                options
+                    .headers
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+                options.body.as_deref(),
+                &agent,
+            ))
+        })
+    };
     let exchange = exchange(request, host, site);
     let stopped = || "stopped: nothing waits for this request any more".to_owned();
     let exchanged = match network() {
@@ -799,12 +843,18 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     };
     match exchanged {
         Ok((response, trouble)) => {
-            shared.note(trouble.map_or(NetEvent::Answered, NetEvent::Trouble));
+            shared.note(match trouble {
+                Some(trouble) => {
+                    let checked = checked(&trouble);
+                    NetEvent::Trouble(trouble, checked)
+                }
+                None => NetEvent::Answered,
+            });
             Ok(response)
         }
         Err(trouble) => {
             let message = trouble.detail.clone();
-            shared.note(NetEvent::Trouble(trouble));
+            shared.note(NetEvent::Trouble(trouble, None));
             Err(message)
         }
     }

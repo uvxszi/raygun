@@ -848,20 +848,28 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
 
     // ---- Browser checks passed by hand (experimental): see BrowserCheckActivity ----
 
-    /** Opens `{url, userAgent}` for the person to pass its check; answers `{cookies}` on close. */
+    /**
+     * Opens the request `{url, method, headers, body, userAgent}` that met a check, for the person
+     * to pass it; answers `{cookies, userAgent, seen}` on close.
+     */
     @Command
     fun browserCheck(invoke: Invoke) {
-        val args = invoke.getArgs()
         val intent = Intent(activity, BrowserCheckActivity::class.java)
-            .putExtra(BrowserCheckActivity.EXTRA_URL, args.getString("url", ""))
-            .putExtra(BrowserCheckActivity.EXTRA_USER_AGENT, args.getString("userAgent", ""))
+            .putExtra(BrowserCheckActivity.EXTRA_REQUEST, invoke.getArgs().toString())
         startActivityForResult(invoke, intent, "browserCheckClosed")
     }
 
     @ActivityCallback
     fun browserCheckClosed(invoke: Invoke, result: ActivityResult) {
-        val cookies = result.data?.getStringExtra(BrowserCheckActivity.EXTRA_COOKIES).orEmpty()
-        invoke.resolve(JSObject().put("cookies", cookies))
+        val data = result.data
+        val seen = runCatching { JSONArray(data?.getStringExtra(BrowserCheckActivity.EXTRA_SEEN) ?: "[]") }
+            .getOrElse { JSONArray() }
+        invoke.resolve(
+            JSObject()
+                .put("cookies", data?.getStringExtra(BrowserCheckActivity.EXTRA_COOKIES).orEmpty())
+                .put("userAgent", data?.getStringExtra(BrowserCheckActivity.EXTRA_USER_AGENT).orEmpty())
+                .put("seen", seen),
+        )
     }
 
     // ---- Connect (M46.15): hearing other devices' mDNS needs a multicast lock ----

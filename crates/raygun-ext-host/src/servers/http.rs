@@ -107,6 +107,7 @@ impl Http {
                 message: format!("{host} sent more than {} MB", limit / (1024 * 1024)),
                 trouble: None,
                 answered: true,
+                checked: None,
             };
             if response
                 .content_length()
@@ -133,6 +134,7 @@ impl Http {
                         detail: issue::answer_detail(&host, status, kind),
                     }),
                     answered: false,
+                    checked: None,
                 });
             }
             Ok(Answer {
@@ -171,6 +173,7 @@ pub(crate) fn unreadable(host: &str, error: &dyn std::fmt::Display) -> Failure {
             detail: format!("{host} sent an answer Raygun can't read: {error}"),
         }),
         answered: true,
+        checked: None,
     }
 }
 
@@ -183,6 +186,7 @@ fn request_failure(host: &str, error: &reqwest::Error) -> Failure {
             detail,
         }),
         answered: false,
+        checked: None,
     }
 }
 

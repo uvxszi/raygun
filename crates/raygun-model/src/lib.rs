@@ -3000,8 +3000,36 @@ pub struct BrowserCheckTarget {
     pub extension_id: String,
     /// The source's name for people.
     pub source: String,
-    /// The page that opens.
+    /// The page that opens: the address of the request that met the check.
     pub url: String,
+}
+
+/// How a browser check opened by hand ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserCheckOutcome {
+    /// The check was passed, and the source answered when asked again.
+    Passed,
+    /// The check was passed, but the source's request met a check again: the site doesn't let
+    /// Raygun's requests through with the browser's pass.
+    StillBlocked,
+    /// The check was passed, but the source still failed, for another reason.
+    StillFailing,
+    /// The page loaded without asking for a check: the problem is something else.
+    NoCheck,
+    /// The browser closed before a check was passed, or before the page loaded.
+    NotPassed,
+}
+
+/// What opening a browser check by hand did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserCheckResult {
+    pub outcome: BrowserCheckOutcome,
+    /// How many of the browser's cookies the extension took.
+    pub cookies: u32,
+    /// The source's error when it was asked again and failed.
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

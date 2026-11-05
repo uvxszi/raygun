@@ -295,7 +295,7 @@
 
   /** Miru's headers for covers, pages and videos a script gives none for. */
   const defaultHeaders = () => {
-    const headers = { 'User-Agent': native.userAgent() };
+    const headers = { 'User-Agent': native.userAgent(info.webSite || '') };
     if (lastRequestUrl) headers.Referer = lastRequestUrl;
     const cookie = info.webSite ? native.cookies(info.webSite) : '';
     if (cookie) headers.Cookie = cookie;

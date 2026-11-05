@@ -385,8 +385,10 @@ pub async fn browser_check_target(
         .await)
 }
 
-/// Opens the site of `extension_id`'s browser check for the person to pass, waits until the
-/// browser closes, and gives the extension the site's cookies. Returns how many it took.
+/// Opens the request `extension_id`'s source met a browser check on, for the person to pass the
+/// check, and waits until the browser closes. A passed check gives the extension the browser's
+/// cookies and User-Agent, and the failed call is asked again; the result says how it went (a
+/// page that loads without a check says so).
 #[tauri::command]
 #[specta::specta]
 pub async fn browser_check_open(
@@ -394,7 +396,7 @@ pub async fn browser_check_open(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     checks: tauri::State<'_, crate::browser_check::BrowserChecks>,
     extension_id: String,
-) -> Result<u32, String> {
+) -> Result<raygun_model::BrowserCheckResult, String> {
     let settings = settings::load(&db.0)
         .await
         .map_err(|error| error.to_string())?;
