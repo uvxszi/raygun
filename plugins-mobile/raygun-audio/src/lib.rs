@@ -813,6 +813,24 @@ mod tests {
         assert_eq!(*got.lock().unwrap(), ["/downloads", "player"]);
     }
 
+    /// The media session's stand-in for Rust's player (`MirrorPlayer.kt`) leaves Android's audio
+    /// focus to the webview, which takes it itself once a YouTube song is audible and pauses its
+    /// media when it loses it. A request from the stand-in lost the focus to the webview's as the
+    /// song started, which reached Rust as a pause, and took it back when Play was pressed, which
+    /// paused the webview's song.
+    #[test]
+    fn the_session_mirror_never_asks_for_audio_focus() {
+        let source = include_str!("../android/src/main/java/app/raygun/audio/MirrorPlayer.kt");
+        for focus in [
+            "requestAudioFocus",
+            "AudioFocusRequest",
+            "OnAudioFocusChangeListener",
+            "AUDIOFOCUS_",
+        ] {
+            assert!(!source.contains(focus), "MirrorPlayer.kt uses {focus}");
+        }
+    }
+
     #[test]
     fn only_a_few_messages_wait() {
         let later = Later::new();

@@ -637,11 +637,9 @@ impl SongDownloadService {
             ..Exclusions::default()
         };
         let using = resolver.stream_use(Some(quality), true).await;
-        let mut report = Report::default();
-        // Streams that play it but gave no file, to capture when nothing else works.
-        let mut capturable: Vec<Candidate> = Vec::new();
-        // YouTube videos of the song, saved from after the other sources (M46.51).
-        let mut youtube: Vec<YouTubeCopy> = Vec::new();
+        // What each source said, the streams that play it but gave no file (captured when nothing
+        // else works), and the YouTube videos of the song (saved from after the other sources).
+        let mut attempts = Attempts::default();
         let own = |source: &MediaSource| Origin {
             provider: Some(if row.provider.is_some() { PICKED } else { OWN }.into()),
             stream: None,
@@ -666,7 +664,10 @@ impl SongDownloadService {
                     return Err(Failure::Error(device_message(&error)));
                 }
                 Err(CaptureFailure::Failed(error)) => {
-                    report.captured.push((candidate.name.clone(), error));
+                    attempts
+                        .report
+                        .captured
+                        .push((candidate.name.clone(), error));
                 }
             }
             let _ = store::clear_kind(&self.db(), &row.id).await;
@@ -676,8 +677,9 @@ impl SongDownloadService {
         // file (M46.51).
         match &asked {
             Some(source @ MediaSource::YouTube { video_id }) => {
+                let mut file = None;
                 match self
-                    .save_youtube(row, &dir, video_id, None, &resolver, using, stop)
+                    .save_youtube(row, &dir, video_id, &mut file, &resolver, using, stop)
                     .await
                 {
                     Ok(saved) => return Ok(saved.from(own(source))),
@@ -685,16 +687,12 @@ impl SongDownloadService {
                     Err(StreamError::Device(error)) => {
                         return Err(Failure::Error(device_message(&error)));
                     }
-                    Err(error) => report.note(YOUTUBE, &error),
+                    Err(error) => attempts.own_video_failed(video_id, file, own(source), &error),
                 }
-                youtube.push(YouTubeCopy {
-                    video_id: video_id.clone(),
-                    file: None,
-                    origin: own(source),
-                    tried: true,
-                });
             }
-            Some(source @ MediaSource::Url { url, headers }) if report.captured.is_empty() => {
+            Some(source @ MediaSource::Url { url, headers })
+                if attempts.report.captured.is_empty() =>
+            {
                 let name = row.provider.clone().unwrap_or_else(|| source_name(url));
                 self.trying(&row.id, Some(name.clone()));
                 match self
@@ -706,18 +704,15 @@ impl SongDownloadService {
                     Err(StreamError::Device(error)) => {
                         return Err(Failure::Error(device_message(&error)));
                     }
-                    Err(StreamError::Pieces) => report.pieces.push(name.clone()),
-                    Err(StreamError::Transient(message)) => {
-                        report.transient = true;
-                        report.failed.push((name.clone(), message));
-                    }
-                    Err(StreamError::Error(message)) => report.failed.push((name.clone(), message)),
+                    Err(error) => attempts.file_failed(
+                        Candidate {
+                            name,
+                            source: source.clone(),
+                            origin: own(source),
+                        },
+                        &error,
+                    ),
                 }
-                capturable.push(Candidate {
-                    name,
-                    source: source.clone(),
-                    origin: own(source),
-                });
                 exclusions.failed_sources.push(source.clone());
                 tracing::info!(song = %row.song.track_key, "the song's own stream gave no file; trying others");
             }
@@ -740,7 +735,7 @@ impl SongDownloadService {
             let pick = match pick {
                 Ok(pick) => pick,
                 Err(error) => {
-                    report.resolver = Some(error);
+                    attempts.report.resolver = Some(error);
                     break;
                 }
             };
@@ -756,7 +751,8 @@ impl SongDownloadService {
                 || !names_artist(query.artist.as_deref(), &credited)
             {
                 tracing::info!(song = %row.song.track_key, offered = %pick.title, "skipping a loose match");
-                report
+                attempts
+                    .report
                     .loose
                     .push((pick.provider_name.clone(), pick.title.clone()));
                 continue;
@@ -776,15 +772,7 @@ impl SongDownloadService {
             if let Some(video_id) = video {
                 let file =
                     matches!(pick.source, MediaSource::Url { .. }).then(|| pick.source.clone());
-                match youtube.iter_mut().find(|copy| copy.video_id == video_id) {
-                    Some(copy) => copy.file = copy.file.take().or(file),
-                    None => youtube.push(YouTubeCopy {
-                        video_id: video_id.to_owned(),
-                        file,
-                        origin,
-                        tried: false,
-                    }),
-                }
+                attempts.video_offered(video_id, file, origin);
                 continue;
             }
             if let MediaSource::Url { url, headers } = &pick.source {
@@ -803,100 +791,83 @@ impl SongDownloadService {
                     Err(StreamError::Device(error)) => {
                         return Err(Failure::Error(device_message(&error)));
                     }
-                    // It plays, just not as one file: not a failure for playback.
-                    Err(StreamError::Pieces) => report.pieces.push(name.clone()),
-                    // The network's fault, not the stream's.
-                    Err(StreamError::Transient(message)) => {
-                        report.transient = true;
-                        report.failed.push((name.clone(), message));
-                    }
-                    Err(StreamError::Error(message)) => {
-                        resolver.mark_failed(&pick, &message).await;
-                        report.failed.push((name.clone(), message));
+                    // In pieces, on a busy network or failing: noted, and kept to capture. Only a
+                    // stream's own error counts against it for playback.
+                    Err(error) => {
+                        if let StreamError::Error(message) = &error {
+                            resolver.mark_failed(&pick, message).await;
+                        }
+                        attempts.file_failed(
+                            Candidate {
+                                name,
+                                source: pick.source.clone(),
+                                origin,
+                            },
+                            &error,
+                        );
                     }
                 }
-                capturable.push(Candidate {
-                    name,
-                    source: pick.source.clone(),
-                    origin,
-                });
             }
         }
 
         // 3. YouTube's own audio files (M46.51), a few videos of the song.
-        for copy in youtube
-            .iter()
-            .filter(|copy| !copy.tried)
-            .take(YOUTUBE_TRIES)
-        {
+        for index in attempts.videos_to_save() {
             if self.stopped(&row.id) {
                 return Err(Failure::Stopped);
             }
+            let copy = &attempts.youtube[index];
+            let (video_id, origin, mut file) = (
+                copy.video_id.clone(),
+                copy.origin.clone(),
+                copy.file.clone(),
+            );
             match self
-                .save_youtube(
-                    row,
-                    &dir,
-                    &copy.video_id,
-                    copy.file.clone(),
-                    &resolver,
-                    using,
-                    stop,
-                )
+                .save_youtube(row, &dir, &video_id, &mut file, &resolver, using, stop)
                 .await
             {
-                Ok(saved) => return Ok(saved.from(copy.origin.clone())),
+                Ok(saved) => return Ok(saved.from(origin)),
                 Err(StreamError::Stopped) => return Err(Failure::Stopped),
                 Err(StreamError::Device(error)) => {
                     return Err(Failure::Error(device_message(&error)));
                 }
-                Err(error) => report.note(YOUTUBE, &error),
-            }
-            if let Some(source) = &copy.file {
-                capturable.push(Candidate {
-                    name: YOUTUBE.into(),
-                    source: source.clone(),
-                    origin: copy.origin.clone(),
-                });
+                Err(error) => attempts.video_failed(index, file, &error),
             }
         }
 
         // 4. YouTube's copy as a file with yt-dlp on desktop (M46.47).
-        if let Some(copy) = youtube.first()
+        if let Some(copy) = attempts.youtube.first()
             && crate::ytdlp::supported()
             && !self.stopped(&row.id)
         {
+            let (video_id, origin) = (copy.video_id.clone(), copy.origin.clone());
             self.trying(&row.id, Some(YOUTUBE.into()));
-            match self.save_with_ytdlp(row, &dir, &copy.video_id, stop).await {
-                Ok(saved) => return Ok(saved.from(copy.origin.clone())),
+            match self.save_with_ytdlp(row, &dir, &video_id, stop).await {
+                Ok(saved) => return Ok(saved.from(origin)),
                 Err(StreamError::Stopped) => return Err(Failure::Stopped),
                 Err(StreamError::Device(error)) => {
                     return Err(Failure::Error(device_message(&error)));
                 }
-                Err(error) => report.ytdlp = Some(error.text()),
+                Err(error) => attempts.report.ytdlp = Some(error.text()),
             }
         }
 
-        // 5. The last resort: a stream that plays is captured (M46.49), streams in pieces first.
-        capturable.sort_by_key(|candidate| !report.pieces.contains(&candidate.name));
-        for candidate in capturable.iter().take(CAPTURE_TRIES) {
-            if self.stopped(&row.id) {
-                return Err(Failure::Stopped);
-            }
-            match self.capture(row, candidate, quality, stop).await {
-                Ok(saved) => return Ok(saved),
-                Err(CaptureFailure::Stopped) => return Err(Failure::Stopped),
-                Err(CaptureFailure::Device(error)) => {
-                    return Err(Failure::Error(device_message(&error)));
-                }
-                Err(CaptureFailure::Failed(error)) => {
-                    tracing::info!(song = %row.song.track_key, source = %candidate.name, %error, "couldn't capture a stream");
-                    report.captured.push((candidate.name.clone(), error));
-                }
-            }
+        // 5. The last resort: a stream that plays is captured (M46.49). Without yt-dlp (Android)
+        // nothing else saves a YouTube song whose audio file wouldn't download.
+        let to_capture = attempts.capture_order();
+        let captured = capture_in_turn(
+            to_capture,
+            &mut attempts.report,
+            || self.stopped(&row.id),
+            |candidate| async move { self.capture(row, &candidate, quality, stop).await },
+        )
+        .await?;
+        if let Some(saved) = captured {
+            return Ok(saved);
         }
         if self.stopped(&row.id) {
             return Err(Failure::Stopped);
         }
+        let report = &attempts.report;
         let message = report
             .message(report.transient && row.replacing.is_none() && self.retries_left(&row.id));
         if report.transient {
@@ -988,24 +959,26 @@ impl SongDownloadService {
     }
 
     /// A YouTube video's own audio file (M46.51): `file` when the resolver already gave it, else
-    /// asked for now (M4A, at the Downloads quality), saved by ranges as YouTube's servers want.
+    /// asked for now (M4A, at the Downloads quality) and left in `file`, saved by ranges as
+    /// YouTube's servers want. A file that doesn't save stays in `file`: it plays, so it's
+    /// captured when nothing else works (M46.49).
     #[allow(clippy::too_many_arguments)]
     async fn save_youtube(
         &self,
         row: &SongDownloadRow,
         dir: &Path,
         video_id: &str,
-        file: Option<MediaSource>,
+        file: &mut Option<MediaSource>,
         resolver: &ResolverService,
         using: raygun_ext_host::StreamUse,
         stop: &Notify,
     ) -> Result<Saved, StreamError> {
         self.trying(&row.id, Some(YOUTUBE.into()));
-        let source = match file {
+        let source = match file.clone() {
             Some(source) => source,
             None => tokio::select! {
                 resolved = resolver.youtube_audio(video_id, using) => {
-                    resolved.map_err(StreamError::Error)?.source
+                    file.insert(resolved.map_err(StreamError::Error)?.source).clone()
                 }
                 () = stop.notified() => return Err(StreamError::Stopped),
             },
@@ -2471,10 +2444,164 @@ struct YouTubeCopy {
 }
 
 /// A stream that plays the song but gave no file: captured when nothing else works (M46.49).
+#[derive(Debug, Clone, PartialEq)]
 struct Candidate {
     name: String,
     source: MediaSource,
     origin: Origin,
+}
+
+/// What a download's attempts found (M46.49, M46.51): what each source said, the streams that
+/// play the song but gave no file, and the YouTube videos of the song.
+#[derive(Default)]
+struct Attempts {
+    report: Report,
+    /// Streams to capture when nothing else works, in the order they came.
+    capturable: Vec<Candidate>,
+    youtube: Vec<YouTubeCopy>,
+}
+
+impl Attempts {
+    /// A stream's file didn't save: noted, and the stream kept to capture.
+    fn file_failed(&mut self, candidate: Candidate, error: &StreamError) {
+        self.report.note(&candidate.name, error);
+        self.capture_later(candidate);
+    }
+
+    /// The song's own YouTube video didn't save: its audio file, when YouTube gave one (`file`),
+    /// plays all the same, so it's captured when nothing else works.
+    fn own_video_failed(
+        &mut self,
+        video_id: &str,
+        file: Option<MediaSource>,
+        origin: Origin,
+        error: &StreamError,
+    ) {
+        self.report.note(YOUTUBE, error);
+        if let Some(source) = &file {
+            self.capture_later(Candidate {
+                name: YOUTUBE.into(),
+                source: source.clone(),
+                origin: origin.clone(),
+            });
+        }
+        self.youtube.push(YouTubeCopy {
+            video_id: video_id.to_owned(),
+            file,
+            origin,
+            tried: true,
+        });
+    }
+
+    /// The resolver offered a YouTube video of the song, with its audio file when it asked for
+    /// it. A new one is saved after the other sources; for one tried already (the song's own),
+    /// the file is captured instead.
+    fn video_offered(&mut self, video_id: &str, file: Option<MediaSource>, origin: Origin) {
+        let Some(index) = self
+            .youtube
+            .iter()
+            .position(|copy| copy.video_id == video_id)
+        else {
+            self.youtube.push(YouTubeCopy {
+                video_id: video_id.to_owned(),
+                file,
+                origin,
+                tried: false,
+            });
+            return;
+        };
+        if self.youtube[index].tried
+            && let Some(source) = &file
+        {
+            let origin = self.youtube[index].origin.clone();
+            self.capture_later(Candidate {
+                name: YOUTUBE.into(),
+                source: source.clone(),
+                origin,
+            });
+        }
+        let copy = &mut self.youtube[index];
+        copy.file = copy.file.take().or(file);
+    }
+
+    /// The YouTube videos whose audio files are saved now: a few not tried yet, as they came.
+    fn videos_to_save(&self) -> Vec<usize> {
+        (0..self.youtube.len())
+            .filter(|index| !self.youtube[*index].tried)
+            .take(YOUTUBE_TRIES)
+            .collect()
+    }
+
+    /// The video at `index` didn't save; `file` is the audio file it was tried with, if any.
+    fn video_failed(&mut self, index: usize, file: Option<MediaSource>, error: &StreamError) {
+        self.report.note(YOUTUBE, error);
+        let copy = &mut self.youtube[index];
+        copy.tried = true;
+        copy.file = file.clone();
+        let origin = copy.origin.clone();
+        if let Some(source) = file {
+            self.capture_later(Candidate {
+                name: YOUTUBE.into(),
+                source,
+                origin,
+            });
+        }
+    }
+
+    /// Keeps a stream to capture, once: a web stream (only those can be captured), not kept
+    /// already (YouTube gives one file another address with every lookup).
+    fn capture_later(&mut self, candidate: Candidate) {
+        let MediaSource::Url { url, .. } = &candidate.source else {
+            return;
+        };
+        let kept = self.capturable.iter().any(|known| match &known.source {
+            MediaSource::Url { url: known, .. } => same_file(known, url),
+            _ => false,
+        });
+        if !kept {
+            self.capturable.push(candidate);
+        }
+    }
+
+    /// The streams to capture, in turn: streams in pieces first (they play, and were never
+    /// files), then as they came (the song's own source first); at most [`CAPTURE_TRIES`].
+    fn capture_order(&self) -> Vec<Candidate> {
+        let mut order: Vec<&Candidate> = self.capturable.iter().collect();
+        order.sort_by_key(|candidate| !self.report.pieces.contains(&candidate.name));
+        order.into_iter().take(CAPTURE_TRIES).cloned().collect()
+    }
+}
+
+/// Captures the streams `to_try` in turn until one is saved (M46.49): a stream whose capture
+/// fails gives its turn to the next and is noted in `report`; a stop, or a device that can't write
+/// the file (nothing else would either), ends it. `None` when none could be captured.
+async fn capture_in_turn<Captured>(
+    to_try: Vec<Candidate>,
+    report: &mut Report,
+    stopped: impl Fn() -> bool,
+    mut capture: impl FnMut(Candidate) -> Captured,
+) -> Result<Option<Saved>, Failure>
+where
+    Captured: std::future::Future<Output = Result<Saved, CaptureFailure>>,
+{
+    for candidate in to_try {
+        if stopped() {
+            return Err(Failure::Stopped);
+        }
+        let name = candidate.name.clone();
+        match capture(candidate).await {
+            Ok(saved) => return Ok(Some(saved)),
+            Err(CaptureFailure::Stopped) => return Err(Failure::Stopped),
+            Err(CaptureFailure::Device(error)) => {
+                return Err(Failure::Error(device_message(&error)));
+            }
+            Err(CaptureFailure::Failed(error)) => {
+                tracing::info!(source = %name, %error, "couldn't capture a stream");
+                report.captured.push((name, error));
+            }
+        }
+    }
+    Ok(None)
 }
 
 enum CaptureFailure {
@@ -2899,5 +3026,278 @@ mod tests {
             assert!(!summary.contains("only youtube"), "{summary}");
             assert!(!summary.contains("phones"), "{summary}");
         }
+    }
+
+    fn web(url: &str) -> MediaSource {
+        MediaSource::Url {
+            url: url.into(),
+            headers: Default::default(),
+        }
+    }
+
+    fn candidate(name: &str, url: &str) -> Candidate {
+        Candidate {
+            name: name.into(),
+            source: web(url),
+            origin: Origin::default(),
+        }
+    }
+
+    /// One of YouTube's addresses for a video's audio file (they differ with each lookup).
+    fn googlevideo(host: &str) -> String {
+        format!(
+            "https://{host}.googlevideo.com/videoplayback?expire=1&itag=140&clen=5983881&lmt=1735&sig=x"
+        )
+    }
+
+    fn saved(file: &str) -> Saved {
+        Saved {
+            file: file.into(),
+            provider: None,
+            kind: "capture",
+            file_ms: None,
+            origin: Origin::default(),
+        }
+    }
+
+    #[test]
+    fn the_songs_own_youtube_audio_is_captured_when_its_file_wont_save() {
+        // Without yt-dlp (Android), capture is all that's left once the audio file of the video
+        // the song was asked with doesn't save: that file plays, so it's captured, as the song's.
+        let mut attempts = Attempts::default();
+        let own = Origin {
+            provider: Some(OWN.into()),
+            ..Origin::default()
+        };
+        attempts.own_video_failed(
+            "dQw4w9WgXcQ",
+            Some(web(&googlevideo("rr1---sn-a"))),
+            own.clone(),
+            &StreamError::Transient("The download stalled".into()),
+        );
+        // The resolver offers that video again, its file at another address: captured once.
+        attempts.video_offered(
+            "dQw4w9WgXcQ",
+            Some(web(&googlevideo("rr5---sn-b"))),
+            Origin::default(),
+        );
+        // Another video of the song is saved after the other sources, not captured yet.
+        attempts.video_offered("another", None, Origin::default());
+        assert_eq!(attempts.videos_to_save(), [1]);
+        let order = attempts.capture_order();
+        assert_eq!(order.len(), 1, "{order:?}");
+        assert_eq!(order[0].name, YOUTUBE);
+        assert_eq!(order[0].source, web(&googlevideo("rr1---sn-a")));
+        assert_eq!(order[0].origin, own);
+        assert!(attempts.report.transient);
+        assert_eq!(
+            attempts.report.message(false).summary,
+            "Couldn't download it from YouTube."
+        );
+    }
+
+    #[test]
+    fn a_file_found_later_for_the_songs_own_video_is_captured() {
+        // YouTube gave no file when the song's own video was asked for; the search found one.
+        let mut attempts = Attempts::default();
+        attempts.own_video_failed(
+            "v",
+            None,
+            Origin::default(),
+            &StreamError::Error("YouTube didn't answer".into()),
+        );
+        assert!(attempts.capture_order().is_empty());
+        attempts.video_offered("v", Some(web(&googlevideo("rr1"))), Origin::default());
+        assert!(
+            attempts.videos_to_save().is_empty(),
+            "the video tried already isn't saved again"
+        );
+        assert_eq!(attempts.capture_order().len(), 1);
+    }
+
+    #[test]
+    fn other_videos_files_are_captured_once_they_fail_to_save() {
+        let mut attempts = Attempts::default();
+        attempts.video_offered("a", None, Origin::default());
+        attempts.video_offered("b", None, Origin::default());
+        assert_eq!(attempts.videos_to_save(), [0, 1]);
+        // "a"'s file was asked for as it was saved, and didn't save: captured. "b" had none.
+        attempts.video_failed(
+            0,
+            Some(web("https://a.example/audio.m4a")),
+            &StreamError::Transient("The download stalled".into()),
+        );
+        attempts.video_failed(
+            1,
+            None,
+            &StreamError::Error("YouTube gave no file for it".into()),
+        );
+        assert!(attempts.videos_to_save().is_empty());
+        let order = attempts.capture_order();
+        assert_eq!(
+            order.iter().map(|each| &each.source).collect::<Vec<_>>(),
+            [&web("https://a.example/audio.m4a")]
+        );
+    }
+
+    #[test]
+    fn streams_are_captured_in_pieces_first_then_as_they_came_each_once() {
+        let mut attempts = Attempts::default();
+        attempts.file_failed(
+            candidate("Own", "https://own.example/a.mp3"),
+            &StreamError::Error("The server answered 403 Forbidden".into()),
+        );
+        attempts.file_failed(
+            candidate("Indie", "https://indie.example/a.mp3"),
+            &StreamError::Transient("The download stalled".into()),
+        );
+        attempts.file_failed(
+            candidate("Radio", "https://radio.example/a.m3u8"),
+            &StreamError::Pieces,
+        );
+        // The same stream again, and an embed, which can't be captured: neither is kept.
+        attempts.file_failed(
+            candidate("Indie", "https://indie.example/a.mp3"),
+            &StreamError::Transient("The download stalled".into()),
+        );
+        attempts.file_failed(
+            Candidate {
+                name: YOUTUBE.into(),
+                source: MediaSource::YouTube {
+                    video_id: "v".into(),
+                },
+                origin: Origin::default(),
+            },
+            &StreamError::Error("It plays only in YouTube's player".into()),
+        );
+        attempts.file_failed(
+            candidate("More", "https://more.example/a.mp3"),
+            &StreamError::Error("The server answered 404 Not Found".into()),
+        );
+        let names: Vec<String> = attempts
+            .capture_order()
+            .into_iter()
+            .map(|each| each.name)
+            .collect();
+        assert_eq!(names, ["Radio", "Own", "Indie"], "at most {CAPTURE_TRIES}");
+        assert_eq!(attempts.report.pieces, ["Radio"]);
+        assert_eq!(attempts.report.failed.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn a_capture_that_fails_gives_its_turn_to_the_next_stream() {
+        let mut report = Report::default();
+        let tried = std::cell::RefCell::new(Vec::new());
+        let result = capture_in_turn(
+            vec![
+                candidate("Radio", "https://radio.example/a.m3u8"),
+                candidate("Own", "https://own.example/a.mp3"),
+                candidate("Indie", "https://indie.example/a.mp3"),
+            ],
+            &mut report,
+            || false,
+            |candidate| {
+                tried.borrow_mut().push(candidate.name.clone());
+                let result = if candidate.name == "Radio" {
+                    Err(CaptureFailure::Failed(
+                        "No sound came from the stream".into(),
+                    ))
+                } else {
+                    Ok(saved("track.flac"))
+                };
+                async move { result }
+            },
+        )
+        .await;
+        assert!(matches!(result, Ok(Some(saved)) if saved.file == "track.flac"));
+        assert_eq!(*tried.borrow(), ["Radio", "Own"], "the third isn't needed");
+        assert_eq!(
+            report.captured,
+            [(
+                "Radio".to_owned(),
+                "No sound came from the stream".to_owned()
+            )]
+        );
+        assert_eq!(
+            report.message(false).detail.as_deref(),
+            Some("Radio, captured: No sound came from the stream")
+        );
+    }
+
+    #[tokio::test]
+    async fn captures_end_on_a_stop_or_a_device_that_cant_write() {
+        let streams = || {
+            vec![
+                candidate("Radio", "https://radio.example/a.m3u8"),
+                candidate("Own", "https://own.example/a.mp3"),
+            ]
+        };
+        // The device can't write: the next stream would fail the same way.
+        let mut report = Report::default();
+        let calls = std::cell::Cell::new(0);
+        let result = capture_in_turn(
+            streams(),
+            &mut report,
+            || false,
+            |_| {
+                calls.set(calls.get() + 1);
+                async { Err(CaptureFailure::Device("No space left on device".into())) }
+            },
+        )
+        .await;
+        match result {
+            Err(Failure::Error(message)) => {
+                assert_eq!(message.detail.as_deref(), Some("No space left on device"));
+            }
+            _ => panic!("a device error ends the download"),
+        }
+        assert_eq!(calls.get(), 1);
+
+        // Stopped during a capture, or before the next one starts.
+        let mut report = Report::default();
+        let result = capture_in_turn(
+            streams(),
+            &mut report,
+            || false,
+            |_| async { Err(CaptureFailure::Stopped) },
+        )
+        .await;
+        assert!(matches!(result, Err(Failure::Stopped)));
+        let result = capture_in_turn(
+            streams(),
+            &mut report,
+            || true,
+            |_| async { Ok(saved("track.flac")) },
+        )
+        .await;
+        assert!(matches!(result, Err(Failure::Stopped)));
+
+        // Every capture failed: the download says so (nothing saved, nothing stopped).
+        let mut report = Report::default();
+        let result = capture_in_turn(
+            streams(),
+            &mut report,
+            || false,
+            |candidate| {
+                let error = format!("{} didn't start", candidate.name);
+                async move { Err(CaptureFailure::Failed(error)) }
+            },
+        )
+        .await;
+        assert!(matches!(result, Ok(None)));
+        assert_eq!(report.captured.len(), 2);
+        assert_eq!(
+            report.message(false).summary,
+            "Couldn't download it from Radio or Own."
+        );
+        // Nothing to capture.
+        let result = capture_in_turn(
+            Vec::new(),
+            &mut report,
+            || false,
+            |_| async { Ok(saved("never")) },
+        )
+        .await;
+        assert!(matches!(result, Ok(None)));
     }
 }

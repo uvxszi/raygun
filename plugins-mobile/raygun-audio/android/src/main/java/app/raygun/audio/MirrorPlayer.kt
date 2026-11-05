@@ -8,9 +8,6 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Looper
 import android.os.SystemClock
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -64,6 +61,13 @@ data class MirrorState(
     }
 }
 
+/**
+ * Whether unplugged headphones pause Rust's player through the mirror: only while the session
+ * shows it for a webview song that plays or is about to (the deck's player pauses itself).
+ */
+internal fun noisyPauses(shown: Boolean, state: MirrorState?): Boolean =
+    shown && state != null && state.web && state.active
+
 private val MIRROR_COMMANDS = Player.Commands.Builder()
     .addAll(
         Player.COMMAND_PLAY_PAUSE,
@@ -87,53 +91,29 @@ private val MIRROR_COMMANDS = Player.Commands.Builder()
  * The session (notification, lock screen, headsets, Bluetooth) shows it and keeps Raygun in the
  * foreground; its buttons go to Rust like the native engine's.
  *
- * The webview's player doesn't take Android's audio focus itself, so this does while it plays:
- * a call or another app pauses it through Rust, and unplugged headphones pause it too.
+ * It never asks for Android's audio focus. The webview takes the focus itself once its media is
+ * audible (Chromium's media session, which Android's WebView keeps) and pauses that media when the
+ * focus goes elsewhere, so a call or another app pauses it and its engine tells Rust. A request
+ * from here took the focus from the webview or lost it to the webview: the webview's request as a
+ * YouTube song started reached Rust from here as a pause, and asking again when Play was pressed
+ * paused the webview's media. Unplugged headphones are the one thing the webview doesn't act on,
+ * so this passes them on ([noisyPauses]).
  */
 @UnstableApi
 class MirrorPlayer(private val context: Context) : SimpleBasePlayer(Looper.getMainLooper()) {
     private var state: MirrorState? = null
-    private val audioManager = context.getSystemService(AudioManager::class.java)
-    /** The focus held: the request on Android 8+, `true` before. */
-    private var focus: Any? = null
-    /** Paused for a call or a notification: playing again once the focus comes back. */
-    private var resumeOnGain = false
     private var noisyRegistered = false
     /**
-     * The session shows this player. Only then does it hold the audio focus or pass on focus and
-     * headphone changes: while the deck plays, a pause from here would stop the deck's song.
+     * The session shows this player. Only then does it pass on headphone changes: while the deck
+     * plays, a pause from here would stop the deck's song (its player handles noise itself).
      */
     private var shown = false
 
     private val noisy = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY && shown && state?.active == true) {
+            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY && noisyPauses(shown, state)) {
                 NativeBridge.control("pause")
             }
-        }
-    }
-
-    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        if (!shown) return@OnAudioFocusChangeListener
-        when (change) {
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                resumeOnGain = false
-                abandonFocus()
-                if (state?.web == true && state?.active == true) NativeBridge.control("pause")
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                if (state?.web == true && state?.active == true) {
-                    resumeOnGain = true
-                    NativeBridge.control("pause")
-                }
-            }
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                if (resumeOnGain) {
-                    resumeOnGain = false
-                    NativeBridge.control("play")
-                }
-            }
-            // Ducking: Android lowers the webview's sound itself (it plays under this focus).
         }
     }
 
@@ -148,66 +128,21 @@ class MirrorPlayer(private val context: Context) : SimpleBasePlayer(Looper.getMa
         invalidateState()
     }
 
-    /** The session shows this player now: it takes the focus if the webview's song plays. */
+    /** The session shows this player now. */
     fun show() {
         shown = true
         follow()
     }
 
-    /** The focus and the headphone watch follow what the webview plays, while this is shown. */
+    /** The headphone watch follows what the webview plays, while this is shown. */
     private fun follow() {
-        val next = state
-        if (shown && next?.web == true && next.active) {
-            takeFocus()
-            listenForNoisy(true)
-        } else {
-            if (!shown || next?.web != true || next.status == "ended" || next.status == "error") {
-                resumeOnGain = false
-                abandonFocus()
-            }
-            listenForNoisy(false)
-        }
+        listenForNoisy(noisyPauses(shown, state))
     }
 
     /** The native engine plays now: its player handles focus and noise itself. */
     fun standDown() {
         shown = false
-        resumeOnGain = false
-        abandonFocus()
         listenForNoisy(false)
-    }
-
-    private fun takeFocus() {
-        val manager = audioManager ?: return
-        if (focus != null) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
-                )
-                .setOnAudioFocusChangeListener(focusListener)
-                .build()
-            if (manager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focus = request
-        } else {
-            @Suppress("DEPRECATION")
-            val granted = manager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-            if (granted == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focus = true
-        }
-    }
-
-    private fun abandonFocus() {
-        val held = focus ?: return
-        focus = null
-        val manager = audioManager ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && held is AudioFocusRequest) {
-            manager.abandonAudioFocusRequest(held)
-        } else {
-            @Suppress("DEPRECATION")
-            manager.abandonAudioFocus(focusListener)
-        }
     }
 
     private fun listenForNoisy(on: Boolean) {

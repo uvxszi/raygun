@@ -433,8 +433,8 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             quiet = true
             main.removeCallbacks(endWatch)
             // The session shows the deck before anything goes into it: notification and headset
-            // buttons are about this song from now on, and the mirror lets go of the audio focus
-            // before the deck asks for it.
+            // buttons are about this song from now on, and the mirror stops passing on headphone
+            // changes before the deck handles them.
             syncSession()
             val player: Player = service?.deck?.player ?: controller
             val metadata = MediaMetadata.Builder()
