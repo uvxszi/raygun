@@ -273,6 +273,17 @@ pub struct OutputFile {
     pub name: Option<String>,
 }
 
+/// A file found where Raygun saves (M46.51): `Download/Raygun/` or a picked folder.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SavedFile {
+    /// Its address, to open or delete it.
+    pub uri: String,
+    pub name: String,
+    pub size: i64,
+    /// Unix ms.
+    pub modified: i64,
+}
+
 /// A file under a picked folder (M46.27).
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TreeFile {
@@ -728,6 +739,38 @@ impl<R: Runtime> NativeAudio<R> {
     #[cfg(target_os = "android")]
     pub fn show_file_folder(&self, uri: &str) -> Result<(), String> {
         self.run::<serde_json::Value>("showFileFolder", serde_json::json!({ "uri": uri }))
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// The files in `Download/Raygun/` (`place` `downloads`) or a picked folder (`tree`) whose
+    /// names contain `contains`, sub-folders left out (M46.51). Blocking.
+    #[cfg(target_os = "android")]
+    pub fn list_saved(
+        &self,
+        place: &str,
+        tree: Option<&str>,
+        contains: &str,
+    ) -> Result<Vec<SavedFile>, String> {
+        #[derive(serde::Deserialize)]
+        struct Listing {
+            files: Vec<SavedFile>,
+        }
+        self.handle
+            .run_mobile_plugin::<Listing>(
+                "listSaved",
+                serde_json::json!({ "place": place, "tree": tree, "contains": contains }),
+            )
+            .map(|listing| listing.files)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Starts Raygun again from its first screen, ending its other processes (M46.51). The
+    /// WebView's storage and cookies are cleared first.
+    #[cfg(target_os = "android")]
+    pub fn restart_app(&self) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("restartApp", ())
             .map(|_| ())
             .map_err(|error| error.to_string())
     }

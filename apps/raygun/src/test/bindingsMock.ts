@@ -560,11 +560,17 @@ export const bindingsMock = {
     mangaDownload: vi.fn(),
     mangaRemoveDownloads: vi.fn(),
     mangaSetDownloadsPaused: vi.fn(),
+    backupDestinations: vi.fn(),
+    backupPickFolder: vi.fn(),
+    backupForgetFolder: vi.fn(),
     backupCreate: vi.fn(),
-    backupList: vi.fn(),
+    backupScan: vi.fn(),
     backupRestore: vi.fn(),
     backupDelete: vi.fn(),
     backupImport: vi.fn(),
+    dataUsage: vi.fn(),
+    dataClear: vi.fn(),
+    dataEraseEverything: vi.fn(),
     novelSources: vi.fn(),
     novelBrowse: vi.fn(),
     novelTitle: vi.fn(),
@@ -1318,13 +1324,36 @@ export const seedBindings = () => {
   commands.mangaDownload.mockResolvedValue(ok(null));
   commands.mangaRemoveDownloads.mockResolvedValue(ok(null));
   commands.mangaSetDownloadsPaused.mockResolvedValue(ok(null));
-  commands.backupCreate.mockResolvedValue(
-    ok({ name: 'raygun-20261031-120000.raygunbk', sizeBytes: 2048, createdAt: 0 }),
+  commands.backupDestinations.mockResolvedValue(
+    ok({ usual: 'Download/Raygun', usualPlace: 'downloads', folders: [], last: null }),
   );
-  commands.backupList.mockResolvedValue(ok([]));
-  commands.backupRestore.mockResolvedValue(ok({ kind: 'raygun', received: 0, changed: 0 }));
+  commands.backupPickFolder.mockResolvedValue(ok(null));
+  commands.backupForgetFolder.mockResolvedValue(
+    ok({ usual: 'Download/Raygun', usualPlace: 'downloads', folders: [], last: null }),
+  );
+  commands.backupCreate.mockResolvedValue(
+    ok({
+      id: 'content://media/external/downloads/1',
+      name: 'raygun-20261031-120000.raygunbk',
+      place: 'downloads',
+      folder: 'Download/Raygun',
+      sizeBytes: 2048,
+      modifiedAt: 0,
+      manifest: null,
+      problem: null,
+    }),
+  );
+  commands.backupScan.mockResolvedValue(ok([]));
+  commands.backupRestore.mockResolvedValue(
+    ok({ kind: 'raygun', received: 0, changed: 0, queued: 0, problems: [] }),
+  );
   commands.backupDelete.mockResolvedValue(ok(null));
-  commands.backupImport.mockResolvedValue(ok({ kind: 'raygun', received: 0, changed: 0 }));
+  commands.backupImport.mockResolvedValue(
+    ok({ kind: 'raygun', received: 0, changed: 0, queued: 0, problems: [] }),
+  );
+  commands.dataUsage.mockResolvedValue(ok([]));
+  commands.dataClear.mockResolvedValue(ok([]));
+  commands.dataEraseEverything.mockResolvedValue(ok(null));
   commands.novelSources.mockResolvedValue(ok([]));
   commands.novelBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));
   commands.novelTitle.mockResolvedValue(ok(null));

@@ -30,8 +30,8 @@ const COVER_ARTWORKS: usize = 4;
 const MAX_NAME_CHARS: usize = 100;
 
 /// The `local_meta` key of what was played from lately (M46.37), and how many are kept.
-const RECENT_CONTEXTS: &str = "music.recentContexts";
-const RECENT_CONTEXTS_KEPT: usize = 24;
+pub(crate) const RECENT_CONTEXTS: &str = "music.recentContexts";
+pub(crate) const RECENT_CONTEXTS_KEPT: usize = 24;
 /// The `local_meta` key of the songs saved or played that their source marked explicit, by
 /// song key (the saved tables don't store the mark), and how many are kept.
 const EXPLICIT_SONGS: &str = "music.explicitSongs";

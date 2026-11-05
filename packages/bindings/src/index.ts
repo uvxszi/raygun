@@ -880,15 +880,47 @@ export const commands = {
 	/**  Cancels queued chapters and deletes downloaded ones. */
 	mangaRemoveDownloads: (chapterIds: string[]) => typedError<null, string>(__TAURI_INVOKE("manga_remove_downloads", { chapterIds })),
 	mangaSetDownloadsPaused: (paused: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_downloads_paused", { paused })),
-	/**  Writes a backup of settings, collections, history, the manga library and progress. */
-	backupCreate: () => typedError<BackupFile, string>(__TAURI_INVOKE("backup_create")),
-	/**  Backups kept on this device, newest first. */
-	backupList: () => typedError<BackupFile[], string>(__TAURI_INVOKE("backup_list")),
-	/**  Merges a kept backup into the current data (newer rows win). */
-	backupRestore: (name: string) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_restore", { name })),
-	backupDelete: (name: string) => typedError<null, string>(__TAURI_INVOKE("backup_delete", { name })),
+	/**  Where backups can be saved: the usual place, the folders picked before, the one used last. */
+	backupDestinations: () => typedError<BackupDestinations, string>(__TAURI_INVOKE("backup_destinations")),
+	/**
+	 *  Shows the system's folder picker; the folder chosen is remembered for backups and used next.
+	 *  `None` when the picker was cancelled.
+	 */
+	backupPickFolder: () => typedError<{
+	/**  The usual place, as shown. */
+	usual: string,
+	usualPlace: BackupPlace,
+	folders: BackupFolder[],
+	/**  The last place used: a folder's `uri`, or `None` for the usual place. */
+	last: string | null,
+} | null, string>(__TAURI_INVOKE("backup_pick_folder")),
+	/**  Stops saving and looking for backups in a folder; its files stay. */
+	backupForgetFolder: (uri: string) => typedError<BackupDestinations, string>(__TAURI_INVOKE("backup_forget_folder", { uri })),
+	/**  Writes a backup of the categories asked for, where asked (M46.51). */
+	backupCreate: (request: BackupRequest) => typedError<BackupEntry, string>(__TAURI_INVOKE("backup_create", { request })),
+	/**
+	 *  Every backup Raygun finds (its data folder, Download/Raygun, the folders picked), newest
+	 *  first, each with what it holds.
+	 */
+	backupScan: () => typedError<BackupEntry[], string>(__TAURI_INVOKE("backup_scan")),
+	/**  Merges the categories chosen from a backup the last scan found (newer rows win). */
+	backupRestore: (id: string, categories: DataCategory[]) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_restore", { id, categories })),
+	backupDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("backup_delete", { id })),
 	/**  Restores a Raygun backup or imports a Mihon backup from a picked file (base64 contents). */
 	backupImport: (contents: string) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_import", { contents })),
+	/**  What each kind of data holds on this device, with sizes (Settings → Data). */
+	dataUsage: () => typedError<DataUsage[], string>(__TAURI_INVOKE("data_usage")),
+	/**  Clears one kind of data (`downloads` says what goes of the downloads); returns what's left. */
+	dataClear: (category: DataCategory, downloads: 
+/**  Downloaded files and their entries. Copies saved outside Raygun stay. */
+"files" | 
+/**  Entries waiting or failed, which have no file yet. */
+"records" | null) => typedError<DataUsage[], string>(__TAURI_INVOKE("data_clear", { category, downloads })),
+	/**
+	 *  Erases everything but the backups and starts Raygun again as after a new install.
+	 *  `confirm` must be `ERASE`.
+	 */
+	dataEraseEverything: (confirm: string) => typedError<null, string>(__TAURI_INVOKE("data_erase_everything", { confirm })),
 	/**  Installed novel sources (`novel.source` providers). */
 	novelSources: () => typedError<MangaSource_Serialize[], string>(__TAURI_INVOKE("novel_sources")),
 	/**  A page of a novel source's catalogue: popular, latest, or search results. */
@@ -1867,18 +1899,90 @@ export type AutoLoadPrefs = {
 	cooldownMs?: number,
 };
 
-/**  A backup file kept on this device. */
-export type BackupFile = {
+/**  Where a backup can be saved. */
+export type BackupDestinations = {
+	/**  The usual place, as shown. */
+	usual: string,
+	usualPlace: BackupPlace,
+	folders: BackupFolder[],
+	/**  The last place used: a folder's `uri`, or `None` for the usual place. */
+	last: string | null,
+};
+
+/**  A backup found on this device. */
+export type BackupEntry = {
+	/**  Names the file to read, restore or delete it; good until the next scan. */
+	id: string,
 	name: string,
+	place: BackupPlace,
+	/**  Its folder as shown ("Download/Raygun", a picked folder's name). */
+	folder: string,
 	sizeBytes: number | null,
+	/**  Unix ms; the file's time. */
+	modifiedAt: number | null,
+	/**  What it says about itself; `None` when it couldn't be read (`problem` says why). */
+	manifest: BackupManifest | null,
+	problem: string | null,
+};
+
+/**  A folder picked for backups, remembered so its backups are found again. */
+export type BackupFolder = {
+	/**  Its path on a computer, its tree address on Android. */
+	uri: string,
+	name: string,
+	/**  Unix ms of the last backup saved there. */
+	usedAt: number | null,
+};
+
+/**  What a backup file says about itself, read without unpacking the rest. */
+export type BackupManifest = {
+	/**  The file's format version (1: before M46.51, read in full to describe it). */
+	version: number,
 	/**  Unix ms. */
 	createdAt: number | null,
+	deviceId: string,
+	/**  The device's name as linked devices see it; empty for version 1. */
+	deviceName: string,
+	/**  The Raygun that made it; empty for version 1. */
+	appVersion: string,
+	/**  `android`, `windows`…; empty for version 1. */
+	platform: string,
+	/**  Whether passwords, sign-ins and API keys are inside, readable. */
+	secrets: boolean,
+	/**  What it holds, category by category. */
+	sections: BackupSection[],
 };
 
 /**  The outcome of restoring or importing a backup. */
 export type BackupOutcome = 
-/**  A Raygun backup: rows read and rows that changed here. */
-{ kind: "raygun"; received: number; changed: number } | { kind: "mihon"; summary: MihonImport };
+/**
+ *  A Raygun backup: rows read, rows that changed here, downloads and installs started again,
+ *  and what couldn't come back (each a sentence).
+ */
+{ kind: "raygun"; received: number; changed: number; queued: number; problems: string[] } | { kind: "mihon"; summary: MihonImport };
+
+/**  Where a backup was found. */
+export type BackupPlace = 
+/**  Raygun's own data folder. */
+"app" | 
+/**  `Download/Raygun` on the phone, `Downloads/Raygun` on a computer. */
+"downloads" | 
+/**  A folder picked for backups. */
+"folder";
+
+export type BackupRequest = {
+	categories: DataCategory[],
+	/**  Passwords, sign-ins and API keys too, readable by anyone with the file. */
+	secrets?: boolean,
+	/**  A remembered folder's `uri`; `None` saves to the usual place. */
+	folder?: string | null,
+};
+
+/**  One category's counts in a backup. */
+export type BackupSection = {
+	category: DataCategory,
+	counts: DataCount[],
+};
 
 /**  The list of ad and tracker domains the built-in browser blocks. */
 export type Blocklist = 
@@ -2293,6 +2397,75 @@ export type CustomColors = {
 	muted?: string,
 };
 
+/**  One kind of data Settings → Data backs up, restores and clears. */
+export type DataCategory = 
+/**  Library → Comics, with chapters, what was read and categories. */
+"comics" | 
+/**  Library → Books. */
+"books" | 
+/**  Library → Videos. */
+"videos" | 
+/**  Followed podcasts and where each episode was left. */
+"podcasts" | "audiobooks" | 
+/**  Sites added to the built-in browser. */
+"websites" | 
+/**  Playlists and favorite songs. */
+"playlists" | 
+/**  Quick access pins. */
+"pins" | 
+/**  Songs played, videos watched and what was played from. */
+"history" | 
+/**  Every setting but the pins. */
+"settings" | 
+/**  Extensions, repositories, Stremio addons and connected servers. */
+"sources" | 
+/**  What was downloaded: backups keep the list, never the files. */
+"downloads" | 
+/**  Recent searches. */
+"searches" | 
+/**  AI models and translators. */
+"aiModels" | 
+/**  Covers, reader pages and lyrics kept to show them quickly; never backed up. */
+"caches";
+
+export type DataCount = {
+	item: DataItem,
+	count: number,
+	/**  What its files take on this device, where it's files. */
+	bytes: number | null,
+};
+
+/**  What a count in Settings → Data or a backup's index counts. */
+export type DataItem = "titles" | "chapters" | "read" | "episodes" | "watched" | "categories" | "shows" | "books" | "sites" | "playlists" | "playlistSongs" | "favorites" | "pins" | "settings" | "repositories" | "extensions" | "addons" | "servers" | 
+/**  Passwords, sign-ins and API keys. */
+"secrets" | "plays" | 
+/**  Places music was played from (an album, a playlist…). */
+"contexts" | 
+/**  Downloaded songs. */
+"songs" | 
+/**  Downloaded videos. */
+"videos" | 
+/**  Downloads waiting or failed: entries without a file. */
+"waiting" | 
+/**  Files saved from websites. */
+"files" | "searches" | "models" | "translators" | "covers" | "pages" | "lyrics";
+
+/**  Where clearing a category reaches. */
+export type DataScope = 
+/**  Linked devices remove it too: device sync carries the clear like any change. */
+"synced" | 
+/**  This device only. */
+"device";
+
+/**  One category in Settings → Data: what's in it on this device. */
+export type DataUsage = {
+	category: DataCategory,
+	counts: DataCount[],
+	/**  Bytes its files take (downloads, models, caches); 0 for rows in the database. */
+	bytes: number | null,
+	scope: DataScope,
+};
+
 /**  Which decoders play video. */
 export type DecoderMode = 
 /**  Hardware, falling back to software when it fails. */
@@ -2341,6 +2514,13 @@ export type DiscoveryPrefs = {
 };
 
 export type DownloadState = "queued" | "downloading" | "done" | "failed";
+
+/**  What clearing downloads removes. */
+export type DownloadsClear = 
+/**  Downloaded files and their entries. Copies saved outside Raygun stay. */
+"files" | 
+/**  Entries waiting or failed, which have no file yet. */
+"records";
 
 /**  Lyrics a person wrote or corrected for a song (M46.12), replacing what sources have. */
 export type EditedLyrics = {

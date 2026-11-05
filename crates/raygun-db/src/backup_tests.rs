@@ -72,7 +72,7 @@ async fn a_backup_restores_into_an_empty_database() {
         .await
         .unwrap();
 
-    let backup = export(&source, 99).await.unwrap();
+    let backup = export(&source, 99, &Part::ALL).await.unwrap();
     assert_eq!((backup.format.as_str(), backup.version), (FORMAT, VERSION));
     assert_eq!(backup.live_rows("title"), 1);
     assert_eq!(backup.live_rows("unit"), 2);
@@ -81,7 +81,7 @@ async fn a_backup_restores_into_an_empty_database() {
         serde_json::from_str(&serde_json::to_string(&backup).unwrap()).unwrap();
 
     let target = open(&temp, "b.db").await;
-    let restored = restore(&target, &backup).await.unwrap();
+    let restored = restore(&target, &backup, &Part::ALL).await.unwrap();
     assert!(restored.changed >= 5, "{restored:?}");
 
     let title = titles::title(&target, &title_id).await.unwrap().unwrap();
@@ -99,7 +99,7 @@ async fn a_backup_restores_into_an_empty_database() {
         [("theme".to_owned(), "\"amoled\"".to_owned())]
     );
 
-    let again = restore(&target, &backup).await.unwrap();
+    let again = restore(&target, &backup, &Part::ALL).await.unwrap();
     assert_eq!(again.changed, 0, "restoring twice changes nothing");
 }
 
@@ -111,7 +111,7 @@ async fn restore_keeps_newer_local_rows_and_adopts_local_ids() {
     crate::settings::put(&source, "theme", "\"light\"")
         .await
         .unwrap();
-    let backup = export(&source, 99).await.unwrap();
+    let backup = export(&source, 99, &Part::ALL).await.unwrap();
 
     // The other device fetched the same title on its own (another id), read chapter 2 to the
     // end, and changed the theme after the backup was made.
@@ -134,7 +134,7 @@ async fn restore_keeps_newer_local_rows_and_adopts_local_ids() {
         .await
         .unwrap();
 
-    restore(&target, &backup).await.unwrap();
+    restore(&target, &backup, &Part::ALL).await.unwrap();
 
     assert!(
         titles::title(&target, &backup_title)
@@ -188,7 +188,7 @@ async fn a_song_favorited_on_both_sides_restores_as_one_favorite() {
     set_favorite(&source, &song("Feeling Good"), true, 2)
         .await
         .unwrap();
-    let backup = export(&source, 9).await.unwrap();
+    let backup = export(&source, 9, &Part::ALL).await.unwrap();
 
     // Favorited here too, under another id: the unique favorite per song used to fail the restore.
     let target = open(&temp, "b.db").await;
@@ -196,7 +196,7 @@ async fn a_song_favorited_on_both_sides_restores_as_one_favorite() {
         .await
         .unwrap();
     let ours = favorites(&target).await.unwrap()[0].id.clone();
-    restore(&target, &backup).await.unwrap();
+    restore(&target, &backup, &Part::ALL).await.unwrap();
 
     let restored = favorites(&target).await.unwrap();
     let titles: Vec<&str> = restored
@@ -207,14 +207,180 @@ async fn a_song_favorited_on_both_sides_restores_as_one_favorite() {
     assert!(restored.iter().any(|row| row.id == ours), "our row stays");
 }
 
+pub(crate) fn show(feed: &str, kind: &str) -> crate::podcasts::PodcastFields {
+    crate::podcasts::PodcastFields {
+        feed_url: feed.into(),
+        title: format!("Show {feed}"),
+        author: None,
+        description: None,
+        artwork: None,
+        link: None,
+        kind: kind.into(),
+    }
+}
+
+pub(crate) fn episode(guid: &str) -> crate::podcasts::EpisodeFields {
+    crate::podcasts::EpisodeFields {
+        guid: guid.into(),
+        title: format!("Episode {guid}"),
+        description: None,
+        audio_url: format!("https://example.org/{guid}.mp3"),
+        audio_type: None,
+        duration_ms: None,
+        published_at: None,
+        artwork: None,
+        number: None,
+        transcript: None,
+    }
+}
+
+pub(crate) fn song(title: &str) -> crate::collections::TrackFields {
+    crate::collections::TrackFields {
+        track_key: format!("artist|{}", title.to_lowercase()),
+        title: title.into(),
+        artist: Some("Artist".into()),
+        album: None,
+        duration_ms: None,
+        artwork_url: None,
+        source: None,
+    }
+}
+
+/// A comic, a book, a followed podcast, a playlist with a song, a favorite, pins and a setting.
+pub(crate) async fn a_bit_of_everything(db: &Db) {
+    reader_state(db).await;
+    let mut novel = manga("n1", "A Book");
+    novel.kind = "novel".into();
+    let novel = titles::upsert_title(db, &novel, 1).await.unwrap();
+    titles::set_in_library(db, &novel, Some(2)).await.unwrap();
+    let feed = show("https://feed.example/a", "podcast");
+    let podcast = crate::podcasts::upsert_podcast(db, &feed, 1).await.unwrap();
+    crate::podcasts::set_subscribed(db, &podcast, Some(3))
+        .await
+        .unwrap();
+    crate::podcasts::sync_episodes(db, &podcast, &[episode("e1"), episode("e2")], 4)
+        .await
+        .unwrap();
+    let playlist = crate::collections::create_playlist(db, "Mix", 5)
+        .await
+        .unwrap();
+    crate::collections::add_to_playlist(db, &playlist, &[song("Song")], 6)
+        .await
+        .unwrap();
+    crate::collections::set_favorite(db, &song("Other"), true, 7)
+        .await
+        .unwrap();
+    crate::settings::put(db, "theme", "\"dark\"").await.unwrap();
+    crate::settings::put(
+        db,
+        PINS_KEY,
+        r#"{"pins":[{"kind":"playlist"},{"kind":"album"}]}"#,
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn parts_choose_what_a_backup_holds_and_what_a_restore_takes() {
+    let temp = TempDir::new().unwrap();
+    let source = open(&temp, "a.db").await;
+    a_bit_of_everything(&source).await;
+
+    let backup = export(&source, 9, &[Part::Comics, Part::Pins])
+        .await
+        .unwrap();
+    assert_eq!(parts_in(&backup), [Part::Comics, Part::Pins]);
+    let counted = index(&backup);
+    assert_eq!(counted[&Part::Comics][&Item::Titles], 1);
+    assert_eq!(counted[&Part::Comics][&Item::Chapters], 2);
+    assert_eq!(counted[&Part::Comics][&Item::Read], 1);
+    assert_eq!(counted[&Part::Pins][&Item::Pins], 2);
+    assert!(!counted.contains_key(&Part::Books) && !counted.contains_key(&Part::Settings));
+    assert_eq!(backup.live_rows("setting"), 1, "only the pins' setting");
+
+    // A restore takes only what it's asked for, even when the backup holds more.
+    let everything = export(&source, 9, &Part::ALL).await.unwrap();
+    let target = open(&temp, "b.db").await;
+    restore(&target, &everything, &[Part::Pins, Part::Podcasts])
+        .await
+        .unwrap();
+    let settings = crate::settings::load(&target).await.unwrap();
+    assert_eq!(settings.len(), 1);
+    assert_eq!(settings[0].0, PINS_KEY);
+    assert!(titles::library(&target, "manga").await.unwrap().is_empty());
+    assert_eq!(
+        crate::podcasts::subscriptions(&target).await.unwrap().len(),
+        1
+    );
+    assert!(
+        crate::collections::playlists(&target)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn the_index_counts_a_backup_as_the_database_is_counted() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp, "a.db").await;
+    a_bit_of_everything(&db).await;
+    let backup = export(&db, 9, &Part::ALL).await.unwrap();
+    let counted = crate::data::counts(&db).await.unwrap();
+    assert_eq!(index(&backup), counted);
+    assert_eq!(counted[&Part::Podcasts][&Item::Shows], 1);
+    assert_eq!(counted[&Part::Podcasts][&Item::Episodes], 2);
+    assert_eq!(counted[&Part::Playlists][&Item::PlaylistSongs], 1);
+    assert_eq!(counted[&Part::Playlists][&Item::Favorites], 1);
+    assert_eq!(counted[&Part::Books][&Item::Titles], 1);
+    assert_eq!(counted[&Part::Settings][&Item::Settings], 1);
+}
+
+#[tokio::test]
+async fn a_podcast_followed_on_both_sides_keeps_our_id_and_its_episodes_follow() {
+    let temp = TempDir::new().unwrap();
+    let feed = show("https://feed.example/a", "podcast");
+    let source = open(&temp, "a.db").await;
+    let theirs = crate::podcasts::upsert_podcast(&source, &feed, 1)
+        .await
+        .unwrap();
+    crate::podcasts::sync_episodes(&source, &theirs, &[episode("e1")], 2)
+        .await
+        .unwrap();
+    let backup = export(&source, 9, &Part::ALL).await.unwrap();
+
+    let target = open(&temp, "b.db").await;
+    let ours = crate::podcasts::upsert_podcast(&target, &feed, 3)
+        .await
+        .unwrap();
+    crate::podcasts::sync_episodes(&target, &ours, &[episode("e1")], 4)
+        .await
+        .unwrap();
+    let restored = restore(&target, &backup, &[Part::Podcasts]).await.unwrap();
+    assert_eq!(restored.ours(&theirs), ours);
+    assert!(
+        crate::podcasts::podcast(&target, &theirs)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        crate::podcasts::episodes(&target, &ours)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
 #[tokio::test]
 async fn unknown_tables_are_ignored() {
     let temp = TempDir::new().unwrap();
     let db = open(&temp, "a.db").await;
-    let mut backup = export(&db, 1).await.unwrap();
+    let mut backup = export(&db, 1, &Part::ALL).await.unwrap();
     backup.tables.insert(
         "from_the_future".into(),
         vec![serde_json::json!({"id": "x"})],
     );
-    restore(&db, &backup).await.unwrap();
+    restore(&db, &backup, &Part::ALL).await.unwrap();
 }

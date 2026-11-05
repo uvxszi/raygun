@@ -188,6 +188,13 @@ class FileArgs {
 }
 
 @InvokeArg
+class SavedArgs {
+    var place: String = ""
+    var tree: String? = null
+    var contains: String = ""
+}
+
+@InvokeArg
 class FinishArgs {
     var uri: String = ""
     var ok: Boolean = true
@@ -1443,6 +1450,59 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                     invoke.resolve()
                 }.onFailure { invoke.reject("No app on this phone shows folders") }
             }
+        }
+    }
+
+    /** Files Raygun saved in `Download/Raygun/` or a picked folder, by name (M46.51: backups). */
+    @Command
+    fun listSaved(invoke: Invoke) {
+        val args = invoke.parseArgs(SavedArgs::class.java)
+        thread(name = "raygun-output") {
+            try {
+                val files = JSONArray()
+                for (file in storage.listSaved(args.place, args.tree, args.contains)) {
+                    files.put(
+                        JSObject()
+                            .put("uri", file.uri.toString())
+                            .put("name", file.name)
+                            .put("size", file.size)
+                            .put("modified", file.modified),
+                    )
+                }
+                invoke.resolve(JSObject().put("files", files))
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't read the folder")
+            }
+        }
+    }
+
+    /**
+     * Starts Raygun again from its first screen (M46.51: after erasing everything). The WebView's
+     * storage and cookies go first; the app's other processes (the built-in browser, browser
+     * checks) end with this one.
+     */
+    @Command
+    fun restartApp(invoke: Invoke) {
+        activity.runOnUiThread {
+            runCatching { android.webkit.WebStorage.getInstance().deleteAllData() }
+            runCatching {
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+            }
+            val launch = activity.packageManager.getLaunchIntentForPackage(activity.packageName)?.component
+            if (launch == null) {
+                invoke.reject("Raygun couldn't start again; open it from the launcher")
+                return@runOnUiThread
+            }
+            invoke.resolve()
+            Handler(Looper.getMainLooper()).postDelayed({
+                activity.startActivity(Intent.makeRestartActivityTask(launch))
+                val manager = activity.getSystemService(android.app.ActivityManager::class.java)
+                manager?.runningAppProcesses
+                    ?.filter { it.uid == android.os.Process.myUid() && it.pid != android.os.Process.myPid() }
+                    ?.forEach { android.os.Process.killProcess(it.pid) }
+                Runtime.getRuntime().exit(0)
+            }, 300)
         }
     }
 
