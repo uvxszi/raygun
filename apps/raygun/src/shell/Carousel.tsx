@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { scrollMotion } from './deviceState';
+import { useDragScroll } from './useDragScroll';
 
 /** A page is most of the row, so the last card of one page shows again at the start of the next. */
 const PAGE = 0.85;
@@ -16,13 +17,14 @@ type CarouselProps = {
 
 /**
  * A row of cards that pages sideways (M46.14), as Spotify's rows do: buttons at its ends glide it a
- * page at a time and show on hover, Shift with the wheel scrolls it, a finger swipes it (and the
- * row comes to rest on a card's edge, lined up with the row's padding), and no scrollbar shows
- * under it.
+ * page at a time and show on hover, Shift with the wheel scrolls it, the mouse drags it (gliding on
+ * when let go, `useDragScroll`), a finger swipes it (and the row comes to rest on a card's edge,
+ * lined up with the row's padding), and no scrollbar shows under it.
  */
 export const Carousel: FC<CarouselProps> = ({ children, className = '', testId }) => {
   const { t } = useTranslation();
   const list = useRef<HTMLUListElement>(null);
+  const drag = useDragScroll(list);
   const [edges, setEdges] = useState({ start: true, end: true });
 
   const update = useCallback(() => {
@@ -85,7 +87,7 @@ export const Carousel: FC<CarouselProps> = ({ children, className = '', testId }
   return (
     <div className="group/carousel relative">
       <ul
-        ref={list}
+        ref={drag}
         data-testid={testId}
         data-carousel=""
         onScroll={update}

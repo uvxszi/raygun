@@ -9,6 +9,23 @@
   }
 }
 
+/* Rows that a mouse drags sideways (shell/useDragScroll). A finger on one pans the row or the page
+   (`pan-x` alone would keep the page from scrolling up and down there); an open hand shows over a
+   row with more to show, and a closed one everywhere while it's dragged, with nothing selected. */
+[data-drag-scroll] {
+  touch-action: pan-x pan-y;
+}
+[data-drag-scroll='more'],
+[data-drag-scroll='more'] > * {
+  cursor: grab;
+}
+:root[data-drag-scrolling],
+:root[data-drag-scrolling] * {
+  cursor: grabbing !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
 /* Dark is the default palette. Light and AMOLED override the same tokens, so every utility
    (bg-background, text-foreground, ...) follows the active theme. "System" removes data-theme and
    lets prefers-color-scheme decide. */

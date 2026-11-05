@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { ExportSheet } from '../export/ExportSheet';
 import { Sheet } from '../shell/Sheet';
 import { showToast } from '../shell/toastStore';
+import { useDragScroll } from '../shell/useDragScroll';
 import { LISTS, listKey } from './libraryDisplay';
 import type { Medium } from './medium';
 import { groupWords } from './groupWords';
@@ -347,6 +348,7 @@ export const SelectionActions: FC<{
   const canDownload = !selected.some((entry) => entry.local);
   const video = medium === 'video';
   const finish = { onSuccess: onDone };
+  const bar = useDragScroll<HTMLDivElement>();
   const error =
     setList.error ?? setFavorite.error ?? setPinned.error ?? markRead.error ?? download.error;
 
@@ -366,6 +368,7 @@ export const SelectionActions: FC<{
   return (
     <>
       <div
+        ref={bar}
         role="toolbar"
         aria-label={t('library.select.actions')}
         data-testid="selection-actions"

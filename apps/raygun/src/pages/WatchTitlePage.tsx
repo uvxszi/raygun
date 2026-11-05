@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { CategoryPicker } from '../manga/CategoryPicker';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { useDragScroll } from '../shell/useDragScroll';
 import { useWideScreen } from '../shell/useWideScreen';
 import { TrailerWindow } from '../video/TrailerWindow';
 import { LibraryPill } from '../watch/LibraryPill';
@@ -94,6 +95,7 @@ const Episodes: FC<{
   const [drawn, setDrawn] = useState({ season: shown, count: EPISODE_CHUNK });
   const setWatched = useSetWatched();
   const selection = useEpisodeSelection();
+  const seasonRow = useDragScroll<HTMLDivElement>();
   const numbered = seasons.length > 1 || meta.videos.some((video) => video.season !== null);
   const videos = numbered
     ? meta.videos.filter((video) => (video.season ?? 0) === shown)
@@ -121,6 +123,7 @@ const Episodes: FC<{
       </div>
       {numbered && seasons.length > 1 && (
         <div
+          ref={seasonRow}
           role="tablist"
           aria-label={t('watch.seasons')}
           className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"

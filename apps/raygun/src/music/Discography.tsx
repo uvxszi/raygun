@@ -10,6 +10,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { AlbumTile } from '../search/MusicFinds';
 import { menuHandler, useAlbumMenuItems } from './cardMenus';
 import { Sheet } from '../shell/Sheet';
+import { useDragScroll } from '../shell/useDragScroll';
 import { RELEASE_SORTS, readReleaseSorts, saveReleaseSorts, sortReleases } from './releaseSort';
 import type { ReleaseSort } from './releaseSort';
 
@@ -55,6 +56,7 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
   const [all, setAll] = useState(false);
   const [sorts, setSorts] = useState(readReleaseSorts);
   const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
+  const chipRow = useDragScroll<HTMLDivElement>();
   const sort: ReleaseSort = sorts[shelf] ?? 'newest';
   const pickSort = (next: ReleaseSort) => {
     const saved = { ...sorts, [shelf]: next };
@@ -128,6 +130,7 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
       )}
       {chips.length > 2 && (
         <div
+          ref={chipRow}
           role="group"
           aria-label={t('artist.releaseKinds')}
           className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4"

@@ -28,6 +28,7 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { EmptyState } from '../shell/EmptyState';
 import type { OverflowItem } from '../shell/OverflowMenu';
 import { TopBarAction } from '../shell/TopBar';
+import { useDragScroll } from '../shell/useDragScroll';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
 import { STREMIO_SOURCE } from '../watch/useVideoLibrary';
 import { LISTS, listKey, withLibraryDisplay } from './libraryDisplay';
@@ -88,6 +89,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
     updateSetting.mutate({ key: 'libraryDisplay', value });
   const setCategoryDisplay = useSetCategoryDisplay(medium);
   const [tab, setTabState] = useState(() => loadTab(medium));
+  const tabRow = useDragScroll<HTMLDivElement>();
   const setTab = (next: string) => {
     setTabState(next);
     saveTab(medium, next);
@@ -448,6 +450,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
         <>
           {tabs.length > 0 && (
             <div
+              ref={tabRow}
               role="tablist"
               aria-label={t(
                 display.tabs === 'lists' ? 'library.lists.title' : 'library.categories.title',

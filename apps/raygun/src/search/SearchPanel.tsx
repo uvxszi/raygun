@@ -21,6 +21,7 @@ import type { MusicView, SearchType, SearchView, VideoView } from './searchTypes
 import { VideoResults } from './VideoResults';
 import { SelectionScope } from '../select/Selectable';
 import { useSettings } from '../settings/useSettings';
+import { useDragScroll } from '../shell/useDragScroll';
 import { usePlayContext } from '../music/playContext';
 import { YouTubeLinkCard } from '../youtube/YouTubeLinkCard';
 
@@ -137,8 +138,10 @@ const VideoPillRow: FC<{
   onSite: (id: string) => void;
 }> = ({ view, site, sites, onView, onSite }) => {
   const { t } = useTranslation();
+  const row = useDragScroll<HTMLDivElement>();
   return (
     <div
+      ref={row}
       role="group"
       aria-label={t('search.video.kind')}
       className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
@@ -226,6 +229,7 @@ export const SearchPanel: FC<{
   const musicView = viewIn<MusicView>('music', view);
   const videoView = viewIn<VideoView>('video', view);
   const selected = useRef<HTMLButtonElement>(null);
+  const typeRow = useDragScroll<HTMLDivElement>();
 
   // A link can open a kind whose chip is off-screen (Library → Manga's "Find in Browse").
   useEffect(() => {
@@ -257,6 +261,7 @@ export const SearchPanel: FC<{
         {/* The kinds, then Search's "No 18+" and "No explicit" beside them (below on phones). */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div
+            ref={typeRow}
             role="tablist"
             aria-label={t('search.typeLabel')}
             className="-mx-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
