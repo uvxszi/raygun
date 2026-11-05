@@ -236,7 +236,7 @@ export const DEFAULT_SETTINGS: Settings = {
     width: 'narrow',
     paged: false,
     ttsRate: 10,
-    indent: false,
+    indent: 0,
   },
 };
 

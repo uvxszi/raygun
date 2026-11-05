@@ -14,9 +14,7 @@ import { useRemoteChange, useRemoteStatus } from '../settings/remoteQueries';
 import { Sheet } from '../shell/Sheet';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { useQrScanner } from './qrScanner';
-
-const BUTTON =
-  'flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-50';
+import { TAP_BUTTON } from './tapTargets';
 
 /** The name a link code carries, to say who is being asked. */
 const nameIn = (text: string) => {
@@ -75,16 +73,16 @@ export const ShowLinkCode: FC<{ onClose: () => void }> = ({ onClose }) => {
               src={`data:image/svg+xml;utf8,${encodeURIComponent(data.linkQrSvg)}`}
               className="size-56 rounded-xl bg-white p-2"
             />
-            <ul className="text-muted flex flex-col items-center text-xs">
+            <ul className="text-muted flex flex-col items-center gap-0.5 text-center text-sm">
               <li>{t('link.scanOnOther')}</li>
               <li>{t('link.codeOnce')}</li>
             </ul>
             <button
               type="button"
               onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}
-              className="text-primary flex items-center gap-1 text-xs font-semibold"
+              className={`${TAP_BUTTON} text-primary hover:bg-background`}
             >
-              <Copy aria-hidden size={14} />
+              <Copy aria-hidden size={16} />
               {copied ? t('link.copied') : t('link.copyCode')}
             </button>
           </>
@@ -99,9 +97,9 @@ export const ShowLinkCode: FC<{ onClose: () => void }> = ({ onClose }) => {
               setCopied(false);
               open();
             }}
-            className={`${BUTTON} bg-background`}
+            className={`${TAP_BUTTON} bg-background`}
           >
-            <RefreshCw aria-hidden size={14} />
+            <RefreshCw aria-hidden size={16} />
             {t('link.newCode')}
           </button>
         )}
@@ -196,9 +194,9 @@ export const ScanLinkCode: FC<{ onClose: () => void }> = ({ onClose }) => {
               <button
                 type="button"
                 onClick={() => requestPermission.mutate('camera')}
-                className={`${BUTTON} bg-background self-start`}
+                className={`${TAP_BUTTON} bg-background self-start`}
               >
-                <Camera aria-hidden size={14} />
+                <Camera aria-hidden size={16} />
                 {t('link.allowCamera')}
               </button>
             )}
@@ -214,12 +212,12 @@ export const ScanLinkCode: FC<{ onClose: () => void }> = ({ onClose }) => {
           <Problem title={t('link.linkFailed', { name: asking || t('link.thatDevice') })} />
         )}
         {/* Rust says what to do (scan again, show a new code) in plain words. */}
-        {link.error && <p className="text-muted text-xs">{link.error.message}</p>}
+        {link.error && <p className="text-muted text-sm">{link.error.message}</p>}
         {link.error && (
           <button
             type="button"
             onClick={() => link.reset()}
-            className={`${BUTTON} bg-background self-start`}
+            className={`${TAP_BUTTON} bg-background self-start`}
           >
             {t('link.scanAgain')}
           </button>
@@ -239,12 +237,12 @@ export const ScanLinkCode: FC<{ onClose: () => void }> = ({ onClose }) => {
           <button
             type="submit"
             disabled={!pasted.trim() || link.isPending}
-            className={`${BUTTON} bg-primary text-background`}
+            className={`${TAP_BUTTON} bg-primary text-background`}
           >
             {t('link.link')}
           </button>
         </form>
-        {wrongCode && <p className="text-primary text-xs">{t('link.notACode')}</p>}
+        {wrongCode && <p className="text-primary text-sm">{t('link.notACode')}</p>}
       </div>
       {network.sheet}
     </Sheet>

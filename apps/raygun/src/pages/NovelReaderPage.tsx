@@ -35,10 +35,12 @@ import { useReaderDisplay } from '../manga/readerDisplay';
 import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
 import {
   DEFAULT_PREFS,
+  INDENT,
   LINE_SPACING,
   NOVEL,
   TEXT_SIZE,
   blockAt,
+  indentStyle,
   novelChapterQuery,
   saveNovelProgress,
   speechParagraphs,
@@ -95,8 +97,8 @@ const Block: FC<{
   block: TextBlock;
   index: number;
   active: boolean;
-  /** Paragraphs start their first line further in (M46.10). */
-  indent: boolean;
+  /** How far paragraphs start their first line in (M46.10), in tenths of an em; 0 = none. */
+  indent: number;
   /** Lines run to both edges, words hyphenated. */
   justify: boolean;
   register: (index: number, element: HTMLElement | null) => void;
@@ -136,7 +138,7 @@ const Block: FC<{
           data-block={index}
           aria-current={active || undefined}
           style={{
-            ...(indent ? { textIndent: '2em' } : {}),
+            ...indentStyle(indent),
             ...(justify ? { textAlign: 'justify', hyphens: 'auto' } : {}),
           }}
           className={`mb-[0.9em] ${highlight}`}
@@ -244,14 +246,14 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
           {t('novel.wide')}
         </Choice>
       </div>
-      <div className="flex gap-2">
-        <Choice pressed={!prefs.indent} onClick={() => set({ indent: false })}>
-          {t('novel.noIndent')}
-        </Choice>
-        <Choice pressed={prefs.indent ?? false} onClick={() => set({ indent: true })}>
-          {t('novel.indent')}
-        </Choice>
-      </div>
+      <SizeField
+        title={t('novel.indent')}
+        unit="em"
+        {...INDENT}
+        factor={0.1}
+        value={prefs.indent ?? 0}
+        onChange={(indent) => set({ indent })}
+      />
       <div className="flex gap-2">
         <Choice pressed={!prefs.justify} onClick={() => set({ justify: false })}>
           {t('novel.alignStart')}
@@ -721,7 +723,7 @@ const ChapterView: FC<{
       block={block}
       index={index}
       active={index === speaking}
-      indent={prefs.indent ?? false}
+      indent={prefs.indent ?? 0}
       justify={prefs.justify ?? false}
       register={register}
     />

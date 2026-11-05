@@ -21,15 +21,15 @@ import { Problem } from '../settings/Problem';
 import { useRemoteStatus } from '../settings/remoteQueries';
 import { Sheet } from '../shell/Sheet';
 import { AudioOutputs } from './AudioOutputs';
+import { TAP_BUTTON, TAP_ICON, TAP_NAME, TAP_NOTE, TAP_ROW } from './tapTargets';
 import { useSyncStatus } from './useDeviceSync';
 
-const ROW = 'flex items-center gap-3 rounded-xl px-2 py-2.5';
-const HEADING = 'text-muted px-2 pt-3 text-xs font-semibold tracking-wide uppercase';
+const HEADING = 'text-muted px-3 pt-4 pb-1 text-sm font-semibold';
 
 const DeviceIcon: FC<{ kind: string; className?: string; size?: number }> = ({
   kind,
   className = '',
-  size = 20,
+  size = 24,
 }) =>
   kind === 'phone' ? (
     <Smartphone aria-hidden size={size} className={className} />
@@ -68,7 +68,7 @@ export const ConnectButton: FC<{ className?: string }> = ({ className = '' }) =>
         <Sheet
           title={t('connect.title')}
           anchor={anchor}
-          popoverWidth={360}
+          popoverWidth={400}
           onClose={() => setAnchor(null)}
         >
           <ConnectSheet onClose={() => setAnchor(null)} />
@@ -111,17 +111,17 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
 
   return (
     <div data-testid="connect-sheet" className="-mx-2 flex flex-col gap-1">
-      <div className={`${ROW} bg-primary/10`}>
+      <div data-testid="connect-current" className={`${TAP_ROW} bg-primary/10`}>
         {session ? (
-          <DeviceIcon kind={session.deviceKind} size={22} className="text-primary" />
+          <DeviceIcon kind={session.deviceKind} className="text-primary shrink-0" />
         ) : (
-          <DeviceIcon kind={phone ? 'phone' : 'computer'} size={22} className="text-primary" />
+          <DeviceIcon kind={phone ? 'phone' : 'computer'} className="text-primary shrink-0" />
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-primary truncate font-semibold">
+          <p className="text-primary truncate text-base font-semibold">
             {session ? session.deviceName : status?.thisDevice || t('connect.thisDevice')}
           </p>
-          <p className="text-muted text-xs">
+          <p className="text-muted text-sm">
             {session ? t('connect.playingThere') : t('connect.playingHere')}
           </p>
         </div>
@@ -130,7 +130,7 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
             type="button"
             disabled={busy}
             onClick={() => disconnect.mutate(false)}
-            className="hover:bg-background rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+            className={`${TAP_BUTTON} hover:bg-background`}
           >
             {t('connect.disconnect')}
           </button>
@@ -140,21 +140,19 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
       {!session && <AudioOutputs />}
 
       <h3 className={HEADING}>{t('connect.selectDevice')}</h3>
-      <ul data-testid="connect-devices" className="flex flex-col">
+      <ul data-testid="connect-devices" className="flex flex-col gap-0.5">
         {session && (
           <li>
             <button
               type="button"
               disabled={busy}
               onClick={() => disconnect.mutate(true)}
-              className={`${ROW} hover:bg-background w-full text-left disabled:opacity-50`}
+              className={`${TAP_ROW} hover:bg-background disabled:opacity-50`}
             >
-              <DeviceIcon kind={phone ? 'phone' : 'computer'} className="text-muted" />
+              <DeviceIcon kind={phone ? 'phone' : 'computer'} className="text-muted shrink-0" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">
-                  {status?.thisDevice || t('connect.thisDevice')}
-                </span>
-                <span className="text-muted block text-xs">{t('connect.playHere')}</span>
+                <span className={TAP_NAME}>{status?.thisDevice || t('connect.thisDevice')}</span>
+                <span className={TAP_NOTE}>{t('connect.playHere')}</span>
               </span>
             </button>
           </li>
@@ -170,36 +168,39 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
                 aria-current={active ? 'true' : undefined}
                 disabled={busy || active}
                 onClick={() => play(device)}
-                className={`${ROW} hover:bg-background min-w-0 flex-1 text-left disabled:cursor-default`}
+                className={`${TAP_ROW} hover:bg-background min-w-0 flex-1 disabled:cursor-default`}
               >
                 {active ? (
-                  <Volume2 aria-hidden size={20} className="text-primary" />
+                  <Volume2 aria-hidden size={24} className="text-primary shrink-0" />
                 ) : (
                   <DeviceIcon
                     kind={device.kind}
-                    className={device.found && device.paired ? '' : 'text-muted'}
+                    className={`shrink-0 ${device.found && device.paired ? '' : 'text-muted'}`}
                   />
                 )}
                 <span className="min-w-0 flex-1">
-                  <span
-                    className={`block truncate text-sm font-medium ${active ? 'text-primary' : ''}`}
-                  >
+                  <span className={`${TAP_NAME} ${active ? 'text-primary' : ''}`}>
                     {device.name}
                   </span>
-                  <span className="text-muted block text-xs">{deviceNote(device)}</span>
+                  <span className={TAP_NOTE}>{deviceNote(device)}</span>
                 </span>
                 {asking && (
-                  <LoaderCircle aria-hidden size={16} className="text-muted animate-spin" />
+                  <LoaderCircle
+                    aria-hidden
+                    size={20}
+                    className="text-muted shrink-0 animate-spin"
+                  />
                 )}
               </button>
               {device.paired && !active && (
                 <button
                   type="button"
                   aria-label={t('connect.forget', { name: device.name })}
+                  title={t('connect.forget', { name: device.name })}
                   onClick={() => forget.mutate(device.id)}
-                  className="text-muted hover:text-foreground grid size-8 shrink-0 place-items-center rounded-full"
+                  className={`${TAP_ICON} text-muted hover:text-foreground hover:bg-background`}
                 >
-                  <X aria-hidden size={14} />
+                  <X aria-hidden size={20} />
                 </button>
               )}
             </li>
@@ -207,17 +208,17 @@ const ConnectSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
         })}
       </ul>
       {devices.isSuccess && others.length === 0 && (
-        <p className="text-muted px-2 py-1 text-sm">{t('connect.noDevices')}</p>
+        <p className="text-muted px-3 py-2 text-sm">{t('connect.noDevices')}</p>
       )}
-      {error && <Problem title={errorTitle} detail={error} className="mx-2" />}
+      {error && <Problem title={errorTitle} detail={error} className="mx-3" />}
       <AllowHere />
       {/* Linking and syncing are one place (M46.43). */}
       <Link
         to="/settings/devices"
         onClick={onClose}
-        className={`${ROW} hover:bg-background text-sm`}
+        className={`${TAP_ROW} hover:bg-background text-base`}
       >
-        <QrCode aria-hidden size={20} className="text-muted" />
+        <QrCode aria-hidden size={24} className="text-muted shrink-0" />
         {t('connect.manage')}
       </Link>
       {network.sheet}
@@ -245,33 +246,37 @@ const AllowHere: FC = () => {
   const network = useLocalNetworkGate('remote');
   const enabled = (remote.data?.enabled ?? false) && (sync.data?.enabled ?? false);
   return (
-    <div className="flex flex-col gap-1 px-2 py-2">
-      <div className="flex items-center justify-between gap-3">
-        <span id="connect-allow" className="text-sm">
+    <div className="flex flex-col gap-1 pt-1">
+      {/* The whole row toggles it, like a settings switch. */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-labelledby="connect-allow"
+        disabled={!remote.data || !sync.data || setEnabled.isPending || network.checking}
+        onClick={() => {
+          if (enabled) setEnabled.mutate(false);
+          else void network.guard(null, () => setEnabled.mutate(true));
+        }}
+        className={`${TAP_ROW} hover:bg-background justify-between disabled:opacity-60`}
+      >
+        <span id="connect-allow" className="min-w-0 flex-1 text-base">
           {t('connect.allowHere')}
         </span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          aria-labelledby="connect-allow"
-          disabled={!remote.data || !sync.data || setEnabled.isPending || network.checking}
-          onClick={() => {
-            if (enabled) setEnabled.mutate(false);
-            else void network.guard(null, () => setEnabled.mutate(true));
-          }}
-          className={`relative h-6 w-10 shrink-0 rounded-full transition-colors disabled:opacity-60 ${enabled ? 'bg-primary' : 'bg-background'}`}
+        <span
+          aria-hidden
+          className={`relative h-8 w-13 shrink-0 rounded-full border-2 transition-colors ${enabled ? 'bg-primary border-primary' : 'bg-surface border-muted/50'}`}
         >
           <span
-            aria-hidden
-            className={`bg-foreground absolute top-1 size-4 rounded-full transition-all ${enabled ? 'left-5' : 'left-1'}`}
+            className={`absolute top-1/2 -translate-y-1/2 rounded-full transition-all ${enabled ? 'bg-background left-[1.375rem] size-6' : 'bg-muted left-1.5 size-4'}`}
           />
-        </button>
-      </div>
+        </span>
+      </button>
       {(setEnabled.error ?? remote.data?.error) && (
         <Problem
           title={t('link.shareFailed')}
           detail={setEnabled.error?.message ?? remote.data?.error}
+          className="mx-3"
         />
       )}
       {network.sheet}

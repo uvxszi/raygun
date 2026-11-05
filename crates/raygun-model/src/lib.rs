@@ -1633,9 +1633,11 @@ pub struct NovelReaderPrefs {
     /// Reading-aloud speed in tenths, 5–20 (0.5×–2×).
     #[serde(default = "normal_rate")]
     pub tts_rate: u32,
-    /// The first line of each paragraph starts further in, as in printed books (M46.10).
+    /// How far the first line of each paragraph starts in, as in printed books (M46.10), in
+    /// tenths of an em (the text's size), within [`NOVEL_INDENTS`]; 0 = none. Older versions
+    /// stored a switch, which loading settings reads as [`NOVEL_INDENT_SWITCHED_ON`] when on.
     #[serde(default)]
-    pub indent: bool,
+    pub indent: u32,
     #[serde(default)]
     pub theme: NovelTheme,
     /// Lines run to both edges, words hyphenated.
@@ -1648,6 +1650,12 @@ pub struct NovelReaderPrefs {
 
 /// Novel text sizes offered, in CSS pixels more or less than the screen's own (M46.48).
 pub const NOVEL_TEXT_SIZES: std::ops::RangeInclusive<i32> = -6..=12;
+
+/// Paragraph indents offered, in tenths of an em: none to 4 em.
+pub const NOVEL_INDENTS: std::ops::RangeInclusive<u32> = 0..=40;
+
+/// The indent of the old on/off switch (2 em), which a stored `true` becomes.
+pub const NOVEL_INDENT_SWITCHED_ON: u32 = 20;
 
 fn normal_rate() -> u32 {
     10
@@ -1666,7 +1674,7 @@ impl Default for NovelReaderPrefs {
             width: NovelWidth::Narrow,
             paged: false,
             tts_rate: 10,
-            indent: false,
+            indent: 0,
             theme: NovelTheme::App,
             justify: false,
             keep_screen_on: true,
@@ -2502,6 +2510,8 @@ impl SettingChange {
                     Err("That line spacing isn't offered".into())
                 } else if !(5..=20).contains(&prefs.tts_rate) {
                     Err("That reading speed isn't offered".into())
+                } else if !NOVEL_INDENTS.contains(&prefs.indent) {
+                    Err("That paragraph indent isn't offered".into())
                 } else {
                     Ok(())
                 }
@@ -7125,4 +7135,35 @@ pub struct VideoDownloadItem {
 pub struct VideoDownloads {
     pub paused: bool,
     pub items: Vec<VideoDownloadItem>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_indent_is_saved_as_an_amount_and_checked() {
+        let prefs = NovelReaderPrefs {
+            indent: 15,
+            ..NovelReaderPrefs::default()
+        };
+        let json = serde_json::to_value(prefs).unwrap();
+        assert_eq!(json["indent"], 15);
+        assert_eq!(
+            serde_json::from_value::<NovelReaderPrefs>(json).unwrap(),
+            prefs
+        );
+        assert!(SettingChange::NovelReader(prefs).validate().is_ok());
+        let beyond = NovelReaderPrefs {
+            indent: 41,
+            ..prefs
+        };
+        assert!(SettingChange::NovelReader(beyond).validate().is_err());
+        // A row without one has none.
+        let missing: NovelReaderPrefs = serde_json::from_str(
+            r#"{"lineSpacing":16,"font":"serif","width":"narrow","paged":false}"#,
+        )
+        .unwrap();
+        assert_eq!(missing.indent, 0);
+    }
 }

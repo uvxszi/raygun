@@ -3733,8 +3733,12 @@ export type NovelReaderPrefs = {
 	paged: boolean,
 	/**  Reading-aloud speed in tenths, 5–20 (0.5×–2×). */
 	ttsRate?: number,
-	/**  The first line of each paragraph starts further in, as in printed books (M46.10). */
-	indent?: boolean,
+	/**
+	 *  How far the first line of each paragraph starts in, as in printed books (M46.10), in
+	 *  tenths of an em (the text's size), within [`NOVEL_INDENTS`]; 0 = none. Older versions
+	 *  stored a switch, which loading settings reads as [`NOVEL_INDENT_SWITCHED_ON`] when on.
+	 */
+	indent?: number,
 	theme?: NovelTheme,
 	/**  Lines run to both edges, words hyphenated. */
 	justify?: boolean,

@@ -2,7 +2,7 @@ import { useRouterState } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import type { FC } from 'react';
 
-import { REVEAL_ATTRIBUTE, REVEAL_WAIT_MS, matchesReveal, useRevealStore } from '../music/reveal';
+import { REVEAL_ATTRIBUTE, matchesReveal, revealWait, useRevealStore } from '../music/reveal';
 
 /** How long the found row stays marked. */
 const FLASH_MS = 2_000;
@@ -58,7 +58,7 @@ export const RevealHost: FC = () => {
     };
     if (!find()) {
       observer.observe(document.body, { childList: true, subtree: true });
-      giveUp = setTimeout(finish, REVEAL_WAIT_MS);
+      giveUp = setTimeout(finish, revealWait(target));
     }
     return () => {
       observer.disconnect();

@@ -12,9 +12,9 @@ export const PlayingOn: FC<{ className?: string }> = ({ className = '' }) => {
   return (
     <p
       data-testid="playing-on"
-      className={`bg-primary text-background flex items-center gap-1.5 px-4 py-1 text-xs font-semibold ${className}`}
+      className={`bg-primary text-background flex items-center gap-2 px-4 py-1.5 text-sm font-semibold ${className}`}
     >
-      <MonitorSpeaker aria-hidden size={14} className="shrink-0" />
+      <MonitorSpeaker aria-hidden size={16} className="shrink-0" />
       <span className="truncate">{t('connect.playingOn', { name: session.deviceName })}</span>
     </p>
   );

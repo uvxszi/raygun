@@ -1248,6 +1248,14 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /** A notification that opens a screen when tapped (see Notices). */
+    @Command
+    fun notice(invoke: Invoke) {
+        val notice = JSONObject(invoke.getArgs().toString())
+        main.post { Notices.show(activity.applicationContext, notice) }
+        invoke.resolve()
+    }
+
     /** A tapped notification: the screen it opens, and a button pressed on it. */
     private fun takeOpenExtras(intent: Intent?) {
         val extras = intent ?: return

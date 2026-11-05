@@ -2,7 +2,8 @@
 //! and quick access (M46.41); the bell beside Follow turns on alerts for new releases, checked in
 //! the background about once a day through the music sources' discographies (M46.36). A release
 //! the artist didn't have at the last check is announced once (a system notification and
-//! `ArtistReleasesEvent`) and listed in Updates → Releases.
+//! `ArtistReleasesEvent`) and listed in Updates → Releases. Tapping the notification opens the
+//! release: an album over its artist's page, a single or an EP marked on the artist's page.
 //!
 //! Kept on this device (`local_meta`): the follows with what each artist's releases were at the
 //! last check, and the latest news.
@@ -64,6 +65,47 @@ fn same(left: &str, right: &str) -> bool {
 
 fn release_key(album: &raygun_model::MusicAlbum) -> String {
     format!("{}/{}", album.provider.id, album.id)
+}
+
+/// A route's path with its search, encoded as a URL's query.
+fn route(path: &str, search: &[(&str, &str)]) -> String {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    for (key, value) in search {
+        query.append_pair(key, value);
+    }
+    format!("{path}?{}", query.finish())
+}
+
+/// What tapping a release's notification opens: an album's page over its artist's (Back leads
+/// there); a single, an EP or another kind of release on the artist's page, marked in the
+/// discography (`reveal`: the UI's `releaseReveal` names each release's tile that way).
+fn release_route(artist: &str, album: &raygun_model::MusicAlbum) -> String {
+    use raygun_model::ReleaseKind;
+    let reveal = format!("release:{}", release_key(album));
+    match album.kind {
+        Some(ReleaseKind::Single | ReleaseKind::Ep | ReleaseKind::Other) => {
+            route("/artist", &[("name", artist), ("reveal", &reveal)])
+        }
+        Some(ReleaseKind::Album | ReleaseKind::Compilation | ReleaseKind::Live) | None => format!(
+            "{}\n{}",
+            route("/artist", &[("name", artist)]),
+            route(
+                "/music/album",
+                &[("provider", &album.provider.id), ("id", &album.id)]
+            ),
+        ),
+    }
+}
+
+/// The notification for a release found: it opens the release when tapped.
+fn release_notice(item: &ArtistReleaseNews) -> crate::notifications::Notice {
+    crate::notifications::Notice {
+        id: crate::notifications::notice_id(&release_key(&item.album)),
+        channel: &crate::notifications::RELEASES,
+        title: format!("New from {}", item.artist),
+        text: item.album.title.clone(),
+        route: release_route(&item.artist, &item.album),
+    }
 }
 
 /// Releases in `found` that weren't `seen`, from this year or later (old ones that only now
@@ -282,16 +324,7 @@ impl ArtistFollows {
             let _ = raygun_db::set_local_value(&self.db(), NEWS, &json).await;
         }
         for item in &fresh {
-            let builder = self
-                .app
-                .notification()
-                .builder()
-                .title(format!("New from {}", item.artist))
-                .body(item.album.title.clone());
-            // Raygun's mark (the `raygun-audio` plugin's drawable), not Android's info icon.
-            #[cfg(target_os = "android")]
-            let builder = builder.icon("ic_stat_raygun");
-            let _ = builder.show();
+            crate::notifications::show_notice(&self.app, release_notice(item)).await;
         }
         let _ = ArtistReleasesEvent.emit(&self.app);
     }
@@ -332,6 +365,58 @@ mod tests {
             track_count: None,
             kind: None,
         }
+    }
+
+    #[test]
+    fn a_release_notification_opens_the_album_over_its_artist() {
+        let item = ArtistReleaseNews {
+            artist: "Nina Simone & Friends".into(),
+            album: raygun_model::MusicAlbum {
+                kind: Some(raygun_model::ReleaseKind::Album),
+                ..album("a/1", Some(2026))
+            },
+            found_at: 0.0,
+        };
+        let notice = release_notice(&item);
+        assert_eq!(notice.title, "New from Nina Simone & Friends");
+        assert_eq!(notice.text, "a/1");
+        assert_eq!(notice.channel.id, crate::notifications::RELEASES.id);
+        // The artist's page first, the album over it; names and ids are encoded.
+        assert_eq!(
+            notice.route,
+            "/artist?name=Nina+Simone+%26+Friends\n/music/album?provider=dz&id=a%2F1"
+        );
+        // A release of no known kind is an album, as in the discography.
+        let unknown = raygun_model::MusicAlbum {
+            kind: None,
+            ..item.album.clone()
+        };
+        assert!(release_route("Nina", &unknown).contains("\n/music/album?"));
+    }
+
+    #[test]
+    fn a_single_opens_its_artist_with_the_single_marked() {
+        for kind in [
+            raygun_model::ReleaseKind::Single,
+            raygun_model::ReleaseKind::Ep,
+        ] {
+            let single = raygun_model::MusicAlbum {
+                kind: Some(kind),
+                ..album("s1", Some(2026))
+            };
+            assert_eq!(
+                release_route("Nina Simone", &single),
+                "/artist?name=Nina+Simone&reveal=release%3Adz%2Fs1"
+            );
+        }
+    }
+
+    #[test]
+    fn each_release_keeps_its_own_notification() {
+        let first = crate::notifications::notice_id("dz/1");
+        assert_eq!(first, crate::notifications::notice_id("dz/1"));
+        assert_ne!(first, crate::notifications::notice_id("dz/2"));
+        assert!(first >= 0 && crate::notifications::notice_id("") >= 0);
     }
 
     #[test]

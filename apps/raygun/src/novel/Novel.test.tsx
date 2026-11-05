@@ -348,6 +348,45 @@ describe('Novels', () => {
     });
   });
 
+  it('indents paragraphs by the amount set, none at 0', async () => {
+    const user = userEvent.setup();
+    commands.novelChapter.mockResolvedValue(ok(CHAPTER));
+    commands.settingsUpdate.mockImplementation((change: { value: unknown }) =>
+      Promise.resolve(ok({ ...DEFAULT_SETTINGS, novelReader: change.value })),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    const paragraph = await within(reader).findByText('It was a dreary night of Nov');
+    expect(paragraph.style.textIndent).toBe('');
+
+    await user.click(within(reader).getByRole('button', { name: 'Text settings' }));
+    const panel = within(reader).getByRole('dialog', { name: 'Text settings' });
+    const indent = within(panel).getByRole('spinbutton', { name: 'Paragraph indent' });
+    expect(indent).toHaveValue(0);
+    expect(within(panel).getByRole('slider', { name: 'Paragraph indent' })).toBeInTheDocument();
+    // Typed in em, kept in tenths.
+    await user.clear(indent);
+    await user.type(indent, '1.5{Enter}');
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'novelReader',
+      value: { ...DEFAULT_SETTINGS.novelReader, indent: 15 },
+    });
+    await vi.waitFor(() =>
+      expect(within(reader).getByText('It was a dreary night of Nov').style.textIndent).toBe(
+        '1.5em',
+      ),
+    );
+
+    await user.click(within(panel).getByRole('button', { name: 'Reset Paragraph indent' }));
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'novelReader',
+      value: { ...DEFAULT_SETTINGS.novelReader, indent: 0 },
+    });
+    await vi.waitFor(() =>
+      expect(within(reader).getByText('It was a dreary night of Nov').style.textIndent).toBe(''),
+    );
+  });
+
   it('turns pages with taps in paged mode', async () => {
     commands.settingsGet.mockResolvedValue(
       ok({ ...DEFAULT_SETTINGS, novelReader: { ...DEFAULT_SETTINGS.novelReader, paged: true } }),

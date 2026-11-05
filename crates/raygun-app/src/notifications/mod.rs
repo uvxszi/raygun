@@ -54,6 +54,75 @@ const ALL_KINDS: [Kind; 10] = [
     Kind::Extensions,
 ];
 
+/// Where a [`Notice`] goes on Android: its channel, which people can mute on its own.
+pub struct NoticeChannel {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
+/// Followed artists' new releases (M46.42).
+pub const RELEASES: NoticeChannel = NoticeChannel {
+    id: "raygun.releases",
+    name: "New releases",
+    description: "Releases from artists you follow",
+};
+
+/// A notification besides the downloads' own that opens a screen when tapped.
+pub struct Notice {
+    /// Tells it from the others of its channel: the same id replaces the one shown.
+    pub id: i32,
+    pub channel: &'static NoticeChannel,
+    pub title: String,
+    pub text: String,
+    /// What a tap opens (see [`DownloadNotices::open`]).
+    pub route: String,
+}
+
+impl Notice {
+    /// What the `raygun-audio` plugin shows on Android.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "channel": self.channel.id,
+            "channelName": self.channel.name,
+            "channelDescription": self.channel.description,
+            "title": self.title,
+            "text": self.text,
+            "route": self.route,
+        })
+    }
+}
+
+/// A notification id for `key` that stays the same across runs (FNV-1a), never negative.
+pub fn notice_id(key: &str) -> i32 {
+    let hash = key.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    });
+    (hash & 0x7fff_ffff) as i32
+}
+
+/// Shows `notice`: on Android through the `raygun-audio` plugin, whose tap brings the route back
+/// through [`DownloadNotices::open`]; elsewhere as a system notification carrying the route,
+/// which a click opens while it's on screen.
+pub async fn show_notice(app: &AppHandle, notice: Notice) {
+    if let Err(error) = platform::notice(app, &notice).await {
+        tracing::debug!(%error, title = %notice.title, "couldn't show a notification");
+    }
+}
+
+/// The route a click on a desktop notification opens: the one it carries, if it was a click on
+/// the notification itself.
+#[cfg_attr(target_os = "android", allow(dead_code))]
+fn tapped_route(performed: &tauri_plugin_notification::ActionPerformed) -> Option<String> {
+    if performed.action_id() != "tap" {
+        return None;
+    }
+    let route = performed.notification()?.extra().get("route")?.as_str()?;
+    (!route.is_empty()).then(|| route.to_owned())
+}
+
 /// Follows every download for its notifications.
 pub struct DownloadNotices {
     app: AppHandle,
@@ -163,8 +232,8 @@ impl DownloadNotices {
         self.wake.notify_one();
     }
 
-    /// A tapped notification's screen.
-    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    /// A tapped notification's screen. Routes on separate lines open one over another, and a
+    /// `reveal` in a route's search names the row to show there (the UI's `useNotificationRoutes`).
     pub fn open(&self, route: String) {
         *self.route.lock().expect("route poisoned") = Some(route.clone());
         if let Err(error) = OpenRouteEvent(route).emit(&self.app) {
@@ -1003,16 +1072,49 @@ mod platform {
             tracing::warn!(%error, "download notifications didn't show");
         }
     }
+
+    pub async fn notice(app: &AppHandle, notice: &super::Notice) -> Result<(), String> {
+        let value = notice.to_json();
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .notice(&value)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
 }
 
 #[cfg(not(target_os = "android"))]
 mod platform {
+    use std::sync::Arc;
+
     use tauri::{AppHandle, Manager};
     use tauri_plugin_notification::NotificationExt;
 
+    use super::DownloadNotices;
     use super::model::{Finished, Plan};
 
-    pub fn install(_app: &AppHandle) {}
+    /// A click on a notification that carries a route opens it, with Raygun's window in front.
+    pub fn install(app: &AppHandle) {
+        let handle = app.clone();
+        let listening = app.notification().on_action(move |performed| {
+            let Some(route) = super::tapped_route(performed) else {
+                return;
+            };
+            if let Some(window) = handle.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            if let Some(notices) = handle.try_state::<Arc<DownloadNotices>>() {
+                notices.open(route);
+            }
+        });
+        if let Err(error) = listening {
+            tracing::debug!(%error, "clicks on notifications won't open anything");
+        }
+    }
 
     /// Only a batch's end, and only while Raygun's window isn't in front.
     pub async fn show(app: &AppHandle, _plan: &Plan, finished: Option<&Finished>) {
@@ -1031,10 +1133,22 @@ mod platform {
             .builder()
             .title(&finished.title)
             .body(&finished.text)
+            .extra("route", &finished.route)
             .show()
         {
             tracing::debug!(%error, "couldn't tell that downloads ended");
         }
+    }
+
+    pub async fn notice(app: &AppHandle, notice: &super::Notice) -> Result<(), String> {
+        app.notification()
+            .builder()
+            .id(notice.id)
+            .title(&notice.title)
+            .body(&notice.text)
+            .extra("route", &notice.route)
+            .show()
+            .map_err(|error| error.to_string())
     }
 }
 

@@ -12,6 +12,7 @@ import { menuHandler, useAlbumMenuItems } from './cardMenus';
 import { Sheet } from '../shell/Sheet';
 import { RELEASE_SORTS, readReleaseSorts, saveReleaseSorts, sortReleases } from './releaseSort';
 import type { ReleaseSort } from './releaseSort';
+import { releaseReveal, useRevealIndex } from './reveal';
 
 /** The chips of an artist's discography (M46.36), in Spotify's order; singles and EPs share one. */
 type Shelf = 'all' | 'album' | 'single' | 'compilation' | 'live' | 'other';
@@ -45,7 +46,8 @@ const useArtistReleases = (name: string) =>
 /**
  * An artist's discography (M46.36): albums, singles and EPs, compilations and live albums from
  * the music sources (Deezer, MusicBrainz), picked with chips. Each chip has its own sort
- * (M46.45: newest, oldest, title, most songs), remembered on this device.
+ * (M46.45: newest, oldest, title, most songs), remembered on this device. A release asked for
+ * (a new single's notification) is shown wherever it is: on its chip, past Show all.
  */
 export const Discography: FC<{ name: string; title: string }> = ({ name, title }) => {
   const { t } = useTranslation();
@@ -55,6 +57,11 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
   const [all, setAll] = useState(false);
   const [sorts, setSorts] = useState(readReleaseSorts);
   const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
+  const list: MusicAlbum[] = releases.data ?? [];
+  const wantedAt = useRevealIndex(list, releaseReveal);
+  const wanted = wantedAt >= 0 ? list[wantedAt] : undefined;
+  // On a chip that doesn't hold it, back to All, which holds every release.
+  if (wanted && shelf !== 'all' && shelfOf(wanted.kind) !== shelf) setShelf('all');
   const sort: ReleaseSort = sorts[shelf] ?? 'newest';
   const pickSort = (next: ReleaseSort) => {
     const saved = { ...sorts, [shelf]: next };
@@ -73,7 +80,6 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
       </section>
     );
   }
-  const list: MusicAlbum[] = releases.data ?? [];
   if (list.length === 0) return null;
   const counts = new Map<Shelf, number>();
   for (const release of list) {
@@ -85,6 +91,7 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
     list.filter((release) => shelf === 'all' || shelfOf(release.kind) === shelf),
     sort,
   );
+  if (wanted && !all && shown.indexOf(wanted) >= SHOWN) setAll(true);
   const chip = (on: boolean) =>
     `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
   return (
@@ -150,7 +157,7 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
       )}
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
         {(all ? shown : shown.slice(0, SHOWN)).map((release) => (
-          <li key={`${release.provider.id}:${release.id}`}>
+          <li key={`${release.provider.id}:${release.id}`} data-reveal={releaseReveal(release)}>
             <AlbumTile
               album={release}
               onMenu={menuHandler(() => menu(release))}
