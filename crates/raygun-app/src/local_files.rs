@@ -3,22 +3,32 @@
 //! folder of images) and books (EPUB) are imported as they are from uploads, and videos become
 //! titles of the source `local.video` in Library → Videos, played from where they are.
 //!
-//! On Android a folder comes from the system picker. Songs and videos are read by path, which
-//! the media permissions allow, and comics and books through the picker's grant (the plugin
-//! lists the folder and opens each file), because Rust can't open `content://`.
+//! Each folder says how it's read (M46.51, [`FolderAccess`]):
+//! - by path: a desktop folder, or (Android) one chosen in Raygun's own folder browser over
+//!   shared storage, because Android's picker refuses the storage's top, Download and
+//!   Android/data. With the media permissions Android shows songs, videos and pictures there;
+//!   with access to all files (optional) every file, books and comic archives too.
+//! - through the system picker's grant (Android: SD cards, USB drives, cloud folders): the plugin
+//!   lists the folder and opens each comic, book and picture, because Rust can't open
+//!   `content://`; songs and videos are read by path, which the media permissions allow.
+//! - Raygun's own Added files folder: songs and videos added one by one with Add files, copied
+//!   in (comics and books added that way are imported at once).
 //!
 //! A scan reports how far it got, remembers files that couldn't be added (they're tried again
 //! only when they change or the scan is asked for), and leaves everything as it was when the
-//! folder can't be opened (an unplugged drive, a moved folder, a lost grant).
+//! folder can't be opened (an unplugged drive, a moved folder, a lost grant or permission).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use raygun_db::local_folders::{self as store, FileRow};
+use raygun_db::local_folders::{self as store, FileRow, FolderAccess, NewFolder};
 use raygun_db::titles::{self, TitleFields, UnitFields};
-use raygun_model::{LocalCounts, LocalFolder, LocalScanProgress};
+use raygun_model::{
+    LocalAddFailure, LocalBrowse, LocalBrowseCrumb, LocalBrowseFolder, LocalCounts,
+    LocalFilesAdded, LocalFolder, LocalFolderAccess, LocalScanProgress, LocalStorageView,
+};
 use raygun_resolver::video_match;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -38,6 +48,26 @@ const MAX_COMIC_PAGES: usize = 1_500;
 const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 /// What a file that isn't anything Raygun reads is kept as, so it isn't looked at again.
 const SKIPPED: &str = "skipped";
+/// Raygun's own folder of songs and videos added one by one, in its downloads.
+const ADDED_DIR: &str = "added";
+const ADDED_NAME: &str = "Added files";
+/// The folder browser stops counting a folder's files after this many entries…
+const COUNT_ENTRIES: usize = 25_000;
+/// …and every folder's after this long.
+const COUNT_TIME: Duration = Duration::from_secs(2);
+/// What the system's file picker offers for Add files. Providers name comic archives in many
+/// ways (or not at all), hence the plain binary type.
+const PICK_TYPES: &[&str] = &[
+    "audio/*",
+    "video/*",
+    "image/*",
+    "application/epub+zip",
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/vnd.comicbook+zip",
+    "application/x-cbz",
+    "application/octet-stream",
+];
 
 const SONGS: &[&str] = &[
     "mp3", "flac", "m4a", "aac", "ogg", "oga", "opus", "wav", "wma", "aiff",
@@ -99,6 +129,244 @@ fn kind_of(name: &str) -> Option<Kind> {
     } else {
         None
     }
+}
+
+/// Every extension [`kind_of`] knows.
+fn extensions() -> Vec<&'static str> {
+    [SONGS, VIDEOS, IMAGES, &["cbz", "zip", "epub"]].concat()
+}
+
+/// A picked file's name with an extension Raygun knows: some providers name files without one,
+/// and then the type they give says what it is.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn named_for_kind(name: &str, mime: Option<&str>) -> String {
+    if kind_of(name).is_some() {
+        return name.to_owned();
+    }
+    let extension = match mime.unwrap_or_default().to_ascii_lowercase().as_str() {
+        "application/epub+zip" => "epub",
+        "application/vnd.comicbook+zip" | "application/x-cbz" => "cbz",
+        "application/zip" | "application/x-zip-compressed" => "zip",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/flac" | "audio/x-flac" => "flac",
+        "audio/mp4" | "audio/x-m4a" | "audio/m4a" => "m4a",
+        "audio/aac" => "aac",
+        "audio/ogg" => "ogg",
+        "audio/opus" => "opus",
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+        "video/mp4" => "mp4",
+        "video/x-matroska" => "mkv",
+        "video/webm" => "webm",
+        "video/quicktime" => "mov",
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/avif" => "avif",
+        _ => return name.to_owned(),
+    };
+    format!("{name}.{extension}")
+}
+
+fn access_of(access: FolderAccess) -> LocalFolderAccess {
+    match access {
+        FolderAccess::Path => LocalFolderAccess::Path,
+        FolderAccess::Tree => LocalFolderAccess::Tree,
+        FolderAccess::Added => LocalFolderAccess::Added,
+    }
+}
+
+fn path_string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+/// `path` as a folder inside `root` (or `root` itself), when it is one: absolute, without `.` or
+/// `..` steps, and under `root` component by component.
+fn inside(root: &Path, path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|step| matches!(step, Component::CurDir | Component::ParentDir))
+    {
+        return None;
+    }
+    let clean: PathBuf = path.components().collect();
+    clean.starts_with(root).then_some(clean)
+}
+
+/// The folders from below `root` down to `folder`, for the browser's trail.
+fn crumbs(root: &Path, folder: &Path) -> Vec<LocalBrowseCrumb> {
+    let Ok(below) = folder.strip_prefix(root) else {
+        return Vec::new();
+    };
+    let mut path = root.to_path_buf();
+    below
+        .components()
+        .map(|step| {
+            path.push(step);
+            LocalBrowseCrumb {
+                name: step.as_os_str().to_string_lossy().into_owned(),
+                path: path_string(&path),
+            }
+        })
+        .collect()
+}
+
+/// Until when the folder browser goes on counting files.
+struct Budget {
+    until: Instant,
+}
+
+impl Budget {
+    fn new(time: Duration) -> Self {
+        Self {
+            until: Instant::now() + time,
+        }
+    }
+
+    fn spent(&self) -> bool {
+        Instant::now() >= self.until
+    }
+}
+
+/// The files Raygun reads under `dir`, hidden folders left out (as [`walk`] leaves them);
+/// `None` when there were more than `entries` to look at or the time ran out.
+fn count_items(dir: &Path, entries: usize, budget: &Budget) -> Option<u32> {
+    let mut count = 0u32;
+    let mut seen = 0usize;
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(listing) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in listing.filter_map(Result::ok) {
+            seen += 1;
+            if seen > entries || (seen.is_multiple_of(256) && budget.spent()) {
+                return None;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => pending.push(entry.path()),
+                Ok(kind) if kind.is_file() && kind_of(&name).is_some() => count += 1,
+                _ => {}
+            }
+        }
+    }
+    Some(count)
+}
+
+/// A folder as the browser shows it when every file reads by path: its folders holding anything
+/// Raygun reads (or too many files to count in time), by name, and the files right in it. `None`
+/// when it can't be read.
+fn list_folders(
+    dir: &Path,
+    entries: usize,
+    budget: &Budget,
+) -> Option<(Vec<LocalBrowseFolder>, u32)> {
+    let listing = std::fs::read_dir(dir).ok()?;
+    let mut folders = Vec::new();
+    let mut items = 0;
+    for entry in listing.filter_map(Result::ok) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => folders.push((name, entry.path())),
+            Ok(kind) if kind.is_file() && kind_of(&name).is_some() => items += 1,
+            _ => {}
+        }
+    }
+    folders.sort_by(|(a, _), (b, _)| by_name(a, b));
+    let folders = folders
+        .into_iter()
+        .map(|(name, path)| LocalBrowseFolder {
+            // Once the time is spent, the rest go uncounted.
+            items: if budget.spent() {
+                None
+            } else {
+                count_items(&path, entries, budget)
+            },
+            path: path_string(&path),
+            name,
+        })
+        .filter(|folder| folder.items != Some(0))
+        .collect();
+    Some((folders, items))
+}
+
+fn by_name(a: &str, b: &str) -> std::cmp::Ordering {
+    crate::comics::natural_cmp(&a.to_lowercase(), &b.to_lowercase())
+}
+
+/// A name for pictures added together as one comic: what their names share, without the page
+/// number they differ in ("Chapter 5 - 001.jpg", "Chapter 5 - 002.jpg": "Chapter 5"; "Saga
+/// p01.png", "Saga p02.png": "Saga"). One picture keeps its own name.
+fn pictures_name(names: &[&str]) -> String {
+    const PAGE_WORDS: &[&str] = &["p", "pg", "page", "pages", "img", "image", "scan"];
+    let separators = |c: char| c.is_whitespace() || matches!(c, '-' | '_' | '.' | '#' | '(' | '[');
+    let stems: Vec<String> = names.iter().map(|name| stem(name)).collect();
+    let Some(first) = stems.first() else {
+        return "Pictures".into();
+    };
+    let shared = stems[1..]
+        .iter()
+        .fold(first.chars().count(), |shared, other| {
+            shared.min(
+                first
+                    .chars()
+                    .zip(other.chars())
+                    .take_while(|(a, b)| a == b)
+                    .count(),
+            )
+        });
+    let mut name: String = first.chars().take(shared).collect();
+    if stems.len() > 1 {
+        // The start of the page number, then a page marker before it.
+        name = name
+            .trim_end_matches(|c: char| c.is_ascii_digit())
+            .trim_end_matches(separators)
+            .to_owned();
+        if let Some((before, word)) = name.rsplit_once(|c: char| !c.is_alphanumeric())
+            && PAGE_WORDS.contains(&word.to_lowercase().as_str())
+        {
+            name = before.trim_end_matches(separators).to_owned();
+        }
+    }
+    let name = name.trim();
+    if name.chars().count() < 2 || PAGE_WORDS.contains(&name.to_lowercase().as_str()) {
+        "Pictures".into()
+    } else {
+        name.to_owned()
+    }
+}
+
+/// Where a copy of an added file goes in `dir`: its own name, or `name (2).ext`… when another
+/// file has it. `Ok(None)` when the same file (by name and size) is there already.
+fn copy_target(dir: &Path, name: &str, size: u64) -> Option<Option<PathBuf>> {
+    let safe = crate::export::names::safe_name(name);
+    let (stem, extension) = safe
+        .rsplit_once('.')
+        .map_or((safe.as_str(), None), |(stem, extension)| {
+            (stem, Some(extension))
+        });
+    for attempt in 1..1000 {
+        let candidate = match (attempt, extension) {
+            (1, _) => safe.clone(),
+            (n, Some(extension)) => format!("{stem} ({n}).{extension}"),
+            (n, None) => format!("{stem} ({n})"),
+        };
+        let path = dir.join(&candidate);
+        match std::fs::metadata(&path) {
+            Ok(meta) if size > 0 && meta.len() == size => return Some(None),
+            Ok(_) => continue,
+            Err(_) => return Some(Some(path)),
+        }
+    }
+    None
 }
 
 /// A file found in a folder.
@@ -440,6 +708,49 @@ fn is_comic_folder(dir: &str, pages: &[&Found], media_dirs: &HashSet<&str>) -> b
     photos * 2 < pages.len()
 }
 
+/// What a scan does with a folder's files, however they were listed.
+struct Survey<'a> {
+    /// Songs, which the music library reads from the folder.
+    songs: u32,
+    /// Videos, grouped into titles.
+    videos: Vec<&'a Found>,
+    /// Comic and book files to import.
+    files: Vec<(&'a Found, Kind)>,
+    /// Folders of pictures that are comic chapters, by their path inside the folder.
+    page_dirs: Vec<(&'a str, Vec<&'a Found>)>,
+}
+
+fn survey(found: &[Found]) -> Survey<'_> {
+    let mut survey = Survey {
+        songs: 0,
+        videos: Vec::new(),
+        files: Vec::new(),
+        page_dirs: Vec::new(),
+    };
+    let mut media_dirs: HashSet<&str> = HashSet::new();
+    let mut image_dirs: BTreeMap<&str, Vec<&Found>> = BTreeMap::new();
+    for file in found {
+        match kind_of(&file.rel) {
+            Some(Kind::Song) => {
+                survey.songs += 1;
+                media_dirs.insert(parent(&file.rel));
+            }
+            Some(Kind::Video) => {
+                survey.videos.push(file);
+                media_dirs.insert(parent(&file.rel));
+            }
+            Some(kind @ (Kind::Comic | Kind::Book)) => survey.files.push((file, kind)),
+            Some(Kind::Image) => image_dirs.entry(parent(&file.rel)).or_default().push(file),
+            None => {}
+        }
+    }
+    survey.page_dirs = image_dirs
+        .into_iter()
+        .filter(|(dir, pages)| is_comic_folder(dir, pages, &media_dirs))
+        .collect();
+    survey
+}
+
 /// Whether songs and videos listed through the picker open by path: Android lets Raygun read
 /// them only with the media permissions.
 fn readable_by_path(base: &str, found: &[Found]) -> bool {
@@ -479,6 +790,21 @@ struct Counts {
     missing: bool,
 }
 
+/// What Raygun may read of the storage a folder is on.
+#[derive(Debug, Clone)]
+struct Storage {
+    /// Where the folder browser starts: shared storage's top (Android), the home folder (desktop).
+    root: PathBuf,
+    view: LocalStorageView,
+    can_allow_all_files: bool,
+}
+
+/// Comic archives and books that weren't listed because Android hides them without access to
+/// all files: as they were at the last scan, not gone.
+fn hidden_archive(rel: &str, row: &FileRow) -> bool {
+    !rel.ends_with('/') && matches!(row.kind.as_str(), "comic" | "book" | SKIPPED)
+}
+
 /// What became of a comic or book file (or a folder of pages) at an earlier scan.
 enum Earlier {
     /// It's new or changed, or failed before and the scan was asked for.
@@ -504,6 +830,9 @@ fn earlier(known: Option<&FileRow>, size: i64, modified: i64, retry_failed: bool
 pub struct LocalFilesService {
     app: AppHandle,
     scanning: Mutex<HashSet<String>>,
+    /// Folders asked to be scanned while a scan of them ran: scanned once more after it (trying
+    /// failed files again when one of the asks said so).
+    again: Mutex<HashMap<String, bool>>,
     /// How far each running scan got.
     progress: Mutex<HashMap<String, LocalScanProgress>>,
     /// Folders being removed: their scans stop at the next file.
@@ -517,6 +846,7 @@ impl LocalFilesService {
         Arc::new(Self {
             app,
             scanning: Mutex::new(HashSet::new()),
+            again: Mutex::new(HashMap::new()),
             progress: Mutex::new(HashMap::new()),
             cancelled: Mutex::new(HashSet::new()),
             turns: Mutex::new(HashMap::new()),
@@ -565,6 +895,7 @@ impl LocalFilesService {
                     progress: progress.get(&row.id).copied(),
                     needs_access: counts.needs_access,
                     missing: counts.missing,
+                    access: access_of(row.access),
                     id: row.id,
                     name: row.name,
                     location: row.path.unwrap_or(row.location),
@@ -582,33 +913,395 @@ impl LocalFilesService {
             .collect())
     }
 
-    /// Adds a folder the user picks and scans it. `None` when they cancelled.
+    /// Adds a folder the user picks in the system's picker (Android's folder picker, a desktop's
+    /// folder dialog) and scans it. `None` when they cancelled.
     pub async fn add(self: &Arc<Self>) -> Result<Option<Vec<LocalFolder>>, String> {
         let picked = crate::commands::pick_local_folder(&self.app).await?;
         let Some(location) = picked.uri else {
             return Ok(None);
         };
-        let path = if location.starts_with("content://") {
+        let (path, access) = if location.starts_with("content://") {
             // Songs and videos are read by path, which needs the media permissions; a scan
             // tells when they're missing.
             crate::commands::request_media_access(&self.app).await;
-            tree_path(&location)
+            (tree_path(&location), FolderAccess::Tree)
         } else {
-            Some(location.clone())
+            (Some(location.clone()), FolderAccess::Path)
         };
         let name = picked.name.unwrap_or_else(|| "Folder".into());
         let id = store::add(
             self.db(),
-            &uuid::Uuid::now_v7().to_string(),
-            &location,
-            &name,
-            path.as_deref(),
+            NewFolder {
+                id: &uuid::Uuid::now_v7().to_string(),
+                location: &location,
+                name: &name,
+                path: path.as_deref(),
+                access,
+            },
             now_ms(),
         )
         .await
         .map_err(|error| error.to_string())?;
         self.scan_later(id, true);
         Ok(Some(self.folders().await?))
+    }
+
+    /// Adds a folder chosen in Raygun's own folder browser (M46.51) by its path, and scans it.
+    pub async fn add_path(self: &Arc<Self>, path: &str) -> Result<Vec<LocalFolder>, String> {
+        let storage = self.storage().await?;
+        let folder = inside(&storage.root, Path::new(path))
+            .ok_or_else(|| format!("{path} isn't a folder of this device's storage"))?;
+        if !folder.is_dir() {
+            return Err(format!("{path} is not a folder"));
+        }
+        let location = path_string(&folder);
+        let name = if folder == storage.root {
+            "Internal storage".to_owned()
+        } else {
+            folder.file_name().map_or_else(
+                || location.clone(),
+                |name| name.to_string_lossy().into_owned(),
+            )
+        };
+        let id = store::add(
+            self.db(),
+            NewFolder {
+                id: &uuid::Uuid::now_v7().to_string(),
+                location: &location,
+                name: &name,
+                path: Some(&location),
+                access: FolderAccess::Path,
+            },
+            now_ms(),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        self.scan_later(id, true);
+        self.folders().await
+    }
+
+    /// A folder of the device's storage for the folder browser (M46.51): its top when `path` is
+    /// `None`. With access to all files it's read by path; with the media permissions only, as
+    /// MediaStore lists it.
+    pub async fn browse(&self, path: Option<&str>) -> Result<LocalBrowse, String> {
+        let storage = self.storage().await?;
+        let folder = match path.filter(|path| !path.is_empty()) {
+            Some(path) => inside(&storage.root, Path::new(path))
+                .ok_or_else(|| format!("{path} isn't a folder of this device's storage"))?,
+            None => storage.root.clone(),
+        };
+        let (folders, items) = match storage.view {
+            LocalStorageView::AllFiles => {
+                let dir = folder.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    list_folders(&dir, COUNT_ENTRIES, &Budget::new(COUNT_TIME))
+                })
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| format!("{} can't be opened", folder.display()))?
+            }
+            LocalStorageView::Media => self.media_folders(&folder).await?,
+            LocalStorageView::None => (Vec::new(), 0),
+        };
+        let location = path_string(&folder);
+        let added = store::folders(self.db())
+            .await
+            .map_err(|error| error.to_string())?
+            .iter()
+            .any(|row| row.path.as_deref() == Some(location.as_str()));
+        Ok(LocalBrowse {
+            name: folder
+                .file_name()
+                .filter(|_| folder != storage.root)
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            trail: crumbs(&storage.root, &folder),
+            path: location,
+            folders,
+            items,
+            view: storage.view,
+            can_allow_all_files: storage.can_allow_all_files,
+            added,
+        })
+    }
+
+    /// A folder's folders and files as MediaStore lists them (Android, media permissions only).
+    #[cfg(target_os = "android")]
+    async fn media_folders(&self, folder: &Path) -> Result<(Vec<LocalBrowseFolder>, u32), String> {
+        let app = self.app.clone();
+        let path = path_string(folder);
+        let listing = tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .browse_media(&path, &extensions())
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        let mut folders: Vec<LocalBrowseFolder> = listing
+            .folders
+            .into_iter()
+            .filter(|found| found.items > 0)
+            .map(|found| LocalBrowseFolder {
+                path: path_string(&folder.join(&found.name)),
+                name: found.name,
+                items: Some(found.items),
+            })
+            .collect();
+        folders.sort_by(|a, b| by_name(&a.name, &b.name));
+        Ok((folders, listing.items))
+    }
+
+    #[cfg(not(target_os = "android"))]
+    async fn media_folders(&self, _folder: &Path) -> Result<(Vec<LocalBrowseFolder>, u32), String> {
+        Err("MediaStore is Android's".into())
+    }
+
+    /// What Raygun may read of the device's storage.
+    #[cfg(target_os = "android")]
+    async fn storage(&self) -> Result<Storage, String> {
+        let app = self.app.clone();
+        let access = tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .storage_access()
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        Ok(Storage {
+            root: PathBuf::from(access.root),
+            view: if access.all_files {
+                LocalStorageView::AllFiles
+            } else if access.media {
+                LocalStorageView::Media
+            } else {
+                LocalStorageView::None
+            },
+            can_allow_all_files: access.can_ask_all_files && !access.all_files,
+        })
+    }
+
+    /// Desktop: every file reads by path, and the browser starts in the home folder.
+    #[cfg(not(target_os = "android"))]
+    async fn storage(&self) -> Result<Storage, String> {
+        let root = raygun_paths::user_home().ok_or("This device has no home folder")?;
+        Ok(Storage {
+            root,
+            view: LocalStorageView::AllFiles,
+            can_allow_all_files: false,
+        })
+    }
+
+    /// Raygun's own folder for songs and videos added one by one.
+    fn added_dir(&self) -> PathBuf {
+        self.app
+            .state::<crate::startup::AppPaths>()
+            .0
+            .downloads()
+            .join(ADDED_DIR)
+    }
+
+    /// The Added files folder, made the first time: its id and where it is.
+    async fn added_folder(&self) -> Result<(String, PathBuf), String> {
+        let dir = self.added_dir();
+        std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+        let location = path_string(&dir);
+        let id = store::add(
+            self.db(),
+            NewFolder {
+                id: &uuid::Uuid::now_v7().to_string(),
+                location: &location,
+                name: ADDED_NAME,
+                path: Some(&location),
+                access: FolderAccess::Added,
+            },
+            now_ms(),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        Ok((id, dir))
+    }
+
+    /// Files the user picks in the system's file picker. Empty when they cancelled.
+    #[cfg(target_os = "android")]
+    async fn pick_files(&self) -> Result<Vec<Found>, String> {
+        let app = self.app.clone();
+        let picked = tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .pick_documents(PICK_TYPES)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        Ok(picked
+            .into_iter()
+            .map(|file| Found {
+                rel: named_for_kind(&file.name, file.mime.as_deref()),
+                size: file.size,
+                modified: 0,
+                open: Opener::Document(file.uri),
+            })
+            .collect())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    async fn pick_files(&self) -> Result<Vec<Found>, String> {
+        let _ = PICK_TYPES;
+        let picked = rfd::AsyncFileDialog::new()
+            .set_title("Add files to Local Files")
+            .add_filter("Songs, videos, comics, books and pictures", &extensions())
+            .pick_files()
+            .await
+            .unwrap_or_default();
+        Ok(picked
+            .into_iter()
+            .map(|file| {
+                let path = file.path().to_path_buf();
+                let meta = std::fs::metadata(&path).ok();
+                Found {
+                    rel: file.file_name(),
+                    size: meta.as_ref().map_or(0, |meta| meta.len() as i64),
+                    modified: meta
+                        .and_then(|meta| meta.modified().ok())
+                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map_or(0, |elapsed| elapsed.as_millis() as i64),
+                    open: Opener::Path(path),
+                }
+            })
+            .collect())
+    }
+
+    /// Add files (M46.51): files picked one by one, from anywhere. Comics and books are imported
+    /// (pictures picked together become one comic), and songs and videos copied into the Added
+    /// files folder, which is scanned like any other. `None` when the user cancelled.
+    pub async fn add_files(self: &Arc<Self>) -> Result<Option<LocalFilesAdded>, String> {
+        let picked = self.pick_files().await?;
+        if picked.is_empty() {
+            return Ok(None);
+        }
+        let manga = self.app.state::<crate::manga::MangaService>();
+        let novels = self.app.state::<crate::novel::NovelService>();
+        let mut added = LocalFilesAdded {
+            songs: 0,
+            videos: 0,
+            comics: 0,
+            books: 0,
+            failed: Vec::new(),
+            folders: Vec::new(),
+        };
+        let mut failed = |name: &str, error: String| {
+            tracing::info!(%error, file = %name, "couldn't add a picked file");
+            added.failed.push(LocalAddFailure {
+                name: name.to_owned(),
+                error,
+            });
+        };
+        let mut pictures = Vec::new();
+        let mut media = Vec::new();
+        let (mut comics, mut books) = (0, 0);
+        for file in &picked {
+            match kind_of(&file.rel) {
+                Some(Kind::Comic) => match self.import_comic(&manga, file).await {
+                    Ok(Some(_)) => comics += 1,
+                    Ok(None) => failed(&file.rel, "This archive holds no pictures".into()),
+                    Err(error) => failed(&file.rel, error),
+                },
+                Some(Kind::Book) => match self.import_book(&novels, file).await {
+                    Ok(_) => books += 1,
+                    Err(error) => failed(&file.rel, error),
+                },
+                Some(Kind::Image) => pictures.push(file),
+                Some(Kind::Song | Kind::Video) => media.push(file),
+                None => failed(
+                    &file.rel,
+                    "Raygun doesn't play or read this kind of file".into(),
+                ),
+            }
+        }
+        if !pictures.is_empty() {
+            pictures.sort_by(|a, b| crate::comics::natural_cmp(&a.rel, &b.rel));
+            let names: Vec<&str> = pictures.iter().map(|file| file.rel.as_str()).collect();
+            let name = format!("{}.cbz", pictures_name(&names));
+            match self.import_pages(&manga, &name, pictures).await {
+                Ok(_) => comics += 1,
+                Err(error) => failed(&name, error),
+            }
+        }
+        let (mut songs, mut videos) = (0, 0);
+        let folder = if media.is_empty() {
+            None
+        } else {
+            Some(self.added_folder().await)
+        };
+        match folder {
+            None => {}
+            Some(Ok((id, dir))) => {
+                for file in media {
+                    let service = self.clone();
+                    let (copy, target) = (file.clone(), dir.clone());
+                    let copied = tauri::async_runtime::spawn_blocking(move || {
+                        service.copy_in(&copy, &target)
+                    })
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result);
+                    match copied {
+                        Ok(()) if kind_of(&file.rel) == Some(Kind::Song) => songs += 1,
+                        Ok(()) => videos += 1,
+                        Err(error) => failed(&file.rel, error),
+                    }
+                }
+                self.scan_later(id, false);
+            }
+            Some(Err(error)) => {
+                for file in media {
+                    failed(&file.rel, error.clone());
+                }
+            }
+        }
+        added.comics = comics;
+        added.books = books;
+        added.songs = songs;
+        added.videos = videos;
+        added.folders = self.folders().await?;
+        Ok(Some(added))
+    }
+
+    /// Copies a picked song or video into the Added files folder (a file already there stays).
+    fn copy_in(&self, file: &Found, dir: &Path) -> Result<(), String> {
+        let Some(target) = copy_target(dir, &file.rel, file.size.max(0) as u64)
+            .ok_or_else(|| format!("{} has too many copies already", file.rel))?
+        else {
+            return Ok(());
+        };
+        // Written aside first, so a scan never finds half a file.
+        let partial = target.with_file_name(format!(
+            "{}.part",
+            target
+                .file_name()
+                .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
+        ));
+        let result = (|| {
+            let mut input = self.open(file)?;
+            let mut output = std::fs::File::create(&partial).map_err(|error| error.to_string())?;
+            std::io::copy(&mut input, &mut output).map_err(|error| error.to_string())?;
+            std::fs::rename(&partial, &target).map_err(|error| error.to_string())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&partial);
+        }
+        result
+    }
+
+    /// Media access or access to all files changed (M46.51): folders read by path, and those
+    /// that waited for access, are scanned again for what shows now.
+    pub async fn access_changed(self: &Arc<Self>) -> Result<(), String> {
+        for folder in store::folders(self.db())
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            let counts: Counts = serde_json::from_str(&folder.counts).unwrap_or_default();
+            if folder.access == FolderAccess::Path || counts.needs_access {
+                self.scan_later(folder.id, false);
+            }
+        }
+        Ok(())
     }
 
     /// Forgets a folder: its songs leave the music library and its videos the video library.
@@ -618,6 +1311,10 @@ impl LocalFilesService {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .insert(id.to_owned());
+        self.again
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(id);
         let turn = self.turn(id);
         let result = {
             let _turn = turn.lock().await;
@@ -663,6 +1360,15 @@ impl LocalFilesService {
                 }
             }
             self.release_grant(&folder.location).await;
+            // Added files are Raygun's own copies: they go with their folder.
+            let added = self.added_dir();
+            if folder.access == FolderAccess::Added
+                && Path::new(&folder.location).starts_with(&added)
+            {
+                let _ =
+                    tauri::async_runtime::spawn_blocking(move || std::fs::remove_dir_all(added))
+                        .await;
+            }
         }
         store::remove(db, id)
             .await
@@ -742,29 +1448,50 @@ impl LocalFilesService {
     }
 
     pub fn scan_later(self: &Arc<Self>, id: String, retry_failed: bool) {
-        if !self
-            .scanning
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(id.clone())
         {
-            return;
+            let mut scanning = self.scanning.lock().unwrap_or_else(|p| p.into_inner());
+            if !scanning.insert(id.clone()) {
+                // A scan of it is running: once more after it, for what changed meanwhile
+                // (files added while it listed).
+                *self
+                    .again
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .entry(id)
+                    .or_default() |= retry_failed;
+                return;
+            }
         }
         self.changed(&id);
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
             let turn = service.turn(&id);
-            {
-                let _turn = turn.lock().await;
-                if let Err(error) = service.scan(&id, retry_failed).await {
-                    tracing::warn!(%error, "local folder scan failed");
+            let mut retry_failed = retry_failed;
+            loop {
+                {
+                    let _turn = turn.lock().await;
+                    if let Err(error) = service.scan(&id, retry_failed).await {
+                        tracing::warn!(%error, "local folder scan failed");
+                    }
+                }
+                // Decided under the scanning lock, so an ask made now is never lost.
+                let again = {
+                    let mut scanning = service.scanning.lock().unwrap_or_else(|p| p.into_inner());
+                    let again = service
+                        .again
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .remove(&id);
+                    if again.is_none() {
+                        scanning.remove(&id);
+                    }
+                    again
+                };
+                match again {
+                    Some(retry) => retry_failed = retry,
+                    None => break,
                 }
             }
-            service
-                .scanning
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .remove(&id);
             service
                 .progress
                 .lock()
@@ -780,10 +1507,11 @@ impl LocalFilesService {
         }
     }
 
-    /// The folder's files, or an error when it can't be opened.
+    /// The folder's files, or an error when it can't be opened: through the picker's grant for a
+    /// tree, else by path.
     async fn list(&self, folder: &store::FolderRow) -> Result<Vec<Found>, String> {
         #[cfg(target_os = "android")]
-        if folder.location.starts_with("content://") {
+        if folder.access == FolderAccess::Tree {
             let app = self.app.clone();
             let location = folder.location.clone();
             let base = folder.path.clone();
@@ -873,6 +1601,25 @@ impl LocalFilesService {
         let known = store::files(db, id)
             .await
             .map_err(|error| error.to_string())?;
+        // A folder read by path on Android shows what the permissions let Raygun see: nothing
+        // without media access (its files aren't gone, so everything stays as it was), and none
+        // of other apps' books and archives without access to all files.
+        let mut hidden_archives = false;
+        if cfg!(target_os = "android") && folder.access == FolderAccess::Path {
+            match self.storage().await.map(|storage| storage.view) {
+                Ok(LocalStorageView::None) => {
+                    let mut counts: Counts =
+                        serde_json::from_str(&folder.counts).unwrap_or_default();
+                    counts.needs_access = true;
+                    let json = serde_json::to_string(&counts).unwrap_or_else(|_| "{}".into());
+                    return store::set_counts(db, id, &json)
+                        .await
+                        .map_err(|error| error.to_string());
+                }
+                Ok(LocalStorageView::Media) => hidden_archives = true,
+                Ok(LocalStorageView::AllFiles) | Err(_) => {}
+            }
+        }
         let found = match self.list(&folder).await {
             Ok(found) => found,
             Err(error) => {
@@ -891,18 +1638,20 @@ impl LocalFilesService {
         }
         let mut counts = Counts::default();
         let mut seen = HashSet::new();
+        let Survey {
+            songs,
+            videos,
+            files,
+            page_dirs,
+        } = survey(&found);
 
         // Songs: the folder is one of the music library's roots, which scans them. Without a
         // path (a cloud folder), songs and videos can't play from it.
-        let songs = found
-            .iter()
-            .filter(|file| kind_of(&file.rel) == Some(Kind::Song))
-            .count() as u32;
         match &folder.path {
             Some(path) => {
                 counts.songs = songs;
                 counts.needs_access =
-                    folder.location.starts_with("content://") && !readable_by_path(path, &found);
+                    folder.access == FolderAccess::Tree && !readable_by_path(path, &found);
                 if songs > 0 {
                     raygun_db::local_music::add_root(db, path)
                         .await
@@ -913,38 +1662,11 @@ impl LocalFilesService {
                 }
             }
             None => {
-                counts.unplayable = songs
-                    + found
-                        .iter()
-                        .filter(|file| kind_of(&file.rel) == Some(Kind::Video))
-                        .count() as u32;
+                counts.unplayable = songs + videos.len() as u32;
             }
         }
 
         // What to import: comic and book files, and folders of pages.
-        let files: Vec<(&Found, Kind)> = found
-            .iter()
-            .filter_map(|file| match kind_of(&file.rel) {
-                Some(kind @ (Kind::Comic | Kind::Book)) => Some((file, kind)),
-                _ => None,
-            })
-            .collect();
-        let media_dirs: HashSet<&str> = found
-            .iter()
-            .filter(|file| matches!(kind_of(&file.rel), Some(Kind::Song | Kind::Video)))
-            .map(|file| parent(&file.rel))
-            .collect();
-        let mut image_dirs: BTreeMap<&str, Vec<&Found>> = BTreeMap::new();
-        for file in found
-            .iter()
-            .filter(|file| kind_of(&file.rel) == Some(Kind::Image))
-        {
-            image_dirs.entry(parent(&file.rel)).or_default().push(file);
-        }
-        let page_dirs: Vec<(&str, Vec<&Found>)> = image_dirs
-            .into_iter()
-            .filter(|(dir, pages)| is_comic_folder(dir, pages, &media_dirs))
-            .collect();
         let total = files
             .iter()
             .filter(|(file, _)| {
@@ -1072,7 +1794,7 @@ impl LocalFilesService {
         // Videos: a folder of episodes is a series; a lone file a movie.
         if folder.path.is_some() {
             counts.videos = self
-                .store_videos(&folder, &found, &known, &mut seen)
+                .store_videos(&folder, videos, &known, &mut seen)
                 .await?;
         }
 
@@ -1087,6 +1809,15 @@ impl LocalFilesService {
                 gone_titles.insert(item.clone());
             }
             if seen.contains(rel) {
+                continue;
+            }
+            if hidden_archives && hidden_archive(rel, row) {
+                match (&row.item, row.kind.as_str()) {
+                    (Some(_), "comic") => counts.comics += 1,
+                    (Some(_), _) => counts.books += 1,
+                    (None, SKIPPED) => {}
+                    (None, _) => counts.failed += 1,
+                }
                 continue;
             }
             let _ = store::delete_file(db, id, rel).await;
@@ -1236,17 +1967,13 @@ impl LocalFilesService {
     async fn store_videos(
         &self,
         folder: &store::FolderRow,
-        found: &[Found],
+        mut files: Vec<&Found>,
         known: &HashMap<String, FileRow>,
         seen: &mut HashSet<String>,
     ) -> Result<u32, String> {
         let db = self.db();
         let now = now_ms();
         let mut count = 0;
-        let mut files: Vec<&Found> = found
-            .iter()
-            .filter(|file| kind_of(&file.rel) == Some(Kind::Video))
-            .collect();
         // Videos as they were at the last scan are left as they are, so a title taken out of
         // the library stays out.
         let known_videos = known.values().filter(|row| row.kind == "video").count();
@@ -1769,6 +2496,222 @@ mod tests {
         })
         .unwrap();
         assert!(json.contains(r#""needsAccess":true"#));
+    }
+
+    fn touch(path: &Path, bytes: &[u8]) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn the_browser_stays_inside_the_storage() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        let download = root.join("Download");
+        assert_eq!(inside(root, &download), Some(download.clone()));
+        assert_eq!(inside(root, root), Some(root.to_path_buf()));
+        assert_eq!(inside(root, &download.join("..").join("..")), None);
+        assert_eq!(inside(root, Path::new("Download")), None, "relative");
+        assert_eq!(
+            inside(&root.join("Music"), &root.join("Musical")),
+            None,
+            "a neighbour whose name starts the same"
+        );
+
+        let trail = crumbs(root, &download.join("Shows"));
+        let names: Vec<&str> = trail.iter().map(|crumb| crumb.name.as_str()).collect();
+        assert_eq!(names, ["Download", "Shows"]);
+        assert_eq!(trail[1].path, path_string(&download.join("Shows")));
+        assert!(crumbs(root, root).is_empty(), "the top has no steps");
+    }
+
+    #[test]
+    fn the_browser_lists_folders_with_what_they_hold() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        touch(&root.join("Download/Book.epub"), b"x");
+        touch(&root.join("Download/Saga 01.cbz"), b"x");
+        touch(&root.join("Download/notes.txt"), b"x");
+        touch(&root.join("Download/Shows/S01E01.mkv"), b"x");
+        touch(&root.join("music/Album/1.mp3"), b"x");
+        touch(&root.join("music/Album/2.flac"), b"x");
+        touch(&root.join("Documents/report.pdf"), b"x");
+        touch(&root.join(".thumbnails/a.jpg"), b"x");
+        std::fs::create_dir_all(root.join("Alarms")).unwrap();
+        touch(&root.join("song.mp3"), b"x");
+
+        let time = Budget::new(Duration::from_secs(30));
+        let (folders, items) = list_folders(root, COUNT_ENTRIES, &time).unwrap();
+        let listed: Vec<(&str, Option<u32>)> = folders
+            .iter()
+            .map(|folder| (folder.name.as_str(), folder.items))
+            .collect();
+        // By name whatever the case; nothing Raygun reads, hidden or empty: not shown.
+        assert_eq!(listed, [("Download", Some(3)), ("music", Some(2))]);
+        assert_eq!(items, 1, "the song right at the top");
+        assert_eq!(folders[0].path, path_string(&root.join("Download")));
+
+        // Too many files to count: shown, without a number.
+        let (folders, _) = list_folders(root, 2, &time).unwrap();
+        assert!(folders.iter().any(|folder| folder.items.is_none()));
+        // Out of time: the rest aren't counted.
+        let (folders, _) = list_folders(root, COUNT_ENTRIES, &Budget::new(Duration::ZERO)).unwrap();
+        assert!(folders.iter().all(|folder| folder.items.is_none()));
+        assert!(list_folders(&root.join("gone"), COUNT_ENTRIES, &time).is_none());
+    }
+
+    /// A folder chosen in the browser (a phone's Download, say) is walked by path and sorted like
+    /// a picked one: songs and videos stay where they are, comics and books are imported.
+    #[test]
+    fn a_folder_read_by_path_scans_like_a_picked_one() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        for name in [
+            "Book.epub",
+            "Saga 01.cbz",
+            "pages.zip",
+            "Show/Show S01E01.mkv",
+            "Show/Show S01E02.mkv",
+            "Chapter 1/001.jpg",
+            "Chapter 1/002.jpg",
+            "Chapter 1/003.jpg",
+            "DCIM/Camera/IMG_1.jpg",
+            "DCIM/Camera/IMG_2.jpg",
+            "DCIM/Camera/IMG_3.jpg",
+            "Album/1.mp3",
+            "Album/cover.jpg",
+            "Album/back.jpg",
+            "Album/cd.jpg",
+            ".hidden/x.mp3",
+        ] {
+            touch(&root.join(name), b"x");
+        }
+        let found = walk(root).unwrap();
+        let Survey {
+            songs,
+            videos,
+            files,
+            page_dirs,
+        } = survey(&found);
+        assert_eq!(songs, 1, "hidden folders are left out");
+        let mut imports: Vec<(&str, Kind)> = files
+            .iter()
+            .map(|(file, kind)| (file.rel.as_str(), *kind))
+            .collect();
+        imports.sort_by_key(|(rel, _)| *rel);
+        assert_eq!(
+            imports,
+            [
+                ("Book.epub", Kind::Book),
+                ("Saga 01.cbz", Kind::Comic),
+                ("pages.zip", Kind::Comic)
+            ]
+        );
+        let chapters: Vec<(&str, usize)> = page_dirs
+            .iter()
+            .map(|(dir, pages)| (*dir, pages.len()))
+            .collect();
+        assert_eq!(
+            chapters,
+            [("Chapter 1", 3)],
+            "photos and an album's artwork aren't comics"
+        );
+        let mut rels: Vec<&str> = videos.iter().map(|file| file.rel.as_str()).collect();
+        rels.sort_unstable();
+        let titles = group_videos("Download", &rels);
+        assert_eq!(titles.len(), 1);
+        assert!(titles[0].series);
+        assert_eq!(titles[0].episodes.len(), 2);
+        // Every file opens by its path.
+        assert!(
+            found
+                .iter()
+                .all(|file| matches!(&file.open, Opener::Path(path) if path.is_file()))
+        );
+    }
+
+    #[test]
+    fn archives_android_hides_are_not_taken_for_gone() {
+        let row = |kind: &str, item: Option<&str>| FileRow {
+            size: 1,
+            modified: 1,
+            kind: kind.into(),
+            item: item.map(str::to_owned),
+        };
+        assert!(hidden_archive(
+            "Saga.cbz",
+            &row("comic", Some("local.comics:saga"))
+        ));
+        assert!(hidden_archive("Book.epub", &row("book", None)));
+        assert!(hidden_archive("setup.zip", &row(SKIPPED, None)));
+        // Pictures and videos show with the media permissions: when they aren't listed, they're gone.
+        assert!(!hidden_archive(
+            "Chapter 1/",
+            &row("comic", Some("local.comics:c"))
+        ));
+        assert!(!hidden_archive(
+            "Show/S01E01.mkv",
+            &row("video", Some("local.video:x"))
+        ));
+    }
+
+    #[test]
+    fn pictures_added_together_are_named_for_what_they_share() {
+        assert_eq!(
+            pictures_name(&["Chapter 5 - 001.jpg", "Chapter 5 - 002.jpg"]),
+            "Chapter 5"
+        );
+        assert_eq!(pictures_name(&["Saga_p01.png", "Saga_p02.png"]), "Saga");
+        assert_eq!(pictures_name(&["001.jpg", "002.jpg"]), "Pictures");
+        assert_eq!(pictures_name(&["page_01.jpg", "page_02.jpg"]), "Pictures");
+        assert_eq!(pictures_name(&["cat.jpg", "dog.jpg"]), "Pictures");
+        assert_eq!(
+            pictures_name(&["Saga p01.png"]),
+            "Saga p01",
+            "one keeps its name"
+        );
+    }
+
+    #[test]
+    fn added_files_keep_their_names() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let dir = temp.path();
+        assert_eq!(
+            copy_target(dir, "Song.mp3", 10),
+            Some(Some(dir.join("Song.mp3")))
+        );
+        std::fs::write(dir.join("Song.mp3"), [0u8; 10]).unwrap();
+        assert_eq!(
+            copy_target(dir, "Song.mp3", 10),
+            Some(None),
+            "the same file twice is one copy"
+        );
+        assert_eq!(
+            copy_target(dir, "Song.mp3", 11),
+            Some(Some(dir.join("Song (2).mp3"))),
+            "another file of that name"
+        );
+        assert_eq!(
+            copy_target(dir, "a/b:c.mp3", 1),
+            Some(Some(dir.join("a_b_c.mp3")))
+        );
+        assert!(extensions().contains(&"epub") && extensions().contains(&"cbz"));
+    }
+
+    #[test]
+    fn picked_files_without_an_extension_are_named_by_their_type() {
+        assert_eq!(named_for_kind("Song.mp3", Some("audio/flac")), "Song.mp3");
+        assert_eq!(
+            named_for_kind("Dune", Some("application/epub+zip")),
+            "Dune.epub"
+        );
+        assert_eq!(
+            named_for_kind("Saga 01", Some("application/vnd.comicbook+zip")),
+            "Saga 01.cbz"
+        );
+        assert_eq!(named_for_kind("clip", Some("VIDEO/MP4")), "clip.mp4");
+        assert_eq!(named_for_kind("notes", Some("text/plain")), "notes");
+        assert_eq!(named_for_kind("notes", None), "notes");
     }
 
     #[test]

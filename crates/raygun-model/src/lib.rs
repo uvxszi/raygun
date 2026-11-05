@@ -5202,6 +5202,8 @@ pub struct LocalFolder {
     pub name: String,
     /// Its path (or, without one, the address the picker gave).
     pub location: String,
+    /// How Raygun reads it (M46.51).
+    pub access: LocalFolderAccess,
     pub counts: LocalCounts,
     /// Unix ms.
     pub scanned_at: Option<f64>,
@@ -5235,6 +5237,90 @@ pub struct LocalCounts {
 pub struct LocalScanProgress {
     pub done: u32,
     pub total: u32,
+}
+
+/// How Raygun reads a Local Files folder (M46.51).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalFolderAccess {
+    /// By its path: a desktop folder, or one chosen in Raygun's own folder browser (Android).
+    Path,
+    /// Through the grant of Android's system folder picker (SD cards, USB drives, cloud folders).
+    Tree,
+    /// Raygun's own folder of songs and videos added one by one (the copies it keeps).
+    Added,
+}
+
+/// What Local Files' folder browser shows of the phone's storage (M46.51).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalStorageView {
+    /// Every file: access to all files is allowed (or a desktop, where nothing is asked).
+    AllFiles,
+    /// Songs, videos and pictures only: the media permissions. Other apps' books and comic
+    /// archives (EPUB, CBZ, ZIP) stay hidden.
+    Media,
+    /// Nothing until media access is allowed.
+    None,
+}
+
+/// One step of the folder browser's trail, the top first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBrowseCrumb {
+    pub name: String,
+    pub path: String,
+}
+
+/// A folder inside the one shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBrowseFolder {
+    pub name: String,
+    pub path: String,
+    /// Files Raygun plays or reads in it and its folders; `None` when there were too many to
+    /// count in time.
+    pub items: Option<u32>,
+}
+
+/// A folder of the phone's storage in Local Files' folder browser (M46.51).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBrowse {
+    pub path: String,
+    pub name: String,
+    /// From the top of the storage down to this folder.
+    pub trail: Vec<LocalBrowseCrumb>,
+    /// Its folders holding anything Raygun plays or reads, by name.
+    pub folders: Vec<LocalBrowseFolder>,
+    /// Files Raygun plays or reads right in this folder.
+    pub items: u32,
+    pub view: LocalStorageView,
+    /// Android can be asked for access to all files (11 and later).
+    pub can_allow_all_files: bool,
+    /// The folder is in Local Files already.
+    pub added: bool,
+}
+
+/// A file Add files couldn't add, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAddFailure {
+    pub name: String,
+    pub error: String,
+}
+
+/// What Add files added (M46.51): comics and books are imported, songs and videos copied into
+/// Raygun's own Added files folder.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalFilesAdded {
+    pub songs: u32,
+    pub videos: u32,
+    pub comics: u32,
+    pub books: u32,
+    pub failed: Vec<LocalAddFailure>,
+    pub folders: Vec<LocalFolder>,
 }
 
 /// The file type a saved cover image gets (M46.26).
@@ -7353,10 +7439,13 @@ pub enum PermissionKind {
     Notifications,
     /// Running in the background without Android's battery limits.
     Battery,
-    /// Reading the phone's songs and videos (Local Files, the device's music).
+    /// Reading the phone's songs, videos and pictures (Local Files, the device's music).
     Media,
     /// Folders picked in the system's folder picker.
     Folders,
+    /// Optional (Android 11+): reading every file in shared storage, so Local Files' folders
+    /// show other apps' books and comic archives (EPUB, CBZ, ZIP) too (M46.51).
+    AllFiles,
     /// Android 17's local network access.
     LocalNetwork,
     /// Installing Raygun's own updates.

@@ -330,6 +330,9 @@ export const bindingsMock = {
     detailCoverOptions: vi.fn(),
     localFolders: vi.fn(),
     localFolderAdd: vi.fn(),
+    localFolderAddPath: vi.fn(),
+    localFilesBrowse: vi.fn(),
+    localFilesAddFiles: vi.fn(),
     localFolderRemove: vi.fn(),
     localFoldersRescan: vi.fn(),
     localFilesAllowAccess: vi.fn(),
@@ -1045,6 +1048,21 @@ export const seedBindings = () => {
   commands.detailEditSet.mockImplementation(async (_target: unknown, edit: unknown) => ok(edit));
   commands.localFolders.mockResolvedValue(ok([]));
   commands.localFolderAdd.mockResolvedValue(ok(null));
+  commands.localFolderAddPath.mockResolvedValue(ok([]));
+  // The phone's storage, empty, read with the media permissions.
+  commands.localFilesBrowse.mockResolvedValue(
+    ok({
+      path: '/storage/emulated/0',
+      name: '',
+      trail: [],
+      folders: [],
+      items: 0,
+      view: 'media',
+      canAllowAllFiles: true,
+      added: false,
+    }),
+  );
+  commands.localFilesAddFiles.mockResolvedValue(ok(null));
   commands.localFolderRemove.mockResolvedValue(ok([]));
   commands.localFoldersRescan.mockResolvedValue(ok(null));
   commands.localFilesAllowAccess.mockResolvedValue(ok(true));

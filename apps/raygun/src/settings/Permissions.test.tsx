@@ -43,6 +43,19 @@ describe('Settings → Permissions', () => {
     ).toBeInTheDocument();
   });
 
+  it('explains the optional access to all files and opens its page (M46.51)', async () => {
+    const user = userEvent.setup();
+    commands.permissionsList.mockResolvedValue(
+      ok([...ANDROID, { kind: 'allFiles', state: 'denied', count: null }]),
+    );
+    await AppShellWrapper.mount('/settings/permissions');
+    const allFiles = await screen.findByTestId('permission-allFiles');
+    expect(allFiles).toHaveTextContent('All files (optional)');
+    expect(allFiles).toHaveTextContent('EPUB books and CBZ or ZIP comics in any folder');
+    await user.click(within(allFiles).getByRole('button', { name: 'Allow: All files (optional)' }));
+    expect(commands.permissionRequest).toHaveBeenCalledWith('allFiles');
+  });
+
   it('asks Android and shows the answer', async () => {
     const user = userEvent.setup();
     commands.permissionRequest.mockResolvedValue(

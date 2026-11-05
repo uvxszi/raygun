@@ -73,6 +73,7 @@ internal object Permissions {
             } else {
                 appDetails(pkg)
             }
+            "allFiles" -> LocalStorage.allFilesIntents(context).firstOrNull() ?: appDetails(pkg)
             else -> appDetails(pkg)
         }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }

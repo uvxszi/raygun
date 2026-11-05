@@ -1,12 +1,14 @@
 import { commands, events } from '@raygun/bindings';
 import type { LocalFolder } from '@raygun/bindings';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 
 const LOCAL_FOLDERS = ['localFolders'] as const;
+/** Kept apart from the folders, which every step of a scan refreshes. */
+const LOCAL_BROWSE = ['localBrowse'] as const;
 
 /**
  * The libraries a scan adds to: comics, books and videos. Songs refresh with the music library's
@@ -50,15 +52,45 @@ export const useLocalFolders = () => {
   return folders;
 };
 
+/**
+ * A folder of the phone's storage in Local Files' folder browser (M46.51); its top for `null`.
+ * Read again when Raygun comes back to the screen: access may have been allowed meanwhile.
+ */
+export const useLocalBrowse = (path: string | null) =>
+  useQuery({
+    queryKey: [...LOCAL_BROWSE, path],
+    queryFn: () => unwrapResult(commands.localFilesBrowse(path)),
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: true,
+  });
+
 export const useLocalFolderActions = () => {
   const client = useQueryClient();
   const set = (folders: LocalFolder[] | null) => {
     if (folders) client.setQueryData(LOCAL_FOLDERS, folders);
   };
   return {
+    /** The system's folder picker (a desktop's folder dialog). */
     add: useMutation({
       mutationFn: () => unwrapResult(commands.localFolderAdd()),
       onSuccess: set,
+    }),
+    /** A folder chosen in Raygun's own folder browser, by its path. */
+    addPath: useMutation({
+      mutationFn: (path: string) => unwrapResult(commands.localFolderAddPath(path)),
+      onSuccess: (folders) => {
+        set(folders);
+        void client.invalidateQueries({ queryKey: LOCAL_BROWSE });
+      },
+    }),
+    /** Add files: comics and books are imported, songs and videos copied in. */
+    addFiles: useMutation({
+      mutationFn: () => unwrapResult(commands.localFilesAddFiles()),
+      onSuccess: (added) => {
+        if (!added) return;
+        set(added.folders);
+        void refreshLibraries(client);
+      },
     }),
     remove: useMutation({
       mutationFn: (id: string) => unwrapResult(commands.localFolderRemove(id)),

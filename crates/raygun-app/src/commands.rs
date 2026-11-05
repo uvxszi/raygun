@@ -1910,13 +1910,44 @@ pub async fn local_folders(
     local.folders().await
 }
 
-/// Adds a folder the user picks to Local Files and scans it; `None` when they cancelled.
+/// Adds a folder the user picks in the system's picker to Local Files and scans it; `None` when
+/// they cancelled.
 #[tauri::command]
 #[specta::specta]
 pub async fn local_folder_add(
     local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
 ) -> Result<Option<Vec<raygun_model::LocalFolder>>, String> {
     local.inner().add().await
+}
+
+/// Adds a folder chosen in Local Files' own folder browser, by its path, and scans it (M46.51).
+#[tauri::command]
+#[specta::specta]
+pub async fn local_folder_add_path(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+    path: String,
+) -> Result<Vec<raygun_model::LocalFolder>, String> {
+    local.inner().add_path(&path).await
+}
+
+/// A folder of the device's storage for Local Files' folder browser; its top for `None` (M46.51).
+#[tauri::command]
+#[specta::specta]
+pub async fn local_files_browse(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+    path: Option<String>,
+) -> Result<raygun_model::LocalBrowse, String> {
+    local.browse(path.as_deref()).await
+}
+
+/// Add files (M46.51): files picked in the system's file picker, imported or copied in; `None`
+/// when the user cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_files_add_files(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+) -> Result<Option<raygun_model::LocalFilesAdded>, String> {
+    local.inner().add_files().await
 }
 
 /// Takes a folder out of Local Files.

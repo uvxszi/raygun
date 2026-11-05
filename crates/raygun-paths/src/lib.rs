@@ -266,3 +266,9 @@ pub fn user_pictures() -> Option<PathBuf> {
 pub fn user_music() -> Option<PathBuf> {
     dirs::audio_dir()
 }
+
+/// The user's home folder on desktop, where Local Files' folder browser starts (M46.51).
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn user_home() -> Option<PathBuf> {
+    dirs::home_dir()
+}
