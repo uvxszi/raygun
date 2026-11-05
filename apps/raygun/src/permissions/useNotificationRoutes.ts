@@ -4,10 +4,17 @@ import { useEffect } from 'react';
 
 import { usePlayerUiStore } from '../player/playerUiStore';
 
-/** `/downloads?tab=music` as a path and its search. */
-export const splitRoute = (route: string): { to: string; search: Record<string, string> } => {
-  const [to, query = ''] = route.split('?', 2);
-  return { to: to || '/', search: Object.fromEntries(new URLSearchParams(query)) };
+/** `/downloads?tab=music` (or `/settings/ai#transcription`) as a path, its search and its hash. */
+export const splitRoute = (
+  route: string,
+): { to: string; search: Record<string, string>; hash?: string } => {
+  const [address = '', hash] = route.split('#', 2);
+  const [to, query = ''] = address.split('?', 2);
+  return {
+    to: to || '/',
+    search: Object.fromEntries(new URLSearchParams(query)),
+    ...(hash ? { hash } : {}),
+  };
 };
 
 /**
@@ -23,8 +30,8 @@ export const useNotificationRoutes = () => {
         usePlayerUiStore.getState().openSheet();
         return;
       }
-      const { to, search } = splitRoute(route);
-      void navigate({ to, search });
+      const { to, search, hash } = splitRoute(route);
+      void navigate({ to, search, hash });
     };
     let alive = true;
     void commands.notificationRouteTake().then((route) => {

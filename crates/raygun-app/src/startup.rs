@@ -213,6 +213,11 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::lyrics_translation::LyricsTranslations::new(
         app.handle().clone(),
     ));
+    // AI subtitles and translated subtitles in the video player.
+    let video_subtitles =
+        crate::video_subtitles::VideoSubtitles::new(app.handle().clone(), &paths.downloads());
+    video_subtitles.start();
+    app.manage(video_subtitles);
     // Covers from other sources when one's missing or fails (M46.40).
     app.manage(crate::cover_fallback::CoverFallbacks::new(
         app.handle().clone(),

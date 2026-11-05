@@ -10,6 +10,7 @@ import androidx.media3.common.C
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import kotlin.concurrent.thread
 
 /** Colours offered for subtitles in the player, as in Settings (0xAARRGGBB and a label key). */
 private val TEXT_COLORS = listOf(
@@ -167,6 +168,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
 
     fun subtitles() {
         val tracks = host.tracks.list(C.TRACK_TYPE_TEXT)
+        val live = host.liveTracks
         val sheet = PlayerSheet(host, label("subtitles", "Subtitles"))
         // Delay and style come first: they are what is changed most while watching.
         val delay = host.state.subtitleDelayMs
@@ -179,15 +181,19 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             "0" to { host.setSubtitleDelay(0); subtitles() },
         ))
         sheet.row(label("style", "Style")) { style() }
-        val off = host.tracks.textOff()
+        val off = host.tracks.textOff() && live.primary == null
         sheet.row(label("off", "Off"), selected = off) {
+            live.show(null)
             host.tracks.select(C.TRACK_TYPE_TEXT, null)
             host.state.subtitleOff = true
             host.remember(JSONObject().put("subtitle", JSONObject().put("off", true)))
             subtitles()
         }
         tracks.forEachIndexed { index, track ->
-            sheet.row(host.tracks.name(track, index + 1), selected = !off && track.selected) {
+            // The saved AI subtitles while the ones being made show.
+            if (live.hides(track)) return@forEachIndexed
+            sheet.row(host.tracks.name(track, index + 1), selected = !off && live.primary == null && track.selected) {
+                live.show(null)
                 host.tracks.select(C.TRACK_TYPE_TEXT, track)
                 host.state.subtitleOff = false
                 host.state.subtitle = track.choice()
@@ -195,19 +201,29 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 subtitles()
             }
         }
+        live.tracks.values.forEach { track ->
+            sheet.row(liveName(track), liveDetail(track), selected = live.primary == track.id) {
+                live.show(track.id)
+                subtitles()
+            }
+        }
         sheet.row(label("addSubtitleFile", "Add a subtitle file")) {
             sheet.dismiss()
             host.pickSubtitleFile()
         }
+        sheet.row(label("aiTranscribe", "Transcribe with AI"), transcribeDetail()) { transcribe() }
+        sheet.row(label("translate", "Translate subtitles"), translateDetail()) { translate() }
 
         sheet.header(label("secondSubtitles", "Second subtitles"))
         val second = host.second.current
-        sheet.row(label("off", "Off"), selected = second == null) {
+        val secondLive = host.second.liveId
+        sheet.row(label("off", "Off"), selected = second == null && secondLive == null) {
             host.second.clear()
             host.remember(JSONObject().put("secondarySubtitle", JSONObject.NULL))
             subtitles()
         }
         host.sidecars.forEachIndexed { index, sidecar ->
+            if (live.isAiFile(sidecar) && live.tracks.containsKey(LiveSubtitles.AI_TRACK)) return@forEachIndexed
             val name = sidecar.label?.takeIf { !Languages.onlyNames(it, sidecar.language) }
                 ?: languageName(sidecar.language)
                 ?: sidecar.label
@@ -218,7 +234,290 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 subtitles()
             }
         }
+        live.tracks.values.forEach { track ->
+            sheet.row(liveName(track), selected = secondLive == track.id) {
+                host.second.showLive(track.id)
+                subtitles()
+            }
+        }
 
+        watch(sheet, ::subtitles)
+        sheet.show()
+    }
+
+    // ---- AI subtitles: transcribing and translating as the video plays ----
+
+    /** The sheet showing AI subtitles' progress, rebuilt as Rust's updates come. */
+    private var aiSheet: PlayerSheet? = null
+    private var aiRebuild: (() -> Unit)? = null
+
+    private fun watch(sheet: PlayerSheet, rebuild: () -> Unit) {
+        aiSheet = sheet
+        aiRebuild = rebuild
+    }
+
+    /** Rust said something new about AI subtitles: an open sheet that shows them follows. */
+    fun refreshAi() {
+        val sheet = aiSheet ?: return
+        if (host.sheetShown(sheet)) aiRebuild?.invoke()
+    }
+
+    /** "English (translated)", or the AI subtitles' name. */
+    private fun liveName(track: LiveTrack): String = if (track.kind == "ai") {
+        label("aiTrack", "AI subtitles")
+    } else {
+        label("translatedTrack", "{n} (translated)", languageName(track.language) ?: track.language.orEmpty())
+    }
+
+    /** How far making a live track got: "Transcribing… 2:30 ahead", "Translated to the end". */
+    private fun liveDetail(track: LiveTrack): String? {
+        val status = track.status
+        status.error?.let { return it.lineSequence().firstOrNull() }
+        status.downloading?.let { return label("translateDownloading", "Downloading the models… {n}%", it.toString()) }
+        val ahead = status.aheadOf(host.player.currentPosition)
+        if (track.kind == "ai") {
+            return when {
+                status.preparing -> label("aiPreparing", "Getting the sound…")
+                status.running -> label("aiAhead", "Transcribing… {n} ahead", formatTime(ahead ?: 0L))
+                status.complete -> label("aiComplete", "Transcribed to the end")
+                else -> null
+            }
+        }
+        return when {
+            status.running && ahead != null -> label("translateAhead", "Translating… {n} ahead", formatTime(ahead))
+            status.running -> label("translating", "Translating…")
+            status.complete -> label("translateComplete", "Translated to the end")
+            else -> host.label("translateDone", "{n} of {of} lines", status.done.toString(), status.total.toString())
+        }
+    }
+
+    private fun transcribeDetail(): String? {
+        host.liveTracks.tracks[LiveSubtitles.AI_TRACK]?.let { track -> liveDetail(track)?.let { return it } }
+        val transcription = host.liveTracks.transcription ?: return null
+        transcription.number("downloading")?.let {
+            return label("aiDownloading", "Downloading the speech model… {n}%", it.toString())
+        }
+        return if (transcription.optBoolean("ready")) null else label("aiNotSetUp", "Not set up yet")
+    }
+
+    private fun translateDetail(): String? {
+        val running = host.liveTracks.tracks.values.firstOrNull { it.kind == "translation" && it.status.running }
+        if (running != null) return liveDetail(running)
+        return label("translateInto", "Into {n}", languageName(translateLanguage()) ?: translateLanguage())
+    }
+
+    /** Transcribe with AI: set up (the speech model downloads here), start, stop, progress. */
+    fun transcribe() {
+        val live = host.liveTracks
+        val sheet = PlayerSheet(host, label("aiTranscribe", "Transcribe with AI"))
+        val transcription = live.transcription
+        val track = live.tracks[LiveSubtitles.AI_TRACK]
+        when {
+            transcription == null -> sheet.row(label("aiChecking", "Checking how to transcribe…"), onClick = null)
+            !transcription.optBoolean("ready") -> {
+                sheet.row(transcription.text("problem") ?: label("aiNotSetUp", "Not set up yet"), onClick = null)
+                val downloading = transcription.number("downloading")
+                val model = transcription.optJSONObject("model")
+                if (downloading != null) {
+                    sheet.row(label("aiDownloading", "Downloading the speech model… {n}%", downloading.toString()), onClick = null)
+                } else if (model != null) {
+                    sheet.row(
+                        label("aiDownload", "Download the speech model"),
+                        formatSize(model.optLong("bytes")),
+                    ) {
+                        live.setUpTranscription()
+                        transcribe()
+                    }
+                }
+                transcription.text("error")?.let { sheet.row(it.lineSequence().first(), onClick = null) }
+                aiSettingsRow(sheet)
+            }
+            else -> {
+                track?.let { sheet.row(liveName(it), liveDetail(it), selected = live.primary == it.id) { live.show(it.id); transcribe() } }
+                if (track?.status?.running == true) {
+                    sheet.row(label("aiStop", "Stop transcribing")) { live.stop(track) }
+                } else {
+                    val more = (track?.cues?.isNotEmpty() == true)
+                    sheet.row(label(if (more) "aiContinue" else "aiStart", if (more) "Keep transcribing from here" else "Transcribe from here")) {
+                        val online = transcription.optString("engine") == "online"
+                        if (online && !transcription.optBoolean("confirmed")) confirmOnline() else {
+                            live.transcribe()
+                            host.showHint(label("aiStarting", "Transcribing from here…"))
+                            transcribe()
+                        }
+                    }
+                }
+                val engine = if (transcription.optString("engine") == "online") {
+                    label("aiOnline", "Online · {n}", transcription.optString("onlineModel"))
+                } else {
+                    label("aiOnDevice", "On this device")
+                }
+                sheet.row(label("aiEngine", "Transcribed by"), engine, onClick = if (host.canPip) ({ openAiSettings(sheet) }) else null)
+            }
+        }
+        watch(sheet, ::transcribe)
+        sheet.show()
+    }
+
+    private fun aiSettingsRow(sheet: PlayerSheet) {
+        if (host.canPip) {
+            sheet.row(label("aiSettings", "Set up in Settings → AI")) { openAiSettings(sheet) }
+        }
+    }
+
+    /** Settings → AI → Transcription in the app, while the video waits in its small window. */
+    private fun openAiSettings(sheet: PlayerSheet) {
+        sheet.dismiss()
+        host.player.pause()
+        host.request("openAiSettings")
+        host.enterPip()
+    }
+
+    /** Online transcription costs money: asked once. */
+    private fun confirmOnline() {
+        val sheet = PlayerSheet(host, label("aiTranscribe", "Transcribe with AI"))
+        sheet.row(
+            label("aiOnlineCost", "This sends the video's sound to your transcription provider, which may charge for it."),
+            onClick = null,
+        )
+        sheet.row(label("aiStart", "Transcribe from here")) {
+            host.liveTracks.transcribe(confirmed = true)
+            transcribe()
+        }
+        sheet.row(label("cancel", "Cancel")) { transcribe() }
+        sheet.show()
+    }
+
+    /** The language translations go into: picked here, else the first subtitle language. */
+    private fun translateLanguage(): String =
+        host.liveTracks.language ?: host.languages.subtitles.firstOrNull() ?: Locale.getDefault().language
+
+    /**
+     * Translate subtitles: the main subtitles into a language, on this device or with a translator
+     * from Settings → AI; translations made or being made, to show or stop.
+     */
+    fun translate() {
+        val live = host.liveTracks
+        val sheet = PlayerSheet(host, label("translate", "Translate subtitles"))
+        live.tracks.values.filter { it.kind == "translation" }.forEach { track ->
+            sheet.row(liveName(track), liveDetail(track), selected = live.primary == track.id) {
+                live.show(track.id)
+                translate()
+            }
+            if (track.status.running) sheet.row(label("translateStop", "Stop translating")) { live.stop(track) }
+        }
+        val translation = live.translation
+        val source = sourceName()
+        when {
+            translation == null -> sheet.row(label("aiChecking", "Checking how to transcribe…"), onClick = null)
+            source.second != null -> sheet.row(source.second!!, onClick = null)
+            else -> {
+                sheet.header(label("translateFrom", "From {n}", source.first.orEmpty()))
+                val language = translateLanguage()
+                // The viewer's own language first, then the rest in a steady order.
+                val tags = (listOfNotNull(host.languages.subtitles.firstOrNull()) +
+                    translation.optJSONArray("languages").strings() + language)
+                    .distinctBy { it.lowercase(Locale.ROOT) }
+                val picked = tags.indexOfFirst { it.equals(language, ignoreCase = true) }.coerceAtLeast(0)
+                sheet.chips(tags.map { languageName(it) ?: it }, picked) { index ->
+                    live.language = tags[index]
+                    translate()
+                }
+                sheet.header(label("translateWith", "Translate with"))
+                val device = translation.optJSONArray("device").strings().any { sameLanguage(it, language) }
+                sheet.row(
+                    label("translateDevice", "This device"),
+                    if (device) label("translateDeviceHint", "Free, offline; models download once") else label("translateNoModel", "No model here for this language"),
+                    onClick = if (device) ({ startTranslation("device") }) else null,
+                )
+                val providers = translation.optJSONArray("translators")
+                for (index in 0 until (providers?.length() ?: 0)) {
+                    val provider = providers?.optJSONObject(index) ?: continue
+                    val supported = provider.optBoolean("supported")
+                    sheet.row(
+                        provider.optString("name"),
+                        if (supported) null else label("translateNeedsKey", "Needs its key in Settings → AI"),
+                        onClick = if (supported) ({ startTranslation(provider.optString("id")) }) else null,
+                    )
+                }
+            }
+        }
+        watch(sheet, ::translate)
+        sheet.show()
+    }
+
+    /** What the main subtitles are, to translate them; or why they can't be. */
+    private fun sourceName(): Pair<String?, String?> {
+        val live = host.liveTracks
+        live.primary?.let { id ->
+            val track = live.tracks[id] ?: return null to null
+            return if (track.kind == "ai") {
+                liveName(track) to null
+            } else {
+                null to label("translateFromOriginal", "Show the subtitles to translate first, not a translation")
+            }
+        }
+        val selected = host.tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { it.selected }
+        if (host.tracks.textOff() || selected == null) {
+            return null to label("translateNeedsTrack", "Turn on the subtitles to translate first")
+        }
+        if (mainSidecar(selected) == null) {
+            return null to label(
+                "translateNeedsText",
+                "These subtitles are part of the video and can't be read as text: pick a subtitle file, or transcribe with AI",
+            )
+        }
+        return host.tracks.name(selected, 1) to null
+    }
+
+    /** The subtitle file the selected track came from; null for the video's own tracks. */
+    private fun mainSidecar(track: TrackRef): Sidecar? = host.sidecars.firstOrNull {
+        it.label == track.format.label && (it.language == track.format.language || sameLanguage(it.language, track.format.language))
+    }
+
+    /** Reads the main subtitles (a file, off the main thread) and asks Rust to translate them. */
+    private fun startTranslation(translator: String) {
+        val live = host.liveTracks
+        val language = translateLanguage()
+        val primary = live.primary?.let { live.tracks[it] }
+        val selected = host.tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { it.selected }
+        val sidecar = selected?.let { mainSidecar(it) }
+        if (primary?.kind == "ai" || (primary == null && sidecar != null && live.isAiFile(sidecar))) {
+            live.translate(JSONObject().put("kind", "ai"), language, translator)
+            host.showHint(label("translating", "Translating…"))
+            translate()
+            return
+        }
+        if (sidecar == null) return
+        host.showHint(label("translating", "Translating…"))
+        val name = host.tracks.name(selected, 1)
+        thread(name = "raygun-translate") {
+            val result = runCatching { SubtitleFiles.lines(SubtitleFiles.parse(SubtitleFiles.read(host, sidecar.uri), sidecar.mime)) }
+            host.runOnUiThread {
+                result.onSuccess { cues ->
+                    val source = JSONObject()
+                        .put("kind", "cues")
+                        .put("label", name)
+                        .put("language", sidecar.language ?: JSONObject.NULL)
+                        .put("cues", cues)
+                    live.translate(source, language, translator)
+                }.onFailure {
+                    host.showHint(label("secondFailed", "Couldn't load those subtitles") + "\n" + (it.message ?: it.javaClass.simpleName))
+                }
+                if (host.sheetShown(aiSheet)) translate()
+            }
+        }
+    }
+
+    /** This device's models for the translation asked for aren't here: download them first? */
+    fun askDownload(bytes: Long) {
+        val sheet = PlayerSheet(host, label("translate", "Translate subtitles"))
+        sheet.row(label("translateDownloadAsk", "Translating here downloads {n} of models first, once.", formatSize(bytes)), onClick = null)
+        sheet.row(label("translateDownloadStart", "Download and translate")) {
+            host.liveTracks.translateWithDownload()
+            translate()
+        }
+        sheet.row(label("cancel", "Cancel")) { sheet.dismiss() }
         sheet.show()
     }
 
@@ -534,3 +833,14 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         sheet.show()
     }
 }
+
+/** "154 MB", for what a download takes. */
+private fun formatSize(bytes: Long): String = when {
+    bytes >= 1_000_000_000 -> String.format(Locale.ROOT, "%.1f GB", bytes / 1e9)
+    bytes >= 1_000_000 -> "${bytes / 1_000_000} MB"
+    else -> "${(bytes / 1_000).coerceAtLeast(1)} kB"
+}
+
+/** A JSON array of strings as a list (none when missing). */
+private fun JSONArray?.strings(): List<String> =
+    (0 until (this?.length() ?: 0)).mapNotNull { index -> this?.optString(index)?.takeIf { it.isNotBlank() } }

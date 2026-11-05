@@ -1723,6 +1723,51 @@ pub async fn captions_video_make(
         .await
 }
 
+type VideoSubtitlesState<'a> = tauri::State<'a, Arc<crate::video_subtitles::VideoSubtitles>>;
+
+/// Translates the subtitles a video shows (a track's lines, or its AI subtitles) into
+/// `request.language` from where the viewer is, keeping ahead of them in batches; what was
+/// translated before for the same lines carries on. With this device's translator, models it
+/// lacks are downloaded only once `request.download` is set: until then `downloadBytes` says
+/// how much and nothing starts.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_subtitles_translate(
+    subtitles: VideoSubtitlesState<'_>,
+    request: raygun_model::SubtitleTranslateRequest,
+) -> Result<raygun_model::SubtitleTranslation, String> {
+    subtitles.inner().translate(request).await
+}
+
+/// A video's translated subtitles: those translating now and those kept from before, with
+/// their lines so far.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_subtitles_translations(
+    subtitles: VideoSubtitlesState<'_>,
+    key: String,
+) -> Result<Vec<raygun_model::SubtitleTranslation>, String> {
+    subtitles.translations(&key).await
+}
+
+/// Stops translating a video's subtitles track `id`; what's translated stays.
+#[tauri::command]
+#[specta::specta]
+pub fn video_subtitles_stop(subtitles: VideoSubtitlesState<'_>, key: String, id: String) {
+    subtitles.stop(&key, &id);
+}
+
+/// Who can translate a video's subtitles into `language`: this device, then the translators
+/// from Settings → AI.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_subtitles_translators(
+    subtitles: VideoSubtitlesState<'_>,
+    language: String,
+) -> Result<Vec<raygun_model::LyricsTranslatorOption>, String> {
+    subtitles.translators(&language).await
+}
+
 /// Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32).
 #[tauri::command]
 #[specta::specta]

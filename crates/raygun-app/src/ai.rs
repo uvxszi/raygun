@@ -184,6 +184,19 @@ impl AiService {
         lines: &[String],
         to: &str,
     ) -> Result<(String, Vec<String>), String> {
+        self.translate_texts(id, lines, to, translate::Content::Lyrics)
+            .await
+    }
+
+    /// [`Self::translate_lyrics`] for any kind of text (a video's subtitle cues, a batch at a
+    /// time): the provider is told what the texts are.
+    pub async fn translate_texts(
+        &self,
+        id: &str,
+        lines: &[String],
+        to: &str,
+        content: translate::Content,
+    ) -> Result<(String, Vec<String>), String> {
         let provider = self
             .stored_providers()
             .await?
@@ -199,7 +212,7 @@ impl AiService {
                 lines,
                 None,
                 to,
-                translate::Content::Lyrics,
+                content,
             )
         };
         let mut result = ask().await;
@@ -213,10 +226,19 @@ impl AiService {
         match result {
             Ok(translated) => Ok((provider.name.clone(), translated)),
             Err(error) => {
-                tracing::info!(provider = %provider.name, %error, "lyrics translation failed");
+                tracing::info!(provider = %provider.name, %error, ?content, "translation failed");
                 Err(error.to_string())
             }
         }
+    }
+
+    /// How much of a model downloading now is in, in bytes.
+    pub fn received(&self, id: &str) -> Option<u64> {
+        self.downloads
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(id)
+            .copied()
     }
 
     /// An OpenAI-compatible provider's address and key, for transcription (M46.32).

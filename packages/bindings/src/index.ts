@@ -495,6 +495,26 @@ export const commands = {
 	captionsVideoTranscribe: (key: string, url: string, format: string | null, fromMs: number) => typedError<null, string>(__TAURI_INVOKE("captions_video_transcribe", { key, url, format, fromMs })),
 	/**  Makes AI subtitles for a downloaded video, the whole of it, in the background (M46.33). */
 	captionsVideoMake: (key: string) => typedError<null, string>(__TAURI_INVOKE("captions_video_make", { key })),
+	/**
+	 *  Translates the subtitles a video shows (a track's lines, or its AI subtitles) into
+	 *  `request.language` from where the viewer is, keeping ahead of them in batches; what was
+	 *  translated before for the same lines carries on. With this device's translator, models it
+	 *  lacks are downloaded only once `request.download` is set: until then `downloadBytes` says
+	 *  how much and nothing starts.
+	 */
+	videoSubtitlesTranslate: (request: SubtitleTranslateRequest) => typedError<SubtitleTranslation, string>(__TAURI_INVOKE("video_subtitles_translate", { request })),
+	/**
+	 *  A video's translated subtitles: those translating now and those kept from before, with
+	 *  their lines so far.
+	 */
+	videoSubtitlesTranslations: (key: string) => typedError<SubtitleTranslation[], string>(__TAURI_INVOKE("video_subtitles_translations", { key })),
+	/**  Stops translating a video's subtitles track `id`; what's translated stays. */
+	videoSubtitlesStop: (key: string, id: string) => __TAURI_INVOKE<void>("video_subtitles_stop", { key, id }),
+	/**
+	 *  Who can translate a video's subtitles into `language`: this device, then the translators
+	 *  from Settings → AI.
+	 */
+	videoSubtitlesTranslators: (language: string) => typedError<LyricsTranslatorOption[], string>(__TAURI_INVOKE("video_subtitles_translators", { language })),
 	/**  Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32). */
 	spokenItem: (source: MediaSource) => typedError<{
 	kind: SpokenKind,
@@ -1484,6 +1504,7 @@ export const events = {
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
 	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
+	videoSubtitlesEvent: makeEvent<VideoSubtitlesEvent>("video-subtitles-event"),
 	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
 	websiteDownloadsEvent: makeEvent<WebsiteDownloadsEvent>("website-downloads-event"),
 	youTubeVideoEvent: makeEvent<YouTubeVideoEvent>("you-tube-video-event"),
@@ -5210,6 +5231,14 @@ export type SubtitleMode =
 /**  Only when turned on in the player. */
 "never";
 
+/**
+ *  What a video's subtitles are translated from: the lines of a subtitle track as the player
+ *  shows them, or the video's AI subtitles, followed while they're being made.
+ */
+export type SubtitleSource = { kind: "cues"; 
+/**  The track's name and language, as the player lists it. */
+label: string | null; language: string | null; cues: Caption[] } | { kind: "ai" };
+
 /**  How subtitles look in the video player (M45). */
 export type SubtitleStyle = {
 	/**  Percent of the normal size, 50–200. */
@@ -5227,6 +5256,56 @@ export type SubtitleStyle = {
 	position?: number,
 	/**  Ignores the colours, fonts and positions a subtitle file sets itself. */
 	ignoreEmbedded?: boolean,
+};
+
+/**  A request to translate a video's subtitles as it plays. */
+export type SubtitleTranslateRequest = {
+	/**  The video's progress key. */
+	key: string,
+	source: SubtitleSource,
+	/**  The language to translate into, a BCP 47 tag. */
+	language: string,
+	/**  `device` (models from the AI catalogue) or `ai:<provider id>`. */
+	translator: string,
+	/**  Where the viewer is: translating starts there and keeps ahead of them. */
+	fromMs: number,
+	/**  This device's models may be downloaded first (asked with `download_bytes` before). */
+	download: boolean,
+};
+
+/**  A video's translated subtitles, and where translating them stands. */
+export type SubtitleTranslation = {
+	/**  The video's progress key. */
+	key: string,
+	/**  The track's id: its source (`ai`, or a hash of the source's lines) and its language. */
+	id: string,
+	language: string,
+	translator: string,
+	/**  The AI provider's name; empty for this device. */
+	by: string,
+	/**  The translated track's name and language, when it had them. */
+	sourceLabel: string | null,
+	sourceLanguage: string | null,
+	/**  The lines translated so far, timed as the source's. */
+	cues: Caption[],
+	/**  Lines with words translated, out of all of them. */
+	done: number,
+	total: number,
+	/**  How far past the viewer the lines are translated; `None` once they are to the end. */
+	aheadMs: number | null,
+	/**
+	 *  Until when, from the viewer's place, the lines are translated (`ahead_ms` from where
+	 *  the viewer was last reported), so a player can say it as the video moves on.
+	 */
+	readyUntilMs: number | null,
+	/**  Every line is translated (AI subtitles: once they're complete too). */
+	complete: boolean,
+	running: boolean,
+	/**  Downloading this device's models first: how much is in, in percent. */
+	downloading: number | null,
+	error: string | null,
+	/**  What this device would download first, in bytes, before `download` is set; else 0. */
+	downloadBytes: number | null,
 };
 
 /**  A well-known repository the Repositories tab offers to add with one tap (M36). */
@@ -5808,6 +5887,12 @@ export type VideoSubtitle = {
 	/**  `srt`, `vtt`, `ass` or `ttml`; guessed from the URL when missing. */
 	format: string | null,
 };
+
+/**
+ *  A video's translated subtitles changed: lines were translated, or translating started,
+ *  stopped or failed; carries the video's progress key.
+ */
+export type VideoSubtitlesEvent = string;
 
 /**  A video source's title page. */
 export type VideoTitleView = {

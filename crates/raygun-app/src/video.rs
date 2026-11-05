@@ -571,16 +571,30 @@ fn with_cast(app: &AppHandle, payload: &Value) -> Value {
 
 /// A video loaded into the player goes to the TV while one is connected (Play on TV).
 fn follow_load(app: &AppHandle, update: &Value) {
-    if update.get("type").and_then(Value::as_str) == Some("load")
-        && let Some(request) = update.get("request")
-        && let Some(cast) = app.try_state::<std::sync::Arc<crate::cast::CastService>>()
-    {
+    if update.get("type").and_then(Value::as_str) != Some("load") {
+        return;
+    }
+    let Some(request) = update.get("request") else {
+        return;
+    };
+    note_loaded(app, request);
+    if let Some(cast) = app.try_state::<std::sync::Arc<crate::cast::CastService>>() {
         cast.follow(request);
+    }
+}
+
+/// What a player loads: AI subtitles fetch the same stream.
+fn note_loaded(app: &AppHandle, payload: &Value) {
+    if let Some(subtitles) =
+        app.try_state::<std::sync::Arc<crate::video_subtitles::VideoSubtitles>>()
+    {
+        subtitles.loaded(payload);
     }
 }
 
 #[cfg(target_os = "android")]
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    note_loaded(app, payload);
     let payload = &with_cast(app, payload);
     let started = app.clone();
     tauri::async_runtime::spawn(
@@ -594,6 +608,7 @@ pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), S
 
 #[cfg(not(target_os = "android"))]
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    note_loaded(app, payload);
     let payload = &with_cast(app, payload);
     let started = app.clone();
     tauri::async_runtime::spawn(
@@ -650,6 +665,13 @@ async fn handle_report(app: &AppHandle, json: &str) {
         tracing::warn!(%json, "unreadable video player report");
         return;
     };
+    // Where the viewer is: AI subtitles and translations keep ahead of there.
+    let subtitles = app
+        .try_state::<std::sync::Arc<crate::video_subtitles::VideoSubtitles>>()
+        .map(|subtitles| subtitles.inner().clone());
+    if let Some(subtitles) = &subtitles {
+        subtitles.report(&raw);
+    }
     // The player's own requests are handled here; the rest (next episode, another source...)
     // are the session's business.
     if raw.get("state").and_then(serde_json::Value::as_str) == Some("request") {
@@ -660,6 +682,13 @@ async fn handle_report(app: &AppHandle, json: &str) {
         match action {
             "state" | "prefs" | "seekStep" | "openSettings" | "brightness" | "duration" => {
                 player_request(app, action, &raw).await;
+            }
+            // AI subtitles in Android's player: transcribing and translating as it plays.
+            "subtitleTools" | "transcribe" | "transcribeStop" | "transcribeSetup"
+            | "translateSubtitles" | "translateStop" | "openAiSettings" => {
+                if let Some(subtitles) = &subtitles {
+                    subtitles.on_request(action, &raw).await;
+                }
             }
             _ if action.starts_with("cast") => crate::cast::on_request(app, action, &raw).await,
             _ => app.state::<VideoSessions>().on_report(&raw).await,

@@ -67,7 +67,7 @@ fn kind_of(name: &str) -> Option<LyricsTranslationKind> {
 }
 
 /// Whether a line has words to translate (not "♪" or blank).
-fn has_words(line: &str) -> bool {
+pub(crate) fn has_words(line: &str) -> bool {
     line.chars().any(char::is_alphanumeric)
 }
 
@@ -149,7 +149,7 @@ pub fn lay_onto(lyrics: &Lyrics, rows: &[TranslationRow]) -> Vec<LyricsTranslati
 }
 
 /// Whether `language` looks like a BCP 47 tag.
-fn language_tag(language: &str) -> Result<(), String> {
+pub(crate) fn language_tag(language: &str) -> Result<(), String> {
     let well_formed = (2..=35).contains(&language.len())
         && language
             .split('-')
@@ -300,7 +300,19 @@ impl LyricsTranslations {
         language_tag(language)?;
         let lyrics = self.shown_lyrics(query).await?;
         let lines = lyrics.as_ref().map(Lyrics::line_texts).unwrap_or_default();
-        let english = marian::looks_english(&lines);
+        self.translators(&lines, language).await
+    }
+
+    /// Who can translate `lines` into `language`: this device, with the models those lines go
+    /// through and what of them it would download first, then the translators from Settings → AI.
+    /// Lyrics and a video's subtitles alike.
+    pub async fn translators(
+        &self,
+        lines: &[&str],
+        language: &str,
+    ) -> Result<Vec<LyricsTranslatorOption>, String> {
+        language_tag(language)?;
+        let english = marian::looks_english(lines);
         let catalog = raygun_ai::models::catalog();
         let preferred = self.preferred_model().await;
         let ai = self.app.state::<AiService>();
@@ -444,6 +456,34 @@ impl LyricsTranslations {
         language: &str,
         lines: &[String],
     ) -> Result<Vec<String>, String> {
+        let app = self.app.clone();
+        let progress = LyricsTranslationProgress {
+            key: key.to_owned(),
+            language: language.to_owned(),
+            translator: DEVICE.to_owned(),
+            done: 0,
+            total: lines.len() as u32,
+        };
+        self.translate_on_device(language, lines, move |done, _| {
+            let _ = LyricsTranslationEvent(LyricsTranslationProgress {
+                done,
+                ..progress.clone()
+            })
+            .emit(&app);
+        })
+        .await
+    }
+
+    /// Translates `lines` with this device's models that write `language` (each line through
+    /// English unless it's English already), one translation at a time on a blocking thread;
+    /// `progress` hears lines done out of all, a few times a second. The models stay loaded a
+    /// while for the next lines (a song, or a video's next subtitles).
+    pub async fn translate_on_device(
+        &self,
+        language: &str,
+        lines: &[String],
+        progress: impl Fn(u32, u32) + Send + 'static,
+    ) -> Result<Vec<String>, String> {
         let catalog = raygun_ai::models::catalog();
         let preferred = self.preferred_model().await;
         let plan = marian::plan(&catalog, language, preferred.as_deref())
@@ -468,14 +508,7 @@ impl LyricsTranslations {
         let _turn = self.device.lock().await;
         self.uses.fetch_add(1, Ordering::SeqCst);
         let loaded = self.loaded.clone();
-        let app = self.app.clone();
-        let progress = LyricsTranslationProgress {
-            key: key.to_owned(),
-            language: language.to_owned(),
-            translator: DEVICE.to_owned(),
-            done: 0,
-            total: lines.len() as u32,
-        };
+        let total = lines.len() as u32;
         let lines = lines.to_vec();
         let result = tauri::async_runtime::spawn_blocking(move || {
             let mut models = loaded.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -489,7 +522,7 @@ impl LyricsTranslations {
                     models.insert(id.clone(), model);
                 }
             }
-            let _ = LyricsTranslationEvent(progress.clone()).emit(&app);
+            progress(0, total);
             let mut out = Vec::with_capacity(lines.len());
             let mut reported = Instant::now();
             for (index, (line, steps)) in lines.iter().zip(&routes).enumerate() {
@@ -505,11 +538,7 @@ impl LyricsTranslations {
                 out.push(text);
                 if reported.elapsed() >= PROGRESS_EVERY || index + 1 == lines.len() {
                     reported = Instant::now();
-                    let _ = LyricsTranslationEvent(LyricsTranslationProgress {
-                        done: index as u32 + 1,
-                        ..progress.clone()
-                    })
-                    .emit(&app);
+                    progress(index as u32 + 1, total);
                 }
             }
             Ok::<_, String>(out)

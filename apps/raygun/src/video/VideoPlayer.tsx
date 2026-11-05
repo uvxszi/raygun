@@ -2,12 +2,12 @@ import { commands } from '@raygun/bindings';
 import type {
   ExternalPlayer,
   FoundSubtitles,
+  SubtitleSource,
   VideoAspect,
   VideoChapter,
   VideoSubtitle,
 } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ArrowLeft,
@@ -19,7 +19,6 @@ import {
   Keyboard,
   Layers,
   ListVideo,
-  LoaderCircle,
   Maximize,
   Minimize,
   Pause,
@@ -30,20 +29,18 @@ import {
   Server,
   SkipBack,
   SkipForward,
-  Sparkles,
   Volume1,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type { FC, ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useAiModels } from '../ai/useAi';
 import { formatTime } from '../player/formatTime';
-import { useCaptions, useStopCaptions } from '../player/spoken';
-import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { useCaptions } from '../player/spoken';
+import { AiSubtitles } from './AiSubtitles';
 import { CastPanel, CastStage } from './Cast';
 import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
 import type { MediaEngine, StreamProblem } from './mediaEngine';
@@ -56,6 +53,14 @@ import { applyCueEdits, editKey, withCueEdit } from './cueEdits';
 import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
+import {
+  fromCaptions,
+  toCaptions,
+  translationName,
+  translationStatus,
+  useVideoTranslations,
+} from './subtitleProgress';
+import { TranslateSubtitles } from './TranslateSubtitles';
 import { TimeBar } from './TimeBar';
 import { applyLoop, loopAround, wentRound } from './videoLoop';
 import { choiceOf, languageOf, languagePrefs, pickAudio, pickSubtitles } from './trackPicking';
@@ -308,7 +313,21 @@ type StageProps = {
   onClose: () => void;
 };
 
-type SubtitleOption = TrackOption & { cues?: Cue[] };
+type SubtitleOption = TrackOption & { cues?: Cue[]; hint?: string };
+
+/** A subtitle file's cues, fetched once (through the proxy's `/subtitle/` route) and kept. */
+const loadSubtitleFile = (cache: Map<string, Cue[]>, subtitle: VideoSubtitle): Promise<Cue[]> => {
+  const cached = cache.get(subtitle.url);
+  if (cached) return Promise.resolve(cached);
+  return fetch(subtitle.url)
+    .then((response) => response.text())
+    .then((text) => parseSubtitles(text, subtitle.format))
+    .catch(() => [] as Cue[])
+    .then((cues) => {
+      cache.set(subtitle.url, cues);
+      return cues;
+    });
+};
 
 /** One video: the picture, its subtitles, and the controls. Mounted again for each load. */
 const VideoStage: FC<StageProps> = ({
@@ -324,7 +343,7 @@ const VideoStage: FC<StageProps> = ({
   toggleFullscreen,
   onClose,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const session = useVideoPlayerStore((state) => state.session);
   const prefs = useVideoPlayerStore((state) => state.prefs);
   const seekStepMs = useVideoPlayerStore((state) => state.seekStepMs);
@@ -377,6 +396,9 @@ const VideoStage: FC<StageProps> = ({
   const [subtitleKey, setSubtitleKey] = useState<string | null>(null);
   const [lastSubtitle, setLastSubtitle] = useState<string | null>(null);
   const [loadedCues, setLoadedCues] = useState<{ key: string; cues: Cue[] } | null>(null);
+  /** The second subtitles, at the top of the picture. */
+  const [secondKey, setSecondKey] = useState<string | null>(null);
+  const [secondLoaded, setSecondLoaded] = useState<{ key: string; cues: Cue[] } | null>(null);
   const [added, setAdded] = useState<SubtitleOption[]>([]);
   const [embeddedLines, setEmbeddedLines] = useState<string[]>([]);
   const [, setTracksVersion] = useState(0);
@@ -407,6 +429,22 @@ const VideoStage: FC<StageProps> = ({
     aiCues.length > 0 || ai.data?.running
       ? [{ key: 'ai', label: t('desktopPlayer.ai.track'), language: null, cues: aiCues }]
       : [];
+  // ---- Translated subtitles: a track each, lines showing as they're translated ----
+  const translated = useVideoTranslations(id).data;
+  const translations = useMemo(() => translated ?? [], [translated]);
+  // Their cues are read again only when Rust's answer changes: the stage draws ten times a
+  // second; how far ahead they are follows the picture.
+  const translatedCues = useMemo(
+    () => translations.map((translation) => fromCaptions(translation.cues)),
+    [translations],
+  );
+  const translatedOptions: SubtitleOption[] = translations.map((translation, index) => ({
+    key: `translated:${translation.id}`,
+    label: translationName(translation, t),
+    language: translation.language,
+    cues: translatedCues[index] ?? [],
+    hint: translationStatus(translation, t, timeMs),
+  }));
 
   // ---- What can be chosen ----
   const fileOptions: SubtitleOption[] = (request.subtitles ?? []).map((subtitle, index) => {
@@ -426,6 +464,7 @@ const VideoStage: FC<StageProps> = ({
       (option) => !(aiOptions.length > 0 && option.label === t('desktopPlayer.ai.track')),
     ),
     ...aiOptions,
+    ...translatedOptions,
     ...added,
   ];
 
@@ -812,22 +851,26 @@ const VideoStage: FC<StageProps> = ({
     if (!subtitleKey?.startsWith('file:')) return;
     const subtitle = request.subtitles?.[Number(subtitleKey.slice(5))];
     if (!subtitle) return;
-    const cached = subtitleFiles.current.get(subtitle.url);
     let cancelled = false;
-    const loaded = cached
-      ? Promise.resolve(cached)
-      : fetch(subtitle.url)
-          .then((response) => response.text())
-          .then((text) => parseSubtitles(text, subtitle.format))
-          .catch(() => [] as Cue[]);
-    void loaded.then((cues) => {
-      subtitleFiles.current.set(subtitle.url, cues);
+    void loadSubtitleFile(subtitleFiles.current, subtitle).then((cues) => {
       if (!cancelled) setLoadedCues({ key: subtitleKey, cues });
     });
     return () => {
       cancelled = true;
     };
   }, [subtitleKey, request.subtitles]);
+  useEffect(() => {
+    if (!secondKey?.startsWith('file:')) return;
+    const subtitle = request.subtitles?.[Number(secondKey.slice(5))];
+    if (!subtitle) return;
+    let cancelled = false;
+    void loadSubtitleFile(subtitleFiles.current, subtitle).then((cues) => {
+      if (!cancelled) setSecondLoaded({ key: secondKey, cues });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [secondKey, request.subtitles]);
 
   // ---- Keys ----
   const onKey = useEffectEvent((event: KeyboardEvent) => {
@@ -933,14 +976,15 @@ const VideoStage: FC<StageProps> = ({
   }, []);
 
   // ---- What shows ----
-  const originalCues =
-    subtitleKey === 'ai'
-      ? aiCues
-      : subtitleKey?.startsWith('added:')
-        ? (added.find((option) => option.key === subtitleKey)?.cues ?? [])
-        : loadedCues?.key === subtitleKey
-          ? loadedCues.cues
-          : [];
+  /** A track's cues once they're here: AI subtitles, translations, files added or loaded. */
+  const cuesOf = (key: string | null, loaded: { key: string; cues: Cue[] } | null): Cue[] => {
+    if (!key) return [];
+    if (key === 'ai') return aiCues;
+    const own = [...translatedOptions, ...added].find((option) => option.key === key);
+    if (own) return own.cues ?? [];
+    return loaded?.key === key ? loaded.cues : [];
+  };
+  const originalCues = cuesOf(subtitleKey, loadedCues);
   // Lines changed by hand (M46.12) are kept for this episode and this track.
   const trackOption = subtitleOptions(engine).find((option) => option.key === subtitleKey);
   const trackEditKey = trackOption ? editKey(id, trackOption.label, trackOption.language) : null;
@@ -958,6 +1002,33 @@ const VideoStage: FC<StageProps> = ({
     : subtitleKey.startsWith('embedded:')
       ? embeddedLines
       : cuesAt(currentCues, timeMs - delayMs);
+  const secondLines = secondKey ? cuesAt(cuesOf(secondKey, secondLoaded), timeMs - delayMs) : [];
+  // Translating the main subtitles: their lines as shown (with edits), or the AI subtitles,
+  // which Rust follows as they grow. The video's own tracks can't be read as text.
+  const translateSource = (): SubtitleSource | null => {
+    if (subtitleKey === 'ai') return { kind: 'ai' };
+    if (
+      !subtitleKey ||
+      subtitleKey.startsWith('embedded:') ||
+      subtitleKey.startsWith('translated:')
+    )
+      return null;
+    return {
+      kind: 'cues',
+      label: trackOption?.label ?? null,
+      language: trackOption?.language ?? null,
+      cues: toCaptions(currentCues),
+    };
+  };
+  const translateBlocked = !subtitleKey
+    ? t('desktopPlayer.translate.needsTrack')
+    : subtitleKey.startsWith('embedded:')
+      ? t('desktopPlayer.translate.needsText')
+      : subtitleKey.startsWith('translated:')
+        ? t('desktopPlayer.translate.notTranslation')
+        : subtitleKey !== 'ai' && currentCues.length === 0
+          ? t('desktopPlayer.translate.loading')
+          : null;
   const controlsVisible =
     controlsShown || !playing || panel !== null || overControls || notice !== null;
   const skippable = prefs.skipButton ? skippableAt(chapters, timeMs, durationMs) : null;
@@ -1025,6 +1096,7 @@ const VideoStage: FC<StageProps> = ({
         }}
       />
       <SubtitleLines lines={lines} style={prefs.subtitleStyle} lifted={controlsVisible} />
+      <SubtitleLines lines={secondLines} style={prefs.subtitleStyle} lifted={false} at="top" />
 
       <Middle>
         {notice ? (
@@ -1324,7 +1396,10 @@ const VideoStage: FC<StageProps> = ({
               key={option.key}
               label={option.label}
               hint={
-                option.key.startsWith('embedded:') ? t('desktopPlayer.inTheVideo') : option.language
+                option.hint ??
+                (option.key.startsWith('embedded:')
+                  ? t('desktopPlayer.inTheVideo')
+                  : option.language)
               }
               selected={option.key === subtitleKey}
               onSelect={() => selectSubtitle(option.key)}
@@ -1376,6 +1451,35 @@ const VideoStage: FC<StageProps> = ({
             onStarted={() => selectSubtitle('ai')}
             onClose={onClose}
           />
+          <TranslateSubtitles
+            videoKey={id}
+            sourceName={trackOption?.label ?? null}
+            blocked={translateBlocked}
+            source={translateSource}
+            defaultLanguage={subtitleLanguage || appLanguage || i18n.language}
+            positionMs={timeMs}
+            translations={translations}
+            onShow={(translation) => selectSubtitle(`translated:${translation}`, false)}
+          />
+          <label className="flex items-center gap-3 px-3 pt-3 pb-1.5 text-sm">
+            <span className="flex-1">{t('videoPlayer.secondSubtitles')}</span>
+            <select
+              value={secondKey ?? ''}
+              onChange={(event) => setSecondKey(event.target.value || null)}
+              className="max-w-40 rounded-lg bg-white/10 px-2 py-1 outline-none"
+            >
+              <option value="" className="bg-neutral-900">
+                {t('videoPlayer.off')}
+              </option>
+              {subtitleOptions(engine)
+                .filter((option) => !option.key.startsWith('embedded:'))
+                .map((option) => (
+                  <option key={option.key} value={option.key} className="bg-neutral-900">
+                    {option.label}
+                  </option>
+                ))}
+            </select>
+          </label>
           {subtitleKey && (
             <>
               <PanelHeading>{t('cueEdit.title')}</PanelHeading>
@@ -1741,147 +1845,6 @@ const FindSubtitles: FC<{
         <p role="alert" className="px-3 pb-1 text-xs text-white/70">
           {error}
         </p>
-      )}
-    </>
-  );
-};
-
-type AiSubtitlesProps = {
-  videoKey: string;
-  url: string;
-  format: string | null;
-  positionMs: number;
-  onStarted: () => void;
-  onClose: () => void;
-};
-
-/**
- * AI subtitles while watching (M46.33): pick the speech model, then make subtitles from here on;
- * lines appear as each part is heard. Needs a downloaded model (or the online provider).
- */
-const AiSubtitles: FC<AiSubtitlesProps> = ({
-  videoKey,
-  url,
-  format,
-  positionMs,
-  onStarted,
-  onClose,
-}) => {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const settings = useSettings();
-  const update = useUpdateSetting();
-  const models = useAiModels();
-  const captions = useCaptions(videoKey);
-  const stop = useStopCaptions();
-  const [error, setError] = useState<string | null>(null);
-  const prefs = settings.data?.transcription;
-  const speech = (models.data ?? []).filter((model) => model.kind === 'speech' && model.installed);
-  const running = captions.data?.running ?? false;
-  const online = prefs?.engine === 'online' && Boolean(prefs.providerId);
-
-  const start = async () => {
-    setError(null);
-    const result = await commands.captionsVideoTranscribe(
-      videoKey,
-      url,
-      format,
-      Math.round(positionMs),
-    );
-    if (result.status === 'error') setError(result.error);
-    else onStarted();
-  };
-  // While it runs, it keeps up with where the viewer is.
-  const latest = useRef(positionMs);
-  useEffect(() => {
-    latest.current = positionMs;
-  });
-  useEffect(() => {
-    if (!running || !url) return;
-    const timer = window.setInterval(() => {
-      void commands.captionsVideoTranscribe(videoKey, url, format, Math.round(latest.current));
-    }, 15_000);
-    return () => window.clearInterval(timer);
-  }, [running, videoKey, url, format]);
-
-  const pick = (model: string) => {
-    if (!prefs) return;
-    update.mutate({
-      key: 'transcription',
-      value: { ...prefs, engine: 'local', localModel: model },
-    });
-  };
-
-  return (
-    <>
-      <PanelHeading>{t('desktopPlayer.ai.title')}</PanelHeading>
-      {speech.length === 0 && !online ? (
-        <div className="flex flex-col gap-2 px-3 py-1 text-xs text-white/70">
-          <p>{t('desktopPlayer.ai.needsModel')}</p>
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              void navigate({ to: '/settings/ai', hash: 'transcription' });
-            }}
-            className="text-primary self-start font-semibold"
-          >
-            {t('desktopPlayer.ai.setUp')}
-          </button>
-        </div>
-      ) : (
-        <>
-          {speech.map((model) => (
-            <PanelOption
-              key={model.id}
-              label={model.name}
-              selected={prefs?.engine === 'local' && prefs.localModel === model.id}
-              onSelect={() => pick(model.id)}
-            />
-          ))}
-          {online && prefs && (
-            <PanelOption
-              label={t('desktopPlayer.ai.online')}
-              hint={prefs.onlineModel}
-              selected
-              onSelect={() => undefined}
-            />
-          )}
-          <div className="flex items-center gap-2 px-3 py-1.5">
-            {running ? (
-              <>
-                <LoaderCircle aria-hidden size={14} className="animate-spin text-white/70" />
-                <span className="flex-1 text-xs text-white/70">
-                  {t('desktopPlayer.ai.listening', { n: captions.data?.cues.length ?? 0 })}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => stop.mutate(videoKey)}
-                  className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20"
-                >
-                  {t('captions.stop')}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                disabled={!url}
-                onClick={() => void start()}
-                className="bg-primary text-background flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-              >
-                <Sparkles aria-hidden size={13} />
-                {(captions.data?.cues.length ?? 0) > 0
-                  ? t('desktopPlayer.ai.continue')
-                  : t('desktopPlayer.ai.make')}
-              </button>
-            )}
-          </div>
-          {(error ?? captions.data?.error) && (
-            <p role="alert" className="px-3 pb-1 text-xs text-white/70">
-              {error ?? captions.data?.error}
-            </p>
-          )}
-        </>
       )}
     </>
   );
