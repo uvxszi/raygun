@@ -86,11 +86,13 @@ tauri-plugin-single-instance = "2.5"
 arboard = { version = "3", default-features = false, features = ["image-data"] }
 
 # The desktop browser's blocker (M46.6): WebView2's request filter, at Tauri's own versions.
+# The browser-check window sends the checked request's body as a memory stream (`Win32_UI_Shell`).
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
 # Windows' OCR reads screenshots for importing songs (M46.21).
 windows = { version = "0.62", features = [
     "Win32_System_Com",
+    "Win32_UI_Shell",
     "Foundation",
     "Foundation_Collections",
     "Globalization",

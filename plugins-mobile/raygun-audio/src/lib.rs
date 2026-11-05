@@ -373,13 +373,13 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
-    /// Opens a site for the person to pass its browser check by hand (`BrowserCheckActivity`;
-    /// request `{url, userAgent}`). Blocks until the browser closes; answers the site's cookies
-    /// as a `Cookie` header's pairs.
+    /// Opens the request that met a browser check for the person to pass it by hand
+    /// (`BrowserCheckActivity`; request `{url, method, headers, body, userAgent}`). Blocks until
+    /// the browser closes; answers `{cookies, userAgent, seen}`: the address's cookies as a
+    /// `Cookie` header's pairs, the browser's User-Agent, and what it saw of its pages.
     #[cfg(target_os = "android")]
-    pub fn browser_check(&self, request: &serde_json::Value) -> Result<String, String> {
+    pub fn browser_check(&self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
         self.run::<serde_json::Value>("browserCheck", request.clone())
-            .map(|answer| answer["cookies"].as_str().unwrap_or_default().to_owned())
             .map_err(|error| error.to_string())
     }
 

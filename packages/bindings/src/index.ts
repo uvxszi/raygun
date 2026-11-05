@@ -175,14 +175,16 @@ export const commands = {
 	extensionId: string,
 	/**  The source's name for people. */
 	source: string,
-	/**  The page that opens. */
+	/**  The page that opens: the address of the request that met the check. */
 	url: string,
 } | null, string>(__TAURI_INVOKE("browser_check_target", { error, source })),
 	/**
-	 *  Opens the site of `extension_id`'s browser check for the person to pass, waits until the
-	 *  browser closes, and gives the extension the site's cookies. Returns how many it took.
+	 *  Opens the request `extension_id`'s source met a browser check on, for the person to pass the
+	 *  check, and waits until the browser closes. A passed check gives the extension the browser's
+	 *  cookies and User-Agent, and the failed call is asked again; the result says how it went (a
+	 *  page that loads without a check says so).
 	 */
-	browserCheckOpen: (extensionId: string) => typedError<number, string>(__TAURI_INVOKE("browser_check_open", { extensionId })),
+	browserCheckOpen: (extensionId: string) => typedError<BrowserCheckResult, string>(__TAURI_INVOKE("browser_check_open", { extensionId })),
 	/**
 	 *  Opens a title's page at its source in Raygun's browser (M46.38: the website button on comic,
 	 *  book and video pages): the source's address for it, joined to the source's website when it's
@@ -1896,6 +1898,31 @@ export type BookResume = {
 	positionMs: number | null,
 };
 
+/**  How a browser check opened by hand ended. */
+export type BrowserCheckOutcome = 
+/**  The check was passed, and the source answered when asked again. */
+"passed" | 
+/**
+ *  The check was passed, but the source's request met a check again: the site doesn't let
+ *  Raygun's requests through with the browser's pass.
+ */
+"stillBlocked" | 
+/**  The check was passed, but the source still failed, for another reason. */
+"stillFailing" | 
+/**  The page loaded without asking for a check: the problem is something else. */
+"noCheck" | 
+/**  The browser closed before a check was passed, or before the page loaded. */
+"notPassed";
+
+/**  What opening a browser check by hand did. */
+export type BrowserCheckResult = {
+	outcome: BrowserCheckOutcome,
+	/**  How many of the browser's cookies the extension took. */
+	cookies: number,
+	/**  The source's error when it was asked again and failed. */
+	error: string | null,
+};
+
 /**
  *  A source that met a browser check, whose site can be opened to pass it by hand
  *  (`Settings::manual_browser_checks`).
@@ -1904,7 +1931,7 @@ export type BrowserCheckTarget = {
 	extensionId: string,
 	/**  The source's name for people. */
 	source: string,
-	/**  The page that opens. */
+	/**  The page that opens: the address of the request that met the check. */
 	url: string,
 };
 

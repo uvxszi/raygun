@@ -16,8 +16,10 @@ type BrowserCheckActionProps = {
 
 /**
  * "Open the site to pass the check" under a source's browser-check failure, while Solve browser
- * checks myself is on (experimental; `raygun_ext_host::browser_check`). The site opens in a
- * browser the person uses; once it closes with cookies, every failed request is asked again.
+ * checks myself is on (experimental; `raygun_ext_host::browser_check`). The request that met the
+ * check opens in a browser the person uses; once a passed check's cookies came back and the
+ * source answers again (or fails for another reason), every failed request is asked again. A
+ * page that loaded without a check says so.
  */
 export const BrowserCheckAction: FC<BrowserCheckActionProps> = ({ error, source, onRetry }) => {
   const { t } = useTranslation();
@@ -30,8 +32,8 @@ export const BrowserCheckAction: FC<BrowserCheckActionProps> = ({ error, source,
   });
   const open = useMutation({
     mutationFn: (extensionId: string) => unwrapResult(commands.browserCheckOpen(extensionId)),
-    onSuccess: (taken) => {
-      if (taken === 0) return;
+    onSuccess: ({ outcome }) => {
+      if (outcome !== 'passed' && outcome !== 'stillFailing') return;
       onRetry?.();
       void queryClient.refetchQueries({ predicate: (query) => query.state.status === 'error' });
     },
@@ -50,7 +52,11 @@ export const BrowserCheckAction: FC<BrowserCheckActionProps> = ({ error, source,
         <Globe aria-hidden size={14} />
         {open.isPending ? t('issue.browserCheck.opening') : t('issue.browserCheck.open')}
       </button>
-      {open.data === 0 && <p className="text-xs">{t('issue.browserCheck.notPassed')}</p>}
+      {open.data && (
+        <p className="text-xs">
+          {t(`issue.browserCheck.outcome.${open.data.outcome}`, { source: found.source })}
+        </p>
+      )}
       {open.isError && <p className="text-xs">{t('issue.browserCheck.failed')}</p>}
     </div>
   );

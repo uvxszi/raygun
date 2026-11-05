@@ -150,15 +150,23 @@ fn natives(ctx: &Ctx<'_>, header: &Header, hooks: Hooks) -> rquickjs::Result<()>
     )?;
 
     let cookies = hooks.cookies;
+    let jar = cookies.clone();
     native.set(
         "cookies",
         Function::new(ctx.clone(), move |url: String| {
             cookie_header(&cookies, &url)
         })?,
     )?;
+    // The User-Agent for `url`'s site: the one a browser check there was passed with, which its
+    // cookies hold only for, else the one sources send.
     native.set(
         "userAgent",
-        Function::new(ctx.clone(), raygun_net::user_agent)?,
+        Function::new(ctx.clone(), move |url: String| {
+            reqwest::Url::parse(&url)
+                .ok()
+                .and_then(|url| jar.user_agent_for(&url))
+                .unwrap_or_else(raygun_net::user_agent)
+        })?,
     )?;
     let settings = hooks.settings;
     native.set(

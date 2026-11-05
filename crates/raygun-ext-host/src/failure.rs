@@ -5,6 +5,7 @@
 use raygun_net::issue::{self, Issue, IssueKind};
 
 use crate::CallError;
+use crate::browser_check::CheckedRequest;
 
 /// Something a call's requests met: a failed request or a failed answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +25,8 @@ pub struct Failure {
     /// Whether a request of the call got a good answer from the site: a script error after that
     /// means the answer wasn't in the shape the extension reads.
     pub answered: bool,
+    /// The request that met a browser check, as the source sent it (`crate::browser_check`).
+    pub checked: Option<Box<CheckedRequest>>,
 }
 
 impl Failure {
@@ -42,6 +45,7 @@ pub fn into_error(failure: Failure, name: &str, provider: &str, method: &str) ->
         message,
         trouble,
         answered,
+        ..
     } = failure;
     let message = message.trim().to_owned();
     if message.contains("has no method") || message.contains("isn't a novel source call") {
@@ -133,6 +137,7 @@ mod tests {
                 detail: "comics.example answered HTTP 403 with a browser check".into(),
             }),
             answered: false,
+            checked: None,
         };
         let error = error(checked);
         assert_eq!(
@@ -148,6 +153,7 @@ mod tests {
                     detail: "x".into()
                 }),
                 answered: false,
+                checked: None,
             }),
             Some(IssueKind::BotCheck)
         );
@@ -161,6 +167,7 @@ mod tests {
                 message: message.into(),
                 trouble: None,
                 answered: true,
+                checked: None,
             }),
             Some(IssueKind::SiteChanged)
         );
@@ -210,6 +217,7 @@ mod tests {
                     detail: "x answered HTTP 404".into()
                 }),
                 answered: true,
+                checked: None,
             }),
             CallError::Said { .. }
         ));
@@ -222,6 +230,7 @@ mod tests {
                     detail: "could not reach x: dns error".into()
                 }),
                 answered: false,
+                checked: None,
             }),
             Some(IssueKind::Dns)
         );

@@ -3976,7 +3976,13 @@
     "browserCheck": {
       "open": "Open the site to pass the check",
       "opening": "Waiting for the browser…",
-      "notPassed": "The check wasn’t passed — no cookies came back",
+      "outcome": {
+        "passed": "Check passed — {{source}} works again",
+        "stillBlocked": "The check was passed, but the site still blocks {{source}}’s requests",
+        "stillFailing": "The check was passed, but {{source}} still fails for another reason",
+        "noCheck": "This site didn’t ask for a check; the problem is something else",
+        "notPassed": "The check wasn’t passed, so nothing changed"
+      },
       "failed": "Couldn’t open the site"
     }
   },
