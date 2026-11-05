@@ -565,6 +565,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::TrackDurationsEvent,
             events::LocalFilesEvent,
             events::ImportEvent,
+            events::UnavailableEvent,
             events::CaptionsEvent,
             events::LyricsTranscribedEvent,
             events::LyricsTranslationEvent,

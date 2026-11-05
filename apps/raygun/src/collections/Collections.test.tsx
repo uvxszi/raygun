@@ -268,7 +268,7 @@ describe('Favorites and playlists', () => {
     await userEvent.click(within(bar).getByRole('button', { name: 'Clear the selection' }));
     const rows = within(page).getAllByTestId('track-table-row');
     const user = userEvent.setup();
-    await user.click(rows[0] as HTMLElement);
+    await user.click(within(rows[0] as HTMLElement).getByRole('checkbox', { name: 'Select One' }));
     await user.keyboard('{Control>}');
     await user.click(rows[1] as HTMLElement);
     await user.keyboard('{/Control}');

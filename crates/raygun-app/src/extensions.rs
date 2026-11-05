@@ -700,11 +700,54 @@ impl ExtensionService {
         candidate_id: &str,
         using: raygun_ext_host::StreamUse,
     ) -> Result<ResolvedStream, String> {
-        let _ready = self.loading.read().await;
-        self.host
-            .resolve_stream(provider_id, candidate_id, using)
+        self.resolve_stream_call(provider_id, candidate_id, using)
             .await
             .map_err(|error| error.to_string())
+    }
+
+    /// [`Self::resolve_stream`] with the call's own error, which says what kind of failure it was
+    /// (a source busy now, or a stream that's gone). Answers and the site's own trouble count in
+    /// the sources' health, as fan-outs' calls do; one song a source doesn't have doesn't.
+    pub async fn resolve_stream_call(
+        &self,
+        provider_id: &str,
+        candidate_id: &str,
+        using: raygun_ext_host::StreamUse,
+    ) -> Result<ResolvedStream, raygun_ext_host::CallError> {
+        let _ready = self.loading.read().await;
+        let started = std::time::Instant::now();
+        let answer = self
+            .host
+            .resolve_stream(provider_id, candidate_id, using)
+            .await;
+        let counts = match &answer {
+            Ok(_) => true,
+            Err(error) => error
+                .kind()
+                .is_some_and(raygun_net::IssueKind::is_transient),
+        };
+        if counts {
+            self.host
+                .health()
+                .record(provider_id, answer.as_ref().map(|_| ()), started.elapsed());
+        }
+        answer
+    }
+
+    /// Whether a source sits out after failing again and again lately: it isn't asked meanwhile.
+    pub fn resting(&self, provider_id: &str) -> bool {
+        self.host.health().resting(provider_id).is_some()
+    }
+
+    /// [`Self::stream_candidates`] asking each provider for up to `limit` candidates.
+    pub async fn stream_candidates_up_to(
+        &self,
+        query: &TrackQuery,
+        limit: u32,
+        quality: raygun_resolver::QualityTarget,
+    ) -> Vec<ProviderCandidates> {
+        let _ready = self.loading.read().await;
+        self.host.stream_candidates(query, limit, quality).await
     }
 
     /// Reloads every extension from scratch (built-in and installed).

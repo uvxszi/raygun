@@ -160,6 +160,43 @@ describe('Player with resolved streams', () => {
       await within(await AppShellWrapper.playerSheet.element).findByTestId('sheet-source-note'),
     ).toHaveTextContent('via Internet Archive');
   });
+
+  it('says it looks for another source, then offers to find one for a song nothing played', async () => {
+    const { emitEvent, IDLE_STATE } = await import('../test/bindingsMock');
+    const user = userEvent.setup();
+    const [lost, next] = [makeItem('Lost Song', 'Old Band'), makeItem('Next Song')];
+    await AppShellWrapper.mount();
+    emitEvent('queueEvent', { items: [lost, next], order: [0, 1], context: null });
+    // Its stream stopped working: another source is looked for.
+    emitEvent('playbackStateEvent', {
+      ...IDLE_STATE,
+      status: 'loading',
+      currentItemId: lost.id,
+      lookingForSource: true,
+    });
+    expect(
+      await within(await screen.findByTestId('mini-player')).findByTestId('source-note'),
+    ).toHaveTextContent('Looking for another source…');
+
+    // None played it: the next song plays, and the notice names the skipped one's way out.
+    emitEvent('playbackStateEvent', {
+      ...IDLE_STATE,
+      status: 'loading',
+      currentItemId: next.id,
+      error: 'No source could play “Lost Song”',
+      skippedItemId: lost.id,
+    });
+    const notice = (await screen.findAllByTestId('skip-notice'))[0] as HTMLElement;
+    expect(notice).toHaveTextContent('Skipped: No source could play “Lost Song”');
+    await user.click(within(notice).getByRole('button', { name: 'Find a source…' }));
+    const picker = await screen.findByRole('dialog', { name: 'Choose a source' });
+    expect(within(picker).getByRole('textbox', { name: 'Song title' })).toHaveValue('Lost Song');
+    await waitFor(() => expect(screen.queryByTestId('skip-notice')).not.toBeInTheDocument());
+    await user.click(within(picker).getByRole('button', { name: 'Close' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Choose a source' })).not.toBeInTheDocument(),
+    );
+  });
 });
 
 describe('Player with video', () => {

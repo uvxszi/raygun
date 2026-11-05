@@ -267,6 +267,8 @@ mod tests {
             rate: 1.0,
             sleep_at: None,
             stop_after_current: false,
+            looking_for_source: false,
+            skipped_item_id: None,
         }
     }
 

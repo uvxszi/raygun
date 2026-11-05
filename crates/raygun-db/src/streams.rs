@@ -192,6 +192,47 @@ pub async fn copy_picks(db: &Db, from: &str, to: &str, now_ms: i64) -> Result<()
     Ok(())
 }
 
+/// Forgets the stream a remembered pick played from, which stopped working: the candidate isn't
+/// played from it again, but keeps having played the track (it's asked for a new stream). Not a
+/// failure of the candidate or its provider.
+pub async fn forget_stream(
+    db: &Db,
+    track_key: &str,
+    provider_id: &str,
+    candidate_id: &str,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE local_stream_candidate SET source = NULL, expires_at = NULL
+         WHERE track_key = ?1 AND provider_id = ?2 AND candidate_id = ?3",
+    )
+    .bind(track_key)
+    .bind(provider_id)
+    .bind(candidate_id)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+/// [`forget_stream`] for every pick of the tracks that plays from `source_json` (a stream picked
+/// for a song, which the song carried itself and which stopped working).
+pub async fn forget_source(
+    db: &Db,
+    track_keys: &[String],
+    source_json: &str,
+) -> Result<(), DbError> {
+    for key in track_keys {
+        sqlx::query(
+            "UPDATE local_stream_candidate SET source = NULL, expires_at = NULL
+             WHERE track_key = ?1 AND source = ?2",
+        )
+        .bind(key)
+        .bind(source_json)
+        .execute(db.pool())
+        .await?;
+    }
+    Ok(())
+}
+
 /// Forgets tracks' failed candidates (M46.48): after the user picks a source, what failed before
 /// is tried again rather than kept out for a day.
 pub async fn clear_failures(db: &Db, track_keys: &[String]) -> Result<(), DbError> {

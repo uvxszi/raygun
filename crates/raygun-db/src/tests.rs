@@ -394,6 +394,54 @@ async fn a_picked_stream_is_remembered_and_failures_forgotten() {
 }
 
 #[tokio::test]
+async fn a_stream_that_stopped_working_is_forgotten_but_not_held_against_its_source() {
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let song = "artist|song";
+    let stream = r#"{"kind":"url","url":"https://a.example/1","headers":{}}"#;
+    let picked = r#"{"kind":"url","url":"https://c.example/3","headers":{}}"#;
+    let played = |provider_id, candidate_id, source_json| streams::Played {
+        track_key: song,
+        provider_id,
+        candidate_id,
+        title: "Song",
+        source_json,
+        expires_at: Some(99),
+        bitrate_kbps: None,
+    };
+    streams::mark_verified(&db, played("dev.a/stream", "1", stream), 10)
+        .await
+        .unwrap();
+    streams::remember_pick(&db, played("picked", "3", picked), 20)
+        .await
+        .unwrap();
+
+    streams::forget_stream(&db, song, "dev.a/stream", "1")
+        .await
+        .unwrap();
+    streams::forget_source(&db, &[song.to_owned()], picked)
+        .await
+        .unwrap();
+    let rows = streams::candidates(&db, song).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        assert_eq!(
+            row.source, None,
+            "{} plays from nothing now",
+            row.candidate_id
+        );
+        assert_eq!(row.expires_at, None);
+        assert!(
+            row.verified_at.is_some(),
+            "having played the song counts still"
+        );
+        assert_eq!(row.failed_at, None, "the candidate itself didn't fail");
+    }
+    let stats = streams::provider_stats(&db).await.unwrap();
+    assert!(stats.iter().all(|row| row.failures == 0));
+}
+
+#[tokio::test]
 async fn local_values_round_trip_and_never_touch_synced_settings() {
     let dir = TempDir::new().unwrap();
     let db = open_in(dir.path()).await;
