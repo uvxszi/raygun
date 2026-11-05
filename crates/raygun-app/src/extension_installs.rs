@@ -15,6 +15,37 @@ use raygun_model::{
 };
 use tokio::sync::Notify;
 
+/// Shortest and longest pause between two installs, so a repository's host sees a person's
+/// pace rather than a burst.
+#[cfg(not(test))]
+const GAP_MS: (u64, u64) = (1_200, 3_500);
+#[cfg(test)]
+const GAP_MS: (u64, u64) = (0, 0);
+/// How long a rate-limited install waits, times its attempt, and how often it tries again.
+#[cfg(not(test))]
+const RATE_LIMIT_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+#[cfg(test)]
+const RATE_LIMIT_WAIT: std::time::Duration = std::time::Duration::from_millis(1);
+const RATE_LIMIT_RETRIES: u32 = 3;
+
+/// A pause somewhere in `GAP_MS`, varied by the clock (no random source needed for this).
+fn install_gap() -> std::time::Duration {
+    let (low, high) = GAP_MS;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |time| u64::from(time.subsec_nanos()));
+    std::time::Duration::from_millis(low + nanos % (high - low + 1))
+}
+
+/// Whether an install failed because the host asked to slow down.
+fn rate_limited(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("429")
+        || error.contains("too many requests")
+        || error.contains("rate limit")
+        || error.contains("limiting requests")
+}
+
 /// What installs: the extension service, or a stand-in in tests.
 pub trait Installer: Send + Sync + 'static {
     /// Installs one extension without loading it; `phase` says how far it got.
@@ -362,9 +393,24 @@ impl ExtensionInstalls {
                     (self.announce)(&status);
                 }
             };
-            let result = installer
-                .install(&request.repo_id, &request.extension_id, &phase)
-                .await;
+            // Repositories are often hosted where bulk downloads get rate limited (GitLab, GitHub
+            // raw): installs are spaced by a varying gap, and a rate-limited one waits and tries
+            // again rather than failing the rest.
+            let mut attempt = 0;
+            let result = loop {
+                let result = installer
+                    .install(&request.repo_id, &request.extension_id, &phase)
+                    .await;
+                match &result {
+                    Err(error) if rate_limited(error) && attempt < RATE_LIMIT_RETRIES => {
+                        attempt += 1;
+                        tracing::info!(extension = %request.extension_id, attempt, "rate limited; waiting before trying again");
+                        tokio::time::sleep(RATE_LIMIT_WAIT * attempt).await;
+                    }
+                    _ => break result,
+                }
+            };
+            tokio::time::sleep(install_gap()).await;
             if let Err(error) = &result {
                 tracing::info!(%error, extension = %request.extension_id, "extension didn't install");
             }

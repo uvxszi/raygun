@@ -212,8 +212,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
   ),
   ...on('browse', 'settings.sources')(
     'settings.extensions',
-    'browse.repos',
-    'watch.addons',
+    'sources.title',
     'sources.failingLast',
     'settings.autoLoad.title',
     'settings.autoLoad.cooldown',
@@ -241,7 +240,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'lyricsCache.keepDownloaded',
     'lyricsCache.keepLocal',
   ),
-  ...on('data', 'developer.title')('developer.add'),
+  ...on('data', 'developer.title')('developer.remove'),
 
   ...on('devices')(
     'link.sharing',

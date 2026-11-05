@@ -467,22 +467,23 @@ describe('Extensions', () => {
 
   it('adds and removes repositories', async () => {
     commands.extensionRepos.mockResolvedValue(ok([REPO]));
-    commands.extensionRepoAdd.mockResolvedValue({
+    commands.sourcesDetect.mockResolvedValue({
       status: 'error',
       error: 'invalid repository URL: use https',
     });
+    // Repositories live in Sources now.
     await AppShellWrapper.mount('/extensions?tab=repos');
 
     expect(await screen.findByTestId('repo-row')).toHaveTextContent(REPO.url);
-    // Adding is the top bar's "+", which opens a sheet.
-    await userEvent.click(screen.getByRole('button', { name: 'Add repository' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Add repository' });
+    // Adding is the top bar's "+": Sources' one Add, which looks at the address first.
+    await userEvent.click(screen.getByRole('button', { name: 'Add a source' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add a source' });
     await userEvent.type(
-      within(sheet).getByLabelText('Repository URL'),
+      within(sheet).getByRole('textbox', { name: 'Address' }),
       'http://example.org/index.json',
     );
-    await userEvent.click(within(sheet).getByRole('button', { name: 'Add repository' }));
-    expect(commands.extensionRepoAdd).toHaveBeenCalledWith('http://example.org/index.json');
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Look up' }));
+    expect(commands.sourcesDetect).toHaveBeenCalledWith('http://example.org/index.json');
     expect(await within(sheet).findByRole('alert')).toHaveTextContent('use https');
     await userEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
 
@@ -672,31 +673,42 @@ describe('Extensions', () => {
     ]);
   });
 
-  it("shows what a repository holds while its address is typed, before it's added", async () => {
+  it("shows what a repository holds before it's added", async () => {
     const user = userEvent.setup();
-    commands.extensionRepoPreview.mockResolvedValue(
+    commands.sourcesDetect.mockResolvedValue(
       ok({
-        repo: { id: '', url: 'https://example.org/s/index.json', name: 'Shosetsu' },
+        kind: 'repository',
+        format: 'shosetsu',
+        server: null,
+        url: 'https://example.org/s/index.json',
+        name: 'Shosetsu',
+        description: null,
+        added: false,
+        addon: null,
         entries: [
           entry({ id: 'shosetsu.en.a', name: 'A', provides: ['novel.source'] }),
           entry({ id: 'shosetsu.en.b', name: 'B', provides: ['novel.source'] }),
         ],
-        error: null,
+        note: null,
       }),
     );
     await AppShellWrapper.mount('/extensions?tab=repos');
-    await user.click(await screen.findByRole('button', { name: 'Add repository' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Add repository' });
-    const field = within(sheet).getByRole('textbox', { name: 'Repository URL' });
+    await user.click(await screen.findByRole('button', { name: 'Add a source' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add a source' });
+    const field = within(sheet).getByRole('textbox', { name: 'Address' });
     await user.type(field, 'https://example.org/s/index.json');
-    const preview = await within(sheet).findByTestId('repo-preview', {}, { timeout: 3000 });
-    expect(preview).toHaveTextContent('Shosetsu');
-    expect(within(preview).getByRole('list')).toHaveTextContent('Book sources · 2');
-    expect(commands.extensionRepoPreview).toHaveBeenCalledWith('https://example.org/s/index.json');
-    expect(commands.extensionRepoPreview).toHaveBeenCalledTimes(1);
+    await user.click(within(sheet).getByRole('button', { name: 'Look up' }));
+    const preview = await within(sheet).findByRole('region', {
+      name: 'Looks like a Shosetsu repository: Shosetsu',
+    });
+    expect(within(preview).getByRole('list', { name: 'What Shosetsu holds' })).toHaveTextContent(
+      'Book sources · 2',
+    );
+    expect(commands.sourcesDetect).toHaveBeenCalledWith('https://example.org/s/index.json');
+    expect(commands.sourcesDetect).toHaveBeenCalledTimes(1);
 
     // A long address goes with one tap.
-    await user.click(within(sheet).getByRole('button', { name: 'Clear Repository URL' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Clear Address' }));
     expect(field).toHaveValue('');
     expect(field).toHaveFocus();
   });
@@ -716,7 +728,7 @@ describe('Extensions', () => {
     );
     await AppShellWrapper.mount('/extensions?tab=repos');
 
-    expect(await screen.findByText('No repositories yet.')).toBeInTheDocument();
+    expect(await screen.findByText(/^Nothing here yet/)).toBeInTheDocument();
     const official = await screen.findByRole('listitem', { name: 'Paraline' });
     expect(within(official).getByText('Added')).toBeInTheDocument();
     const shosetsu = screen.getByRole('listitem', { name: 'Shosetsu extensions' });

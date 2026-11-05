@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { LinkOrFileField } from '../shell/LinkOrFileField';
 import { Sheet } from '../shell/Sheet';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
 import { usePlayLink } from '../watch/useWatch';
@@ -77,19 +78,36 @@ export const OpenLinkSheet: FC<{ onClose: () => void; initialKind?: Kind }> = ({
         ))}
       </div>
       <form onSubmit={onSubmit} data-testid="open-media-form" className="flex flex-col gap-3">
-        <TextField
-          autoFocus
-          value={location}
-          onChange={setLocation}
-          placeholder={kind === 'video' ? 'https://…/video.m3u8' : t('library.openPlaceholder')}
-          aria-label={kind === 'video' ? t('watch.videoUrl') : t('library.openLocation')}
-          inputMode="url"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          className={SHEET_FIELD}
-          inputClassName={INPUT}
-        />
+        {kind === 'audio' ? (
+          // Audio plays a link or a file: the button beside the field picks one.
+          <LinkOrFileField
+            autoFocus
+            value={location}
+            onChange={setLocation}
+            placeholder={t('library.openPlaceholder')}
+            aria-label={t('library.openLocation')}
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className={SHEET_FIELD}
+            inputClassName={INPUT}
+          />
+        ) : (
+          <TextField
+            autoFocus
+            value={location}
+            onChange={setLocation}
+            placeholder="https://…/video.m3u8"
+            aria-label={t('watch.videoUrl')}
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className={SHEET_FIELD}
+            inputClassName={INPUT}
+          />
+        )}
         <TextField
           value={extra}
           onChange={setExtra}

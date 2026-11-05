@@ -130,11 +130,6 @@ export const commands = {
 	 *  engines listen. Only the first call of a run does anything.
 	 */
 	playbackRestore: () => typedError<null, string>(__TAURI_INVOKE("playback_restore")),
-	/**
-	 *  Adds the test sources (M46.17, Settings → Data → Developer): every suggested repository,
-	 *  Raygun's test repository and the test addons. Never part of a fresh install.
-	 */
-	devAddTestSources: () => typedError<TestSourcesReport, string>(__TAURI_INVOKE("dev_add_test_sources")),
 	/**  Queues an episode after what plays (`next`) or at the end (M46.16). */
 	podcastQueue: (episodeId: string, next: boolean) => typedError<null, string>(__TAURI_INVOKE("podcast_queue", { episodeId, next })),
 	/**  Where this device's player plays (M46.15). */
@@ -183,6 +178,27 @@ export const commands = {
 	 *  only a path; without one, the website itself.
 	 */
 	catalogOpenPage: (sourceId: string, url: string | null) => typedError<null, string>(__TAURI_INVOKE("catalog_open_page", { sourceId, url })),
+	/**
+	 *  What an address typed in Sources → Add is (M46.52): a Stremio addon, a repository (Raygun's,
+	 *  Shosetsu's, Nuclear's, Miru's, LNReader's, Kodi's, Mihon's), one extension, or a server; a
+	 *  GitHub project's page stands for what it publishes, a folder for the index in it.
+	 */
+	sourcesDetect: (address: string) => typedError<DetectedSource, string>(__TAURI_INVOKE("sources_detect", { address })),
+	/**
+	 *  Adds what an address is: the addon, the repository, or the extension installed. A server is
+	 *  connected with its sign-in (`servers_add`).
+	 */
+	sourcesAdd: (address: string) => typedError<DetectedSource, string>(__TAURI_INVOKE("sources_add", { address })),
+	/**
+	 *  Shows the system's file or folder picker for a field that takes a link or a path; `null`
+	 *  when nothing was picked. On Android the item is copied into Raygun's data folder.
+	 */
+	filesPick: (target: PickTarget) => typedError<{
+	/**  Where it is: the path on this computer, or on Android the copy in Raygun's data folder. */
+	path: string,
+	/**  Its name, as the picker showed it. */
+	name: string,
+} | null, string>(__TAURI_INVOKE("files_pick", { target })),
 	/**  Repositories extensions can be installed from. */
 	extensionRepos: () => typedError<ExtensionRepo[], string>(__TAURI_INVOKE("extension_repos")),
 	/**  Well-known repositories to add with one tap, marked when already added. */
@@ -716,8 +732,8 @@ export const commands = {
 	/**  Shows a finished yt-dlp download in the file manager (M46.47). */
 	ytdlpReveal: (id: string) => typedError<null, string>(__TAURI_INVOKE("ytdlp_reveal", { id })),
 	/**
-	 *  Takes the test sources off again (M46.47): Raygun's test repository, its extensions and its
-	 *  Stremio addon. The suggested repositories and the legal addons stay.
+	 *  Takes the old test sources off (M46.47): the test repository, its extensions and its Stremio
+	 *  addon.
 	 */
 	devRemoveTestSources: () => typedError<number, string>(__TAURI_INVOKE("dev_remove_test_sources")),
 	/**  Raygun's newest release next to this copy (M46.47); `refresh` asks GitHub now. */
@@ -2266,6 +2282,44 @@ export type DetailEdit = {
 export type DetailTarget = { kind: "song"; query: TrackQuery } | { kind: "album"; artist: string | null; album: string } | { kind: "artist"; name: string } | 
 /**  Only its cover is the user's (its name is renamed with the playlist). */
 { kind: "playlist"; id: string };
+
+/**  What an address added in Sources is (M46.52). */
+export type DetectedKind = 
+/**  A Stremio addon (its `manifest.json`). */
+"addon" | 
+/**  A repository of extensions, in one app's format. */
+"repository" | 
+/**  One extension on its own: a Raygun package, a Miru or Shosetsu script. */
+"extension" | 
+/**  A server people sign in to: Jellyfin, Emby, Subsonic, Audiobookshelf, an OPDS catalogue. */
+"server";
+
+/**  An address read before it's added (Sources → Add), and what adding it brought. */
+export type DetectedSource = {
+	kind: DetectedKind,
+	/**  A repository's or an extension's format. */
+	format: SourceFormat | null,
+	/**  A server's kind. */
+	server: ServerKind | null,
+	/**
+	 *  What it's added by: the addon's manifest, the repository's index, the extension's file,
+	 *  the server's address.
+	 */
+	url: string,
+	name: string,
+	description: string | null,
+	/**
+	 *  Already on this device: the addon, the repository, the extension at this version, the
+	 *  server.
+	 */
+	added: boolean,
+	/**  The addon, as the list shows it. */
+	addon: StremioAddon | null,
+	/**  What the repository lists, or the one extension. */
+	entries: CatalogEntry[],
+	/**  Why its extensions can't run here (a Kodi or Mihon repository), when they can't. */
+	note: string | null,
+};
 
 /**  The device's state as the UI sees it. */
 export type DeviceState = {
@@ -3832,6 +3886,17 @@ export type PermissionReason =
 /**  Adding a folder to Local Files: its songs and videos are read by path. */
 "folders";
 
+/**  What a field's picker picks (M46.52). */
+export type PickTarget = "file" | "folder";
+
+/**  A file or folder picked for a field that takes a link or a path. */
+export type PickedPath = {
+	/**  Where it is: the path on this computer, or on Android the copy in Raygun's data folder. */
+	path: string,
+	/**  Its name, as the picker showed it. */
+	name: string,
+};
+
 /**
  *  Where something was played from (M46.37: Home's Your music shows the latest): an album, a
  *  playlist, a mix, an artist, a chart, a podcast or a book, with the page that opens it.
@@ -4859,6 +4924,9 @@ export type SourceFilter =
 /**  Tags to include or exclude (three-state chips). */
 { kind: "tags"; key: string; label: string; options: FilterOption[] } | { kind: "toggle"; key: string; label: string; default: boolean };
 
+/**  Which app's format a repository or an extension is in. */
+export type SourceFormat = "raygun" | "nuclear" | "shosetsu" | "miru" | "lnreader" | "kodi" | "mihon";
+
 /**  A source in play order, with how it did. */
 export type SourceRank = {
 	/**  Its place in the list given. */
@@ -5367,18 +5435,6 @@ export type TapZones =
 "off" | 
 /**  Each mode's own 3×3 grid (`MangaReaderPrefs::tap_grid_paged`, `tap_grid_webtoon`). */
 "custom";
-
-export type TestSourceFailure = {
-	url: string,
-	error: string,
-};
-
-/**  What adding the test sources did: what was added and what couldn't be. */
-export type TestSourcesReport = {
-	added: string[],
-	already: string[],
-	failed: TestSourceFailure[],
-};
 
 export type TextAlign = "left" | "center";
 

@@ -113,6 +113,93 @@ pub fn verify_script(bytes: &[u8], entry: &RepoEntry) -> Result<String, PackageE
     Ok(code)
 }
 
+/// The entry a repository would list for a script found on its own at `url` (an address added in
+/// Sources, `…/src/<lang>/<File>.lua` as repositories lay them out): the id a repository gives
+/// it, its metadata line's version, and the name its table gives (`name = "NovelFull"`), else
+/// its file's. `None` when it isn't a Shosetsu script Raygun runs.
+pub fn entry_of(bytes: &[u8], url: &Url) -> Option<RepoEntry> {
+    if bytes.len() as u64 > MAX_PACKAGE_BYTES {
+        return None;
+    }
+    let code = std::str::from_utf8(bytes).ok()?;
+    let header = header(code)?;
+    header.get("id")?;
+    let version = header.get("ver")?.as_str()?;
+    semver::Version::parse(version).ok()?;
+    // Scripts for another kotlin-lib than the one Raygun stands in for are left out, as in
+    // repositories.
+    if let Some(lib) = header.get("libVer").and_then(serde_json::Value::as_str)
+        && semver::Version::parse(lib).ok()?.major != 1
+    {
+        return None;
+    }
+    let parts: Vec<&str> = url
+        .path_segments()?
+        .filter(|part| !part.is_empty())
+        .collect();
+    let file = parts.last()?.strip_suffix(".lua")?;
+    let lang = parts
+        .iter()
+        .rev()
+        .nth(1)
+        .filter(|lang| {
+            (2..=8).contains(&lang.len())
+                && lang
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
+        })
+        .map_or("multi", |lang| lang);
+    let id = format!(
+        "shosetsu.{}.{}",
+        crate::repo::id_label(lang),
+        crate::repo::id_label(file)
+    );
+    if !crate::manifest::is_extension_id(&id) {
+        return None;
+    }
+    let name = own_name(code).unwrap_or_else(|| file.to_owned());
+    Some(RepoEntry {
+        id,
+        description: Some(format!(
+            "{name} ({lang}), a Shosetsu novel source. It may reach any website."
+        )),
+        name,
+        version: version.to_owned(),
+        api_version: crate::manifest::API_VERSION,
+        author: header
+            .get("author")
+            .and_then(serde_json::Value::as_str)
+            .filter(|author| !author.trim().is_empty())
+            .map(str::to_owned),
+        provides: vec!["novel.source".to_owned()],
+        permissions: crate::repo::RepoPermissions {
+            net: vec!["*".to_owned()],
+            webview: false,
+        },
+        content_rating: "suggestive".to_owned(),
+        lang: Some(lang.to_owned()),
+        package: url.to_string(),
+        icon: None,
+        sha256: sha256_hex(bytes),
+        size: bytes.len() as u64,
+        format: crate::repo::PackageFormat::Shosetsu,
+    })
+}
+
+/// The name a script's table gives itself: its first `name = "…"` line.
+fn own_name(code: &str) -> Option<String> {
+    code.lines().find_map(|line| {
+        let rest = line
+            .trim()
+            .strip_prefix("name")?
+            .trim_start()
+            .strip_prefix('=')?;
+        let quoted = rest.trim().strip_prefix('"')?;
+        let name = quoted.split('"').next()?.trim();
+        (!name.is_empty()).then(|| name.to_owned())
+    })
+}
+
 /// A library name that maps to `lib/<name>.lua` and nothing else.
 pub fn is_library_name(name: &str) -> bool {
     !name.is_empty()
@@ -513,5 +600,33 @@ mod tests {
             super::package(entry, SCRIPT.into(), vec![("../x".into(), String::new())]).is_err()
         );
         assert!(!is_library_name("../etc"));
+    }
+
+    #[test]
+    fn a_script_on_its_own_gets_the_id_its_repository_gives() {
+        let url: Url = "https://example.org/extensions/src/en/NovelFull.lua"
+            .parse()
+            .unwrap();
+        let entry = entry_of(SCRIPT.as_bytes(), &url).unwrap();
+        assert_eq!(entry.id, index().extensions[0].id);
+        assert_eq!(entry.name, "NovelFull");
+        assert_eq!(entry.version, "3.0.1");
+        assert_eq!(entry.lang.as_deref(), Some("en"));
+        assert_eq!(entry.package, url.as_str());
+        // Its own checksum, so it checks out as listed.
+        assert_eq!(verify_script(SCRIPT.as_bytes(), &entry).unwrap(), SCRIPT);
+
+        let named = format!("{SCRIPT}local x = 1\n  name = \"Novel Full\",\n");
+        let elsewhere: Url = "https://example.org/NovelFull.lua".parse().unwrap();
+        let entry = entry_of(named.as_bytes(), &elsewhere).unwrap();
+        assert_eq!(entry.name, "Novel Full");
+        assert_eq!(entry.id, "shosetsu.multi.novelfull");
+        assert!(entry_of(b"return {}", &url).is_none(), "no metadata line");
+        assert!(entry_of(SCRIPT.as_bytes(), &"https://x.org/a.js".parse().unwrap()).is_none());
+        let future = SCRIPT.replace("\"libVer\":\"1.0.0\"", "\"libVer\":\"2.0.0\"");
+        assert!(
+            entry_of(future.as_bytes(), &url).is_none(),
+            "another kotlin-lib"
+        );
     }
 }

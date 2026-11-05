@@ -255,7 +255,7 @@ async fn legacy_lists_without_a_newer_index_are_stores_of_their_own() {
     })
     .await
     .unwrap();
-    assert_eq!(store.name, "extensions");
+    assert_eq!(store.name, "someone", "a generic project is named by its owner");
     let example = &store.extensions[0];
     assert_eq!(
         example.apk,
@@ -282,6 +282,51 @@ async fn legacy_lists_without_a_newer_index_are_stores_of_their_own() {
         folder.web_url(),
         "https://github.com/someone/extensions-source/tree/main/src/en/example"
     );
+}
+
+#[test]
+fn a_list_read_without_its_address_keeps_its_files_relative() {
+    let list = json!([
+        { "name": "Tachiyomi: MangaDex", "pkg": "eu.kanade.tachiyomi.extension.all.mangadex",
+          "apk": "tachiyomi-all.mangadex-v1.4.190.apk", "lang": "all", "code": 190,
+          "version": "1.4.190", "nsfw": 1,
+          "sources": [
+            { "name": "MangaDex", "lang": "en", "id": "1", "baseUrl": "https://mangadex.org" },
+            { "name": "MangaDex", "lang": "ja", "id": "2", "baseUrl": "https://mangadex.org" },
+          ] },
+        { "name": "Aniyomi: AllAnime", "pkg": "eu.kanade.tachiyomi.animeextension.en.allanime",
+          "apk": "aniyomi-en.allanime-v14.7.apk", "lang": "en", "code": 7, "version": "14.7",
+          "nsfw": 0, "sources": [{ "name": "AllAnime", "lang": "en", "id": "3", "baseUrl": "https://allanime.to" }] },
+        { "name": "Bad", "pkg": "eu.kanade.tachiyomi.extension.en.bad", "apk": "../x.apk", "sources": [] },
+    ])
+    .to_string();
+    let parsed = super::parse(&list).unwrap();
+    let [mangadex] = parsed.extensions.as_slice() else {
+        panic!("{:?}", parsed.extensions);
+    };
+    assert_eq!(mangadex.id, "mihon.all.mangadex");
+    assert_eq!(mangadex.name, "MangaDex");
+    assert_eq!(mangadex.package, "apk/tachiyomi-all.mangadex-v1.4.190.apk");
+    assert_eq!(
+        mangadex.icon.as_deref(),
+        Some("icon/eu.kanade.tachiyomi.extension.all.mangadex.png")
+    );
+    assert_eq!(mangadex.content_rating, "nsfw");
+    assert_eq!(mangadex.lang.as_deref(), Some("multi"));
+    assert_eq!(
+        super::extension_id("eu.kanade.tachiyomi.animeextension.en.allanime").as_deref(),
+        Some("mihon.anime.en.allanime")
+    );
+    let anime_only =
+        json!([{ "name": "AllAnime", "pkg": "eu.kanade.tachiyomi.animeextension.en.allanime",
+        "apk": "a.apk", "sources": [] }])
+        .to_string();
+    assert!(
+        super::parse(&anime_only).is_none(),
+        "no comic sources to list"
+    );
+    assert!(super::parse(r#"[{"id":"x","site":"y","version":"1","url":"z"}]"#).is_none());
+    assert!(super::runtime_present());
 }
 
 #[test]

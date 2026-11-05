@@ -1,9 +1,0 @@
-{
-  "meta": {
-    "id": "rgtest-euronews",
-    "type": "tv",
-    "name": "Euronews English",
-    "description": "Euronews English, live from the broadcaster.",
-    "genres": ["News"]
-  }
-}

@@ -82,8 +82,9 @@ pub struct RepoEntry {
 /// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
 /// Shosetsu Lua script installed with its libraries (M32), a Miru script (`crate::miru`), an
 /// LNReader plugin (`crate::lnreader`), a Kodi add-on, listed but not installable
-/// (`crate::kodi`), or a Mihon extension whose source code is converted at install
-/// (`crate::mihon`; its package is the APK, which Raygun doesn't run).
+/// (`crate::kodi`), or a Mihon extension whose source code is converted at install into the
+/// `mihon` runtime (`crate::mihon`; its package is the APK, which Raygun doesn't run). An
+/// index's own format is one of the same.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PackageFormat {
@@ -193,7 +194,7 @@ pub fn shosetsu_index_candidates(url: &Url) -> Vec<Url> {
 }
 
 /// A label for an extension id: lower case, other characters as `-`.
-fn id_label(text: &str) -> String {
+pub(crate) fn id_label(text: &str) -> String {
     let label: String = text
         .to_ascii_lowercase()
         .chars()
@@ -323,15 +324,32 @@ pub fn default_name(url: &Url) -> String {
             None => (None, None),
         },
     };
-    if owner.is_some_and(|owner| owner.eq_ignore_ascii_case("shosetsuorg")) {
+    if owner
+        .as_deref()
+        .is_some_and(|owner| owner.eq_ignore_ascii_case("shosetsuorg"))
+    {
         return SHOSETSU_REPO_NAME.to_owned();
     }
     match (project.filter(|project| !project.is_empty()), url.port()) {
+        // `keiyoushi/extensions` says whose it is only by its owner.
+        (Some(project), _) if GENERIC_PROJECTS.contains(&project.to_ascii_lowercase().as_str()) => {
+            owner.filter(|owner| !owner.is_empty()).unwrap_or(project)
+        }
         (Some(project), _) => project,
         (None, Some(port)) => format!("{host}:{port}"),
         (None, None) => host,
     }
 }
+
+/// Project names that don't say whose repository it is: its owner names it.
+const GENERIC_PROJECTS: [&str; 6] = [
+    "extensions",
+    "extensions-source",
+    "repo",
+    "repository",
+    "index",
+    "plugins",
+];
 
 /// Nuclear's plugin registry (`plugins.json`), read as a repository.
 #[derive(Debug, Deserialize)]
@@ -457,13 +475,35 @@ pub enum RepoError {
     Foreign(String),
 }
 
+/// Where Android keeps what's picked in fields that take a file (M46.52): its copies there are
+/// read as files, as anything on this computer is on desktop.
+static PICKED_FILES: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Lets repositories and packages be read from files under `root` (the data folder's `picked/`).
+pub fn allow_local_files_in(root: std::path::PathBuf) {
+    let _ = PICKED_FILES.set(root);
+}
+
+/// Whether repositories and packages may be read from the file at `path`: anywhere on desktop
+/// (M46.28); on Android only from the copies of picked files.
+pub fn local_files_allowed(path: &std::path::Path) -> bool {
+    cfg!(not(target_os = "android"))
+        || PICKED_FILES.get().is_some_and(|root| {
+            path.starts_with(root)
+                && !path
+                    .components()
+                    .any(|part| part == std::path::Component::ParentDir)
+        })
+}
+
 /// Repository URLs must be `https`, except plain `http` to this machine or the Android emulator's
 /// host alias (`10.0.2.2`), which serve local test repositories.
 pub fn check_index_url(url: &str) -> Result<Url, RepoError> {
     // On desktop a repository can be an index on this computer (M46.28): a plain path or a
-    // `file:` address, its packages read from beside it.
+    // `file:` address, its packages read from beside it. On Android, a copy of a picked one.
     let trimmed = url.trim();
-    if cfg!(not(target_os = "android")) && std::path::Path::new(trimmed).is_absolute() {
+    let path = std::path::Path::new(trimmed);
+    if path.is_absolute() && local_files_allowed(path) {
         return Url::from_file_path(trimmed)
             .map_err(|()| RepoError::Url(format!("{trimmed} isn't a usable path")));
     }
@@ -480,7 +520,14 @@ pub fn check_index_url(url: &str) -> Result<Url, RepoError> {
         "http" => Err(RepoError::Url(
             "use https (plain http is only allowed for local test repositories)".to_owned(),
         )),
-        "file" if cfg!(not(target_os = "android")) => Ok(parsed),
+        "file"
+            if cfg!(not(target_os = "android"))
+                || parsed
+                    .to_file_path()
+                    .is_ok_and(|path| local_files_allowed(&path)) =>
+        {
+            Ok(parsed)
+        }
         other => Err(RepoError::Url(format!("unsupported scheme {other:?}"))),
     }
 }
@@ -516,27 +563,38 @@ pub fn index_beside(url: &Url) -> Option<Url> {
 /// package is its script, and the libraries scripts need are the index's `libraries`, found at
 /// `lib/<name>.lua` beside it, as in a Shosetsu repository.
 pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
+    read_index(json).map(|(index, _)| index)
+}
+
+/// [`parse_index`], saying which app's format the index is in: Raygun's own (whatever formats
+/// its entries are), Nuclear's registry, Shosetsu's, Miru's, LNReader's, Kodi's or Mihon's.
+pub fn read_index(json: &str) -> Result<(RepoIndex, PackageFormat), RepoError> {
     // Kodi's `addons.xml` (`crate::kodi`), the one index that isn't JSON.
     if json
         .trim_start_matches('\u{feff}')
         .trim_start()
         .starts_with('<')
     {
-        return crate::kodi::parse(json).ok_or_else(|| {
-            RepoError::Index("it's XML, but not a Kodi add-on index (addons.xml)".into())
-        });
+        return crate::kodi::parse(json)
+            .map(|index| (index, PackageFormat::Kodi))
+            .ok_or_else(|| {
+                RepoError::Index("it's XML, but not a Kodi add-on index (addons.xml)".into())
+            });
     }
     if let Ok(registry) = serde_json::from_str::<NuclearRegistry>(json) {
-        return Ok(from_nuclear(registry));
+        return Ok((from_nuclear(registry), PackageFormat::Nuclear));
     }
     if let Ok(index) = serde_json::from_str::<ShosetsuIndex>(json) {
-        return Ok(from_shosetsu(index));
+        return Ok((from_shosetsu(index), PackageFormat::Shosetsu));
     }
     if let Some(index) = crate::miru::index::parse(json) {
-        return Ok(index);
+        return Ok((index, PackageFormat::Miru));
     }
     if let Some(index) = crate::lnreader::index::parse(json) {
-        return Ok(index);
+        return Ok((index, PackageFormat::LnReader));
+    }
+    if let Some(index) = crate::mihon::parse(json) {
+        return Ok((index, PackageFormat::Mihon));
     }
     let mut index: RepoIndex = serde_json::from_str(json).map_err(|error| {
         foreign_format(json).map_or_else(|| RepoError::Index(error.to_string()), RepoError::Foreign)
@@ -567,11 +625,11 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
             };
         }
     }
-    Ok(index)
+    Ok((index, PackageFormat::Raygun))
 }
 
 /// What another app's repository is, by the shape of its index (M46.38), with what Raygun can do
-/// about it; `None` for anything else.
+/// about it; `None` for anything else. Mihon's and Aniyomi's are read (`crate::mihon`).
 fn foreign_format(json: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
     let first = value.as_array().and_then(|items| items.first());
@@ -580,14 +638,12 @@ fn foreign_format(json: &str) -> Option<String> {
             .and_then(serde_json::Value::as_object)
             .is_some_and(|fields| keys.iter().all(|key| fields.contains_key(*key)))
     };
-    let message = if has(first, &["pkg", "apk", "sources"]) {
-        "This is a Mihon or Aniyomi extension repository: its extensions are Android packages, which Raygun can't run"
-    } else if has(Some(&value), &["pluginLists", "manifestVersion"]) {
+    let message = if has(Some(&value), &["pluginLists", "manifestVersion"]) {
         "This is a CloudStream repository: its plugins are Kotlin code, which Raygun can't run"
     } else if has(first, &["internalName", "tvTypes", "url"]) {
         "This is a CloudStream plugin list: its plugins are Kotlin code, which Raygun can't run"
     } else if has(Some(&value), &["resources", "types", "id"]) {
-        "This is a Stremio addon, not a repository: add it in Browse → Sources → Addons"
+        "This is a Stremio addon, not a repository: add it with Add in Sources"
     } else {
         return None;
     };
@@ -606,8 +662,12 @@ pub fn package_url(index_url: &Url, entry: &RepoEntry) -> Result<Url, RepoError>
     let url = index_url
         .join(&entry.package)
         .map_err(|error| RepoError::Url(error.to_string()))?;
-    let local =
-        cfg!(not(target_os = "android")) && index_url.scheme() == "file" && url.scheme() == "file";
+    let local = index_url.scheme() == "file"
+        && url.scheme() == "file"
+        && (cfg!(not(target_os = "android"))
+            || url
+                .to_file_path()
+                .is_ok_and(|path| local_files_allowed(&path)));
     if matches!(url.scheme(), "http" | "https") || local {
         Ok(url)
     } else {

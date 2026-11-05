@@ -118,14 +118,7 @@ pub fn detect(bytes: &[u8]) -> bool {
         return false;
     };
     match first_byte(&bytes) {
-        Some(b'[') => serde_json::from_slice::<Value>(&bytes)
-            .ok()
-            .and_then(|value| value.as_array()?.first().cloned())
-            .is_some_and(|first| {
-                ["pkg", "apk", "code", "version"]
-                    .iter()
-                    .all(|key| first.get(key).is_some())
-            }),
+        Some(b'[') => serde_json::from_slice::<Value>(&bytes).is_ok_and(|value| is_index(&value)),
         Some(b'{') => serde_json::from_slice::<Value>(&bytes).is_ok_and(|value| {
             value
                 .get("meta")
@@ -154,7 +147,7 @@ pub fn read(bytes: &[u8], from: &Url) -> Result<Read, String> {
                 .map_err(|error| format!("invalid store address: {error}"))?;
             let extensions = items
                 .iter()
-                .filter_map(|item| legacy_extension(item, &folder))
+                .filter_map(|item| legacy_extension(item, Some(&folder)))
                 .collect();
             let repo = folder
                 .join("repo.json")
@@ -283,15 +276,24 @@ where
     Err("the store names one address after another without listing extensions".into())
 }
 
+/// The prefix of an Aniyomi anime extension's package name.
+pub const ANIME_PREFIX: &str = "eu.kanade.tachiyomi.animeextension.";
+
 /// The Raygun extension id of a Mihon package: `mihon.` and what follows the usual prefix
-/// (`eu.kanade.tachiyomi.extension.all.ahottie` → `mihon.all.ahottie`).
+/// (`eu.kanade.tachiyomi.extension.all.ahottie` → `mihon.all.ahottie`); Aniyomi's under
+/// `mihon.anime.`.
 pub fn extension_id(pkg: &str) -> Option<String> {
-    let rest = match pkg.strip_prefix(PACKAGE_PREFIX) {
-        Some(rest) => rest.to_owned(),
+    let pkg = pkg.trim();
+    let (prefix, rest) = match (
+        pkg.strip_prefix(ANIME_PREFIX),
+        pkg.strip_prefix(PACKAGE_PREFIX),
+    ) {
+        (Some(rest), _) => ("mihon.anime", rest.to_owned()),
+        (None, Some(rest)) => ("mihon", rest.to_owned()),
         // Another prefix: its language and name are its last two parts.
-        None => {
+        (None, None) => {
             let parts: Vec<&str> = pkg.split('.').collect();
-            parts[parts.len().saturating_sub(2)..].join(".")
+            ("mihon", parts[parts.len().saturating_sub(2)..].join("."))
         }
     };
     let labels: Vec<String> = rest
@@ -309,8 +311,37 @@ pub fn extension_id(pkg: &str) -> Option<String> {
     if labels.is_empty() {
         return None;
     }
-    let id = format!("mihon.{}", labels.join("."));
+    let id = format!("{prefix}.{}", labels.join("."));
     is_extension_id(&id).then_some(id)
+}
+
+/// Whether `value` is shaped like a legacy Mihon list: entries naming a package and an APK.
+pub fn is_index(value: &Value) -> bool {
+    value.as_array().is_some_and(|entries| {
+        entries
+            .iter()
+            .any(|entry| entry.get("pkg").is_some() && entry.get("apk").is_some())
+    })
+}
+
+/// Reads a legacy list on its own (`repo::read_index`, which has no address): its APKs and icons
+/// stay relative to it (`apk/…`, `icon/…`). `None` when `json` isn't one. Reading a store by its
+/// address ([`load`]) also follows it to its newer index.
+pub fn parse(json: &str) -> Option<RepoIndex> {
+    let value: Value = serde_json::from_str(json).ok()?;
+    if !is_index(&value) {
+        return None;
+    }
+    let extensions = value
+        .as_array()?
+        .iter()
+        .filter_map(|item| legacy_extension(item, None))
+        .collect();
+    to_repo_index(&Store {
+        extensions,
+        ..Store::default()
+    })
+    .ok()
 }
 
 /// The extension of `store` an entry stands for.
@@ -505,10 +536,17 @@ fn integer(value: &Value, key: &str) -> Option<i64> {
     }
 }
 
-/// An extension of a legacy list, its files beside the list.
-fn legacy_extension(item: &Value, folder: &Url) -> Option<StoreExtension> {
+/// An extension of a legacy list, its files beside the list (relative to it without `folder`).
+fn legacy_extension(item: &Value, folder: Option<&Url>) -> Option<StoreExtension> {
     let pkg = text(item, "pkg")?;
     let apk = text(item, "apk")?;
+    if apk.contains(['/', '\\']) || pkg.contains(['/', '\\']) {
+        return None;
+    }
+    let beside = |path: String| match folder {
+        Some(folder) => folder.join(&path).ok().map(String::from),
+        None => Some(path),
+    };
     let name = text(item, "name").unwrap_or_else(|| pkg.clone());
     let lang = text(item, "lang").unwrap_or_else(|| "all".to_owned());
     let version_name = text(item, "version").unwrap_or_default();
@@ -539,11 +577,8 @@ fn legacy_extension(item: &Value, folder: &Url) -> Option<StoreExtension> {
             .rsplit_once('.')
             .map(|(lib, _)| lib.to_owned())
             .unwrap_or_default(),
-        apk: folder.join(&format!("apk/{apk}")).ok()?.to_string(),
-        icon: folder
-            .join(&format!("icon/{pkg}.png"))
-            .ok()
-            .map(String::from),
+        apk: beside(format!("apk/{apk}"))?,
+        icon: beside(format!("icon/{pkg}.png")),
         version_code: integer(item, "code").unwrap_or_default(),
         content: if integer(item, "nsfw") == Some(1) {
             ContentWarning::Nsfw

@@ -51,6 +51,7 @@ mod network;
 mod notifications;
 mod novel;
 mod permissions;
+mod picker;
 mod playback;
 mod podcast_feed;
 mod podcasts;
@@ -66,6 +67,7 @@ mod search_filter;
 mod servers;
 mod settings;
 mod sound;
+mod source_detect;
 mod startup;
 mod stremio;
 mod system_ui;
@@ -128,7 +130,6 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::music_song_credits,
             commands::music_open_info_page,
             commands::playback_restore,
-            commands::dev_add_test_sources,
             commands::podcast_queue,
             commands::connect_status,
             commands::connect_devices,
@@ -142,6 +143,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::browser_check_target,
             commands::browser_check_open,
             commands::catalog_open_page,
+            commands::sources_detect,
+            commands::sources_add,
+            commands::files_pick,
             commands::extension_repos,
             commands::extension_suggested_repos,
             commands::extension_repo_add,

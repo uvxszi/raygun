@@ -55,9 +55,9 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party
 | Playlists, favorites, history | Nuclear, RiPlay | ✅ M18 |
 | Synced lyrics | Nuclear | ✅ M15 |
 | Furigana/romaji, word-by-word sync, lyrics offset and sources | Nuclear, RiPlay | 🔜 M52 (was marked done; never built) |
-| Internet radio | — | ✅ (Radio Browser) |
+| Internet radio | — | ✅ (through radio sources people add; the Radio Browser extension was removed in v1.2.0) |
 | **Podcasts**: search, subscribe, episodes, resume, downloads | RiPlay | ✅ M37 |
-| Song downloads for offline play; save as the original file, WAV or FLAC with tags; recording when only YouTube has a song | Spotify, Nuclear, RiPlay | ✅ M46.10 (recording on Windows; Android: queued) |
+| Song downloads for offline play; save as the original file, WAV or FLAC with tags; recording when only a YouTube embed has a song | Spotify, Nuclear, RiPlay | ✅ M46.10 (recording on Windows; Android: queued) |
 | Music search by songs, artists and albums; album pages | Spotify, Nuclear | ✅ M46.11 |
 | Swipe the player bar to change songs; Connect (devices); a miniplayer window on top | Spotify | ✅ M46.13 (Connect shows synced devices; there's no casting) |
 | Cards under the player (Lyrics, About the artist, Credits); artist bios; rows that page with buttons | Spotify | ✅ M46.14 (MusicBrainz and Wikipedia; similar artists and samples not yet) |
@@ -65,8 +65,8 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party
 | Playing mark in lists, reopen paused where you left off, Discord presence | Spotify | ✅ M46.16 (Discord: desktop, with your own Discord application ID) |
 | Sources failing calmly with details on request; automatic video source fallback that remembers bad sources | Cloudstream, Aniyomi, Stremio | ✅ M46.17 |
 | Made for You: Daily Mixes, Discover Weekly, Release Radar, On Repeat, Repeat Rewind, "Because you listened to", artist radios, listening numbers | QuietPlay, Spotify, Metrolist, RiPlay | ✅ M46.20 (made daily from plays and favorites; skips aren't counted yet) |
-| Genre and mood pages full of songs from every source; charts by kind (top, trending, new, underground, decades) | Spotify, QuietPlay | ✅ M46.19 (Deezer, Apple Music, ListenBrainz, Audius) |
-| Audio quality for streaming, mobile data and downloads; a download button with an undo popover; a Downloaded library view; MP3 export | Spotify, RiPlay | ✅ M46.18 (quality picks among a source's streams; YouTube's embed has no quality control) |
+| Genre and mood pages full of songs from every source; charts by kind (top, trending, new, underground, decades) | Spotify, QuietPlay | ✅ M46.19 (from chart sources) |
+| Audio quality for streaming, mobile data and downloads; a download button with an undo popover; a Downloaded library view; MP3 export | Spotify, RiPlay | ✅ M46.18 (quality picks among a source's streams; a YouTube embed has no quality control) |
 | Equalizer | RiPlay | ✅ M46.12 (10 fixed bands with presets on both platforms; bass boost, reverb, balance, mono) |
 | Crossfade, loudness normalization, per-song start/end trims and volume | Spotify, RiPlay, Nuclear (setting only) | ✅ M46.12 (true crossfade with two players; loudness measured as songs play) |
 | Sleep timer | RiPlay | 🔜 M52 |
@@ -82,27 +82,27 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party
 | Podcast transcripts and captions | Apple Podcasts, Pocket Casts, Podcasting 2.0 apps | ✅ M46.32 (feed transcripts, or Whisper on the device or online) |
 | AI subtitles for videos, external player choice, volume boost | mpv, VLC, MX Player, Kodi | ✅ M46.33 (Whisper on the device or online; mpv, VLC, MPC, PotPlayer) |
 | Trailer on a movie's page | Stremio, Netflix-style apps | ✅ M46.34 (small, muted, can be turned off) |
-| Plugin-made search pills (YouTube, PeerTube) | CloudStream (providers per type) | ✅ M46.35 |
+| Plugin-made search pills | CloudStream (providers per type) | ✅ M46.35 |
 | Explicit filter separate from adult content | Spotify, Apple Music | ✅ M46.36 |
-| Artist discography (albums, singles, compilations) | Spotify, Nuclear | ✅ M46.36 (Deezer, MusicBrainz) |
+| Artist discography (albums, singles, compilations) | Spotify, Nuclear | ✅ M46.36 (MusicBrainz and other metadata sources) |
 | Pick another lyrics source, lyrics by speech recognition | Musixmatch, RiPlay | ✅ M46.36 |
 | All tab in library and downloads | Spotify (Your Library), Mihon | ✅ M46.37 |
 | Chapter sort and filter on title pages | Mihon, Aniyomi | ✅ M46.38 (number, upload date, source order; unread, started, downloaded) |
 | Search a title in other sources | Mihon (migrate), Shosetsu | ✅ M46.38 (open or add; moving progress not yet) |
 | JPEG XL images | Mihon (reader), modern browsers | ✅ M46.38 (read from sources; saved covers) |
-| Playlist search and featured playlists | Kreate, RiMusic, ViMusic | ✅ M46.39 (YouTube Music, Deezer; save to library) |
-| More lyrics sources (KuGou, YouTube Music) | Kreate, RiMusic | ✅ M46.39 (with LRCLIB; pick one per song since M46.36) |
-| YouTube audio through Piped or Invidious | Kreate, RiMusic | ❌ by choice (fetches YouTube's files outside its player; see M46.39) |
+| Playlist search and featured playlists | Kreate, RiMusic, ViMusic | ✅ M46.39 (from playlist sources; save to library) |
+| More lyrics sources | Kreate, RiMusic | ✅ M46.39 (pick one per song since M46.36; lyrics sources are added by the person since v1.2.0) |
+| Audio from YouTube through Piped or Invidious | Kreate, RiMusic | ❌ by choice (fetches YouTube's files outside its player; see M46.39) |
 | Follow artists, new-release alerts | Spotify, Apple Music | ✅ M46.42 (daily checks; concerts from MusicBrainz) |
 | Pick the audio output (speaker, headphones, Bluetooth) | Spotify Connect, Poweramp | ✅ M46.43 |
 | Drag songs into your own order (also from a sorted view) | Spotify, Musicolet | ✅ M46.44 |
 | Custom playlist covers, merge playlists | Spotify, Poweramp | ✅ M46.45 |
 | Saved and downloaded marks on every song | Spotify | ✅ M46.45 |
-| YouTube channels, playlists and comments | Grayjay, NewPipe | ✅ M46.45 (comments read-only) |
+| Channels, playlists and comments from video sources | Grayjay, NewPipe | ✅ M46.45 (comments read-only) |
 | Rating sources on movie pages | Stremio, Letterboxd-style apps | ✅ M46.45 (IMDb and any site an addon links) |
 | Download retries and fallbacks | Kreate, RiMusic (Media3 DownloadManager) | ✅ M46.46 (retry with resume, other sources, requeue later) |
 | Pick a download's source, with previews | Seal, Kreate | ✅ M46.47 |
-| YouTube downloads with yt-dlp | Seal, Stacher | ✅ M46.47 (desktop; addresses in Search, songs only YouTube has) |
+| Downloads with yt-dlp | Seal, Stacher | ✅ M46.47 (desktop; addresses in Search, songs only YouTube has) |
 | In-app updates from GitHub releases | Mihon, Kreate, Seal | ✅ M46.47 (setup exe, MSI, Android; portable gets the page) |
 | One device link: sync and Spotify-style Connect | Spotify Connect, Syncthing | ✅ M46.47 |
 | Opens on last time's data | Spotify, Mihon (cached library) | ✅ M46.47 (saved query cache) |
@@ -143,7 +143,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party
 | Player bar with shuffle, repeat, seek, volume, lyrics and a queue panel | Spotify, Nuclear | ✅ M46.4 |
 | Now playing side panel (art, lyrics, next up, queue), scrolling titles, a full player laid out side by side with its own settings | Spotify | ✅ M46.7 |
 | Any accent colour, cover sizes, reader page fit and zoom, a page bar to arrange, pages to load ahead, scrollbars and animations as settings | Mihon (reader settings), Aniyomi | ✅ M46.7 |
-| YouTube search without an API key | Grayjay, NewPipe, FreeTube | ✅ M46.7 (search through YouTube Music's web API; playback in YouTube's embed) |
+| Search for sources that give YouTube ids, without an API key | Grayjay, NewPipe, FreeTube | ✅ M46.7 (playback in a YouTube embed) |
 | One-click and bulk extension installs, update all | Mihon, Aniyomi | ✅ M46.7 |
 | Song tables: sort, filter, compact/list, columns to show, reorder and resize, multi-select | Spotify | ✅ M46.8 |
 | Save with a Plus into Favorites and playlists, made on the spot | Spotify | ✅ M46.8 |

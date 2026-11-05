@@ -6,7 +6,7 @@ use raygun_model::SettingValue;
 use serde_json::json;
 
 use crate::package::{self, PackageError};
-use crate::repo::{self, RepoEntry, RepoError, RepoPermissions};
+use crate::repo::{self, PackageFormat, RepoEntry, RepoError, RepoPermissions};
 use crate::{ExtensionHost, HostConfig, UserSettings, discover_installed};
 
 const MANIFEST: &str = r#"{"id":"dev.example.pkg","name":"Pkg","version":"1.2.0","apiVersion":1,
@@ -68,7 +68,8 @@ fn index_urls_must_be_https_or_local() {
         repo::check_index_url("http://example.org/index.json"),
         Err(RepoError::Url(message)) if message.contains("https")
     ));
-    // Local files are repositories on desktop only (M46.28).
+    // Local files are repositories on desktop (M46.28); on Android only Raygun's copies of picked
+    // ones are (M46.52).
     assert_eq!(
         repo::check_index_url("file:///index.json").is_ok(),
         cfg!(not(target_os = "android"))
@@ -330,20 +331,76 @@ fn shosetsu_indexes_are_named_after_their_address() {
 
 #[test]
 fn other_apps_repositories_are_named() {
-    let mihon = r#"[{"name":"Tachiyomi: X","pkg":"eu.kanade.x","apk":"x.apk","lang":"en","code":1,"version":"1.4.1","nsfw":0,"sources":[]}]"#;
     let cloudstream = r#"{"name":"Repo","description":"","manifestVersion":1,"pluginLists":["https://example.com/plugins.json"]}"#;
     let plugin_list = r#"[{"url":"https://example.com/x.cs3","status":1,"version":3,"internalName":"X","tvTypes":["Movie"],"name":"X"}]"#;
-    for (json, word) in [
-        (mihon, "Mihon"),
-        (cloudstream, "CloudStream"),
-        (plugin_list, "CloudStream"),
-    ] {
+    for (json, word) in [(cloudstream, "CloudStream"), (plugin_list, "CloudStream")] {
         match repo::parse_index(json) {
             Err(RepoError::Foreign(message)) => assert!(message.contains(word), "{message}"),
             other => panic!("{word}: {other:?}"),
         }
     }
     assert!(matches!(repo::parse_index("{}"), Err(RepoError::Index(_))));
+
+    // Mihon's and Aniyomi's are read as repositories of their own format (`crate::mihon`).
+    let mihon = r#"[{"name":"Tachiyomi: X","pkg":"eu.kanade.tachiyomi.extension.en.x","apk":"x.apk","lang":"en","code":1,"version":"1.4.1","nsfw":0,"sources":[]}]"#;
+    let (index, format) = repo::read_index(mihon).unwrap();
+    assert_eq!(format, PackageFormat::Mihon);
+    assert_eq!(index.extensions[0].id, "mihon.en.x");
+}
+
+#[test]
+fn a_package_on_its_own_is_listed_from_its_manifest() {
+    let bytes = good_package();
+    let entry = package::entry_of(&bytes, "https://example.org/pkg.zip").unwrap();
+    assert_eq!(entry.id, "dev.example.pkg");
+    assert_eq!(entry.version, "1.2.0");
+    assert_eq!(entry.package, "https://example.org/pkg.zip");
+    assert_eq!(entry.size, bytes.len() as u64);
+    assert_eq!(entry.provides, ["music.metadata"]);
+    // What it lists is what it is: the package checks out as one from a repository.
+    assert_eq!(
+        package::verify(&bytes, &entry).unwrap().manifest.id,
+        "dev.example.pkg"
+    );
+    assert_eq!(
+        package::entry_of(&zip(&[("dist/index.js", CODE.as_bytes())]), "x").unwrap_err(),
+        PackageError::NoManifest
+    );
+    assert!(matches!(
+        package::entry_of(b"not a zip", "x"),
+        Err(PackageError::Zip(_))
+    ));
+}
+
+#[test]
+fn indexes_say_their_format() {
+    let format = |json: &str| repo::read_index(json).map(|(_, format)| format);
+    let raygun = json!({ "formatVersion": 1, "name": "R", "extensions": [] }).to_string();
+    let shosetsu = json!({ "libraries": [], "scripts": [] }).to_string();
+    let nuclear = json!({ "version": 1, "plugins": [] }).to_string();
+    let miru =
+        r#"[{"name":"M","package":"m.x","type":"manga","version":"v1","webSite":"https://m.x"}]"#;
+    let lnreader = r#"[{"id":"x","name":"X","site":"https://x.org","lang":"English","version":"1.0.0","url":"https://p.org/x.js"}]"#;
+    let kodi = r#"<?xml version="1.0"?><addons></addons>"#;
+    assert_eq!(format(&raygun), Ok(PackageFormat::Raygun));
+    assert_eq!(format(&shosetsu), Ok(PackageFormat::Shosetsu));
+    assert_eq!(format(&nuclear), Ok(PackageFormat::Nuclear));
+    assert_eq!(format(miru), Ok(PackageFormat::Miru));
+    assert_eq!(format(lnreader), Ok(PackageFormat::LnReader));
+    assert_eq!(format(kodi), Ok(PackageFormat::Kodi));
+}
+
+#[test]
+fn repositories_with_generic_project_names_are_named_by_their_owner() {
+    let name = |url: &str| repo::default_name(&url.parse().unwrap());
+    assert_eq!(
+        name("https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json"),
+        "keiyoushi"
+    );
+    assert_eq!(
+        name("https://raw.githubusercontent.com/someone/novel-sources/main/index.json"),
+        "novel-sources"
+    );
 }
 
 #[test]

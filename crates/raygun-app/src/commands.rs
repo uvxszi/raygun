@@ -462,6 +462,41 @@ fn page_address(url: Option<&str>, website: Option<&str>) -> Option<String> {
     }
 }
 
+/// What an address typed in Sources → Add is (M46.52): a Stremio addon, a repository (Raygun's,
+/// Shosetsu's, Nuclear's, Miru's, LNReader's, Kodi's, Mihon's), one extension, or a server; a
+/// GitHub project's page stands for what it publishes, a folder for the index in it.
+#[tauri::command]
+#[specta::specta]
+pub async fn sources_detect(
+    detector: tauri::State<'_, crate::source_detect::SourceDetector>,
+    address: String,
+) -> Result<raygun_model::DetectedSource, String> {
+    detector.detect(&address).await
+}
+
+/// Adds what an address is: the addon, the repository, or the extension installed. A server is
+/// connected with its sign-in (`servers_add`).
+#[tauri::command]
+#[specta::specta]
+pub async fn sources_add(
+    detector: tauri::State<'_, crate::source_detect::SourceDetector>,
+    address: String,
+) -> Result<raygun_model::DetectedSource, String> {
+    detector.add(&address).await
+}
+
+/// Shows the system's file or folder picker for a field that takes a link or a path; `null`
+/// when nothing was picked. On Android the item is copied into Raygun's data folder.
+#[tauri::command]
+#[specta::specta]
+pub async fn files_pick(
+    app: tauri::AppHandle,
+    paths: tauri::State<'_, AppPaths>,
+    target: raygun_model::PickTarget,
+) -> Result<Option<raygun_model::PickedPath>, String> {
+    crate::picker::pick(&app, &paths.0, target).await
+}
+
 /// Repositories extensions can be installed from.
 #[tauri::command]
 #[specta::specta]
@@ -2280,77 +2315,13 @@ pub async fn music_artist_info(
         }))
 }
 
-/// Raygun's test repository: extensions that fail on purpose (M46.17, `repo-test/`).
+/// The test repository and Stremio addon older builds could add from Settings → Data →
+/// Developer (M46.17). The test pack is gone; installs that added it can still take it off.
 const TEST_REPO: &str = "https://raw.githubusercontent.com/uvxszi/raygun/main/repo-test/index.json";
+const TEST_ADDON: &str = "https://raw.githubusercontent.com/uvxszi/raygun/main/repo-test/stremio";
 
-/// Stremio addons for testing video (M46.17): Raygun's own static test addon (legal films with
-/// dead links first, live news channels), then legal addons that exercise metadata, subtitles,
-/// torrents (unsupported), outside links, live TV and radio.
-const TEST_ADDONS: [&str; 8] = [
-    "https://raw.githubusercontent.com/uvxszi/raygun/main/repo-test/stremio/manifest.json",
-    "https://v3-cinemeta.strem.io/manifest.json",
-    "https://opensubtitles-v3.strem.io/manifest.json",
-    "https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json",
-    "https://watchhub.strem.io/manifest.json",
-    "https://v3-channels.strem.io/manifest.json",
-    "https://dev.nebulawp.org/stremio/pluto-tv-addon/manifest.json",
-    "https://1fe84bc728af-stremio-radios.baby-beamup.club/manifest.json",
-];
-
-/// Adds the test sources (M46.17, Settings → Data → Developer): every suggested repository,
-/// Raygun's test repository and the test addons. Never part of a fresh install.
-#[tauri::command]
-#[specta::specta]
-pub async fn dev_add_test_sources(
-    extensions: tauri::State<'_, Arc<ExtensionService>>,
-    stremio: Stremio<'_>,
-) -> Result<raygun_model::TestSourcesReport, String> {
-    let mut report = raygun_model::TestSourcesReport {
-        added: Vec::new(),
-        already: Vec::new(),
-        failed: Vec::new(),
-    };
-    let repos = extensions.repos().await?;
-    let mut urls = crate::extensions::suggested_repo_urls();
-    urls.push(TEST_REPO);
-    for url in urls {
-        if repos.iter().any(|repo| repo.url.eq_ignore_ascii_case(url)) {
-            report.already.push(url.to_owned());
-            continue;
-        }
-        match extensions.add_repo(url).await {
-            Ok(_) => report.added.push(url.to_owned()),
-            Err(error) => report.failed.push(raygun_model::TestSourceFailure {
-                url: url.to_owned(),
-                error,
-            }),
-        }
-    }
-    let addons = stremio.addons().await.unwrap_or_default();
-    for url in TEST_ADDONS {
-        let base = url.trim_end_matches("/manifest.json");
-        if addons.iter().any(|addon| {
-            addon
-                .url
-                .trim_end_matches("/manifest.json")
-                .eq_ignore_ascii_case(base)
-        }) {
-            report.already.push(url.to_owned());
-            continue;
-        }
-        match stremio.add(url).await {
-            Ok(_) => report.added.push(url.to_owned()),
-            Err(error) => report.failed.push(raygun_model::TestSourceFailure {
-                url: url.to_owned(),
-                error,
-            }),
-        }
-    }
-    Ok(report)
-}
-
-/// Takes the test sources off again (M46.47): Raygun's test repository, its extensions and its
-/// Stremio addon. The suggested repositories and the legal addons stay.
+/// Takes the old test sources off (M46.47): the test repository, its extensions and its Stremio
+/// addon.
 #[tauri::command]
 #[specta::specta]
 pub async fn dev_remove_test_sources(
@@ -2370,12 +2341,11 @@ pub async fn dev_remove_test_sources(
             removed += 1;
         }
     }
-    let test_addon = TEST_ADDONS[0].trim_end_matches("/manifest.json");
     for addon in stremio.addons().await.unwrap_or_default() {
         if addon
             .url
             .trim_end_matches("/manifest.json")
-            .eq_ignore_ascii_case(test_addon)
+            .eq_ignore_ascii_case(TEST_ADDON)
         {
             stremio.remove(&addon.id).await?;
             removed += 1;

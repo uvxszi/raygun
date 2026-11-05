@@ -28,5 +28,17 @@ mod live_tests;
 mod tests;
 
 pub use convert::{CONVERTER_VERSION, Converted, convert, package};
-pub use index::{Store, StoreExtension, detect, load, to_repo_index};
+pub use index::{
+    Store, StoreExtension, detect, extension_id, is_index, load, parse, to_repo_index,
+};
 pub use source::{SourceFolder, Sources, locate};
+
+/// What installing a Mihon extension answers where the `mihon` runtime isn't present. Every
+/// build has it now: extensions are converted from source code, on every platform; one that
+/// can't be converted says why instead.
+pub const UNSUPPORTED: &str = "Mihon extensions aren't supported on this device yet";
+
+/// Whether this build has the `mihon` runtime (it always does: conversions run everywhere).
+pub const fn runtime_present() -> bool {
+    true
+}

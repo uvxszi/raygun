@@ -138,6 +138,58 @@ pub fn verify(bytes: &[u8], entry: &RepoEntry) -> Result<VerifiedPackage, Packag
     Ok(VerifiedPackage { manifest, files })
 }
 
+/// The entry a repository would list for a package found on its own, at `package` (an address
+/// added in Sources): its manifest's id, name, version and permissions, with the package's own
+/// checksum and size, so [`verify`] checks it as one from a repository. Servers are connected by
+/// their address, never installed this way.
+pub fn entry_of(bytes: &[u8], package: &str) -> Result<RepoEntry, PackageError> {
+    if bytes.len() as u64 > MAX_PACKAGE_BYTES {
+        return Err(PackageError::TooLarge);
+    }
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+        .map_err(|error| PackageError::Zip(error.to_string()))?;
+    let mut file = archive
+        .by_name(MANIFEST_FILE)
+        .map_err(|_| PackageError::NoManifest)?;
+    let mut text = String::new();
+    (&mut file)
+        .take(1024 * 1024)
+        .read_to_string(&mut text)
+        .map_err(|error| PackageError::Manifest(error.to_string()))?;
+    let manifest =
+        Manifest::parse(&text).map_err(|error| PackageError::Manifest(error.to_string()))?;
+    if manifest.runtime == crate::manifest::Runtime::Server {
+        return Err(PackageError::Manifest(
+            "a server is connected by its address, not installed".to_owned(),
+        ));
+    }
+    Ok(RepoEntry {
+        id: manifest.id.clone(),
+        name: manifest.name.clone(),
+        version: manifest.version.to_string(),
+        api_version: crate::manifest::API_VERSION,
+        description: manifest.description.clone(),
+        author: manifest.author.clone(),
+        provides: manifest.provides.clone(),
+        permissions: crate::repo::RepoPermissions {
+            net: manifest
+                .net
+                .patterns()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            webview: manifest.webview,
+        },
+        content_rating: manifest.content_rating.as_str().to_owned(),
+        lang: None,
+        package: package.to_owned(),
+        icon: None,
+        sha256: sha256_hex(bytes),
+        size: bytes.len() as u64,
+        format: crate::repo::PackageFormat::Raygun,
+    })
+}
+
 /// A converted Nuclear plugin (M17) as a package to install: its generated manifest and bundle.
 pub fn from_converted(manifest_json: &str, bundle: &str) -> Result<VerifiedPackage, PackageError> {
     let manifest = Manifest::parse(manifest_json)

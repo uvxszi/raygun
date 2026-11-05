@@ -1,9 +1,0 @@
-{
-  "meta": {
-    "id": "rgtest-nhk",
-    "type": "tv",
-    "name": "NHK World",
-    "description": "NHK World, live from the broadcaster.",
-    "genres": ["News"]
-  }
-}

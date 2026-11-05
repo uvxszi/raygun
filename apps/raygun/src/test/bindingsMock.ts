@@ -431,6 +431,9 @@ export const bindingsMock = {
     extensionOpenWebsite: vi.fn(),
     browserCheckTarget: vi.fn(),
     browserCheckOpen: vi.fn(),
+    sourcesDetect: vi.fn(),
+    sourcesAdd: vi.fn(),
+    filesPick: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
     extensionRepoPreview: vi.fn(),
@@ -467,7 +470,6 @@ export const bindingsMock = {
     musicSongCredits: vi.fn(),
     musicOpenInfoPage: vi.fn(),
     playbackRestore: vi.fn(),
-    devAddTestSources: vi.fn(),
     podcastQueue: vi.fn(),
     connectStatus: vi.fn(),
     connectDevices: vi.fn(),
@@ -995,6 +997,9 @@ export const seedBindings = () => {
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.browserCheckTarget.mockResolvedValue(ok(null));
   commands.browserCheckOpen.mockResolvedValue(ok(0));
+  commands.sourcesDetect.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.sourcesAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.filesPick.mockResolvedValue(ok(null));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
   commands.extensionRepoPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });
@@ -1035,10 +1040,6 @@ export const seedBindings = () => {
   commands.musicSongCredits.mockResolvedValue(ok(null));
   commands.musicOpenInfoPage.mockResolvedValue(ok(null));
   commands.playbackRestore.mockResolvedValue({ status: 'ok', data: null });
-  commands.devAddTestSources.mockResolvedValue({
-    status: 'ok',
-    data: { added: [], already: [], failed: [] },
-  });
   commands.podcastQueue.mockResolvedValue({ status: 'ok', data: null });
   commands.connectStatus.mockResolvedValue(CONNECT_IDLE);
   commands.connectDevices.mockResolvedValue(ok([]));

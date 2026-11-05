@@ -7,7 +7,6 @@ import { bindingsMock } from '../test/bindingsMock';
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
 const { commands } = bindingsMock;
-const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 
 describe('Source issues', () => {
   beforeEach(() => {
@@ -60,27 +59,5 @@ describe('Source issues', () => {
       within(issue).getByText('Spotify has no such list; it may be private or removed'),
     ).toBeVisible();
     expect(within(issue).queryByRole('button', { name: 'More info' })).not.toBeInTheDocument();
-  });
-
-  it('adds the test sources from Settings → Data', async () => {
-    const user = userEvent.setup();
-    commands.devAddTestSources.mockResolvedValue(
-      ok({
-        added: ['https://a.example/index.json', 'https://b.example/manifest.json'],
-        already: [],
-        failed: [{ url: 'https://c.example/manifest.json', error: 'HTTP 404' }],
-      }),
-    );
-    await AppShellWrapper.mount('/settings/data');
-
-    const card = await screen.findByTestId('developer-card');
-    await user.click(within(card).getByRole('button', { name: 'Add test sources' }));
-    expect(commands.devAddTestSources).toHaveBeenCalled();
-    expect(await within(card).findByTestId('developer-report')).toHaveTextContent(
-      '2 added, 0 already there, 1 couldn’t be added.',
-    );
-    expect(within(card).getByTestId('source-issue')).toHaveTextContent(
-      'Not found on https://c.example/manifest.json',
-    );
   });
 });
