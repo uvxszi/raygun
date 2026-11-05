@@ -651,6 +651,18 @@ export const commands = {
 	 *  was stopped.
 	 */
 	songCaptureReport: (report: SongCaptureReport) => typedError<null, string>(__TAURI_INVOKE("song_capture_report", { report })),
+	/**  What the webview's recording player did (Android). An error means the recording was stopped. */
+	songRecordingReport: (report: SongRecordingReport) => typedError<null, string>(__TAURI_INVOKE("song_recording_report", { report })),
+	/**
+	 *  Asks to record songs as they play (Android: RECORD_AUDIO, then Android's capture question,
+	 *  after the shell explained it). Allowed, the songs waiting to be recorded are, one at a time.
+	 *  Returns whether it was allowed.
+	 */
+	songRecordingConsent: () => typedError<boolean, string>(__TAURI_INVOKE("song_recording_consent")),
+	/**  "Not now" to recording songs as they play: they wait without asking again until retried. */
+	songRecordingDecline: () => __TAURI_INVOKE<void>("song_recording_decline"),
+	/**  Stops the song being recorded: it waits to be recorded again, and recording is given back. */
+	songDownloadCancelRecording: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_cancel_recording", { id })),
 	/**  Writes saved songs out as files (M46.10). */
 	songsSave: (ids: string[], format: AudioFileFormat, destination: SongDestination) => typedError<SongsSaved, string>(__TAURI_INVOKE("songs_save", { ids, format, destination })),
 	/**  Keys of every downloaded song, to mark them in lists (M46.10). */
@@ -1473,11 +1485,13 @@ export const events = {
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
+	recordingConsentEvent: makeEvent<RecordingConsentEvent>("recording-consent-event"),
 	searchProgressEvent: makeEvent<SearchProgressEvent_Deserialize>("search-progress-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
 	songCaptureEvent: makeEvent<SongCaptureEvent>("song-capture-event"),
 	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
+	songRecordingEvent: makeEvent<SongRecordingEvent>("song-recording-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	trackDurationsEvent: makeEvent<TrackDurationsEvent>("track-durations-event"),
@@ -4210,6 +4224,18 @@ export type RecentSearch = {
 	searchedAt: number | null,
 };
 
+/**
+ *  Songs wait to be recorded as they play: the shell explains it and asks to allow recording
+ *  (`song_recording_consent`, or `song_recording_decline`).
+ */
+export type RecordingConsentEvent = RecordingConsentRequest;
+
+/**  Songs wait to be recorded as they play: the person is asked to allow recording. */
+export type RecordingConsentRequest = {
+	/**  How many songs wait. */
+	songs: number,
+};
+
 /**  A release's kind (M46.36), as MusicBrainz and Deezer name them. */
 export type ReleaseKind = "album" | "single" | "ep" | "compilation" | "live" | "other";
 
@@ -4786,6 +4812,37 @@ export type SongEdit = {
 	lyricsOffsetMs?: number,
 	/**  Lyrics that replace the sources'. */
 	lyrics?: EditedLyrics | null,
+};
+
+/**
+ *  A song for the webview to play aloud in its recording player (Android), or (no `video_id`)
+ *  to stop it; it reports with `song_recording_report`.
+ */
+export type SongRecordingEvent = SongRecordingRequest;
+
+/**  What the recording's player in the webview did. */
+export type SongRecordingReport = {
+	session: string,
+	event: EngineEvent,
+};
+
+/**
+ *  A song recorded as it plays (Android): nothing gives a file of it and only YouTube's player
+ *  plays it, so the webview plays it aloud in a player of its own while Raygun's own sound is
+ *  recorded. The webview reports the player with `song_recording_report`. A request without a
+ *  `video_id` stops that player.
+ */
+export type SongRecordingRequest = {
+	session: string,
+	/**  The song download it's for, for Cancel. */
+	downloadId: string,
+	title: string,
+	artist: string | null,
+	videoId: string | null,
+	/**  Where it plays from. */
+	startMs: number | null,
+	/**  The YouTube embed host page. */
+	embedUrl: string,
 };
 
 /**  What saving songs as files did (M46.10). */

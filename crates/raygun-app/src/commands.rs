@@ -1336,6 +1336,41 @@ pub fn song_capture_report(report: raygun_model::SongCaptureReport) -> Result<()
     crate::music_downloads::capture::sound::report(report)
 }
 
+/// What the webview's recording player did (Android). An error means the recording was stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn song_recording_report(report: raygun_model::SongRecordingReport) -> Result<(), String> {
+    crate::music_downloads::capture::record::report(report)
+}
+
+/// Asks to record songs as they play (Android: RECORD_AUDIO, then Android's capture question,
+/// after the shell explained it). Allowed, the songs waiting to be recorded are, one at a time.
+/// Returns whether it was allowed.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_recording_consent(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+) -> Result<bool, String> {
+    songs.inner().clone().allow_recording().await
+}
+
+/// "Not now" to recording songs as they play: they wait without asking again until retried.
+#[tauri::command]
+#[specta::specta]
+pub fn song_recording_decline(songs: tauri::State<'_, Arc<SongDownloadService>>) {
+    songs.decline_recording();
+}
+
+/// Stops the song being recorded: it waits to be recorded again, and recording is given back.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download_cancel_recording(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+) -> Result<(), String> {
+    songs.cancel_recording(&id).await
+}
+
 /// Writes saved songs out as files (M46.10).
 #[tauri::command]
 #[specta::specta]

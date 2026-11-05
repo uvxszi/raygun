@@ -17,6 +17,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.media.audiofx.PresetReverb
+import android.media.projection.MediaProjectionManager
 import android.provider.Settings
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
@@ -119,6 +120,20 @@ class CaptureStartArgs {
 @InvokeArg
 class CaptureArgs {
     lateinit var session: String
+}
+
+/** A recording of what Raygun plays ([PlaybackRecorder]): its pieces go to [dir]. */
+@InvokeArg
+class RecordingStartArgs {
+    lateinit var session: String
+    lateinit var dir: String
+}
+
+/** Where the song plays from now, or `null` while it doesn't (a run held). */
+@InvokeArg
+class RecordingMarkArgs {
+    lateinit var session: String
+    var positionMs: Double? = null
 }
 
 @InvokeArg
@@ -246,6 +261,8 @@ private fun soundConfig(sound: JSONObject): SoundConfig {
         Permission(strings = [Manifest.permission.ACCESS_LOCAL_NETWORK], alias = "localNetwork"),
         Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications"),
         Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
+        // Recording what Raygun plays (PlaybackRecorder): Android asks for it with the capture.
+        Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "recordAudio"),
     ],
 )
 class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
@@ -973,6 +990,127 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    // ---- Recording what Raygun plays (see PlaybackRecorder) ----
+
+    /** Whether a consent's projection is held: songs can be recorded now. */
+    @Command
+    fun recordingReady(invoke: Invoke) {
+        invoke.resolve(JSObject().put("ready", PlaybackRecorder.ready()))
+    }
+
+    /**
+     * Asks to record what Raygun plays: RECORD_AUDIO, then Android's capture question. Answers
+     * `{granted, reason}`; `reason` is `unsupported` (before Android 10), `microphone` (RECORD_AUDIO
+     * refused), `declined` (the capture refused) or `failed`.
+     */
+    @Command
+    fun recordingConsent(invoke: Invoke) {
+        when {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> invoke.resolve(consent(false, "unsupported"))
+            PlaybackRecorder.ready() -> invoke.resolve(consent(true, null))
+            getPermissionState("recordAudio") != PermissionState.GRANTED ->
+                requestPermissionForAlias("recordAudio", invoke, "recordingMicrophoneAnswered")
+            else -> askToCapture(invoke)
+        }
+    }
+
+    @PermissionCallback
+    fun recordingMicrophoneAnswered(invoke: Invoke) {
+        if (getPermissionState("recordAudio") == PermissionState.GRANTED) {
+            askToCapture(invoke)
+        } else {
+            invoke.resolve(consent(false, "microphone"))
+        }
+    }
+
+    private fun askToCapture(invoke: Invoke) {
+        val manager = activity.getSystemService(MediaProjectionManager::class.java)
+        if (manager == null) {
+            invoke.resolve(consent(false, "unsupported"))
+            return
+        }
+        startActivityForResult(invoke, captureIntent(manager), "recordingCaptureAnswered")
+    }
+
+    /**
+     * Android's capture question. From Android 14 it may also offer a single app's screen, which
+     * would leave Raygun's own sound out: only the whole screen's is asked for (Raygun records
+     * nothing but its own sound either way).
+     */
+    private fun captureIntent(manager: MediaProjectionManager): Intent =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            manager.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+            manager.createScreenCaptureIntent()
+        }
+
+    @ActivityCallback
+    fun recordingCaptureAnswered(invoke: Invoke, result: ActivityResult) {
+        val data = result.data
+        if (result.resultCode != Activity.RESULT_OK || data == null) {
+            invoke.resolve(consent(false, "declined"))
+            return
+        }
+        // The projection is handed only to a running mediaProjection service: it answers.
+        RecordingService.onAnswer = { held -> invoke.resolve(consent(held, if (held) null else "failed")) }
+        val context = activity.applicationContext
+        try {
+            androidx.core.content.ContextCompat.startForegroundService(
+                context,
+                Intent(context, RecordingService::class.java)
+                    .putExtra(RecordingService.EXTRA_CODE, result.resultCode)
+                    .putExtra(RecordingService.EXTRA_DATA, data),
+            )
+        } catch (error: Exception) {
+            RecordingService.onAnswer = null
+            invoke.resolve(consent(false, "failed"))
+        }
+    }
+
+    private fun consent(granted: Boolean, reason: String?): JSObject {
+        val answer = JSObject().put("granted", granted)
+        reason?.let { answer.put("reason", it) }
+        return answer
+    }
+
+    @Command
+    fun recordingStart(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingStartArgs::class.java)
+        try {
+            PlaybackRecorder.start(args.session, args.dir)
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "The recording didn't start")
+        }
+    }
+
+    @Command
+    fun recordingMark(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingMarkArgs::class.java)
+        PlaybackRecorder.mark(args.session, args.positionMs)
+        invoke.resolve()
+    }
+
+    @Command
+    fun recordingStatus(invoke: Invoke) {
+        val args = invoke.parseArgs(CaptureArgs::class.java)
+        invoke.resolve(PlaybackRecorder.status(args.session))
+    }
+
+    @Command
+    fun recordingStop(invoke: Invoke) {
+        val args = invoke.parseArgs(CaptureArgs::class.java)
+        PlaybackRecorder.stop(args.session)
+        invoke.resolve()
+    }
+
+    /** No recording waits: the consent's projection goes back. */
+    @Command
+    fun recordingEnd(invoke: Invoke) {
+        PlaybackRecorder.end(activity.applicationContext)
+        invoke.resolve()
+    }
+
     @Command
     fun networkKind(invoke: Invoke) {
         val connectivity = activity.applicationContext.getSystemService(ConnectivityManager::class.java)
@@ -1262,6 +1400,10 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     override fun load(webView: WebView) {
+        // Rust's commands reach this instance on their own line from now on, with or without an
+        // activity (see DirectCalls).
+        DirectCalls.plugin = this
+        NativeBridge.attach()
         // The browser's process may outlive this one: its reports and downloads find a listener.
         listenToWebsites()
         takeOpenExtras(activity.intent)

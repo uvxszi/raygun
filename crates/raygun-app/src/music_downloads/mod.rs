@@ -101,10 +101,48 @@ enum Stop {
     Paused,
     /// Another source was picked: it starts again from that one, first in the queue.
     Restarted,
+    /// Its recording was stopped: it waits to be recorded again.
+    Held,
     /// Downloading a saved song again was called off: the copy it kept stays (M46.49).
     Kept,
     /// Taken out of the downloads: its files are deleted.
     Removed,
+}
+
+/// Why a song that plays only in YouTube's player waits to be recorded as it plays (Android).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordWait {
+    /// Recording wasn't allowed (yet): the person is asked.
+    Consent,
+    /// Raygun's player plays: recorded once it's quiet.
+    Quiet,
+    /// The person stopped its recording.
+    Stopped,
+}
+
+impl RecordWait {
+    /// What the download says while it waits.
+    fn message(self) -> Message {
+        let (summary, detail) = match self {
+            Self::Consent => (
+                "Waits to be recorded as it plays.",
+                "No source gives a file of it, so Raygun records it while it plays, in real time. \
+                 Allow recording when Raygun asks, or tap Retry.",
+            ),
+            Self::Quiet => (
+                "Waits to be recorded until Raygun's player is quiet.",
+                "It's recorded as it plays, so it waits while Raygun plays something else.",
+            ),
+            Self::Stopped => (
+                "Recording stopped. Tap Retry to record it.",
+                "It's recorded as it plays, in real time.",
+            ),
+        };
+        Message {
+            summary: summary.into(),
+            detail: Some(detail.into()),
+        }
+    }
 }
 
 /// The download running now, and what wakes it when it must stop.
@@ -207,6 +245,11 @@ pub struct SongDownloadService {
     offline: Mutex<HashMap<String, PathBuf>>,
     /// Network retries already made, by download (M46.46); reset when one succeeds.
     auto_retries: Mutex<HashMap<String, usize>>,
+    /// "Not now" to recording songs as they play: songs waiting for it don't ask again until
+    /// one is retried.
+    recording_declined: AtomicBool,
+    /// Songs waiting until Raygun's player is quiet are watched for it.
+    quiet_watch: AtomicBool,
 }
 
 impl SongDownloadService {
@@ -228,6 +271,8 @@ impl SongDownloadService {
             live: Mutex::new(HashMap::new()),
             offline: Mutex::new(HashMap::new()),
             auto_retries: Mutex::new(HashMap::new()),
+            recording_declined: AtomicBool::new(false),
+            quiet_watch: AtomicBool::new(false),
         })
     }
 
@@ -438,6 +483,7 @@ impl SongDownloadService {
                 let front = self.front().await;
                 store::set_queued(&db, &row.id, Some(front)).await
             }
+            (Some(Stop::Held), _) => self.wait_to_record(&row, RecordWait::Stopped).await,
             // A pause that came too late doesn't undo a finished song.
             (_, Ok(saved)) => self.finished(&row, saved).await,
             // Paused: it waits in its place, keeping what it saved, whatever the stop cut short.
@@ -468,11 +514,130 @@ impl SongDownloadService {
                 }
                 failed
             }
+            (None, Err(Failure::Recording(wait))) => {
+                tracing::info!(song = %row.song.track_key, ?wait, "song waits to be recorded as it plays");
+                self.wait_to_record(&row, wait).await
+            }
         };
         if let Err(error) = outcome {
             tracing::warn!(%error, "could not record a song download's outcome");
         }
         self.announce(&row.id).await;
+        self.end_recording_if_done().await;
+    }
+
+    /// A song only YouTube's player plays waits to be recorded as it plays (Android): failed,
+    /// saying why, marked to be recorded; the person is asked to allow recording, or it's queued
+    /// again once Raygun's player is quiet.
+    async fn wait_to_record(
+        &self,
+        row: &SongDownloadRow,
+        wait: RecordWait,
+    ) -> Result<(), raygun_db::DbError> {
+        self.clear_partials(&row.id, row.replacing.as_slice()).await;
+        self.failed(row, &wait.message()).await?;
+        store::set_kind(&self.db(), &row.id, Some(store::RECORDING)).await?;
+        match wait {
+            RecordWait::Consent => self.ask_to_record().await,
+            RecordWait::Quiet => self.record_when_quiet(),
+            RecordWait::Stopped => {}
+        }
+        Ok(())
+    }
+
+    /// Asks the shell to explain recording and ask to allow it, unless the person said "Not now".
+    async fn ask_to_record(&self) {
+        if self.recording_declined.load(Ordering::SeqCst) {
+            return;
+        }
+        let songs = store::recordings(&self.db(), false)
+            .await
+            .unwrap_or(1)
+            .max(1);
+        let asked =
+            crate::events::RecordingConsentEvent(raygun_model::RecordingConsentRequest { songs })
+                .emit(&self.app);
+        if let Err(error) = asked {
+            tracing::warn!(%error, "couldn't ask to allow recording");
+        }
+    }
+
+    /// Songs waiting until Raygun's player is quiet go back to the queue once it is (watched
+    /// every few seconds, by one watch at a time), while recording is allowed.
+    fn record_when_quiet(&self) {
+        if self.quiet_watch.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                if capture::record::player_busy(&app) {
+                    continue;
+                }
+                let service = app.state::<Arc<SongDownloadService>>().inner().clone();
+                service.quiet_watch.store(false, Ordering::SeqCst);
+                if capture::record::ready(&app).await {
+                    service.queue_recordings().await;
+                }
+                return;
+            }
+        });
+    }
+
+    /// Queues every song waiting to be recorded.
+    async fn queue_recordings(&self) {
+        match store::requeue_recordings(&self.db(), now_ms()).await {
+            Ok(0) => {}
+            Ok(count) => {
+                tracing::info!(count, "songs waiting to be recorded are queued");
+                self.wake.notify_one();
+                self.changed("");
+            }
+            Err(error) => tracing::warn!(%error, "couldn't queue the songs waiting to be recorded"),
+        }
+    }
+
+    /// No song is queued or recorded anymore: the consent to record goes back (and Android's
+    /// notice that Raygun records).
+    async fn end_recording_if_done(&self) {
+        if !capture::record::available(&self.app)
+            || store::recordings(&self.db(), true).await.unwrap_or(1) > 0
+        {
+            return;
+        }
+        if capture::record::ready(&self.app).await {
+            capture::record::end(&self.app).await;
+        }
+    }
+
+    /// Asks the person to allow recording songs as they play (after the shell explained it);
+    /// allowed, the songs waiting are recorded, one at a time. Returns whether it was allowed.
+    pub async fn allow_recording(self: Arc<Self>) -> Result<bool, String> {
+        self.recording_declined.store(false, Ordering::SeqCst);
+        if !capture::record::consent(&self.app).await? {
+            self.recording_declined.store(true, Ordering::SeqCst);
+            return Ok(false);
+        }
+        self.queue_recordings().await;
+        self.end_recording_if_done().await;
+        Ok(true)
+    }
+
+    /// "Not now": songs waiting to be recorded don't ask again until one is retried.
+    pub fn decline_recording(&self) {
+        self.recording_declined.store(true, Ordering::SeqCst);
+    }
+
+    /// Stops the song being recorded: it waits to be recorded again (Retry), and the consent
+    /// goes back. Other songs waiting don't ask again until one is retried.
+    pub async fn cancel_recording(&self, id: &str) -> Result<(), String> {
+        self.recording_declined.store(true, Ordering::SeqCst);
+        if self.is_running(id) {
+            self.stop_running(id, Stop::Held);
+        }
+        capture::record::end(&self.app).await;
+        Ok(())
     }
 
     /// A saved song: its file goes in the offline index and the download is done.
@@ -669,6 +834,7 @@ impl SongDownloadService {
                         .captured
                         .push((candidate.name.clone(), error));
                 }
+                Err(CaptureFailure::Interrupted) => {}
             }
             let _ = store::clear_kind(&self.db(), &row.id).await;
         }
@@ -864,6 +1030,36 @@ impl SongDownloadService {
         if let Some(saved) = captured {
             return Ok(saved);
         }
+
+        // 6. Android, when nothing else saved it: a song YouTube's player plays is recorded as it
+        // plays, in real time, once recording is allowed and Raygun's player is quiet.
+        if let Some((video_id, origin)) = attempts.video_to_record()
+            && capture::record::available(&self.app)
+            && !self.stopped(&row.id)
+        {
+            if !capture::record::ready(&self.app).await {
+                return Err(Failure::Recording(RecordWait::Consent));
+            }
+            match self.record(row, &video_id, origin, quality, stop).await {
+                Ok(saved) => return Ok(saved),
+                Err(CaptureFailure::Stopped) => return Err(Failure::Stopped),
+                Err(CaptureFailure::Device(error)) => {
+                    return Err(Failure::Error(device_message(&error)));
+                }
+                Err(CaptureFailure::Interrupted) => {
+                    let allowed = capture::record::ready(&self.app).await;
+                    return Err(Failure::Recording(if allowed {
+                        RecordWait::Quiet
+                    } else {
+                        RecordWait::Consent
+                    }));
+                }
+                Err(CaptureFailure::Failed(error)) => {
+                    tracing::info!(song = %row.song.track_key, %error, "couldn't record a song");
+                    attempts.report.captured.push((YOUTUBE.into(), error));
+                }
+            }
+        }
         if self.stopped(&row.id) {
             return Err(Failure::Stopped);
         }
@@ -920,11 +1116,7 @@ impl SongDownloadService {
             stop,
         )
         .await
-        .map_err(|error| match error {
-            capture::CaptureError::Stopped => CaptureFailure::Stopped,
-            capture::CaptureError::Device(error) => CaptureFailure::Device(error),
-            capture::CaptureError::Failed(error) => CaptureFailure::Failed(error),
-        })?;
+        .map_err(capture_failure)?;
         // Saved as `track.<ext>`, as every download is.
         let extension = captured
             .file
@@ -941,6 +1133,79 @@ impl SongDownloadService {
             kind: "capture",
             file_ms: captured.duration_ms,
             origin: candidate.origin.clone(),
+        })
+    }
+
+    /// Records a song that plays only in YouTube's player as it plays (Android): its video
+    /// `video_id` plays aloud in the webview's recording player, in real time, while Raygun's own
+    /// sound is recorded and saved as a captured song is.
+    async fn record(
+        &self,
+        row: &SongDownloadRow,
+        video_id: &str,
+        origin: Origin,
+        quality: raygun_model::AudioQuality,
+        stop: &Notify,
+    ) -> Result<Saved, CaptureFailure> {
+        self.capturing(&row.id, YOUTUBE);
+        let (start_ms, end_ms) = self.played_part(row);
+        let cover = match row.song.artwork_url.as_deref() {
+            Some(url) => self.cover_bytes(url).await,
+            None => None,
+        };
+        let tags = transcode::SongTags {
+            title: row.song.title.clone(),
+            artist: row.song.artist.clone(),
+            album: row.song.album.clone(),
+            cover,
+        };
+        let id = row.id.clone();
+        let progress = |bytes: u64, share: Option<f64>| self.capture_progress(&id, bytes, share);
+        let dir = self.dir(&row.id);
+        let stem = format!("recording-{}", uuid_name());
+        let source = MediaSource::YouTube {
+            video_id: video_id.to_owned(),
+        };
+        let (title, artist) = self.shown_names(row);
+        let recorded = capture::record(
+            &self.app,
+            capture::Request {
+                source: &source,
+                dir: &dir,
+                stem: &stem,
+                expected: capture::Expected {
+                    duration_ms: row.song.duration_ms.and_then(|ms| u64::try_from(ms).ok()),
+                    start_ms,
+                    end_ms,
+                },
+                quality,
+                tags: Some(tags),
+            },
+            capture::record::Song {
+                download_id: &row.id,
+                title: &title,
+                artist: artist.as_deref(),
+            },
+            &progress,
+            stop,
+        )
+        .await
+        .map_err(capture_failure)?;
+        let extension = recorded
+            .file
+            .rsplit_once('.')
+            .map_or("flac", |(_, extension)| extension)
+            .to_owned();
+        let file = format!("track.{extension}");
+        tokio::fs::rename(dir.join(&recorded.file), dir.join(&file))
+            .await
+            .map_err(|error| CaptureFailure::Device(error.to_string()))?;
+        Ok(Saved {
+            file,
+            provider: Some(YOUTUBE.into()),
+            kind: store::RECORDING,
+            file_ms: recorded.duration_ms,
+            origin,
         })
     }
 
@@ -1570,6 +1835,8 @@ impl SongDownloadService {
             .lock()
             .expect("retries poisoned")
             .remove(id);
+        // A song waiting to be recorded asks to allow recording again.
+        self.recording_declined.store(false, Ordering::SeqCst);
         let front = self.front().await;
         store::set_queued(&db, id, Some(front))
             .await
@@ -1583,6 +1850,7 @@ impl SongDownloadService {
     pub async fn retry_failed(&self) -> Result<u32, String> {
         let db = self.db();
         let ids = store::failed(&db).await.map_err(to_message)?;
+        self.recording_declined.store(false, Ordering::SeqCst);
         let base = now_ms();
         for (index, id) in ids.iter().enumerate() {
             self.auto_retries
@@ -2259,8 +2527,9 @@ fn rank(stop: Stop) -> u8 {
     match stop {
         Stop::Paused => 0,
         Stop::Restarted => 1,
-        Stop::Kept => 2,
-        Stop::Removed => 3,
+        Stop::Held => 2,
+        Stop::Kept => 3,
+        Stop::Removed => 4,
     }
 }
 
@@ -2524,6 +2793,14 @@ impl Attempts {
         copy.file = copy.file.take().or(file);
     }
 
+    /// The YouTube video to record the song from as it plays, when nothing else saved it: the
+    /// one it was asked with, else the first the search found.
+    fn video_to_record(&self) -> Option<(String, Origin)> {
+        self.youtube
+            .first()
+            .map(|copy| (copy.video_id.clone(), copy.origin.clone()))
+    }
+
     /// The YouTube videos whose audio files are saved now: a few not tried yet, as they came.
     fn videos_to_save(&self) -> Vec<usize> {
         (0..self.youtube.len())
@@ -2599,6 +2876,12 @@ where
                 tracing::info!(source = %name, %error, "couldn't capture a stream");
                 report.captured.push((name, error));
             }
+            // Only recordings are interrupted; a stream's capture never is.
+            Err(CaptureFailure::Interrupted) => {
+                report
+                    .captured
+                    .push((name, "The capture stopped".to_owned()));
+            }
         }
     }
     Ok(None)
@@ -2608,6 +2891,8 @@ enum CaptureFailure {
     Stopped,
     Device(String),
     Failed(String),
+    /// A recording had to stop: Raygun's player played, or the consent went away.
+    Interrupted,
 }
 
 enum Failure {
@@ -2616,6 +2901,8 @@ enum Failure {
     Transient(Message),
     /// Removed, paused or given another source while it ran.
     Stopped,
+    /// It plays only in YouTube's player and waits to be recorded as it plays (Android).
+    Recording(RecordWait),
 }
 
 /// How one stream went.
@@ -2640,6 +2927,15 @@ impl StreamError {
             }
             Self::Stopped => "Stopped".into(),
         }
+    }
+}
+
+fn capture_failure(error: capture::CaptureError) -> CaptureFailure {
+    match error {
+        capture::CaptureError::Stopped => CaptureFailure::Stopped,
+        capture::CaptureError::Device(error) => CaptureFailure::Device(error),
+        capture::CaptureError::Failed(error) => CaptureFailure::Failed(error),
+        capture::CaptureError::Interrupted => CaptureFailure::Interrupted,
     }
 }
 

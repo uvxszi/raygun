@@ -31,6 +31,20 @@ object WebAwake {
     var keepAwake = false
         private set
 
+    /** What Rust's player asked for ([set]), and whether a recording plays in the webview. */
+    private var player = false
+    private var recording = false
+
+    /** A song recorded as it plays in the webview (PlaybackRecorder) keeps it awake too. */
+    fun hold(on: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            main.post { hold(on) }
+            return
+        }
+        recording = on
+        apply(player || recording)
+    }
+
     /** Wraps the activity's content (the webview) so its window's visibility can be held. */
     @JvmStatic
     fun host(context: Context, content: View): View {
@@ -61,6 +75,11 @@ object WebAwake {
             main.post { set(awake) }
             return
         }
+        player = awake
+        apply(player || recording)
+    }
+
+    private fun apply(awake: Boolean) {
         if (awake == keepAwake) return
         keepAwake = awake
         val webView = webView()

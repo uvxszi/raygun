@@ -4559,6 +4559,41 @@ pub struct SongCaptureRequest {
     pub speed: f64,
 }
 
+/// A song recorded as it plays (Android): nothing gives a file of it and only YouTube's player
+/// plays it, so the webview plays it aloud in a player of its own while Raygun's own sound is
+/// recorded. The webview reports the player with `song_recording_report`. A request without a
+/// `video_id` stops that player.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongRecordingRequest {
+    pub session: String,
+    /// The song download it's for, for Cancel.
+    pub download_id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub video_id: Option<String>,
+    /// Where it plays from.
+    pub start_ms: f64,
+    /// The YouTube embed host page.
+    pub embed_url: String,
+}
+
+/// What the recording's player in the webview did.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongRecordingReport {
+    pub session: String,
+    pub event: EngineEvent,
+}
+
+/// Songs wait to be recorded as they play: the person is asked to allow recording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingConsentRequest {
+    /// How many songs wait.
+    pub songs: u32,
+}
+
 /// What a background capture reports (M46.49).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
