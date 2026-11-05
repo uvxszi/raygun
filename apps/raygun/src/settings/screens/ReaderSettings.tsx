@@ -3,7 +3,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ReaderDisplaySettings } from '../../manga/ReaderDisplaySettings';
-import { DEFAULT_PREFS, LINE_SPACING, TEXT_SIZE } from '../../novel/useNovel';
+import { DEFAULT_PREFS, INDENT, LINE_SPACING, TEXT_SIZE } from '../../novel/useNovel';
 import { PrefChoice, PrefGroup, PrefSize, PrefSlider, PrefSwitch } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
@@ -63,9 +63,12 @@ export const ReaderSettings: FC = () => {
           }))}
           onChange={(theme) => set({ theme })}
         />
-        <PrefSwitch
+        <PrefSize
           title={t('settings.indent')}
-          checked={prefs.indent ?? false}
+          unit="em"
+          {...INDENT}
+          factor={0.1}
+          value={prefs.indent ?? 0}
           onChange={(indent) => set({ indent })}
         />
         <PrefSwitch

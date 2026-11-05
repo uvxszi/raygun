@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+import { ROOMY, labelOf, tapTargets } from '../devices/tapTargets.test-wrapper';
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
 import { bindingsMock, CONNECT_IDLE, emitEvent, IDLE_STATE } from '../test/bindingsMock';
 
@@ -121,6 +122,32 @@ describe('Connect', () => {
     expect(await AppShellWrapper.miniPlayer.title).toHaveTextContent('Intro');
   });
 
+  it('gives every device and button room to tap, in readable type', async () => {
+    const user = userEvent.setup();
+    commands.connectStatus.mockResolvedValue(SESSION);
+    commands.connectDevices.mockResolvedValue(
+      ok([PC, { ...PC, id: 'tablet', name: 'Tablet', kind: 'phone' }]),
+    );
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing(QUEUE, 0);
+    await AppShellWrapper.miniPlayer.title;
+
+    await user.click(
+      await within(AppShellWrapper.miniPlayer.element).findByRole('button', {
+        name: 'Connect to a device',
+      }),
+    );
+    const sheet = await screen.findByTestId('connect-sheet');
+    await within(sheet).findByRole('button', { name: 'Forget Tablet' });
+    const targets = tapTargets(sheet);
+    // Disconnect, Play here, the two devices, Forget, the switch and Devices.
+    expect(targets.length).toBeGreaterThanOrEqual(7);
+    for (const target of targets) {
+      expect(target.className, labelOf(target)).toMatch(ROOMY);
+    }
+    expect(sheet.querySelector('.text-xs')).toBeNull();
+  });
+
   it('asks before another device first plays here', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount();
@@ -128,6 +155,9 @@ describe('Connect', () => {
     emitEvent('connectRequestEvent', { id: 'q1', name: 'Pixel 4', open: true });
     const prompt = await screen.findByTestId('connect-prompt');
     expect(prompt).toHaveTextContent('Link with Pixel 4?');
+    for (const target of tapTargets(prompt)) {
+      expect(target.className, labelOf(target)).toMatch(ROOMY);
+    }
     await user.click(within(prompt).getByRole('button', { name: 'Link' }));
     expect(commands.connectAnswer).toHaveBeenCalledWith('q1', true);
     expect(screen.queryByTestId('connect-prompt')).not.toBeInTheDocument();

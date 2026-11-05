@@ -732,6 +732,17 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// A notification that opens a screen when tapped (`{"id", "channel", "channelName",
+    /// "channelDescription", "title", "text", "route"}`): the tap comes back through the handler
+    /// installed with [`set_open_handler`]. The same `id` in a channel replaces the one shown.
+    #[cfg(target_os = "android")]
+    pub fn notice(&self, notice: &serde_json::Value) -> Result<(), String> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("notice", notice.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Every permission Raygun uses and its state: `{"permissions": [{"kind", "state", "count"}]}`.
     #[cfg(target_os = "android")]
     pub fn permission_states(&self) -> Result<serde_json::Value, String> {

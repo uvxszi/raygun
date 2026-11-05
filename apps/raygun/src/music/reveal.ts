@@ -20,16 +20,22 @@ export const songReveal = (title: string, artist: string | null | undefined) =>
 /** How an episode's or a chapter's row is named. */
 export const episodeReveal = (episodeId: string) => `episode:${episodeId}`;
 
-/** Whether a row named `value` is one of `keys`. Episodes match only by their id. */
+/**
+ * How a release's tile is named (an artist's discography): its source and id, as Rust names it
+ * in a new release's notification (`follows::release_route`).
+ */
+export const releaseReveal = (release: { provider: { id: string }; id: string }) =>
+  `release:${release.provider.id}/${release.id}`;
+
+/** Names that match only exactly: episodes and releases go by their ids, not like songs. */
+const exactOnly = (name: string) => name.startsWith('episode:') || name.startsWith('release:');
+
+/** Whether a row named `value` is one of `keys`. Episodes and releases match only by their id. */
 export const matchesReveal = (value: string, keys: string[]) =>
   value
     .split('\t')
     .some((row) =>
-      keys.some(
-        (key) =>
-          key === row ||
-          (!key.startsWith('episode:') && !row.startsWith('episode:') && sameSong(key, row)),
-      ),
+      keys.some((key) => key === row || (!exactOnly(key) && !exactOnly(row) && sameSong(key, row))),
     );
 
 /** A song to show, on the page at `to` with `search`. */
@@ -37,6 +43,8 @@ export type RevealTarget = {
   keys: string[];
   to: string;
   search: Record<string, string>;
+  /** How long its page may take to load the list, when longer than {@link REVEAL_WAIT_MS}. */
+  waitMs?: number;
 };
 
 type RevealStore = {
@@ -48,14 +56,20 @@ type RevealStore = {
 /** How long a page may take to open and load its list before the song isn't looked for. */
 export const REVEAL_WAIT_MS = 10_000;
 
+/** How long `target`'s page may take to load its list. */
+export const revealWait = (target: RevealTarget) => target.waitMs ?? REVEAL_WAIT_MS;
+
 export const useRevealStore = create<RevealStore>((set, get) => ({
   target: null,
   request: (target) => {
     set({ target });
     // A page never reached (another one opened meanwhile) doesn't scroll when opened later.
-    setTimeout(() => {
-      if (get().target === target) set({ target: null });
-    }, REVEAL_WAIT_MS * 2);
+    setTimeout(
+      () => {
+        if (get().target === target) set({ target: null });
+      },
+      revealWait(target) * 2,
+    );
   },
   done: () => set({ target: null }),
 }));

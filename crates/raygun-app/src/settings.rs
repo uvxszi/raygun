@@ -95,9 +95,11 @@ fn cover_size_from(columns: u32, width: u32) -> i32 {
     )
 }
 
-/// Rows stored before sizes followed the screen (M46.48), in today's shape: the novel text's
-/// size in px becomes px more or less than the screen's own (18 px then), and the manga reader's
-/// widths in percent of the window become percent more or less than the screen's own.
+/// Rows stored by older versions, in today's shape. Before sizes followed the screen (M46.48):
+/// the novel text's size in px becomes px more or less than the screen's own (18 px then), and
+/// the manga reader's widths in percent of the window become percent more or less than the
+/// screen's own. The novel reader's paragraph indent was a switch: on is the indent it gave
+/// (2 em), off none.
 fn migrate_row(key: &str, value: &str) -> String {
     if key == "rail" {
         return crate::quick_access::migrate_row(value);
@@ -122,6 +124,17 @@ fn migrate_row(key: &str, value: &str) -> String {
         {
             fields.insert((*new).to_owned(), convert(number).into());
         }
+    }
+    if key == "novelReader"
+        && let Some(indent) = fields.get_mut("indent")
+        && let Some(switch) = indent.as_bool().or(indent.is_null().then_some(false))
+    {
+        *indent = if switch {
+            raygun_model::NOVEL_INDENT_SWITCHED_ON
+        } else {
+            0
+        }
+        .into();
     }
     serde_json::Value::Object(fields).to_string()
 }
@@ -518,18 +531,39 @@ mod tests {
         assert!(saved.resume_videos && !saved.auto_subtitles, "defaults");
     }
 
+    #[test]
+    fn the_old_indent_switch_becomes_an_amount() {
+        let indent = |stored: &str| {
+            let row = format!(
+                r#"{{"lineSpacing":16,"font":"serif","width":"narrow","paged":false,"indent":{stored}}}"#
+            );
+            match parse_row("novelReader", &migrate_row("novelReader", &row)) {
+                Ok(SettingChange::NovelReader(prefs)) => prefs.indent,
+                other => panic!("{stored}: {other:?}"),
+            }
+        };
+        assert_eq!(indent("true"), raygun_model::NOVEL_INDENT_SWITCHED_ON);
+        assert_eq!(indent("false"), 0);
+        assert_eq!(indent("null"), 0);
+        assert_eq!(indent("15"), 15, "an amount stays as it is");
+        // Only the novel reader's row has one.
+        let other = r#"{"indent":true}"#;
+        assert_eq!(migrate_row("mangaReader", other), other);
+    }
+
     #[tokio::test]
     async fn fixed_sizes_from_before_become_sizes_from_the_screen() {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;
-        // An older version's rows: four covers per row, a cover width, 20 px novel text, a webtoon
-        // column at 60 % of the window and the page bar at the screen's own width.
+        // An older version's rows: four covers per row, a cover width, 20 px novel text with the
+        // paragraph indent switched on, a webtoon column at 60 % of the window and the page bar at
+        // the screen's own width.
         for (key, value) in [
             ("gridColumns", "4"),
             ("coverWidth", "140"),
             (
                 "novelReader",
-                r#"{"fontSize":20,"lineSpacing":16,"font":"serif","width":"narrow","paged":false}"#,
+                r#"{"fontSize":20,"lineSpacing":16,"font":"serif","width":"narrow","paged":false,"indent":true}"#,
             ),
             ("mangaReader", r#"{"webtoonWidth":60,"barWidth":0}"#),
         ] {
@@ -541,6 +575,11 @@ mod tests {
             "four across a phone: smaller covers"
         );
         assert_eq!(loaded.novel_reader.text_size, 2);
+        assert_eq!(
+            loaded.novel_reader.indent,
+            raygun_model::NOVEL_INDENT_SWITCHED_ON,
+            "the switch's indent, 2 em"
+        );
         assert_eq!(loaded.manga_reader.webtoon_size, -40);
         assert_eq!(loaded.manga_reader.bar_size, 0);
 
