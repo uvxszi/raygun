@@ -13,6 +13,8 @@ use tauri_plugin_raygun_audio::LocalNetworkState;
 
 /// An addon on the local network can't be reached without the permission.
 pub const ADDONS_DENIED: &str = "Allow local network access to reach addons on your network";
+/// An address on the local network can't be looked at in Sources without the permission.
+pub const SOURCES_DENIED: &str = "Allow local network access to reach addresses on your network";
 /// A stream on the local network can't be played without the permission.
 pub const VIDEOS_DENIED: &str = "Allow local network access to play videos from your network";
 /// Other devices can't be played on without the permission (M46.15).

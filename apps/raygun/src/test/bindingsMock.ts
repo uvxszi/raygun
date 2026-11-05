@@ -431,6 +431,9 @@ export const bindingsMock = {
     extensionOpenWebsite: vi.fn(),
     browserCheckTarget: vi.fn(),
     browserCheckOpen: vi.fn(),
+    sourcesDetect: vi.fn(),
+    sourcesAdd: vi.fn(),
+    filesPick: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
     extensionRepoPreview: vi.fn(),
@@ -994,6 +997,9 @@ export const seedBindings = () => {
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.browserCheckTarget.mockResolvedValue(ok(null));
   commands.browserCheckOpen.mockResolvedValue(ok(0));
+  commands.sourcesDetect.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.sourcesAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.filesPick.mockResolvedValue(ok(null));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));
   commands.extensionRepoPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });

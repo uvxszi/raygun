@@ -3223,6 +3223,77 @@ pub struct RepoCatalog {
     pub error: Option<String>,
 }
 
+/// What an address added in Sources is (M46.52).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DetectedKind {
+    /// A Stremio addon (its `manifest.json`).
+    Addon,
+    /// A repository of extensions, in one app's format.
+    Repository,
+    /// One extension on its own: a Raygun package, a Miru or Shosetsu script.
+    Extension,
+    /// A server people sign in to: Jellyfin, Emby, Subsonic, Audiobookshelf, an OPDS catalogue.
+    Server,
+}
+
+/// Which app's format a repository or an extension is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceFormat {
+    Raygun,
+    Nuclear,
+    Shosetsu,
+    Miru,
+    #[serde(rename = "lnreader")]
+    LnReader,
+    Kodi,
+    Mihon,
+}
+
+/// An address read before it's added (Sources → Add), and what adding it brought.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedSource {
+    pub kind: DetectedKind,
+    /// A repository's or an extension's format.
+    pub format: Option<SourceFormat>,
+    /// A server's kind.
+    pub server: Option<ServerKind>,
+    /// What it's added by: the addon's manifest, the repository's index, the extension's file,
+    /// the server's address.
+    pub url: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// Already on this device: the addon, the repository, the extension at this version, the
+    /// server.
+    pub added: bool,
+    /// The addon, as the list shows it.
+    pub addon: Option<StremioAddon>,
+    /// What the repository lists, or the one extension.
+    pub entries: Vec<CatalogEntry>,
+    /// Why its extensions can't run here (a Kodi or Mihon repository), when they can't.
+    pub note: Option<String>,
+}
+
+/// What a field's picker picks (M46.52).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PickTarget {
+    File,
+    Folder,
+}
+
+/// A file or folder picked for a field that takes a link or a path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PickedPath {
+    /// Where it is: the path on this computer, or on Android the copy in Raygun's data folder.
+    pub path: String,
+    /// Its name, as the picker showed it.
+    pub name: String,
+}
+
 /// An extension to install from a repository, as the catalogue lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -5277,20 +5348,22 @@ fn browse_tab_known(tab: &str) -> Result<(), String> {
     }
 }
 
+/// Servers people connect are listed in Sources with the addons and repositories (M46.52); their
+/// music and books show here with every other source's.
 pub const LAYOUT_BROWSE_SECTIONS: [(&str, bool); 5] = [
     ("video", true),
+    // Music, podcast and audiobook sources (M46.52).
+    ("audio", true),
     ("manga", true),
     ("novel", true),
     ("websites", true),
-    // Servers people connect: Jellyfin, Subsonic, Audiobookshelf, OPDS catalogues.
-    ("servers", true),
 ];
-pub const LAYOUT_MORE_ENTRIES: [(&str, bool); 9] = [
+pub const LAYOUT_MORE_ENTRIES: [(&str, bool); 8] = [
     ("updates", true),
     ("downloads", true),
     ("categories", true),
-    ("addons", true),
-    ("repos", true),
+    // Repositories, addons, servers and extensions in one place (M46.52).
+    ("sources", true),
     ("ai", true),
     ("devices", true),
     ("settings", true),

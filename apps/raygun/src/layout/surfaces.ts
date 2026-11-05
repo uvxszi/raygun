@@ -1,15 +1,5 @@
 import type { TFunction } from 'i18next';
-import {
-  BellDot,
-  Download,
-  Info,
-  Package,
-  Puzzle,
-  Settings,
-  Smartphone,
-  Sparkles,
-  Tag,
-} from 'lucide-react';
+import { BellDot, Download, Info, Puzzle, Settings, Smartphone, Sparkles, Tag } from 'lucide-react';
 
 import { NAV_TABS, isNavTabId } from '../shell/navTabs';
 import type { LayoutSurface } from './layout';
@@ -46,8 +36,7 @@ export const surfaceEntries = (
         updates: BellDot,
         downloads: Download,
         categories: Tag,
-        addons: Puzzle,
-        repos: Package,
+        sources: Puzzle,
         ai: Sparkles,
         devices: Smartphone,
         settings: Settings,

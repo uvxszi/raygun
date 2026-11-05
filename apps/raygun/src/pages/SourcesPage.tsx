@@ -1,0 +1,386 @@
+import type { ExtensionInfo, RepoCatalog, ServerInfo } from '@raygun/bindings';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { ChevronRight, LoaderCircle, Plus } from 'lucide-react';
+import { useState } from 'react';
+import type { FC, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { useContentRating } from '../extensions/contentRating';
+import { RatingHint } from '../extensions/RatingHint';
+import { RepoRow, SuggestedRepos } from '../extensions/RepoRows';
+import { useCatalog, useExtensions, useRepos } from '../extensions/useExtensions';
+import { useSourceSwitches } from '../search/useSourceSwitch';
+import { ServerRow } from '../servers/ServerRow';
+import { ServerSheet } from '../servers/ServerSheet';
+import { useServers } from '../servers/useServers';
+import { AdultMark } from '../shell/AdultMark';
+import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
+import { LetterAvatar } from '../shell/LetterAvatar';
+import { OnOffSwitch } from '../shell/OnOffSwitch';
+import { SourceIssue } from '../shell/SourceIssue';
+import { TopBarAction } from '../shell/TopBar';
+import { useBulkSelection } from '../shell/useBulkSelection';
+import type { BulkSelection } from '../shell/useBulkSelection';
+import { matchesSearch } from '../shell/useListSearch';
+import { useSearchMode } from '../shell/useSearchMode';
+import { AddSourceSheet } from '../sources/AddSourceSheet';
+import { SOURCE_MEDIA, SOURCE_TYPES, mediaOf } from '../sources/sourceMedia';
+import type { SourceMedia, SourceType } from '../sources/sourceMedia';
+import { AddonItem, AddonSuggestions } from '../watch/AddonRows';
+import { useSetAddonEnabled, useSetAddonOrder, useStremioAddons } from '../watch/useStremio';
+import { PageHeader } from './PageHeader';
+
+/** Connections to servers are extensions too; they're listed as servers. */
+const isServer = (extension: ExtensionInfo) => extension.id.startsWith('server.');
+
+const chip = (on: boolean) =>
+  `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
+
+/** An installed (or built-in) extension: its page, what it is, and its switch. */
+const ExtensionRow: FC<{
+  extension: ExtensionInfo;
+  selection: BulkSelection;
+  enabled: boolean;
+  busy: boolean;
+  onSwitch: (on: boolean) => void;
+}> = ({ extension, selection, enabled, busy, onSwitch }) => {
+  const { t } = useTranslation();
+  const rating = useContentRating();
+  return (
+    <li aria-label={extension.name} className="flex items-center gap-1">
+      <SelectCheck selection={selection} id={`extension:${extension.id}`} name={extension.name} />
+      <Link
+        to="/extensions/detail"
+        search={{ id: extension.id }}
+        data-testid="source-extension-row"
+        className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${enabled ? '' : 'opacity-50'}`}
+      >
+        <LetterAvatar name={extension.name} logo={extension.icon} />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-medium">{extension.name}</span>
+            <span className="text-muted text-xs">{extension.version}</span>
+            <span className="bg-surface text-muted rounded px-1.5 text-[10px] font-semibold tracking-wide uppercase">
+              {t(
+                extension.origin === 'builtIn'
+                  ? 'extensions.builtIn'
+                  : 'extensions.installedOrigin',
+              )}
+            </span>
+            {extension.adult && <AdultMark />}
+            <RatingHint mark={rating.markOf('extensions', extension.id)} />
+          </span>
+          <span className="text-muted truncate text-xs">
+            {!enabled
+              ? t('sources.disabledNote', { detail: extension.description ?? extension.version })
+              : extension.status === 'failed'
+                ? t('extensions.notLoaded')
+                : (extension.description ?? '')}
+          </span>
+        </span>
+        <ChevronRight aria-hidden size={18} className="text-muted shrink-0" />
+      </Link>
+      <OnOffSwitch
+        checked={enabled}
+        label={t('sources.switch', { name: extension.name })}
+        disabled={busy}
+        onChange={onSwitch}
+      />
+    </li>
+  );
+};
+
+const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }) => (
+  <section aria-label={title} className="flex flex-col gap-2">
+    <h2 className="text-muted px-1 pt-2 text-sm font-medium">{title}</h2>
+    {children}
+  </section>
+);
+
+/**
+ * Sources (M46.52): everything content comes from, in one place — extension repositories (every
+ * format Raygun reads), Stremio addons, servers and the extensions on this device. Pills pick a
+ * kind and what they're for (Audio, Videos…); rows keep their details, switch, selection, order
+ * and removal; Add takes any address and works out what it is.
+ */
+export const SourcesPage: FC = () => {
+  const { t } = useTranslation();
+  const { type, media, add } = useSearch({ from: '/sources' });
+  const navigate = useNavigate({ from: '/sources' });
+  const find = useSearchMode(t('sources.page.find'));
+  const [adding, setAdding] = useState(add === true);
+  const [signingIn, setSigningIn] = useState<ServerInfo | null>(null);
+
+  const repos = useRepos();
+  const catalog = useCatalog();
+  const addons = useStremioAddons();
+  const servers = useServers();
+  const extensions = useExtensions();
+  const switches = useSourceSwitches();
+  const setAddon = useSetAddonEnabled();
+  const setOrder = useSetAddonOrder();
+
+  const query = find.query;
+  const listings = new Map<string, RepoCatalog>(
+    catalog.data?.map((listing) => [listing.repo.id, listing]),
+  );
+  const repoMedia = (id: string) =>
+    mediaOf(listings.get(id)?.entries.flatMap((entry) => entry.provides) ?? []);
+
+  // Every row with what it's for; the pills narrow them.
+  const allRepos = (repos.data ?? []).map((repo) => ({ repo, media: repoMedia(repo.id) }));
+  const allAddons = addons.data ?? [];
+  const allServers = (servers.data ?? []).map((server) => ({
+    server,
+    media: mediaOf(server.provides),
+  }));
+  const allExtensions = (extensions.data ?? [])
+    .filter((extension) => !isServer(extension))
+    .map((extension) => ({ extension, media: mediaOf(extension.provides) }));
+
+  const of = (section: SourceType) => !type || type === section;
+  const forMedia = (rowMedia: SourceMedia[]) => !media || rowMedia.includes(media);
+  const shownRepos = allRepos.filter(
+    (row) => forMedia(row.media) && matchesSearch(query, [row.repo.name, row.repo.url]),
+  );
+  const shownAddons = allAddons.filter(
+    (addon) => forMedia(['video']) && matchesSearch(query, [addon.name, addon.description]),
+  );
+  const shownServers = allServers.filter(
+    (row) =>
+      forMedia(row.media) &&
+      matchesSearch(query, [row.server.name, row.server.address, row.server.kind]),
+  );
+  const shownExtensions = allExtensions.filter(
+    (row) =>
+      forMedia(row.media) && matchesSearch(query, [row.extension.name, row.extension.description]),
+  );
+
+  // What the pills offer: the media the rows of the chosen kind are for.
+  const present = new Set<SourceMedia>([
+    ...(of('repositories') ? allRepos.flatMap((row) => row.media) : []),
+    ...(of('addons') && allAddons.length > 0 ? (['video'] as const) : []),
+    ...(of('servers') ? allServers.flatMap((row) => row.media) : []),
+    ...(of('extensions') ? allExtensions.flatMap((row) => row.media) : []),
+  ]);
+  // The chosen one stays, so it can be let go of under another kind.
+  const mediaPills = SOURCE_MEDIA.filter((option) => present.has(option) || option === media);
+  const counts: Record<SourceType, number> = {
+    repositories: allRepos.length,
+    addons: allAddons.length,
+    servers: allServers.length,
+    extensions: allExtensions.length,
+  };
+
+  // Rows with a switch can be picked and turned on or off together.
+  const switchable = [
+    ...(of('addons') ? shownAddons.map((addon) => `addon:${addon.id}`) : []),
+    ...(of('servers') ? shownServers.map((row) => `server:${row.server.id}`) : []),
+    ...(of('extensions') ? shownExtensions.map((row) => `extension:${row.extension.id}`) : []),
+  ];
+  const selection = useBulkSelection(switchable);
+  const switchMany = (ids: string[], on: boolean) => {
+    const picked = (prefix: string) =>
+      ids.filter((id) => id.startsWith(prefix)).map((id) => id.slice(prefix.length));
+    for (const id of picked('addon:')) {
+      const addon = allAddons.find((candidate) => candidate.id === id);
+      if (addon && addon.enabled !== on) setAddon.mutate({ id, enabled: on });
+    }
+    const extensionIds = [...picked('server:'), ...picked('extension:')];
+    if (extensionIds.length > 0) switches.setMany(extensionIds, on);
+  };
+  const move = (index: number, step: -1 | 1) => {
+    const ids = allAddons.map((addon) => addon.id);
+    const [moved] = ids.splice(index, 1);
+    if (moved === undefined) return;
+    ids.splice(index + step, 0, moved);
+    setOrder.mutate(ids);
+  };
+  const narrowed = query.trim() !== '' || media !== undefined;
+  const loading = repos.isPending || addons.isPending || servers.isPending || extensions.isPending;
+  const nothing =
+    !loading &&
+    (!of('repositories') || shownRepos.length === 0) &&
+    (!of('addons') || shownAddons.length === 0) &&
+    (!of('servers') || shownServers.length === 0) &&
+    (!of('extensions') || shownExtensions.length === 0);
+  const pill = (next: { type?: SourceType; media?: SourceMedia }) => ({
+    ...(next.type ? { type: next.type } : {}),
+    ...(next.media ? { media: next.media } : {}),
+  });
+
+  return (
+    <section data-testid="sources-page" className="flex flex-col gap-3">
+      <PageHeader
+        back
+        fallback="/browse"
+        title={t('sources.title')}
+        search={find.search}
+        actions={
+          <>
+            {find.action}
+            <TopBarAction
+              label={t('sources.add.title')}
+              icon={Plus}
+              onClick={() => setAdding(true)}
+            />
+          </>
+        }
+      />
+      <nav
+        aria-label={t('sources.page.types')}
+        className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+      >
+        {[undefined, ...SOURCE_TYPES].map((option) => (
+          <Link
+            key={option ?? 'all'}
+            to="/sources"
+            search={pill({ type: option, media })}
+            replace
+            activeOptions={{ exact: true, includeSearch: true }}
+            aria-current={option === type ? 'page' : undefined}
+            className={chip(option === type)}
+          >
+            {option
+              ? `${t(`sources.page.type.${option}`)} · ${counts[option]}`
+              : t('sources.page.type.all')}
+          </Link>
+        ))}
+      </nav>
+      <div className="flex items-start gap-2">
+        {mediaPills.length > 1 || media ? (
+          <div
+            role="group"
+            aria-label={t('sources.page.media')}
+            className="-mx-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+          >
+            {mediaPills.map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={media === option}
+                onClick={() =>
+                  void navigate({
+                    search: pill({ type, media: media === option ? undefined : option }),
+                    replace: true,
+                  })
+                }
+                className={chip(media === option)}
+              >
+                {t(`sources.media.${option}`)}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {switchable.length > 0 && <SelectButton selection={selection} />}
+      </div>
+      <BulkSwitchBar
+        selection={selection}
+        busy={switches.busy || setAddon.isPending}
+        onSwitch={switchMany}
+      />
+      {loading && (
+        <LoaderCircle aria-label={t('watch.loading')} className="text-muted mx-auto animate-spin" />
+      )}
+      {(addons.error ?? setOrder.error) && (
+        <SourceIssue compact>{(addons.error ?? setOrder.error)?.message}</SourceIssue>
+      )}
+      {nothing && (
+        // Adding is the top bar's "+".
+        <p className="text-muted px-1 py-4 text-sm">
+          {t(narrowed ? 'sources.page.noMatches' : 'sources.page.empty')}
+        </p>
+      )}
+      {of('repositories') && (shownRepos.length > 0 || (type === 'repositories' && !narrowed)) && (
+        <Section title={t('sources.page.type.repositories')}>
+          {shownRepos.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {shownRepos.map(({ repo }) => (
+                <RepoRow key={repo.id} repo={repo} listing={listings.get(repo.id)} />
+              ))}
+            </ul>
+          )}
+          {!narrowed && <SuggestedRepos />}
+        </Section>
+      )}
+      {of('addons') && (shownAddons.length > 0 || (type === 'addons' && !narrowed)) && (
+        <Section title={t('sources.page.type.addons')}>
+          {shownAddons.length > 0 && (
+            <ul aria-label={t('watch.installedAddons')} className="flex flex-col gap-2">
+              {shownAddons.map((addon) => {
+                const index = allAddons.indexOf(addon);
+                return (
+                  <AddonItem
+                    key={addon.id}
+                    addon={addon}
+                    // The order is the whole list's: no moving while it's narrowed.
+                    onMove={narrowed ? null : (step) => move(index, step)}
+                    first={index === 0}
+                    last={index === allAddons.length - 1}
+                    selection={selection}
+                    selectId={`addon:${addon.id}`}
+                  />
+                );
+              })}
+            </ul>
+          )}
+          {!narrowed && <AddonSuggestions />}
+        </Section>
+      )}
+      {of('servers') && shownServers.length > 0 && (
+        <Section title={t('sources.page.type.servers')}>
+          <ul className="flex flex-col">
+            {shownServers.map(({ server }) => (
+              <ServerRow
+                key={server.id}
+                server={server}
+                onSignIn={() => setSigningIn(server)}
+                off={!switches.isEnabled(server.id)}
+                leading={
+                  <SelectCheck
+                    selection={selection}
+                    id={`server:${server.id}`}
+                    name={server.name}
+                  />
+                }
+                trailing={
+                  <OnOffSwitch
+                    checked={switches.isEnabled(server.id)}
+                    label={t('sources.switch', { name: server.name })}
+                    disabled={switches.busy}
+                    onChange={(on) => switches.setMany([server.id], on)}
+                  />
+                }
+              />
+            ))}
+          </ul>
+        </Section>
+      )}
+      {servers.error && of('servers') && (
+        <SourceIssue compact title={t('servers.loadFailed')}>
+          {servers.error.message}
+        </SourceIssue>
+      )}
+      {of('extensions') && shownExtensions.length > 0 && (
+        <Section title={t('sources.page.type.extensions')}>
+          <ul className="flex flex-col">
+            {shownExtensions.map(({ extension }) => (
+              <ExtensionRow
+                key={`${extension.origin}-${extension.id}`}
+                extension={extension}
+                selection={selection}
+                enabled={switches.isEnabled(extension.id)}
+                busy={switches.busy}
+                onSwitch={(on) => switches.setMany([extension.id], on)}
+              />
+            ))}
+          </ul>
+        </Section>
+      )}
+      {adding && <AddSourceSheet onClose={() => setAdding(false)} />}
+      {signingIn && <ServerSheet server={signingIn} onClose={() => setSigningIn(null)} />}
+    </section>
+  );
+};

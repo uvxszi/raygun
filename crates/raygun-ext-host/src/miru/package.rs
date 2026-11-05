@@ -103,10 +103,60 @@ pub fn package(
     )
 }
 
+/// The entry a repository would list for a script found on its own at `url` (an address added in
+/// Sources), from its metadata block; `None` when it isn't a Miru extension.
+pub fn entry_of(bytes: &[u8], url: &url::Url) -> Option<RepoEntry> {
+    if bytes.len() as u64 > MAX_PACKAGE_BYTES {
+        return None;
+    }
+    let code = String::from_utf8_lossy(bytes);
+    let header = header::parse(code.trim_start_matches('\u{feff}'))?;
+    let id = extension_id(&header.package)?;
+    Some(RepoEntry {
+        id,
+        name: header.name.clone(),
+        version: header::semver_version(&header.version),
+        api_version: crate::manifest::API_VERSION,
+        description: Some(super::index::description(
+            header.description.as_deref(),
+            header.kind,
+        )),
+        author: header.author.clone(),
+        provides: vec![header.kind.provider_kind().to_owned()],
+        permissions: crate::repo::RepoPermissions {
+            net: vec!["*".to_owned()],
+            webview: false,
+        },
+        content_rating: if header.nsfw { "nsfw" } else { "safe" }.to_owned(),
+        lang: header.lang.clone(),
+        package: url.to_string(),
+        icon: header.icon.clone(),
+        sha256: crate::package::sha256_hex(bytes),
+        size: bytes.len() as u64,
+        format: crate::repo::PackageFormat::Miru,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::repo::parse_index;
+
+    #[test]
+    fn a_script_on_its_own_is_listed_from_its_metadata() {
+        let url: url::Url = "https://example.org/repo/royalroad.com.js".parse().unwrap();
+        let entry = entry_of(SCRIPT.as_bytes(), &url).unwrap();
+        assert_eq!(entry.id, "miru.royalroad.com");
+        assert_eq!(entry.name, "RoyalRoad");
+        assert_eq!(entry.version, "0.0.3");
+        assert_eq!(entry.provides, ["novel.source"]);
+        let (code, header) = verify_script(SCRIPT.as_bytes(), &entry).unwrap();
+        assert_eq!(
+            package(&entry, code, &header).unwrap().manifest.id,
+            entry.id
+        );
+        assert!(entry_of(b"export default 1", &url).is_none());
+    }
 
     const SCRIPT: &str = "// ==MiruExtension==\n// @name         RoyalRoad\n// @version      v0.0.3\n// @author       appdevelpo\n// @lang         en\n// @license      MIT\n// @package      royalroad.com\n// @type         fikushon\n// @webSite      https://www.royalroad.com\n// @nsfw         false\n// ==/MiruExtension==\n\nexport default class extends Extension {}\n";
 

@@ -462,6 +462,41 @@ fn page_address(url: Option<&str>, website: Option<&str>) -> Option<String> {
     }
 }
 
+/// What an address typed in Sources → Add is (M46.52): a Stremio addon, a repository (Raygun's,
+/// Shosetsu's, Nuclear's, Miru's, LNReader's, Kodi's, Mihon's), one extension, or a server; a
+/// GitHub project's page stands for what it publishes, a folder for the index in it.
+#[tauri::command]
+#[specta::specta]
+pub async fn sources_detect(
+    detector: tauri::State<'_, crate::source_detect::SourceDetector>,
+    address: String,
+) -> Result<raygun_model::DetectedSource, String> {
+    detector.detect(&address).await
+}
+
+/// Adds what an address is: the addon, the repository, or the extension installed. A server is
+/// connected with its sign-in (`servers_add`).
+#[tauri::command]
+#[specta::specta]
+pub async fn sources_add(
+    detector: tauri::State<'_, crate::source_detect::SourceDetector>,
+    address: String,
+) -> Result<raygun_model::DetectedSource, String> {
+    detector.add(&address).await
+}
+
+/// Shows the system's file or folder picker for a field that takes a link or a path; `null`
+/// when nothing was picked. On Android the item is copied into Raygun's data folder.
+#[tauri::command]
+#[specta::specta]
+pub async fn files_pick(
+    app: tauri::AppHandle,
+    paths: tauri::State<'_, AppPaths>,
+    target: raygun_model::PickTarget,
+) -> Result<Option<raygun_model::PickedPath>, String> {
+    crate::picker::pick(&app, &paths.0, target).await
+}
+
 /// Repositories extensions can be installed from.
 #[tauri::command]
 #[specta::specta]

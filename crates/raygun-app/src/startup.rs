@@ -181,6 +181,11 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     ));
     app.manage(extensions);
     app.manage(crate::servers::ServerService::new(app.handle().clone()));
+    // Sources → Add: what an address is, then adding it (M46.52).
+    app.manage(crate::source_detect::SourceDetector::new(
+        app.handle().clone(),
+        raygun_net::http_client()?,
+    ));
     app.manage(std::sync::Arc::new(crate::resolver::ResolverService::new(
         app.handle().clone(),
     )));

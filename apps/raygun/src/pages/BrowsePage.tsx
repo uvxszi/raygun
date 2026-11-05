@@ -56,7 +56,7 @@ import { useSourceMenuItems } from '../search/sourceMenuItems';
 import { buildMenu, copyText } from '../music/mediaMenu';
 import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
-import { ServersSection } from '../servers/ServersSection';
+import { mediaOfKind } from '../sources/sourceMedia';
 import { WebsitesSection } from '../websites/WebsitesSection';
 import { OnOffSwitch } from '../shell/OnOffSwitch';
 import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
@@ -89,10 +89,13 @@ type SourceRow = {
   addonId?: string;
   /** Whether that addon is on. */
   addonEnabled?: boolean;
+  /** An extension's audio sources (music, podcasts, audiobooks), switched together. */
+  audio?: { extensionId: string; sourceIds: string[]; enabled: boolean };
 };
 
 /** Whether a row's source or addon is on. */
-const rowEnabled = (row: SourceRow) => row.source?.enabled ?? row.addonEnabled ?? true;
+const rowEnabled = (row: SourceRow) =>
+  row.source?.enabled ?? row.addonEnabled ?? row.audio?.enabled ?? true;
 
 type Page = { to: string; search: Record<string, unknown> };
 
@@ -116,14 +119,14 @@ const addonMenu = (
       {
         label: t('menu.manageAddons'),
         icon: Settings2,
-        onSelect: () => go({ to: '/watch/addons', search: {} }),
+        onSelect: () => go({ to: '/sources', search: { type: 'addons' } }),
       },
     ],
     share: [{ label: t('menu.copyName'), icon: Copy, onSelect: () => copyText(row.name) }],
     edit: row.addonId ? marks : [],
   });
 
-const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }> = ({
+const SourceRowLink: FC<{ row: SourceRow; onMenu?: (event: MouseEvent) => void }> = ({
   row,
   onMenu,
 }) => {
@@ -215,6 +218,9 @@ const SourceSection: FC<{
             <SelectCheck selection={selection} id={row.key} name={row.name} />
             {row.source ? (
               <ExtensionSourceRow row={row} source={row.source} />
+            ) : row.audio ? (
+              // An extension's audio sources: its page holds their settings.
+              <SourceRowLink row={row} />
             ) : (
               <>
                 <SourceRowLink
@@ -247,23 +253,31 @@ const SourceSection: FC<{
   );
 };
 
-type SourceKind = 'all' | 'video' | 'manga' | 'novel' | 'websites' | 'servers';
+type SourceKind = 'all' | 'video' | 'audio' | 'manga' | 'novel' | 'websites';
 const SOURCE_KIND_KEY = 'raygun.browse.sourceKind';
 
 const readKind = (): SourceKind => {
   try {
     const saved = localStorage.getItem(SOURCE_KIND_KEY);
     return saved === 'video' ||
+      saved === 'audio' ||
       saved === 'manga' ||
       saved === 'novel' ||
-      saved === 'websites' ||
-      saved === 'servers'
+      saved === 'websites'
       ? saved
       : 'all';
   } catch {
     return 'all';
   }
 };
+
+/** What an extension's audio sources bring, as their row says it: "Music · Audiobooks". */
+const AUDIO_KINDS: [prefix: string, label: string][] = [
+  ['music.', 'browse.audioKind.music'],
+  ['lyrics', 'browse.audioKind.lyrics'],
+  ['podcast.', 'browse.audioKind.podcast'],
+  ['audiobook.', 'browse.audioKind.audiobook'],
+];
 
 /**
  * Browse → Sources: every catalogue to browse, by kind (Aniyomi's Browse). Chips pick one kind
@@ -328,10 +342,40 @@ const SourcesList: FC = () => {
       })),
     ...catalogue(video.data, '/watch/source'),
   ];
+  const switches = useSourceSwitches();
+  // Music, podcast and audiobook sources (and the servers bringing any), one row per extension:
+  // its page holds their settings, its switch turns them all on or off.
+  const audioRows: SourceRow[] = (extensions.data ?? []).flatMap((extension) => {
+    const sources = extension.providers.filter(
+      (provider) => mediaOfKind(provider.kind) === 'audio',
+    );
+    if (extension.status !== 'loaded' || sources.length === 0) return [];
+    const brings = AUDIO_KINDS.filter(([prefix]) =>
+      sources.some((provider) => provider.kind.startsWith(prefix)),
+    ).map(([, label]) => t(label));
+    const sourceIds = sources.map((provider) => provider.id);
+    return [
+      {
+        key: `audio:${extension.id}`,
+        name: extension.name,
+        detail: brings.join(' · '),
+        logo: extension.icon,
+        to: '/extensions/detail',
+        search: { id: extension.id },
+        adult: extension.adult,
+        audio: {
+          extensionId: extension.id,
+          sourceIds,
+          enabled: switches.isEnabled(extension.id) && sourceIds.every(switches.isEnabled),
+        },
+      },
+    ];
+  });
   const loading = addons.isPending || video.isPending || manga.isPending || novel.isPending;
   const empty =
     !loading &&
     videoRows.length === 0 &&
+    audioRows.length === 0 &&
     (manga.data?.length ?? 0) === 0 &&
     (novel.data?.length ?? 0) === 0;
 
@@ -339,18 +383,26 @@ const SourcesList: FC = () => {
   const novelRows = catalogue(novel.data, '/novel/source');
   const shownRows = [
     ...(kind === 'all' || kind === 'video' ? found(videoRows) : []),
+    ...(kind === 'all' || kind === 'audio' ? found(audioRows) : []),
     ...(kind === 'all' || kind === 'manga' ? found(mangaRows) : []),
     ...(kind === 'all' || kind === 'novel' ? found(novelRows) : []),
   ];
   const selection = useBulkSelection(shownRows.map((row) => row.key));
-  const switches = useSourceSwitches();
   const setAddon = useSetAddonEnabled();
   const switcher: RowSwitch = {
     busy: switches.busy || setAddon.isPending,
     set: (keys, on) => {
       const rows = shownRows.filter((row) => keys.includes(row.key));
-      const sourceIds = rows.flatMap((row) => (row.source ? [row.source.id] : []));
-      if (sourceIds.length > 0) switches.setMany(sourceIds, on);
+      const sourceIds = rows.flatMap((row) =>
+        row.source ? [row.source.id] : (row.audio?.sourceIds ?? []),
+      );
+      // An audio row's extension may have been turned off whole: on turns it back on too.
+      const extensionIds = on
+        ? rows.flatMap((row) => (row.audio ? [row.audio.extensionId] : []))
+        : [];
+      if (sourceIds.length + extensionIds.length > 0) {
+        switches.setMany([...sourceIds, ...extensionIds], on);
+      }
       for (const row of rows) {
         if (row.addonId && row.addonEnabled !== on)
           setAddon.mutate({ id: row.addonId, enabled: on });
@@ -363,6 +415,14 @@ const SourcesList: FC = () => {
       <SourceSection
         title={t('browse.kind.video')}
         rows={found(videoRows)}
+        selection={selection}
+        switcher={switcher}
+      />
+    ),
+    audio: (
+      <SourceSection
+        title={t('browse.kind.audio')}
+        rows={found(audioRows)}
         selection={selection}
         switcher={switcher}
       />
@@ -384,15 +444,14 @@ const SourcesList: FC = () => {
       />
     ),
     websites: <WebsitesSection query={query} />,
-    servers: <ServersSection query={query} />,
   };
   const visible = layout.browseSections.filter((item) => item.visible);
   const counts: Record<string, number | null> = {
     video: videoRows.length,
+    audio: audioRows.length,
     manga: mangaRows.length,
     novel: novelRows.length,
     websites: null,
-    servers: null,
   };
   const chip = (on: boolean) =>
     `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
@@ -412,9 +471,13 @@ const SourcesList: FC = () => {
             </Link>
           </li>
           <li>
-            <Link to="/watch/addons" className="flex items-center gap-3 px-4 py-3">
+            <Link
+              to="/sources"
+              search={{ add: true }}
+              className="flex items-center gap-3 px-4 py-3"
+            >
               <Puzzle aria-hidden size={18} className="text-muted shrink-0" />
-              <span className="font-medium">{t('browse.addAddons')}</span>
+              <span className="font-medium">{t('browse.addSource')}</span>
             </Link>
           </li>
         </ul>
@@ -437,9 +500,7 @@ const SourcesList: FC = () => {
                 ? t('browse.allKinds')
                 : id === 'websites'
                   ? t('websites.title')
-                  : id === 'servers'
-                    ? t('servers.title')
-                    : `${t(id === 'video' ? 'browse.kind.video' : `library.media.${id}`)} · ${counts[id] ?? 0}`}
+                  : `${t(id === 'video' || id === 'audio' ? `browse.kind.${id}` : `library.media.${id}`)} · ${counts[id] ?? 0}`}
             </button>
           ))}
         </div>
@@ -594,8 +655,7 @@ export const BrowsePage: FC = () => {
           icon: failingAtEnd ? SquareCheck : Square,
           onSelect: () => updateSetting.mutate({ key: 'failingSourcesLast', value: !failingAtEnd }),
         },
-        { label: t('watch.addons'), icon: Puzzle, to: '/watch/addons' },
-        { label: t('browse.repos'), icon: Package, to: '/extensions/repos' },
+        { label: t('sources.title'), icon: Puzzle, to: '/sources' },
         incognitoItem,
         {
           label: t('layout.editBrowse'),
