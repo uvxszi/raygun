@@ -20,6 +20,10 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Installing Raygun's own updates from its GitHub releases (M46.47). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Recording what Raygun itself plays, for songs only YouTube's player plays (PlaybackRecorder):
+         asked for only when the person allows recording, with Android's capture question. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Reading the device's music library (M07). -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Playing videos from folders added to Local Files (M46.27). -->
@@ -71,6 +75,11 @@
             android:name="app.raygun.audio.RaygunDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- Holds the consent to record what Raygun plays while songs wait to be recorded. -->
+        <service
+            android:name="app.raygun.audio.RecordingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
         <!-- Play on TV: Raygun keeps serving the stream while a TV plays it. -->
         <service
             android:name="app.raygun.audio.CastKeepAliveService"

@@ -1748,6 +1748,8 @@ impl DownloadJob {
             capture::CaptureError::Device(error) | capture::CaptureError::Failed(error) => {
                 Stop::Failed(error)
             }
+            // Only recordings are interrupted, and episodes are never recorded.
+            capture::CaptureError::Interrupted => Stop::Failed("The capture stopped".into()),
         })?;
         record.received_bytes = tokio::fs::metadata(dir.join(&captured.file))
             .await

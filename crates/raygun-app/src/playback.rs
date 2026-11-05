@@ -357,6 +357,11 @@ impl PlaybackService {
         self.proxy.register(source)
     }
 
+    /// The YouTube embed host page the player uses (a recording plays songs in one of its own).
+    pub fn youtube_embed_url(&self) -> String {
+        self.proxy.youtube_embed_url()
+    }
+
     /// Changes queued items in place (M46.48: a song given a source or names); `update` says
     /// whether it changed one. The playing item keeps its stream until it loads again.
     pub fn update_items(&self, update: impl FnMut(&mut QueueItem) -> bool) {

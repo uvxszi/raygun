@@ -57,6 +57,28 @@ pub(crate) enum Report {
     Length(f64),
     Ended,
     Failed(String),
+    /// Raygun's player played something else meanwhile: a recording of what Raygun plays would
+    /// hold it, so the capture stops and waits ([`CaptureError::Interrupted`]).
+    Interrupted,
+}
+
+/// What plays for a capture.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Player<'a> {
+    /// A stream through the proxy (`link`; `hls`, `dash` or a file), played by a capture player
+    /// of its own, muted and fast.
+    Stream {
+        link: &'a str,
+        format: Option<&'a str>,
+    },
+    /// A song only YouTube's player plays (Android): played aloud, in real time, in the webview's
+    /// recording player, while Raygun's own sound is recorded ([`super::record`]).
+    Recording {
+        video_id: &'a str,
+        download_id: &'a str,
+        title: &'a str,
+        artist: Option<&'a str>,
+    },
 }
 
 /// Desktop sessions waiting for the webview's reports.
@@ -77,20 +99,43 @@ pub(crate) fn available(app: &AppHandle) -> bool {
 }
 
 /// A running capture player.
-struct Session {
-    id: String,
-    reports: mpsc::UnboundedReceiver<Report>,
-    #[cfg(target_os = "android")]
-    poll: tokio::task::JoinHandle<()>,
+pub(crate) struct Session {
+    pub(crate) id: String,
+    pub(crate) reports: mpsc::UnboundedReceiver<Report>,
+    /// The task following the player (Android's capture player, or a recording), if any.
+    pub(crate) poll: Option<tokio::task::JoinHandle<()>>,
+    /// It records what Raygun plays.
+    pub(crate) recording: bool,
 }
 
 async fn start(
     app: &AppHandle,
-    link: &str,
-    format: Option<&str>,
+    player: Player<'_>,
     from_ms: f64,
     dir: &Path,
 ) -> Result<Session, String> {
+    let (link, format) = match player {
+        Player::Stream { link, format } => (link, format),
+        Player::Recording {
+            video_id,
+            download_id,
+            title,
+            artist,
+        } => {
+            return super::record::start_run(
+                app,
+                super::record::Run {
+                    video_id,
+                    download_id,
+                    title,
+                    artist,
+                    from_ms,
+                    dir,
+                },
+            )
+            .await;
+        }
+    };
     let id = uuid::Uuid::now_v7().simple().to_string();
     #[cfg(target_os = "android")]
     {
@@ -116,7 +161,12 @@ async fn start(
         .await
         .map_err(|error| error.to_string())??;
         let poll = tokio::spawn(android_poll(app.clone(), id.clone(), sender));
-        Ok(Session { id, reports, poll })
+        Ok(Session {
+            id,
+            reports,
+            poll: Some(poll),
+            recording: false,
+        })
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -137,14 +187,26 @@ async fn start(
         })
         .emit(app)
         .map_err(|error| error.to_string())?;
-        Ok(Session { id, reports })
+        Ok(Session {
+            id,
+            reports,
+            poll: None,
+            recording: false,
+        })
     }
 }
 
 async fn end_session(app: &AppHandle, session: Session) {
+    if let Some(poll) = &session.poll {
+        poll.abort();
+    }
+    if session.recording {
+        super::record::end_run(app, &session.id).await;
+        drop(session.reports);
+        return;
+    }
     #[cfg(target_os = "android")]
     {
-        session.poll.abort();
         let (native, id) = (app.clone(), session.id.clone());
         let _ = tokio::task::spawn_blocking(move || {
             native
@@ -225,30 +287,77 @@ fn from_webview(report: SongCaptureReport) -> Result<Vec<Report>, String> {
     Ok(messages)
 }
 
+/// One PCM piece an Android player writes (its capture player, or a recording): 16-bit
+/// interleaved samples in `file`, from `start_ms` in the stream, `frames` long so far.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PieceState {
+    pub(crate) file: String,
+    pub(crate) start_ms: f64,
+    pub(crate) rate: u32,
+    pub(crate) channels: u16,
+    pub(crate) frames: u64,
+}
+
+/// An Android player's state, as its status call answers.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PlayerState {
+    pub(crate) state: String,
+    pub(crate) duration_ms: Option<f64>,
+    pub(crate) error: Option<String>,
+    #[serde(default)]
+    pub(crate) pieces: Vec<PieceState>,
+}
+
+/// Sends the sound its pieces gained since they were last read (`read`: frames read per file).
+/// Returns whether any came.
+pub(crate) fn send_new_sound(
+    pieces: &[PieceState],
+    read: &mut HashMap<String, u64>,
+    sender: &mpsc::UnboundedSender<Report>,
+) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut heard = false;
+    for piece in pieces {
+        let done = read.entry(piece.file.clone()).or_insert(0);
+        if piece.frames <= *done {
+            continue;
+        }
+        let channels = u64::from(piece.channels.max(1));
+        let count = piece.frames - *done;
+        let samples = std::fs::File::open(&piece.file).and_then(|mut file| {
+            file.seek(SeekFrom::Start(*done * channels * 2))?;
+            let mut bytes = vec![0u8; (count * channels * 2) as usize];
+            file.read_exact(&mut bytes)?;
+            Ok(bytes)
+        });
+        let Ok(bytes) = samples else {
+            continue;
+        };
+        let start_ms = piece.start_ms + *done as f64 * 1000.0 / f64::from(piece.rate.max(1));
+        *done = piece.frames;
+        heard = true;
+        let _ = sender.send(Report::Sound {
+            start_ms,
+            rate: piece.rate,
+            channels: piece.channels,
+            samples: bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| i16::from_le_bytes(*pair))
+                .collect(),
+        });
+    }
+    heard
+}
+
 /// Follows Android's capture player: its pieces (PCM files it writes) and its state, four times
 /// a second.
 #[cfg(target_os = "android")]
 async fn android_poll(app: AppHandle, id: String, sender: mpsc::UnboundedSender<Report>) {
-    use std::io::{Read, Seek, SeekFrom};
-
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct PieceState {
-        file: String,
-        start_ms: f64,
-        rate: u32,
-        channels: u16,
-        frames: u64,
-    }
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct State {
-        state: String,
-        duration_ms: Option<f64>,
-        error: Option<String>,
-        #[serde(default)]
-        pieces: Vec<PieceState>,
-    }
     let mut read: HashMap<String, u64> = HashMap::new();
     let mut stalled = false;
     let mut length_told = false;
@@ -261,7 +370,7 @@ async fn android_poll(app: AppHandle, id: String, sender: mpsc::UnboundedSender<
                 .capture_status(&session)
         })
         .await;
-        let state: State = match status
+        let state: PlayerState = match status
             .map_err(|error| error.to_string())
             .and_then(|status| status)
             .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
@@ -276,36 +385,8 @@ async fn android_poll(app: AppHandle, id: String, sender: mpsc::UnboundedSender<
             length_told = true;
             let _ = sender.send(Report::Length(length));
         }
-        for piece in &state.pieces {
-            let done = read.entry(piece.file.clone()).or_insert(0);
-            if piece.frames <= *done {
-                continue;
-            }
-            let channels = u64::from(piece.channels.max(1));
-            let count = piece.frames - *done;
-            let samples = std::fs::File::open(&piece.file).and_then(|mut file| {
-                file.seek(SeekFrom::Start(*done * channels * 2))?;
-                let mut bytes = vec![0u8; (count * channels * 2) as usize];
-                file.read_exact(&mut bytes)?;
-                Ok(bytes)
-            });
-            let Ok(bytes) = samples else {
-                continue;
-            };
-            let start_ms = piece.start_ms + *done as f64 * 1000.0 / f64::from(piece.rate.max(1));
-            *done = piece.frames;
+        if send_new_sound(&state.pieces, &mut read, &sender) {
             stalled = false;
-            let _ = sender.send(Report::Sound {
-                start_ms,
-                rate: piece.rate,
-                channels: piece.channels,
-                samples: bytes
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|pair| i16::from_le_bytes(*pair))
-                    .collect(),
-            });
         }
         match state.state.as_str() {
             "ended" => {
@@ -435,12 +516,11 @@ pub(crate) struct Stitched {
     pub stream_ms: Option<u64>,
 }
 
-/// Captures the sound of the stream at `link` (the proxy's) into `capture.wav` in `dir`, in as
-/// many runs as it takes to cover what plays of it; `share` hears how much is covered.
+/// Captures the sound `player` plays into `capture.wav` in `dir`, in as many runs as it takes to
+/// cover what plays of it; `share` hears how much is covered.
 pub(crate) async fn capture(
     app: &AppHandle,
-    link: &str,
-    format: Option<&str>,
+    player: Player<'_>,
     dir: &Path,
     expected: &Expected,
     share: &(dyn Fn(f64) + Send + Sync),
@@ -462,7 +542,7 @@ pub(crate) async fn capture(
     let mut last_error: Option<String> = None;
     let (mut from_ms, mut until_ms) = (0.0, None::<f64>);
     for _ in 0..PASSES {
-        let mut session = start(app, link, format, from_ms, &work)
+        let mut session = start(app, player, from_ms, &work)
             .await
             .map_err(CaptureError::Failed)?;
         let end = follow(
@@ -636,6 +716,7 @@ async fn follow(
             Report::Length(length) => *length_ms = Some(length),
             Report::Ended => return Ok(RunEnd::Ended),
             Report::Failed(error) => return Ok(RunEnd::Failed(error)),
+            Report::Interrupted => return Err(CaptureError::Interrupted),
         }
     }
 }

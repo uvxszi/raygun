@@ -435,6 +435,50 @@ pub async fn clear_kind(db: &Db, id: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// How a download is made: [`RECORDING`] for a song that waits to be recorded as it plays.
+pub async fn set_kind(db: &Db, id: &str, kind: Option<&str>) -> Result<(), DbError> {
+    sqlx::query("UPDATE local_music_download SET kind = ?2 WHERE id = ?1 AND state <> 'done'")
+        .bind(id)
+        .bind(kind)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+/// The kind of a song recorded as it plays, or waiting to be (Android).
+pub const RECORDING: &str = "recording";
+
+/// Songs waiting to be recorded go back to the queue, at the back: recording was allowed, or
+/// Raygun's player is quiet again. Returns how many.
+pub async fn requeue_recordings(db: &Db, now_ms: i64) -> Result<u64, DbError> {
+    Ok(sqlx::query(
+        "UPDATE local_music_download
+            SET state = 'queued', error = NULL, error_detail = NULL, finished_at = NULL,
+                queued_at = ?1
+          WHERE state = 'failed' AND kind = 'recording'",
+    )
+    .bind(now_ms)
+    .execute(db.pool())
+    .await?
+    .rows_affected())
+}
+
+/// How many songs wait to be recorded (`queued`: also those queued or being recorded).
+pub async fn recordings(db: &Db, queued: bool) -> Result<u32, DbError> {
+    let states = if queued {
+        "('queued', 'downloading')"
+    } else {
+        "('failed')"
+    };
+    let sql = format!(
+        "SELECT COUNT(*) FROM local_music_download WHERE kind = 'recording' AND state IN {states}"
+    );
+    let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .fetch_one(db.pool())
+        .await?;
+    Ok(u32::try_from(count).unwrap_or(u32::MAX))
+}
+
 /// What a check found wrong with a saved song (JSON), or nothing.
 pub async fn set_problem(db: &Db, id: &str, problem: Option<&str>) -> Result<bool, DbError> {
     let updated = sqlx::query(
@@ -807,6 +851,40 @@ mod tests {
             "a recorded copy counts as captured"
         );
         assert_eq!(find("plain").1, "failed", "others stay as they were");
+    }
+
+    #[tokio::test]
+    async fn songs_waiting_to_be_recorded_go_back_to_the_queue_together() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let (waiting, _) = enqueue(&db, &song("a|embed"), 1).await.unwrap();
+        let (other, _) = enqueue(&db, &song("a|other"), 2).await.unwrap();
+        let (queued, _) = enqueue(&db, &song("a|queued"), 3).await.unwrap();
+        set_failed(&db, &waiting, "Waits to be recorded as it plays.", None, 4)
+            .await
+            .unwrap();
+        set_kind(&db, &waiting, Some(RECORDING)).await.unwrap();
+        set_failed(&db, &other, "No source has this song.", None, 4)
+            .await
+            .unwrap();
+        assert_eq!(recordings(&db, false).await.unwrap(), 1);
+        assert_eq!(recordings(&db, true).await.unwrap(), 0);
+
+        // Allowed (or the player quiet again): it's queued, after what was queued before.
+        assert_eq!(requeue_recordings(&db, 10).await.unwrap(), 1);
+        let row = get(&db, &waiting).await.unwrap().unwrap();
+        assert_eq!(
+            (row.state.as_str(), row.kind.as_deref(), row.error),
+            (QUEUED, Some(RECORDING), None)
+        );
+        assert_eq!(get(&db, &other).await.unwrap().unwrap().state, FAILED);
+        assert_eq!(recordings(&db, true).await.unwrap(), 1);
+        assert_eq!(next_queued(&db).await.unwrap().unwrap().id, queued);
+        assert_eq!(
+            requeue_recordings(&db, 11).await.unwrap(),
+            0,
+            "none waits now"
+        );
     }
 
     #[tokio::test]
