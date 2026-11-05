@@ -3,6 +3,8 @@ import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
+import { QUICK_ACCESS_KEY } from './railPrefs';
+
 /** What shows watching progress: Continue watching, history, title pages and the video library. */
 export const WATCH_PROGRESS_KEYS: QueryKey[] = [
   ['watch'],
@@ -47,6 +49,14 @@ export const useLiveInvalidation = () => {
       events.extensionsChangedEvent.listen(() => refresh(client, SOURCE_KEYS)),
       // Another device's changes may touch anything shown.
       events.syncChangedEvent.listen(() => void client.invalidateQueries()),
+      // Quick access: the library or its settings changed, a page was played from.
+      events.quickAccessChangedEvent.listen(() => refresh(client, [QUICK_ACCESS_KEY])),
+      // A finished scan brings the device's albums and artists.
+      events.libraryScanEvent.listen((event) => {
+        if (event.payload.phase === 'done' || event.payload.phase === 'failed') {
+          refresh(client, [QUICK_ACCESS_KEY]);
+        }
+      }),
     ];
     return () => {
       for (const unlisten of listening) void unlisten.then((stop) => stop());

@@ -2,6 +2,7 @@ import type {
   AiModelProgress,
   AppInfo,
   AppUpdate,
+  AudiobookSummary,
   CastStatus,
   ConnectRequest,
   ConnectStatus,
@@ -10,6 +11,7 @@ import type {
   ExportJob,
   ExtensionInfo,
   ExtensionInstallStatus,
+  FollowedArtist,
   PermissionPrompt,
   IncognitoStatus,
   HiddenItem,
@@ -19,7 +21,11 @@ import type {
   LyricsTranslationProgress,
   MangaUpdateStatus,
   PlaybackState,
+  PlaylistSummary,
+  PodcastSummary,
   QueueSnapshot,
+  QuickAccessItem,
+  QuickAccessNames,
   SearchProgress,
   Settings,
   SongCaptureRequest,
@@ -39,6 +45,7 @@ import { CACHE_DEFAULTS } from '../settings/cacheDefaults';
 import { LAYOUT_DEFAULTS } from '../layout/layout';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from '../settings/playerOptions';
+import { pageKey, RAIL_DEFAULTS, withRailDefaults } from '../shell/railPrefs';
 
 /**
  * Stand-in for `@raygun/bindings` (the Rust IPC layer). Use with
@@ -79,6 +86,7 @@ type EventPayloads = {
   lyricsTranslationEvent: LyricsTranslationProgress;
   localFilesEvent: string;
   settingsChangedEvent: string;
+  quickAccessChangedEvent: string;
   incognitoEvent: IncognitoStatus;
   artistReleasesEvent: null;
   exportEvent: ExportJob | null;
@@ -191,7 +199,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollbars: 'thin',
   motion: 'lively',
   trackTables: { tables: {} },
-  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0, nextUpRows: 0 },
+  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0, nextUpRows: 0, railNavHeight: 0 },
   colors: { background: '', surface: '', foreground: '', muted: '' },
   disabledSources: [],
   autoLoad: { enabled: true, cooldownMs: 1500 },
@@ -207,7 +215,7 @@ export const DEFAULT_SETTINGS: Settings = {
   resumeOnStart: true,
   downloadsInBatterySaver: false,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
-  rail: { pins: [], order: 'custom', seeded: false },
+  rail: RAIL_DEFAULTS,
   transcription: {
     engine: 'off',
     localModel: 'whisper-tiny',
@@ -408,6 +416,7 @@ export const bindingsMock = {
     playbackGetState: vi.fn(),
     playbackGetQueue: vi.fn(),
     playbackArmContext: vi.fn(),
+    quickAccessList: vi.fn(),
     playbackSetVideo: vi.fn(),
     playbackEnqueue: vi.fn(),
     playbackControl: vi.fn(),
@@ -725,6 +734,7 @@ export const bindingsMock = {
     lyricsTranslationEvent: makeEvent('lyricsTranslationEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
+    quickAccessChangedEvent: makeEvent('quickAccessChangedEvent'),
     incognitoEvent: makeEvent('incognitoEvent'),
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
     exportEvent: makeEvent('exportEvent'),
@@ -764,6 +774,113 @@ export const NO_UPDATE: AppUpdate = {
   message: null,
 };
 
+const answerOf = async <T>(call: () => unknown): Promise<T[]> => {
+  const answer = (await call()) as { status?: string; data?: T[] } | undefined;
+  return answer?.status === 'ok' && Array.isArray(answer.data) ? answer.data : [];
+};
+
+/**
+ * Quick access as Rust's `quick_access_list` answers, from what the other mocks answer: the fixed
+ * blocks, the playlists, followed artists, shows and books, the pins first in their order (a pin
+ * of a missing playlist left out), the kinds that are on, at most `shown`. Tests answer
+ * otherwise for orders Rust works out.
+ */
+const quickAccessFromMocks = async (names: QuickAccessNames) => {
+  const { commands } = bindingsMock;
+  const settings = (await commands.settingsGet()) as { data?: Settings } | undefined;
+  const rail = withRailDefaults(settings?.data?.rail);
+  const page = (
+    kind: string,
+    to: string,
+    search: Record<string, string>,
+    name: string,
+    extra: Partial<QuickAccessItem> = {},
+  ): QuickAccessItem => ({
+    kind,
+    to,
+    search,
+    name,
+    subtitle: null,
+    artworkUrl: null,
+    artworkUrls: [],
+    pinned: false,
+    library: true,
+    removable: false,
+    addedAt: 0,
+    playedAt: 0,
+    ...extra,
+  });
+  const playlists = await answerOf<PlaylistSummary>(() => commands.playlistsList());
+  const artists = await answerOf<FollowedArtist>(() => commands.artistsFollowed());
+  const shows = await answerOf<PodcastSummary>(() => commands.podcastSubscriptions());
+  const books = await answerOf<AudiobookSummary>(() => commands.audiobooks());
+  const library = [
+    page('favorites', '/library', { view: 'favorites' }, names.favorites),
+    page('downloaded', '/library', { view: 'downloaded' }, names.downloaded),
+    page('localFiles', '/local-files', {}, names.localFiles),
+    ...playlists.map((list) =>
+      page('playlist', '/library/playlist', { id: list.id }, list.name, {
+        artworkUrls: list.artworkUrls,
+        artworkUrl: list.coverUrl ?? null,
+        removable: true,
+      }),
+    ),
+    ...artists.map((artist) =>
+      page('artist', '/artist', { name: artist.name }, artist.name, {
+        artworkUrl: artist.imageUrl,
+        removable: true,
+      }),
+    ),
+    ...shows.map((show) =>
+      page('podcast', '/podcast', { id: show.id }, show.title, {
+        artworkUrl: show.artworkUrl,
+        removable: true,
+      }),
+    ),
+    ...books.map((book) =>
+      page('audiobook', '/audiobook', { id: book.id }, book.title, {
+        artworkUrl: book.artworkUrl,
+        removable: true,
+      }),
+    ),
+  ];
+  const kindOn: Record<string, keyof typeof rail.kinds> = {
+    favorites: 'favorites',
+    downloaded: 'downloaded',
+    localFiles: 'localFiles',
+    playlist: 'playlists',
+    artist: 'artists',
+    podcast: 'podcasts',
+    audiobook: 'audiobooks',
+  };
+  const byKey = new Map(library.map((item) => [pageKey(item), item]));
+  const pins = rail.pins.flatMap((pin) => {
+    const own = byKey.get(pageKey(pin));
+    if (own) {
+      byKey.delete(pageKey(pin));
+      return [{ ...own, pinned: true }];
+    }
+    if (pin.to === '/library/playlist') return [];
+    return [
+      page(pin.kind, pin.to, pin.search, pin.name, {
+        artworkUrl: pin.artworkUrl,
+        pinned: true,
+        library: false,
+        addedAt: pin.pinnedAt,
+      }),
+    ];
+  });
+  const listed = [...byKey.values()].filter((item) => {
+    const kind = kindOn[item.kind];
+    return kind ? rail.kinds[kind] : true;
+  });
+  const rest = listed.slice(0, rail.shown);
+  return {
+    status: 'ok' as const,
+    data: { items: [...pins, ...rest], more: listed.length - rest.length },
+  };
+};
+
 /** Default answers for every command, as an idle app on Android would give. */
 export const seedBindings = () => {
   listeners.clear();
@@ -801,6 +918,7 @@ export const seedBindings = () => {
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
   commands.playbackArmContext.mockResolvedValue(undefined);
+  commands.quickAccessList.mockImplementation(quickAccessFromMocks);
   commands.playbackSetVideo.mockResolvedValue(undefined);
   commands.playbackEnqueue.mockResolvedValue(undefined);
   commands.playbackControl.mockResolvedValue(undefined);

@@ -52,6 +52,12 @@ export const commands = {
 	playedAt?: number | null,
 } | null) => __TAURI_INVOKE<void>("playback_arm_context", { context }),
 	/**
+	 *  Quick access: the audio library (playlists, albums, artists, shows, books and the fixed
+	 *  blocks), the most recently played from first, with the pins; `names` are the fixed blocks'
+	 *  names in the UI's language, for sorting by name.
+	 */
+	quickAccessList: (names: QuickAccessNames) => typedError<QuickAccessList, string>(__TAURI_INVOKE("quick_access_list", { names })),
+	/**
 	 *  Shows or hides YouTube songs' videos (M46.51): they play as their audio file, and in YouTube's
 	 *  embed while the video shows (the song playing now moves there).
 	 */
@@ -1473,6 +1479,7 @@ export const events = {
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
+	quickAccessChangedEvent: makeEvent<QuickAccessChangedEvent>("quick-access-changed-event"),
 	searchProgressEvent: makeEvent<SearchProgressEvent_Deserialize>("search-progress-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
 	songCaptureEvent: makeEvent<SongCaptureEvent>("song-capture-event"),
@@ -3795,6 +3802,11 @@ export type PanelPrefs = {
 	playerSplit?: number,
 	/**  Songs the side panel's "Next in queue" card shows, 1 to 10 (M46.24). */
 	nextUpRows?: number,
+	/**
+	 *  The desktop rail's tabs above quick access, 44 to 2000 px; shorter than its tabs, they
+	 *  scroll. 0: as tall as they are.
+	 */
+	railNavHeight?: number,
 };
 
 /**  A permission Raygun uses on this device. */
@@ -4142,11 +4154,78 @@ export type QueueSnapshot = {
 	context?: PlayContext | null,
 };
 
-export type RailOrder = "custom" | 
-/**  The last time something was played from it. */
+/**
+ *  What quick access lists changed (`quick_access`); carries the page that changed (its route),
+ *  or an empty string.
+ */
+export type QuickAccessChangedEvent = string;
+
+/**  One row of quick access: a page of the audio library, or a pinned page. */
+export type QuickAccessItem = {
+	/**  As `RailPin::kind`. */
+	kind: string,
+	to: string,
+	search: { [key in string]: string },
+	/**  Its name now: Favorites', Downloaded's and Local files' as the UI gave them. */
+	name: string,
+	/**  A show's or book's author, an album's artist. */
+	subtitle: string | null,
+	artworkUrl: string | null,
+	/**  A playlist's cover made of its first songs' artwork (`artwork_url` is a picked one). */
+	artworkUrls: string[],
+	pinned: boolean,
+	/**  The audio library lists it: unpinned, it stays. */
+	library: boolean,
+	/**
+	 *  In the library and taken out with Remove from library: a playlist, a followed artist, a
+	 *  followed show, a book. The fixed blocks and the device's own albums and artists aren't.
+	 */
+	removable: boolean,
+	/**  Unix seconds; 0 when unknown. */
+	addedAt: number,
+	/**  When it was last played from (unix seconds); 0 when never. */
+	playedAt: number,
+};
+
+/**  Quick access as shown: the pins first (when they stay on top), then the rest in order. */
+export type QuickAccessList = {
+	items: QuickAccessItem[],
+	/**  Audio items left out past `RailPrefs::shown`. */
+	more: number,
+};
+
+/**  The fixed blocks' names in the UI's language, for sorting by name. */
+export type QuickAccessNames = {
+	favorites: string,
+	downloaded: string,
+	localFiles: string,
+};
+
+/**  The parts of the audio library quick access lists; pinned ones show whatever these say. */
+export type RailKinds = {
+	favorites?: boolean,
+	downloaded?: boolean,
+	localFiles?: boolean,
+	playlists?: boolean,
+	/**  The albums of the device's own songs (Library → Audio → Albums). */
+	albums?: boolean,
+	/**  Followed artists and the artists of the device's own songs. */
+	artists?: boolean,
+	podcasts?: boolean,
+	audiobooks?: boolean,
+};
+
+export type RailOrder = 
+/**
+ *  The last time something was played from it; what never was after, newest added first.
+ *  Older versions' custom order and Recently opened are read as this
+ *  (`quick_access::migrate_row`).
+ */
 "played" | 
-/**  The last time its page was opened. */
-"opened";
+/**  When it was added to the library (or pinned), newest first. */
+"added" | 
+/**  By name. */
+"name";
 
 export type RailPin = {
 	/**
@@ -4162,6 +4241,7 @@ export type RailPin = {
 	artworkUrl: string | null,
 	/**  Unix seconds; 0 when never. */
 	pinnedAt: number,
+	/**  Older versions' stamps (now `RailPrefs::played`), kept for them. */
 	playedAt: number,
 	openedAt: number,
 	/**
@@ -4171,22 +4251,46 @@ export type RailPin = {
 	auto?: boolean,
 };
 
+/**  When a page was last played from (unix seconds). */
+export type RailPlayed = {
+	to: string,
+	search: { [key in string]: string },
+	at: number,
+};
+
 /**
- *  The desktop sidebar's pins (M46.29): anything with a page, in the user's order or by when it
- *  was last played from or opened. Quick access (M46.41): what's added to the library is pinned
- *  too, up to `limit` automatic pins.
+ *  Quick access: the desktop sidebar's list (M46.29) and the phone's drawer. The audio library
+ *  lists itself (the fixed blocks, playlists, albums, artists, shows and books), the most recently
+ *  played from first, at most `shown` of them; pins stay on top in the user's order and always
+ *  show. Comics, books, videos and sites show while pinned: by hand, or when added to the library
+ *  (M46.41, `auto_add`, up to `limit`).
  */
 export type RailPrefs = {
+	/**  Pinned pages, in the user's order. */
 	pins: RailPin[],
+	/**  How the rest is sorted, and the pins too when they don't stay on top. */
 	order: RailOrder,
-	/**  The first run's pins were added (Favorites, Downloaded, Local files and the playlists). */
+	/**  Older versions: the first run's pins were added. Unused since `version` 2. */
 	seeded: boolean,
-	/**  Pin what's added to the library (M46.41). */
+	/**  Comics, books, videos and sites added to the library are pinned too (M46.41). */
 	autoAdd?: boolean,
-	/**  Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay. */
+	/**  Those automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay. */
 	limit?: number,
 	/**  The phone's quick access drawer shows names beside the pins; off, icons only. */
 	drawerExpanded?: boolean,
+	/**  Audio items listed at most, 10–1000, the most recent ones; pins don't count. */
+	shown?: number,
+	/**  Which parts of the audio library are listed. */
+	kinds?: RailKinds,
+	/**  Pins stay on top in their own order; off, they're sorted with the rest (and still show). */
+	pinnedFirst?: boolean,
+	/**
+	 *  When pages were last played from, newest first. Kept by Rust (`quick_access::played`):
+	 *  what the UI sends back is replaced by what's stored.
+	 */
+	played?: RailPlayed[],
+	/**  The shape it was saved in: 0 for rows of versions that pinned the audio library by hand. */
+	version?: number,
 };
 
 /**  How a title is read (M27). */

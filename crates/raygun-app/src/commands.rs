@@ -105,14 +105,18 @@ pub async fn settings_update_many(
 ) -> Result<Settings, String> {
     let mut kept = Vec::with_capacity(changes.len());
     for change in changes {
-        // Incognito (M47): the sidebar doesn't remember pages opened or played from.
-        kept.push(crate::privacy::without_new_stamps(&app, &db.0, change).await);
+        // When quick access's pages were played from is Rust's to keep (and never while
+        // incognito, M47): the UI's copy stays out.
+        kept.push(crate::quick_access::keep_stamps(&db.0, change).await);
     }
     let keys: Vec<&'static str> = kept.iter().map(SettingChange::key).collect();
     let settings = settings::update_many(&db.0, kept)
         .await
         .map_err(|error| error.to_string())?;
     settings::apply_live(&app, &settings, Some(&keys)).await;
+    if keys.contains(&"rail") {
+        crate::quick_access::changed(&app, "");
+    }
     Ok(settings)
 }
 
@@ -154,10 +158,34 @@ pub fn playback_get_queue(playback: tauri::State<'_, PlaybackService>) -> QueueS
 #[tauri::command]
 #[specta::specta]
 pub fn playback_arm_context(
+    app: tauri::AppHandle,
     playback: tauri::State<'_, PlaybackService>,
     context: Option<raygun_model::PlayContext>,
 ) {
+    // Quick access's Recently played: the page played from goes first.
+    if let Some(context) = &context {
+        let (kind, to, search) = (
+            context.kind.clone(),
+            context.to.clone(),
+            context.search.clone(),
+        );
+        tauri::async_runtime::spawn(async move {
+            crate::quick_access::played(&app, &kind, &to, &search).await;
+        });
+    }
     playback.arm_context(context);
+}
+
+/// Quick access: the audio library (playlists, albums, artists, shows, books and the fixed
+/// blocks), the most recently played from first, with the pins; `names` are the fixed blocks'
+/// names in the UI's language, for sorting by name.
+#[tauri::command]
+#[specta::specta]
+pub async fn quick_access_list(
+    app: tauri::AppHandle,
+    names: raygun_model::QuickAccessNames,
+) -> Result<raygun_model::QuickAccessList, String> {
+    crate::quick_access::list(&app, names).await
 }
 
 /// Shows or hides YouTube songs' videos (M46.51): they play as their audio file, and in YouTube's
@@ -3064,9 +3092,30 @@ pub async fn manga_set_read(
 #[tauri::command]
 #[specta::specta]
 pub async fn collection_play(
+    app: tauri::AppHandle,
     collections: tauri::State<'_, CollectionsService>,
     request: CollectionPlayRequest,
 ) -> Result<(), String> {
+    // Played from quick access's menus too, wherever the page on screen is.
+    let page: Option<(&'static str, &'static str, &'static str, String)> = match &request.collection
+    {
+        raygun_model::Collection::Favorites => {
+            Some(("favorites", "/library", "view", "favorites".to_owned()))
+        }
+        raygun_model::Collection::Downloaded => {
+            Some(("downloaded", "/library", "view", "downloaded".to_owned()))
+        }
+        raygun_model::Collection::Playlist { id } => {
+            Some(("playlist", "/library/playlist", "id", id.clone()))
+        }
+        raygun_model::Collection::History => None,
+    };
+    if let Some((kind, to, key, value)) = page {
+        let search = [(key.to_owned(), value)].into_iter().collect();
+        tauri::async_runtime::spawn(async move {
+            crate::quick_access::played(&app, kind, to, &search).await;
+        });
+    }
     collections.play(request).await
 }
 

@@ -58,10 +58,11 @@ const useEdgePull = (enabled: boolean, open: () => void) => {
 };
 
 /**
- * Quick access on phones: the sidebar's pins (M46.29) in a drawer from the right, opened by
- * Raygun's icon in the top bar or a drag in from the right edge. Compact shows covers only,
- * expanded their names too (`Settings::rail.drawerExpanded`). Tapping outside, swiping it back,
- * Back and opening a pin close it.
+ * Quick access on phones: the sidebar's list (M46.29) in a drawer from the right, opened by
+ * Raygun's icon in the top bar or a drag in from the right edge: pins on top, then the audio
+ * library by itself; a hold or ⋮ opens an item's menu. Compact shows covers only, expanded their
+ * names too (`Settings::rail.drawerExpanded`). Tapping outside, swiping it back, Back and opening
+ * an item close it.
  */
 export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
   const { t } = useTranslation();
@@ -160,7 +161,7 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
               onClick={(event) => {
                 if ((event.target as Element).closest('a')) setTimeout(close, 0);
               }}
-              className={`flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain pb-3 ${expanded ? 'px-2' : 'px-1'}`}
+              className={`flex min-h-0 flex-1 flex-col gap-1 pb-3 ${expanded ? 'px-2' : 'px-1'}`}
             >
               <RailPins narrow={!expanded} shown drawer />
             </nav>

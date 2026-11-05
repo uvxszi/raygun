@@ -565,6 +565,10 @@
         "title": "Library",
         "summary": "Covers, badges, updates, categories, music folders"
       },
+      "quickAccess": {
+        "title": "Quick access",
+        "summary": "What the sidebar and the drawer list, and in what order"
+      },
       "reader": {
         "title": "Reader",
         "summary": "Novel text, page layout, reading aloud"
@@ -1007,13 +1011,21 @@
     "explicitMusic": "Show explicit music",
     "explicitMusicHint": "Off hides songs their sources mark explicit and music sources rated 18+. The 18+ switch doesn't change music.",
     "quickAccess": {
-      "title": "Sidebar",
       "autoAdd": "Pin what you add to the library",
-      "autoAddHint": "Comics, books, videos, playlists, podcasts, audiobooks and artists you follow are pinned to the sidebar too, and leave it when they leave the library.",
+      "autoAddHint": "Comics, books, videos and sites you add are pinned, and go when they leave the library. Your audio library always shows.",
       "limit": "Keep at most",
       "limitHint": "The oldest automatic pins go when there are more. Pins you made yourself always stay.",
       "pins_one": "{{count}} pin",
-      "pins_other": "{{count}} pins"
+      "pins_other": "{{count}} pins",
+      "shown": "Items shown",
+      "shownHint": "The most recent ones. Pins always show and don’t count.",
+      "items_one": "{{count}} item",
+      "items_other": "{{count}} items",
+      "order": "Sort by",
+      "pinnedFirst": "Pins stay on top",
+      "pinnedFirstHint": "In the order you drag them into. Off, they’re sorted with the rest.",
+      "listed": "What’s listed",
+      "otherKinds": "Comics, books, videos and sites"
     },
     "privacy": {
       "title": "Privacy",
@@ -3008,18 +3020,27 @@
     "moveDown": "Move down",
     "order": "Sort the sidebar",
     "orders": {
-      "custom": "Custom order",
-      "played": "Recently played from",
-      "opened": "Recently opened"
+      "played": "Recently played",
+      "added": "Recently added",
+      "name": "Name"
     },
-    "empty": "Right-click a playlist, album, artist, show or book to pin it here.",
-    "emptyTouch": "Pin a playlist, album, artist, show or book from its menu to see it here."
+    "empty": "Nothing is listed here. Choose what shows in Settings → Quick access.",
+    "resizeTabs": "Drag to resize the tabs and Your library"
   },
   "quickAccess": {
     "title": "Quick access",
     "open": "Open quick access",
     "compact": "Show icons only",
-    "expand": "Show names"
+    "expand": "Show names",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinned": "Pinned",
+    "menu": "More for {{name}}",
+    "more_one": "{{count}} more in your library",
+    "more_other": "{{count}} more in your library",
+    "settings": "Quick access settings",
+    "removeConfirm": "Remove “{{name}}” from your library?",
+    "removePlaylistConfirm": "Remove “{{name}}” from your library? The playlist is deleted; its songs stay wherever they came from."
   },
   "album": {
     "title": "Album",

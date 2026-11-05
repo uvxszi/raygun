@@ -6,8 +6,9 @@ import type { PinTarget } from './useRail';
 import { useRail } from './useRail';
 
 /**
- * Menu items that pin a card's page to quick access, or unpin it: the desktop's sidebar and the
- * phone's drawer hold the same pins, so every platform gets them.
+ * Menu items that pin a card's page to quick access, or unpin it: pins stay on top of the
+ * desktop's sidebar and the phone's drawer, which hold the same pins, so every platform gets them.
+ * The audio library is listed there anyway; other pages show only while pinned.
  */
 export const usePinMenuItem = () => {
   const { t } = useTranslation();

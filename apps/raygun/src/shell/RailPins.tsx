@@ -10,8 +10,9 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { PlaylistSummary, RailOrder, RailPin, Website } from '@raygun/bindings';
-import { Link } from '@tanstack/react-router';
+import type { PlaylistSummary, QuickAccessItem, RailPin, Website } from '@raygun/bindings';
+import { Link, useNavigate, useRouter } from '@tanstack/react-router';
+import { observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import {
   ArrowDown,
   ArrowDownUp,
@@ -21,39 +22,43 @@ import {
   Check,
   Clapperboard,
   Disc3,
+  EllipsisVertical,
   Folder,
   Heart,
   ListMusic,
   Mic,
+  Pin,
   PinOff,
+  Settings2,
   Sparkles,
+  Trash2,
   UserRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import type { FC, ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { FC, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PlaylistCover } from '../collections/PlaylistCover';
-import { usePlaylists } from '../collections/useCollections';
+import { useDeletePlaylist, usePlaylists } from '../collections/useCollections';
 import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
-import type { MenuItem } from './contextMenuStore';
 import { Artwork } from '../library/Artwork';
 import type { FixedTile } from '../library/useFixedTileMenu';
 import { useFixedTileMenuItems } from '../library/useFixedTileMenu';
+import { useFollowActions } from '../music/follows';
+import { useSetSubscribed } from '../podcasts/usePodcasts';
 import { useOpenWebsite, useWebsites } from '../websites/useWebsites';
-import { openContextMenu } from './contextMenuStore';
 import { LetterAvatar } from './LetterAvatar';
 import { Popover } from './Popover';
-import { useRail } from './useRail';
-
-const pinKey = (pin: Pick<RailPin, 'to' | 'search'>) =>
-  `${pin.to}?${Object.entries(pin.search)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
-    .join('&')}`;
+import { QuickAccessMenu } from './QuickAccessMenu';
+import type { QuickMenuItem } from './QuickAccessMenu';
+import { showToast } from './toastStore';
+import { pageKey, RAIL_ORDERS, useQuickAccess, useRail } from './useRail';
 
 const FIXED_KINDS: string[] = ['favorites', 'downloaded', 'localFiles'];
+
+/** A row's height in rem: a 2.5 rem cover with its padding, and the gap under it. */
+const ROW_REM = 3.375;
 
 const KIND_ICON: Record<string, LucideIcon> = {
   playlist: ListMusic,
@@ -69,9 +74,9 @@ const KIND_ICON: Record<string, LucideIcon> = {
 
 /** A pin's tile: the fixed ones coloured (Favorites red, Downloaded blue, Local files green). */
 export const PinArt: FC<{
-  pin: Pick<RailPin, 'kind' | 'artworkUrl'>;
+  pin: Pick<RailPin, 'kind' | 'artworkUrl'> & { artworkUrls?: string[] };
   /** A playlist pin's playlist: its cover now, not the one it had when pinned (M46.45). */
-  playlist?: PlaylistSummary;
+  playlist?: Pick<PlaylistSummary, 'artworkUrls' | 'coverUrl'>;
   /** A website pin's site: its icon. */
   website?: Website;
   className: string;
@@ -107,11 +112,16 @@ export const PinArt: FC<{
       </span>
     );
   }
-  if (playlist) {
+  const mosaic =
+    playlist ??
+    (pin.kind === 'playlist' && (pin.artworkUrls?.length ?? 0) > 0
+      ? { artworkUrls: pin.artworkUrls ?? [], coverUrl: pin.artworkUrl }
+      : undefined);
+  if (mosaic) {
     return (
       <PlaylistCover
-        artworkUrls={playlist.artworkUrls}
-        coverUrl={playlist.coverUrl}
+        artworkUrls={mosaic.artworkUrls}
+        coverUrl={mosaic.coverUrl}
         className={`shrink-0 rounded-md ${className}`}
       />
     );
@@ -135,28 +145,91 @@ export const PinArt: FC<{
   );
 };
 
-const SortablePin: FC<{
-  pin: RailPin;
+type RowProps = {
+  item: QuickAccessItem;
   name: string;
   playlist?: PlaylistSummary;
   website?: Website;
   narrow: boolean;
-  /** In the phone's drawer: opening a pin takes the drawer's place in history. */
+  /** In the phone's drawer: opening one takes the drawer's place in history; ⋮ opens its menu. */
   drawer: boolean;
-  onMenu: (event: React.MouseEvent) => void;
-  /** A website pin opens its site in the built-in browser instead of a page. */
+  onMenu: (anchor: HTMLElement) => void;
+  /** A website opens in the built-in browser instead of a page. */
   onOpenSite: (id: string) => void;
-}> = ({ pin, name, playlist, website, narrow, drawer, onMenu, onOpenSite }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: pinKey(pin),
-  });
-  const look = `text-muted hover:bg-background hover:text-foreground flex items-center gap-3 rounded-xl ${narrow ? 'justify-center p-1.5' : 'px-2 py-1.5'}`;
+};
+
+/** One item: its cover and name, a link to its page; a right click or a hold opens its menu. */
+const Row: FC<RowProps> = ({
+  item,
+  name,
+  playlist,
+  website,
+  narrow,
+  drawer,
+  onMenu,
+  onOpenSite,
+}) => {
+  const { t } = useTranslation();
+  const look = `text-muted hover:bg-background hover:text-foreground flex min-w-0 flex-1 items-center gap-3 rounded-xl ${narrow ? 'justify-center p-1.5' : 'px-2 py-1.5'}`;
+  const openMenu = (event: ReactMouseEvent<HTMLElement>) => {
+    // This menu only: neither the webview's nor another one.
+    event.preventDefault();
+    event.stopPropagation();
+    onMenu(event.currentTarget);
+  };
   const content = (
     <>
-      <PinArt pin={pin} playlist={playlist} website={website} className="size-10" />
-      {!narrow && <span className="text-foreground truncate text-sm">{name}</span>}
+      <PinArt pin={item} playlist={playlist} website={website} className="size-10" />
+      {!narrow && <span className="text-foreground min-w-0 flex-1 truncate text-sm">{name}</span>}
+      {!narrow && item.pinned && (
+        <Pin aria-hidden size={13} className="text-primary shrink-0 rotate-45" />
+      )}
     </>
   );
+  return (
+    <div className="flex items-center">
+      {item.kind === 'website' && item.search.site ? (
+        <button
+          type="button"
+          aria-label={narrow ? name : undefined}
+          onClick={() => onOpenSite(item.search.site ?? '')}
+          onContextMenu={openMenu}
+          className={`${look} text-left`}
+        >
+          {content}
+        </button>
+      ) : (
+        <Link
+          to={item.to}
+          search={item.search as never}
+          replace={drawer}
+          aria-label={narrow ? name : undefined}
+          onContextMenu={openMenu}
+          className={look}
+        >
+          {content}
+        </Link>
+      )}
+      {drawer && !narrow && (
+        <button
+          type="button"
+          aria-label={t('quickAccess.menu', { name })}
+          aria-haspopup="menu"
+          onClick={openMenu}
+          className="text-muted hover:text-foreground grid size-10 shrink-0 place-items-center rounded-full"
+        >
+          <EllipsisVertical aria-hidden size={18} />
+        </button>
+      )}
+    </div>
+  );
+};
+
+/** A pin on top: dragged into another place among the pins. */
+const SortableRow: FC<RowProps> = (props) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: pageKey(props.item),
+  });
   return (
     <li
       ref={setNodeRef}
@@ -166,37 +239,86 @@ const SortablePin: FC<{
       {...listeners}
       role="listitem"
     >
-      {pin.kind === 'website' && pin.search.site ? (
-        <button
-          type="button"
-          aria-label={narrow ? name : undefined}
-          onClick={() => onOpenSite(pin.search.site ?? '')}
-          onContextMenu={onMenu}
-          className={`${look} w-full text-left`}
-        >
-          {content}
-        </button>
-      ) : (
-        <Link
-          to={pin.to}
-          search={pin.search as never}
-          replace={drawer}
-          aria-label={narrow ? name : undefined}
-          onContextMenu={onMenu}
-          className={look}
-        >
-          {content}
-        </Link>
-      )}
+      <Row {...props} />
     </li>
   );
 };
 
 /**
- * The sidebar's pins (M46.29): dragged into any order, or sorted by when each was last played
- * from or opened; right-click one to unpin it or move it. New playlists are pinned when made.
- * The phone's quick access drawer shows the same (`drawer`): held, then dragged, to reorder,
- * held for the menu, and the sort button in its compact width too.
+ * Rust's list with the pins as they are now: a pin made, dropped or moved a moment ago shows at
+ * once, before Rust lists again. With `pinnedFirst`, the pins in their order and the rest apart;
+ * without, everything in Rust's order.
+ */
+const arrangeShown = (items: QuickAccessItem[], pins: RailPin[], pinnedFirst: boolean) => {
+  const pinKeys = pins.map(pageKey);
+  const pinned = new Set(pinKeys);
+  const now = items.flatMap((item) => {
+    const isPinned = pinned.has(pageKey(item));
+    // Unpinned, a page outside the library leaves.
+    if (!isPinned && item.pinned && !item.library) return [];
+    return [{ ...item, pinned: isPinned }];
+  });
+  if (!pinnedFirst) return { top: [] as QuickAccessItem[], rest: now };
+  const byKey = new Map(now.map((item) => [pageKey(item), item]));
+  const top = [...new Set(pinKeys)].flatMap((key) => {
+    const item = byKey.get(key);
+    return item ? [item] : [];
+  });
+  return { top, rest: now.filter((item) => !item.pinned) };
+};
+
+/** Menus with the parts of other menus: no separators at the ends or twice in a row. */
+const tidy = (items: QuickMenuItem[]) => {
+  const kept: QuickMenuItem[] = [];
+  for (const item of items) {
+    const last = kept.at(-1);
+    const after = !last || last.kind === 'separator' || last.kind === 'heading';
+    if (item.kind === 'separator' && after) continue;
+    kept.push(item);
+  }
+  while (kept.at(-1)?.kind === 'separator') kept.pop();
+  return kept;
+};
+
+/** Takes an item out of the library: a playlist is deleted, an artist or a show unfollowed. */
+const useRemoveFromLibrary = () => {
+  const { t } = useTranslation();
+  const router = useRouter();
+  const navigate = useNavigate();
+  const deletePlaylist = useDeletePlaylist();
+  const { unfollow } = useFollowActions();
+  const setSubscribed = useSetSubscribed();
+  return (item: QuickAccessItem, name: string) => {
+    const done = { onSuccess: () => showToast(t('menu.removedFromLibrary', { name })) };
+    const id = item.search.id ?? '';
+    if (item.kind === 'playlist') {
+      const here = router.state.location;
+      const open =
+        here.pathname === '/library/playlist' && (here.search as { id?: string }).id === id;
+      deletePlaylist.mutate(id, {
+        onSuccess: () => {
+          done.onSuccess();
+          if (open) void navigate({ to: '/library', search: { view: 'playlists' } as never });
+        },
+      });
+    } else if (item.kind === 'artist') {
+      unfollow.mutate(item.search.name ?? item.name, done);
+    } else if (item.kind === 'podcast' || item.kind === 'audiobook') {
+      setSubscribed.mutate({ id, subscribed: false }, done);
+    }
+  };
+};
+
+/** The root font size in px: rows are sized in rem, and phones scale it (Interface size). */
+const rootFontPx = () =>
+  Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+
+/**
+ * Quick access's list (M46.29): the desktop sidebar's, and the phone's drawer (`drawer`). Pins stay
+ * on top in the order they're dragged into; the audio library follows by itself, the most
+ * recently played from first (Rust's `quick_access`), drawn only near the screen so a big library
+ * costs nothing off it. A right click (a hold, or ⋮ in the drawer) opens an item's menu: Pin or
+ * Unpin, and Remove from library for what can leave it.
  */
 export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }> = ({
   narrow,
@@ -204,13 +326,17 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }>
   drawer = false,
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const rail = useRail();
+  const quick = useQuickAccess(shown);
   const playlists = usePlaylists();
   const playlistMenuItems = usePlaylistMenuItems();
   const fixedMenuItems = useFixedTileMenuItems();
+  const removeFromLibrary = useRemoveFromLibrary();
   const websites = useWebsites();
   const openSite = useOpenWebsite();
   const [sortAnchor, setSortAnchor] = useState<HTMLButtonElement | null>(null);
+  const [menu, setMenu] = useState<{ item: QuickAccessItem; anchor: HTMLElement } | null>(null);
   const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 6 } });
   // A finger scrolls the drawer; a hold that stays put picks a pin up.
   const mouse = useSensor(MouseSensor, { activationConstraint: { distance: 6 } });
@@ -219,132 +345,185 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }>
   const drawerSensors = useSensors(mouse, touch);
   const sensors = drawer ? drawerSensors : desktopSensors;
 
-  // The first run's pins, once the playlists are known.
-  useEffect(() => {
-    if (shown && rail.loaded && !rail.prefs.seeded && playlists.data) rail.seed(playlists.data);
-  }, [rail, playlists.data, shown]);
+  const pinnedFirst = rail.prefs.pinnedFirst;
+  const items = quick.data?.items;
+  const { top, rest } = useMemo(
+    () => arrangeShown(items ?? [], rail.prefs.pins, pinnedFirst),
+    [items, rail.prefs.pins, pinnedFirst],
+  );
+  const playlistById = useMemo(
+    () => new Map((playlists.data ?? []).map((list) => [list.id, list])),
+    [playlists.data],
+  );
+  const playlistOf = (item: QuickAccessItem) =>
+    item.kind === 'playlist' ? playlistById.get(item.search.id ?? '') : undefined;
+  const siteOf = (item: QuickAccessItem) =>
+    item.kind === 'website'
+      ? websites.data?.find((site) => site.id === item.search.site)
+      : undefined;
+  const nameOf = (item: QuickAccessItem) =>
+    playlistOf(item)?.name ?? siteOf(item)?.name ?? item.name;
 
-  // New playlists are pinned by Rust (M46.41: quick access, with its switch and limit).
-  // Pins of playlists that are gone (deleted here or on another device) go too: at start those
-  // the list doesn't have, later only ones the list had before (M46.45: a new playlist's pin
-  // can arrive before the list that has it).
-  const seen = useRef<Set<string> | null>(null);
-  useEffect(() => {
-    if (!shown || !playlists.data || !rail.prefs.seeded) return;
-    const ids = new Set(playlists.data.map((list) => list.id));
-    const first = seen.current === null;
-    const before = seen.current ?? new Set<string>();
-    for (const id of ids) before.add(id);
-    seen.current = before;
-    const gone = rail.prefs.pins.filter((pin) => {
-      const id = pin.search.id ?? '';
-      return pin.kind === 'playlist' && !ids.has(id) && (first || before.has(id));
-    });
-    if (gone.length > 0) rail.drop(gone);
-  }, [playlists.data, rail, shown]);
+  const scroller = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useLayoutEffect(() => {
+    setScrollMargin(list.current?.offsetTop ?? 0);
+  }, [top.length, rest.length, narrow]);
+  const rowPx = Math.round(ROW_REM * rootFontPx());
+  // The app doesn't use the React Compiler, so the rule's memoization concern doesn't apply.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: rest.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => rowPx,
+    getItemKey: (index) => {
+      const item = rest[index];
+      return item ? pageKey(item) : index;
+    },
+    overscan: 6,
+    scrollMargin,
+    // A list not laid out yet (or measured as nothing) still shows its first rows.
+    observeElementRect: (instance, report) =>
+      observeElementRect(instance, (rect) =>
+        report(rect.height > 0 ? rect : { width: rect.width, height: window.innerHeight }),
+      ),
+  });
 
-  // Pins of sites removed here or on another device go too.
-  useEffect(() => {
-    if (!shown || !websites.data || !rail.prefs.seeded) return;
-    const ids = new Set(websites.data.map((site) => site.id));
-    const gone = rail.prefs.pins.filter(
-      (pin) => pin.kind === 'website' && !ids.has(pin.search.site ?? ''),
-    );
-    if (gone.length > 0) rail.drop(gone);
-  }, [websites.data, rail, shown]);
-  const siteOf = (pin: RailPin) =>
-    pin.kind === 'website' ? websites.data?.find((site) => site.id === pin.search.site) : undefined;
-
-  const nameOf = (pin: RailPin) => {
-    if (pin.kind === 'favorites') return t('collections.favorites');
-    if (pin.kind === 'downloaded') return t('library.view.downloaded');
-    if (pin.kind === 'localFiles') return t('localFiles.title');
-    if (pin.kind === 'playlist') {
-      return playlists.data?.find((list) => list.id === pin.search.id)?.name ?? pin.name;
+  const ownItemsOf = (item: QuickAccessItem): QuickMenuItem[] => {
+    // Favorites', Downloaded's and Local files' own: play, open, their tools, sort.
+    if (FIXED_KINDS.includes(item.kind)) {
+      return [
+        { kind: 'separator' },
+        ...fixedMenuItems(item.kind as FixedTile, { pin: false }).slice(1),
+      ];
     }
-    return siteOf(pin)?.name ?? pin.name;
+    // A playlist's own (M46.45), but its Delete: Remove from library is that.
+    const playlist = playlistOf(item);
+    if (!playlist) return [];
+    const remove = t('collections.delete');
+    return [
+      { kind: 'separator' },
+      ...playlistMenuItems(playlist, { pin: false })
+        .slice(1)
+        .filter(
+          (entry) =>
+            entry.kind === 'separator' || entry.kind === 'heading' || entry.label !== remove,
+        ),
+    ];
   };
 
-  const pins = rail.pins;
-  const menu = (pin: RailPin, index: number) => (event: React.MouseEvent) =>
-    openContextMenu(event, [
-      { kind: 'heading', label: nameOf(pin) },
-      ...(index > 0
+  const menuItems = (item: QuickAccessItem): QuickMenuItem[] => {
+    const name = nameOf(item);
+    const at = top.findIndex((other) => pageKey(other) === pageKey(item));
+    const moves: QuickMenuItem[] =
+      item.pinned && at >= 0
         ? [
+            ...(at > 0
+              ? [
+                  {
+                    label: t('rail.moveUp'),
+                    icon: ArrowUp,
+                    onSelect: () => rail.move(item, top[at - 1] ?? null),
+                  },
+                ]
+              : []),
+            ...(at < top.length - 1
+              ? [
+                  {
+                    label: t('rail.moveDown'),
+                    icon: ArrowDown,
+                    onSelect: () => rail.move(item, top[at + 2] ?? null),
+                  },
+                ]
+              : []),
+          ]
+        : [];
+    return tidy([
+      { kind: 'heading', label: name },
+      item.pinned
+        ? { label: t('quickAccess.unpin'), icon: PinOff, onSelect: () => rail.unpin(item) }
+        : {
+            label: t('quickAccess.pin'),
+            icon: Pin,
+            onSelect: () =>
+              rail.pin({
+                kind: item.kind,
+                to: item.to,
+                search: item.search,
+                name: item.name,
+                artworkUrl: item.artworkUrl,
+              }),
+          },
+      ...moves,
+      ...ownItemsOf(item),
+      ...(item.removable
+        ? [
+            { kind: 'separator' as const },
             {
-              label: t('rail.moveUp'),
-              icon: ArrowUp,
-              onSelect: () => rail.move(pin, pins[index - 1] ?? null),
+              label: t('menu.removeFromLibrary'),
+              icon: Trash2,
+              danger: true,
+              confirm: t(
+                item.kind === 'playlist'
+                  ? 'quickAccess.removePlaylistConfirm'
+                  : 'quickAccess.removeConfirm',
+                { name },
+              ),
+              onSelect: () => removeFromLibrary(item, name),
             },
           ]
         : []),
-      ...(index < pins.length - 1
-        ? [
-            {
-              label: t('rail.moveDown'),
-              icon: ArrowDown,
-              onSelect: () => rail.move(pin, pins[index + 2] ?? null),
-            },
-          ]
-        : []),
-      { label: t('rail.unpin'), icon: PinOff, onSelect: () => rail.unpin(pin) },
-      // A playlist's own items: play, merge, delete (M46.45).
-      ...playlistItemsOf(pin),
-      // Favorites', Downloaded's and Local files' own: play, open, their tools, sort.
-      ...fixedItemsOf(pin),
     ]);
-  const fixedItemsOf = (pin: RailPin): MenuItem[] =>
-    FIXED_KINDS.includes(pin.kind as FixedTile)
-      ? [{ kind: 'separator' }, ...fixedMenuItems(pin.kind as FixedTile, { pin: false }).slice(1)]
-      : [];
-  const playlistItemsOf = (pin: RailPin): MenuItem[] => {
-    const playlist =
-      pin.kind === 'playlist'
-        ? playlists.data?.find((list) => list.id === pin.search.id)
-        : undefined;
-    return playlist
-      ? [{ kind: 'separator' }, ...playlistMenuItems(playlist, { pin: false }).slice(1)]
-      : [];
   };
+
+  const rowProps = (item: QuickAccessItem): RowProps => ({
+    item,
+    name: nameOf(item),
+    playlist: playlistOf(item),
+    website: siteOf(item),
+    narrow,
+    drawer,
+    onMenu: (anchor) => setMenu({ item, anchor }),
+    onOpenSite: (id) => openSite.mutate(id),
+  });
+
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
-    const from = pins.findIndex((pin) => pinKey(pin) === active.id);
-    const to = pins.findIndex((pin) => pinKey(pin) === over.id);
-    const moved = pins[from];
+    const from = top.findIndex((item) => pageKey(item) === active.id);
+    const to = top.findIndex((item) => pageKey(item) === over.id);
+    const moved = top[from];
     if (!moved) return;
     // Dropped on a pin below: after it; above: before it.
-    const before = to > from ? (pins[to + 1] ?? null) : (pins[to] ?? null);
+    const before = to > from ? (top[to + 1] ?? null) : (top[to] ?? null);
     rail.move(moved, before);
   };
+
+  const sortButton = (size: 'small' | 'large') => (
+    <button
+      type="button"
+      aria-label={t('rail.order')}
+      data-hint={t('rail.order')}
+      onClick={(event) => setSortAnchor(sortAnchor ? null : event.currentTarget)}
+      className={`text-muted hover:text-foreground grid place-items-center rounded-full ${size === 'large' ? 'size-10' : 'size-7'}`}
+    >
+      <ArrowDownUp aria-hidden size={size === 'large' ? 17 : 15} />
+    </button>
+  );
+  const more = quick.data?.more ?? 0;
+  const empty = quick.data !== undefined && top.length === 0 && rest.length === 0;
 
   return (
     <>
       {narrow && drawer && (
-        <div className="flex justify-center pb-1">
-          <button
-            type="button"
-            aria-label={t('rail.order')}
-            onClick={(event) => setSortAnchor(sortAnchor ? null : event.currentTarget)}
-            className="text-muted hover:text-foreground grid size-10 place-items-center rounded-full"
-          >
-            <ArrowDownUp aria-hidden size={17} />
-          </button>
-        </div>
+        <div className="flex shrink-0 justify-center pb-1">{sortButton('large')}</div>
       )}
       {!narrow && (
-        <div className="flex items-center justify-between px-4 pb-1">
+        <div className="flex shrink-0 items-center justify-between px-4 pb-1">
           <h2 className="text-muted text-xs font-semibold tracking-wide uppercase">
             {t('rail.library')}
           </h2>
-          <button
-            type="button"
-            aria-label={t('rail.order')}
-            data-hint={t('rail.order')}
-            onClick={(event) => setSortAnchor(sortAnchor ? null : event.currentTarget)}
-            className={`text-muted hover:text-foreground grid place-items-center rounded-full ${drawer ? 'size-10' : 'size-7'}`}
-          >
-            <ArrowDownUp aria-hidden size={drawer ? 17 : 15} />
-          </button>
+          {sortButton(drawer ? 'large' : 'small')}
         </div>
       )}
       {sortAnchor && (
@@ -355,7 +534,7 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }>
           width={240}
         >
           <div role="radiogroup" aria-label={t('rail.order')} className="flex flex-col py-1">
-            {(['custom', 'played', 'opened'] as RailOrder[]).map((order) => (
+            {RAIL_ORDERS.map((order) => (
               <button
                 key={order}
                 type="button"
@@ -376,35 +555,80 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }>
               </button>
             ))}
           </div>
+          <div className="bg-foreground/10 mx-2 my-1 h-px" />
+          <button
+            type="button"
+            onClick={() => {
+              setSortAnchor(null);
+              void navigate({ to: '/settings/quickAccess' });
+            }}
+            className="hover:bg-background text-muted flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
+          >
+            <Settings2 aria-hidden size={15} />
+            {t('quickAccess.settings')}
+          </button>
         </Popover>
       )}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <SortableContext items={pins.map(pinKey)} strategy={verticalListSortingStrategy}>
-          <ul data-testid="rail-pins" className="flex flex-col gap-0.5">
-            {pins.map((pin, index) => (
-              <SortablePin
-                key={pinKey(pin)}
-                pin={pin}
-                name={nameOf(pin)}
-                playlist={
-                  pin.kind === 'playlist'
-                    ? playlists.data?.find((list) => list.id === pin.search.id)
-                    : undefined
-                }
-                website={siteOf(pin)}
-                narrow={narrow}
-                drawer={drawer}
-                onMenu={menu(pin, index)}
-                onOpenSite={(id) => openSite.mutate(id)}
-              />
-            ))}
+      <div
+        ref={scroller}
+        // A menu stays beside its item: scrolling the list closes it.
+        onScroll={() => setMenu(null)}
+        className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
+      >
+        <div data-testid="rail-pins" className="flex flex-col">
+          {top.length > 0 && (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+              <SortableContext items={top.map(pageKey)} strategy={verticalListSortingStrategy}>
+                <ul aria-label={t('quickAccess.pinned')} className="flex flex-col gap-0.5 pb-0.5">
+                  {top.map((item) => (
+                    <SortableRow key={pageKey(item)} {...rowProps(item)} />
+                  ))}
+                </ul>
+              </SortableContext>
+            </DndContext>
+          )}
+          <ul
+            ref={list}
+            className="relative w-full shrink-0"
+            style={{ height: virtualizer.getTotalSize() }}
+          >
+            {virtualizer.getVirtualItems().map((row) => {
+              const item = rest[row.index];
+              if (!item) return null;
+              return (
+                <li
+                  key={row.key}
+                  className="absolute inset-x-0 top-0"
+                  style={{
+                    height: rowPx,
+                    transform: `translateY(${row.start - scrollMargin}px)`,
+                  }}
+                >
+                  <Row {...rowProps(item)} />
+                </li>
+              );
+            })}
           </ul>
-        </SortableContext>
-      </DndContext>
-      {pins.length === 0 && !narrow && (
-        <p className="text-muted px-4 py-2 text-xs">
-          {t(drawer ? 'rail.emptyTouch' : 'rail.empty')}
-        </p>
+        </div>
+        {more > 0 && !narrow && (
+          <Link
+            to="/library"
+            search={{ view: 'all' } as never}
+            replace={drawer}
+            className="text-muted hover:text-foreground shrink-0 px-4 py-2 text-xs"
+          >
+            {t('quickAccess.more', { count: more })}
+          </Link>
+        )}
+        {empty && !narrow && <p className="text-muted px-4 py-2 text-xs">{t('rail.empty')}</p>}
+      </div>
+      {menu && (
+        <QuickAccessMenu
+          anchor={menu.anchor}
+          label={t('quickAccess.menu', { name: nameOf(menu.item) })}
+          items={menuItems(menu.item)}
+          onClose={() => setMenu(null)}
+        />
       )}
     </>
   );

@@ -75,7 +75,7 @@ const DEFAULT_SETTINGS: Settings = {
   downloadsInBatterySaver: false,
   resumeOnStart: true,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
-  rail: { pins: [], order: 'custom', seeded: false },
+  rail: { pins: [], order: 'played', seeded: false },
   transcription: {
     engine: 'off',
     localModel: 'whisper-tiny',

@@ -243,25 +243,45 @@ pub struct Settings {
     pub rail: RailPrefs,
 }
 
-/// The desktop sidebar's pins (M46.29): anything with a page, in the user's order or by when it
-/// was last played from or opened. Quick access (M46.41): what's added to the library is pinned
-/// too, up to `limit` automatic pins.
+/// Quick access: the desktop sidebar's list (M46.29) and the phone's drawer. The audio library
+/// lists itself (the fixed blocks, playlists, albums, artists, shows and books), the most recently
+/// played from first, at most `shown` of them; pins stay on top in the user's order and always
+/// show. Comics, books, videos and sites show while pinned: by hand, or when added to the library
+/// (M46.41, `auto_add`, up to `limit`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RailPrefs {
+    /// Pinned pages, in the user's order.
     pub pins: Vec<RailPin>,
+    /// How the rest is sorted, and the pins too when they don't stay on top.
     pub order: RailOrder,
-    /// The first run's pins were added (Favorites, Downloaded, Local files and the playlists).
+    /// Older versions: the first run's pins were added. Unused since `version` 2.
     pub seeded: bool,
-    /// Pin what's added to the library (M46.41).
+    /// Comics, books, videos and sites added to the library are pinned too (M46.41).
     #[serde(default = "pin_added")]
     pub auto_add: bool,
-    /// Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay.
+    /// Those automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay.
     #[serde(default = "auto_pin_limit")]
     pub limit: u32,
     /// The phone's quick access drawer shows names beside the pins; off, icons only.
     #[serde(default = "drawer_expanded")]
     pub drawer_expanded: bool,
+    /// Audio items listed at most, 10–1000, the most recent ones; pins don't count.
+    #[serde(default = "rail_shown")]
+    pub shown: u32,
+    /// Which parts of the audio library are listed.
+    #[serde(default)]
+    pub kinds: RailKinds,
+    /// Pins stay on top in their own order; off, they're sorted with the rest (and still show).
+    #[serde(default = "pinned_first")]
+    pub pinned_first: bool,
+    /// When pages were last played from, newest first. Kept by Rust (`quick_access::played`):
+    /// what the UI sends back is replaced by what's stored.
+    #[serde(default)]
+    pub played: Vec<RailPlayed>,
+    /// The shape it was saved in: 0 for rows of versions that pinned the audio library by hand.
+    #[serde(default)]
+    pub version: u32,
 }
 
 fn pin_added() -> bool {
@@ -276,8 +296,23 @@ fn drawer_expanded() -> bool {
     true
 }
 
+fn rail_shown() -> u32 {
+    RAIL_SHOWN_DEFAULT
+}
+
+fn pinned_first() -> bool {
+    true
+}
+
 /// Automatic quick access pins allowed at most (M46.41).
 pub const RAIL_AUTO_LIMIT_MAX: u32 = 1000;
+/// Audio items quick access lists at most, and by default.
+pub const RAIL_SHOWN: std::ops::RangeInclusive<u32> = 10..=1000;
+pub const RAIL_SHOWN_DEFAULT: u32 = 100;
+/// Pages whose last play is remembered, at most (as many as can be listed).
+pub const RAIL_PLAYED_KEPT: usize = 1000;
+/// `RailPrefs::version` today: the audio library lists itself and pins stay on top.
+pub const RAIL_VERSION: u32 = 2;
 
 impl Default for RailPrefs {
     fn default() -> Self {
@@ -288,8 +323,53 @@ impl Default for RailPrefs {
             auto_add: true,
             limit: auto_pin_limit(),
             drawer_expanded: drawer_expanded(),
+            shown: RAIL_SHOWN_DEFAULT,
+            kinds: RailKinds::default(),
+            pinned_first: true,
+            played: Vec::new(),
+            version: RAIL_VERSION,
         }
     }
+}
+
+/// The parts of the audio library quick access lists; pinned ones show whatever these say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RailKinds {
+    pub favorites: bool,
+    pub downloaded: bool,
+    pub local_files: bool,
+    pub playlists: bool,
+    /// The albums of the device's own songs (Library → Audio → Albums).
+    pub albums: bool,
+    /// Followed artists and the artists of the device's own songs.
+    pub artists: bool,
+    pub podcasts: bool,
+    pub audiobooks: bool,
+}
+
+impl Default for RailKinds {
+    fn default() -> Self {
+        Self {
+            favorites: true,
+            downloaded: true,
+            local_files: true,
+            playlists: true,
+            albums: true,
+            artists: true,
+            podcasts: true,
+            audiobooks: true,
+        }
+    }
+}
+
+/// When a page was last played from (unix seconds).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RailPlayed {
+    pub to: String,
+    pub search: std::collections::BTreeMap<String, String>,
+    pub at: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -306,6 +386,7 @@ pub struct RailPin {
     pub artwork_url: Option<String>,
     /// Unix seconds; 0 when never.
     pub pinned_at: u32,
+    /// Older versions' stamps (now `RailPrefs::played`), kept for them.
     pub played_at: u32,
     pub opened_at: u32,
     /// Pinned because it was added to the library (M46.41), not by hand: it goes when it leaves
@@ -317,12 +398,15 @@ pub struct RailPin {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum RailOrder {
+    /// The last time something was played from it; what never was after, newest added first.
+    /// Older versions' custom order and Recently opened are read as this
+    /// (`quick_access::migrate_row`).
     #[default]
-    Custom,
-    /// The last time something was played from it.
     Played,
-    /// The last time its page was opened.
-    Opened,
+    /// When it was added to the library (or pinned), newest first.
+    Added,
+    /// By name.
+    Name,
 }
 
 /// Pins the sidebar keeps, at most.
@@ -341,8 +425,65 @@ impl RailPrefs {
                 "quick access keeps 1 to {RAIL_AUTO_LIMIT_MAX} automatic pins"
             ));
         }
+        if !RAIL_SHOWN.contains(&self.shown) {
+            return Err(format!(
+                "quick access lists {} to {} items",
+                RAIL_SHOWN.start(),
+                RAIL_SHOWN.end()
+            ));
+        }
+        if self.played.len() > RAIL_PLAYED_KEPT {
+            return Err(format!(
+                "quick access remembers at most {RAIL_PLAYED_KEPT} plays"
+            ));
+        }
         Ok(())
     }
+}
+
+/// One row of quick access: a page of the audio library, or a pinned page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAccessItem {
+    /// As `RailPin::kind`.
+    pub kind: String,
+    pub to: String,
+    pub search: std::collections::BTreeMap<String, String>,
+    /// Its name now: Favorites', Downloaded's and Local files' as the UI gave them.
+    pub name: String,
+    /// A show's or book's author, an album's artist.
+    pub subtitle: Option<String>,
+    pub artwork_url: Option<String>,
+    /// A playlist's cover made of its first songs' artwork (`artwork_url` is a picked one).
+    pub artwork_urls: Vec<String>,
+    pub pinned: bool,
+    /// The audio library lists it: unpinned, it stays.
+    pub library: bool,
+    /// In the library and taken out with Remove from library: a playlist, a followed artist, a
+    /// followed show, a book. The fixed blocks and the device's own albums and artists aren't.
+    pub removable: bool,
+    /// Unix seconds; 0 when unknown.
+    pub added_at: u32,
+    /// When it was last played from (unix seconds); 0 when never.
+    pub played_at: u32,
+}
+
+/// Quick access as shown: the pins first (when they stay on top), then the rest in order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAccessList {
+    pub items: Vec<QuickAccessItem>,
+    /// Audio items left out past `RailPrefs::shown`.
+    pub more: u32,
+}
+
+/// The fixed blocks' names in the UI's language, for sorting by name.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAccessNames {
+    pub favorites: String,
+    pub downloaded: String,
+    pub local_files: String,
 }
 
 /// How long lyrics stay kept on the device (M46.46).
@@ -1159,11 +1300,20 @@ pub struct PanelPrefs {
     pub player_split: u32,
     /// Songs the side panel's "Next in queue" card shows, 1 to 10 (M46.24).
     pub next_up_rows: u32,
+    /// The desktop rail's tabs above quick access, 44 to 2000 px; shorter than its tabs, they
+    /// scroll. 0: as tall as they are.
+    pub rail_nav_height: u32,
 }
 
 impl PanelPrefs {
     pub fn validate(&self) -> Result<(), String> {
         let within = |value: u32, low: u32, high: u32| value == 0 || (low..=high).contains(&value);
+        if !within(self.rail_nav_height, 44, 2000) {
+            return Err(format!(
+                "{} px isn't a height for the rail's tabs",
+                self.rail_nav_height
+            ));
+        }
         if !within(self.rail_width, 72, 360) {
             return Err(format!("{} px isn't a rail width", self.rail_width));
         }

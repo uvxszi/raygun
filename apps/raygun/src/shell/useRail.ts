@@ -1,160 +1,116 @@
-import { events } from '@raygun/bindings';
-import type { RailOrder, RailPin, RailPrefs } from '@raygun/bindings';
-import { useRouterState } from '@tanstack/react-router';
-import { useEffect, useMemo, useRef } from 'react';
+import { commands } from '@raygun/bindings';
+import type { QuickAccessNames, RailOrder, RailPin, RailPrefs } from '@raygun/bindings';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
+import { unwrapResult } from '../lib/commandResult';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { QUICK_ACCESS_KEY, samePin, withRailDefaults } from './railPrefs';
+import type { Page, PinTarget } from './railPrefs';
 
-export type PinTarget = Pick<RailPin, 'kind' | 'to' | 'search' | 'name' | 'artworkUrl'>;
+export {
+  FIXED_PINS,
+  pageKey,
+  playlistPin,
+  QUICK_ACCESS_KEY,
+  RAIL_DEFAULTS,
+  RAIL_ORDERS,
+  RAIL_SHOWN,
+  samePin,
+  withRailDefaults,
+} from './railPrefs';
+export type { PinTarget, QuickAccessPrefs } from './railPrefs';
 
 const now = () => Math.floor(Date.now() / 1000);
 
-/** Two pins are the same page: same route and same search parameters. */
-export const samePin = (a: Pick<RailPin, 'to' | 'search'>, b: Pick<RailPin, 'to' | 'search'>) =>
-  a.to === b.to &&
-  Object.keys({ ...a.search, ...b.search }).every((key) => a.search[key] === b.search[key]);
-
-const pin = (target: PinTarget): RailPin => ({
-  ...target,
+const pinOf = (target: PinTarget): RailPin => ({
+  kind: target.kind,
+  to: target.to,
+  search: target.search,
+  name: target.name,
+  artworkUrl: target.artworkUrl,
   pinnedAt: now(),
   playedAt: 0,
   openedAt: 0,
+  auto: false,
 });
-
-/** The fixed pins the first run starts with (M46.29), and their tiles' Pin to Quick access. */
-export const FIXED_PINS: PinTarget[] = [
-  { kind: 'favorites', to: '/library', search: { view: 'favorites' }, name: '', artworkUrl: null },
-  {
-    kind: 'downloaded',
-    to: '/library',
-    search: { view: 'downloaded' },
-    name: '',
-    artworkUrl: null,
-  },
-  { kind: 'localFiles', to: '/local-files', search: {}, name: '', artworkUrl: null },
-];
-
-export const playlistPin = (playlist: { id: string; name: string; artworkUrls: string[] }) => ({
-  kind: 'playlist',
-  to: '/library/playlist',
-  search: { id: playlist.id },
-  name: playlist.name,
-  artworkUrl: playlist.artworkUrls[0] ?? null,
-});
-
-/** Pins in the chosen order: as arranged, or by when each was last played from or opened. */
-export const orderedPins = (prefs: RailPrefs): RailPin[] => {
-  if (prefs.order === 'custom') return prefs.pins;
-  const key = prefs.order === 'played' ? 'playedAt' : 'openedAt';
-  return [...prefs.pins].sort((a, b) => b[key] - a[key]);
-};
 
 /**
- * The desktop sidebar's pins (M46.29), kept in Settings' `rail`. The first run pins Favorites,
- * Downloaded, Local files and every playlist, so nothing that was there disappears.
+ * Quick access's settings and pins (`Settings::rail`): pins stay on top in the user's order, and
+ * the audio library lists itself around them (Rust's `quick_access`). Every change is shown at
+ * once and saved; Rust then says quick access changed.
  */
 export const useRail = () => {
   const settings = useSettings();
   const update = useUpdateSetting();
-  const prefs: RailPrefs = settings.data?.rail ?? { pins: [], order: 'custom', seeded: false };
+  const client = useQueryClient();
+  const stored = settings.data?.rail;
   const loaded = Boolean(settings.data);
 
   return useMemo(() => {
-    const save = (next: RailPrefs) => update.mutate({ key: 'rail', value: next });
-    const isPinned = (target: Pick<RailPin, 'to' | 'search'>) =>
-      prefs.pins.some((existing) => samePin(existing, target));
+    const prefs = withRailDefaults(stored);
+    // Once saved, quick access is listed again (Rust says so too): a page pinned from its top bar
+    // isn't in the list shown yet.
+    const save = (next: RailPrefs) =>
+      update.mutate(
+        { key: 'rail', value: next },
+        { onSettled: () => void client.invalidateQueries({ queryKey: QUICK_ACCESS_KEY }) },
+      );
+    const isPinned = (target: Page) => prefs.pins.some((existing) => samePin(existing, target));
     return {
       prefs,
       loaded,
-      pins: orderedPins(prefs),
       isPinned,
-      /** The first run's pins: Favorites, Downloaded, Local files and every playlist. */
-      seed: (playlists: { id: string; name: string; artworkUrls: string[] }[]) =>
-        save({
-          ...prefs,
-          seeded: true,
-          pins: [...FIXED_PINS.map(pin), ...playlists.map((list) => pin(playlistPin(list)))],
-        }),
+      /** Pinned at the end of the pins. */
       pin: (target: PinTarget) => {
         if (isPinned(target)) return;
-        save({ ...prefs, pins: [...prefs.pins, pin(target)] });
+        save({ ...prefs, pins: [...prefs.pins, pinOf(target)] });
       },
-      unpin: (target: Pick<RailPin, 'to' | 'search'>) =>
+      unpin: (target: Page) =>
         save({ ...prefs, pins: prefs.pins.filter((existing) => !samePin(existing, target)) }),
-      /** Drops several pins at once (pages that are gone). */
-      drop: (gone: RailPin[]) =>
-        save({
-          ...prefs,
-          pins: prefs.pins.filter((existing) => !gone.some((pin) => samePin(pin, existing))),
-        }),
-      /** Moves a pin before another (or to the end); the order becomes custom. */
-      move: (moved: RailPin, before: RailPin | null) => {
-        const rest = orderedPins(prefs).filter((existing) => !samePin(existing, moved));
+      /** Moves a pin before another (or to the end of the pins). */
+      move: (moved: Page, before: Page | null) => {
+        const pinned = prefs.pins.find((existing) => samePin(existing, moved));
+        if (!pinned) return;
+        const rest = prefs.pins.filter((existing) => !samePin(existing, moved));
         const at = before ? rest.findIndex((existing) => samePin(existing, before)) : -1;
-        rest.splice(at < 0 ? rest.length : at, 0, moved);
-        save({ ...prefs, order: 'custom', pins: rest });
+        rest.splice(at < 0 ? rest.length : at, 0, pinned);
+        save({ ...prefs, pins: rest });
       },
       setOrder: (order: RailOrder) => save({ ...prefs, order }),
       /** The phone's drawer: names beside the pins, or icons only. */
       setDrawerExpanded: (drawerExpanded: boolean) => save({ ...prefs, drawerExpanded }),
-      /** Stamps when a pinned page was opened or played from. */
-      touch: (target: Pick<RailPin, 'to' | 'search'>, what: 'played' | 'opened') => {
-        const found = prefs.pins.find((existing) => samePin(existing, target));
-        if (!found) return;
-        const field = what === 'played' ? 'playedAt' : 'openedAt';
-        if (now() - found[field] < 30) return;
-        save({
-          ...prefs,
-          pins: prefs.pins.map((existing) =>
-            samePin(existing, target) ? { ...existing, [field]: now() } : existing,
-          ),
-        });
-      },
+      /** Changes some of quick access's settings. */
+      set: (patch: Partial<RailPrefs>) => save({ ...prefs, ...patch }),
     };
     // `update` is stable enough: a new mutation object each render would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefs, loaded]);
+  }, [stored, loaded, client]);
 };
 
-/** The page on screen as a pin's route and search (string values only). */
-const here = (location: { pathname: string; search: unknown }) => ({
-  to: location.pathname,
-  search: Object.fromEntries(
-    Object.entries((location.search ?? {}) as Record<string, unknown>)
-      .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
-      .map(([key, value]) => [key, String(value)]),
-  ),
-});
+/** The fixed blocks' names in this language, which Rust sorts by. */
+export const useQuickAccessNames = (): QuickAccessNames => {
+  const { t } = useTranslation();
+  return {
+    favorites: t('collections.favorites'),
+    downloaded: t('library.view.downloaded'),
+    localFiles: t('localFiles.title'),
+  };
+};
 
 /**
- * Stamps pins (M46.29): opening a pinned page sets when it was opened, and playing while on it
- * (a new queue) when it was last played from. Mounted once by the shell.
+ * What quick access lists now (Rust's `quick_access_list`): the pins first when they stay on top,
+ * then the audio library in the chosen order, at most `shown` of it. Rust says when it changed
+ * (`QuickAccessChangedEvent`, in `useLiveInvalidation`).
  */
-export const useRailStamps = (enabled: boolean) => {
-  const rail = useRail();
-  const location = useRouterState({ select: (state) => state.location });
-  const latest = useRef({ rail, location });
-  useEffect(() => {
-    latest.current = { rail, location };
+export const useQuickAccess = (enabled = true) => {
+  const names = useQuickAccessNames();
+  return useQuery({
+    queryKey: [...QUICK_ACCESS_KEY, names],
+    queryFn: () => unwrapResult(commands.quickAccessList(names)),
+    enabled,
+    // A new language or a refresh keeps the list on screen until the answer comes.
+    placeholderData: keepPreviousData,
   });
-  const pageKey = JSON.stringify(here(location));
-
-  useEffect(() => {
-    if (enabled) latest.current.rail.touch(JSON.parse(pageKey), 'opened');
-  }, [pageKey, enabled]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    let first: string | null = null;
-    const unlisten = events.queueEvent.listen((event) => {
-      // A new first song is a new queue: played from the page on screen.
-      const head = event.payload.items[0]?.id ?? null;
-      if (head === first) return;
-      first = head;
-      if (head) latest.current.rail.touch(here(latest.current.location), 'played');
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, [enabled]);
 };

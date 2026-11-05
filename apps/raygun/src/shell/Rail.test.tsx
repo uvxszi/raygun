@@ -1,9 +1,9 @@
-import type { SettingChange, Settings } from '@raygun/bindings';
+import type { QuickAccessItem, SettingChange, Settings } from '@raygun/bindings';
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from './AppShell.test-wrapper';
-import { ANDROID_INFO, bindingsMock, DEFAULT_SETTINGS } from '../test/bindingsMock';
+import { ANDROID_INFO, bindingsMock, DEFAULT_SETTINGS, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -26,8 +26,41 @@ const names = () =>
   within(rail())
     .getAllByRole('link')
     .map((link) => link.getAttribute('aria-label') ?? link.textContent);
+const menu = () => screen.getByRole('menu');
+const openMenu = async (name: RegExp) => {
+  fireEvent.contextMenu(within(rail()).getByRole('link', { name }));
+  return screen.findByRole('menu');
+};
 
-describe('The sidebar (M46.29)', () => {
+/** A row as Rust's `quick_access_list` gives it. */
+const row = (name: string, extra: Partial<QuickAccessItem> = {}): QuickAccessItem => ({
+  kind: 'playlist',
+  to: '/library/playlist',
+  search: { id: name },
+  name,
+  subtitle: null,
+  artworkUrl: null,
+  artworkUrls: [],
+  pinned: false,
+  library: true,
+  removable: true,
+  addedAt: 0,
+  playedAt: 0,
+  ...extra,
+});
+
+const pinOf = (id: string) => ({
+  kind: 'playlist',
+  to: '/library/playlist',
+  search: { id },
+  name: id,
+  artworkUrl: null,
+  pinnedAt: 1,
+  playedAt: 0,
+  openedAt: 0,
+});
+
+describe('Quick access in the sidebar', () => {
   afterEach(() => {
     delete (window as { matchMedia?: unknown }).matchMedia;
   });
@@ -47,62 +80,219 @@ describe('The sidebar (M46.29)', () => {
     );
   });
 
-  it('starts with Favorites, Downloaded, Local files and the playlists, and sorts', async () => {
+  it('lists the audio library by itself and sorts it', async () => {
     const user = userEvent.setup();
     const saved = withSettings(DEFAULT_SETTINGS);
     await AppShellWrapper.mount('/');
     await vi.waitFor(() =>
       expect(names()).toEqual(['Favorites', 'Downloaded', 'Local files', 'Road trip']),
     );
-    expect(saved().rail.seeded).toBe(true);
+    expect(commands.quickAccessList).toHaveBeenCalledWith({
+      favorites: 'Favorites',
+      downloaded: 'Downloaded',
+      localFiles: 'Local files',
+    });
+    // Nothing was pinned to get there.
+    expect(saved().rail.pins).toEqual([]);
 
-    // The sort button: Recently opened.
     await user.click(screen.getByRole('button', { name: 'Sort the sidebar' }));
-    await user.click(await screen.findByRole('radio', { name: 'Recently opened' }));
-    await vi.waitFor(() => expect(saved().rail.order).toBe('opened'));
+    const orders = await screen.findByRole('radiogroup', { name: 'Sort the sidebar' });
+    expect(
+      within(orders)
+        .getAllByRole('radio')
+        .map((radio) => radio.textContent),
+    ).toEqual(['Recently played', 'Recently added', 'Name']);
+    expect(within(orders).getByRole('radio', { name: 'Recently played' })).toBeChecked();
+    await user.click(within(orders).getByRole('radio', { name: 'Recently added' }));
+    await vi.waitFor(() => expect(saved().rail.order).toBe('added'));
+  });
 
-    // Right-click a pin: unpin it.
-    fireEvent.contextMenu(within(rail()).getByRole('link', { name: /Road trip/ }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Unpin from Quick access' }));
+  it('shows the order Rust gives, and lists again when Rust says it changed', async () => {
+    withSettings(DEFAULT_SETTINGS);
+    commands.quickAccessList.mockResolvedValue(
+      ok({
+        items: [
+          row('Played last', { playedAt: 900 }),
+          row('Favorites', { kind: 'favorites', to: '/library', search: { view: 'favorites' } }),
+          row('Never played'),
+        ],
+        more: 0,
+      }),
+    );
+    await AppShellWrapper.mount('/');
+    await vi.waitFor(() => expect(names()).toEqual(['Played last', 'Favorites', 'Never played']));
+
+    commands.quickAccessList.mockResolvedValue(
+      ok({ items: [row('Never played', { playedAt: 1000 }), row('Played last')], more: 0 }),
+    );
+    emitEvent('quickAccessChangedEvent', '/library/playlist');
+    await vi.waitFor(() => expect(names()).toEqual(['Never played', 'Played last']));
+  });
+
+  it('pins an item on top with a right click, and unpins it: it stays listed', async () => {
+    const user = userEvent.setup();
+    const saved = withSettings(DEFAULT_SETTINGS);
+    await AppShellWrapper.mount('/');
+    await vi.waitFor(() => expect(names()).toContain('Road trip'));
+
+    await openMenu(/Road trip/);
+    expect(within(menu()).queryByRole('menuitem', { name: 'Unpin' })).not.toBeInTheDocument();
+    expect(within(menu()).getByRole('menuitem', { name: 'Remove from library' })).toBeVisible();
+    // The playlist's own items stay, but its Delete: Remove from library is that.
+    expect(within(menu()).getByRole('menuitem', { name: 'Shuffle' })).toBeVisible();
+    expect(within(menu()).queryByRole('menuitem', { name: 'Delete playlist' })).toBeNull();
+    await user.click(within(menu()).getByRole('menuitem', { name: 'Pin' }));
     await vi.waitFor(() =>
-      expect(saved().rail.pins.map((pin) => pin.kind)).toEqual([
-        'favorites',
-        'downloaded',
-        'localFiles',
+      expect(saved().rail.pins).toEqual([
+        expect.objectContaining({
+          kind: 'playlist',
+          to: '/library/playlist',
+          search: { id: 'p1' },
+        }),
       ]),
     );
+    // On top, marked pinned.
+    await vi.waitFor(() =>
+      expect(names()).toEqual(['Road trip', 'Favorites', 'Downloaded', 'Local files']),
+    );
+    expect(within(rail()).getByRole('list', { name: 'Pinned' })).toHaveTextContent('Road trip');
+
+    await openMenu(/Road trip/);
+    await user.click(within(menu()).getByRole('menuitem', { name: 'Unpin' }));
+    await vi.waitFor(() => expect(saved().rail.pins).toEqual([]));
+    await vi.waitFor(() => expect(names()).toContain('Road trip'));
+    expect(within(rail()).queryByRole('list', { name: 'Pinned' })).not.toBeInTheDocument();
   });
 
-  it('drops the pin of a playlist that was deleted', async () => {
-    const pin = (id: string, name: string) => ({
-      kind: 'playlist',
-      to: '/library/playlist',
-      search: { id },
-      name,
-      artworkUrl: null,
-      pinnedAt: 1,
-      playedAt: 0,
-      openedAt: 0,
-    });
-    const saved = withSettings({
-      ...DEFAULT_SETTINGS,
-      rail: {
-        pins: [pin('p1', 'Road trip'), pin('gone', 'Deleted list')],
-        order: 'custom',
-        seeded: true,
-      },
-    });
+  it('removes a playlist from the library after asking in the menu', async () => {
+    const user = userEvent.setup();
+    withSettings(DEFAULT_SETTINGS);
+    commands.playlistDelete.mockResolvedValue(ok(null));
     await AppShellWrapper.mount('/');
-    await vi.waitFor(() => expect(saved().rail.pins.map((kept) => kept.search.id)).toEqual(['p1']));
-    expect(names()).toEqual(['Road trip']);
+    await vi.waitFor(() => expect(names()).toContain('Road trip'));
+
+    // From the keyboard: the first item has the focus, Up goes round to the last.
+    await openMenu(/Road trip/);
+    await vi.waitFor(() =>
+      expect(within(menu()).getByRole('menuitem', { name: 'Pin' })).toHaveFocus(),
+    );
+    await user.keyboard('{ArrowUp}');
+    expect(within(menu()).getByRole('menuitem', { name: 'Remove from library' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    const question = await screen.findByRole('alertdialog', {
+      name: /Remove “Road trip” from your library\?/,
+    });
+    expect(commands.playlistDelete).not.toHaveBeenCalled();
+    await user.click(within(question).getByRole('button', { name: 'Remove from library' }));
+    await vi.waitFor(() => expect(commands.playlistDelete).toHaveBeenCalledWith('p1'));
+
+    // The fixed blocks never leave the library.
+    await openMenu(/Favorites/);
+    expect(
+      within(menu()).queryByRole('menuitem', { name: 'Remove from library' }),
+    ).not.toBeInTheDocument();
   });
 
-  it("pins a page from its top bar and stamps when it's opened", async () => {
+  it('unfollows a show and an artist from their menus', async () => {
+    const user = userEvent.setup();
+    withSettings(DEFAULT_SETTINGS);
+    commands.podcastSetSubscribed.mockResolvedValue(ok(null));
+    commands.quickAccessList.mockResolvedValue(
+      ok({
+        items: [
+          row('The Show', { kind: 'podcast', to: '/podcast', search: { id: 'show-1' } }),
+          row('Raygun', { kind: 'artist', to: '/artist', search: { name: 'Raygun' } }),
+          row('Local album', {
+            kind: 'album',
+            to: '/library/album',
+            search: { artist: 'A', album: 'Local album' },
+            removable: false,
+          }),
+        ],
+        more: 0,
+      }),
+    );
+    await AppShellWrapper.mount('/');
+    await vi.waitFor(() => expect(names()).toContain('The Show'));
+
+    await openMenu(/The Show/);
+    await user.click(within(menu()).getByRole('menuitem', { name: 'Remove from library' }));
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Remove from library',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(commands.podcastSetSubscribed).toHaveBeenCalledWith('show-1', false),
+    );
+
+    await openMenu(/Raygun/);
+    await user.click(within(menu()).getByRole('menuitem', { name: 'Remove from library' }));
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Remove from library',
+      }),
+    );
+    await vi.waitFor(() => expect(commands.artistUnfollow).toHaveBeenCalledWith('Raygun'));
+
+    // The device's own album comes from its files: it can only be pinned.
+    await openMenu(/Local album/);
+    expect(within(menu()).getByRole('menuitem', { name: 'Pin' })).toBeVisible();
+    expect(
+      within(menu()).queryByRole('menuitem', { name: 'Remove from library' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps pins on top in their order, moved from the menu', async () => {
     const user = userEvent.setup();
     const saved = withSettings({
       ...DEFAULT_SETTINGS,
-      rail: { pins: [], order: 'custom', seeded: true },
+      rail: { ...DEFAULT_SETTINGS.rail, pins: [pinOf('a'), pinOf('b')] },
     });
+    commands.quickAccessList.mockResolvedValue(
+      ok({
+        items: [row('a', { pinned: true }), row('b', { pinned: true }), row('c')],
+        more: 0,
+      }),
+    );
+    await AppShellWrapper.mount('/');
+    await vi.waitFor(() => expect(names()).toEqual(['a', 'b', 'c']));
+
+    await openMenu(/^a/);
+    expect(within(menu()).queryByRole('menuitem', { name: 'Move up' })).not.toBeInTheDocument();
+    await user.click(within(menu()).getByRole('menuitem', { name: 'Move down' }));
+    await vi.waitFor(() =>
+      expect(saved().rail.pins.map((pin) => pin.search.id)).toEqual(['b', 'a']),
+    );
+    // Shown at once, before Rust lists again.
+    await vi.waitFor(() => expect(names()).toEqual(['b', 'a', 'c']));
+  });
+
+  it('draws only the rows near the screen, and says how many more there are', async () => {
+    withSettings(DEFAULT_SETTINGS);
+    commands.quickAccessList.mockResolvedValue(
+      ok({
+        items: Array.from({ length: 300 }, (_, index) =>
+          row(`List ${index}`, { artworkUrl: `https://example.com/${index}.jpg` }),
+        ),
+        more: 42,
+      }),
+    );
+    await AppShellWrapper.mount('/');
+    await vi.waitFor(() => expect(names()[0]).toBe('List 0'));
+    const drawn = names().length;
+    expect(drawn).toBeGreaterThan(5);
+    expect(drawn).toBeLessThan(60);
+    // Covers of rows off the screen aren't there to load.
+    const covers = screen.queryAllByTestId('artwork-image').length;
+    expect(covers).toBeGreaterThan(0);
+    expect(covers).toBeLessThan(60);
+    expect(screen.getByRole('link', { name: '42 more in your library' })).toBeInTheDocument();
+  });
+
+  it('pins a page from its top bar', async () => {
+    const user = userEvent.setup();
+    const saved = withSettings(DEFAULT_SETTINGS);
     commands.podcastGet.mockResolvedValue(
       ok({
         id: 'show-1',
@@ -128,39 +318,56 @@ describe('The sidebar (M46.29)', () => {
         expect.objectContaining({ kind: 'podcast', to: '/podcast', search: { id: 'show-1' } }),
       ]),
     );
-    expect(within(rail()).getByRole('link', { name: /The Show/ })).toBeInTheDocument();
+    expect(await within(rail()).findByRole('link', { name: /The Show/ })).toBeInTheDocument();
   });
 
-  it('gives the fixed blocks their menu and pins one again after an unpin', async () => {
-    const user = userEvent.setup();
+  it('resizes the split between the tabs and Your library', async () => {
     const saved = withSettings(DEFAULT_SETTINGS);
-    await AppShellWrapper.mount('/library?view=all');
-    await vi.waitFor(() => expect(names()).toContain('Favorites'));
+    await AppShellWrapper.mount('/');
+    const split = await screen.findByRole('separator', {
+      name: 'Drag to resize the tabs and Your library',
+    });
+    expect(split).toHaveAttribute('aria-orientation', 'horizontal');
+    const tabs = screen.getByTestId('rail-tabs');
+    expect(tabs.style.height).toBe('');
 
-    // Its pin's menu has the block's own items; unpin it.
-    fireEvent.contextMenu(within(rail()).getByRole('link', { name: /Favorites/ }));
-    expect(await screen.findByRole('menuitem', { name: 'Shuffle' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Download all' })).toBeInTheDocument();
-    await user.click(screen.getByRole('menuitem', { name: 'Unpin from Quick access' }));
-    await vi.waitFor(() =>
-      expect(saved().rail.pins.map((pin) => pin.kind)).not.toContain('favorites'),
-    );
-    await vi.waitFor(() => expect(names()).not.toContain('Favorites'));
+    fireEvent.keyDown(split, { key: 'ArrowDown' });
+    await vi.waitFor(() => expect(saved().panels.railNavHeight).toBe(60));
+    // Shorter than its tabs, the part scrolls.
+    await vi.waitFor(() => expect(tabs.style.height).toBe('60px'));
+    expect(tabs).toHaveClass('overflow-y-auto');
+    fireEvent.keyDown(split, { key: 'Home' });
+    await vi.waitFor(() => expect(saved().panels.railNavHeight).toBe(44));
 
-    // The Library's tile pins it again.
-    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Favorites.*tracks?$/ }));
-    for (const name of ['Play', 'Shuffle', 'Play next', 'Add to queue', 'Open', 'Sort by']) {
-      expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument();
+    // A double click goes back to the tabs' own height.
+    fireEvent.doubleClick(split);
+    await vi.waitFor(() => expect(saved().panels.railNavHeight).toBe(0));
+    await vi.waitFor(() => expect(tabs.style.height).toBe(''));
+  });
+
+  it('keeps room for Your library when the tabs grow', async () => {
+    const saved = withSettings(DEFAULT_SETTINGS);
+    const height = vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (
+      this: Element,
+    ) {
+      return this.getAttribute('data-testid') === 'side-rail' ? 600 : 0;
+    });
+    try {
+      await AppShellWrapper.mount('/');
+      const split = await screen.findByRole('separator', {
+        name: 'Drag to resize the tabs and Your library',
+      });
+      await vi.waitFor(() => expect(split).toHaveAttribute('aria-valuemax', '480'));
+      fireEvent.keyDown(split, { key: 'End' });
+      await vi.waitFor(() => expect(saved().panels.railNavHeight).toBe(480));
+    } finally {
+      height.mockRestore();
     }
-    await user.click(screen.getByRole('menuitem', { name: 'Pin to Quick access' }));
-    await vi.waitFor(() => expect(saved().rail.pins.map((pin) => pin.kind)).toContain('favorites'));
-    expect(saved().rail.seeded).toBe(true);
-    await vi.waitFor(() => expect(names()).toContain('Favorites'));
   });
 
   it('checks downloads and scans local folders from their tiles', async () => {
     const user = userEvent.setup();
-    withSettings({ ...DEFAULT_SETTINGS, rail: { pins: [], order: 'custom', seeded: true } });
+    withSettings({ ...DEFAULT_SETTINGS, rail: { pins: [], order: 'played', seeded: true } });
     commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 2, problems: 0 }));
     commands.localFoldersRescan.mockResolvedValue(ok(null));
     await AppShellWrapper.mount('/library?view=all');
@@ -179,7 +386,7 @@ describe('The sidebar (M46.29)', () => {
 
   it('opens Favorites with Sort by open from the menu', async () => {
     const user = userEvent.setup();
-    withSettings({ ...DEFAULT_SETTINGS, rail: { pins: [], order: 'custom', seeded: true } });
+    withSettings({ ...DEFAULT_SETTINGS, rail: { pins: [], order: 'played', seeded: true } });
     commands.favoritesList.mockResolvedValue(
       ok([
         {
