@@ -28,10 +28,13 @@ const WAYS: { id: Way; icon: typeof Link2 }[] = [
  * lines, or screenshots of a song list. The songs are matched against the music sources and
  * saved as a playlist; each plays through the sources like any other.
  */
-export const ImportSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
+export const ImportSheet: FC<{ onClose: () => void; initialLink?: string }> = ({
+  onClose,
+  initialLink = '',
+}) => {
   const { t } = useTranslation();
   const [way, setWay] = useState<Way>('link');
-  const [link, setLink] = useState('');
+  const [link, setLink] = useState(initialLink);
   const [text, setText] = useState('');
   const [list, setList] = useState<ImportedList | null>(null);
   // Chosen screenshots wait in order (M46.40) until Read.

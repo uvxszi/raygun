@@ -339,6 +339,39 @@ impl LibraryService {
         track
     }
 
+    /// A song file outside the library (one another app opened with Raygun) as a queue item,
+    /// named by its tags; `None` when they can't be read.
+    pub(crate) async fn file_item(&self, path: PathBuf) -> Option<QueueItemInput> {
+        let art_dir = self.art_dir.clone();
+        let read = path.clone();
+        let track = tauri::async_runtime::spawn_blocking(move || {
+            let size = std::fs::metadata(&read).ok()?.len();
+            let file = FileEntry {
+                path: read,
+                size,
+                modified: 0,
+            };
+            raygun_library::read_track(file, &art_dir).ok()
+        })
+        .await
+        .ok()
+        .flatten()?;
+        Some(QueueItemInput {
+            explicit: false,
+            title: track.title,
+            artist: track.artist.or(track.album_artist),
+            album: track.album,
+            duration_ms: track
+                .duration_ms
+                .and_then(|duration| u32::try_from(duration).ok()),
+            artwork_url: self.artwork_url(track.art),
+            media_kind: MediaKind::Audio,
+            source: MediaSource::LocalFile {
+                path: path.to_string_lossy().into_owned(),
+            },
+        })
+    }
+
     pub(crate) fn queue_item(&self, row: TrackRow) -> QueueItemInput {
         QueueItemInput {
             explicit: false,

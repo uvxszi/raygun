@@ -24,6 +24,7 @@ static VIDEO_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static WEBSITE_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static NOTIFICATION_ACTION_HANDLER: Later = Later::new();
 static OPEN_HANDLER: Later = Later::new();
+static OPEN_WITH_HANDLER: Later = Later::new();
 static DEVICE_STATE_HANDLER: Later = Later::new();
 
 /// A receiver for messages that can come before it's installed (a notification tapped to start
@@ -93,6 +94,19 @@ pub fn set_open_handler(handler: impl Fn(String) + Send + Sync + 'static) {
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn deliver_open(route: String) {
     OPEN_HANDLER.deliver(route);
+}
+
+/// Installs the receiver for what other apps open with Raygun or share to it (`{"items": [{"uri",
+/// "mime", "name", "size"}], "text", "subject"}` JSON, see `OpenWith.kt`). Called on a thread of
+/// the plugin's own. Only the first call wins; what came before it (the intent that started the
+/// app) waits for it.
+pub fn set_open_with_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    OPEN_WITH_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_open_with(json: String) {
+    OPEN_WITH_HANDLER.deliver(json);
 }
 
 /// Installs the receiver for the device's state (`{"foreground", "powerSave", "animatorScale",

@@ -2,6 +2,7 @@ import { commands, events } from '@raygun/bindings';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 
+import { useCollectionSheets } from '../collections/collectionSheets';
 import { usePlayerUiStore } from '../player/playerUiStore';
 
 /** `/downloads?tab=music` as a path and its search. */
@@ -11,9 +12,10 @@ export const splitRoute = (route: string): { to: string; search: Record<string, 
 };
 
 /**
- * Opens the screen a tapped notification names: the full player for the playback notification,
- * Downloads (or where a download is listed) for download notifications. A tap that started Raygun
- * waits in Rust until this asks.
+ * Opens the screen Rust names: the full player for the playback notification (and a song another
+ * app opened with Raygun), Downloads (or where a download is listed) for download notifications,
+ * Search for words or a link shared to Raygun, and Import songs for a shared Spotify link
+ * (`import?link=`). A route from before the UI started waits in Rust until this asks.
  */
 export const useNotificationRoutes = () => {
   const navigate = useNavigate();
@@ -24,6 +26,10 @@ export const useNotificationRoutes = () => {
         return;
       }
       const { to, search } = splitRoute(route);
+      if (to === 'import') {
+        useCollectionSheets.getState().openImportLink(search.link ?? '');
+        return;
+      }
       void navigate({ to, search });
     };
     let alive = true;

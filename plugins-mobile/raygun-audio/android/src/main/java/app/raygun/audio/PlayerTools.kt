@@ -243,6 +243,8 @@ internal class PlayerTools(private val host: VideoPlayerActivity) {
             }
         }
         if (packageName.isNotBlank()) intent.setPackage(packageName)
+        // A document another app opened with Raygun: the access it gave goes on to this player.
+        if (url.startsWith("content://")) intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         return intent
     }
 

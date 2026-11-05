@@ -143,6 +143,8 @@ pub async fn playback_restore(
     playback: tauri::State<'_, PlaybackService>,
 ) -> Result<(), String> {
     playback.restore_last(&app).await;
+    // The UI is up: what another app opened with Raygun before it was goes ahead.
+    crate::open_with::ready(&app);
     Ok(())
 }
 

@@ -1445,6 +1445,16 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /**
+     * Media and links another app opened with Raygun or shared to it (see OpenWith): taken from
+     * the intent at once, described off the main thread (that asks the sharing app's provider).
+     */
+    private fun takeHandover(intent: Intent?) {
+        val handover = OpenWith.take(intent) ?: return
+        val context = activity.applicationContext
+        thread(name = "raygun-open-with") { NativeBridge.openWith(handover.describe(context).toString()) }
+    }
+
     override fun load(webView: WebView) {
         // Rust's commands reach this instance on their own line from now on, with or without an
         // activity (see DirectCalls).
@@ -1453,11 +1463,13 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         // The browser's process may outlive this one: its reports and downloads find a listener.
         listenToWebsites()
         takeOpenExtras(activity.intent)
+        takeHandover(activity.intent)
         DeviceState.start(activity)
     }
 
     override fun onNewIntent(intent: Intent) {
         takeOpenExtras(intent)
+        takeHandover(intent)
     }
 
     // ---- Settings → Permissions (see Permissions) ----

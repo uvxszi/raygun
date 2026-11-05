@@ -20,6 +20,7 @@ import type {
   LibraryStatus,
   LyricsTranslationProgress,
   MangaUpdateStatus,
+  OpenWithProblem,
   PlaybackState,
   PlaylistSummary,
   PodcastSummary,
@@ -98,6 +99,7 @@ type EventPayloads = {
   videoPlayerEvent: VideoPlayerMessage;
   castStatusEvent: CastStatus | null;
   youTubeVideoEvent: YouTubeVideo;
+  openWithEvent: OpenWithProblem;
   speechCommandEvent: SpeechCommand;
   appUpdateEvent: AppUpdate;
   ytDlpEvent: string;
@@ -760,6 +762,7 @@ export const bindingsMock = {
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
     castStatusEvent: makeEvent('castStatusEvent'),
     youTubeVideoEvent: makeEvent('youTubeVideoEvent'),
+    openWithEvent: makeEvent('openWithEvent'),
     speechCommandEvent: makeEvent('speechCommandEvent'),
     appUpdateEvent: makeEvent('appUpdateEvent'),
     ytDlpEvent: makeEvent('ytDlpEvent'),

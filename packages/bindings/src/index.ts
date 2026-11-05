@@ -1506,6 +1506,7 @@ export const events = {
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
 	openRouteEvent: makeEvent<OpenRouteEvent>("open-route-event"),
+	openWithEvent: makeEvent<OpenWithEvent>("open-with-event"),
 	permissionPromptEvent: makeEvent<PermissionPromptEvent>("permission-prompt-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
@@ -3866,8 +3867,29 @@ export type OnlineTrack = {
 	explicit?: boolean,
 };
 
-/**  A notification was tapped: the screen it opens (`/downloads?tab=music`, or `player`). */
+/**
+ *  A screen to open: a tapped notification's (`/downloads?tab=music`, or `player`), or the one
+ *  for what another app handed over (`player`, a search, `import?link=` for a Spotify link).
+ */
 export type OpenRouteEvent = string;
+
+/**  Something another app opened with Raygun or shared to it didn't play (`open_with`). */
+export type OpenWithEvent = OpenWithProblem;
+
+/**  Something another app opened with Raygun or shared to it that didn't play. */
+export type OpenWithProblem = {
+	kind: OpenWithProblemKind,
+	/**  The file's name, or the address when it has none. */
+	name: string,
+};
+
+export type OpenWithProblemKind = 
+/**  Not a video, a song or a playlist. */
+"unsupported" | 
+/**  It couldn't be read: gone, too large, or Raygun wasn't given access. */
+"unreadable" | 
+/**  A playlist with nothing in it that plays. */
+"emptyPlaylist";
 
 /**  A page of the manga reader, by its proxy URL. */
 export type PageRef = {

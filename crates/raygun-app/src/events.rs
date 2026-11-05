@@ -28,7 +28,8 @@ pub struct ConnectRequestEvent(pub raygun_model::ConnectRequest);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct PermissionPromptEvent(pub raygun_model::PermissionPrompt);
 
-/// A notification was tapped: the screen it opens (`/downloads?tab=music`, or `player`).
+/// A screen to open: a tapped notification's (`/downloads?tab=music`, or `player`), or the one
+/// for what another app handed over (`player`, a search, `import?link=` for a Spotify link).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct OpenRouteEvent(pub String);
 
@@ -196,3 +197,7 @@ pub struct SpeechCommandEvent(pub raygun_model::SpeechCommand);
 /// A YouTube video to open in its own full-window player (trailers, M46.4).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct YouTubeVideoEvent(pub raygun_model::YouTubeVideo);
+
+/// Something another app opened with Raygun or shared to it didn't play (`open_with`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct OpenWithEvent(pub raygun_model::OpenWithProblem);

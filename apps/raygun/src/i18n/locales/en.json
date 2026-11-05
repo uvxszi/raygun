@@ -3441,6 +3441,11 @@
       "cover": "Cover"
     }
   },
+  "openWith": {
+    "unsupported": "Raygun can’t play {{name}}",
+    "unreadable": "Couldn’t open {{name}}",
+    "emptyPlaylist": "{{name}} has nothing Raygun can play"
+  },
   "localFiles": {
     "title": "Local files",
     "add": "Add a folder",

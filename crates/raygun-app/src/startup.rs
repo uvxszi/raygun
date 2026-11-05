@@ -312,6 +312,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     crate::tts::install(app.handle());
     crate::video::install(app.handle());
     crate::websites::install(app.handle());
+    // Last: what another app opened Raygun with plays through the services above.
+    crate::open_with::install(app.handle());
     app.state::<crate::manga::MangaService>().start_scheduler();
     crate::system_ui::apply_saved_theme(app.handle().clone());
     Ok(())

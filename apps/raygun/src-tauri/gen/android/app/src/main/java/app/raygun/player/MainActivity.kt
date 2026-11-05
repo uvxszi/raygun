@@ -1,12 +1,14 @@
 package app.raygun.player
 
 import android.content.Context
+import android.content.Intent
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import app.raygun.audio.OpenWith
 import app.raygun.audio.WebAwake
 
 class MainActivity : TauriActivity() {
@@ -14,9 +16,21 @@ class MainActivity : TauriActivity() {
   private var multicastLock: WifiManager.MulticastLock? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    // Recreated after Android stopped Raygun in the background: what another app opened it with
+    // played then, and doesn't again.
+    if (savedInstanceState != null) OpenWith.handled(intent)
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     resizeForKeyboard()
+  }
+
+  /**
+   * Another "Open with" or "Share" while Raygun runs. It becomes the activity's intent too, so the
+   * plugin still finds it when it loads after this (the app was restarted for the intent).
+   */
+  override fun onNewIntent(intent: Intent) {
+    setIntent(intent)
+    super.onNewIntent(intent)
   }
 
   /** wry hands over its webview here: it goes in a parent that can keep it playing off screen. */
