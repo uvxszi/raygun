@@ -228,6 +228,10 @@ pub struct Finished {
     pub failed: bool,
     pub actions: Vec<Action>,
     pub route: String,
+    /// The download's key when the batch was one that finished, for an Open button where its
+    /// kind has a file to open (a file from a website). Not sent as is.
+    #[serde(skip)]
+    pub lone: Option<String>,
 }
 
 /// Everything the notifications show now.
@@ -710,6 +714,7 @@ fn finish(batch: u64, ended: &[Download]) -> Option<Finished> {
                     Vec::new()
                 },
                 route: installs.route.clone(),
+                lone: None,
             });
         }
         _ => {}
@@ -772,6 +777,7 @@ fn finish_downloads(batch: u64, ended: &[&Download]) -> Option<Finished> {
             format!("Not downloaded: {}", titles(&failed)),
         ),
     };
+    let lone = (done.len() == 1 && failed.is_empty()).then(|| done[0].key());
     Some(Finished {
         batch,
         title,
@@ -779,6 +785,7 @@ fn finish_downloads(batch: u64, ended: &[&Download]) -> Option<Finished> {
         failed: !failed.is_empty(),
         actions,
         route,
+        lone,
     })
 }
 

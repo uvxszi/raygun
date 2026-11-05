@@ -140,6 +140,38 @@ fn the_batch_ends_with_one_notice() {
     // Already said: the next update has nothing to add.
     let after = tracker.update(3_000.0, &[song("a", Phase::Done, 5e6)]);
     assert!(after.finished.is_none());
+    // A batch of several has no one file to open.
+    assert_eq!(finished.lone, None);
+}
+
+#[test]
+fn a_lone_finished_download_is_named_for_its_open_button() {
+    let file = |phase| Download {
+        kind: Kind::Files,
+        title: "manual.pdf".into(),
+        subtitle: Some("example.org".into()),
+        route: Kind::Files.route().into(),
+        ..song("f1", phase, 0.0)
+    };
+    let mut tracker = Tracker::default();
+    tracker.update(0.0, &[file(Phase::Running)]);
+    let end = tracker.update(1_000.0, &[file(Phase::Done)]);
+    let finished = end.finished.expect("a notice");
+    assert_eq!(finished.title, "manual.pdf");
+    assert_eq!(finished.lone.as_deref(), Some("files:f1"));
+    // Only the platform adds what it opens; the key itself isn't sent.
+    assert!(
+        serde_json::to_value(&finished)
+            .unwrap()
+            .get("lone")
+            .is_none()
+    );
+
+    // One that failed has nothing to open.
+    let mut tracker = Tracker::default();
+    tracker.update(0.0, &[file(Phase::Running)]);
+    let end = tracker.update(1_000.0, &[file(Phase::Failed)]);
+    assert_eq!(end.finished.expect("a notice").lone, None);
 }
 
 #[test]

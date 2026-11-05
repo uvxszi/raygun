@@ -7,8 +7,10 @@
 //! at a time; stops, failures and restarts carry on where they were when the server takes
 //! ranges. Finished files are moved into place (on Android through the plugin's `Storage`), under
 //! a name kept apart from files already there. The list is kept in `local_meta`, shown in
-//! Downloads → Files and in the download notifications.
+//! Downloads → Files and in the download notifications; the browser follows the ones it started
+//! ([`browser`]).
 
+pub mod browser;
 #[cfg(not(target_os = "android"))]
 pub mod desktop;
 pub mod fetch;
@@ -93,6 +95,9 @@ pub struct FileRequest {
     #[serde(default)]
     pub size: Option<f64>,
     pub destination: Destination,
+    /// The browser's name for it: its changes go back to the browser under it ([`browser`]).
+    #[serde(default)]
+    pub ticket: Option<String>,
 }
 
 impl FileRequest {
@@ -119,6 +124,9 @@ struct Stored {
     /// The finished file: its path (desktop) or content URI (Android).
     #[serde(default)]
     saved: Option<String>,
+    /// The browser's name for it, when the browser started it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ticket: Option<String>,
 }
 
 struct Entry {
@@ -137,6 +145,8 @@ pub struct WebsiteDownloadService {
     save: Notify,
     /// Finished files are put in place one at a time, so two never take the same name.
     placing: Mutex<()>,
+    /// Changes the browser hasn't heard yet.
+    feed: browser::Feed,
 }
 
 impl WebsiteDownloadService {
@@ -148,6 +158,7 @@ impl WebsiteDownloadService {
             entries: Mutex::new(Vec::new()),
             save: Notify::new(),
             placing: Mutex::new(()),
+            feed: browser::Feed::default(),
         })
     }
 
@@ -155,8 +166,11 @@ impl WebsiteDownloadService {
         self.app.state::<AppDb>().inner().0.clone()
     }
 
-    /// Reads the kept list (downloads left running carry on) and starts storing changes.
+    /// Reads the kept list (downloads left running carry on) and starts storing changes and
+    /// telling the browser about its downloads.
     pub fn start(self: &Arc<Self>) {
+        let feed = self.clone();
+        tauri::async_runtime::spawn(async move { feed.feed().await });
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
             let kept: Vec<Stored> = raygun_db::local_value(&service.db(), STORE_KEY)
@@ -260,6 +274,7 @@ impl WebsiteDownloadService {
             destination: request.destination,
             validator: Validator::default(),
             saved: None,
+            ticket: request.ticket.filter(|ticket| !ticket.is_empty()),
         };
         {
             let mut entries = self.entries.lock().expect("downloads poisoned");
@@ -339,6 +354,9 @@ impl WebsiteDownloadService {
         if let Some(cancel) = removed.cancel {
             let _ = cancel.send(true);
         }
+        if let Some(ticket) = &removed.stored.ticket {
+            self.feed.say(browser::BrowserDownload::gone(ticket));
+        }
         let _ = std::fs::remove_file(self.partial(id));
         let mut result = Ok(());
         if delete_file && let Some(saved) = removed.stored.saved.clone() {
@@ -368,6 +386,12 @@ impl WebsiteDownloadService {
         })
         .flatten()
         .ok_or_else(|| "That file isn't saved yet".to_owned())
+    }
+
+    /// A finished file (its content URI on Android, path on desktop) and its type.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub fn saved_file(&self, id: &str) -> Option<(String, Option<String>)> {
+        self.saved_of(id).ok()
     }
 
     /// Opens a finished file in the app the system picks.
@@ -446,6 +470,68 @@ impl WebsiteDownloadService {
     fn emit(&self, id: &str) {
         if let Err(error) = WebsiteDownloadsEvent(id.to_owned()).emit(&self.app) {
             tracing::debug!(%error, "file downloads event not sent");
+        }
+        self.feed.touch(id);
+    }
+
+    /// The download a browser's ticket names, and where it stands.
+    pub fn by_ticket(&self, ticket: &str) -> Option<(String, WebsiteDownloadState)> {
+        self.entries
+            .lock()
+            .expect("downloads poisoned")
+            .iter()
+            .find(|entry| entry.stored.ticket.as_deref() == Some(ticket))
+            .map(|entry| (entry.stored.item.id.clone(), entry.stored.item.state))
+    }
+
+    /// The browser's question about the downloads it started. Only those are touched.
+    pub fn ask(self: &Arc<Self>, ask: browser::BrowserAsk) {
+        match ask {
+            browser::BrowserAsk::Watch { tickets } => {
+                self.feed.watch();
+                for ticket in tickets {
+                    match self.by_ticket(&ticket) {
+                        Some((id, _)) => self.feed.touch(&id),
+                        None => self.feed.say(browser::BrowserDownload::gone(&ticket)),
+                    }
+                }
+            }
+            browser::BrowserAsk::Unwatch => self.feed.unwatch(),
+            browser::BrowserAsk::Cancel { ticket } => {
+                if let Some((id, _)) = self.by_ticket(&ticket) {
+                    self.cancel(&id);
+                }
+            }
+            browser::BrowserAsk::Retry { ticket } => {
+                if let Some((id, _)) = self.by_ticket(&ticket)
+                    && let Err(error) = self.retry(&id)
+                {
+                    tracing::info!(%error, "a browser download wasn't retried");
+                }
+            }
+        }
+    }
+
+    /// Tells the browser how its downloads stand, as they change: one turn at a time, a few
+    /// a second at most (progress coalesces in between). What changes while no browser hears it
+    /// goes unsaid: a browser asks again when it's back.
+    async fn feed(self: Arc<Self>) {
+        const EVERY: Duration = Duration::from_millis(300);
+        loop {
+            self.feed.wake.notified().await;
+            let (changed, said) = self.feed.take();
+            if !self.feed.heard() {
+                continue;
+            }
+            let views = {
+                let entries = self.entries.lock().expect("downloads poisoned");
+                let stored: Vec<&Stored> = entries.iter().map(|entry| &entry.stored).collect();
+                browser::turn(&changed, said, &stored)
+            };
+            if !views.is_empty() {
+                browser_platform::show(&self.app, views).await;
+            }
+            tokio::time::sleep(EVERY).await;
         }
     }
 
@@ -721,23 +807,101 @@ fn open_path(path: &Path) -> Result<(), String> {
 /// Takes a download from the browser: Android's from its broadcast (`{"download": …}` reports),
 /// desktop's from its window.
 pub fn take_request(app: &AppHandle, request: serde_json::Value) {
+    let ticket = request["ticket"].as_str().map(str::to_owned);
+    let name = request["name"].as_str().unwrap_or_default().to_owned();
     match serde_json::from_value(request) {
         Ok(request) => accept(app, request),
-        Err(error) => tracing::warn!(%error, "unreadable download request"),
+        Err(error) => {
+            tracing::warn!(%error, "unreadable download request");
+            if let Some(ticket) = ticket {
+                refuse(app, &ticket, &name, "This download couldn't start");
+            }
+        }
     }
 }
 
 /// Starts a download the person chose a place for.
 pub fn accept(app: &AppHandle, request: FileRequest) {
-    if !(request.url.starts_with("https://")
-        || request.url.starts_with("http://")
-        || request.url.starts_with("data:"))
-    {
+    if !fetchable(&request.url) {
         tracing::info!("download of an address Raygun can't fetch skipped");
+        if let Some(ticket) = &request.ticket {
+            refuse(
+                app,
+                ticket,
+                &request.file_name(),
+                "This download can't be saved from here",
+            );
+        }
         return;
     }
     if let Some(service) = app.try_state::<Arc<WebsiteDownloadService>>() {
         service.add(request);
+    }
+}
+
+/// The browser's question about the downloads it started (`{"downloadAsk": …}` reports).
+pub fn take_ask(app: &AppHandle, ask: serde_json::Value) {
+    match serde_json::from_value::<browser::BrowserAsk>(ask) {
+        Ok(ask) => {
+            if let Some(service) = app.try_state::<Arc<WebsiteDownloadService>>() {
+                service.ask(ask);
+            }
+        }
+        Err(error) => tracing::warn!(%error, "unreadable download question"),
+    }
+}
+
+/// Addresses Raygun downloads itself.
+fn fetchable(url: &str) -> bool {
+    url.starts_with("https://") || url.starts_with("http://") || url.starts_with("data:")
+}
+
+/// Tells the browser a request it handed over didn't start.
+fn refuse(app: &AppHandle, ticket: &str, name: &str, reason: &str) {
+    if let Some(service) = app.try_state::<Arc<WebsiteDownloadService>>() {
+        service
+            .feed
+            .say(browser::BrowserDownload::refused(ticket, name, reason));
+    }
+}
+
+/// Where the browser hears about its downloads.
+#[cfg(target_os = "android")]
+mod browser_platform {
+    use tauri::{AppHandle, Manager};
+
+    use super::browser::BrowserDownload;
+
+    /// In a package-only broadcast to the browser's process (through the plugin), which shows
+    /// the ones it started while it's open.
+    pub async fn show(app: &AppHandle, downloads: Vec<BrowserDownload>) {
+        let value = serde_json::json!({ "downloads": downloads });
+        let app = app.clone();
+        let sent = tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .website_downloads(&value)
+        })
+        .await;
+        if let Ok(Err(error)) = sent {
+            tracing::debug!(%error, "the browser wasn't told about its downloads");
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+mod browser_platform {
+    use tauri::AppHandle;
+
+    use super::browser::BrowserDownload;
+
+    /// In the Downloads menu of the window that started each one. Menus change on the main
+    /// thread, which this waits for.
+    pub async fn show(app: &AppHandle, downloads: Vec<BrowserDownload>) {
+        let app = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            crate::websites::show_downloads(&app, &downloads);
+        })
+        .await;
     }
 }
 

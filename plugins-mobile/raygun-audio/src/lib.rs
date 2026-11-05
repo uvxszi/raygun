@@ -373,6 +373,15 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Tells the built-in browser how the downloads it started stand (`{"downloads": [...]}`),
+    /// in a package-only broadcast that its process hears while it's open.
+    #[cfg(target_os = "android")]
+    pub fn website_downloads(&self, update: &serde_json::Value) -> Result<(), String> {
+        self.run::<serde_json::Value>("websiteDownloads", update.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Opens the request that met a browser check for the person to pass it by hand
     /// (`BrowserCheckActivity`; request `{url, method, headers, body, userAgent}`). Blocks until
     /// the browser closes; answers `{cookies, userAgent, seen}`: the address's cookies as a
