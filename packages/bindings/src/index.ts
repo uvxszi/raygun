@@ -428,8 +428,27 @@ export const commands = {
 	coverFallback: (target: DetailTarget) => typedError<string | null, string>(__TAURI_INVOKE("cover_fallback", { target })),
 	/**  The folders in Local Files and what each holds (M46.27). */
 	localFolders: () => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folders")),
-	/**  Adds a folder the user picks to Local Files and scans it; `None` when they cancelled. */
+	/**
+	 *  Adds a folder the user picks in the system's picker to Local Files and scans it; `None` when
+	 *  they cancelled.
+	 */
 	localFolderAdd: () => typedError<LocalFolder[] | null, string>(__TAURI_INVOKE("local_folder_add")),
+	/**  Adds a folder chosen in Local Files' own folder browser, by its path, and scans it (M46.51). */
+	localFolderAddPath: (path: string) => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folder_add_path", { path })),
+	/**  A folder of the device's storage for Local Files' folder browser; its top for `None` (M46.51). */
+	localFilesBrowse: (path: string | null) => typedError<LocalBrowse, string>(__TAURI_INVOKE("local_files_browse", { path })),
+	/**
+	 *  Add files (M46.51): files picked in the system's file picker, imported or copied in; `None`
+	 *  when the user cancelled.
+	 */
+	localFilesAddFiles: () => typedError<{
+	songs: number,
+	videos: number,
+	comics: number,
+	books: number,
+	failed: LocalAddFailure[],
+	folders: LocalFolder[],
+} | null, string>(__TAURI_INVOKE("local_files_add_files")),
 	/**  Takes a folder out of Local Files. */
 	localFolderRemove: (id: string) => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folder_remove", { id })),
 	/**  Scans a Local Files folder again, or every one; files that couldn't be added are tried again. */
@@ -2984,6 +3003,46 @@ export type ListeningStats = {
 	topArtists?: string[],
 };
 
+/**  A file Add files couldn't add, and why. */
+export type LocalAddFailure = {
+	name: string,
+	error: string,
+};
+
+/**  A folder of the phone's storage in Local Files' folder browser (M46.51). */
+export type LocalBrowse = {
+	path: string,
+	name: string,
+	/**  From the top of the storage down to this folder. */
+	trail: LocalBrowseCrumb[],
+	/**  Its folders holding anything Raygun plays or reads, by name. */
+	folders: LocalBrowseFolder[],
+	/**  Files Raygun plays or reads right in this folder. */
+	items: number,
+	view: LocalStorageView,
+	/**  Android can be asked for access to all files (11 and later). */
+	canAllowAllFiles: boolean,
+	/**  The folder is in Local Files already. */
+	added: boolean,
+};
+
+/**  One step of the folder browser's trail, the top first. */
+export type LocalBrowseCrumb = {
+	name: string,
+	path: string,
+};
+
+/**  A folder inside the one shown. */
+export type LocalBrowseFolder = {
+	name: string,
+	path: string,
+	/**
+	 *  Files Raygun plays or reads in it and its folders; `None` when there were too many to
+	 *  count in time.
+	 */
+	items: number | null,
+};
+
 export type LocalCounts = {
 	songs: number,
 	comics: number,
@@ -2998,6 +3057,19 @@ export type LocalCounts = {
 	unplayable: number,
 };
 
+/**
+ *  What Add files added (M46.51): comics and books are imported, songs and videos copied into
+ *  Raygun's own Added files folder.
+ */
+export type LocalFilesAdded = {
+	songs: number,
+	videos: number,
+	comics: number,
+	books: number,
+	failed: LocalAddFailure[],
+	folders: LocalFolder[],
+};
+
 /**  A Local Files folder was added, scanned or removed; carries its id (M46.27). */
 export type LocalFilesEvent = string;
 
@@ -3007,6 +3079,8 @@ export type LocalFolder = {
 	name: string,
 	/**  Its path (or, without one, the address the picker gave). */
 	location: string,
+	/**  How Raygun reads it (M46.51). */
+	access: LocalFolderAccess,
 	counts: LocalCounts,
 	/**  Unix ms. */
 	scannedAt: number | null,
@@ -3021,6 +3095,15 @@ export type LocalFolder = {
 	 */
 	missing: boolean,
 };
+
+/**  How Raygun reads a Local Files folder (M46.51). */
+export type LocalFolderAccess = 
+/**  By its path: a desktop folder, or one chosen in Raygun's own folder browser (Android). */
+"path" | 
+/**  Through the grant of Android's system folder picker (SD cards, USB drives, cloud folders). */
+"tree" | 
+/**  Raygun's own folder of songs and videos added one by one (the copies it keeps). */
+"added";
 
 /**
  *  Android 17's local network permission, for one connection: reaching an addon on the user's
@@ -3042,6 +3125,18 @@ export type LocalScanProgress = {
 	done: number,
 	total: number,
 };
+
+/**  What Local Files' folder browser shows of the phone's storage (M46.51). */
+export type LocalStorageView = 
+/**  Every file: access to all files is allowed (or a desktop, where nothing is asked). */
+"allFiles" | 
+/**
+ *  Songs, videos and pictures only: the media permissions. Other apps' books and comic
+ *  archives (EPUB, CBZ, ZIP) stay hidden.
+ */
+"media" | 
+/**  Nothing until media access is allowed. */
+"none";
 
 /**  One timed line of synced lyrics. */
 export type LyricLine = {
@@ -3803,10 +3898,15 @@ export type PermissionKind =
 "notifications" | 
 /**  Running in the background without Android's battery limits. */
 "battery" | 
-/**  Reading the phone's songs and videos (Local Files, the device's music). */
+/**  Reading the phone's songs, videos and pictures (Local Files, the device's music). */
 "media" | 
 /**  Folders picked in the system's folder picker. */
 "folders" | 
+/**
+ *  Optional (Android 11+): reading every file in shared storage, so Local Files' folders
+ *  show other apps' books and comic archives (EPUB, CBZ, ZIP) too (M46.51).
+ */
+"allFiles" | 
 /**  Android 17's local network access. */
 "localNetwork" | 
 /**  Installing Raygun's own updates. */

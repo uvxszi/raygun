@@ -1415,11 +1415,15 @@
     "kind": {
       "notifications": "Notifications",
       "battery": "Background activity",
-      "media": "Songs and videos on this phone",
+      "media": "Songs, videos and pictures on this phone",
       "folders": "Picked folders",
+      "allFiles": "All files (optional)",
       "localNetwork": "Local network",
       "installApps": "Install updates",
       "camera": "Camera, to scan link codes"
+    },
+    "about": {
+      "allFiles": "Lets Local files read EPUB books and CBZ or ZIP comics in any folder, such as Download"
     },
     "state": {
       "granted": "Allowed",
@@ -1446,8 +1450,8 @@
         "why": "See progress, pause or cancel, and know when downloads finish."
       },
       "folders": {
-        "title": "Read songs and videos",
-        "why": "Raygun plays the songs and videos in the folders you add."
+        "title": "Read songs, videos and pictures",
+        "why": "Raygun plays the songs and videos in the folders you add, and reads folders of pictures as comics."
       }
     }
   },
@@ -3311,11 +3315,35 @@
   "localFiles": {
     "title": "Local files",
     "add": "Add a folder",
+    "addFiles": "Add files",
+    "addingFiles": "Adding files…",
+    "addedFiles": "Added",
+    "addFilesFailed": "Couldn't add the files",
+    "addedFolder": "Added files",
+    "addedWhere": "Copies of the songs and videos you added",
     "pickAgain": "Pick it again",
     "rescan": "Scan the folders again",
     "rescanOne": "Scan {{name}} again",
     "remove": "Remove {{name}}",
     "removeConfirm": "Remove",
+    "removeCopies": "Remove and delete the copies",
+    "browser": {
+      "title": "Add a folder",
+      "trail": "Folder path",
+      "top": "Internal storage",
+      "loading": "Opening the folder",
+      "folders": "Folders",
+      "here_one": "{{count}} item right in this folder",
+      "here_other": "{{count}} items right in this folder",
+      "noFolders": "No folders here with anything Raygun plays or reads",
+      "use": "Use this folder",
+      "added": "Already in Local files",
+      "systemPicker": "Use system picker",
+      "needsMedia": "Allow access to the phone's songs, videos and pictures to see its folders.",
+      "mediaOnly": "EPUB books and comic archives (CBZ, ZIP) show once Raygun may read all files.",
+      "allowAllFiles": "Allow access to all files",
+      "unreadable": "Couldn't open this folder"
+    },
     "empty": "No folders yet",
     "holds": "What a folder can hold",
     "holdsKinds": {
@@ -3330,7 +3358,7 @@
     "nothingYet": "Nothing found yet",
     "nothingFound": "Nothing Raygun plays or reads",
     "missing": "Can't open this folder",
-    "needsAccess": "Songs and videos need access to the phone's media",
+    "needsAccess": "Needs access to the phone's songs, videos and pictures",
     "allowAccess": "Allow access",
     "failed_one": "{{count}} file couldn't be added",
     "failed_other": "{{count}} files couldn't be added",

@@ -143,6 +143,18 @@ class FolderArgs {
     var uri: String = ""
 }
 
+/** A folder of shared storage for Local Files' browser (M46.51), and the kinds of file it counts. */
+@InvokeArg
+class BrowseMediaArgs {
+    var path: String = ""
+    var extensions: Array<String> = emptyArray()
+}
+
+@InvokeArg
+class PickDocumentsArgs {
+    var mimes: Array<String> = emptyArray()
+}
+
 @InvokeArg
 class OutputArgs {
     var place: String = ""
@@ -242,6 +254,7 @@ private fun soundConfig(sound: JSONObject): SoundConfig {
     permissions = [
         Permission(strings = [Manifest.permission.READ_MEDIA_AUDIO], alias = "audio"),
         Permission(strings = [Manifest.permission.READ_MEDIA_VIDEO], alias = "video"),
+        Permission(strings = [Manifest.permission.READ_MEDIA_IMAGES], alias = "images"),
         Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
         Permission(strings = [Manifest.permission.ACCESS_LOCAL_NETWORK], alias = "localNetwork"),
         Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications"),
@@ -1025,23 +1038,93 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
 
     // ---- Local Files (M46.27): reading folders the user picked ----
 
-    /** Asks to read the device's songs and videos (Android 13+), which Local Files plays by path. */
+    /** The media permissions: songs, videos and pictures (Android 13+), else the storage one. */
+    private fun mediaAliases() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video", "images") else arrayOf("storage")
+
+    private fun mediaGranted() = mediaAliases().all { getPermissionState(it) == PermissionState.GRANTED }
+
+    /** Asks to read the device's songs, videos and pictures, which Local Files reads by path. */
     @Command
     fun requestMediaAccess(invoke: Invoke) {
-        val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
-        val granted = aliases.all { getPermissionState(it) == PermissionState.GRANTED }
+        val granted = mediaGranted()
         // "Not now" to Raygun's own question just before: Android isn't asked over it.
         if (granted || Permissions.recentlyDeclined("media")) {
             invoke.resolve(JSObject().put("granted", granted))
         } else {
-            requestPermissionForAliases(aliases, invoke, "mediaAccessResult")
+            requestPermissionForAliases(mediaAliases(), invoke, "mediaAccessResult")
         }
     }
 
     @PermissionCallback
     fun mediaAccessResult(invoke: Invoke) {
-        val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
-        invoke.resolve(JSObject().put("granted", aliases.all { getPermissionState(it) == PermissionState.GRANTED }))
+        invoke.resolve(JSObject().put("granted", mediaGranted()))
+    }
+
+    /**
+     * What Raygun may read of shared storage (M46.51; see LocalStorage). `media` is any of the
+     * media permissions: MediaStore then lists the kinds allowed.
+     */
+    @Command
+    fun storageAccess(invoke: Invoke) {
+        val media = mediaAliases().any { getPermissionState(it) == PermissionState.GRANTED }
+        invoke.resolve(
+            JSObject()
+                .put("root", LocalStorage.root())
+                .put("media", media)
+                .put("allFiles", LocalStorage.allFiles(media))
+                .put("canAskAllFiles", LocalStorage.canAskAllFiles()),
+        )
+    }
+
+    /** A folder of shared storage as MediaStore lists it, for Local Files' browser (M46.51). */
+    @Command
+    fun browseMedia(invoke: Invoke) {
+        val args = invoke.parseArgs(BrowseMediaArgs::class.java)
+        val context = activity.applicationContext
+        thread(name = "raygun-local-files") {
+            try {
+                val extensions = args.extensions.map { it.lowercase() }.toSet()
+                invoke.resolve(LocalStorage.mediaFolders(context, args.path, extensions))
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't list the phone's folders")
+            }
+        }
+    }
+
+    /** The system's file picker for several files at once: Local Files' Add files (M46.51). */
+    @Command
+    fun pickDocuments(invoke: Invoke) {
+        val args = invoke.parseArgs(PickDocumentsArgs::class.java)
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        if (args.mimes.isNotEmpty()) intent.putExtra(Intent.EXTRA_MIME_TYPES, args.mimes)
+        try {
+            startActivityForResult(invoke, intent, "documentsPicked")
+        } catch (error: android.content.ActivityNotFoundException) {
+            invoke.reject("No app on this phone picks files")
+        }
+    }
+
+    @ActivityCallback
+    fun documentsPicked(invoke: Invoke, result: ActivityResult) {
+        val data = result.data
+        val uris = mutableListOf<Uri>()
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            data.clipData?.let { clip ->
+                for (index in 0 until clip.itemCount) clip.getItemAt(index).uri?.let(uris::add)
+            }
+            if (uris.isEmpty()) data.data?.let(uris::add)
+        }
+        val context = activity.applicationContext
+        // Providers may be slow to describe their files (a cloud drive).
+        thread(name = "raygun-local-files") {
+            val files = JSArray()
+            uris.forEach { files.put(LocalStorage.describe(context, it)) }
+            invoke.resolve(JSObject().put("files", files))
+        }
     }
 
     /** Every file under a picked folder: its document address, path inside the folder, size and time. */
@@ -1289,8 +1372,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
         rows.add(Permissions.row("notifications", notifications))
         rows.add(Permissions.row("battery", Permissions.battery(context)))
-        val media = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) listOf("audio", "video") else listOf("storage")
-        val mediaStates = media.map { getPermissionState(it) }
+        val mediaStates = mediaAliases().map { getPermissionState(it) }
         rows.add(
             Permissions.row(
                 "media",
@@ -1301,6 +1383,10 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 },
             ),
         )
+        // Optional (M46.51): only its own settings page allows it.
+        if (LocalStorage.canAskAllFiles()) {
+            rows.add(Permissions.row("allFiles", if (LocalStorage.allFiles(false)) "granted" else "denied"))
+        }
         rows.add(Permissions.row("folders", "granted", Permissions.folders(context)))
         if (localNetworkEnforced()) {
             val local = localNetworkAccess()
@@ -1360,14 +1446,9 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 }
                 startActivityForResult(invoke, intent, "permissionPageClosed")
             }
-            "media" -> {
-                val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
-                if (aliases.any { getPermissionState(it) == PermissionState.DENIED }) {
-                    startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
-                } else {
-                    requestPermissionForAliases(aliases, invoke, "permissionAnswered")
-                }
-            }
+            "media" -> requestMedia(invoke)
+            // Android 10 and older have no such page: the storage permission reads every file.
+            "allFiles" -> if (LocalStorage.canAskAllFiles()) openAllFilesPage(invoke) else requestMedia(invoke)
             "localNetwork" -> if (localNetworkEnforced() && getPermissionState("localNetwork") != PermissionState.DENIED) {
                 requestPermissionForAlias("localNetwork", invoke, "permissionAnswered")
             } else {
@@ -1381,6 +1462,32 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             }
             else -> invoke.resolve(permissionRows())
         }
+    }
+
+    private fun requestMedia(invoke: Invoke) {
+        val aliases = mediaAliases()
+        if (aliases.any { getPermissionState(it) == PermissionState.DENIED }) {
+            startActivityForResult(
+                invoke,
+                Permissions.settingsIntent(activity.applicationContext, "media"),
+                "permissionPageClosed",
+            )
+        } else {
+            requestPermissionForAliases(aliases, invoke, "permissionAnswered")
+        }
+    }
+
+    /** Access to all files' page (M46.51), answered with every state once the user is back. */
+    private fun openAllFilesPage(invoke: Invoke) {
+        for (intent in LocalStorage.allFilesIntents(activity.applicationContext)) {
+            try {
+                startActivityForResult(invoke, intent, "permissionPageClosed")
+                return
+            } catch (error: android.content.ActivityNotFoundException) {
+                // Some builds have only the list of apps.
+            }
+        }
+        invoke.resolve(permissionRows())
     }
 
     @PermissionCallback

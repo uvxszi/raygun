@@ -6,6 +6,10 @@
 //!
 //! A question is asked once per reason: whatever the answer, Settings → Permissions is the way
 //! afterwards, so nothing asks again and again.
+//!
+//! Access to all files (Android 11+, M46.51) is optional and never asked for unprompted: Local
+//! Files' folder browser and Settings → Permissions say what it adds (other apps' EPUB books and
+//! CBZ/ZIP comics, which the media permissions don't show) and open Android's page for it.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -164,6 +168,7 @@ pub fn kind_name(kind: PermissionKind) -> &'static str {
         PermissionKind::Battery => "battery",
         PermissionKind::Media => "media",
         PermissionKind::Folders => "folders",
+        PermissionKind::AllFiles => "allFiles",
         PermissionKind::LocalNetwork => "localNetwork",
         PermissionKind::InstallApps => "installApps",
         PermissionKind::Camera => "camera",
@@ -195,8 +200,25 @@ pub async fn list(app: &AppHandle) -> Result<Vec<AppPermission>, String> {
 }
 
 /// Asks for a permission: the system's question, or its settings page where only that can help.
+/// Allowing what Local Files reads with scans its folders again for what shows now (M46.51).
 pub async fn request(app: &AppHandle, kind: PermissionKind) -> Result<Vec<AppPermission>, String> {
-    platform::request(app, kind).await
+    let states = platform::request(app, kind).await?;
+    if reads_storage(kind, &states)
+        && let Some(local) =
+            app.try_state::<std::sync::Arc<crate::local_files::LocalFilesService>>()
+        && let Err(error) = local.inner().access_changed().await
+    {
+        tracing::debug!(%error, "couldn't scan the local folders again");
+    }
+    Ok(states)
+}
+
+/// Whether `kind` is one Local Files reads the device's storage with, and it's allowed now.
+fn reads_storage(kind: PermissionKind, states: &[AppPermission]) -> bool {
+    matches!(kind, PermissionKind::Media | PermissionKind::AllFiles)
+        && states
+            .iter()
+            .any(|permission| permission.kind == kind && permission.state == AccessState::Granted)
 }
 
 #[cfg(target_os = "android")]
@@ -391,6 +413,23 @@ mod tests {
     }
 
     #[test]
+    fn local_files_look_again_once_storage_is_allowed() {
+        let allowed = [
+            permission(PermissionKind::AllFiles, AccessState::Granted),
+            permission(PermissionKind::Media, AccessState::Denied),
+        ];
+        assert!(reads_storage(PermissionKind::AllFiles, &allowed));
+        assert!(
+            !reads_storage(PermissionKind::Media, &allowed),
+            "still not allowed"
+        );
+        assert!(!reads_storage(
+            PermissionKind::Camera,
+            &[permission(PermissionKind::Camera, AccessState::Granted)]
+        ));
+    }
+
+    #[test]
     fn reads_the_plugin_rows_and_skips_unknown_ones() {
         let value = serde_json::json!({
             "permissions": [
@@ -414,6 +453,7 @@ mod tests {
             PermissionKind::Battery,
             PermissionKind::Media,
             PermissionKind::Folders,
+            PermissionKind::AllFiles,
             PermissionKind::LocalNetwork,
             PermissionKind::InstallApps,
             PermissionKind::Camera,

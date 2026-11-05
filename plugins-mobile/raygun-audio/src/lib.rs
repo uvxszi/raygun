@@ -260,6 +260,46 @@ pub struct TreeFile {
     pub modified: i64,
 }
 
+/// A file chosen in the system's file picker (M46.51: Local Files' Add files).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PickedDocument {
+    /// Its document address, to open it with [`NativeAudio::open_input`].
+    pub uri: String,
+    pub name: String,
+    #[serde(default)]
+    pub size: i64,
+    #[serde(default)]
+    pub mime: Option<String>,
+}
+
+/// What Raygun may read of shared storage (M46.51).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageAccess {
+    /// Shared storage's top folder (`/storage/emulated/0`).
+    pub root: String,
+    /// Songs, videos or pictures: any of the media permissions.
+    pub media: bool,
+    /// Every file: access to all files (Android 11+), or the storage permission before it.
+    pub all_files: bool,
+    /// Android has a page for access to all files (11 and later).
+    pub can_ask_all_files: bool,
+}
+
+/// A folder of shared storage as MediaStore knows it: its folders that hold files of the kinds
+/// asked for, with how many, and how many are right in it (M46.51).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct MediaListing {
+    pub folders: Vec<MediaFolder>,
+    pub items: u32,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct MediaFolder {
+    pub name: String,
+    pub items: u32,
+}
+
 impl<R: Runtime> NativeAudio<R> {
     /// Opens a website in the built-in browser (M46.3).
     #[cfg(target_os = "android")]
@@ -417,6 +457,41 @@ impl<R: Runtime> NativeAudio<R> {
         self.handle
             .run_mobile_plugin::<Opened>("openInput", serde_json::json!({ "uri": uri }))
             .map(|opened| opened.fd)
+            .map_err(|error| error.to_string())
+    }
+
+    /// What Raygun may read of shared storage (M46.51).
+    #[cfg(target_os = "android")]
+    pub fn storage_access(&self) -> Result<StorageAccess, String> {
+        self.handle
+            .run_mobile_plugin("storageAccess", ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// A folder of shared storage (an absolute path) as MediaStore lists it: the folders in it
+    /// holding files with these extensions, and how many (M46.51). Blocking.
+    #[cfg(target_os = "android")]
+    pub fn browse_media(&self, path: &str, extensions: &[&str]) -> Result<MediaListing, String> {
+        self.handle
+            .run_mobile_plugin(
+                "browseMedia",
+                serde_json::json!({ "path": path, "extensions": extensions }),
+            )
+            .map_err(|error| error.to_string())
+    }
+
+    /// Shows the system's file picker for several files of these types (M46.51); none when the
+    /// user cancelled. Blocks until the user answers.
+    #[cfg(target_os = "android")]
+    pub fn pick_documents(&self, mimes: &[&str]) -> Result<Vec<PickedDocument>, String> {
+        #[derive(serde::Deserialize)]
+        struct Picked {
+            #[serde(default)]
+            files: Vec<PickedDocument>,
+        }
+        self.handle
+            .run_mobile_plugin::<Picked>("pickDocuments", serde_json::json!({ "mimes": mimes }))
+            .map(|picked| picked.files)
             .map_err(|error| error.to_string())
     }
 
