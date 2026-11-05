@@ -228,7 +228,19 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.privacy.clearHistory',
   ),
 
-  ...on('data', 'settings.backup')('settings.createBackup', 'settings.importBackup'),
+  ...on('data', 'data.backups.title')(
+    'settings.createBackup',
+    'settings.importBackup',
+    'data.backups.scan',
+  ),
+  ...on('data', 'data.usage.title')(
+    'data.categories.pins',
+    'data.categories.history',
+    'data.categories.searches',
+    'data.categories.aiModels',
+    'data.categories.caches',
+  ),
+  ...on('data', 'data.erase.group')('data.erase.title'),
   ...on('data', 'storage.limits')(
     'storage.coverLimit',
     'storage.pageLimit',

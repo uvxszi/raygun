@@ -28,6 +28,8 @@ struct LogGuard(#[allow(dead_code)] WorkerGuard);
 
 pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let paths = resolve_paths(app)?;
+    // Erase everything (M46.51) happens here, before anything opens the data root.
+    let erased = crate::backup::erase::finish_pending(paths.root(), paths.mode());
     paths.ensure_base_dirs()?;
     let guard = init_logging(&paths)?;
     tracing::info!(
@@ -36,6 +38,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         version = env!("CARGO_PKG_VERSION"),
         "storage resolved"
     );
+    if let Some(erased) = erased {
+        tracing::warn!(
+            removed = erased.removed,
+            failed = ?erased.failed,
+            "erased everything but the backups"
+        );
+    }
 
     let db = tauri::async_runtime::block_on(raygun_db::Db::open(&paths.db()))?;
     tracing::info!(device_id = %db.device_id(), "database ready");
@@ -165,6 +174,11 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::backup::BackupService::new(
         app.handle().clone(),
         paths.root().join("backups"),
+        crate::export::Outputs::new(
+            app.handle().clone(),
+            paths.exports(),
+            paths.cache(raygun_paths::CacheKind::Share),
+        ),
     ));
     app.manage(crate::playback::PlaybackService::new(
         app.handle().clone(),

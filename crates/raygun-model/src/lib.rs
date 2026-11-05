@@ -5837,16 +5837,245 @@ pub struct MangaChapterPages {
     pub next_chapter_id: Option<String>,
 }
 
-// ---- Backups (M30) ----
+// ---- Backups (M30) and Settings → Data (M46.51) ----
 
-/// A backup file kept on this device.
+/// One kind of data Settings → Data backs up, restores and clears.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum DataCategory {
+    /// Library → Comics, with chapters, what was read and categories.
+    Comics,
+    /// Library → Books.
+    Books,
+    /// Library → Videos.
+    Videos,
+    /// Followed podcasts and where each episode was left.
+    Podcasts,
+    Audiobooks,
+    /// Sites added to the built-in browser.
+    Websites,
+    /// Playlists and favorite songs.
+    Playlists,
+    /// Quick access pins.
+    Pins,
+    /// Songs played, videos watched and what was played from.
+    History,
+    /// Every setting but the pins.
+    Settings,
+    /// Extensions, repositories, Stremio addons and connected servers.
+    Sources,
+    /// What was downloaded: backups keep the list, never the files.
+    Downloads,
+    /// Recent searches.
+    Searches,
+    /// AI models and translators.
+    AiModels,
+    /// Covers, reader pages and lyrics kept to show them quickly; never backed up.
+    Caches,
+}
+
+impl DataCategory {
+    pub const ALL: [DataCategory; 15] = [
+        DataCategory::Comics,
+        DataCategory::Books,
+        DataCategory::Videos,
+        DataCategory::Podcasts,
+        DataCategory::Audiobooks,
+        DataCategory::Websites,
+        DataCategory::Playlists,
+        DataCategory::Pins,
+        DataCategory::History,
+        DataCategory::Settings,
+        DataCategory::Sources,
+        DataCategory::Downloads,
+        DataCategory::Searches,
+        DataCategory::AiModels,
+        DataCategory::Caches,
+    ];
+
+    /// Whether backups can hold it (caches are only cleared).
+    pub fn backs_up(self) -> bool {
+        self != DataCategory::Caches
+    }
+}
+
+/// What a count in Settings → Data or a backup's index counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DataItem {
+    Titles,
+    Chapters,
+    Read,
+    Episodes,
+    Watched,
+    Categories,
+    Shows,
+    Books,
+    Sites,
+    Playlists,
+    PlaylistSongs,
+    Favorites,
+    Pins,
+    Settings,
+    Repositories,
+    Extensions,
+    Addons,
+    Servers,
+    /// Passwords, sign-ins and API keys.
+    Secrets,
+    Plays,
+    /// Places music was played from (an album, a playlist…).
+    Contexts,
+    /// Downloaded songs.
+    Songs,
+    /// Downloaded videos.
+    Videos,
+    /// Downloads waiting or failed: entries without a file.
+    Waiting,
+    /// Files saved from websites.
+    Files,
+    Searches,
+    Models,
+    Translators,
+    Covers,
+    Pages,
+    Lyrics,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct BackupFile {
-    pub name: String,
-    pub size_bytes: f64,
+pub struct DataCount {
+    pub item: DataItem,
+    pub count: u32,
+    /// What its files take on this device, where it's files.
+    pub bytes: Option<f64>,
+}
+
+/// Where clearing a category reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DataScope {
+    /// Linked devices remove it too: device sync carries the clear like any change.
+    Synced,
+    /// This device only.
+    Device,
+}
+
+/// One category in Settings → Data: what's in it on this device.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DataUsage {
+    pub category: DataCategory,
+    pub counts: Vec<DataCount>,
+    /// Bytes its files take (downloads, models, caches); 0 for rows in the database.
+    pub bytes: f64,
+    pub scope: DataScope,
+}
+
+/// What clearing downloads removes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadsClear {
+    /// Downloaded files and their entries. Copies saved outside Raygun stay.
+    Files,
+    /// Entries waiting or failed, which have no file yet.
+    Records,
+}
+
+/// One category's counts in a backup.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupSection {
+    pub category: DataCategory,
+    pub counts: Vec<DataCount>,
+}
+
+/// What a backup file says about itself, read without unpacking the rest.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupManifest {
+    /// The file's format version (1: before M46.51, read in full to describe it).
+    pub version: u32,
     /// Unix ms.
     pub created_at: f64,
+    pub device_id: String,
+    /// The device's name as linked devices see it; empty for version 1.
+    pub device_name: String,
+    /// The Raygun that made it; empty for version 1.
+    pub app_version: String,
+    /// `android`, `windows`…; empty for version 1.
+    pub platform: String,
+    /// Whether passwords, sign-ins and API keys are inside, readable.
+    pub secrets: bool,
+    /// What it holds, category by category.
+    pub sections: Vec<BackupSection>,
+}
+
+/// Where a backup was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BackupPlace {
+    /// Raygun's own data folder.
+    App,
+    /// `Download/Raygun` on the phone, `Downloads/Raygun` on a computer.
+    Downloads,
+    /// A folder picked for backups.
+    Folder,
+}
+
+/// A backup found on this device.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupEntry {
+    /// Names the file to read, restore or delete it; good until the next scan.
+    pub id: String,
+    pub name: String,
+    pub place: BackupPlace,
+    /// Its folder as shown ("Download/Raygun", a picked folder's name).
+    pub folder: String,
+    pub size_bytes: f64,
+    /// Unix ms; the file's time.
+    pub modified_at: f64,
+    /// What it says about itself; `None` when it couldn't be read (`problem` says why).
+    pub manifest: Option<BackupManifest>,
+    pub problem: Option<String>,
+}
+
+/// A folder picked for backups, remembered so its backups are found again.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupFolder {
+    /// Its path on a computer, its tree address on Android.
+    pub uri: String,
+    pub name: String,
+    /// Unix ms of the last backup saved there.
+    pub used_at: f64,
+}
+
+/// Where a backup can be saved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupDestinations {
+    /// The usual place, as shown.
+    pub usual: String,
+    pub usual_place: BackupPlace,
+    pub folders: Vec<BackupFolder>,
+    /// The last place used: a folder's `uri`, or `None` for the usual place.
+    pub last: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupRequest {
+    pub categories: Vec<DataCategory>,
+    /// Passwords, sign-ins and API keys too, readable by anyone with the file.
+    #[serde(default)]
+    pub secrets: bool,
+    /// A remembered folder's `uri`; `None` saves to the usual place.
+    #[serde(default)]
+    pub folder: Option<String>,
 }
 
 /// Titles of one Mihon source that Raygun has no source for.
@@ -5872,10 +6101,13 @@ pub struct MihonImport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum BackupOutcome {
-    /// A Raygun backup: rows read and rows that changed here.
+    /// A Raygun backup: rows read, rows that changed here, downloads and installs started again,
+    /// and what couldn't come back (each a sentence).
     Raygun {
         received: u32,
         changed: u32,
+        queued: u32,
+        problems: Vec<String>,
     },
     Mihon {
         summary: MihonImport,

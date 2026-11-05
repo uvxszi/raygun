@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use raygun_model::{
-    AiModel, AiProvider, AiProviderInput, AppInfo, BackupFile, BackupOutcome,
-    CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry, ImportedBook,
-    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode,
-    MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
-    MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter, PlayRequest, PlaybackControl,
-    PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode,
-    RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
-    StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    AiModel, AiProvider, AiProviderInput, AppInfo, BackupDestinations, BackupEntry, BackupOutcome,
+    BackupRequest, CollectionPlayRequest, DataCategory, DataUsage, DownloadsClear, EngineReport,
+    ExtensionInfo, ExtensionRepo, HistoryEntry, ImportedBook, LibraryAlbum, LibraryArtist,
+    LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode, MangaChapterPages, MangaLibraryEntry,
+    MangaListingPage, MangaSource, MangaTitleView, MangaUpdateItem, MangaUpdateStatus, McpStatus,
+    NovelChapter, PlayRequest, PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary,
+    QueueItemInput, QueueSnapshot, ReaderMode, RemoteStatus, RepoCatalog, SavedTrack,
+    SearchResults, SettingChange, SettingValue, Settings, StorageInfo, StorageMode, SyncKind,
+    SyncStatus, TrackInput, TrackQuery,
 };
 
 use crate::ai::AiService;
@@ -3129,39 +3130,134 @@ mod tests {
     }
 }
 
-/// Writes a backup of settings, collections, history, the manga library and progress.
+/// Where backups can be saved: the usual place, the folders picked before, the one used last.
 #[tauri::command]
 #[specta::specta]
-pub async fn backup_create(backups: tauri::State<'_, BackupService>) -> Result<BackupFile, String> {
-    backups.create().await
-}
-
-/// Backups kept on this device, newest first.
-#[tauri::command]
-#[specta::specta]
-pub async fn backup_list(
+pub async fn backup_destinations(
     backups: tauri::State<'_, BackupService>,
-) -> Result<Vec<BackupFile>, String> {
-    backups.list().await
+) -> Result<BackupDestinations, String> {
+    Ok(backups.destinations().await)
 }
 
-/// Merges a kept backup into the current data (newer rows win).
+/// Shows the system's folder picker; the folder chosen is remembered for backups and used next.
+/// `None` when the picker was cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_pick_folder(
+    backups: tauri::State<'_, BackupService>,
+) -> Result<Option<BackupDestinations>, String> {
+    backups.pick_folder().await
+}
+
+/// Stops saving and looking for backups in a folder; its files stay.
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_forget_folder(
+    backups: tauri::State<'_, BackupService>,
+    uri: String,
+) -> Result<BackupDestinations, String> {
+    backups.forget_folder(&uri).await
+}
+
+/// Writes a backup of the categories asked for, where asked (M46.51).
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_create(
+    backups: tauri::State<'_, BackupService>,
+    request: BackupRequest,
+) -> Result<BackupEntry, String> {
+    backups.create(request).await
+}
+
+/// Every backup Raygun finds (its data folder, Download/Raygun, the folders picked), newest
+/// first, each with what it holds.
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_scan(
+    backups: tauri::State<'_, BackupService>,
+) -> Result<Vec<BackupEntry>, String> {
+    backups.scan().await
+}
+
+/// Merges the categories chosen from a backup the last scan found (newer rows win).
 #[tauri::command]
 #[specta::specta]
 pub async fn backup_restore(
     backups: tauri::State<'_, BackupService>,
-    name: String,
+    id: String,
+    categories: Vec<DataCategory>,
 ) -> Result<BackupOutcome, String> {
-    backups.restore(&name).await
+    backups.restore(&id, categories).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn backup_delete(
     backups: tauri::State<'_, BackupService>,
-    name: String,
+    id: String,
 ) -> Result<(), String> {
-    backups.delete(&name).await
+    backups.delete(&id).await
+}
+
+/// What each kind of data holds on this device, with sizes (Settings → Data).
+#[tauri::command]
+#[specta::specta]
+pub async fn data_usage(app: tauri::AppHandle) -> Result<Vec<DataUsage>, String> {
+    crate::backup::categories::usage(&app).await
+}
+
+/// Clears one kind of data (`downloads` says what goes of the downloads); returns what's left.
+#[tauri::command]
+#[specta::specta]
+pub async fn data_clear(
+    app: tauri::AppHandle,
+    category: DataCategory,
+    downloads: Option<DownloadsClear>,
+) -> Result<Vec<DataUsage>, String> {
+    crate::backup::categories::clear(&app, category, downloads).await?;
+    crate::backup::categories::usage(&app).await
+}
+
+/// Erases everything but the backups and starts Raygun again as after a new install.
+/// `confirm` must be `ERASE`.
+#[tauri::command]
+#[specta::specta]
+pub async fn data_erase_everything(
+    app: tauri::AppHandle,
+    paths: tauri::State<'_, crate::startup::AppPaths>,
+    confirm: String,
+) -> Result<(), String> {
+    if confirm.trim() != "ERASE" {
+        return Err("Type ERASE to erase everything".into());
+    }
+    let root = paths.0.root().to_owned();
+    tauri::async_runtime::spawn_blocking(move || crate::backup::erase::request(&root))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("Raygun couldn't prepare the erase: {error}"))?;
+    tracing::warn!("everything is erased at the next start");
+    restart_erased(&app)
+}
+
+#[cfg(target_os = "android")]
+fn restart_erased(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+        .restart_app()
+}
+
+/// The webview's storage goes now (its profile folder goes at the next start too), then Raygun
+/// starts again.
+#[cfg(not(target_os = "android"))]
+fn restart_erased(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    for window in app.webview_windows().values() {
+        if let Err(error) = window.clear_all_browsing_data() {
+            tracing::warn!(%error, "couldn't clear the webview's storage");
+        }
+    }
+    app.request_restart();
+    Ok(())
 }
 
 /// Restores a Raygun backup or imports a Mihon backup from a picked file (base64 contents).
@@ -4111,6 +4207,40 @@ async fn pick_folder(
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// A folder for backups (M46.51): the system picker on Android, a folder dialog on desktop.
+#[cfg(target_os = "android")]
+pub(crate) async fn pick_backup_folder(
+    app: &tauri::AppHandle,
+) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
+    pick_folder(app).await
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) async fn pick_backup_folder(
+    _app: &tauri::AppHandle,
+) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
+    let picked = rfd::AsyncFileDialog::new()
+        .set_title("Where Raygun saves backups")
+        .pick_folder()
+        .await;
+    Ok(match picked {
+        Some(folder) => {
+            let path = folder.path().to_path_buf();
+            tauri_plugin_raygun_audio::PickedFolder {
+                name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .or_else(|| Some(path.to_string_lossy().into_owned())),
+                uri: Some(path.to_string_lossy().into_owned()),
+            }
+        }
+        None => tauri_plugin_raygun_audio::PickedFolder {
+            uri: None,
+            name: None,
+        },
+    })
 }
 
 /// A folder for Local Files (M46.27): the system picker on Android, a folder dialog on desktop.

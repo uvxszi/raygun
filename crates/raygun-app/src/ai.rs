@@ -257,6 +257,67 @@ impl AiService {
         }
     }
 
+    /// The translators as stored, and with `keys` their keys by translator id (backups, M46.51).
+    pub async fn backup_translators(
+        &self,
+        keys: bool,
+    ) -> Result<
+        (
+            serde_json::Value,
+            std::collections::BTreeMap<String, String>,
+        ),
+        String,
+    > {
+        let list = self.stored_providers().await?;
+        let kept = if keys {
+            list.iter()
+                .filter_map(|provider| {
+                    Some((
+                        provider.id.clone(),
+                        self.vault.get(&secret_name(&provider.id))?,
+                    ))
+                })
+                .collect()
+        } else {
+            Default::default()
+        };
+        Ok((
+            serde_json::to_value(&list).map_err(|error| error.to_string())?,
+            kept,
+        ))
+    }
+
+    /// Adds the translators of a backup that aren't here, with their keys when it kept them.
+    /// Returns how many were added.
+    pub async fn restore_translators(
+        &self,
+        list: &serde_json::Value,
+        keys: &std::collections::BTreeMap<String, String>,
+    ) -> Result<u32, String> {
+        let incoming: Vec<Provider> =
+            serde_json::from_value(list.clone()).map_err(|error| error.to_string())?;
+        let _guard = self.providers_lock.lock().await;
+        let mut stored = self.stored_providers().await?;
+        let mut added = 0;
+        for provider in incoming {
+            if stored.iter().any(|known| known.id == provider.id) {
+                continue;
+            }
+            store_key(&self.vault, &provider.id, keys.get(&provider.id).cloned())?;
+            stored.push(provider);
+            added += 1;
+        }
+        if added > 0 {
+            self.store_providers(&stored).await?;
+        }
+        Ok(added)
+    }
+
+    /// How many translators there are.
+    pub async fn translator_count(&self) -> usize {
+        self.stored_providers().await.map_or(0, |list| list.len())
+    }
+
     async fn stored_providers(&self) -> Result<Vec<Provider>, String> {
         let text = raygun_db::local_value(&self.db(), PROVIDERS)
             .await

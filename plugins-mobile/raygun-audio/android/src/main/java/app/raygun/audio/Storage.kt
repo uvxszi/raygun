@@ -20,6 +20,9 @@ import java.io.File
 /** A file made for Rust to write: where it is and the descriptor Rust now owns. */
 internal class Output(val uri: Uri, val fd: Int, val name: String)
 
+/** A file found where Raygun saves (M46.51): its address, name, size and time (unix ms). */
+internal class Saved(val uri: Uri, val name: String, val size: Long, val modified: Long)
+
 /** `name`, or `name (1)`, `name (2)`… before its extension: the first one not `taken` (as Rust's `unique_name`). */
 internal fun uniqueName(name: String, taken: (String) -> Boolean): String {
     if (!taken(name)) return name
@@ -230,6 +233,84 @@ internal class Storage(private val context: Context) {
                 else resolver.delete(uri, null, null)
             !ok -> runCatching { DocumentsContract.deleteDocument(resolver, uri) }
         }
+    }
+
+    /**
+     * The files in `Download/Raygun/` (`downloads`) or a picked folder (`tree`) whose names contain
+     * `contains`, sub-folders left out. MediaStore lists the files this install saved there.
+     */
+    fun listSaved(place: String, tree: String?, contains: String): List<Saved> = when (place) {
+        "tree" -> listInTree(Uri.parse(tree ?: error("No folder was picked")), contains)
+        "downloads" ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) listInDownloads(contains)
+            else listInPublicDownloads(contains)
+        else -> error("Unknown place $place")
+    }
+
+    private fun listInDownloads(contains: String): List<Saved> {
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        val columns = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+        )
+        val found = mutableListOf<Saved>()
+        resolver.query(
+            collection,
+            columns,
+            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+            arrayOf("${Environment.DIRECTORY_DOWNLOADS}/Raygun/", "%$contains%"),
+            null,
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(1) ?: continue
+                found += Saved(
+                    android.content.ContentUris.withAppendedId(collection, cursor.getLong(0)),
+                    name,
+                    if (cursor.isNull(2)) 0L else cursor.getLong(2),
+                    if (cursor.isNull(3)) 0L else cursor.getLong(3) * 1000,
+                )
+            }
+        }
+        return found
+    }
+
+    /** Android 9 and older: the plain folder, readable with the storage permission. */
+    private fun listInPublicDownloads(contains: String): List<Saved> {
+        @Suppress("DEPRECATION")
+        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Raygun")
+        return dir.listFiles()
+            ?.filter { it.isFile && it.name.contains(contains, ignoreCase = true) }
+            ?.map { Saved(Uri.fromFile(it), it.name, it.length(), it.lastModified()) }
+            ?: emptyList()
+    }
+
+    private fun listInTree(tree: Uri, contains: String): List<Saved> {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        val columns = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        val found = mutableListOf<Saved>()
+        resolver.query(children, columns, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(0) ?: continue
+                val name = cursor.getString(1) ?: continue
+                if (cursor.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) continue
+                if (!name.contains(contains, ignoreCase = true)) continue
+                found += Saved(
+                    DocumentsContract.buildDocumentUriUsingTree(tree, id),
+                    name,
+                    if (cursor.isNull(3)) 0L else cursor.getLong(3),
+                    if (cursor.isNull(4)) 0L else cursor.getLong(4),
+                )
+            }
+        }
+        return found
     }
 
     /** Deletes a saved file: a MediaStore entry, a picked folder's document or a plain file. */
