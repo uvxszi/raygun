@@ -622,7 +622,7 @@ fn songs(list: Vec<raygun_model::SongDownload>, paused: bool) -> Vec<Download> {
                 }
             });
             let subtitle = match (song.artist, doing) {
-                (Some(artist), Some(doing)) => Some(format!("{artist} Â· {doing}")),
+                (Some(artist), Some(doing)) => Some(format!("{artist} · {doing}")),
                 (artist, doing) => artist.or(doing),
             };
             Download {
