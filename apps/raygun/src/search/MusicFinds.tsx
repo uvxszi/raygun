@@ -1,11 +1,14 @@
 import type { MusicAlbum, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { LoaderCircle, UserRound } from 'lucide-react';
-import type { FC, MouseEvent } from 'react';
+import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
-import { menuHandler, useAlbumMenuItems, useArtistMenuItems } from '../music/cardMenus';
+import { useAlbumMenuItems, useArtistMenuItems } from '../music/cardMenus';
+import { CardMenu } from '../shell/CardMenu';
+import type { MenuItem } from '../shell/contextMenuStore';
+import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
 import { MenuButton } from '../shell/MenuButton';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { playResults } from './useOnlineSearch';
@@ -75,13 +78,7 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
     <div className="flex flex-col gap-2">
       <ul data-testid="artist-finds" className="flex flex-col">
         {list.map((artist) => (
-          <li
-            key={`${artist.provider.id}:${artist.id}`}
-            className="flex items-center"
-            onContextMenu={menuHandler(() =>
-              menu({ name: artist.name, imageUrl: artist.imageUrl }),
-            )}
-          >
+          <li key={`${artist.provider.id}:${artist.id}`} className="flex items-center">
             <Link
               to="/artist"
               search={{ name: artist.name }}
@@ -143,7 +140,7 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
       >
         {list.map((album) => (
           <li key={`${album.provider.id}:${album.id}`}>
-            <AlbumTile album={album} onMenu={menuHandler(() => menu(album))} />
+            <AlbumTile album={album} menu={() => menu(album)} />
           </li>
         ))}
       </ul>
@@ -154,33 +151,42 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
 
 /**
  * An album a source knows, opening its page (M46.9); `detail` replaces the line under it. Its
- * menu (`onMenu`, made once for the whole list) has the album's basic items.
+ * ⋮ (`menu`, made once for the whole list) has the album's basic items.
  */
 export const AlbumTile: FC<{
   album: MusicAlbum;
   detail?: string;
-  onMenu?: (event: MouseEvent) => void;
-}> = ({ album, detail, onMenu }) => (
-  <Link
-    to="/music/album"
-    search={{ provider: album.provider.id, id: album.id }}
-    onContextMenu={onMenu}
-    className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
-  >
-    <Artwork
-      url={album.artworkUrl}
-      fallback={albumCover(album)}
-      className="w-full rounded-lg shadow"
-      iconSize={36}
-    />
-    <span className="truncate text-sm font-semibold">{album.title}</span>
-    <span className="text-muted truncate text-xs">
-      {detail ?? [album.year, album.artist].filter(Boolean).join(' · ')}
-    </span>
-    {!detail && (
-      <span className="flex min-w-0">
-        <SourceTag name={album.provider.name} />
+  menu?: () => MenuItem[];
+}> = ({ album, detail, menu }) => {
+  const { t } = useTranslation();
+  return (
+    <Link
+      to="/music/album"
+      search={{ provider: album.provider.id, id: album.id }}
+      className="hover:bg-surface relative flex flex-col gap-1.5 rounded-xl p-2"
+    >
+      {menu && (
+        <CardMenu
+          label={t('menu.options', { name: album.title })}
+          items={menu}
+          className={CARD_MENU_BESIDE}
+        />
+      )}
+      <Artwork
+        url={album.artworkUrl}
+        fallback={albumCover(album)}
+        className="w-full rounded-lg shadow"
+        iconSize={36}
+      />
+      <span className="truncate text-sm font-semibold">{album.title}</span>
+      <span className="text-muted truncate text-xs">
+        {detail ?? [album.year, album.artist].filter(Boolean).join(' · ')}
       </span>
-    )}
-  </Link>
-);
+      {!detail && (
+        <span className="flex min-w-0">
+          <SourceTag name={album.provider.name} />
+        </span>
+      )}
+    </Link>
+  );
+};

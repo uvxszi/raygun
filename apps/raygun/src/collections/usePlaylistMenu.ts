@@ -13,7 +13,6 @@ import {
   Shuffle,
   Trash2,
 } from 'lucide-react';
-import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
@@ -21,7 +20,6 @@ import { buildMenu, copyText } from '../music/mediaMenu';
 import { useMenuSheetsStore } from '../music/menuSheetsStore';
 import { downloadSongs } from '../music/useSongDownloads';
 import type { MenuItem } from '../shell/contextMenuStore';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { showToast } from '../shell/toastStore';
 import { usePinMenuItem } from '../shell/usePinMenuItem';
 import { playlistPin } from '../shell/useRail';
@@ -125,11 +123,4 @@ export const usePlaylistMenuItems = () => {
       ],
     });
   };
-};
-
-/** `onContextMenu` for a playlist's card or row. */
-export const usePlaylistMenu = () => {
-  const items = usePlaylistMenuItems();
-  return (playlist: Pick<PlaylistSummary, 'id' | 'name' | 'artworkUrls'>) => (event: MouseEvent) =>
-    openContextMenu(event, items(playlist));
 };

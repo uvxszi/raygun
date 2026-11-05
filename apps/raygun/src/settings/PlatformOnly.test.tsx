@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, within } from '@testing-library/react';
+import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -107,13 +107,5 @@ describe('Settings shown per platform', () => {
     cleanup();
     await AppShellWrapper.mount('/settings/reader');
     expect(await screen.findByRole('switch', { name: /Full screen button/ })).toBeInTheDocument();
-  });
-
-  it("leaves full screen out of a phone's page menu", async () => {
-    await AppShellWrapper.mount('/');
-    fireEvent.contextMenu(await screen.findByTestId('page-content'), { clientX: 10, clientY: 10 });
-    const menu = await screen.findByRole('menu');
-    expect(within(menu).getByRole('menuitem', { name: /^Reload/ })).toBeInTheDocument();
-    expect(within(menu).queryByRole('menuitem', { name: /^Full screen/ })).not.toBeInTheDocument();
   });
 });

@@ -6,7 +6,6 @@ import type { FC, Ref, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useHasProvider } from '../extensions/useExtensions';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { SourceIssue } from '../shell/SourceIssue';
 import { LyricsSourceMenu } from '../sound/LyricsSourceMenu';
 import { LyricsTranslateMenu } from '../sound/LyricsTranslateMenu';
@@ -59,15 +58,6 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
     <div
       ref={containerRef}
       data-testid="lyrics-view"
-      onContextMenu={(event) =>
-        openContextMenu(event, [
-          {
-            label: t(selectable ? 'lyricsSelect.off' : 'lyricsSelect.on'),
-            icon: TextCursorInput,
-            onSelect: () => setSelectable(!selectable),
-          },
-        ])
-      }
       style={style}
       className={`@container relative flex min-h-0 flex-col overflow-y-auto overscroll-contain ${
         hasLines || variant === 'sheet' ? 'py-4' : 'py-3'
@@ -127,6 +117,17 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
           >
             <PenLine aria-hidden size={12} />
             {t(lyrics.data ? 'lyricsEdit.fix' : 'lyricsEdit.add')}
+          </button>
+        )}
+        {hasLines && (
+          <button
+            type="button"
+            aria-pressed={selectable}
+            onClick={() => setSelectable(!selectable)}
+            className={`hover:text-foreground flex items-center gap-1 text-xs ${selectable ? 'text-primary' : 'text-muted'}`}
+          >
+            <TextCursorInput aria-hidden size={12} />
+            {t(selectable ? 'lyricsSelect.off' : 'lyricsSelect.on')}
           </button>
         )}
         {noSources && lyrics.isSuccess && !lyrics.data && (

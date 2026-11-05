@@ -72,7 +72,6 @@ import { useSortRequest } from './sortRequest';
 import { useSourcePickerStore } from './sourcePickerStore';
 import { useTrackLengths } from './useTrackLengths';
 import { useUnavailable } from './useUnavailable';
-import { useTrackMenu } from './useTrackMenu';
 import { SongMarks } from './SongMarks';
 import { ExplicitMark } from './ExplicitMark';
 import { NowPlayingBars } from '../player/NowPlayingBars';
@@ -224,7 +223,6 @@ export const TrackTable: FC<TrackTableProps> = ({
   const tracks = useTrackLengths(givenTracks);
   const wide = useWideScreen();
   const touch = useCoarsePointer();
-  const menu = useTrackMenu();
   const playingMatch = usePlayingMatch();
   const { view, set } = useTableView(kind);
   const [filter, setFilter] = useState('');
@@ -840,10 +838,6 @@ export const TrackTable: FC<TrackTableProps> = ({
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') onPlay(shown, index);
                         }}
-                        onContextMenu={menu(track.input, {
-                          onPlay: () => onPlay(shown, index),
-                          playlistItemId: track.playlistItemId,
-                        })}
                         tabIndex={0}
                         style={{
                           ...(wide ? { gridTemplateColumns: template } : {}),
@@ -989,6 +983,10 @@ export const TrackTable: FC<TrackTableProps> = ({
                               <TrackMoreButton
                                 track={track.input}
                                 playlistItemId={track.playlistItemId}
+                                extras={{
+                                  onPlay: () => onPlay(shown, index),
+                                  playlistItemId: track.playlistItemId,
+                                }}
                               />
                             </>
                           )}

@@ -3,12 +3,14 @@ import { BookAudio } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { menuHandler, useBookMenuItems } from '../music/cardMenus';
+import { useBookMenuItems } from '../music/cardMenus';
 import { formatLength } from '../podcasts/formatLength';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { searchLink } from '../search/searchTypes';
 import { EmptyState } from '../shell/EmptyState';
 import { useAudiobooks } from './useAudiobooks';
+import { CardMenu } from '../shell/CardMenu';
+import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
 
 /** Library → Audio → Audiobooks (M46.22): the books you've added, with how far you are. */
 export const AudiobooksView: FC = () => {
@@ -48,18 +50,22 @@ export const AudiobooksView: FC = () => {
             <Link
               to="/audiobook"
               search={{ id: book.id }}
-              onContextMenu={menuHandler(() =>
-                menu({
-                  title: book.title,
-                  author: book.author,
-                  artworkUrl: book.artworkUrl,
-                  id: book.id,
-                  kept: true,
-                }),
-              )}
               data-testid="audiobook-card"
-              className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
+              className="relative hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
             >
+              <CardMenu
+                label={t('menu.options', { name: book.title })}
+                items={() =>
+                  menu({
+                    title: book.title,
+                    author: book.author,
+                    artworkUrl: book.artworkUrl,
+                    id: book.id,
+                    kept: true,
+                  })
+                }
+                className={CARD_MENU_BESIDE}
+              />
               <PodcastArt url={book.artworkUrl} className="w-full rounded-lg shadow-lg" />
               <span className="line-clamp-2 text-sm font-semibold">{book.title}</span>
               {(book.author ?? book.edition) && (

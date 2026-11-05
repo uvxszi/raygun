@@ -37,6 +37,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import type { CSSProperties, FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TrackMoreButton } from '../collections/TrackMoreButton';
 import { Artwork } from '../library/Artwork';
 import { useSettings } from '../settings/useSettings';
 import { ConfirmButton } from '../shell/ConfirmButton';
@@ -271,6 +272,19 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
           disabled={remove.isPending}
           onConfirm={() => remove.mutate(item.id)}
           idleClassName={ICON}
+        />
+      )}
+      {/* A saved song's own menu, as anywhere it's listed: play, its album and artist, copy… */}
+      {item.state === 'done' && (
+        <TrackMoreButton
+          track={{
+            title: item.title,
+            artist: item.artist,
+            album: item.album,
+            durationMs: item.durationMs,
+            artworkUrl: item.artworkUrl,
+            source: null,
+          }}
         />
       )}
     </li>

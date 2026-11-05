@@ -3,6 +3,7 @@ import type { FC, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 're
 
 import { stripWidth } from '../readerDisplay';
 
+import { pageBeingRead } from './pageBeingRead';
 import { ReaderImage } from './ReaderImage';
 
 /** Pages kept loaded above the current one, so scrolling back a little shows them at once. */
@@ -110,10 +111,19 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
     [],
   );
 
-  // The page crossing the reading line is the current one; the end card counts as the last page.
+  // The page crossing the reading line is the current one, unless an earlier page's top is still
+  // on screen (`pageBeingRead`); the end card counts as the last page. Scrolling checks that top
+  // again, since it can leave the screen without the line crossing anything new.
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return;
     const crossing = new Set<number>();
+    const scroller = endRef.current?.closest('main') ?? null;
+    const report = () => {
+      if (crossing.size === 0) return;
+      const screenTop = scroller?.getBoundingClientRect().top ?? 0;
+      const boxOf = (index: number) => slots.current[index]?.getBoundingClientRect() ?? null;
+      onCurrent(pageBeingRead(Math.min(...crossing), boxOf, Math.max(screenTop, 0)));
+    };
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -122,7 +132,7 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
           if (entry.isIntersecting) crossing.add(index);
           else crossing.delete(index);
         }
-        if (crossing.size > 0) onCurrent(Math.min(...crossing));
+        report();
       },
       { rootMargin: READING_LINE },
     );
@@ -130,7 +140,20 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
       if (slot) observer.observe(slot);
     }
     if (endRef.current) observer.observe(endRef.current);
-    return () => observer.disconnect();
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        report();
+      });
+    };
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      scroller?.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [pages, total, onCurrent]);
 
   useEffect(() => {

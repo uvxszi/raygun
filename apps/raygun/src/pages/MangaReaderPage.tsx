@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ImageOff,
+  ListOrdered,
   LoaderCircle,
   Maximize,
   Minimize,
@@ -24,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 
 import { PageActionsSheet } from '../export/PageActionsSheet';
 import { unwrapResult } from '../lib/commandResult';
+import { ChapterListSheet } from '../manga/reader/ChapterListSheet';
 import { PagedView } from '../manga/reader/PagedView';
 import { gridKind, gridOf, tapAction } from '../manga/reader/tapZones';
 import type { TapAction } from '../manga/reader/tapZones';
@@ -122,6 +124,8 @@ export const MangaReaderPage: FC = () => {
   const [pageMenu, setPageMenu] = useState<number | null>(null);
   const [showingDisplay, setShowingDisplay] = useState(false);
   const [choosingMode, setChoosingMode] = useState(false);
+  /** The chapter list's button while the list is open. */
+  const [chapterList, setChapterList] = useState<HTMLElement | null>(null);
   const { display, ready } = useReaderDisplay();
   const fullscreen = useWindowFullscreen();
   const zoom = useReaderZoom();
@@ -352,8 +356,8 @@ export const MangaReaderPage: FC = () => {
       // draw no scrollbar on touch screens (styles.css), which would take its width from the page.
       // In landscape the pages stay clear of the system bars and cutouts at the sides.
       data-edge-reader
-      // A long press or right click is the page's own actions (ReaderImage), never the shell's
-      // menu with Back, Forward and Reload, nor the WebView's callout.
+      // A long press or right click is the page's own actions (ReaderImage), never the
+      // WebView's callout.
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -374,6 +378,18 @@ export const MangaReaderPage: FC = () => {
             <span className="truncate text-base font-semibold">{data?.title}</span>
             <span className="text-muted truncate text-sm">{data?.chapter.name}</span>
           </span>
+          {data && (
+            <button
+              type="button"
+              aria-label={t('reader.chapters.open')}
+              aria-haspopup="dialog"
+              aria-expanded={chapterList !== null}
+              onClick={(event) => setChapterList(chapterList ? null : event.currentTarget)}
+              className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
+            >
+              <ListOrdered aria-hidden size={22} />
+            </button>
+          )}
           <button
             type="button"
             aria-label={t('reader.display.title')}
@@ -648,6 +664,18 @@ export const MangaReaderPage: FC = () => {
             <ReaderSettingsLink />
           </div>
         </Sheet>
+      )}
+      {data && chapterList && (
+        <ChapterListSheet
+          titleId={data.titleId}
+          currentId={data.chapter.id}
+          anchor={chapterList}
+          onPick={(chapterId) => {
+            setChapterList(null);
+            goTo(chapterId);
+          }}
+          onClose={() => setChapterList(null)}
+        />
       )}
       {data && pageMenu !== null && data.pages[pageMenu] && (
         <PageActionsSheet

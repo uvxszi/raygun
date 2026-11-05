@@ -5,11 +5,13 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { openContextMenu } from '../shell/contextMenuStore';
 import { PodcastArt } from './PodcastArt';
 import { showMenu } from './podcastMenus';
 import { useOpenFeed } from './usePodcasts';
 import { SourceIssue } from '../shell/SourceIssue';
+import { CardMenu } from '../shell/CardMenu';
+import { MenuButton } from '../shell/MenuButton';
+import { CARD_MENU_BESIDE_TIGHT } from '../manga/CardPlayButton';
 
 /**
  * Directory results; tapping one opens (and stores) its feed, then its page. `grid` shows them as
@@ -40,12 +42,12 @@ export const PodcastResultList: FC<{ results: PodcastSearchResult[]; grid?: bool
           className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-2"
         >
           {results.map((result) => (
-            <li
-              key={result.feedUrl}
-              onContextMenu={(event) =>
-                openContextMenu(event, showMenu(result, t, { open: () => open(result.feedUrl) }))
-              }
-            >
+            <li key={result.feedUrl} className="relative">
+              <CardMenu
+                label={t('menu.options', { name: result.title })}
+                items={() => showMenu(result, t, { open: () => open(result.feedUrl) })}
+                className={CARD_MENU_BESIDE_TIGHT}
+              />
               <button
                 type="button"
                 onClick={() => open(result.feedUrl)}
@@ -74,17 +76,12 @@ export const PodcastResultList: FC<{ results: PodcastSearchResult[]; grid?: bool
     <div className="flex flex-col gap-2">
       <ul className="bg-surface flex flex-col rounded-xl">
         {results.map((result) => (
-          <li
-            key={result.feedUrl}
-            onContextMenu={(event) =>
-              openContextMenu(event, showMenu(result, t, { open: () => open(result.feedUrl) }))
-            }
-          >
+          <li key={result.feedUrl} className="flex items-center pr-1">
             <button
               type="button"
               onClick={() => open(result.feedUrl)}
               disabled={opening !== null}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left disabled:opacity-70"
+              className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left disabled:opacity-70"
             >
               <PodcastArt url={result.artworkUrl} className="w-12 shrink-0 rounded-md" />
               <span className="flex min-w-0 flex-1 flex-col">
@@ -103,6 +100,10 @@ export const PodcastResultList: FC<{ results: PodcastSearchResult[]; grid?: bool
                 />
               )}
             </button>
+            <MenuButton
+              label={t('menu.options', { name: result.title })}
+              items={() => showMenu(result, t, { open: () => open(result.feedUrl) })}
+            />
           </li>
         ))}
       </ul>

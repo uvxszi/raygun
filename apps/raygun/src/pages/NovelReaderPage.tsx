@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  ListOrdered,
   LoaderCircle,
   Minus,
   Plus,
@@ -29,6 +30,7 @@ import type { FC, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react'
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { ChapterListSheet } from '../manga/reader/ChapterListSheet';
 import { useSystemBars } from '../manga/reader/useSystemBars';
 import { useWakeLock } from '../manga/reader/useWakeLock';
 import { useReaderDisplay } from '../manga/readerDisplay';
@@ -820,6 +822,8 @@ export const NovelReaderPage: FC = () => {
   }, []);
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
+  /** The chapter list's button while the list is open. */
+  const [chapterList, setChapterList] = useState<HTMLElement | null>(null);
   const [progress, setProgress] = useState({ fraction: 0, label: '' });
   const [speechNotice, setSpeechNotice] = useState<string | null>(null);
   const data = loaded.data;
@@ -999,6 +1003,21 @@ export const NovelReaderPage: FC = () => {
             <span className="truncate text-base font-semibold">{data?.title}</span>
             <span className="text-muted truncate text-sm">{data?.chapter.name}</span>
           </span>
+          {data && (
+            <button
+              type="button"
+              aria-label={t('reader.chapters.open')}
+              aria-haspopup="dialog"
+              aria-expanded={chapterList !== null}
+              onClick={(event) => {
+                setPanel(false);
+                setChapterList(chapterList ? null : event.currentTarget);
+              }}
+              className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
+            >
+              <ListOrdered aria-hidden size={22} />
+            </button>
+          )}
           <button
             type="button"
             aria-label={t('novel.textSettings')}
@@ -1151,6 +1170,19 @@ export const NovelReaderPage: FC = () => {
             <ChevronRight aria-hidden size={22} />
           </button>
         </footer>
+      )}
+      {data && chapterList && (
+        <ChapterListSheet
+          medium="novel"
+          titleId={data.titleId}
+          currentId={data.chapter.id}
+          anchor={chapterList}
+          onPick={(chapterId) => {
+            setChapterList(null);
+            go(chapterId);
+          }}
+          onClose={() => setChapterList(null)}
+        />
       )}
     </section>
   );

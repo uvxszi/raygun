@@ -23,7 +23,7 @@ import {
   useSubscriptions,
 } from './usePodcasts';
 import { Carousel } from '../shell/Carousel';
-import { openContextMenu } from '../shell/contextMenuStore';
+import { CardMenu } from '../shell/CardMenu';
 import { showMenu } from './podcastMenus';
 import { SourceIssue } from '../shell/SourceIssue';
 
@@ -147,21 +147,18 @@ export const PodcastsView: FC = () => {
           </div>
           <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
             {shows.map((podcast) => (
-              <li
-                key={podcast.id}
-                className="w-28 shrink-0"
-                onContextMenu={(event) =>
-                  openContextMenu(
-                    event,
+              <li key={podcast.id} className="relative w-28 shrink-0">
+                <CardMenu
+                  label={t('menu.options', { name: podcast.title })}
+                  items={() =>
                     showMenu({ ...podcast, subscribed: true }, t, {
                       open: () => void navigate({ to: '/podcast', search: { id: podcast.id } }),
                       refresh: () => refresh.mutate(podcast.id),
                       setSubscribed: (subscribed) =>
                         setSubscribed.mutate({ id: podcast.id, subscribed }),
-                    }),
-                  )
-                }
-              >
+                    })
+                  }
+                />
                 <Link
                   to="/podcast"
                   search={{ id: podcast.id }}

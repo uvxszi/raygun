@@ -29,3 +29,12 @@ export const CardPlayButton: FC<{ label: string; onPlay: () => void; className?:
 /** The ⋮ button's look on a cover: a dark disc in its top right corner. */
 export const CARD_MENU_CLASS =
   'absolute top-1.5 right-1.5 grid size-8 place-items-center rounded-full bg-black/55 text-white';
+
+/**
+ * The same ⋮ beside a card rather than inside it (a card that is itself a button): placed on the
+ * cover of a card padded by `p-2`, over the card.
+ */
+export const CARD_MENU_BESIDE = `${CARD_MENU_CLASS} z-10 m-2`;
+
+/** `CARD_MENU_BESIDE` for a card padded by `p-1.5`. */
+export const CARD_MENU_BESIDE_TIGHT = `${CARD_MENU_CLASS} z-10 m-1.5`;

@@ -5,7 +5,6 @@ import { TrackMoreButton } from '../collections/TrackMoreButton';
 import { fromOnlineTrack } from '../collections/useCollections';
 import { Artwork } from '../library/Artwork';
 import { ArtistLinks } from '../music/ArtistLinks';
-import { useTrackMenu } from '../music/useTrackMenu';
 import { formatTime } from '../player/formatTime';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
@@ -33,15 +32,10 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
   source,
   sourceAdult = false,
 }) => {
-  const menu = useTrackMenu();
   const playing = usePlayingMatch()(track);
   return (
     <Selectable picked={{ kind: 'song', track }} layout="row">
-      <div
-        className="flex items-center"
-        data-reveal={songReveal(track.title, track.artist)}
-        onContextMenu={menu(fromOnlineTrack(track), { onPlay: () => onPlay(track) })}
-      >
+      <div className="flex items-center" data-reveal={songReveal(track.title, track.artist)}>
         <button
           type="button"
           data-testid="online-track-row"
@@ -78,7 +72,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
             {track.durationMs ? formatTime(track.durationMs) : ''}
           </span>
         </button>
-        <TrackMoreButton track={fromOnlineTrack(track)} />
+        <TrackMoreButton track={fromOnlineTrack(track)} extras={{ onPlay: () => onPlay(track) }} />
       </div>
     </Selectable>
   );

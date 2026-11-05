@@ -802,6 +802,8 @@ export const commands = {
 	mangaLibrary: () => typedError<MangaLibraryEntry[], string>(__TAURI_INVOKE("manga_library")),
 	/**  A chapter's pages and its neighbours, for the reader. */
 	mangaChapter: (titleId: string, chapterId: string) => typedError<MangaChapterPages, string>(__TAURI_INVOKE("manga_chapter", { titleId, chapterId })),
+	/**  A stored title's chapters (read and download states, no fetching), for the reader's list. */
+	mangaChapters: (titleId: string) => typedError<MangaChapterInfo[], string>(__TAURI_INVOKE("manga_chapters", { titleId })),
 	/**  The page reached in a chapter; reaching the last page marks it read. */
 	mangaSetProgress: (chapterId: string, page: number, total: number) => typedError<null, string>(__TAURI_INVOKE("manga_set_progress", { chapterId, page, total })),
 	mangaSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_read", { chapterId, read })),
@@ -985,6 +987,8 @@ export const commands = {
 	libraryDownloadTitles: (medium: string, titles: RemoteTitleRef[], amount: number | null) => typedError<BulkResult, string>(__TAURI_INVOKE("library_download_titles", { medium, titles, amount })),
 	/**  The chapter or episode a title continues at. */
 	libraryContinue: (medium: string, titleId: string) => typedError<string | null, string>(__TAURI_INVOKE("library_continue", { medium, titleId })),
+	/**  Titles of `medium` with downloaded chapters or episodes, in the library or not. */
+	libraryDownloaded: (medium: string) => typedError<MangaLibraryEntry[], string>(__TAURI_INVOKE("library_downloaded", { medium })),
 	/**  Library titles with the same name as `title` from other sources. */
 	libraryDuplicates: (medium: string, titleId: string, title: string) => typedError<LibraryDuplicate[], string>(__TAURI_INVOKE("library_duplicates", { medium, titleId, title })),
 	/**
@@ -3237,6 +3241,8 @@ export type MangaDownloadItem = {
 	titleId: string,
 	title: string,
 	chapter: string,
+	/**  The title's medium: `manga` or `novel` (novel chapters share the queue). */
+	medium: string,
 	download: ChapterDownload,
 };
 

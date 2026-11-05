@@ -133,7 +133,8 @@ describe('Cover viewer', () => {
     );
     await AppShellWrapper.mount(`/manga/source?id=${encodeURIComponent(SOURCE)}`);
     const page = await screen.findByTestId('manga-source-page');
-    fireEvent.contextMenu(await within(page).findByTestId('manga-card'));
+    await within(page).findByTestId('manga-card');
+    await user.click(within(page).getByRole('button', { name: 'Options for Frieren' }));
     await user.click(await screen.findByRole('menuitem', { name: 'View cover' }));
     const sheet = await screen.findByTestId('cover-sheet');
     expect(await within(sheet).findByRole('img', { name: 'Frieren' })).toHaveAttribute(

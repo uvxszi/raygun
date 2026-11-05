@@ -1,7 +1,7 @@
 import type { MusicChart, OnlineTrack } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
-import type { FC, MouseEvent } from 'react';
+import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { fromOnlineTrack } from '../collections/useCollections';
@@ -10,12 +10,14 @@ import { Artwork } from '../library/Artwork';
 import { playResults } from '../search/useOnlineSearch';
 import { useInView } from '../shell/useInView';
 import { useChartSongs } from './useDiscovery';
-import { useTrackMenu } from './useTrackMenu';
 import { Carousel } from '../shell/Carousel';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SongMarks } from './SongMarks';
+import { TrackMoreButton } from '../collections/TrackMoreButton';
+import type { TrackMenuExtras } from './useTrackMenu';
+import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
 import { ExplicitMark } from './ExplicitMark';
 import { useHidden } from './hidden';
 import { songReveal } from './reveal';
@@ -30,15 +32,20 @@ const SongCard: FC<{
   rank: number;
   playing: 'playing' | 'paused' | null;
   onPlay: () => void;
-  onMenu: (event: MouseEvent) => void;
-}> = ({ song, rank, playing, onPlay, onMenu }) => {
+  menu: TrackMenuExtras;
+}> = ({ song, rank, playing, onPlay, menu }) => {
   const { t } = useTranslation();
   return (
-    <li className={CARD} data-reveal={songReveal(song.title, song.artist)}>
+    <li className={`${CARD} relative`} data-reveal={songReveal(song.title, song.artist)}>
+      <TrackMoreButton
+        track={fromOnlineTrack(song)}
+        extras={menu}
+        className={CARD_MENU_BESIDE}
+        iconSize={16}
+      />
       <button
         type="button"
         onClick={onPlay}
-        onContextMenu={onMenu}
         aria-label={t('discover.playChart', { name: song.title })}
         data-testid="chart-song"
         className="group hover:bg-surface flex w-full flex-col gap-2 rounded-xl p-2 text-left"
@@ -76,7 +83,6 @@ const SongCards: FC<{ songs: OnlineTrack[]; home?: boolean; limit?: number }> = 
   home = false,
   limit,
 }) => {
-  const menu = useTrackMenu();
   const playing = usePlayingMatch();
   const hidden = useHidden();
   const shown = home ? songs.filter((song) => !hidden.hidesSong(song)) : songs;
@@ -91,7 +97,7 @@ const SongCards: FC<{ songs: OnlineTrack[]; home?: boolean; limit?: number }> = 
             rank={index + 1}
             playing={playing(song)}
             onPlay={play}
-            onMenu={menu(fromOnlineTrack(song), { onPlay: play, notInterested: home })}
+            menu={{ onPlay: play, notInterested: home }}
           />
         );
       })}

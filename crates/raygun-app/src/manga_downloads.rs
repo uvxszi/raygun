@@ -370,6 +370,7 @@ impl MangaDownloadService {
                     download: chapter_download(&entry.download),
                     title: entry.title,
                     chapter: entry.chapter,
+                    medium: entry.kind,
                 })
                 .collect(),
             downloaded,

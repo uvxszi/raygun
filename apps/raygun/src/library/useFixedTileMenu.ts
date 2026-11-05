@@ -14,7 +14,6 @@ import {
   Shuffle,
   SquareArrowOutUpRight,
 } from 'lucide-react';
-import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { COLLECTIONS, fromSavedTrack, playCollection } from '../collections/useCollections';
@@ -25,7 +24,6 @@ import { DOWNLOADED } from '../music/songDownloadCache';
 import { useSortRequest } from '../music/sortRequest';
 import { downloadSongs, useSongDownloadActions } from '../music/useSongDownloads';
 import type { MenuItem } from '../shell/contextMenuStore';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { showToast } from '../shell/toastStore';
 import { usePinMenuItem } from '../shell/usePinMenuItem';
 import type { PinTarget } from '../shell/useRail';
@@ -152,10 +150,4 @@ export const useFixedTileMenuItems = () => {
       ],
     });
   };
-};
-
-/** `onContextMenu` for a fixed block's tile. */
-export const useFixedTileMenu = () => {
-  const items = useFixedTileMenuItems();
-  return (tile: FixedTile) => (event: MouseEvent) => openContextMenu(event, items(tile));
 };

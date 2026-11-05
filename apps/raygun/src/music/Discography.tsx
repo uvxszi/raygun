@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { AlbumTile } from '../search/MusicFinds';
-import { menuHandler, useAlbumMenuItems } from './cardMenus';
+import { useAlbumMenuItems } from './cardMenus';
 import { Sheet } from '../shell/Sheet';
 import { RELEASE_SORTS, readReleaseSorts, saveReleaseSorts, sortReleases } from './releaseSort';
 import type { ReleaseSort } from './releaseSort';
@@ -153,7 +153,7 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
           <li key={`${release.provider.id}:${release.id}`}>
             <AlbumTile
               album={release}
-              onMenu={menuHandler(() => menu(release))}
+              menu={() => menu(release)}
               detail={[release.year, t(`artist.release.${shelfOf(release.kind)}One`)]
                 .filter(Boolean)
                 .join(' · ')}

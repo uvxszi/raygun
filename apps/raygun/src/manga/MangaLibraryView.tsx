@@ -310,7 +310,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
       label: t('manga.downloads'),
       icon: Download,
       to: '/downloads',
-      ...(video ? { search: { tab: 'videos' } } : {}),
+      search: { tab: video ? 'videos' : medium === 'novel' ? 'books' : 'comics' },
     },
     ...(video
       ? [

@@ -148,7 +148,11 @@ describe('The sidebar (M46.29)', () => {
     await vi.waitFor(() => expect(names()).not.toContain('Favorites'));
 
     // The Library's tile pins it again.
-    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Favorites.*tracks?$/ }));
+    await user.click(
+      await within(screen.getByTestId('page-content')).findByRole('button', {
+        name: 'Options for Favorites',
+      }),
+    );
     for (const name of ['Play', 'Shuffle', 'Play next', 'Add to queue', 'Open', 'Sort by']) {
       expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument();
     }
@@ -165,12 +169,20 @@ describe('The sidebar (M46.29)', () => {
     commands.localFoldersRescan.mockResolvedValue(ok(null));
     await AppShellWrapper.mount('/library?view=all');
 
-    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Downloaded.*tracks?$/ }));
+    await user.click(
+      await within(screen.getByTestId('page-content')).findByRole('button', {
+        name: 'Options for Downloaded',
+      }),
+    );
     await user.click(await screen.findByRole('menuitem', { name: 'Check downloads' }));
     await vi.waitFor(() => expect(commands.songDownloadsCheck).toHaveBeenCalledWith(null));
     expect(await screen.findByText('All 2 downloads are fine')).toBeInTheDocument();
 
-    fireEvent.contextMenu(screen.getByRole('link', { name: /^Local files.*items?$/ }));
+    await user.click(
+      await within(screen.getByTestId('page-content')).findByRole('button', {
+        name: 'Options for Local files',
+      }),
+    );
     expect(await screen.findByRole('menuitem', { name: 'Add a folder' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Play' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: 'Scan the folders again' }));
@@ -195,7 +207,11 @@ describe('The sidebar (M46.29)', () => {
       ] as never),
     );
     await AppShellWrapper.mount('/library?view=all');
-    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Favorites.*tracks?$/ }));
+    await user.click(
+      await within(screen.getByTestId('page-content')).findByRole('button', {
+        name: 'Options for Favorites',
+      }),
+    );
     await user.click(await screen.findByRole('menuitem', { name: 'Sort by' }));
     expect(await screen.findByTestId('favorites-view')).toBeInTheDocument();
     expect(await screen.findByRole('radiogroup', { name: 'Sort by' })).toBeInTheDocument();
