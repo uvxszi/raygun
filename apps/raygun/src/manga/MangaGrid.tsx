@@ -146,7 +146,7 @@ export const MangaGrid: FC<{
                   />
                   <span className="absolute top-1.5 left-1.5 flex gap-1">
                     {item.inLibrary && (
-                      <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-[10px] font-bold">
+                      <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-3xs font-bold">
                         {t('manga.inLibraryBadge')}
                       </span>
                     )}
@@ -193,7 +193,7 @@ export const MangaGrid: FC<{
                 </span>
                 {!compact && <span className="line-clamp-2 text-xs font-medium">{item.title}</span>}
                 {item.subtitle && (
-                  <span className="text-muted line-clamp-1 text-[11px]">{item.subtitle}</span>
+                  <span className="text-muted line-clamp-1 text-2xs">{item.subtitle}</span>
                 )}
                 {(item.source || item.adult) && (
                   <span className="flex min-w-0 items-center gap-1">

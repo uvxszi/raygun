@@ -277,12 +277,12 @@ const SizeChips: FC<{ medium: Medium; size: MatchSize; most: string | null }> = 
   return (
     <span className="flex flex-wrap gap-1" data-testid="match-size">
       {most && (
-        <span className="bg-primary/15 text-primary rounded-full px-2 py-0.5 text-[11px] font-semibold">
+        <span className="bg-primary/15 text-primary rounded-full px-2 py-0.5 text-2xs font-semibold">
           {most}
         </span>
       )}
       {chips.map((chip) => (
-        <span key={chip} className="bg-background text-muted rounded-full px-2 py-0.5 text-[11px]">
+        <span key={chip} className="bg-background text-muted rounded-full px-2 py-0.5 text-2xs">
           {chip}
         </span>
       ))}

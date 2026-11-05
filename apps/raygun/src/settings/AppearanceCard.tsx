@@ -12,6 +12,9 @@ import { useRef } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { PrefFont } from '../fonts/FontPicker';
+import type { FontValue } from '../fonts/fontValue';
+import { FONT_DEFAULTS, INTERFACE_STACK } from '../fonts/systemFonts';
 import { LANGUAGES, SYSTEM_LANGUAGE, nativeName, resolveLanguage } from '../i18n/languages';
 import { useLayout } from '../layout/useLayout';
 import { NAV_TABS, isNavTabId } from '../shell/navTabs';
@@ -45,6 +48,11 @@ const ACCENTS: { value: Accent; color: string }[] = [
  */
 const INTERFACE_SIZE = { desktop: { min: 50, max: 200 }, phone: { min: 70, max: 150 } };
 
+/** Text size: percent more or less than the screen's own text (`TEXT_SIZES` in raygun-model). */
+const TEXT_SIZE = { min: -30, max: 100 };
+
+const DEFAULT_FONT: FontValue = { kind: 'own', id: 'default' };
+
 /** Settings → Appearance: theme and colours, language, sizes, how the app opens and moves. */
 export const AppearanceCard: FC = () => {
   const { t } = useTranslation();
@@ -66,6 +74,7 @@ export const AppearanceCard: FC = () => {
     }, 250);
   };
   const customSelected = data.accent === 'custom';
+  const fonts = data.fonts ?? FONT_DEFAULTS;
 
   return (
     <div data-testid="appearance-card" className="flex flex-col">
@@ -186,6 +195,26 @@ export const AppearanceCard: FC = () => {
           {...(desktop ? INTERFACE_SIZE.desktop : INTERFACE_SIZE.phone)}
           value={data.zoom ?? 100}
           onChange={(value) => updateSetting.mutate({ key: 'zoom', value })}
+        />
+        <PrefSize
+          title={t('settings.window.textSize')}
+          unit="%"
+          step={5}
+          {...TEXT_SIZE}
+          value={data.textSize ?? 0}
+          onChange={(value) => updateSetting.mutate({ key: 'textSize', value })}
+        />
+        <PrefFont
+          title={t('settings.fonts.interface')}
+          own={[{ id: 'default', label: t('settings.fonts.default'), stack: INTERFACE_STACK }]}
+          value={fonts.interface ? { kind: 'family', family: fonts.interface } : DEFAULT_FONT}
+          fallback={INTERFACE_STACK}
+          onPick={(pick) =>
+            updateSetting.mutate({
+              key: 'fonts',
+              value: { ...fonts, interface: pick.kind === 'family' ? pick.family : '' },
+            })
+          }
         />
         <PrefChoice<StartScreen>
           title={t('settings.startScreen')}

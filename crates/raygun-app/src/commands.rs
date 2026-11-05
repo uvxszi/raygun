@@ -127,6 +127,17 @@ pub fn settings_defaults() -> Settings {
     Settings::default()
 }
 
+/// The font families installed on this device, for the font pickers: read once and kept, again
+/// with `refresh`.
+#[tauri::command]
+#[specta::specta]
+pub async fn fonts_list(
+    fonts: tauri::State<'_, crate::fonts::FontService>,
+    refresh: bool,
+) -> Result<Vec<raygun_model::SystemFont>, String> {
+    Ok(fonts.list(refresh).await)
+}
+
 /// Current player state. Afterwards, changes arrive as `PlaybackStateEvent`.
 #[tauri::command]
 #[specta::specta]
@@ -374,9 +385,14 @@ pub async fn extensions_reload(
 #[specta::specta]
 pub async fn miniplayer_open(
     app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
     background: Option<String>,
 ) -> Result<(), String> {
-    crate::miniplayer::open(&app, background.as_deref())
+    let zoom = settings::load(&db.0)
+        .await
+        .map(|settings| settings.zoom)
+        .unwrap_or(100);
+    crate::miniplayer::open(&app, background.as_deref(), zoom)
 }
 
 /// Closes the miniplayer; with `show_main`, Raygun's main window comes forward.

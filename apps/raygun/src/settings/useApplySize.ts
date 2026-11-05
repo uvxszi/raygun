@@ -17,9 +17,14 @@ const shortSide = (desktop: boolean) =>
  * Sizes come from the screen (M46.48): the root font size, which every rem-based size and gap
  * follows, grows with the shorter side (`--short-side`, read by styles.css), from small phones to
  * tablets and desktops. Interface size (`zoom`, percent of that) comes on top: the desktop window
- * zooms, phones scale the root (`--ui-scale`).
+ * zooms, phones scale the root (`--ui-scale`) and, with `data-ui-scaled`, icons drawn at a size in
+ * px. Text size (`textSize`, percent more or less) scales text alone (`--text-scale`).
  */
-export const useApplySize = (desktop: boolean, zoom: number | undefined) => {
+export const useApplySize = (
+  desktop: boolean,
+  zoom: number | undefined,
+  textSize: number | undefined,
+) => {
   useEffect(() => {
     const root = document.documentElement;
     let frame = 0;
@@ -43,13 +48,20 @@ export const useApplySize = (desktop: boolean, zoom: number | undefined) => {
   useEffect(() => {
     const root = document.documentElement;
     const percent = zoom ?? 100;
-    if (desktop) {
+    if (desktop || percent === 100) {
       root.style.removeProperty('--ui-scale');
-      if (zoom) void setAppZoom(percent / 100);
-    } else if (percent === 100) {
-      root.style.removeProperty('--ui-scale');
+      delete root.dataset.uiScaled;
+      if (desktop && zoom) void setAppZoom(percent / 100);
     } else {
       root.style.setProperty('--ui-scale', String(percent / 100));
+      root.dataset.uiScaled = '';
     }
   }, [desktop, zoom]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const offset = textSize ?? 0;
+    if (offset === 0) root.style.removeProperty('--text-scale');
+    else root.style.setProperty('--text-scale', String(1 + offset / 100));
+  }, [textSize]);
 };

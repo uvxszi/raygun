@@ -202,8 +202,15 @@ pub struct Settings {
     /// Who draws the desktop window's top edge (M46.9).
     pub window_frame: WindowFrame,
     /// Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
-    /// app zooms its window; phones scale their text and spacing.
+    /// app zooms its window; phones scale their text, spacing and icons.
     pub zoom: u32,
+    /// Text size in percent more or less than the screen's own ([`TEXT_SIZES`]), over the
+    /// interface size: text alone grows or shrinks, boxes and icons stay.
+    #[serde(default)]
+    pub text_size: i32,
+    /// The device's own fonts for the interface and the book reader (device-only).
+    #[serde(default)]
+    pub fonts: FontPrefs,
     /// Charts and song tags (M46.9).
     pub discovery: DiscoveryPrefs,
     /// Captions for podcasts and audiobooks heard by AI (M46.32).
@@ -1168,6 +1175,71 @@ pub struct SpokenItem {
 
 /// Interface sizes offered, in percent of the screen's (M46.9, M46.48).
 pub const ZOOM_LEVELS: std::ops::RangeInclusive<u32> = 50..=200;
+
+/// Text sizes offered, in percent more or less than the screen's own text (M46.48).
+pub const TEXT_SIZES: std::ops::RangeInclusive<i32> = -30..=100;
+
+/// The longest font family name kept.
+const FONT_FAMILY_MAX: usize = 200;
+
+/// Fonts installed on the device instead of Raygun's own: each a family name, or empty for the
+/// default. Kept to the device it was picked on, since what's installed differs between devices;
+/// a family that isn't there falls back to the default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FontPrefs {
+    /// The whole interface's text.
+    pub interface: String,
+    /// The book reader's text, over its Serif or Sans.
+    pub reading: String,
+}
+
+impl FontPrefs {
+    /// Names go into CSS: nothing that could end a quoted family or a declaration.
+    pub fn validate(&self) -> Result<(), String> {
+        let unsafe_char =
+            |char: char| char.is_control() || matches!(char, '"' | '\\' | ';' | '{' | '}');
+        for family in [&self.interface, &self.reading] {
+            if family.len() > FONT_FAMILY_MAX || family.chars().any(unsafe_char) {
+                return Err(format!(
+                    "A font family name is up to {FONT_FAMILY_MAX} characters, without quotes, \
+                     backslashes, semicolons or braces"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn normalized(self) -> Self {
+        Self {
+            interface: self.interface.trim().to_owned(),
+            reading: self.reading.trim().to_owned(),
+        }
+    }
+}
+
+/// A font family installed on the device, for the font pickers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemFont {
+    /// The family's name, as `font-family` names it.
+    pub family: String,
+    /// The files the webview loads with `@font-face`, where it can't find installed families by
+    /// name (Android); empty where it can (desktop).
+    pub faces: Vec<SystemFontFace>,
+}
+
+/// One file of a [`SystemFont`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemFontFace {
+    /// The file through the stream proxy's `/font/` route.
+    pub url: String,
+    /// The weights it draws: one for a fixed face, a range for a variable one.
+    pub weight_min: u16,
+    pub weight_max: u16,
+    pub italic: bool,
+}
 
 /// Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
 /// don't rate-limit the user; off, a Load more button stays.
@@ -2321,6 +2393,8 @@ impl Default for Settings {
             auto_load: AutoLoadPrefs::default(),
             window_frame: WindowFrame::App,
             zoom: 100,
+            text_size: 0,
+            fonts: FontPrefs::default(),
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
             privacy: PrivacyPrefs::default(),
@@ -2386,6 +2460,8 @@ impl Settings {
             SettingChange::AutoLoad(prefs) => self.auto_load = prefs,
             SettingChange::WindowFrame(frame) => self.window_frame = frame,
             SettingChange::Zoom(percent) => self.zoom = percent,
+            SettingChange::TextSize(percent) => self.text_size = percent,
+            SettingChange::Fonts(prefs) => self.fonts = prefs.normalized(),
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
             SettingChange::BrowseStartTab(tab) => self.browse_start_tab = tab,
             SettingChange::SearchFilter(prefs) => self.search_filter = prefs,
@@ -2476,6 +2552,8 @@ pub enum SettingChange {
     AutoLoad(AutoLoadPrefs),
     WindowFrame(WindowFrame),
     Zoom(u32),
+    TextSize(i32),
+    Fonts(FontPrefs),
     Discovery(DiscoveryPrefs),
     FailingSourcesLast(bool),
     BrowseStartTab(String),
@@ -2539,6 +2617,8 @@ impl SettingChange {
             Self::AutoLoad(_) => "autoLoad",
             Self::WindowFrame(_) => "windowFrame",
             Self::Zoom(_) => "zoom",
+            Self::TextSize(_) => "textSize",
+            Self::Fonts(_) => "fonts",
             Self::Discovery(_) => "discovery",
             Self::FailingSourcesLast(_) => "failingSourcesLast",
             Self::BrowseStartTab(_) => "browseStartTab",
@@ -2639,6 +2719,14 @@ impl SettingChange {
                     Err(format!("{percent}% isn't an offered zoom"))
                 }
             }
+            Self::TextSize(percent) => {
+                if TEXT_SIZES.contains(percent) {
+                    Ok(())
+                } else {
+                    Err(format!("{percent}% isn't an offered text size"))
+                }
+            }
+            Self::Fonts(prefs) => prefs.validate(),
             Self::NextPromptSeconds(seconds) => {
                 if NEXT_PROMPT_SECONDS.contains(seconds) {
                     Ok(())

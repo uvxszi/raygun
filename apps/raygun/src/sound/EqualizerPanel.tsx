@@ -111,7 +111,7 @@ export const EqualizerPanel: FC<EqualizerPanelProps> = ({ sound, change }) => {
           const gain = sound.eqBands[index] ?? 0;
           return (
             <div key={hertz} className="flex flex-col items-center gap-1">
-              <span className="text-muted text-[10px] tabular-nums">
+              <span className="text-muted text-3xs tabular-nums">
                 {gain > 0 ? '+' : ''}
                 {(gain / 10).toFixed(gain % 10 === 0 ? 0 : 1)}
               </span>
@@ -127,7 +127,7 @@ export const EqualizerPanel: FC<EqualizerPanelProps> = ({ sound, change }) => {
                 onDoubleClick={() => setBand(index, 0)}
                 className="accent-primary h-40 w-6 cursor-pointer [direction:rtl] [writing-mode:vertical-lr]"
               />
-              <span className="text-muted text-[11px] tabular-nums">{frequencyLabel(hertz)}</span>
+              <span className="text-muted text-2xs tabular-nums">{frequencyLabel(hertz)}</span>
             </div>
           );
         })}

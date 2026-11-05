@@ -69,7 +69,7 @@ export const SeekBar: FC<SeekBarProps> = ({ variant, onScrub, className = '' }) 
   if (variant === 'bar') {
     return (
       <div
-        className={`text-muted flex w-full min-w-0 flex-1 items-center gap-2 text-[11px] tabular-nums ${className}`}
+        className={`text-muted flex w-full min-w-0 flex-1 items-center gap-2 text-2xs tabular-nums ${className}`}
       >
         <span data-testid="bar-position" className="min-w-10 text-right">
           {formatTime(positionMs)}

@@ -20,6 +20,29 @@
   --color-primary: var(--accent-on-dark);
 }
 
+/* Text size (Settings → Appearance): `--text-scale` (settings/useApplySize) makes every text size
+   larger or smaller and leaves boxes, gaps and icons as they are. Inlined into each utility, so
+   the scale is read where the text is. `2xs` and `3xs` are the small labels' 11 and 10 px, which
+   follow Interface size on phones as rem sizes do. A line height given in spacing grows along. */
+@theme inline {
+  --text-3xs: calc(10px * var(--ui-scale, 1) * var(--text-scale, 1));
+  --text-2xs: calc(11px * var(--ui-scale, 1) * var(--text-scale, 1));
+  --text-xs: calc(0.75rem * var(--text-scale, 1));
+  --text-sm: calc(0.875rem * var(--text-scale, 1));
+  --text-base: calc(1rem * var(--text-scale, 1));
+  --text-lg: calc(1.125rem * var(--text-scale, 1));
+  --text-xl: calc(1.25rem * var(--text-scale, 1));
+  --text-2xl: calc(1.5rem * var(--text-scale, 1));
+  --text-3xl: calc(1.875rem * var(--text-scale, 1));
+  --text-4xl: calc(2.25rem * var(--text-scale, 1));
+  --text-5xl: calc(3rem * var(--text-scale, 1));
+  --text-6xl: calc(3.75rem * var(--text-scale, 1));
+  --text-7xl: calc(4.5rem * var(--text-scale, 1));
+  --text-8xl: calc(6rem * var(--text-scale, 1));
+  --text-9xl: calc(8rem * var(--text-scale, 1));
+  --leading-4: calc(1rem * var(--text-scale, 1));
+}
+
 /* The accent (Settings → Appearance): each has a shade for dark and one for light themes, so
    text and icons in it stay readable on either. */
 :root {
@@ -273,18 +296,28 @@
   );
   aspect-ratio: 16 / 9;
 }
-/* Lyrics and captions by the width of their column (a container), plus the chosen offset. */
+/* Lyrics and captions by the width of their column (a container), plus the chosen offset, at the
+   app's text size. */
 .lyric-text {
-  font-size: calc(clamp(1.125rem, 0.7rem + 2.6cqi, 2.75rem) + var(--lyrics-offset, 0rem));
+  font-size: calc(
+    (clamp(1.125rem, 0.7rem + 2.6cqi, 2.75rem) + var(--lyrics-offset, 0rem)) * var(--text-scale, 1)
+  );
 }
 .lyric-text[data-variant='panel'] {
-  font-size: calc(clamp(1rem, 0.75rem + 1.6cqi, 1.5rem) + var(--lyrics-offset, 0rem));
+  font-size: calc(
+    (clamp(1rem, 0.75rem + 1.6cqi, 1.5rem) + var(--lyrics-offset, 0rem)) * var(--text-scale, 1)
+  );
 }
 .lyric-plain {
-  font-size: calc(clamp(1rem, 0.6rem + 1.9cqi, 2rem) + var(--lyrics-offset, 0rem) * 0.8);
+  font-size: calc(
+    (clamp(1rem, 0.6rem + 1.9cqi, 2rem) + var(--lyrics-offset, 0rem) * 0.8) * var(--text-scale, 1)
+  );
 }
 .lyric-plain[data-variant='panel'] {
-  font-size: calc(clamp(0.9375rem, 0.7rem + 1.1cqi, 1.25rem) + var(--lyrics-offset, 0rem) * 0.8);
+  font-size: calc(
+    (clamp(0.9375rem, 0.7rem + 1.1cqi, 1.25rem) + var(--lyrics-offset, 0rem) * 0.8) *
+      var(--text-scale, 1)
+  );
 }
 /* Between a song's title and its artists: room enough not to tap one for the other. */
 .title-gap {
@@ -361,6 +394,16 @@
       color-scheme: light;
     }
   }
+
+  /* Icons drawn at a size in px (lucide's `size`) follow Interface size on phones too, where it
+     scales the root font size instead of zooming (`data-ui-scaled`, settings/useApplySize).
+     Icons sized by a class follow the root already, and utilities win over this layer. */
+  @supports (width: calc(attr(width type(<number>), 0) * 1px)) {
+    :root[data-ui-scaled] svg.lucide[width] {
+      width: calc(attr(width type(<number>), 24) * var(--ui-scale, 1) * 1px);
+      height: calc(attr(height type(<number>), 24) * var(--ui-scale, 1) * 1px);
+    }
+  }
 }
 
 html,
@@ -376,11 +419,14 @@ html {
   font-size: calc(clamp(14px, 12px + var(--short-side, 400px) / 100, 17px) * var(--ui-scale, 1));
 }
 
+/* Text without a size of its own is at the text size too, in the device font picked in
+   Settings → Appearance (`--font-ui`, fonts/systemFonts) or the system's. */
 body {
   margin: 0;
   background: var(--color-background);
   color: var(--color-foreground);
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: calc(1rem * var(--text-scale, 1));
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
   /* Names, titles and buttons don't highlight under the mouse, as in an app; right click copies

@@ -3,7 +3,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { DEFAULT_SETTINGS, bindingsMock, emitEvent } from '../test/bindingsMock';
+import { ANDROID_INFO, DEFAULT_SETTINGS, bindingsMock, emitEvent } from '../test/bindingsMock';
 import { libraryEntry } from '../test/libraryEntry';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -384,6 +384,43 @@ describe('Novels', () => {
     });
     await vi.waitFor(() =>
       expect(within(reader).getByText('It was a dreary night of Nov').style.textIndent).toBe(''),
+    );
+  });
+
+  it('reads in a font of the device’s, in front of its own typeface', async () => {
+    const user = userEvent.setup();
+    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
+    commands.fontsList.mockResolvedValue(ok([{ family: 'Literata', faces: [] }]));
+    commands.novelChapter.mockResolvedValue(ok(CHAPTER));
+    let stored = { ...DEFAULT_SETTINGS };
+    commands.settingsGet.mockImplementation(() => Promise.resolve(ok(stored)));
+    commands.settingsUpdate.mockImplementation((change: { key: string; value: unknown }) => {
+      stored = { ...stored, [change.key]: change.value };
+      return Promise.resolve(ok(stored));
+    });
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await within(reader).findByText('It was a dreary night of Nov');
+
+    await user.click(within(reader).getByRole('button', { name: 'Text settings' }));
+    const panel = within(reader).getByRole('dialog', { name: 'Text settings' });
+    await user.click(within(panel).getByRole('button', { name: 'More fonts' }));
+    await user.click(await screen.findByRole('radio', { name: 'Literata' }));
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'fonts',
+      value: { interface: '', reading: 'Literata' },
+    });
+    await vi.waitFor(() => {
+      const style = within(reader).getByRole('article').getAttribute('style') ?? '';
+      expect(style).toMatch(/font-family: "?Literata"?, Georgia/);
+    });
+    expect(within(panel).getByRole('button', { name: 'Literata' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(panel).getByRole('button', { name: 'Serif' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
     );
   });
 

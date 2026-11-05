@@ -34,6 +34,8 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.accent',
     'settings.language',
     'settings.window.interfaceSize',
+    'settings.window.textSize',
+    'settings.fonts.interface',
     'settings.startScreen',
     'settings.motion',
     'settings.scrollbars',

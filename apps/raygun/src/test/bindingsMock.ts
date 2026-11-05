@@ -214,6 +214,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoLoad: { enabled: true, cooldownMs: 1500 },
   windowFrame: 'app',
   zoom: 100,
+  textSize: 0,
+  fonts: { interface: '', reading: '' },
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
   browseStartTab: 'discover',
@@ -427,6 +429,7 @@ export const bindingsMock = {
     settingsUpdate: vi.fn(),
     settingsUpdateMany: vi.fn(),
     settingsDefaults: vi.fn(),
+    fontsList: vi.fn(),
     playbackGetState: vi.fn(),
     playbackGetQueue: vi.fn(),
     playbackArmContext: vi.fn(),
@@ -937,6 +940,7 @@ export const seedBindings = () => {
     applied(changes),
   );
   commands.settingsDefaults.mockResolvedValue(DEFAULT_SETTINGS);
+  commands.fontsList.mockResolvedValue({ status: 'ok', data: [] });
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
   commands.playbackArmContext.mockResolvedValue(undefined);

@@ -81,12 +81,12 @@ export const CueEditor: FC<CueEditorProps> = ({
             aria-current={playing ? 'true' : undefined}
             className={`flex items-start gap-2 rounded-lg px-1 py-1 ${playing ? 'bg-white/15' : ''}`}
           >
-            <span className="w-14 shrink-0 pt-0.5 text-[11px] text-white/60 tabular-nums">
+            <span className="w-14 shrink-0 pt-0.5 text-2xs text-white/60 tabular-nums">
               {formatTrim(cue.startMs)}
             </span>
             <span className="min-w-0 flex-1 text-sm whitespace-pre-line">
               {cue.text}
-              {cue.edited && <span className="ml-1 text-[10px] text-white/50">✎</span>}
+              {cue.edited && <span className="ml-1 text-3xs text-white/50">✎</span>}
             </span>
             <button
               type="button"

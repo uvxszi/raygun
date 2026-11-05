@@ -29,6 +29,7 @@ mod export;
 mod extension_installs;
 mod extensions;
 mod follows;
+mod fonts;
 mod genres;
 mod hidden;
 mod history;
@@ -101,6 +102,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::settings_update,
             commands::settings_update_many,
             commands::settings_defaults,
+            commands::fonts_list,
             commands::recent_contexts,
             commands::recent_contexts_add,
             commands::playback_get_state,

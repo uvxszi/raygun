@@ -233,7 +233,9 @@ const SourceCovers: FC<{
                 className={`flex w-full flex-col gap-1 rounded-lg p-1 text-left ${picked === option.url ? 'ring-primary ring-2' : 'hover:bg-background'}`}
               >
                 <Artwork url={option.url} className="w-full rounded-md" iconSize={20} />
-                <span className="text-muted truncate text-[0.625rem]">{option.source}</span>
+                <span className="text-muted truncate text-[calc(0.625rem*var(--text-scale,1))]">
+                  {option.source}
+                </span>
               </button>
             </li>
           );

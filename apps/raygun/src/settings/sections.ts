@@ -52,17 +52,24 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     id: 'appearance',
     icon: Palette,
     screen: AppearanceSettings,
-    reset: resetKeys(
-      'theme',
-      'accent',
-      'accentColor',
-      'colors',
-      'zoom',
-      'startScreen',
-      'navLabels',
-      'motion',
-      'scrollbars',
-      'windowFrame',
+    reset: resetAll(
+      resetKeys(
+        'theme',
+        'accent',
+        'accentColor',
+        'colors',
+        'zoom',
+        'textSize',
+        'startScreen',
+        'navLabels',
+        'motion',
+        'scrollbars',
+        'windowFrame',
+      ),
+      // Of the fonts, only the interface's is this screen's.
+      (current, defaults) => [
+        { key: 'fonts', value: { ...current.fonts, interface: defaults.fonts?.interface ?? '' } },
+      ],
     ),
   },
   {
@@ -99,7 +106,10 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     id: 'reader',
     icon: BookOpen,
     screen: ReaderSettings,
-    reset: resetKeys('mangaReader', 'novelReader'),
+    reset: resetAll(resetKeys('mangaReader', 'novelReader'), (current, defaults) => [
+      // The book reader's font of the device's goes too; the interface's stays.
+      { key: 'fonts', value: { ...current.fonts, reading: defaults.fonts?.reading ?? '' } },
+    ]),
   },
   {
     id: 'library',

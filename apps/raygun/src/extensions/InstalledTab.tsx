@@ -90,7 +90,7 @@ export const InstalledTab: FC = () => {
                 <span className="flex flex-wrap items-baseline gap-x-2">
                   <span className="font-medium">{extension.name}</span>
                   <span className="text-muted text-xs">{extension.version}</span>
-                  <span className="bg-surface text-muted rounded px-1.5 text-[10px] font-semibold tracking-wide uppercase">
+                  <span className="bg-surface text-muted rounded px-1.5 text-3xs font-semibold tracking-wide uppercase">
                     {t(
                       extension.origin === 'builtIn'
                         ? 'extensions.builtIn'

@@ -80,6 +80,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(proxy.images());
     app.manage(proxy.media());
     app.manage(proxy.lan());
+    app.manage(crate::fonts::FontService::new(proxy.fonts()));
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),
         art_dir,

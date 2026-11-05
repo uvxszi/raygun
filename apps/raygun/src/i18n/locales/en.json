@@ -963,7 +963,21 @@
       "zoomHint": "Everything larger or smaller (Ctrl+= and Ctrl+-, or Ctrl and the mouse wheel; Ctrl+0 resets)",
       "interface": "Interface",
       "interfaceSize": "Interface size",
-      "interfaceSizeHint": "Text and spacing larger or smaller"
+      "interfaceSizeHint": "Text and spacing larger or smaller",
+      "textSize": "Text size"
+    },
+    "fonts": {
+      "interface": "Font",
+      "default": "Default",
+      "onDevice": "On this device",
+      "search": "Search fonts",
+      "loading": "Looking for this device's fonts…",
+      "failed": "This device's fonts couldn't be read",
+      "none": "No other fonts on this device",
+      "noMatch": "No font by that name",
+      "refresh": "Look for new fonts",
+      "missing": "{{name}} isn't on this device; the default shows instead",
+      "more": "More fonts"
     },
     "colors": {
       "title": "Colours",

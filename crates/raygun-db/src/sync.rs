@@ -31,8 +31,9 @@ pub struct TableSpec {
     pub kind: SyncKind,
 }
 
-/// Setting keys kept to the device they were set on.
-pub const DEVICE_ONLY_SETTINGS: &[&str] = &["manualBrowserChecks"];
+/// Setting keys kept to the device they were set on: switches each device turns on for itself,
+/// and fonts, which name what's installed there.
+pub const DEVICE_ONLY_SETTINGS: &[&str] = &["manualBrowserChecks", "fonts"];
 
 const STAMP: [&str; 3] = ["updated_at_hlc", "origin_device", "deleted"];
 
