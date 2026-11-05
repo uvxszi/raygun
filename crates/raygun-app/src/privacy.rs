@@ -7,8 +7,8 @@
 //! - plays and play counts (`CollectionsService::record_play`), which are also Made for You's
 //!   taste and the history other devices sync; where plays started from (`add_recent_context`);
 //!   the queue kept for reopening (`PlaybackService::start_saving`);
-//! - quick access: automatic pins (`quick_access::add`) and the sidebar's played and opened
-//!   stamps ([`without_new_stamps`], in `settings_update`);
+//! - quick access: automatic pins (`quick_access::add`) and when its pages were played from
+//!   (`quick_access::played`; the UI's copy never replaces them, `quick_access::keep_stamps`);
 //! - Continue watching and watching progress (`video::prepare`, `video::record`, which also moves
 //!   a series on to its next episode) and a title's last source (`VideoSessions::remember`);
 //! - podcast and audiobook positions and played marks (`PodcastService::on_playback`);
@@ -26,7 +26,7 @@
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use raygun_db::Db;
-use raygun_model::{IncognitoStatus, RailPrefs, SettingChange};
+use raygun_model::IncognitoStatus;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
@@ -187,40 +187,6 @@ pub async fn set_incognito(app: &AppHandle, on: bool) -> Result<IncognitoStatus,
     Ok(status)
 }
 
-/// A change to the sidebar's pins (M46.29) made while incognito keeps the stamps they have, so
-/// opening a pinned page or playing from it isn't remembered. Pinning, unpinning and moving pins
-/// still save; other settings pass unchanged.
-pub async fn without_new_stamps(app: &AppHandle, db: &Db, change: SettingChange) -> SettingChange {
-    if !matches!(change, SettingChange::Rail(_)) || !incognito(app) {
-        return change;
-    }
-    with_stored_stamps(db, change).await
-}
-
-async fn with_stored_stamps(db: &Db, change: SettingChange) -> SettingChange {
-    match change {
-        SettingChange::Rail(rail) => match crate::settings::load(db).await {
-            Ok(stored) => SettingChange::Rail(stamps_of(&stored.rail, rail)),
-            Err(_) => SettingChange::Rail(rail),
-        },
-        other => other,
-    }
-}
-
-/// `rail` with the played and opened stamps of the same pages in `stored`; a page pinned now has
-/// none.
-fn stamps_of(stored: &RailPrefs, mut rail: RailPrefs) -> RailPrefs {
-    for pin in &mut rail.pins {
-        let before = stored
-            .pins
-            .iter()
-            .find(|old| old.to == pin.to && old.search == pin.search);
-        pin.played_at = before.map_or(0, |old| old.played_at);
-        pin.opened_at = before.map_or(0, |old| old.opened_at);
-    }
-    rail
-}
-
 /// The address to keep for a website (M46.3) after a visit: where it was, unless incognito is on,
 /// when it stays where it was left before.
 pub async fn site_address(
@@ -245,37 +211,13 @@ async fn left_at(db: &Db, id: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
-    use raygun_model::{PrivacyPrefs, RailOrder, RailPin};
+    use raygun_model::{PrivacyPrefs, SettingChange};
     use tempfile::TempDir;
 
     use super::*;
 
     async fn open(temp: &TempDir) -> Db {
         Db::open(&temp.path().join("raygun.db")).await.unwrap()
-    }
-
-    fn pin(to: &str, id: &str, played_at: u32, opened_at: u32) -> RailPin {
-        RailPin {
-            kind: "playlist".into(),
-            to: to.into(),
-            search: BTreeMap::from([("id".to_owned(), id.to_owned())]),
-            name: id.into(),
-            artwork_url: None,
-            pinned_at: 10,
-            played_at,
-            opened_at,
-            auto: false,
-        }
-    }
-
-    fn rail(pins: Vec<RailPin>) -> RailPrefs {
-        RailPrefs {
-            pins,
-            order: RailOrder::Played,
-            ..RailPrefs::default()
-        }
     }
 
     #[test]
@@ -343,53 +285,6 @@ mod tests {
         let privacy = Privacy::load(&db).await;
         assert!(privacy.is_on());
         assert!(privacy.status().since_ms.is_some());
-    }
-
-    #[test]
-    fn pins_keep_their_stamps() {
-        let stored = rail(vec![
-            pin("/library/playlist", "a", 100, 200),
-            pin("/library/playlist", "b", 300, 400),
-        ]);
-        // Opened and played from while incognito, one pin moved, one added, one gone.
-        let changed = rail(vec![
-            pin("/library/playlist", "b", 999, 999),
-            pin("/music/album", "c", 999, 999),
-        ]);
-        let kept = stamps_of(&stored, changed);
-        let stamps: Vec<(&str, u32, u32)> = kept
-            .pins
-            .iter()
-            .map(|pin| (pin.search["id"].as_str(), pin.played_at, pin.opened_at))
-            .collect();
-        assert_eq!(stamps, [("b", 300, 400), ("c", 0, 0)]);
-        assert_eq!(
-            kept.order,
-            RailOrder::Played,
-            "the rest of the change stays"
-        );
-    }
-
-    #[tokio::test]
-    async fn sidebar_stamps_made_while_incognito_arent_saved() {
-        let temp = TempDir::new().unwrap();
-        let db = open(&temp).await;
-        let before = rail(vec![pin("/library/playlist", "a", 100, 200)]);
-        crate::settings::update(&db, SettingChange::Rail(before.clone()))
-            .await
-            .unwrap();
-
-        let touched = rail(vec![pin("/library/playlist", "a", 500, 600)]);
-        let change = with_stored_stamps(&db, SettingChange::Rail(touched)).await;
-        let saved = crate::settings::update(&db, change).await.unwrap();
-        assert_eq!(saved.rail, before);
-
-        // Other settings aren't touched.
-        let theme = with_stored_stamps(&db, SettingChange::Theme(raygun_model::Theme::Dark)).await;
-        assert!(matches!(
-            theme,
-            SettingChange::Theme(raygun_model::Theme::Dark)
-        ));
     }
 
     #[test]

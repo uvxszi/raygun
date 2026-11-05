@@ -64,6 +64,8 @@ pub async fn load(db: &Db) -> Result<Settings, SettingsError> {
         settings.video_player.preferred_resolution =
             raygun_model::VideoResolution::from_height(height);
     }
+    // Quick access saved by a version that pinned the audio library by hand.
+    settings.rail = crate::quick_access::migrated(settings.rail);
     Ok(settings)
 }
 
@@ -97,6 +99,9 @@ fn cover_size_from(columns: u32, width: u32) -> i32 {
 /// size in px becomes px more or less than the screen's own (18 px then), and the manga reader's
 /// widths in percent of the window become percent more or less than the screen's own.
 fn migrate_row(key: &str, value: &str) -> String {
+    if key == "rail" {
+        return crate::quick_access::migrate_row(value);
+    }
     type Rename = (&'static str, &'static str, fn(i64) -> i64);
     const NOVEL: &[Rename] = &[("fontSize", "textSize", old_novel_text)];
     const READER: &[Rename] = &[
@@ -892,6 +897,7 @@ mod tests {
             side_panel_width: 400,
             player_split: 40,
             next_up_rows: 4,
+            rail_nav_height: 240,
         };
         assert_eq!(
             update(&db, SettingChange::Panels(panels))
@@ -910,6 +916,18 @@ mod tests {
             )
             .await
             .is_err()
+        );
+        assert!(
+            update(
+                &db,
+                SettingChange::Panels(PanelPrefs {
+                    rail_nav_height: 20,
+                    ..panels
+                })
+            )
+            .await
+            .is_err(),
+            "the rail's tabs keep a row"
         );
         let colors = CustomColors {
             background: "#101010".into(),

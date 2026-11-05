@@ -7,6 +7,7 @@ import {
   LibraryBig,
   Music,
   Palette,
+  PanelLeft,
   PlayCircle,
   Shield,
   ShieldCheck,
@@ -27,6 +28,7 @@ import { DataSettings } from './screens/DataSettings';
 import { LibrarySettings } from './screens/LibrarySettings';
 import { MusicPlayerSettings } from './screens/MusicPlayerSettings';
 import { PrivacySettings } from './screens/PrivacySettings';
+import { QuickAccessSettings } from './screens/QuickAccessSettings';
 import { ReaderSettings } from './screens/ReaderSettings';
 import { VideoPlayerSettings } from './screens/VideoPlayerSettings';
 
@@ -112,14 +114,27 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
         'downloadBadges',
         'mangaUpdateHours',
       ),
-      // The sidebar's pins are the user's own; only its switches go back.
-      (current, defaults) => [
-        {
-          key: 'rail',
-          value: { ...current.rail, autoAdd: defaults.rail.autoAdd, limit: defaults.rail.limit },
-        },
-      ],
     ),
+  },
+  {
+    id: 'quickAccess',
+    icon: PanelLeft,
+    screen: QuickAccessSettings,
+    // The pins are the user's own, and when pages were played from stays; the rest goes back.
+    reset: (current, defaults) => [
+      {
+        key: 'rail',
+        value: {
+          ...current.rail,
+          order: defaults.rail.order,
+          shown: defaults.rail.shown,
+          kinds: defaults.rail.kinds,
+          pinnedFirst: defaults.rail.pinnedFirst,
+          autoAdd: defaults.rail.autoAdd,
+          limit: defaults.rail.limit,
+        },
+      },
+    ],
   },
   {
     id: 'downloads',
@@ -176,6 +191,7 @@ export type SettingsSectionId =
   | 'video'
   | 'reader'
   | 'library'
+  | 'quickAccess'
   | 'downloads'
   | 'browse'
   | 'privacy'

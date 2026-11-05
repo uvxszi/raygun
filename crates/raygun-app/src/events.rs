@@ -167,6 +167,11 @@ pub struct ExportEvent(pub Option<raygun_model::ExportJob>);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SettingsChangedEvent(pub String);
 
+/// What quick access lists changed (`quick_access`); carries the page that changed (its route),
+/// or an empty string.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct QuickAccessChangedEvent(pub String);
+
 /// Incognito was turned on or off (M47).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct IncognitoEvent(pub raygun_model::IncognitoStatus);

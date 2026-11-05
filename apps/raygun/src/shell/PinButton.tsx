@@ -7,8 +7,9 @@ import type { PinTarget } from './useRail';
 import { useRail } from './useRail';
 
 /**
- * Pin to / Unpin from the sidebar (M46.29), in a page's top bar. The sidebar is the desktop's, so
- * phones don't show it.
+ * Pin to / Unpin from quick access (M46.29), in a page's top bar: pins stay on top of the sidebar.
+ * A page of the audio library is listed anyway, so unpinned it moves back among the rest. The
+ * sidebar is the desktop's, so phones don't show it (their drawer's menus pin).
  */
 export const PinButton: FC<{ target: PinTarget | null }> = ({ target }) => {
   const { t } = useTranslation();

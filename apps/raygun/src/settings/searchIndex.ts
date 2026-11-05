@@ -178,8 +178,25 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'library.categories.novelTitle',
   ),
   ...on('library')('settings.musicFolders'),
-  { title: 'settings.quickAccess.autoAdd', at: 'library', only: 'desktop' },
-  { title: 'settings.quickAccess.limit', at: 'library', only: 'desktop' },
+  ...on('quickAccess')(
+    'settings.quickAccess.shown',
+    'settings.quickAccess.order',
+    'settings.quickAccess.pinnedFirst',
+  ),
+  ...on('quickAccess', 'settings.quickAccess.listed')(
+    'collections.favorites',
+    'library.view.downloaded',
+    'localFiles.title',
+    'library.view.playlists',
+    'library.view.albums',
+    'library.view.artists',
+    'library.view.podcasts',
+    'library.view.audiobooks',
+  ),
+  ...on('quickAccess', 'settings.quickAccess.otherKinds')(
+    'settings.quickAccess.autoAdd',
+    'settings.quickAccess.limit',
+  ),
 
   ...on('downloads')(
     'settings.saveLocation',

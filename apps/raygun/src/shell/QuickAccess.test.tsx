@@ -98,8 +98,8 @@ describe('Phones (no side panel, quick access)', () => {
     // Compact: names only as labels, and the sort button stays.
     expect(within(drawer()).queryByText('Road trip')).not.toBeInTheDocument();
     await user.click(within(drawer()).getByRole('button', { name: 'Sort the sidebar' }));
-    await user.click(screen.getByRole('radio', { name: 'Recently opened' }));
-    await waitFor(() => expect(saved().rail.order).toBe('opened'));
+    await user.click(screen.getByRole('radio', { name: 'Recently added' }));
+    await waitFor(() => expect(saved().rail.order).toBe('added'));
 
     await user.click(screen.getByTestId('quick-access-backdrop'));
     await waitFor(() =>
@@ -124,7 +124,7 @@ describe('Phones (no side panel, quick access)', () => {
     );
   });
 
-  it('holds a fixed pin for its menu, and pins it again from its tile', async () => {
+  it('holds an item for its menu, or opens it from ⋮, and pins it on top', async () => {
     setScreen(393, 851);
     const user = userEvent.setup();
     const saved = withSettings(DEFAULT_SETTINGS);
@@ -132,21 +132,20 @@ describe('Phones (no side panel, quick access)', () => {
     await user.click(await screen.findByTestId('quick-access-button'));
     await waitFor(() => expect(pinNames()).toContain('Downloaded'));
 
+    // A hold: the block's own items, and Pin.
     fireEvent.contextMenu(within(drawer()).getByRole('link', { name: /Downloaded/ }));
-    expect(await screen.findByRole('menuitem', { name: 'Check downloads' })).toBeInTheDocument();
-    await user.click(screen.getByRole('menuitem', { name: 'Unpin from Quick access' }));
-    await waitFor(() =>
-      expect(saved().rail.pins.map((pin) => pin.kind)).not.toContain('downloaded'),
-    );
+    const held = await screen.findByRole('menu');
+    expect(within(held).getByRole('menuitem', { name: 'Check downloads' })).toBeVisible();
+    await user.click(within(held).getByRole('menuitem', { name: 'Pin' }));
+    await waitFor(() => expect(saved().rail.pins.map((pin) => pin.kind)).toEqual(['downloaded']));
+    await waitFor(() => expect(pinNames()[0]).toBe('Downloaded'));
 
-    await user.click(screen.getByTestId('quick-access-backdrop'));
-    await user.click(
-      await within(screen.getByTestId('page-content')).findByRole('button', {
-        name: 'Options for Downloaded',
-      }),
-    );
-    await user.click(await screen.findByRole('menuitem', { name: 'Pin to Quick access' }));
-    await waitFor(() => expect(saved().rail.pins.map((pin) => pin.kind)).toContain('downloaded'));
+    // ⋮ beside a playlist: Pin, and Remove from library, never a plain Unpin.
+    await user.click(within(drawer()).getByRole('button', { name: 'More for Road trip' }));
+    const dotted = await screen.findByRole('menu');
+    expect(within(dotted).getByRole('menuitem', { name: 'Pin' })).toBeVisible();
+    expect(within(dotted).getByRole('menuitem', { name: 'Remove from library' })).toBeVisible();
+    expect(within(dotted).queryByRole('menuitem', { name: 'Unpin' })).not.toBeInTheDocument();
   });
 
   it('closes on Back', async () => {

@@ -502,6 +502,8 @@ impl CollectionsService {
             .await
             .map_err(to_message)?
         {
+            // Quick access sorts by name too.
+            crate::quick_access::changed(&self.app, "/library/playlist");
             Ok(())
         } else {
             Err("This playlist no longer exists".into())

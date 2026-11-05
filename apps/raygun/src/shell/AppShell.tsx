@@ -55,7 +55,6 @@ import { QuickAccessDrawer } from './QuickAccessDrawer';
 import { useIsDesktop } from './useIsDesktop';
 import { useIsPhone } from './useIsPhone';
 import { useLiveInvalidation } from './useLiveInvalidation';
-import { useRailStamps } from './useRail';
 import { useScrollMemory } from './scrollMemory';
 import { movesFreely, useDeviceStateSync } from './deviceState';
 
@@ -131,10 +130,8 @@ export const AppShell: FC = () => {
   // Sizes from the screen, then Interface size (M46.48).
   useApplySize(desktop, settings.data?.zoom);
   useEngineHost();
-  // The sidebar's pins (M46.29), also the phone's quick access; incognito (M47) leaves their
-  // stamps alone.
-  const incognito = useIncognitoSync();
-  useRailStamps(incognito === false);
+  // Incognito (M47): Rust keeps nothing it's asked to remember while it's on.
+  useIncognitoSync();
   // Phones keep their own layouts on their side: no side panel.
   const phone = useIsPhone();
   useSpeechHost();
