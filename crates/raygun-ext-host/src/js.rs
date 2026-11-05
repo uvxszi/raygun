@@ -1089,6 +1089,7 @@ mod hold_tests {
                     detail: held_detail("api.example", Duration::from_secs(25)),
                 }),
                 answered: false,
+                checked: None,
             },
             "Example",
             "dev.example/stream",

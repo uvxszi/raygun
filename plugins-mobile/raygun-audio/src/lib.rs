@@ -319,6 +319,7 @@ const WINDOW_COMMANDS: &[&str] = &[
     "requestLocalNetwork",
     "requestMediaAccess",
     "requestPermission",
+    "restartApp",
     "setSystemBars",
     "shareFile",
     "showFileFolder",
@@ -542,8 +543,7 @@ impl<R: Runtime> NativeAudio<R> {
     /// cancelled. The file is read with [`Self::open_input`]. Blocks until the user answers.
     #[cfg(target_os = "android")]
     pub fn pick_file(&self) -> Result<PickedFolder, String> {
-        self.run("pickFile", ())
-            .map_err(|error| error.to_string())
+        self.run("pickFile", ()).map_err(|error| error.to_string())
     }
 
     #[cfg(target_os = "android")]
@@ -756,23 +756,18 @@ impl<R: Runtime> NativeAudio<R> {
         struct Listing {
             files: Vec<SavedFile>,
         }
-        self.handle
-            .run_mobile_plugin::<Listing>(
-                "listSaved",
-                serde_json::json!({ "place": place, "tree": tree, "contains": contains }),
-            )
-            .map(|listing| listing.files)
-            .map_err(|error| error.to_string())
+        self.run::<Listing>(
+            "listSaved",
+            serde_json::json!({ "place": place, "tree": tree, "contains": contains }),
+        )
+        .map(|listing| listing.files)
     }
 
     /// Starts Raygun again from its first screen, ending its other processes (M46.51). The
     /// WebView's storage and cookies are cleared first.
     #[cfg(target_os = "android")]
     pub fn restart_app(&self) -> Result<(), String> {
-        self.handle
-            .run_mobile_plugin::<serde_json::Value>("restartApp", ())
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+        self.run::<serde_json::Value>("restartApp", ()).map(|_| ())
     }
 
     /// Deletes a saved file. Blocking.
@@ -1061,6 +1056,8 @@ mod tests {
             "mediaState",
             // Downloads, their files and notifications.
             "downloadsNotify",
+            "notice",
+            "websiteDownloads",
             "captureStart",
             "captureStatus",
             "captureStop",
@@ -1074,7 +1071,10 @@ mod tests {
             "finishOutput",
             "deleteFile",
             "listTree",
+            "listSaved",
             "openInput",
+            "storageAccess",
+            "browseMedia",
             // What downloads and playback ask about.
             "networkKind",
             "localNetworkState",
@@ -1090,8 +1090,11 @@ mod tests {
         }
         for command in [
             "pickFolder",
+            "pickFile",
+            "pickDocuments",
             "requestPermission",
             "recordingConsent",
+            "restartApp",
             "shareFile",
         ] {
             assert!(needs_window(command), "{command} asks the person");
