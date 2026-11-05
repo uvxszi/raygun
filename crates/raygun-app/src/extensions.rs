@@ -209,6 +209,8 @@ impl ExtensionService {
     pub fn start(app: AppHandle, paths: &Paths) -> Result<Arc<Self>, Box<dyn std::error::Error>> {
         let extensions_dir = paths.extensions();
         let storage_dir = extensions_dir.join(".data");
+        // Android reads repositories from the copies of picked folders (M46.52).
+        repo::allow_local_files_in(crate::picker::picked_dir(paths));
         let host = ExtensionHost::start(HostConfig {
             storage_dir: Some(storage_dir.clone()),
             ..HostConfig::default()
@@ -891,18 +893,120 @@ impl ExtensionService {
     pub async fn preview_repo(&self, url: &str) -> Result<RepoCatalog, String> {
         let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
         let (url, index) = self.index_at(url, false).await?;
+        Ok(self.listing_of(&url, &index).await)
+    }
+
+    /// The listing of an index read elsewhere (Sources' look at an address, M46.52), as a
+    /// repository not added yet (its `id` is empty).
+    pub async fn listing_of(&self, url: &reqwest::Url, index: &RepoIndex) -> RepoCatalog {
         let local = self.installed_versions().await;
         let repo = ExtensionRepo {
             id: String::new(),
             url: url.to_string(),
-            name: repo_name(&index, url.as_str()),
+            name: repo_name(index, url.as_str()),
         };
-        let entries = self.entries_of(&repo, &index, &local);
-        Ok(RepoCatalog {
+        let entries = self.entries_of(&repo, index, &local);
+        RepoCatalog {
             repo,
             entries,
             error: None,
-        })
+        }
+    }
+
+    /// Whether the repository at `url` (or the one an index Paraline replaced stands for) is
+    /// added.
+    pub async fn has_repo(&self, url: &str) -> bool {
+        let wanted = repo::check_index_url(url)
+            .map(current_repo_url)
+            .map_or_else(|_| url.to_owned(), |url| url.to_string());
+        self.repos()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .any(|repo| same_url(&repo.url, &wanted))
+    }
+
+    /// How the catalogue shows an extension found on its own, marked against this device's.
+    pub async fn entry_view(&self, entry: &RepoEntry) -> CatalogEntry {
+        let local = self.installed_versions().await;
+        catalog_entry("", entry, local.get(&entry.id))
+    }
+
+    /// Installs one extension found on its own (Sources → Add, M46.52) from the file read when it
+    /// was found: a Raygun package, or a Miru or Shosetsu script, whose libraries come from the
+    /// Shosetsu repositories added. It's recorded as installed from its own address, so no
+    /// repository offers it updates. Reloads the extensions.
+    pub async fn install_file(
+        &self,
+        url: &reqwest::Url,
+        entry: &RepoEntry,
+        bytes: &[u8],
+    ) -> Result<Vec<ExtensionInfo>, String> {
+        {
+            let _changing = self.changing.lock().await;
+            let verified = match entry.format {
+                PackageFormat::Raygun => {
+                    package::verify(bytes, entry).map_err(|error| error.to_string())?
+                }
+                PackageFormat::Miru => {
+                    let (script, header) =
+                        raygun_ext_host::miru::package::verify_script(bytes, entry)
+                            .map_err(|error| error.to_string())?;
+                    raygun_ext_host::miru::package::package(entry, script, &header)
+                        .map_err(|error| error.to_string())?
+                }
+                PackageFormat::Shosetsu => {
+                    let mut libraries: Vec<(reqwest::Url, RepoIndex)> = Vec::new();
+                    for repo in self.repos().await? {
+                        if let (Ok(index_url), Ok(index)) = (
+                            repo.url.parse::<reqwest::Url>(),
+                            self.fetch_index(&repo.url, false).await,
+                        ) && !index.libraries.is_empty()
+                        {
+                            libraries.push((index_url, index));
+                        }
+                    }
+                    let sources: Vec<shosetsu::package::LibrarySource<'_>> = libraries
+                        .iter()
+                        .map(|(index_url, index)| shosetsu::package::LibrarySource {
+                            index_url,
+                            index,
+                        })
+                        .collect();
+                    shosetsu::package::assemble(entry, bytes, &sources, |url| async move {
+                        self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES)
+                            .await
+                    })
+                    .await?
+                }
+                other => {
+                    return Err(format!(
+                        "{other:?} extensions are installed from their repository"
+                    ));
+                }
+            };
+            let extensions_dir = self.extensions_dir.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                package::install(&extensions_dir, &verified)
+            })
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+            store::record_install(
+                self.db(),
+                &InstallRow {
+                    extension_id: entry.id.clone(),
+                    repo_url: url.to_string(),
+                    version: entry.version.clone(),
+                    sha256: entry.sha256.to_ascii_lowercase(),
+                    installed_at: unix_ms(),
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            tracing::info!(extension = %entry.id, version = %entry.version, from = %url, "extension installed from its file");
+        }
+        Ok(self.reload().await)
     }
 
     /// The extensions on this device by id, for marking a repository's entries.
@@ -1144,6 +1248,10 @@ impl ExtensionService {
         if entry.format == PackageFormat::Kodi {
             return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned());
         }
+        // Mihon's extensions are Android packages, for the `mihon` runtime where a build has one.
+        if entry.format == PackageFormat::Mihon && !raygun_ext_host::mihon::runtime_present() {
+            return Err(raygun_ext_host::mihon::UNSUPPORTED.to_owned());
+        }
         let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
         let package_url =
             repo::package_url(&index_url, entry).map_err(|error| error.to_string())?;
@@ -1228,6 +1336,7 @@ impl ExtensionService {
                     .map_err(|error| error.to_string())?
             }
             PackageFormat::Kodi => return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
+            PackageFormat::Mihon => raygun_ext_host::mihon::package(entry, &bytes)?,
         };
         phase(Phase::Installing);
         let extensions_dir = self.extensions_dir.clone();
@@ -1491,8 +1600,13 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&Installed>) ->
         state,
         installed_version: local.map(|installed| installed.version.clone()),
         icon: None,
-        unsupported: (entry.format == PackageFormat::Kodi)
-            .then(|| raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
+        unsupported: match entry.format {
+            PackageFormat::Kodi => Some(raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
+            PackageFormat::Mihon if !raygun_ext_host::mihon::runtime_present() => {
+                Some(raygun_ext_host::mihon::UNSUPPORTED.to_owned())
+            }
+            _ => None,
+        },
     }
 }
 

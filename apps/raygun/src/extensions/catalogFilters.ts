@@ -115,15 +115,27 @@ export const catalogFacets = (catalog: RepoCatalog[]) => {
 };
 
 /** Extensions that came from another app's format, which a repository may hold. */
-export type RepoFormat = 'nuclear' | 'shosetsu' | 'miru' | 'lnreader' | 'kodi';
+export type RepoFormat = 'nuclear' | 'shosetsu' | 'miru' | 'lnreader' | 'kodi' | 'mihon';
+
+const FORMATS: RepoFormat[] = ['nuclear', 'shosetsu', 'miru', 'lnreader', 'kodi', 'mihon'];
 
 /** The formats whose extensions' ids start with their name. */
-const PREFIXED: RepoFormat[] = ['shosetsu', 'miru', 'lnreader', 'kodi'];
+const PREFIXED: RepoFormat[] = ['shosetsu', 'miru', 'lnreader', 'kodi', 'mihon'];
 
 const formatOf = (entry: CatalogEntry): RepoFormat | null =>
   entry.nuclear
     ? 'nuclear'
     : (PREFIXED.find((format) => entry.id.startsWith(`${format}.`)) ?? null);
+
+/**
+ * Which app's repository it is, by what it lists: another app's when all of its extensions are
+ * that app's (Mihon's, Shosetsu's…), else Raygun's, whose index may hold several formats.
+ */
+export const repoFormat = (entries: CatalogEntry[]): RepoFormat | 'raygun' => {
+  const formats = new Set(entries.map(formatOf));
+  const [only] = [...formats];
+  return formats.size === 1 && only ? only : 'raygun';
+};
 
 /**
  * What a repository holds: how many extensions of each kind (an extension with several kinds
@@ -143,8 +155,9 @@ export const repoContents = (entries: CatalogEntry[]) => {
       kind,
       count: kinds.get(kind) ?? 0,
     })),
-    formats: (['nuclear', 'shosetsu', 'miru', 'lnreader', 'kodi'] as const)
-      .filter((format) => formats.has(format))
-      .map((format) => ({ format, count: formats.get(format) ?? 0 })),
+    formats: FORMATS.filter((format) => formats.has(format)).map((format) => ({
+      format,
+      count: formats.get(format) ?? 0,
+    })),
   };
 };

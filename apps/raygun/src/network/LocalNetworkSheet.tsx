@@ -9,9 +9,10 @@ import { useBackLayer } from '../shell/backLayers';
 
 /**
  * What reaching the local network is for: an addon there, devices there reaching the remote,
- * playing on another device there (Connect, M46.15), or a server there.
+ * playing on another device there (Connect, M46.15), a server there, or an address looked at in
+ * Sources → Add (M46.52).
  */
-export type LocalNetworkReason = 'addon' | 'remote' | 'connect' | 'cast' | 'server';
+export type LocalNetworkReason = 'addon' | 'remote' | 'connect' | 'cast' | 'server' | 'source';
 
 type LocalNetworkSheetProps = {
   reason: LocalNetworkReason;

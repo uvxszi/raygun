@@ -26,22 +26,19 @@ const REMOTE_ON: RemoteStatus = {
 };
 
 const addAddonByAddress = async (user: ReturnType<typeof userEvent.setup>, address: string) => {
-  await AppShellWrapper.mount('/watch/addons');
-  const page = await screen.findByTestId('watch-addons-page');
-  // The top bar's "+" opens the address sheet; the addon is looked at before it's added.
-  await user.click(within(page).getByRole('button', { name: 'Add an addon by its address' }));
-  const sheet = await screen.findByRole('dialog', { name: 'Add an addon by its address' });
-  await user.type(
-    within(sheet).getByRole('textbox', { name: 'Add an addon by its address' }),
-    address,
-  );
+  await AppShellWrapper.mount('/sources');
+  const page = await screen.findByTestId('sources-page');
+  // The top bar's "+" opens Sources' Add; the address is looked at before it's added.
+  await user.click(within(page).getByRole('button', { name: 'Add a source' }));
+  const sheet = await screen.findByRole('dialog', { name: 'Add a source' });
+  await user.type(within(sheet).getByRole('textbox', { name: 'Address' }), address);
   await user.click(within(sheet).getByRole('button', { name: 'Look up' }));
   return page;
 };
 
-/** What the addon sheet shows once an address is looked up. */
-const preview = (url: string) =>
-  ok({
+/** What Add shows once an address is looked up. */
+const preview = (url: string) => {
+  const addon = {
     id: '',
     url,
     name: 'Home addon',
@@ -59,10 +56,25 @@ const preview = (url: string) =>
     configureUrl: null,
     needsSetup: false,
     failing: false,
+  };
+  return ok({
+    kind: 'addon' as const,
+    format: null,
+    server: null,
+    url,
+    name: addon.name,
+    description: null,
+    added: false,
+    addon,
+    entries: [],
+    note: null,
   });
+};
 
 const addLookedUp = async (user: ReturnType<typeof userEvent.setup>) => {
-  const card = await screen.findByRole('group', { name: 'Home addon' });
+  const card = await screen.findByRole('region', {
+    name: 'Looks like a Stremio addon: Home addon',
+  });
   await user.click(within(card).getByRole('button', { name: 'Add' }));
 };
 
@@ -73,22 +85,23 @@ describe('Local network access (Android 17)', () => {
 
   it('adds an addon on the network once access is allowed', async () => {
     const user = userEvent.setup();
-    commands.stremioPreview.mockResolvedValue(preview(LAN_ADDON));
+    commands.sourcesDetect.mockResolvedValue(preview(LAN_ADDON));
+    commands.sourcesAdd.mockResolvedValue(preview(LAN_ADDON));
     commands.localNetworkAccess.mockResolvedValue(ok(ASK));
     commands.localNetworkRequest.mockResolvedValue(ok(GRANTED));
     await addAddonByAddress(user, LAN_ADDON);
 
     expect(commands.localNetworkAccess).toHaveBeenCalledWith(LAN_ADDON);
     const sheet = await screen.findByRole('dialog', { name: 'Local network access' });
-    expect(within(sheet).getByText(/This addon is on your network/)).toBeInTheDocument();
-    expect(commands.stremioAdd).not.toHaveBeenCalled();
+    expect(within(sheet).getByText(/This address is on your network/)).toBeInTheDocument();
+    expect(commands.sourcesDetect).not.toHaveBeenCalled();
 
     await user.click(within(sheet).getByRole('button', { name: 'Continue' }));
     expect(commands.localNetworkRequest).toHaveBeenCalled();
-    expect(commands.stremioPreview).toHaveBeenCalledWith(LAN_ADDON);
+    expect(commands.sourcesDetect).toHaveBeenCalledWith(LAN_ADDON);
     expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
     await addLookedUp(user);
-    expect(commands.stremioAdd).toHaveBeenCalledWith(LAN_ADDON);
+    expect(commands.sourcesAdd).toHaveBeenCalledWith(LAN_ADDON);
   });
 
   it('says what to allow when access is denied, and adds nothing', async () => {
@@ -100,14 +113,14 @@ describe('Local network access (Android 17)', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Local network access' });
     await user.click(within(sheet).getByRole('button', { name: 'Continue' }));
     expect(await within(sheet).findByRole('alert')).toHaveTextContent(
-      'Allow local network access to reach addons on your network.',
+      'Allow local network access to reach addresses on your network.',
     );
-    expect(commands.stremioPreview).not.toHaveBeenCalled();
-    expect(commands.stremioAdd).not.toHaveBeenCalled();
+    expect(commands.sourcesDetect).not.toHaveBeenCalled();
+    expect(commands.sourcesAdd).not.toHaveBeenCalled();
 
     await user.click(within(sheet).getByRole('button', { name: 'Not now' }));
     expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
-    expect(commands.stremioAdd).not.toHaveBeenCalled();
+    expect(commands.sourcesAdd).not.toHaveBeenCalled();
   });
 
   it("sends the user to Raygun's settings once Android stops asking", async () => {
@@ -122,25 +135,28 @@ describe('Local network access (Android 17)', () => {
     await user.click(within(sheet).getByRole('button', { name: 'Continue' }));
     expect(await within(sheet).findByText(/Android won't ask again/)).toBeInTheDocument();
     expect(within(sheet).getByRole('alert')).toHaveTextContent(
-      'Allow local network access to reach addons on your network.',
+      'Allow local network access to reach addresses on your network.',
     );
     await user.click(within(sheet).getByRole('button', { name: 'Open settings' }));
     expect(commands.localNetworkOpenSettings).toHaveBeenCalled();
     expect(commands.localNetworkRequest).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
-    expect(commands.stremioAdd).not.toHaveBeenCalled();
+    expect(commands.sourcesAdd).not.toHaveBeenCalled();
   });
 
   it('adds a public addon without asking', async () => {
     const user = userEvent.setup();
-    commands.stremioPreview.mockResolvedValue(preview('https://addon.example/manifest.json'));
+    const found = preview('https://addon.example/manifest.json');
+    commands.sourcesDetect.mockResolvedValue(found);
+    commands.sourcesAdd.mockResolvedValue(found);
     await addAddonByAddress(user, 'addon.example');
 
     expect(commands.localNetworkAccess).toHaveBeenCalledWith('addon.example');
-    expect(commands.stremioPreview).toHaveBeenCalledWith('addon.example');
+    expect(commands.sourcesDetect).toHaveBeenCalledWith('addon.example');
     expect(screen.queryByRole('dialog', { name: 'Local network access' })).not.toBeInTheDocument();
     await addLookedUp(user);
-    expect(commands.stremioAdd).toHaveBeenCalledWith('https://addon.example/manifest.json');
+    // Rust adds what it found for the address it looked at.
+    expect(commands.sourcesAdd).toHaveBeenCalledWith('addon.example');
   });
 
   it('lets devices find this one only with access, and says why not', async () => {

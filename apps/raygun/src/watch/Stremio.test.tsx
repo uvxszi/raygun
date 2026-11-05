@@ -433,8 +433,10 @@ describe('Stremio addons in Watch', () => {
     );
     await AppShellWrapper.mount('/browse?tab=sources');
     await user.click(await screen.findByRole('button', { name: 'More options' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Addons' }));
-    const page = await screen.findByTestId('watch-addons-page');
+    await user.click(screen.getByRole('menuitem', { name: 'Sources' }));
+    const page = await screen.findByTestId('sources-page');
+    const kinds = within(page).getByRole('navigation', { name: 'Kinds of sources' });
+    await user.click(await within(kinds).findByRole('link', { name: 'Addons · 2' }));
 
     const installed = await within(page).findByRole('listitem', { name: 'Cinemeta' });
     const provides = within(installed).getByRole('list', { name: 'What Cinemeta provides' });
@@ -450,19 +452,19 @@ describe('Stremio addons in Watch', () => {
     await user.click(within(page).getByRole('button', { name: 'Add WatchHub' }));
     expect(commands.stremioAdd).toHaveBeenCalledWith('https://watchhub.strem.io/manifest.json');
 
-    // By address: a look at what it provides first, then Add.
-    commands.stremioPreview.mockResolvedValue({
+    // By address, in Sources' one Add: a look at what it is first, then Add.
+    commands.sourcesDetect.mockResolvedValue({
       status: 'error',
-      error: 'The addon has nothing here (404)',
+      error: 'Raygun found no repository, addon, server or extension at addon.example',
     });
-    await user.click(within(page).getByRole('button', { name: 'Add an addon by its address' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Add an addon by its address' });
-    const field = within(sheet).getByRole('textbox', { name: 'Add an addon by its address' });
+    await user.click(within(page).getByRole('button', { name: 'Add a source' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add a source' });
+    const field = within(sheet).getByRole('textbox', { name: 'Address' });
     await user.type(field, 'addon.example');
     await user.click(within(sheet).getByRole('button', { name: 'Look up' }));
-    expect(commands.stremioPreview).toHaveBeenLastCalledWith('addon.example');
+    expect(commands.sourcesDetect).toHaveBeenLastCalledWith('addon.example');
     expect(await within(sheet).findByRole('alert')).toHaveTextContent(
-      'The addon has nothing here (404)',
+      'Raygun found no repository, addon, server or extension at addon.example',
     );
 
     const tmdb: StremioAddon = {
@@ -473,30 +475,46 @@ describe('Stremio addons in Watch', () => {
       provides: [{ resource: 'catalog', kind: 'movie', count: 12 }],
       configureUrl: 'https://tmdb.example/configure',
     };
-    commands.stremioPreview.mockResolvedValue(ok(tmdb));
+    const found = {
+      kind: 'addon' as const,
+      format: null,
+      server: null,
+      url: tmdb.url,
+      name: 'TMDB',
+      description: null,
+      added: false,
+      addon: tmdb,
+      entries: [],
+      note: null,
+    };
+    commands.sourcesDetect.mockResolvedValue(ok(found));
+    commands.sourcesAdd.mockResolvedValue(ok({ ...found, added: true }));
     await user.clear(field);
     await user.type(field, 'tmdb.example');
     await user.click(within(sheet).getByRole('button', { name: 'Look up' }));
-    const card = await within(sheet).findByRole('group', { name: 'TMDB' });
+    const card = await within(sheet).findByRole('region', {
+      name: 'Looks like a Stremio addon: TMDB',
+    });
     expect(within(card).getByText('Movie catalogs · 12')).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'Set up' }));
     expect(commands.stremioConfigure).toHaveBeenCalledWith('https://tmdb.example/manifest.json');
     await user.click(within(card).getByRole('button', { name: 'Add' }));
-    expect(commands.stremioAdd).toHaveBeenLastCalledWith('https://tmdb.example/manifest.json');
+    expect(commands.sourcesAdd).toHaveBeenLastCalledWith('tmdb.example');
     await vi.waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: 'Add an addon by its address' })).toBeNull(),
+      expect(screen.queryByRole('dialog', { name: 'Add a source' })).toBeNull(),
     );
 
     // An addon that must be set up first can't be added as it is.
-    commands.stremioPreview.mockResolvedValue(ok({ ...tmdb, needsSetup: true }));
-    await user.click(within(page).getByRole('button', { name: 'Add an addon by its address' }));
-    const again = await screen.findByRole('dialog', { name: 'Add an addon by its address' });
-    await user.type(
-      within(again).getByRole('textbox', { name: 'Add an addon by its address' }),
-      'tmdb.example',
+    commands.sourcesDetect.mockResolvedValue(
+      ok({ ...found, addon: { ...tmdb, needsSetup: true } }),
     );
+    await user.click(within(page).getByRole('button', { name: 'Add a source' }));
+    const again = await screen.findByRole('dialog', { name: 'Add a source' });
+    await user.type(within(again).getByRole('textbox', { name: 'Address' }), 'tmdb.example');
     await user.click(within(again).getByRole('button', { name: 'Look up' }));
-    const setup = await within(again).findByRole('group', { name: 'TMDB' });
+    const setup = await within(again).findByRole('region', {
+      name: 'Looks like a Stremio addon: TMDB',
+    });
     expect(within(setup).getByText('Needs setting up on its website first')).toBeInTheDocument();
     expect(within(setup).queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
     await user.click(within(again).getByRole('button', { name: 'Close' }));

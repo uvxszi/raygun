@@ -1261,7 +1261,8 @@
       "shosetsu": "Shosetsu scripts",
       "miru": "Miru extensions",
       "lnreader": "LNReader plugins",
-      "kodi": "Kodi add-ons"
+      "kodi": "Kodi add-ons",
+      "mihon": "Mihon extensions"
     },
     "settings": "Settings",
     "providers": "Provides",
@@ -1471,14 +1472,16 @@
       "remote": "Your other devices on this Wi-Fi link with this one and play on it. Android asks before an app lets devices on your network in, so it will ask Raygun's permission to reach \"nearby devices\".",
       "connect": "Your other device is on your Wi-Fi. Android asks before an app connects to devices on your network, so it will ask Raygun's permission to reach \"nearby devices\".",
       "cast": "The TV is on your Wi-Fi. Android asks before an app connects to devices on your network, so it will ask Raygun's permission to reach \"nearby devices\".",
-      "server": "This server is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\"."
+      "server": "This server is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\".",
+      "source": "This address is on your network. Android asks before an app connects to devices on your Wi-Fi, so it will ask Raygun's permission to reach \"nearby devices\"."
     },
     "denied": {
       "addon": "Allow local network access to reach addons on your network.",
       "remote": "Allow local network access so your other devices can reach this one.",
       "connect": "Allow local network access to play on your other devices.",
       "cast": "Allow local network access to play on a TV.",
-      "server": "Allow local network access to reach servers on your network."
+      "server": "Allow local network access to reach servers on your network.",
+      "source": "Allow local network access to reach addresses on your network."
     },
     "settingsHint": "Android won't ask again. In Raygun's app settings, open Permissions, then Nearby devices, and choose Allow.",
     "allow": "Continue",
@@ -2080,14 +2083,22 @@
     "latestOf": "Latest from {{name}}",
     "stremioAddon": "Stremio addon",
     "kind": {
-      "video": "Videos"
+      "video": "Videos",
+      "audio": "Audio"
     },
     "noSources": "No sources yet",
     "addExtensions": "Add extensions",
     "addAddons": "Add Stremio addons",
     "sourceKinds": "Kinds of sources",
     "allKinds": "All",
-    "findSource": "Find a source"
+    "findSource": "Find a source",
+    "audioKind": {
+      "music": "Music",
+      "lyrics": "Lyrics",
+      "podcast": "Podcasts",
+      "audiobook": "Audiobooks"
+    },
+    "addSource": "Add a source"
   },
   "more": {
     "updates": "Updates",
@@ -2766,6 +2777,7 @@
     },
     "browseSection": {
       "video": "Videos",
+      "audio": "Audio",
       "manga": "Comics",
       "novel": "Books",
       "websites": "Websites",
@@ -2775,6 +2787,7 @@
       "updates": "Updates",
       "downloads": "Downloads",
       "categories": "Groups and folders",
+      "sources": "Sources",
       "addons": "Addons",
       "repos": "Extension repositories",
       "ai": "AI",
@@ -2814,6 +2827,79 @@
         "responsible": "Raygun is a tool: you’re responsible for how you use it"
       },
       "confirm": "Turn on anyway"
+    },
+    "page": {
+      "summary": "Repositories, Stremio addons, servers and extensions, and adding any by its address",
+      "find": "Find a source",
+      "types": "Kinds of sources",
+      "type": {
+        "all": "All",
+        "repositories": "Repositories",
+        "addons": "Addons",
+        "servers": "Servers",
+        "extensions": "Extensions"
+      },
+      "media": "What sources are for",
+      "empty": "Nothing here yet. Add a repository, a Stremio addon, a server or an extension by its address.",
+      "noMatches": "No sources match."
+    },
+    "media": {
+      "audio": "Audio",
+      "video": "Videos",
+      "manga": "Comics",
+      "novel": "Books",
+      "other": "Other"
+    },
+    "add": {
+      "title": "Add a source",
+      "address": "Address",
+      "placeholder": "A repository, addon, server or extension",
+      "hint": "Paste an address or a GitHub project's page, or choose a file or a folder: Raygun works out what it is.",
+      "lookUp": "Look up",
+      "looking": "Looking at the address…",
+      "add": "Add",
+      "added": "Added",
+      "installed": "Installed",
+      "version": "Version",
+      "trust": "Only add sources you trust: their extensions can reach the sites they list.",
+      "byHand": "Connect a server by hand"
+    },
+    "detected": {
+      "addon": "Looks like a Stremio addon: {{name}}",
+      "repository": {
+        "raygun": "Looks like a Raygun repository: {{name}}",
+        "shosetsu": "Looks like a Shosetsu repository: {{name}}",
+        "nuclear": "Looks like Nuclear's plugin registry: {{name}}",
+        "miru": "Looks like a Miru repository: {{name}}",
+        "lnreader": "Looks like an LNReader repository: {{name}}",
+        "kodi": "Looks like a Kodi repository: {{name}}",
+        "mihon": "Looks like a Mihon repository: {{name}}"
+      },
+      "extension": {
+        "raygun": "Looks like a Raygun extension: {{name}}",
+        "shosetsu": "Looks like a Shosetsu script: {{name}}",
+        "nuclear": "Looks like a Nuclear plugin: {{name}}",
+        "miru": "Looks like a Miru extension: {{name}}",
+        "lnreader": "Looks like an LNReader plugin: {{name}}",
+        "kodi": "Looks like a Kodi add-on: {{name}}",
+        "mihon": "Looks like a Mihon extension: {{name}}"
+      },
+      "server": {
+        "jellyfin": "Looks like a Jellyfin server: {{name}}",
+        "emby": "Looks like an Emby server: {{name}}",
+        "subsonic": "Looks like a Subsonic server: {{name}}",
+        "audiobookshelf": "Looks like an Audiobookshelf server: {{name}}",
+        "opds": "Looks like an OPDS catalogue: {{name}}"
+      }
+    },
+    "repoKind": {
+      "raygun": "Raygun repository",
+      "shosetsu": "Shosetsu repository",
+      "nuclear": "Nuclear registry",
+      "miru": "Miru repository",
+      "lnreader": "LNReader repository",
+      "kodi": "Kodi repository",
+      "mihon": "Mihon repository"
     }
   },
   "artist": {
@@ -4171,5 +4257,10 @@
     "scanAgain": "Scan again",
     "pasteCode": "Paste a link code",
     "notACode": "That isn’t a Raygun link code."
+  },
+  "picker": {
+    "choose": "Choose a file or folder",
+    "file": "Choose file",
+    "folder": "Choose folder"
   }
 }

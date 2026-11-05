@@ -462,6 +462,15 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Shows the system file picker (M46.52); `uri` and `name` are missing when the user
+    /// cancelled. The file is read with [`Self::open_input`]. Blocks until the user answers.
+    #[cfg(target_os = "android")]
+    pub fn pick_file(&self) -> Result<PickedFolder, String> {
+        self.handle
+            .run_mobile_plugin("pickFile", ())
+            .map_err(|error| error.to_string())
+    }
+
     #[cfg(target_os = "android")]
     pub fn folder_state(&self, uri: &str) -> Result<FolderState, String> {
         self.run("folderState", serde_json::json!({ "uri": uri }))

@@ -14,6 +14,7 @@ pub mod kodi;
 pub mod lnreader;
 pub mod manga;
 pub mod manifest;
+pub mod mihon;
 pub mod miru;
 pub mod novel;
 pub mod nuclear;

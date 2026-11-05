@@ -1,7 +1,7 @@
 import type { ServerInfo, ServerKind } from '@raygun/bindings';
 import { LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
-import type { FC, FormEvent } from 'react';
+import type { FC, FormEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
@@ -20,20 +20,24 @@ const ADDRESS_HINT: Record<ServerKind, string> = {
 };
 
 /**
- * Connects a server: what kind it is, its address, and the sign-in (a password, or an API key
- * where the server has them). Signing in again to a connected one starts from its address and
- * user. A server on the home network asks for Android's local network access first.
+ * The sign-in for a server of a known kind at an address: a password, or an API key where the
+ * server has them; an OPDS catalogue's is optional. A server on the home network asks for
+ * Android's local network access first. `children` come first in the form (the kind and the
+ * address, when they're still to be chosen).
  */
-export const ServerSheet: FC<{ server?: ServerInfo; onClose: () => void }> = ({
-  server,
-  onClose,
-}) => {
+export const ServerSignIn: FC<{
+  kind: ServerKind;
+  address: string;
+  initialUsername?: string;
+  /** Starts in the password field (signing in again). */
+  focusSecret?: boolean;
+  onConnected: () => void;
+  children?: ReactNode;
+}> = ({ kind, address, initialUsername = '', focusSecret, onConnected, children }) => {
   const { t } = useTranslation();
   const add = useAddServer();
   const gate = useLocalNetworkGate('server');
-  const [kind, setKind] = useState<ServerKind>(server?.kind ?? 'jellyfin');
-  const [address, setAddress] = useState(server?.address ?? '');
-  const [username, setUsername] = useState(server?.username ?? '');
+  const [username, setUsername] = useState(initialUsername);
   const [secret, setSecret] = useState('');
   const [apiKey, setApiKey] = useState(false);
   const keyed = apiKey && TAKES_API_KEY.has(kind);
@@ -52,44 +56,13 @@ export const ServerSheet: FC<{ server?: ServerInfo; onClose: () => void }> = ({
       secret,
       apiKey: keyed,
     };
-    void gate.guard(input.address, () => add.mutate(input, { onSuccess: onClose }));
+    void gate.guard(input.address, () => add.mutate(input, { onSuccess: onConnected }));
   };
 
-  const chip = (on: boolean) =>
-    `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`;
-
   return (
-    <Sheet title={server ? t('servers.signInAgain') : t('servers.add')} onClose={onClose}>
+    <>
       <form onSubmit={onSubmit} className="flex flex-col gap-3 text-sm">
-        <div role="radiogroup" aria-label={t('servers.kind')} className="flex flex-wrap gap-2">
-          {SERVER_KINDS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="radio"
-              aria-checked={kind === option}
-              disabled={Boolean(server)}
-              onClick={() => setKind(option)}
-              className={chip(kind === option)}
-            >
-              {t(`servers.kinds.${option}`)}
-            </button>
-          ))}
-        </div>
-        <TextField
-          type="text"
-          inputMode="url"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          autoFocus={!server}
-          value={address}
-          onChange={setAddress}
-          placeholder={ADDRESS_HINT[kind]}
-          aria-label={t('servers.address')}
-          className={SHEET_FIELD}
-          inputClassName={SHEET_INPUT}
-        />
+        {children}
         {TAKES_API_KEY.has(kind) && (
           <label className="flex items-center gap-2 px-1">
             <input
@@ -119,7 +92,7 @@ export const ServerSheet: FC<{ server?: ServerInfo; onClose: () => void }> = ({
         <TextField
           type="password"
           autoComplete={keyed ? 'off' : 'current-password'}
-          autoFocus={Boolean(server)}
+          autoFocus={focusSecret}
           value={secret}
           onChange={setSecret}
           placeholder={keyed ? t('servers.apiKey') : t('servers.password')}
@@ -141,6 +114,64 @@ export const ServerSheet: FC<{ server?: ServerInfo; onClose: () => void }> = ({
         </button>
       </form>
       {gate.sheet}
+    </>
+  );
+};
+
+/**
+ * Connects a server by hand: what kind it is, its address, and the sign-in. Signing in again to
+ * a connected one starts from its address and user. (Sources → Add finds the kind itself.)
+ */
+export const ServerSheet: FC<{ server?: ServerInfo; onClose: () => void }> = ({
+  server,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const [kind, setKind] = useState<ServerKind>(server?.kind ?? 'jellyfin');
+  const [address, setAddress] = useState(server?.address ?? '');
+
+  const chip = (on: boolean) =>
+    `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`;
+
+  return (
+    <Sheet title={server ? t('servers.signInAgain') : t('servers.add')} onClose={onClose}>
+      <ServerSignIn
+        kind={kind}
+        address={address}
+        initialUsername={server?.username}
+        focusSecret={Boolean(server)}
+        onConnected={onClose}
+      >
+        <div role="radiogroup" aria-label={t('servers.kind')} className="flex flex-wrap gap-2">
+          {SERVER_KINDS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={kind === option}
+              disabled={Boolean(server)}
+              onClick={() => setKind(option)}
+              className={chip(kind === option)}
+            >
+              {t(`servers.kinds.${option}`)}
+            </button>
+          ))}
+        </div>
+        <TextField
+          type="text"
+          inputMode="url"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          autoFocus={!server}
+          value={address}
+          onChange={setAddress}
+          placeholder={ADDRESS_HINT[kind]}
+          aria-label={t('servers.address')}
+          className={SHEET_FIELD}
+          inputClassName={SHEET_INPUT}
+        />
+      </ServerSignIn>
     </Sheet>
   );
 };

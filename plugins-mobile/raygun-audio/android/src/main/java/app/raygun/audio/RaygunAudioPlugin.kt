@@ -11,6 +11,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
@@ -1151,6 +1152,31 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             return
         }
         val name = storage.keep(uri)
+        invoke.resolve(JSObject().put("uri", uri.toString()).put("name", name ?: uri.lastPathSegment))
+    }
+
+    /** One file from the system picker (M46.52: fields that take a link or a file); Rust reads it with openInput. */
+    @Command
+    fun pickFile(invoke: Invoke) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivityForResult(invoke, intent, "filePicked")
+    }
+
+    @ActivityCallback
+    fun filePicked(invoke: Invoke, result: ActivityResult) {
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) {
+            invoke.resolve(JSObject())
+            return
+        }
+        val name = runCatching {
+            activity.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
         invoke.resolve(JSObject().put("uri", uri.toString()).put("name", name ?: uri.lastPathSegment))
     }
 

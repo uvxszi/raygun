@@ -161,8 +161,12 @@ export const BrowseSettings: FC = () => {
             </span>
           }
         />
-        <PrefLink icon={Package} to="/extensions/repos" title={t('browse.repos')} />
-        <PrefLink icon={Puzzle} to="/watch/addons" title={t('watch.addons')} />
+        <PrefLink
+          icon={Package}
+          to="/sources"
+          title={t('sources.title')}
+          summary={t('sources.page.summary')}
+        />
         <PrefSwitch
           title={t('sources.failingLast')}
           checked={data.failingSourcesLast ?? true}

@@ -229,8 +229,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
   ),
   ...on('browse', 'settings.sources')(
     'settings.extensions',
-    'browse.repos',
-    'watch.addons',
+    'sources.title',
     'sources.failingLast',
     'settings.autoLoad.title',
     'settings.autoLoad.cooldown',

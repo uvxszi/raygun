@@ -434,6 +434,16 @@ impl StremioService {
     pub async fn preview(&self, url: &str) -> Result<StremioAddon, String> {
         let url = protocol::normalize_addon_url(url)?;
         let (manifest, _) = self.fetch_manifest(&url).await?;
+        self.preview_manifest(&url, manifest).await
+    }
+
+    /// [`Self::preview`] of a manifest read elsewhere (Sources' look at an address, M46.52).
+    pub async fn preview_manifest(
+        &self,
+        url: &str,
+        manifest: Manifest,
+    ) -> Result<StremioAddon, String> {
+        let url = url.to_owned();
         let rows = store::addons(&self.db()).await.map_err(to_message)?;
         let added = rows.into_iter().find(|row| row.transport_url == url);
         let row = AddonRow {

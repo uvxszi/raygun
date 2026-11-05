@@ -9,7 +9,6 @@ import { AlbumPage } from './pages/AlbumPage';
 import { AiPage } from './pages/AiPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { PodcastPage } from './pages/PodcastPage';
-import { WatchAddonsPage } from './pages/WatchAddonsPage';
 import { WatchCatalogPage } from './pages/WatchCatalogPage';
 import { AboutPage } from './pages/AboutPage';
 import { MusicAlbumPage } from './pages/MusicAlbumPage';
@@ -24,7 +23,9 @@ import { BrowsePage } from './pages/BrowsePage';
 import { isExtensionList } from './extensions/tabs';
 import type { BrowseSection, ExtensionList } from './pages/BrowsePage';
 import { MorePage } from './pages/MorePage';
-import { ReposPage } from './pages/ReposPage';
+import { SourcesPage } from './pages/SourcesPage';
+import { isSourceMedia, isSourceType } from './sources/sourceMedia';
+import type { SourceMedia, SourceType } from './sources/sourceMedia';
 import { LocalFilesPage } from './pages/LocalFilesPage';
 import { StremioAddonPage } from './pages/StremioAddonPage';
 import { WatchHistoryPage } from './pages/WatchHistoryPage';
@@ -432,7 +433,26 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/more', component: MorePage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/about', component: AboutPage }),
-  createRoute({ getParentRoute: () => rootRoute, path: '/extensions/repos', component: ReposPage }),
+  // Repositories, addons, servers and extensions in one place, with one Add (M46.52).
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/sources',
+    component: SourcesPage,
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { type?: SourceType; media?: SourceMedia; add?: boolean } => ({
+      ...(isSourceType(search.type) ? { type: search.type } : {}),
+      ...(isSourceMedia(search.media) ? { media: search.media } : {}),
+      ...(search.add === true || search.add === 'true' ? { add: true } : {}),
+    }),
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/extensions/repos',
+    beforeLoad: () => {
+      throw redirect({ to: '/sources', search: { type: 'repositories' }, replace: true });
+    },
+  }),
   createRoute({ getParentRoute: () => rootRoute, path: '/local-files', component: LocalFilesPage }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -461,7 +481,9 @@ const routeTree = rootRoute.addChildren([
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/watch/addons',
-    component: WatchAddonsPage,
+    beforeLoad: () => {
+      throw redirect({ to: '/sources', search: { type: 'addons' }, replace: true });
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -503,13 +525,13 @@ const routeTree = rootRoute.addChildren([
     component: PodcastPage,
     validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
   }),
-  // Extensions moved into Browse (installed, available) and their own screen (repositories).
+  // Extensions moved into Browse (installed, available) and Sources (repositories).
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/extensions',
     beforeLoad: ({ search }: { search: Record<string, unknown> }) => {
       throw search.tab === 'repos'
-        ? redirect({ to: '/extensions/repos', replace: true })
+        ? redirect({ to: '/sources', search: { type: 'repositories' }, replace: true })
         : redirect({
             to: '/browse',
             search: {
