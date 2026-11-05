@@ -879,7 +879,8 @@ pub async fn online_search(
     let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(&app);
     // Search's "No 18+" and "No explicit": 18+ music sources aren't asked, explicit songs drop.
     let filter = crate::search_filter::current(&app).await;
-    let songs = extensions.search_as_answered(trimmed, |result, total| {
+    let listings = crate::search_filter::listings(&app).await;
+    let songs = extensions.search_as_answered(trimmed, listings, |result, total| {
         // Lengths the sources sent are kept for lists that lack them (M46.26).
         durations.learn_tracks(&result.tracks);
         let mut result = result.clone();
@@ -4561,7 +4562,8 @@ pub async fn catalog_filters(
 }
 
 /// Searches one source with its filters; the query may be empty when filters are set, and with
-/// neither it lists the source's popular titles.
+/// neither it lists the source's popular titles. A first page its search fails at or finds
+/// nothing for comes from its listings (`Settings::search_listings`).
 #[tauri::command]
 #[specta::specta]
 pub async fn catalog_search(
@@ -4572,13 +4574,16 @@ pub async fn catalog_search(
     page: u32,
     filters: std::collections::BTreeMap<String, raygun_model::FilterValue>,
 ) -> Result<MangaListingPage, String> {
+    let listings = crate::search_filter::listings(&app).await;
     catalog_for(&app, &medium)?
-        .search(&source_id, &query, page, &filters)
+        .search(&source_id, &query, page, &filters, listings)
         .await
 }
 
 /// The first page of every manga, novel or video source's results for `query` (their popular
-/// titles when it's blank), or only `sources`' when any are given (Search's source chips).
+/// titles when it's blank), or only `sources`' when any are given (Search's source chips). A
+/// source whose search fails or finds nothing answers from its listings
+/// (`Settings::search_listings`).
 #[tauri::command]
 #[specta::specta]
 pub async fn catalog_global_search(
@@ -4588,8 +4593,9 @@ pub async fn catalog_global_search(
     sources: Vec<String>,
 ) -> Result<Vec<raygun_model::SourceSearchResult>, String> {
     let filter = crate::search_filter::current(&app).await;
+    let listings = crate::search_filter::listings(&app).await;
     catalog_for(&app, &medium)?
-        .global_search(&query, &sources, filter)
+        .global_search(&query, &sources, filter, listings)
         .await
 }
 

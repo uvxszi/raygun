@@ -16,6 +16,7 @@ import { ListSearchField } from '../shell/ListSearchField';
 import { matchesSearch } from '../shell/useListSearch';
 import { useInView } from '../shell/useInView';
 import { FailedSources } from './FailedSources';
+import { FromListingsNote } from './FromListingsNote';
 import { NoSources } from './NoSources';
 import { SourceMenu } from './SourceMenu';
 import { SourceFiltersPanel } from './SourceFiltersPanel';
@@ -63,6 +64,7 @@ export const SourceRow: FC<{
         <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
           <span className="truncate">{result.source.name}</span>
           {result.source.adult && <AdultMark />}
+          {result.fromListings && <FromListingsNote />}
           <SourceMenu
             sourceId={result.source.id}
             extensionId={result.source.extensionId}
@@ -92,7 +94,11 @@ export const SourceRow: FC<{
         <MangaGrid
           medium={medium}
           landscape={Boolean(result.source.searchPill)}
-          items={toGridItems(result.items.slice(0, limit), t('search.fromListing'))}
+          // A row from the source's listings says so once, beside its name.
+          items={toGridItems(
+            result.items.slice(0, limit),
+            result.fromListings ? undefined : t('search.fromListing'),
+          )}
         />
       )}
     </section>
@@ -385,6 +391,8 @@ const SourceSearch: FC<{
   const items = keepCards(filter, search.data?.pages.flatMap((page) => page.items) ?? []);
   const hasFilters = (filters.data?.length ?? 0) > 0;
   const active = Object.keys(values).length;
+  // Its search failed or found nothing: every title shown came from its listings.
+  const listed = items.length > 0 && items.every((item) => item.fromListing);
 
   return (
     <div className="flex flex-col gap-3">
@@ -414,11 +422,16 @@ const SourceSearch: FC<{
           {query.trim() ? t('search.noResults', { query }) : t('search.providerEmpty')}
         </p>
       )}
+      {listed && (
+        <p data-testid="from-listings" className="text-muted text-xs">
+          {t('search.fromListingsHint')}
+        </p>
+      )}
       {items.length > 0 && (
         <MangaGrid
           medium={medium}
           landscape={landscape}
-          items={toGridItems(items, t('search.fromListing'))}
+          items={toGridItems(items, listed ? undefined : t('search.fromListing'))}
         />
       )}
       <LoadMore

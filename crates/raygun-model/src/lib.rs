@@ -224,6 +224,9 @@ pub struct Settings {
     pub browse_start_tab: String,
     /// Search's own switches: no 18+ sources or titles, no explicit songs; both off by default.
     pub search_filter: SearchFilterPrefs,
+    /// Sources whose search fails or finds nothing are looked through instead: their listings
+    /// are matched against the query (on, 20 matches, 5 pages by default).
+    pub search_listings: SearchListingsPrefs,
     /// Sources that meet a browser check offer to open their site so it can be passed by hand
     /// (experimental, off by default; `raygun_ext_host::browser_check`).
     pub manual_browser_checks: bool,
@@ -569,6 +572,54 @@ pub struct SearchFilterPrefs {
     pub no_adult: bool,
     /// "No explicit": songs marked explicit are left out, and 18+ music sources aren't asked.
     pub no_explicit: bool,
+}
+
+/// A source whose own search fails or finds nothing for what was typed is looked through instead
+/// (`raygun_ext_host::listing_search`): its listings (popular, latest, its sort filters; a music
+/// source's charts) are read page by page and matched against the query. On by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SearchListingsPrefs {
+    pub enabled: bool,
+    /// Matches collected at most from one source's listings.
+    pub entries: u32,
+    /// Listing pages read at most from one source, all its listings together.
+    pub pages: u32,
+}
+
+impl Default for SearchListingsPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            entries: 20,
+            pages: 5,
+        }
+    }
+}
+
+/// Matches a search may collect from one source's listings.
+pub const SEARCH_LISTING_ENTRIES: std::ops::RangeInclusive<u32> = 1..=100;
+/// Listing pages a search may read from one source.
+pub const SEARCH_LISTING_PAGES: std::ops::RangeInclusive<u32> = 1..=20;
+
+impl SearchListingsPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if !SEARCH_LISTING_ENTRIES.contains(&self.entries) {
+            return Err(format!(
+                "a search collects {} to {} titles from a source's listings",
+                SEARCH_LISTING_ENTRIES.start(),
+                SEARCH_LISTING_ENTRIES.end()
+            ));
+        }
+        if !SEARCH_LISTING_PAGES.contains(&self.pages) {
+            return Err(format!(
+                "a search reads {} to {} pages of a source's listings",
+                SEARCH_LISTING_PAGES.start(),
+                SEARCH_LISTING_PAGES.end()
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// A rating the user gives a source, an extension or a repository over its own.
@@ -2271,6 +2322,7 @@ impl Default for Settings {
             failing_sources_last: true,
             browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
+            search_listings: SearchListingsPrefs::default(),
             manual_browser_checks: false,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
@@ -2329,6 +2381,7 @@ impl Settings {
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
             SettingChange::BrowseStartTab(tab) => self.browse_start_tab = tab,
             SettingChange::SearchFilter(prefs) => self.search_filter = prefs,
+            SettingChange::SearchListings(prefs) => self.search_listings = prefs,
             SettingChange::ManualBrowserChecks(on) => self.manual_browser_checks = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
             SettingChange::Sound(prefs) => self.sound = prefs,
@@ -2419,6 +2472,7 @@ pub enum SettingChange {
     FailingSourcesLast(bool),
     BrowseStartTab(String),
     SearchFilter(SearchFilterPrefs),
+    SearchListings(SearchListingsPrefs),
     ManualBrowserChecks(bool),
     UserAgent(String),
     Sound(SoundPrefs),
@@ -2481,6 +2535,7 @@ impl SettingChange {
             Self::FailingSourcesLast(_) => "failingSourcesLast",
             Self::BrowseStartTab(_) => "browseStartTab",
             Self::SearchFilter(_) => "searchFilter",
+            Self::SearchListings(_) => "searchListings",
             Self::ManualBrowserChecks(_) => "manualBrowserChecks",
             Self::UserAgent(_) => "userAgent",
             Self::Sound(_) => "sound",
@@ -2540,6 +2595,7 @@ impl SettingChange {
                 Ok(())
             }
             Self::Hidden(prefs) => prefs.validate(),
+            Self::SearchListings(prefs) => prefs.validate(),
             Self::ContentOverrides(overrides) => overrides.validate(),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
@@ -4118,6 +4174,10 @@ pub struct ProviderSearchResult {
     pub provider: ProviderInfo,
     pub tracks: Vec<OnlineTrack>,
     pub error: Option<String>,
+    /// Its search failed or found nothing: these songs were found in its charts instead
+    /// (`Settings::search_listings`).
+    #[serde(default)]
+    pub from_listings: bool,
 }
 
 /// Everything a search found (M18).
@@ -4602,7 +4662,8 @@ pub struct MangaCard {
     /// The source marks it adult: the UI marks it 18+.
     #[serde(default)]
     pub adult: bool,
-    /// Found by matching the source's listings, not by its search (which found little).
+    /// Found by matching the source's listings, not by its search (which failed or found
+    /// nothing).
     #[serde(default)]
     pub from_listing: bool,
 }
@@ -6842,6 +6903,10 @@ pub struct SourceSearchResult {
     pub items: Vec<MangaCard>,
     pub has_next_page: bool,
     pub error: Option<String>,
+    /// Its search failed or found nothing: these titles were found in its listings instead
+    /// (`Settings::search_listings`), each marked `from_listing`.
+    #[serde(default)]
+    pub from_listings: bool,
 }
 
 // ---- Stremio addons (M41) ----

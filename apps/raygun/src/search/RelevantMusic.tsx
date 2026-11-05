@@ -300,6 +300,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
                   track={entry.track}
                   source={entry.source}
                   sourceAdult={entry.sourceAdult}
+                  sourceListed={entry.fromListings}
                   onPlay={(tapped) => void playResults(tracks, tapped)}
                 />
               </li>

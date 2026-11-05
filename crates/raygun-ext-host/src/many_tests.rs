@@ -462,7 +462,8 @@ async fn many_sources_search_without_waiting_on_the_slowest() {
     // Each answer is reported as it comes: when it came, and whether it failed.
     let started = Instant::now();
     let seen = std::sync::Mutex::new(Vec::new());
-    let search = host.search_music_as_answered("song", 10, |result, total| {
+    let listings = raygun_model::SearchListingsPrefs::default();
+    let search = host.search_music_as_answered("song", 10, listings, |result, total| {
         assert_eq!(total, 33);
         seen.lock().unwrap().push((
             started.elapsed(),

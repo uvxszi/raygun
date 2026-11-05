@@ -217,6 +217,34 @@ pub fn normalize(text: &str) -> String {
         .join(" ")
 }
 
+/// Search's `titleScore` (`search/rankResults.ts` in the UI): how well `title` answers `wanted`,
+/// both normalized first. Exact, then starts with it, then has every word of it (as one phrase
+/// first), else the share of its words it has. A title holding the query inside one word (titles
+/// without spaces, as in Chinese and Japanese) comes just under having every word as a phrase.
+pub fn title_score(title: &str, wanted: &str) -> u32 {
+    let found = normalize(title);
+    let wanted = normalize(wanted);
+    if wanted.is_empty() || found.is_empty() {
+        return 0;
+    }
+    if found == wanted {
+        return 100;
+    }
+    if found.starts_with(&wanted) {
+        return 80;
+    }
+    let words: Vec<&str> = wanted.split(' ').collect();
+    let have: HashSet<&str> = found.split(' ').collect();
+    let shared = words.iter().filter(|word| have.contains(*word)).count();
+    if shared == words.len() {
+        return if found.contains(&wanted) { 70 } else { 60 };
+    }
+    if found.contains(&wanted) {
+        return 65;
+    }
+    u32::try_from(40 * shared / words.len()).unwrap_or(0)
+}
+
 /// A title without its decorations: bracketed parts (`(Remastered 2011)`, `[Official Video]`) and
 /// trailing `feat.` credits are dropped, then the rest is normalized.
 pub fn core_title(title: &str) -> String {

@@ -360,10 +360,12 @@ impl ExtensionService {
     }
 
     /// [`Self::search`] for Search itself: each source's answer goes to `report` as it comes,
-    /// with how many sources were asked; the answers come back in that order.
+    /// with how many sources were asked; the answers come back in that order. A source whose
+    /// search fails or finds nothing answers from its charts, as `listings` allows.
     pub async fn search_as_answered(
         &self,
         query: &str,
+        listings: raygun_model::SearchListingsPrefs,
         report: impl Fn(&ProviderSearchResult, usize),
     ) -> Vec<ProviderSearchResult> {
         let query = query.trim();
@@ -372,7 +374,7 @@ impl ExtensionService {
         }
         let _ready = self.loading.read().await;
         self.host
-            .search_music_as_answered(query, SEARCH_LIMIT, report)
+            .search_music_as_answered(query, SEARCH_LIMIT, listings, report)
             .await
     }
 

@@ -248,6 +248,7 @@ mod artist_tests {
             },
             tracks,
             error: None,
+            from_listings: false,
         };
         let results = [
             provider(
@@ -306,6 +307,7 @@ mod tests {
             },
             tracks,
             error: None,
+            from_listings: false,
         }
     }
 

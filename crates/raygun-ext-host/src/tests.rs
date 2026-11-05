@@ -1508,8 +1508,9 @@ async fn watched_searches_report_each_source_as_it_answers() {
     .await;
 
     let reported = std::cell::RefCell::new(Vec::new());
+    let listings = raygun_model::SearchListingsPrefs::default();
     let songs = host
-        .search_music_as_answered("song", 10, |result, total| {
+        .search_music_as_answered("song", 10, listings, |result, total| {
             reported.borrow_mut().push((
                 result.provider.name.clone(),
                 result.error.is_some(),

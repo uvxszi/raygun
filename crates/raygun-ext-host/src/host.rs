@@ -22,7 +22,8 @@ use raygun_model::{
     ArtistEvent, ExtensionInfo, ExtensionOrigin, ExtensionSetting, ExtensionStatus, LyricLine,
     Lyrics, LyricsTranslation, LyricsTranslationKind, LyricsTranslationOrigin, MediaSource,
     MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart, MusicPlaylist, MusicPlaylistDetail,
-    OnlineTrack, ProviderInfo, ProviderSearchResult, SettingKind, SettingValue, TrackQuery,
+    OnlineTrack, ProviderInfo, ProviderSearchResult, SearchListingsPrefs, SettingKind,
+    SettingValue, TrackQuery,
 };
 use raygun_net::{Issue, IssueKind};
 use raygun_resolver::Candidate;
@@ -317,6 +318,8 @@ struct HostShared {
     storage_dir: Option<PathBuf>,
     /// Browser checks sources met lately (`crate::browser_check`).
     challenges: Challenges,
+    /// What searches read of sources' listings lately (`crate::listing_search`).
+    listings: crate::listing_search::Listings,
 }
 
 /// What's loaded, as of the last load.
@@ -368,6 +371,7 @@ impl ExtensionHost {
                 catalog_turns: Turns::new(CATALOG_SEARCHES),
                 storage_dir: config.storage_dir.clone(),
                 challenges: Challenges::default(),
+                listings: crate::listing_search::Listings::default(),
             }),
         })
     }
@@ -386,6 +390,11 @@ impl ExtensionHost {
     /// Turns for catalogue searches someone waits on (comics, books, videos).
     pub(crate) fn catalog_turns(&self) -> &Arc<Turns> {
         &self.shared.catalog_turns
+    }
+
+    /// What searches read of sources' listings lately.
+    pub(crate) fn listings(&self) -> &crate::listing_search::Listings {
+        &self.shared.listings
     }
 
     fn directory(&self) -> std::sync::RwLockReadGuard<'_, Directory> {
@@ -757,23 +766,66 @@ impl ExtensionHost {
     /// [`Self::search_music`] for a search someone watches: each provider's answer goes to
     /// `report` as soon as it comes (with how many providers were asked), so the first answers
     /// show before the slowest provider's. The fan-out's order, limits and resting apply; the
-    /// answers come back in the order they came.
+    /// answers come back in the order they came. A provider whose search fails or finds nothing
+    /// answers with the songs of its extension's charts that match, as `listings` allows
+    /// ([`crate::listing_search`]).
     pub async fn search_music_as_answered(
         &self,
         query: &str,
         limit: u32,
+        listings: SearchListingsPrefs,
         report: impl Fn(&ProviderSearchResult, usize),
     ) -> Vec<ProviderSearchResult> {
         let providers = self.providers(MUSIC_METADATA).await;
         let total = providers.len();
-        let mut answers = std::pin::pin!(self.search_asks(providers, query, limit));
+        let started = tokio::time::Instant::now();
+        let mut answers = std::pin::pin!(
+            self.search_asks(providers, query, limit)
+                .map(|asked| self.helped_by_listings(asked, query, listings, started))
+                .buffer_unordered(total.max(1))
+        );
         let mut results = Vec::with_capacity(total);
-        while let Some(asked) = answers.next().await {
-            let result = search_result(asked);
+        while let Some(result) = answers.next().await {
             report(&result, total);
             results.push(result);
         }
         results
+    }
+
+    /// A provider's search answer; one that failed or found nothing for what was typed gets the
+    /// songs of its extension's charts that match instead, when `listings` says to look.
+    async fn helped_by_listings(
+        &self,
+        asked: Asked<Vec<OnlineTrack>>,
+        query: &str,
+        listings: SearchListingsPrefs,
+        started: tokio::time::Instant,
+    ) -> ProviderSearchResult {
+        let nothing = asked.answer.as_ref().map_or(true, Vec::is_empty);
+        if !listings.enabled || !nothing || query.trim().is_empty() {
+            return search_result(asked);
+        }
+        let deadline = (started + INTERACTIVE_TIMEOUT)
+            .max(tokio::time::Instant::now() + crate::listing_search::LEAST_TIME);
+        match self
+            .listing_songs(&asked.provider, query, listings, deadline)
+            .await
+        {
+            Ok(tracks) if !tracks.is_empty() => {
+                tracing::debug!(
+                    provider = %asked.provider.id,
+                    found = tracks.len(),
+                    "search helped by the source's charts"
+                );
+                ProviderSearchResult {
+                    provider: asked.provider,
+                    tracks,
+                    error: None,
+                    from_listings: true,
+                }
+            }
+            _ => search_result(asked),
+        }
     }
 
     fn search_asks<'a>(
@@ -1473,6 +1525,7 @@ fn search_result(asked: Asked<Vec<OnlineTrack>>) -> ProviderSearchResult {
             provider: asked.provider,
             tracks,
             error: None,
+            from_listings: false,
         },
         Err(error) => {
             tracing::warn!(provider = %asked.provider.id, %error, "search failed");
@@ -1480,6 +1533,7 @@ fn search_result(asked: Asked<Vec<OnlineTrack>>) -> ProviderSearchResult {
                 provider: asked.provider,
                 tracks: Vec::new(),
                 error: Some(error.to_string()),
+                from_listings: false,
             }
         }
     }

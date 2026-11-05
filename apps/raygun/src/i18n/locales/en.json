@@ -337,6 +337,7 @@
     "noResults": "Nothing found for “{{query}}”.",
     "providerEmpty": "No results from this source.",
     "fromListing": "From its listings",
+    "fromListingsHint": "Its own search failed or found nothing, so these were found by looking through what it lists",
     "providerFailed": "This source failed: {{message}}",
     "yourLibrary": "Your library",
     "topResults": "Top results",
@@ -979,6 +980,14 @@
       "cooldown": "Wait between pages",
       "cooldownHint": "Longer waits keep sources from blocking you",
       "seconds": "{{n}} s"
+    },
+    "searchListings": {
+      "title": "Look through sources whose search fails",
+      "hint": "When a source's search fails or finds nothing, its popular, latest and sorted lists (a music source's charts) are matched against what you typed",
+      "entries": "Matches to collect",
+      "entriesHint": "From each of those sources",
+      "pages": "Pages to look through",
+      "pagesHint": "At most, from each of those sources"
     },
     "musicPlayback": "Music and audio",
     "resumeOnStart": "Open with what played last",

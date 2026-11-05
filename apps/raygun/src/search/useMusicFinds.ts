@@ -23,6 +23,8 @@ export type RankedSong = {
   score: number;
   /** The source is rated for adults: its name carries an 18+ tag. */
   sourceAdult?: boolean;
+  /** Found in the source's charts, its search having failed or found nothing. */
+  fromListings?: boolean;
 };
 
 /** Only each source's first answers count as agreeing; deep results rarely are the song asked. */
@@ -73,6 +75,7 @@ export const rankSongs = (
         track: merged.get(key) ?? track,
         source: result.provider.name,
         ...(result.provider.adult ? { sourceAdult: true } : {}),
+        ...(result.fromListings ? { fromListings: true } : {}),
         score: score + artistBonus + agreement,
         at: index,
         order,
@@ -87,11 +90,12 @@ export const rankSongs = (
     entries.push({ track, source: undefined, score: AGREEMENT_BONUS, at: index, order: 0 });
   });
   entries.sort((a, b) => b.score - a.score || a.at - b.at || a.order - b.order);
-  return entries.map(({ track, source, score, sourceAdult }) => ({
+  return entries.map(({ track, source, score, sourceAdult, fromListings }) => ({
     track,
     source,
     score,
     ...(sourceAdult ? { sourceAdult } : {}),
+    ...(fromListings ? { fromListings } : {}),
   }));
 };
 

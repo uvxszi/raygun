@@ -15,6 +15,7 @@ import { SongMarks } from '../music/SongMarks';
 import { songReveal } from '../music/reveal';
 import { SourceTag } from '../shell/SourceTag';
 import { Selectable } from '../select/Selectable';
+import { FromListingsNote } from './FromListingsNote';
 
 type OnlineTrackRowProps = {
   track: OnlineTrack;
@@ -23,6 +24,8 @@ type OnlineTrackRowProps = {
   source?: string;
   /** That source is rated for adults: an 18+ tag after its name. */
   sourceAdult?: boolean;
+  /** That source's search failed or found nothing: the song came from its charts. */
+  sourceListed?: boolean;
 };
 
 /** A search result. Tracks without a stream get one from the resolver when they play (M14). */
@@ -31,6 +34,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
   onPlay,
   source,
   sourceAdult = false,
+  sourceListed = false,
 }) => {
   const playing = usePlayingMatch()(track);
   return (
@@ -65,6 +69,7 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
               <span className="mt-0.5 flex min-w-0 items-center gap-1">
                 <SourceTag name={source} />
                 {sourceAdult && <AdultMark />}
+                {sourceListed && <FromListingsNote />}
               </span>
             )}
           </span>

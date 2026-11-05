@@ -62,7 +62,6 @@ mod remote;
 mod resolution;
 mod resolver;
 mod search;
-mod search_fallback;
 mod search_filter;
 mod servers;
 mod settings;

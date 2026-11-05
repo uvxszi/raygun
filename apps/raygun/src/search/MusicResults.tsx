@@ -7,6 +7,7 @@ import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary } from '../library/useLibrary';
 import { AudiobookSearch } from './AudiobookSearch';
 import { FailedSources } from './FailedSources';
+import { FromListingsNote } from './FromListingsNote';
 import { NoSources } from './NoSources';
 import { AlbumFinds, ArtistFinds, Asking, BestSongs } from './MusicFinds';
 import { PlaylistFinds } from './PlaylistFinds';
@@ -37,6 +38,7 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous, limit })
           {ambiguous && <span className="font-normal"> · {result.provider.extensionId}</span>}
         </span>
         {result.provider.adult && <AdultMark />}
+        {result.fromListings && <FromListingsNote />}
         <SourceMenu
           sourceId={result.provider.id}
           extensionId={result.provider.extensionId}

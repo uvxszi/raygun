@@ -704,6 +704,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn searching_through_listings_keeps_to_what_is_offered() {
+        use raygun_model::SearchListingsPrefs;
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        assert_eq!(
+            load(&db).await.unwrap().search_listings,
+            SearchListingsPrefs {
+                enabled: true,
+                entries: 20,
+                pages: 5
+            }
+        );
+        let prefs = |entries, pages| {
+            SettingChange::SearchListings(SearchListingsPrefs {
+                enabled: false,
+                entries,
+                pages,
+            })
+        };
+        for bad in [prefs(0, 5), prefs(101, 5), prefs(20, 0), prefs(20, 21)] {
+            assert!(update(&db, bad.clone()).await.is_err(), "{bad:?}");
+        }
+        let saved = update(&db, prefs(100, 20)).await.unwrap();
+        assert_eq!(
+            (
+                saved.search_listings.enabled,
+                saved.search_listings.entries,
+                saved.search_listings.pages
+            ),
+            (false, 100, 20)
+        );
+        // A row saved without a field keeps that field's default.
+        settings::put(&db, "searchListings", r#"{"enabled":false}"#)
+            .await
+            .unwrap();
+        assert_eq!(
+            load(&db).await.unwrap().search_listings,
+            SearchListingsPrefs {
+                enabled: false,
+                ..SearchListingsPrefs::default()
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn browse_start_tab_is_one_of_browses_tabs() {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;

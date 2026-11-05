@@ -69,6 +69,7 @@ const DEFAULT_SETTINGS: Settings = {
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
   searchFilter: { noAdult: false, noExplicit: false },
+  searchListings: { enabled: true, entries: 20, pages: 5 },
   manualBrowserChecks: false,
   userAgent: '',
   keepMusicPlaying: false,
