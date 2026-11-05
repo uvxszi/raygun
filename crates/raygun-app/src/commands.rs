@@ -4,11 +4,11 @@ use raygun_model::{
     AiModel, AiProvider, AiProviderInput, AppInfo, BackupFile, BackupOutcome,
     CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry, ImportedBook,
     LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode,
-    MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
-    MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter, PlayRequest, PlaybackControl,
-    PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode,
-    RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
-    StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    MangaChapterInfo, MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource,
+    MangaTitleView, MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter, PlayRequest,
+    PlaybackControl, PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot,
+    ReaderMode, RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue,
+    Settings, StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
 use crate::ai::AiService;
@@ -2884,6 +2884,16 @@ pub async fn manga_library(
     manga.library().await
 }
 
+/// A stored title's chapters (read and download states, no fetching), for the reader's list.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_chapters(
+    manga: tauri::State<'_, MangaService>,
+    title_id: String,
+) -> Result<Vec<MangaChapterInfo>, String> {
+    manga.chapters(&title_id).await
+}
+
 /// A chapter's pages and its neighbours, for the reader.
 #[tauri::command]
 #[specta::specta]
@@ -3862,6 +3872,16 @@ pub async fn library_continue(
     title_id: String,
 ) -> Result<Option<String>, String> {
     crate::library_actions::continue_unit(catalog_for(&app, &medium)?, &title_id).await
+}
+
+/// Titles of `medium` with downloaded chapters or episodes, in the library or not.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_downloaded(
+    app: tauri::AppHandle,
+    medium: String,
+) -> Result<Vec<MangaLibraryEntry>, String> {
+    catalog_for(&app, &medium)?.downloaded().await
 }
 
 /// Library titles with the same name as `title` from other sources.

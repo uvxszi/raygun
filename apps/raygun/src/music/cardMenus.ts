@@ -21,7 +21,6 @@ import {
   UserRound,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
-import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -37,7 +36,6 @@ import { ROUTES } from '../manga/medium';
 import { useTitleCardMenu } from '../manga/titleMenu';
 import type { Medium } from '../manga/medium';
 import { playResults } from '../search/useOnlineSearch';
-import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { showToast } from '../shell/toastStore';
 import { usePinMenuItem } from '../shell/usePinMenuItem';
@@ -828,14 +826,9 @@ export const useContextMenuItems = () => {
   };
 };
 
-/** `onContextMenu` for mix cards: play, queue, save, download, pin (and Not interested on Home). */
+/** A mix card's ⋮ items: play, queue, save, download, pin (and Not interested on Home). */
 export const useMixCardMenu = (options: CardMenuOptions = {}) => {
   const { t } = useTranslation();
   const items = useMixMenuItems();
-  return (mix: MixSummary) => (event: MouseEvent) =>
-    openContextMenu(event, items(mix, mixTitle(t, mix), options));
+  return (mix: MixSummary) => () => items(mix, mixTitle(t, mix), options);
 };
-
-/** `onContextMenu` for anything with menu items. */
-export const menuHandler = (items: () => MenuItem[]) => (event: MouseEvent) =>
-  openContextMenu(event, items());

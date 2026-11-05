@@ -112,7 +112,7 @@ export const MadeForYouPage: FC = () => {
             <h2 className="text-xl font-bold">{t(`forYou.shelves.${shelf.id}`)}</h2>
             <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
               {shown.map((mix) => (
-                <MixCard key={mix.id} mix={mix} onMenu={mixMenu(mix)} />
+                <MixCard key={mix.id} mix={mix} menu={mixMenu(mix)} />
               ))}
             </Carousel>
           </section>

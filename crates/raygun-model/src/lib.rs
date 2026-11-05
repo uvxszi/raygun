@@ -4865,6 +4865,8 @@ pub struct MangaDownloadItem {
     pub title_id: String,
     pub title: String,
     pub chapter: String,
+    /// The title's medium: `manga` or `novel` (novel chapters share the queue).
+    pub medium: String,
     pub download: ChapterDownload,
 }
 

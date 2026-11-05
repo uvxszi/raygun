@@ -528,6 +528,23 @@ impl Catalog {
         let entries = titles::library(&self.db(), self.kind)
             .await
             .map_err(to_message)?;
+        self.entries(entries).await
+    }
+
+    /// Titles with downloaded chapters or episodes, in the library or not (Downloads).
+    pub async fn downloaded(&self) -> Result<Vec<MangaLibraryEntry>, String> {
+        let entries = titles::downloaded(&self.db(), self.kind)
+            .await
+            .map_err(to_message)?;
+        self.entries(entries).await
+    }
+
+    /// Titles as the library lists them: adult ones left out unless shown, with their
+    /// categories, source names and kept covers.
+    async fn entries(
+        &self,
+        entries: Vec<titles::LibraryTitle>,
+    ) -> Result<Vec<MangaLibraryEntry>, String> {
         let show_nsfw = self.extensions().show_nsfw();
         let mut memberships = raygun_db::categories::memberships(&self.db(), self.kind)
             .await

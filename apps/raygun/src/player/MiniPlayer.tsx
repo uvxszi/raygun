@@ -1,38 +1,32 @@
 import { commands } from '@raygun/bindings';
 import type { QueueItem, QueueSnapshot } from '@raygun/bindings';
 import {
-  BookOpen,
   ListMusic,
   Maximize2,
   MicVocal,
   MonitorPlay,
   PanelRight,
   PictureInPicture2,
-  Podcast,
   Subtitles,
   Volume1,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
 import type { PanInfo } from 'motion/react';
 import { useRef, useState } from 'react';
-import type { FC, MouseEvent, ReactNode, RefObject } from 'react';
+import type { FC, ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { fromQueueItem } from '../collections/useCollections';
 import { ExplicitMark } from '../music/ExplicitMark';
 import { PlayingOn } from '../connect/PlayingOn';
 import { ConnectButton } from '../devices/ConnectButton';
 import { Artwork } from '../library/Artwork';
 import { songCover } from '../library/coverTargets';
 import { IncognitoBadge } from '../privacy/IncognitoBadge';
-import { useTrackMenu } from '../music/useTrackMenu';
 import { appBackground } from '../shell/appWindow';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { Marquee } from '../shell/Marquee';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { SoundButton } from '../sound/SoundButton';
@@ -316,34 +310,16 @@ const WideBar: FC<BarProps> = ({ item }) => {
 
 /**
  * The song's title and who it's by, as plain text: the bar is tapped to open the player, and a
- * name that led elsewhere was tapped by accident. Its menu (right click, long press) has Go to
- * the artist, or to the book or show.
+ * name that led elsewhere was tapped by accident. The full player's ⋮ goes to the artist, or
+ * to the book or show.
  */
 const TrackText: FC<BarProps> = ({ item }) => {
   const { t } = useTranslation();
-  const menu = useTrackMenu();
-  const navigate = useNavigate();
   const note = useSourceNote(item);
   const spoken = useSpokenItem(item);
-  // A chapter or an episode isn't a song: its menu leads to the book or the show (M46.32).
-  const spokenMenu = (event: MouseEvent) => {
-    if (!spoken) return;
-    const book = spoken.kind === 'audiobook';
-    openContextMenu(event, [
-      {
-        label: t(book ? 'captions.goToBook' : 'captions.goToShow'),
-        icon: book ? BookOpen : Podcast,
-        onSelect: () =>
-          void navigate({ to: book ? '/audiobook' : '/podcast', search: { id: spoken.podcastId } }),
-      },
-    ]);
-  };
   const byline = spoken ? spokenName(spoken) : item.artist;
   return (
-    <span
-      className="title-gap flex min-w-0 flex-col"
-      onContextMenu={spoken ? spokenMenu : menu(fromQueueItem(item))}
-    >
+    <span className="title-gap flex min-w-0 flex-col">
       <span className="flex min-w-0 items-center gap-1.5">
         <Marquee
           testId="mini-player-title"

@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { create } from 'zustand';
 
-/** One line of a right-click menu (M46.8). */
+/** One line of an item's ⋮ menu (M46.8). */
 export type MenuItem =
   | {
       kind?: 'item';
@@ -33,23 +33,16 @@ export const useContextMenuStore = create<ContextMenuState>((set) => ({
 }));
 
 /**
- * Opens Raygun's right-click menu with `items` at the pointer (M46.8). Components call it from
- * `onContextMenu`; the shell then adds what applies to the spot (a link, selected text, the page).
+ * Opens `items` at the pointer from `onContextMenu` (a right click, a long press on phones).
+ * Only the quick access panel's pins use it (`RailPins`); everything else has its ⋮.
  */
 export const openContextMenu = (event: ReactMouseEvent | MouseEvent, items: MenuItem[]) => {
   event.preventDefault();
-  const native = 'nativeEvent' in event ? event.nativeEvent : event;
-  // The shell's menu reads them from the native event; the innermost component's come first.
-  const carried = native as unknown as { raygunMenu?: MenuItem[] };
-  carried.raygunMenu ??= items;
+  useContextMenuStore.getState().show(event.clientX, event.clientY, items);
 };
 
-/** Opens the same menu from a ⋮ button: under it, with only `items` (a phone shows a sheet). */
+/** Opens an item's menu from its ⋮ button: under it (a phone shows a sheet). */
 export const openMenuAt = (anchor: HTMLElement, items: MenuItem[]) => {
   const box = anchor.getBoundingClientRect();
   useContextMenuStore.getState().show(box.left, box.bottom, items);
 };
-
-/** Items a component put on the event, if any. */
-export const menuFromEvent = (event: MouseEvent): MenuItem[] | undefined =>
-  (event as unknown as { raygunMenu?: MenuItem[] }).raygunMenu;

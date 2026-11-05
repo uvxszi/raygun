@@ -1,10 +1,9 @@
 import type { MangaDownloadItem } from '@raygun/bindings';
-import { Download, Pause, Play, RotateCw, X } from 'lucide-react';
+import { Pause, Play, RotateCw, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { EmptyState } from '../shell/EmptyState';
 import {
   useDownloadChapters,
   useMangaDownloads,
@@ -82,8 +81,11 @@ const DownloadRow: FC<{ item: MangaDownloadItem; paused: boolean }> = ({ item, p
   );
 };
 
-/** Downloads → Chapters: the queue of chapters waiting, downloading or failed. */
-export const ChapterDownloads: FC = () => {
+/**
+ * `medium`'s chapters waiting, downloading or failed (comics and books share the queue), and
+ * nothing while it has none: Downloads → Comics and Books list what's downloaded below it.
+ */
+export const ChapterDownloads: FC<{ medium: 'manga' | 'novel' }> = ({ medium }) => {
   const { t } = useTranslation();
   const downloads = useMangaDownloads();
   const setPaused = useSetDownloadsPaused();
@@ -91,7 +93,8 @@ export const ChapterDownloads: FC = () => {
   const remove = useRemoveDownloads();
   // Cancelling everything takes a second tap.
   const [clearing, setClearing] = useState(false);
-  const queue = downloads.data;
+  const all = downloads.data;
+  const queue = all && { ...all, items: all.items.filter((item) => item.medium === medium) };
   const failed = queue?.items.filter((item) => item.download.state === 'failed') ?? [];
 
   return (
@@ -105,24 +108,22 @@ export const ChapterDownloads: FC = () => {
           {downloads.error.message}
         </SourceIssue>
       )}
-      {queue && (
+      {queue && queue.items.length > 0 && (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            {queue.items.length > 0 && (
-              <button
-                type="button"
-                disabled={setPaused.isPending}
-                onClick={() => setPaused.mutate(!queue.paused)}
-                className={PILL}
-              >
-                {queue.paused ? (
-                  <Play aria-hidden size={16} className="text-primary" />
-                ) : (
-                  <Pause aria-hidden size={16} className="text-primary" />
-                )}
-                {t(queue.paused ? 'manga.resumeDownloads' : 'manga.pauseDownloads')}
-              </button>
-            )}
+            <button
+              type="button"
+              disabled={setPaused.isPending}
+              onClick={() => setPaused.mutate(!queue.paused)}
+              className={PILL}
+            >
+              {queue.paused ? (
+                <Play aria-hidden size={16} className="text-primary" />
+              ) : (
+                <Pause aria-hidden size={16} className="text-primary" />
+              )}
+              {t(queue.paused ? 'manga.resumeDownloads' : 'manga.pauseDownloads')}
+            </button>
             {failed.length > 1 && (
               <button
                 type="button"
@@ -157,21 +158,12 @@ export const ChapterDownloads: FC = () => {
                   : t('manga.cancelAll')}
               </button>
             )}
-            {(queue.downloaded > 0 || queue.items.length > 0) && (
-              <p className="text-muted text-xs">
-                {t('manga.downloadedChapters', { count: queue.downloaded })}
-              </p>
-            )}
           </div>
-          {queue.items.length === 0 ? (
-            <EmptyState icon={Download} title={t('manga.queueEmpty')} />
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {queue.items.map((item) => (
-                <DownloadRow key={item.chapterId} item={item} paused={queue.paused} />
-              ))}
-            </ul>
-          )}
+          <ul className="flex flex-col gap-2">
+            {queue.items.map((item) => (
+              <DownloadRow key={item.chapterId} item={item} paused={queue.paused} />
+            ))}
+          </ul>
         </>
       )}
     </div>

@@ -319,6 +319,28 @@ pub async fn set_reader_mode(db: &Db, id: &str, mode: &str) -> Result<(), DbErro
 /// Library titles of `kind`, alphabetically, with chapter and unread counts (units dated in the
 /// future, announced episodes, aren't unread yet).
 pub async fn library(db: &Db, kind: &str) -> Result<Vec<LibraryTitle>, DbError> {
+    counted_titles(db, kind, "t.user_in_library_at IS NOT NULL").await
+}
+
+/// Titles of `kind` with a downloaded chapter or episode on this device, in the library or not,
+/// counted like [`library`] (Downloads lists them).
+pub async fn downloaded(db: &Db, kind: &str) -> Result<Vec<LibraryTitle>, DbError> {
+    counted_titles(
+        db,
+        kind,
+        "(EXISTS (SELECT 1 FROM local_manga_download d WHERE d.title_id = t.id AND d.state = 'done')
+          OR EXISTS (SELECT 1 FROM local_video_download d
+                     WHERE d.title_id = t.id AND d.state = 'done'))",
+    )
+    .await
+}
+
+/// Titles of `kind` that also match `filter` (SQL over `title t`), with their counts.
+async fn counted_titles(
+    db: &Db,
+    kind: &str,
+    filter: &'static str,
+) -> Result<Vec<LibraryTitle>, DbError> {
     let rows = sqlx::query(AssertSqlSafe(format!(
         "SELECT {TITLE_COLUMNS},
              (SELECT COUNT(*) FROM unit u WHERE u.title_id = t.id AND u.deleted = 0) AS units,
@@ -342,7 +364,7 @@ pub async fn library(db: &Db, kind: &str) -> Result<Vec<LibraryTitle>, DbError> 
              (SELECT MAX(u.state_found_at) FROM unit u
               WHERE u.title_id = t.id AND u.deleted = 0) AS latest_found
          FROM title t
-         WHERE t.kind = ?1 AND t.user_in_library_at IS NOT NULL AND t.deleted = 0
+         WHERE t.kind = ?1 AND {filter} AND t.deleted = 0
          ORDER BY t.remote_title COLLATE NOCASE"
     )))
     .bind(kind)

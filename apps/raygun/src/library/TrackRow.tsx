@@ -5,7 +5,6 @@ import { TrackMoreButton } from '../collections/TrackMoreButton';
 import { fromLibraryTrack } from '../collections/useCollections';
 import { formatTime } from '../player/formatTime';
 import { ArtistLinks } from '../music/ArtistLinks';
-import { useTrackMenu } from '../music/useTrackMenu';
 import { Artwork } from './Artwork';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
@@ -21,14 +20,9 @@ type TrackRowProps = {
 };
 
 export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork' }) => {
-  const menu = useTrackMenu();
   const playing = usePlayingMatch()(track);
   return (
-    <div
-      className="flex items-center"
-      data-reveal={songReveal(track.title, track.artist)}
-      onContextMenu={menu(fromLibraryTrack(track), { onPlay: () => onPlay(track) })}
-    >
+    <div className="flex items-center" data-reveal={songReveal(track.title, track.artist)}>
       <button
         type="button"
         data-testid="track-row"
@@ -64,7 +58,7 @@ export const TrackRow: FC<TrackRowProps> = ({ track, onPlay, variant = 'artwork'
           {track.durationMs ? formatTime(track.durationMs) : ''}
         </span>
       </button>
-      <TrackMoreButton track={fromLibraryTrack(track)} />
+      <TrackMoreButton track={fromLibraryTrack(track)} extras={{ onPlay: () => onPlay(track) }} />
     </div>
   );
 };

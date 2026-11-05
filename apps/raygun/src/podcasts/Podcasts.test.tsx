@@ -1,5 +1,5 @@
 import type { PodcastEpisode, PodcastView } from '@raygun/bindings';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -104,7 +104,7 @@ describe('Podcasts', () => {
     expect(await within(search).findByText('Top Show')).toBeInTheDocument();
     await user.type(within(browse).getByRole('searchbox', { name: 'Search' }), 'example');
     await vi.waitFor(() => expect(commands.podcastSearch).toHaveBeenCalledWith('example'));
-    await user.click(await within(search).findByRole('button', { name: /The Example Show/ }));
+    await user.click(await within(search).findByRole('button', { name: /^The Example Show/ }));
 
     expect(commands.podcastOpenFeed).toHaveBeenCalledWith(SHOW.feedUrl);
     const page = await screen.findByTestId('podcast-page');
@@ -137,26 +137,26 @@ describe('Podcasts', () => {
     expect(within(one).getByText('All about one.')).toBeInTheDocument();
   });
 
-  it('offers an episode’s options on right click', async () => {
+  it('offers an episode’s options from its ⋮', async () => {
     const user = userEvent.setup();
     commands.podcastGet.mockResolvedValue(ok(SHOW));
     await AppShellWrapper.mount('/podcast?id=p1');
     const page = await screen.findByTestId('podcast-page');
     const two = within(page).getByRole('listitem', { name: 'Episode Two' });
 
-    fireEvent.contextMenu(two, { clientX: 40, clientY: 40 });
+    await user.click(within(two).getByRole('button', { name: 'Options for Episode Two' }));
     const menu = await screen.findByRole('menu');
     expect(within(menu).getByRole('menuitem', { name: 'Resume' })).toBeInTheDocument();
     await user.click(within(menu).getByRole('menuitem', { name: 'Play next' }));
     expect(commands.podcastQueue).toHaveBeenCalledWith('e2', true);
 
-    fireEvent.contextMenu(two, { clientX: 40, clientY: 40 });
+    await user.click(within(two).getByRole('button', { name: 'Options for Episode Two' }));
     await user.click(
       within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Add to queue' }),
     );
     expect(commands.podcastQueue).toHaveBeenLastCalledWith('e2', false);
 
-    fireEvent.contextMenu(two, { clientX: 40, clientY: 40 });
+    await user.click(within(two).getByRole('button', { name: 'Options for Episode Two' }));
     await user.click(
       within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Mark as played' }),
     );
@@ -210,7 +210,7 @@ describe('Podcasts', () => {
 
     // The episode's menu asks in its place.
     const two = within(page).getByRole('listitem', { name: 'Episode Two' });
-    fireEvent.contextMenu(two, { clientX: 40, clientY: 40 });
+    await user.click(within(two).getByRole('button', { name: 'Options for Episode Two' }));
     const menu = await screen.findByRole('menu');
     await user.click(within(menu).getByRole('menuitem', { name: 'Delete download' }));
     expect(commands.podcastRemoveDownload).not.toHaveBeenCalledWith('e2');

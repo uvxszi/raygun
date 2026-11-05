@@ -494,3 +494,42 @@ async fn lists_favorites_pins_and_bulk_read() {
             .all(|unit| unit.completed_at.is_none())
     );
 }
+
+#[tokio::test]
+async fn downloaded_lists_titles_with_finished_downloads_in_the_library_or_not() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let kept = upsert_title(&db, &manga("m1", "Frieren"), 1).await.unwrap();
+    let loose = upsert_title(&db, &manga("m2", "Berserk"), 1).await.unwrap();
+    let waiting = upsert_title(&db, &manga("m3", "Queued only"), 1)
+        .await
+        .unwrap();
+    set_in_library(&db, &kept, Some(1)).await.unwrap();
+    for title in [&kept, &loose, &waiting] {
+        sync_units(&db, title, &[chapter("c1", 1.0)], "chapter", 1)
+            .await
+            .unwrap();
+    }
+    for title in [&kept, &loose, &waiting] {
+        let unit = units(&db, title).await.unwrap()[0].id.clone();
+        crate::manga_downloads::enqueue(&db, &unit, title, 2)
+            .await
+            .unwrap();
+        if title != &waiting {
+            crate::manga_downloads::finish(&db, &unit, 3).await.unwrap();
+        }
+    }
+
+    let shelf = downloaded(&db, "manga").await.unwrap();
+    let names: Vec<_> = shelf
+        .iter()
+        .map(|entry| entry.title.fields.title.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["Berserk", "Frieren"],
+        "a queued chapter isn't downloaded yet"
+    );
+    assert!(shelf.iter().all(|entry| entry.downloaded == 1));
+    assert!(downloaded(&db, "novel").await.unwrap().is_empty());
+}

@@ -17,7 +17,7 @@ import {
   useHistory,
   usePlaylists,
 } from '../collections/useCollections';
-import { usePlaylistMenu } from '../collections/usePlaylistMenu';
+import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
 import { useHasProvider } from '../extensions/useExtensions';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
@@ -25,22 +25,17 @@ import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
 import { useLayout, useSaveLayout } from '../layout/useLayout';
-import {
-  menuHandler,
-  useContextMenuItems,
-  useMixCardMenu,
-  useTitleMenuItems,
-} from '../music/cardMenus';
+import { useContextMenuItems, useMixCardMenu, useTitleMenuItems } from '../music/cardMenus';
 import { HomeChartRow } from '../music/ChartRow';
 import { pageKey, useHidden } from '../music/hidden';
 import { MixCard } from '../music/MixCard';
-import { useTrackMenu } from '../music/useTrackMenu';
+import { TrackMoreButton } from '../collections/TrackMoreButton';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { useSettings } from '../settings/useSettings';
 import { HomeFixedTiles } from '../library/LocalFilesTile';
-import { useFixedTileMenu } from '../library/useFixedTileMenu';
+import { useFixedTileMenuItems } from '../library/useFixedTileMenu';
 import { HomeCarousel, HomeSection } from '../home/HomeSection';
 import { useHomeRowActions } from '../home/homeRows';
 import {
@@ -60,7 +55,6 @@ import {
 import { MascotButton } from '../shell/MascotButton';
 import { SmartChipsButton } from '../shell/SmartChipsButton';
 import { OverflowMenu } from '../shell/OverflowMenu';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { TopBar, TopBarAction } from '../shell/TopBar';
@@ -68,6 +62,8 @@ import { UpdateBanner } from '../updates/UpdateBanner';
 import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
 import { ContinueListening } from '../podcasts/ContinueListening';
 import { useContinueWatching } from '../watch/useWatch';
+import { CardMenu } from '../shell/CardMenu';
+import { CARD_MENU_BESIDE, CARD_MENU_BESIDE_TIGHT } from '../manga/CardPlayButton';
 
 /** Playlists shown as shortcuts next to Favorites. */
 const HOME_PLAYLISTS = 5;
@@ -89,15 +85,14 @@ type SectionProps = { id: string };
 const YourMusic: FC<SectionProps> = ({ id }) => {
   const { t } = useTranslation();
   const playlists = usePlaylists();
-  const playlistMenu = usePlaylistMenu();
+  const playlistMenu = usePlaylistMenuItems();
   const contextMenu = useContextMenuItems();
   const recent = useQuery({
     queryKey: ['recentContexts'],
     queryFn: () => unwrapResult(commands.recentContexts()),
   });
   const favorites = useFavorites();
-  const tileMenu = useFixedTileMenu();
-  const menu = useTrackMenu();
+  const tileMenu = useFixedTileMenuItems();
   const hidden = useHidden();
   // Kept only while recently played is on (M46.41).
   const keepRecent = useSettings().data?.privacy.recentlyPlayed !== false;
@@ -120,12 +115,12 @@ const YourMusic: FC<SectionProps> = ({ id }) => {
       <div className="flex flex-col gap-2">
         <HomeCarousel>
           <li>
-            <Link
-              to="/library"
-              search={{ view: 'favorites' }}
-              className={TILE_CLASS}
-              onContextMenu={tileMenu('favorites')}
-            >
+            <Link to="/library" search={{ view: 'favorites' }} className={`relative ${TILE_CLASS}`}>
+              <CardMenu
+                label={t('menu.options', { name: t('collections.favorites') })}
+                items={() => tileMenu('favorites')}
+                className={CARD_MENU_BESIDE}
+              />
               <span className="bg-primary/15 text-primary grid aspect-square place-items-center rounded-lg">
                 <Heart aria-hidden size={32} fill="currentColor" />
               </span>
@@ -139,9 +134,13 @@ const YourMusic: FC<SectionProps> = ({ id }) => {
                 to={context.to}
                 search={context.search as never}
                 aria-label={`${context.name} · ${t(`home.played.${context.kind}`, { defaultValue: '' })}`}
-                onContextMenu={menuHandler(() => contextMenu(context))}
-                className={TILE_CLASS}
+                className={`relative ${TILE_CLASS}`}
               >
+                <CardMenu
+                  label={t('menu.options', { name: context.name })}
+                  items={() => contextMenu(context)}
+                  className={CARD_MENU_BESIDE}
+                />
                 <Artwork
                   url={context.artworkUrl}
                   className={`w-full ${context.kind === 'artist' ? 'rounded-full' : 'rounded-lg'}`}
@@ -166,9 +165,13 @@ const YourMusic: FC<SectionProps> = ({ id }) => {
                 <Link
                   to="/library/playlist"
                   search={{ id: playlist.id }}
-                  onContextMenu={playlistMenu(playlist)}
-                  className={TILE_CLASS}
+                  className={`relative ${TILE_CLASS}`}
                 >
+                  <CardMenu
+                    label={t('menu.options', { name: playlist.name })}
+                    items={() => playlistMenu(playlist)}
+                    className={CARD_MENU_BESIDE}
+                  />
                   <PlaylistCover
                     artworkUrls={playlist.artworkUrls}
                     coverUrl={playlist.coverUrl}
@@ -194,11 +197,16 @@ const YourMusic: FC<SectionProps> = ({ id }) => {
             </div>
             <HomeCarousel>
               {latest.map((track) => (
-                <li key={track.trackKey} className="w-28 shrink-0">
+                <li key={track.trackKey} className="relative w-28 shrink-0">
+                  {/* The same menu as anywhere a song is listed (M46.40). */}
+                  <TrackMoreButton
+                    track={fromSavedTrack(track)}
+                    extras={{ favorite: true }}
+                    className={CARD_MENU_BESIDE_TIGHT}
+                    iconSize={16}
+                  />
                   <button
                     type="button"
-                    // The same menu as anywhere a song is listed (M46.40).
-                    onContextMenu={menu(fromSavedTrack(track), { favorite: true })}
                     onClick={() =>
                       void playCollection({
                         collection: { kind: 'favorites' },
@@ -296,17 +304,20 @@ const ContinueReading: FC<SectionProps> = ({ id }) => {
               to={ROUTES[entry.medium].title}
               search={{ source: entry.sourceId, id: entry.remoteId }}
               aria-label={entry.title}
-              onContextMenu={menuHandler(() =>
-                menu({
-                  medium: entry.medium,
-                  sourceId: entry.sourceId,
-                  id: entry.remoteId,
-                  title: entry.title,
-                  coverUrl: entry.coverUrl,
-                }),
-              )}
-              className="flex flex-col gap-1.5"
+              className="relative flex flex-col gap-1.5"
             >
+              <CardMenu
+                label={t('menu.options', { name: entry.title })}
+                items={() =>
+                  menu({
+                    medium: entry.medium,
+                    sourceId: entry.sourceId,
+                    id: entry.remoteId,
+                    title: entry.title,
+                    coverUrl: entry.coverUrl,
+                  })
+                }
+              />
               <span className="relative">
                 <MangaCover url={entry.coverUrl} className="w-full rounded-xl" />
                 {entry.unread > 0 && (
@@ -444,23 +455,20 @@ const MadeForYouRow: FC<SectionProps> = ({ id }) => {
     >
       <HomeCarousel tight>
         {mixes.slice(0, 12).map((mix) => (
-          <MixCard key={mix.id} mix={mix} onMenu={mixMenu(mix)} />
+          <MixCard key={mix.id} mix={mix} menu={mixMenu(mix)} />
         ))}
       </HomeCarousel>
     </HomeSection>
   );
 };
 
-/** Continue watching keeps its own heading; a right click or long press on it offers Hide. */
+/** Continue watching keeps its own heading; its ⋯ offers Hide. */
 const ContinueWatching: FC<SectionProps> = ({ id }) => {
   const { t } = useTranslation();
   const rowMenu = useHomeRowActions();
   return (
-    <div
-      data-home-section={id}
-      onContextMenu={(event) => openContextMenu(event, rowMenu(id, t('watch.continue')))}
-    >
-      <ContinueWatchingRow />
+    <div data-home-section={id}>
+      <ContinueWatchingRow menu={() => rowMenu(id, t('watch.continue'))} />
     </div>
   );
 };
@@ -470,13 +478,8 @@ const ContinueListeningSection: FC<SectionProps> = ({ id }) => {
   const { t } = useTranslation();
   const rowMenu = useHomeRowActions();
   return (
-    <div
-      data-home-section={id}
-      onContextMenu={(event) =>
-        openContextMenu(event, rowMenu(id, t('podcasts.continueListening')))
-      }
-    >
-      <ContinueListening />
+    <div data-home-section={id}>
+      <ContinueListening menu={() => rowMenu(id, t('podcasts.continueListening'))} />
     </div>
   );
 };

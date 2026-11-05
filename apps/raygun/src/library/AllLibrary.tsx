@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useAudiobooks } from '../audiobooks/useAudiobooks';
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { useFavorites, usePlaylists } from '../collections/useCollections';
-import { usePlaylistMenu } from '../collections/usePlaylistMenu';
+import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
 import { useLayout } from '../layout/useLayout';
 import { useLocalFolders } from '../localFiles/useLocalFolders';
 import { MangaCover } from '../manga/MangaCover';
@@ -27,6 +27,7 @@ import { DownloadedTile, FavoritesTile, LocalFilesTile } from './LocalFilesTile'
 import { LibraryTop } from './LibraryTop';
 import type { LibraryMediaTab } from './LibraryTop';
 import { useLibraryStatus } from './useLibrary';
+import { CardMenu } from '../shell/CardMenu';
 
 /** Items each row of the All tab shows (M46.37). */
 const ROW_ITEMS = 16;
@@ -144,7 +145,7 @@ const WebsitesRow: FC = () => {
 const AudioRow: FC = () => {
   const { t } = useTranslation();
   const playlists = usePlaylists();
-  const playlistMenu = usePlaylistMenu();
+  const playlistMenu = usePlaylistMenuItems();
   const podcasts = useSubscriptions();
   const audiobooks = useAudiobooks();
   return (
@@ -154,12 +155,11 @@ const AudioRow: FC = () => {
       <LocalFilesTile />
       {playlists.data?.slice(0, ROW_ITEMS).map((playlist) => (
         <li key={playlist.id} className="w-28 shrink-0">
-          <Link
-            to="/library/playlist"
-            search={{ id: playlist.id }}
-            onContextMenu={playlistMenu(playlist)}
-            className={TILE}
-          >
+          <Link to="/library/playlist" search={{ id: playlist.id }} className={`relative ${TILE}`}>
+            <CardMenu
+              label={t('menu.options', { name: playlist.name })}
+              items={() => playlistMenu(playlist)}
+            />
             <PlaylistCover
               artworkUrls={playlist.artworkUrls}
               coverUrl={playlist.coverUrl}

@@ -15,7 +15,7 @@ import {
   SquareCheck,
 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
-import type { FC, MouseEvent, ReactNode } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
@@ -52,9 +52,7 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { SourceMenu } from '../search/SourceMenu';
-import { useSourceMenuItems } from '../search/sourceMenuItems';
 import { buildMenu, copyText } from '../music/mediaMenu';
-import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { ServersSection } from '../servers/ServersSection';
 import { WebsitesSection } from '../websites/WebsitesSection';
@@ -68,6 +66,7 @@ import { useSetAddonEnabled, useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
 import { SourceIssue } from '../shell/SourceIssue';
 import { BROWSE_TAB_LABEL, browseStartTab } from './browseTabs';
+import { MenuButton } from '../shell/MenuButton';
 
 export type BrowseSection = 'search' | 'discover' | 'sources' | 'extensions';
 export type { ExtensionList };
@@ -96,7 +95,7 @@ const rowEnabled = (row: SourceRow) => row.source?.enabled ?? row.addonEnabled ?
 
 type Page = { to: string; search: Record<string, unknown> };
 
-/** A Stremio addon's long-press menu: open it, manage addons, copy its name, mark it 18+ or not. */
+/** A Stremio addon's ⋮ menu: open it, manage addons, copy its name, mark it 18+ or not. */
 const addonMenu = (
   row: SourceRow,
   t: TFunction,
@@ -123,10 +122,7 @@ const addonMenu = (
     edit: row.addonId ? marks : [],
   });
 
-const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }> = ({
-  row,
-  onMenu,
-}) => {
+const SourceRowLink: FC<{ row: SourceRow }> = ({ row }) => {
   const { t } = useTranslation();
   const rating = useContentRating();
   const mark = row.source
@@ -139,7 +135,6 @@ const SourceRowLink: FC<{ row: SourceRow; onMenu: (event: MouseEvent) => void }>
       to={row.to}
       search={row.search}
       aria-label={row.name}
-      onContextMenu={onMenu}
       className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${rowEnabled(row) ? '' : 'opacity-50'}`}
     >
       <LetterAvatar name={row.name} logo={row.logo} />
@@ -171,21 +166,14 @@ const LatestLink: FC<{ row: SourceRow }> = ({ row }) => {
   ) : null;
 };
 
-/** An extension's source: its menu needs the source's switch and its extension's website. */
+/** An extension's source, with its ⋯ (SourceMenu). */
 const ExtensionSourceRow: FC<{
   row: SourceRow;
   source: NonNullable<SourceRow['source']>;
 }> = ({ row, source }) => {
-  const items = useSourceMenuItems({
-    sourceId: source.id,
-    extensionId: source.extensionId,
-    name: row.name,
-    page: { to: row.to, search: row.search },
-    ...(row.latest ? { latest: row.latest } : {}),
-  });
   return (
     <>
-      <SourceRowLink row={row} onMenu={(event) => openContextMenu(event, items())} />
+      <SourceRowLink row={row} />
       <LatestLink row={row} />
       <SourceMenu sourceId={source.id} extensionId={source.extensionId} name={row.name} />
     </>
@@ -217,21 +205,14 @@ const SourceSection: FC<{
               <ExtensionSourceRow row={row} source={row.source} />
             ) : (
               <>
-                <SourceRowLink
-                  row={row}
-                  onMenu={(event) =>
-                    openContextMenu(
-                      event,
-                      addonMenu(
-                        row,
-                        t,
-                        go,
-                        rating.menuItems('addons', row.addonId ?? '', row.adult),
-                      ),
-                    )
+                <SourceRowLink row={row} />
+                <LatestLink row={row} />
+                <MenuButton
+                  label={t('menu.options', { name: row.name })}
+                  items={() =>
+                    addonMenu(row, t, go, rating.menuItems('addons', row.addonId ?? '', row.adult))
                   }
                 />
-                <LatestLink row={row} />
               </>
             )}
             <OnOffSwitch

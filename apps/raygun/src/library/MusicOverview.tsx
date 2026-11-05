@@ -12,13 +12,12 @@ import { useAudiobooks } from '../audiobooks/useAudiobooks';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { DownloadedTile, FavoritesTile, LocalFilesTile } from './LocalFilesTile';
 import {
-  menuHandler,
   useAlbumMenuItems,
   useArtistMenuItems,
   useBookMenuItems,
   usePodcastMenuItems,
 } from '../music/cardMenus';
-import { usePlaylistMenu } from '../collections/usePlaylistMenu';
+import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
 import { useSubscriptions } from '../podcasts/usePodcasts';
 import { Artwork } from './Artwork';
 import { FirstRunCard } from './FirstRunCard';
@@ -26,6 +25,7 @@ import { TrackRow } from './TrackRow';
 import { playFromLibrary, useAlbums, useArtists, useFirstTracks } from './useLibrary';
 import type { LibraryView } from './views';
 import { Carousel } from '../shell/Carousel';
+import { CardMenu } from '../shell/CardMenu';
 
 /** How many songs the overview lists before "See all". */
 const SONGS_SHOWN = 8;
@@ -71,8 +71,9 @@ export const MusicOverview: FC<{
   trackCount: number;
   ready: boolean;
 }> = ({ hasFolders, trackCount, ready }) => {
+  const { t } = useTranslation();
   // Every card's menu has its kind's basic items (play, save, pin…).
-  const playlistMenu = usePlaylistMenu();
+  const playlistMenu = usePlaylistMenuItems();
   const podcastMenu = usePodcastMenuItems();
   const bookMenu = useBookMenuItems();
   const albumMenu = useAlbumMenuItems();
@@ -106,7 +107,11 @@ export const MusicOverview: FC<{
           <DownloadedTile />
           <LocalFilesTile />
           {playlists.data?.slice(0, ROW_ITEMS).map((playlist) => (
-            <li key={playlist.id} className="w-28 shrink-0" onContextMenu={playlistMenu(playlist)}>
+            <li key={playlist.id} className="relative w-28 shrink-0">
+              <CardMenu
+                label={t('menu.options', { name: playlist.name })}
+                items={() => playlistMenu(playlist)}
+              />
               <PlaylistTile
                 id={playlist.id}
                 name={playlist.name}
@@ -128,20 +133,20 @@ export const MusicOverview: FC<{
         <Section view="podcasts" count={podcastList.length}>
           <Row>
             {podcastList.slice(0, ROW_ITEMS).map((podcast) => (
-              <li
-                key={podcast.id}
-                className="w-28 shrink-0"
-                onContextMenu={menuHandler(() =>
-                  podcastMenu({
-                    title: podcast.title,
-                    author: podcast.author,
-                    feedUrl: podcast.feedUrl,
-                    artworkUrl: podcast.artworkUrl,
-                    id: podcast.id,
-                    subscribed: true,
-                  }),
-                )}
-              >
+              <li key={podcast.id} className="relative w-28 shrink-0">
+                <CardMenu
+                  label={t('menu.options', { name: podcast.title })}
+                  items={() =>
+                    podcastMenu({
+                      title: podcast.title,
+                      author: podcast.author,
+                      feedUrl: podcast.feedUrl,
+                      artworkUrl: podcast.artworkUrl,
+                      id: podcast.id,
+                      subscribed: true,
+                    })
+                  }
+                />
                 <Link to="/podcast" search={{ id: podcast.id }} className="flex flex-col gap-1.5">
                   <PodcastArt url={podcast.artworkUrl} className="w-full rounded-lg" />
                   <span className="line-clamp-2 text-sm font-medium">{podcast.title}</span>
@@ -155,19 +160,19 @@ export const MusicOverview: FC<{
         <Section view="audiobooks" count={bookList.length}>
           <Row>
             {bookList.slice(0, ROW_ITEMS).map((book) => (
-              <li
-                key={book.id}
-                className="w-28 shrink-0"
-                onContextMenu={menuHandler(() =>
-                  bookMenu({
-                    title: book.title,
-                    author: book.author,
-                    artworkUrl: book.artworkUrl,
-                    id: book.id,
-                    kept: true,
-                  }),
-                )}
-              >
+              <li key={book.id} className="relative w-28 shrink-0">
+                <CardMenu
+                  label={t('menu.options', { name: book.title })}
+                  items={() =>
+                    bookMenu({
+                      title: book.title,
+                      author: book.author,
+                      artworkUrl: book.artworkUrl,
+                      id: book.id,
+                      kept: true,
+                    })
+                  }
+                />
                 <Link to="/audiobook" search={{ id: book.id }} className="flex flex-col gap-1.5">
                   <PodcastArt url={book.artworkUrl} className="w-full rounded-lg" />
                   <span className="line-clamp-2 text-sm font-medium">{book.title}</span>
@@ -183,17 +188,17 @@ export const MusicOverview: FC<{
         <Section view="albums" count={albums.data.length}>
           <Row>
             {albums.data.slice(0, ROW_ITEMS).map((album) => (
-              <li
-                key={`${album.artist}\u001f${album.title}`}
-                className="w-28 shrink-0"
-                onContextMenu={menuHandler(() =>
-                  albumMenu({
-                    title: album.title,
-                    artist: album.artist,
-                    artworkUrl: album.artworkUrl,
-                  }),
-                )}
-              >
+              <li key={`${album.artist}\u001f${album.title}`} className="relative w-28 shrink-0">
+                <CardMenu
+                  label={t('menu.options', { name: album.title })}
+                  items={() =>
+                    albumMenu({
+                      title: album.title,
+                      artist: album.artist,
+                      artworkUrl: album.artworkUrl,
+                    })
+                  }
+                />
                 <Link
                   to="/library/album"
                   search={{ artist: album.artist, album: album.title }}
@@ -212,13 +217,11 @@ export const MusicOverview: FC<{
         <Section view="artists" count={artists.data.length}>
           <Row>
             {artists.data.slice(0, ROW_ITEMS).map((artist) => (
-              <li
-                key={artist.name}
-                className="w-24 shrink-0"
-                onContextMenu={menuHandler(() =>
-                  artistMenu({ name: artist.name, imageUrl: artist.artworkUrl }),
-                )}
-              >
+              <li key={artist.name} className="relative w-24 shrink-0">
+                <CardMenu
+                  label={t('menu.options', { name: artist.name })}
+                  items={() => artistMenu({ name: artist.name, imageUrl: artist.artworkUrl })}
+                />
                 <Link
                   to="/library/artist"
                   search={{ name: artist.name }}

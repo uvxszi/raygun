@@ -20,7 +20,6 @@ import { unwrapResult } from '../lib/commandResult';
 import { titleScore } from '../search/rankResults';
 import { sourceSearchOptions } from '../search/useCatalogSearch';
 import type { MenuItem } from '../shell/contextMenuStore';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { GroupPickSheet } from '../select/GroupPickSheet';
 import { MenuButton } from '../shell/MenuButton';
 import { collectFromCache } from '../shell/queryMemory';
@@ -388,10 +387,7 @@ const Match: FC<{
       : []),
   ];
   return (
-    <div
-      className="flex flex-col gap-1 py-1.5"
-      onContextMenu={(event) => openContextMenu(event, items())}
-    >
+    <div className="flex flex-col gap-1 py-1.5">
       <div className="flex items-center gap-3">
         <Link {...route} className="flex min-w-0 flex-1 items-center gap-3">
           <MangaCover

@@ -1,5 +1,4 @@
 import { Link } from '@tanstack/react-router';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { useExtensionMenuItems } from './extensionMenu';
 import { ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -22,6 +21,7 @@ import { OnOffSwitch } from '../shell/OnOffSwitch';
 import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
 import { useBulkSelection } from '../shell/useBulkSelection';
 import { useSourceSwitches } from '../search/useSourceSwitch';
+import { MenuButton } from '../shell/MenuButton';
 
 /** Installed extensions before the list gets a search field. */
 const SEARCHABLE_FROM = 8;
@@ -83,7 +83,6 @@ export const InstalledTab: FC = () => {
               to="/extensions/detail"
               search={{ id: extension.id }}
               data-testid="extension-row"
-              onContextMenu={(event) => openContextMenu(event, menu(extension))}
               className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${switches.isEnabled(extension.id) ? '' : 'opacity-50'}`}
             >
               <LetterAvatar name={extension.name} logo={extension.icon} />
@@ -121,6 +120,10 @@ export const InstalledTab: FC = () => {
               </span>
               <ChevronRight aria-hidden size={18} className="text-muted shrink-0" />
             </Link>
+            <MenuButton
+              label={t('menu.options', { name: extension.name })}
+              items={() => menu(extension)}
+            />
             <OnOffSwitch
               checked={switches.isEnabled(extension.id)}
               label={t('sources.switch', { name: extension.name })}

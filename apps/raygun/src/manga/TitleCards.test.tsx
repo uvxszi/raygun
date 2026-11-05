@@ -97,11 +97,16 @@ describe('Video cards', () => {
     expect(await screen.findByTestId('video-title-page')).toBeInTheDocument();
   });
 
-  it('opens the full menu from a long press or ⋮, with working items', async () => {
+  it('opens the full menu from ⋮, with working items, and none from a right click', async () => {
     const user = userEvent.setup();
     const card = await mountSource();
+    const more = () => within(card).getByRole('button', { name: 'Options for Flash Gordon' });
 
+    // A right click (a long press) opens nothing.
     fireEvent.contextMenu(card, { clientX: 40, clientY: 40 });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    await user.click(more());
     expect(menuItems()).toEqual(
       expect.arrayContaining([
         'Play',
@@ -122,7 +127,7 @@ describe('Video cards', () => {
 
     // ⋮ opens the same menu without opening the page.
     commands.videoDownloadEpisodes.mockResolvedValue(ok(2));
-    await user.click(within(card).getByRole('button', { name: 'Options for Flash Gordon' }));
+    await user.click(more());
     expect(screen.queryByTestId('video-title-page')).not.toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: 'Download all episodes' }));
     // Episodes already saved are skipped; the others are queued to find their own links.
@@ -134,7 +139,7 @@ describe('Video cards', () => {
     );
     expect(commands.videoSourceDownload).not.toHaveBeenCalled();
 
-    fireEvent.contextMenu(card, { clientX: 40, clientY: 40 });
+    await user.click(more());
     await user.click(screen.getByRole('menuitem', { name: 'Export…' }));
     expect(await screen.findByRole('dialog', { name: 'Export' })).toBeInTheDocument();
   });
@@ -146,7 +151,7 @@ describe('Video cards', () => {
     const card = await mountSource();
     const before = window.history.length;
 
-    fireEvent.contextMenu(card, { clientX: 40, clientY: 40 });
+    await user.click(within(card).getByRole('button', { name: 'Options for Flash Gordon' }));
     // The menu's entry is on top of history.
     await waitFor(() => expect(window.history.length).toBe(before + 1));
 
@@ -213,7 +218,7 @@ describe('Video cards', () => {
       'href',
       expect.stringContaining('/watch/title'),
     );
-    fireEvent.contextMenu(within(row).getByTestId('continue-card'), { clientX: 9, clientY: 9 });
+    await user.click(within(row).getByRole('button', { name: 'Options for Breaking Bad' }));
     expect(menuItems()).toEqual(
       expect.arrayContaining(['Resume', 'Open page', 'Remove Breaking Bad from Continue watching']),
     );

@@ -140,7 +140,11 @@ describe('Phones (no side panel, quick access)', () => {
     );
 
     await user.click(screen.getByTestId('quick-access-backdrop'));
-    fireEvent.contextMenu(await screen.findByRole('link', { name: /^Downloaded.*tracks?$/ }));
+    await user.click(
+      await within(screen.getByTestId('page-content')).findByRole('button', {
+        name: 'Options for Downloaded',
+      }),
+    );
     await user.click(await screen.findByRole('menuitem', { name: 'Pin to Quick access' }));
     await waitFor(() => expect(saved().rail.pins.map((pin) => pin.kind)).toContain('downloaded'));
   });

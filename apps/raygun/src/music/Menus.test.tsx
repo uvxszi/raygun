@@ -52,12 +52,11 @@ const lines = (menu: HTMLElement) =>
           : `# ${line.textContent ?? ''}`,
   );
 
-/** Everything before the page's own options (Back, Forward…). */
-const ownLines = (menu: HTMLElement) => {
-  const all = lines(menu);
-  const back = all.indexOf('BackAlt+←');
-  return back < 0 ? all : all.slice(0, back - 1);
-};
+/** A song's ⋮ actions below Favorite and the playlists, as text: `|` for a line. */
+const actionLines = (actions: HTMLElement) =>
+  Array.from(actions.querySelectorAll('button, hr')).map((line) =>
+    line.tagName === 'HR' ? '|' : (line.textContent ?? ''),
+  );
 
 const touchScreen = (coarse: boolean) => {
   window.matchMedia = ((query: string) => ({
@@ -118,18 +117,13 @@ describe('Menus', () => {
       }),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get+lucky');
-    fireEvent.contextMenu(await screen.findByTestId('online-track-row'), {
-      clientX: 30,
-      clientY: 30,
-    });
-    expect(ownLines(await screen.findByRole('menu'))).toEqual([
-      '# Get Lucky',
+    await screen.findByTestId('online-track-row');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Get Lucky' }));
+    // Favorite and Add to playlist lead the actions; the rest of the song's menu follows.
+    expect(actionLines(await screen.findByTestId('track-more-actions'))).toEqual([
       'Play',
       'Play next',
       'Add to queue',
-      '|',
-      'Add to playlist',
-      'Add to favorites',
       '|',
       'Go to album',
       'Go to Daft Punk',
@@ -161,11 +155,13 @@ describe('Menus', () => {
       ok([{ id: 'p1', name: 'Road trip', itemCount: 3, artworkUrls: [] }]),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=music&view=albums&q=random');
-    const tile = await screen.findByRole('link', { name: /Random Access Memories/ });
+    const more = await screen.findByRole('button', {
+      name: 'Options for Random Access Memories',
+    });
 
-    fireEvent.contextMenu(tile, { clientX: 30, clientY: 30 });
+    fireEvent.click(more);
     const menu = await screen.findByRole('menu');
-    expect(ownLines(menu)).toEqual([
+    expect(lines(menu)).toEqual([
       '# Random Access Memories',
       'Play',
       'Shuffle',
@@ -195,7 +191,7 @@ describe('Menus', () => {
     );
     expect(await screen.findByTestId('toast')).toHaveTextContent('Added 2 songs to the queue');
 
-    fireEvent.contextMenu(tile, { clientX: 30, clientY: 30 });
+    fireEvent.click(more);
     await user.click(
       within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Add to playlist' }),
     );
@@ -247,21 +243,15 @@ describe('Menus', () => {
 
   it('comes up as a sheet on a touch screen, with only its own options', async () => {
     touchScreen(true);
-    commands.onlineSearch.mockResolvedValue(
-      ok({
-        library: [],
-        top: [],
-        providers: [{ provider: TUNES, tracks: [song('Get Lucky', 'Daft Punk')], error: null }],
-      }),
+    commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
+    commands.musicSearchAlbums.mockResolvedValue(ok([ALBUM]));
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=albums&q=random');
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Options for Random Access Memories' }),
     );
-    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get+lucky');
-    fireEvent.contextMenu(await screen.findByTestId('online-track-row'), {
-      clientX: 30,
-      clientY: 30,
-    });
     const menu = await screen.findByRole('menu');
     expect(menu).toHaveAttribute('data-sheet');
-    expect(within(menu).getByText('Get Lucky')).toBeInTheDocument();
+    expect(within(menu).getByText('Random Access Memories')).toBeInTheDocument();
     expect(within(menu).getByText('Daft Punk')).toBeInTheDocument();
     expect(within(menu).queryByRole('menuitem', { name: /^Back/ })).not.toBeInTheDocument();
     // A tap beside it closes it.
@@ -283,8 +273,9 @@ describe('Menus', () => {
     };
     commands.recentContexts.mockResolvedValue(ok([album]));
     await AppShellWrapper.mount('/');
-    const tile = await screen.findByRole('link', { name: /Random Access Memories/ });
-    fireEvent.contextMenu(tile, { clientX: 30, clientY: 30 });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Options for Random Access Memories' }),
+    );
     const menu = await screen.findByRole('menu');
     expect(within(menu).getByRole('menuitem', { name: 'Shuffle' })).toBeInTheDocument();
     await user.click(within(menu).getByRole('menuitem', { name: 'Remove from Your music' }));
@@ -305,11 +296,8 @@ describe('Menus', () => {
       ok([{ id: 'p1', name: 'Road trip', itemCount: 3, artworkUrls: [] }]),
     );
     await AppShellWrapper.mount('/library?view=playlists');
-    fireEvent.contextMenu(await screen.findByRole('link', { name: /Road trip/ }), {
-      clientX: 30,
-      clientY: 30,
-    });
-    const own = ownLines(await screen.findByRole('menu'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Options for Road trip' }));
+    const own = lines(await screen.findByRole('menu'));
     expect(own.slice(0, 5)).toEqual([
       '# Road trip',
       'Play',

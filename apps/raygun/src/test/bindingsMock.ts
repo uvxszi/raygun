@@ -512,6 +512,7 @@ export const bindingsMock = {
     mangaSetInLibrary: vi.fn(),
     mangaLibrary: vi.fn(),
     mangaChapter: vi.fn(),
+    mangaChapters: vi.fn(),
     mangaSetProgress: vi.fn(),
     mangaSetRead: vi.fn(),
     mangaSetReaderMode: vi.fn(),
@@ -592,6 +593,7 @@ export const bindingsMock = {
     libraryDownloadTitles: vi.fn(),
     libraryContinue: vi.fn(),
     libraryDuplicates: vi.fn(),
+    libraryDownloaded: vi.fn(),
     libraryMigrate: vi.fn(),
     librarySetCategoryDisplay: vi.fn(),
     libraryUpdateCategory: vi.fn(),
@@ -1191,6 +1193,8 @@ export const seedBindings = () => {
   commands.libraryDownloadTitles.mockResolvedValue(ok({ titleIds: [], queued: 0, failed: [] }));
   commands.libraryContinue.mockResolvedValue(ok(null));
   commands.libraryDuplicates.mockResolvedValue(ok([]));
+  commands.libraryDownloaded.mockResolvedValue(ok([]));
+  commands.mangaChapters.mockResolvedValue(ok([]));
   commands.libraryMigrate.mockResolvedValue(ok('migrated-title'));
   commands.libraryUpdateCategory.mockResolvedValue(
     ok({ running: true, checked: 0, total: 0, newChapters: 0, failed: 0, lastRunAt: null }),

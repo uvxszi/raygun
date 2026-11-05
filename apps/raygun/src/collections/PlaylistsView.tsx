@@ -10,7 +10,8 @@ import { TextField } from '../shell/TextField';
 import { useCollectionSheets } from './collectionSheets';
 import { PlaylistCover } from './PlaylistCover';
 import { useCreatePlaylist, usePlaylists } from './useCollections';
-import { usePlaylistMenu } from './usePlaylistMenu';
+import { usePlaylistMenuItems } from './usePlaylistMenu';
+import { MenuButton } from '../shell/MenuButton';
 
 export const NewPlaylistForm: FC<{ onDone: () => void }> = ({ onDone }) => {
   const { t } = useTranslation();
@@ -57,7 +58,7 @@ export const PlaylistsView: FC = () => {
   const playlists = usePlaylists();
   const [creating, setCreating] = useState(false);
   const openMerge = useCollectionSheets((state) => state.openMerge);
-  const menu = usePlaylistMenu();
+  const menu = usePlaylistMenuItems();
 
   return (
     <div data-testid="playlists-view" className="flex flex-col gap-3">
@@ -91,13 +92,12 @@ export const PlaylistsView: FC = () => {
       )}
       <ul className="flex flex-col gap-1">
         {playlists.data?.map((playlist) => (
-          <li key={playlist.id}>
+          <li key={playlist.id} className="flex items-center">
             <Link
               to="/library/playlist"
               search={{ id: playlist.id }}
               data-testid="playlist-link"
-              onContextMenu={menu(playlist)}
-              className="flex h-16 items-center gap-3"
+              className="flex h-16 min-w-0 flex-1 items-center gap-3"
             >
               <PlaylistCover
                 artworkUrls={playlist.artworkUrls}
@@ -118,6 +118,10 @@ export const PlaylistsView: FC = () => {
                 </span>
               </span>
             </Link>
+            <MenuButton
+              label={t('menu.options', { name: playlist.name })}
+              items={() => menu(playlist)}
+            />
           </li>
         ))}
       </ul>

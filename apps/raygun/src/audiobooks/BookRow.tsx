@@ -1,11 +1,14 @@
 import type { AudiobookResult } from '@raygun/bindings';
 import { LoaderCircle } from 'lucide-react';
-import type { FC, MouseEvent } from 'react';
+import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { formatLength, runtimeMs } from '../podcasts/formatLength';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { Carousel } from '../shell/Carousel';
+import { CardMenu } from '../shell/CardMenu';
+import type { MenuItem } from '../shell/contextMenuStore';
+import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useBookDirectory } from './useAudiobooks';
 import type { BookList } from './useAudiobooks';
@@ -16,17 +19,23 @@ export const BookCard: FC<{
   onOpen: (book: AudiobookResult) => void;
   /** In a grid, the card takes its cell's width. */
   grid?: boolean;
-  /** Its right-click and long-press menu. */
-  onMenu?: (event: MouseEvent) => void;
-}> = ({ book, onOpen, grid = false, onMenu }) => {
+  /** Its ⋮ menu. */
+  menu?: () => MenuItem[];
+}> = ({ book, onOpen, grid = false, menu }) => {
   const { t } = useTranslation();
   const length = runtimeMs(book.runtime);
   return (
-    <li className={grid ? 'min-w-0' : 'w-32 shrink-0 sm:w-40'}>
+    <li className={`relative ${grid ? 'min-w-0' : 'w-32 shrink-0 sm:w-40'}`}>
+      {menu && (
+        <CardMenu
+          label={t('menu.options', { name: book.title })}
+          items={menu}
+          className={CARD_MENU_BESIDE}
+        />
+      )}
       <button
         type="button"
         onClick={() => onOpen(book)}
-        onContextMenu={onMenu}
         data-testid="book-card"
         title={[book.title, book.author, book.edition].filter(Boolean).join(' · ')}
         className="hover:bg-surface flex w-full flex-col gap-1.5 rounded-xl p-2 text-left"

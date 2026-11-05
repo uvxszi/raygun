@@ -14,6 +14,8 @@ import {
   usePlayEpisode,
   usePodcastEvents,
 } from './usePodcasts';
+import type { MenuItem } from '../shell/contextMenuStore';
+import { MenuButton } from '../shell/MenuButton';
 
 /** Entries shown on Home. */
 const SHOWN = 12;
@@ -85,9 +87,9 @@ const Card: FC<{ item: ListeningItem }> = ({ item }) => {
 
 /**
  * Home's Continue listening (M46.48): podcast episodes and audiobooks started and not finished,
- * the last listened first; nothing when there are none.
+ * the last listened first; nothing when there are none. `menu` puts a ⋯ beside its heading.
  */
-export const ContinueListening: FC = () => {
+export const ContinueListening: FC<{ menu?: () => MenuItem[] }> = ({ menu }) => {
   const { t } = useTranslation();
   usePodcastEvents();
   const listening = useContinueListening(SHOWN);
@@ -98,9 +100,19 @@ export const ContinueListening: FC = () => {
       data-testid="continue-listening"
       className="flex flex-col gap-2"
     >
-      <h2 id="continue-listening" className="text-lg font-semibold">
-        {t('podcasts.continueListening')}
-      </h2>
+      <div className="flex min-h-9 items-center gap-3">
+        <h2 id="continue-listening" className="text-lg font-semibold">
+          {t('podcasts.continueListening')}
+        </h2>
+        {menu && (
+          <MenuButton
+            horizontal
+            label={t('menu.more', { name: t('podcasts.continueListening') })}
+            items={menu}
+            className="text-muted hover:text-foreground hover:bg-surface ml-auto grid size-8 place-items-center rounded-full"
+          />
+        )}
+      </div>
       <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
         {listening.data.map((item) => (
           <Card key={`${item.podcastId}:${item.episodeId}`} item={item} />

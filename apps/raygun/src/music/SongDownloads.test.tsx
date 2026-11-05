@@ -1,5 +1,5 @@
 import type { OnlineTrack, SavedTrack, SongDownload } from '@raygun/bindings';
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -103,11 +103,19 @@ describe('Song downloads', () => {
     ).toBeInTheDocument();
     expect(within(rows[0] as HTMLElement).queryByRole('img', { name: 'Downloaded' })).toBeNull();
 
-    fireEvent.contextMenu(rows[0] as HTMLElement);
-    await user.click(await screen.findByRole('menuitem', { name: 'Download' }));
-    expect(commands.songsDownload).toHaveBeenCalledWith([
-      expect.objectContaining({ title: 'Get Lucky', artist: 'Daft Punk' }),
-    ]);
+    await user.click(
+      within(rows[0] as HTMLElement).getByRole('button', { name: 'More for Get Lucky' }),
+    );
+    await user.click(
+      within(await screen.findByTestId('track-more-actions')).getByRole('button', {
+        name: 'Download',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(commands.songsDownload).toHaveBeenCalledWith([
+        expect.objectContaining({ title: 'Get Lucky', artist: 'Daft Punk' }),
+      ]),
+    );
 
     // Several at once from the selection bar; a song saved already is left out (M46.46).
     await user.click(screen.getByRole('button', { name: 'Select all' }));

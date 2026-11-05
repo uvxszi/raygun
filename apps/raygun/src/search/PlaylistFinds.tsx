@@ -1,11 +1,15 @@
 import type { MusicPlaylist } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import type { FC, MouseEvent } from 'react';
+import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
-import { menuHandler, useSourcePlaylistMenuItems } from '../music/cardMenus';
+import { useSourcePlaylistMenuItems } from '../music/cardMenus';
+import { CardMenu } from '../shell/CardMenu';
+import type { MenuItem } from '../shell/contextMenuStore';
+import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
+
 import { SourceIssue } from '../shell/SourceIssue';
 import { Asking } from './MusicFinds';
 import { NoSources } from './NoSources';
@@ -15,17 +19,23 @@ import { SourceTag } from '../shell/SourceTag';
 /** A source's playlist as a cover with its name, author, size and source. */
 export const PlaylistTile: FC<{
   playlist: MusicPlaylist;
-  /** Its right-click menu (made once for the whole list). */
-  onMenu?: (event: MouseEvent) => void;
-}> = ({ playlist, onMenu }) => {
+  /** Its ⋮ menu (made once for the whole list). */
+  menu?: () => MenuItem[];
+}> = ({ playlist, menu }) => {
   const { t } = useTranslation();
   return (
     <Link
       to="/music/playlist"
       search={{ provider: playlist.provider.id, id: playlist.id }}
-      onContextMenu={onMenu}
-      className="hover:bg-surface flex flex-col gap-1.5 rounded-xl p-2"
+      className="hover:bg-surface relative flex flex-col gap-1.5 rounded-xl p-2"
     >
+      {menu && (
+        <CardMenu
+          label={t('menu.options', { name: playlist.title })}
+          items={menu}
+          className={CARD_MENU_BESIDE}
+        />
+      )}
       <Artwork url={playlist.artworkUrl} className="w-full rounded-lg shadow" iconSize={36} />
       <span className="line-clamp-2 text-sm font-semibold">{playlist.title}</span>
       <span className="text-muted truncate text-xs">
@@ -87,7 +97,7 @@ export const PlaylistFinds: FC<{ query: string }> = ({ query }) => {
           >
             {playlists.list.map((playlist) => (
               <li key={`${playlist.provider.id}:${playlist.id}`}>
-                <PlaylistTile playlist={playlist} onMenu={menuHandler(() => menu(playlist))} />
+                <PlaylistTile playlist={playlist} menu={() => menu(playlist)} />
               </li>
             ))}
           </ul>

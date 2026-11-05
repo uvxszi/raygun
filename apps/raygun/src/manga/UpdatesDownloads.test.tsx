@@ -123,6 +123,7 @@ describe('Manga updates and downloads', () => {
             titleId: 't1',
             title: 'Frieren',
             chapter: 'Chapter 1',
+            medium: 'manga',
             download: { state: 'downloading', pagesDone: 4, pagesTotal: 16, error: null },
           },
           {
@@ -130,6 +131,7 @@ describe('Manga updates and downloads', () => {
             titleId: 't1',
             title: 'Frieren',
             chapter: 'Chapter 2',
+            medium: 'manga',
             download: { state: 'failed', pagesDone: 0, pagesTotal: null, error: 'HTTP 404' },
           },
         ],
@@ -147,7 +149,6 @@ describe('Manga updates and downloads', () => {
     expect(running).toHaveTextContent('4 of 16 pages');
     expect(within(running).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '4');
     expect(failed).toHaveTextContent('HTTP 404');
-    expect(within(page).getByText('3 chapters on this device')).toBeInTheDocument();
 
     await user.click(within(page).getByRole('button', { name: 'Pause' }));
     expect(commands.mangaSetDownloadsPaused).toHaveBeenCalledWith(true);
@@ -170,12 +171,13 @@ describe('Manga updates and downloads', () => {
       titleId: 't1',
       title: 'Frieren',
       chapter: `Chapter ${id}`,
+      medium: 'manga',
       download: { state: 'failed' as const, pagesDone: 0, pagesTotal: null, error: 'HTTP 500' },
     });
     commands.mangaDownloads.mockResolvedValue(
       ok({ paused: false, downloaded: 0, items: [failedRow('c1'), failedRow('c2')] }),
     );
-    await AppShellWrapper.mount('/downloads?tab=chapters');
+    await AppShellWrapper.mount('/downloads?tab=comics');
     const queue = await screen.findByTestId('chapter-downloads');
 
     // A failure is calm, its error under More info.
@@ -313,7 +315,7 @@ describe('Manga updates and downloads', () => {
     await AppShellWrapper.mount('/downloads');
     const all = await screen.findByTestId('downloads-all');
     expect(await within(all).findByRole('region', { name: 'Videos' })).toBeInTheDocument();
-    expect(within(all).queryByRole('region', { name: 'Chapters' })).not.toBeInTheDocument();
+    expect(within(all).queryByRole('region', { name: 'Comics' })).not.toBeInTheDocument();
     expect(within(all).queryByRole('region', { name: 'Songs' })).not.toBeInTheDocument();
     expect(await within(all).findByTestId('downloads-storage')).toHaveTextContent(
       'Downloads take 2.0 GB on this device',

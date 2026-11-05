@@ -1,16 +1,15 @@
 import type { MixSummary } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import type { FC, MouseEvent } from 'react';
+import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PlaylistCover } from '../collections/PlaylistCover';
+import { CardMenu } from '../shell/CardMenu';
+import type { MenuItem } from '../shell/contextMenuStore';
 import { mixDescription, mixTitle } from './useMadeForYou';
 
 /** A mix as a card: its covers, name and what's in it; it opens the mix (M46.20). */
-export const MixCard: FC<{ mix: MixSummary; onMenu?: (event: MouseEvent) => void }> = ({
-  mix,
-  onMenu,
-}) => {
+export const MixCard: FC<{ mix: MixSummary; menu?: () => MenuItem[] }> = ({ mix, menu }) => {
   const { t } = useTranslation();
   const title = mixTitle(t, mix);
   return (
@@ -19,7 +18,6 @@ export const MixCard: FC<{ mix: MixSummary; onMenu?: (event: MouseEvent) => void
         to="/music/mix"
         search={{ id: mix.id }}
         data-testid="mix-card"
-        onContextMenu={onMenu}
         className="hover:bg-surface flex flex-col gap-2 rounded-xl p-2"
       >
         <span className="relative block">
@@ -27,6 +25,7 @@ export const MixCard: FC<{ mix: MixSummary; onMenu?: (event: MouseEvent) => void
             artworkUrls={mix.artworkUrls}
             className="aspect-square w-full rounded-lg shadow-lg"
           />
+          {menu && <CardMenu label={t('menu.options', { name: title })} items={menu} />}
           {mix.kind === 'daily' && (
             <span className="bg-background/85 absolute bottom-2 left-2 rounded-md px-2 py-0.5 text-xs font-bold">
               {title}
