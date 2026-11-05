@@ -65,7 +65,13 @@ import {
   ShuffleButton,
 } from './transport';
 import { useCoverFit } from './useCoverFit';
-import { useCurrentItem, usePlayerSelect, useSourceNote, useUpNext } from './usePlayback';
+import {
+  sourceNoteKey,
+  useCurrentItem,
+  usePlayerSelect,
+  useSourceNote,
+  useUpNext,
+} from './usePlayback';
 
 /** The sheet's sides keep clear of a phone's cutout and its navigation bar when on its side. */
 const GUTTER =
@@ -582,9 +588,7 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false })
           )}
           {note && (
             <p data-testid="sheet-source-note" className="text-muted text-xs">
-              {note.kind === 'finding'
-                ? t('player.findingSource')
-                : t('player.via', { source: note.source })}
+              {t(sourceNoteKey(note), note.kind === 'via' ? { source: note.source } : {})}
             </p>
           )}
           {error && <SourceIssue>{error}</SourceIssue>}

@@ -74,6 +74,7 @@ type EventPayloads = {
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
+  unavailableEvent: string;
   captionsEvent: string;
   lyricsTranscribedEvent: string;
   lyricsTranslationEvent: LyricsTranslationProgress;
@@ -127,6 +128,8 @@ export const IDLE_STATE: PlaybackState = {
   rate: 1,
   sleepAt: null,
   stopAfterCurrent: false,
+  lookingForSource: false,
+  skippedItemId: null,
 };
 
 export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [], context: null };
@@ -720,6 +723,7 @@ export const bindingsMock = {
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
+    unavailableEvent: makeEvent('unavailableEvent'),
     captionsEvent: makeEvent('captionsEvent'),
     lyricsTranscribedEvent: makeEvent('lyricsTranscribedEvent'),
     lyricsTranslationEvent: makeEvent('lyricsTranslationEvent'),

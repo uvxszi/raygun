@@ -54,6 +54,7 @@ import {
 import {
   sendControl,
   shownQueue,
+  sourceNoteKey,
   useCurrentItem,
   usePlayerSelect,
   useSourceNote,
@@ -352,9 +353,9 @@ const TrackText: FC<BarProps> = ({ item }) => {
         />
         {item.explicit && <ExplicitMark />}
       </span>
-      {note?.kind === 'finding' ? (
+      {note && note.kind !== 'via' ? (
         <span data-testid="source-note" className="text-muted truncate text-xs leading-tight">
-          {t('player.findingSource')}
+          {t(sourceNoteKey(note))}
         </span>
       ) : (
         byline && (

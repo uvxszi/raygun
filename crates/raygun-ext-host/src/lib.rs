@@ -46,5 +46,5 @@ pub use host::{
     INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS, MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS,
     ProviderCandidates, ResolvedStream, ServerSecrets, StreamUse, UserSettings, discover_installed,
 };
-pub use js::Limits;
+pub use js::{Limits, asked_wait};
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};

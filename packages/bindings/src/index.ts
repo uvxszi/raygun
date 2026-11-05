@@ -1482,6 +1482,7 @@ export const events = {
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	trackDurationsEvent: makeEvent<TrackDurationsEvent>("track-durations-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
+	unavailableEvent: makeEvent<UnavailableEvent>("unavailable-event"),
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
 	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
 	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
@@ -3890,6 +3891,16 @@ export type PlaybackState = {
 	sleepAt: number | null,
 	/**  The sleep timer pauses when the current song ends (M46.8). */
 	stopAfterCurrent: boolean,
+	/**
+	 *  What the current song had to play didn't (its stream stopped working, or none was found
+	 *  at first): another source is being looked for, and the player says so meanwhile.
+	 */
+	lookingForSource?: boolean,
+	/**
+	 *  The queue item skipped last because nothing played it, kept with `error` until a song
+	 *  plays: the skip notice offers to find a source for it.
+	 */
+	skippedItemId?: string | null,
 };
 
 /**  The canonical player state changed. */
@@ -5542,6 +5553,12 @@ export type TtsUpdate = {
 	state: TtsState,
 	paragraph: number,
 };
+
+/**
+ *  Playback found no source for a song, or found one for it again: its unavailable mark and
+ *  saved copies changed; carries the song's title.
+ */
+export type UnavailableEvent = string;
 
 /**  A library title an update couldn't check. */
 export type UpdateFailure = {

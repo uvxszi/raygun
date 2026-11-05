@@ -2686,6 +2686,14 @@ pub struct PlaybackState {
     pub sleep_at: Option<f64>,
     /// The sleep timer pauses when the current song ends (M46.8).
     pub stop_after_current: bool,
+    /// What the current song had to play didn't (its stream stopped working, or none was found
+    /// at first): another source is being looked for, and the player says so meanwhile.
+    #[serde(default)]
+    pub looking_for_source: bool,
+    /// The queue item skipped last because nothing played it, kept with `error` until a song
+    /// plays: the skip notice offers to find a source for it.
+    #[serde(default)]
+    pub skipped_item_id: Option<String>,
 }
 
 /// The sleep timer (M46.8).

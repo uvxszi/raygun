@@ -27,7 +27,13 @@ import { PlayingFrom } from './PlayingFrom';
 import { QueueActions, QueueList } from './QueueList';
 import { useSpokenItem } from './spoken';
 import { SpokenByline } from './SpokenByline';
-import { sendControl, useCurrentItem, useSourceNote, useUpNext } from './usePlayback';
+import {
+  sendControl,
+  sourceNoteKey,
+  useCurrentItem,
+  useSourceNote,
+  useUpNext,
+} from './usePlayback';
 
 const TABS: PlayerPanel[] = ['nowPlaying', 'queue'];
 
@@ -173,9 +179,7 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
           )}
           {note && (
             <span className="text-muted text-xs">
-              {note.kind === 'finding'
-                ? t('player.findingSource')
-                : t('player.via', { source: note.source })}
+              {t(sourceNoteKey(note), note.kind === 'via' ? { source: note.source } : {})}
             </span>
           )}
           {!spoken && <TrackTagChips track={item} className="pt-1.5" />}

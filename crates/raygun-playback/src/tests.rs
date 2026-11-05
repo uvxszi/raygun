@@ -1077,3 +1077,55 @@ fn a_queue_emptied_one_item_at_a_time_has_no_context() {
     assert_eq!(core.queue().context, None);
     assert!(core.context().is_none());
 }
+
+#[test]
+fn looking_for_another_source_shows_until_a_stream_plays() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    report(&mut core, EngineEvent::Playing);
+    let load_id = core.load_id;
+
+    // The stream stopped working: the service looks for another, and the player says so.
+    assert_eq!(core.set_looking(load_id, true), vec![Effect::StateChanged]);
+    let state = core.state();
+    assert!(state.looking_for_source);
+    assert_eq!(state.status, PlaybackStatus::Loading);
+    assert!(!core.started(), "the next stream is watched from its start");
+    assert!(core.set_looking(load_id, true).is_empty(), "no change");
+    assert!(
+        core.set_looking(load_id + 1, false).is_empty(),
+        "another load's"
+    );
+
+    // Another stream plays: the note goes.
+    report(&mut core, EngineEvent::Playing);
+    assert!(!core.state().looking_for_source);
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+
+    // A pause stays a pause while it looks.
+    core.pause();
+    core.set_looking(load_id, true);
+    assert_eq!(core.state().status, PlaybackStatus::Paused);
+    // A new load starts plain.
+    core.next();
+    assert!(!core.state().looking_for_source);
+}
+
+#[test]
+fn a_song_nothing_played_is_named_until_one_plays() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    let first = core.current_item().map(|item| item.id.clone());
+    report(
+        &mut core,
+        EngineEvent::Error {
+            message: "No source could play a".into(),
+        },
+    );
+    assert_eq!(core.state().skipped_item_id, first);
+    assert_eq!(current_title(&core), Some("b".into()));
+    // The next song plays: the skip is over.
+    report(&mut core, EngineEvent::Playing);
+    assert_eq!(core.state().skipped_item_id, None);
+    assert_eq!(core.state().error, None);
+}

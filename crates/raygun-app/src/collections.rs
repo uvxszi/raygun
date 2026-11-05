@@ -218,6 +218,97 @@ impl CollectionsService {
         Ok(())
     }
 
+    /// The keys a song's marks go under: its saved copies' and the names it shows.
+    async fn mark_keys(&self, song: &TrackInput) -> Vec<String> {
+        let mut keys: Vec<String> = self
+            .copies(song)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| row.track_key)
+            .collect();
+        keys.push(shown_key_of(&song.title, song.artist.as_deref()));
+        keys.sort_unstable();
+        keys.dedup();
+        keys
+    }
+
+    /// No source played a song, however long playback looked: it's marked as one no source has,
+    /// as songs no source had when imported are (lists offer Find a source for it).
+    pub async fn mark_unplayable(&self, song: &TrackInput) {
+        let keys = self.mark_keys(song).await;
+        if let Err(error) = collections::mark_unavailable(self.db(), &keys, now_ms()).await {
+            tracing::warn!(%error, "couldn't mark a song no source played");
+        }
+        self.marks_changed(song);
+    }
+
+    /// Lists showing a song's marks and saved copies look again.
+    fn marks_changed(&self, song: &TrackInput) {
+        use tauri_specta::Event;
+        if let Err(error) = crate::events::UnavailableEvent(song.title.clone()).emit(&self.app) {
+            tracing::warn!(%error, "couldn't announce a song's marks");
+        }
+    }
+
+    /// Playback found a song a source after what it had stopped working: the song's marks go,
+    /// and `dead`, its own stream that stopped working, leaves every saved copy that carried it
+    /// and the queue (they find their stream by their names, the found one first).
+    pub async fn source_found(&self, song: &TrackInput, dead: Option<&MediaSource>) {
+        let db = self.db();
+        for key in self.mark_keys(song).await {
+            if let Err(error) = collections::clear_unavailable(db, &key).await {
+                tracing::warn!(%error, "couldn't clear a song's mark");
+            }
+        }
+        let Some(dead) = dead.filter(|source| matches!(source, MediaSource::Url { .. })) else {
+            self.marks_changed(song);
+            return;
+        };
+        let carrying = |row: &&SavedRef| {
+            row.source
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<MediaSource>(json).ok())
+                .is_some_and(|source| &source == dead)
+        };
+        let copies = self.copies(song).await.unwrap_or_default();
+        let (favorites, items): (Vec<&SavedRef>, Vec<&SavedRef>) = copies
+            .iter()
+            .filter(carrying)
+            .partition(|row| row.is_favorite());
+        let ids = |rows: Vec<&SavedRef>| -> Vec<String> {
+            rows.into_iter().map(|row| row.id.clone()).collect()
+        };
+        let none = TrackFields {
+            track_key: String::new(),
+            title: song.title.clone(),
+            artist: song.artist.clone(),
+            album: None,
+            duration_ms: None,
+            artwork_url: None,
+            source: None,
+        };
+        if let Err(error) =
+            collections::set_track_source_of(db, &ids(favorites), &ids(items), &none, false).await
+        {
+            tracing::warn!(%error, "couldn't take a stream that stopped working off a song");
+        }
+        let dead = dead.clone();
+        self.app.state::<PlaybackService>().update_items(|item| {
+            if item.source != dead {
+                return false;
+            }
+            item.source = MediaSource::Lookup {
+                title: item.title.clone(),
+                artist: item.artist.clone(),
+                album: item.album.clone(),
+                duration_ms: item.duration_ms,
+            };
+            true
+        });
+        self.marks_changed(song);
+    }
+
     /// Saves the source's details as the song's own, under every key its copies have, so each
     /// copy shows them (M46.30's edits, merged with what the user set before).
     async fn use_details(
@@ -1614,7 +1705,12 @@ mod tests {
         let item = played(&collections::playlist_items(&db, &id).await.unwrap()[0].track);
         assert_eq!(item.source, stream);
         assert_eq!(
-            crate::resolution::Tracker::default().begin(1, &item, 0.0),
+            crate::resolution::Tracker::default().begin(
+                1,
+                &item,
+                0.0,
+                crate::resolution::Cause::Chosen
+            ),
             crate::resolution::LoadPlan::Direct
         );
         let remembered = streams::candidates(&db, "artst|sogn").await.unwrap();

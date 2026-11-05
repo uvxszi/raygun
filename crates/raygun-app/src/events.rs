@@ -84,6 +84,11 @@ pub struct SongCaptureEvent(pub raygun_model::SongCaptureRequest);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ImportEvent(pub String);
 
+/// Playback found no source for a song, or found one for it again: its unavailable mark and
+/// saved copies changed; carries the song's title.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct UnavailableEvent(pub String);
+
 /// An episode's captions changed: a feed transcript arrived, a window was transcribed, or
 /// transcribing started or stopped; carries the episode's id (M46.32).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
