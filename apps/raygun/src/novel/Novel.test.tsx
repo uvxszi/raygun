@@ -255,6 +255,57 @@ describe('Novels', () => {
     );
   });
 
+  it('keeps reading aloud in the chapter opened, from its start', async () => {
+    const user = userEvent.setup();
+    commands.ttsAvailable.mockResolvedValue(ok(true));
+    // The first letter loads when the test lets it.
+    let release: (() => void) | undefined;
+    commands.novelChapter.mockImplementation((_title: string, chapter: string) =>
+      chapter === 'c1'
+        ? new Promise((resolve) => {
+            release = () => resolve(ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }));
+          })
+        : Promise.resolve(
+            ok({
+              ...CHAPTER,
+              chapter: chapterInfo('c2', 'Letter 2'),
+              blocks: [{ kind: 'paragraph' as const, text: 'A second letter.' }],
+              previousChapterId: 'c1',
+              nextChapterId: null,
+            }),
+          ),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c2');
+    const reader = await screen.findByTestId('novel-reader');
+    await within(reader).findByText('A second letter.');
+    await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
+    expect(commands.ttsSpeak).toHaveBeenCalledWith([{ id: 0, text: 'A second letter.' }], 1);
+    emitEvent('ttsEvent', { state: 'speaking', paragraph: 0 });
+    commands.ttsSpeak.mockClear();
+    commands.ttsStop.mockClear();
+
+    await user.click(within(reader).getByRole('button', { name: 'Go to the previous chapter' }));
+    // The chapter left stops at once; a late report that it ended changes nothing.
+    expect(commands.ttsStop).toHaveBeenCalled();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    emitEvent('ttsEvent', { state: 'ended', paragraph: 0 });
+    act(() => release?.());
+    expect(await within(reader).findByText('It was a dreary night of Nov')).toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(commands.ttsSpeak).toHaveBeenCalledWith(
+        [
+          { id: 0, text: 'Letter 1!!' },
+          { id: 1, text: 'It was a dreary night of Nov' },
+          { id: 3, text: 'ember. Rain fell on the panes.' },
+        ],
+        1,
+      ),
+    );
+    expect(commands.ttsSpeak).toHaveBeenCalledTimes(1);
+    expect(commands.novelChapter).toHaveBeenLastCalledWith('t1', 'c1');
+    expect(within(reader).getByRole('toolbar', { name: 'Reading aloud' })).toBeInTheDocument();
+  });
+
   it('reads a chapter: resumes, saves progress, finishes and moves on', async () => {
     const user = userEvent.setup();
     commands.novelChapter.mockImplementation((_title: string, chapter: string) =>

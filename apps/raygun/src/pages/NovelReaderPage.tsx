@@ -922,7 +922,8 @@ export const NovelReaderPage: FC = () => {
 
   useEffect(() => {
     const unlisten = events.ttsEvent.listen(({ payload }) => {
-      if (!readingRef.current) return;
+      // Late reports of the chapter left while the next one loads are about nothing on screen.
+      if (!readingRef.current || continueAloud.current) return;
       if (payload.state === 'speaking') {
         setSpeaking(payload.paragraph);
         position.current = payload.paragraph;
@@ -975,8 +976,18 @@ export const NovelReaderPage: FC = () => {
 
   const go = (chapterId: string | null) => {
     setPanel(false);
-    if (chapterId) void navigate({ search: { title, chapter: chapterId }, replace: true });
-    else router.history.back();
+    if (!chapterId) {
+      router.history.back();
+      return;
+    }
+    // Reading aloud moves with the reader: the chapter left stops at once, and the one opened
+    // reads from its start when it loads.
+    if (readingRef.current && chapterId !== dataRef.current?.chapter.id) {
+      continueAloud.current = true;
+      setSpeaking(null);
+      void commands.ttsStop();
+    }
+    void navigate({ search: { title, chapter: chapterId }, replace: true });
   };
   const onProgress = useCallback(
     (fraction: number, label: string) => setProgress({ fraction, label }),
