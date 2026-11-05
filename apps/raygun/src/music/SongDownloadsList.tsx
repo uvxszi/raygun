@@ -45,6 +45,7 @@ import { useDeviceState } from '../shell/deviceState';
 import { EmptyState } from '../shell/EmptyState';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { formatBytes } from '../watch/episodeLabel';
+import { tidyCredit } from './artists';
 import { SaveSongsSheet } from './SaveSongsSheet';
 import {
   GLIDE,
@@ -177,7 +178,9 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
       <Artwork url={item.artworkUrl} className="size-12 shrink-0 rounded-md" iconSize={20} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium">{item.title}</span>
-        {item.artist && <span className="text-muted truncate text-sm">{item.artist}</span>}
+        {item.artist && (
+          <span className="text-muted truncate text-sm">{tidyCredit(item.artist)}</span>
+        )}
         <span className="text-muted truncate text-xs">{line(item, paused, held)}</span>
         {(failed || item.state === 'done') && item.error && (
           <Issue

@@ -18,6 +18,7 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { tidyCredit } from '../music/artists';
 import { ExplicitMark } from '../music/ExplicitMark';
 import { FavoriteButton } from '../player/FavoriteButton';
 import { formatTime } from '../player/formatTime';
@@ -238,7 +239,7 @@ export const MiniplayerWindow: FC = () => {
                 {item.explicit && <ExplicitMark />}
               </span>
               <p className="text-muted mt-[clamp(0.125rem,1.2vw,0.5rem)] truncate text-[calc(clamp(0.85rem,4.4vw,1.75rem)*var(--text-scale,1))]">
-                {item.artist}
+                {tidyCredit(item.artist ?? '')}
               </p>
             </div>
             <FavoriteButton item={item} compact />

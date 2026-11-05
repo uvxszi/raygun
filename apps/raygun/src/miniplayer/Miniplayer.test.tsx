@@ -51,6 +51,20 @@ describe('The miniplayer window', () => {
     expect(commands.miniplayerClose).toHaveBeenCalledWith(false);
   });
 
+  it('shows a saved credit without the quotes a source left around it', async () => {
+    const items = [makeItem('Chop Suey!', '"System of a Down"')];
+    commands.playbackGetQueue.mockResolvedValue({ items, order: [0], context: null });
+    commands.playbackGetState.mockResolvedValue({
+      ...IDLE_STATE,
+      status: 'playing',
+      currentItemId: items[0]?.id ?? null,
+    });
+    renderMiniplayer();
+    const window = await screen.findByTestId('miniplayer');
+    expect(await within(window).findByText('System of a Down')).toBeInTheDocument();
+    expect(within(window).queryByText('"System of a Down"')).not.toBeInTheDocument();
+  });
+
   it('says when nothing plays', async () => {
     renderMiniplayer();
     expect(await screen.findByText('Nothing playing')).toBeInTheDocument();

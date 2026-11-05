@@ -481,6 +481,20 @@ describe('Song downloads', () => {
     expect(commands.songDownloadsRedownload).toHaveBeenLastCalledWith(['moved', 'gone']);
   });
 
+  it('names a download’s artist without the quotes its source left around it', async () => {
+    commands.songDownloads.mockResolvedValue(
+      ok([
+        download('q', 'Chop Suey!', 'done', { artist: '"System of a Down"' }),
+        download('w', 'White & Nerdy', 'done', { artist: '"Weird Al" Yankovic' }),
+      ]),
+    );
+    await AppShellWrapper.mount('/downloads?tab=music');
+    await list();
+    expect(within(row('Chop Suey!')).getByText('System of a Down')).toBeInTheDocument();
+    // Quotes that are part of a name stay.
+    expect(within(row('White & Nerdy')).getByText('"Weird Al" Yankovic')).toBeInTheDocument();
+  });
+
   it('says when every download is fine', async () => {
     const user = userEvent.setup();
     const saved = download('s', 'Saved song', 'done', {
