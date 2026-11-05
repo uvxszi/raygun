@@ -300,6 +300,7 @@ const WINDOW_COMMANDS: &[&str] = &[
     "openFile",
     "openPermissionSettings",
     "openUrl",
+    "pickFile",
     "pickFolder",
     "recordingConsent",
     "requestLibraryAccess",
@@ -489,8 +490,7 @@ impl<R: Runtime> NativeAudio<R> {
     /// cancelled. The file is read with [`Self::open_input`]. Blocks until the user answers.
     #[cfg(target_os = "android")]
     pub fn pick_file(&self) -> Result<PickedFolder, String> {
-        self.handle
-            .run_mobile_plugin("pickFile", ())
+        self.run("pickFile", ())
             .map_err(|error| error.to_string())
     }
 
@@ -737,8 +737,7 @@ impl<R: Runtime> NativeAudio<R> {
     /// installed with [`set_open_handler`]. The same `id` in a channel replaces the one shown.
     #[cfg(target_os = "android")]
     pub fn notice(&self, notice: &serde_json::Value) -> Result<(), String> {
-        self.handle
-            .run_mobile_plugin::<serde_json::Value>("notice", notice.clone())
+        self.run::<serde_json::Value>("notice", notice.clone())
             .map(|_| ())
             .map_err(|error| error.to_string())
     }
