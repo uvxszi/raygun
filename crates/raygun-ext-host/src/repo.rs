@@ -81,8 +81,9 @@ pub struct RepoEntry {
 
 /// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
 /// Shosetsu Lua script installed with its libraries (M32), a Miru script (`crate::miru`), an
-/// LNReader plugin (`crate::lnreader`), or a Kodi add-on, listed but not installable
-/// (`crate::kodi`).
+/// LNReader plugin (`crate::lnreader`), a Kodi add-on, listed but not installable
+/// (`crate::kodi`), or a Mihon extension whose source code is converted at install
+/// (`crate::mihon`; its package is the APK, which Raygun doesn't run).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PackageFormat {
@@ -94,6 +95,7 @@ pub enum PackageFormat {
     #[serde(rename = "lnreader")]
     LnReader,
     Kodi,
+    Mihon,
 }
 
 /// Shosetsu's repository index (`index.json` with `scripts` and `libraries`). Entries are read one

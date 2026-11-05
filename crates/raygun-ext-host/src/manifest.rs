@@ -33,6 +33,10 @@ struct RawManifest {
     /// Written by the Nuclear converter (M17): the original package and its compatibility report.
     #[serde(default)]
     nuclear: Option<serde_json::Value>,
+    /// Written by the Mihon converter (`crate::mihon`): the extension's package, version code
+    /// and the converter that made it.
+    #[serde(default)]
+    mihon: Option<serde_json::Value>,
     /// The site its sources read, opened from their menus (M46.11).
     #[serde(default)]
     website: Option<String>,
@@ -118,6 +122,8 @@ pub enum Runtime {
     /// A server people connect (Jellyfin, Subsonic, Audiobookshelf, OPDS), answered in Rust
     /// (`crate::servers`); the entry is its `server.json`.
     Server,
+    /// A Mihon extension converted at install (`crate::mihon`), run with the Mihon prelude.
+    Mihon,
 }
 
 impl Runtime {
@@ -145,6 +151,8 @@ pub struct Manifest {
     pub author: Option<String>,
     /// Present for converted Nuclear plugins.
     pub nuclear: Option<serde_json::Value>,
+    /// Present for converted Mihon extensions: `{ pkg, versionCode, converter, theme, source }`.
+    pub mihon: Option<serde_json::Value>,
     /// An http(s) address; others are dropped.
     pub website: Option<String>,
 }
@@ -197,6 +205,7 @@ impl Manifest {
             "miru" => Runtime::Miru,
             "lnreader" => Runtime::LnReader,
             "server" => Runtime::Server,
+            "mihon" => Runtime::Mihon,
             _ => return Err(ManifestError::Runtime(raw.runtime)),
         };
         if !is_safe_entry(&raw.entry, runtime) {
@@ -249,6 +258,7 @@ impl Manifest {
             description: raw.description,
             author: raw.author,
             nuclear: raw.nuclear,
+            mihon: raw.mihon,
             website: raw
                 .website
                 .filter(|url| url.starts_with("https://") || url.starts_with("http://")),
@@ -306,7 +316,7 @@ fn is_label(label: &str, extra: &[u8]) -> bool {
 
 fn is_safe_entry(entry: &str, runtime: Runtime) -> bool {
     let extension = match runtime {
-        Runtime::Js | Runtime::Miru | Runtime::LnReader => ".js",
+        Runtime::Js | Runtime::Miru | Runtime::LnReader | Runtime::Mihon => ".js",
         Runtime::Shosetsu => ".lua",
         Runtime::Server => ".json",
     };

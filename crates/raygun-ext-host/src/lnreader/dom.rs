@@ -146,6 +146,178 @@ fn is_element(node: &NodeRef<'_, Node>) -> bool {
     node.value().is_element()
 }
 
+/// Elements Jsoup puts a space between when reading text (its `Tag.isBlock`).
+const BLOCKS: [&str; 62] = [
+    "html",
+    "head",
+    "body",
+    "frameset",
+    "script",
+    "noscript",
+    "style",
+    "meta",
+    "link",
+    "title",
+    "frame",
+    "noframes",
+    "section",
+    "nav",
+    "aside",
+    "hgroup",
+    "header",
+    "footer",
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "pre",
+    "div",
+    "blockquote",
+    "hr",
+    "address",
+    "figure",
+    "figcaption",
+    "form",
+    "fieldset",
+    "ins",
+    "del",
+    "dl",
+    "dt",
+    "dd",
+    "li",
+    "table",
+    "caption",
+    "thead",
+    "tfoot",
+    "tbody",
+    "colgroup",
+    "col",
+    "tr",
+    "th",
+    "td",
+    "video",
+    "audio",
+    "canvas",
+    "details",
+    "menu",
+    "plaintext",
+    "template",
+    "article",
+    "main",
+    "center",
+];
+
+fn element_name<'a>(node: &NodeRef<'a, Node>) -> Option<&'a str> {
+    match node.value() {
+        Node::Element(element) => Some(element.name()),
+        _ => None,
+    }
+}
+
+fn ends_with_space(text: &str) -> bool {
+    text.is_empty() || text.ends_with(' ')
+}
+
+/// Appends `text` with its whitespace collapsed to single spaces, as Jsoup does.
+fn append_normalised(out: &mut String, text: &str) {
+    let mut space = ends_with_space(out);
+    for char in text.chars() {
+        // Unicode's white space, the no-break space among it, as Jsoup's normalising takes.
+        if char.is_whitespace() {
+            if !space {
+                out.push(' ');
+                space = true;
+            }
+        } else {
+            out.push(char);
+            space = false;
+        }
+    }
+}
+
+/// Jsoup's `Element.text()`: every text inside, whitespace collapsed, a space where a block or a
+/// `<br>` breaks the text; scripts and styles left out.
+fn jsoup_text(node: NodeRef<'_, Node>) -> String {
+    let mut out = String::new();
+    for edge in node.traverse() {
+        match edge {
+            ego_tree::iter::Edge::Open(current) => match current.value() {
+                Node::Text(text) => {
+                    let hidden = current.ancestors().any(|ancestor| {
+                        matches!(
+                            element_name(&ancestor),
+                            Some("script" | "style" | "template")
+                        )
+                    });
+                    if !hidden {
+                        append_normalised(&mut out, text);
+                    }
+                }
+                Node::Element(element) => {
+                    let name = element.name();
+                    if !out.is_empty()
+                        && (BLOCKS.contains(&name) || name == "br")
+                        && !ends_with_space(&out)
+                    {
+                        out.push(' ');
+                    }
+                }
+                _ => {}
+            },
+            ego_tree::iter::Edge::Close(current) => {
+                if let Some(name) = element_name(&current)
+                    && BLOCKS.contains(&name)
+                    && current
+                        .next_sibling()
+                        .is_some_and(|next| next.value().is_text())
+                    && !ends_with_space(&out)
+                {
+                    out.push(' ');
+                }
+            }
+        }
+    }
+    out.trim().to_owned()
+}
+
+/// Jsoup's `ownText()`: the element's own text nodes, a space for a `<br>`.
+fn jsoup_own_text(node: NodeRef<'_, Node>) -> String {
+    let mut out = String::new();
+    for child in node.children() {
+        match child.value() {
+            Node::Text(text) => append_normalised(&mut out, text),
+            Node::Element(element) if element.name() == "br" && !ends_with_space(&out) => {
+                out.push(' ');
+            }
+            _ => {}
+        }
+    }
+    out.trim().to_owned()
+}
+
+/// Jsoup's `data()`: a script's or a style's contents as written.
+fn jsoup_data(node: NodeRef<'_, Node>) -> String {
+    let own = matches!(element_name(&node), Some("script" | "style"));
+    node.descendants()
+        .filter(|descendant| {
+            descendant.value().is_text()
+                && (own
+                    || descendant.ancestors().any(|ancestor| {
+                        matches!(element_name(&ancestor), Some("script" | "style"))
+                    }))
+        })
+        .filter_map(|descendant| match descendant.value() {
+            Node::Text(text) => Some(text.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The nodes `html` parses into, as a fragment: inside its wrapping `<html>`.
 fn fragment_nodes(fragment: &Html) -> Vec<NodeRef<'_, Node>> {
     let root = fragment.tree.root();
@@ -430,6 +602,22 @@ impl Documents {
                 }
                 json!(text)
             }
+            // Jsoup's `text()`, `ownText()` and `data()`, for the Mihon runtime.
+            "jsoupText" => {
+                let mut texts = Vec::new();
+                for handle in nodes {
+                    texts.push(self.read(*handle, jsoup_text)?);
+                }
+                json!(texts)
+            }
+            "ownText" => match nodes.first() {
+                Some(handle) => json!(self.read(*handle, jsoup_own_text)?),
+                None => json!(""),
+            },
+            "data" => match nodes.first() {
+                Some(handle) => json!(self.read(*handle, jsoup_data)?),
+                None => json!(""),
+            },
             "html" => match nodes.first() {
                 Some(handle) => json!(self.read(*handle, |node| match node.value() {
                     Node::Document => outer_html(node),

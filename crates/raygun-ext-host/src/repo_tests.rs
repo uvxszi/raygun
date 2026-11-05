@@ -257,7 +257,9 @@ async fn paraline_live() {
                 let script = crate::lnreader::package::verify_script(&bytes, entry).unwrap();
                 crate::lnreader::package::package(entry, script).unwrap()
             }
-            repo::PackageFormat::Nuclear | repo::PackageFormat::Kodi => continue,
+            repo::PackageFormat::Nuclear
+            | repo::PackageFormat::Kodi
+            | repo::PackageFormat::Mihon => continue,
         };
         assert_eq!(verified.manifest.id, entry.id);
         assert_eq!(verified.manifest.version.to_string(), entry.version);

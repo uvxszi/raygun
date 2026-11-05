@@ -40,6 +40,10 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 quick-xml = "0.42"
 md-5 = "0.11"
 base64 = "0.22"
+# Mihon conversions (`mihon`): OpenSSL-style AES some themes' pages come in (Madara's chapter
+# protector).
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
 uuid.workspace = true
 flate2 = "1"
 

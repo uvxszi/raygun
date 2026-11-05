@@ -4977,8 +4977,10 @@ dependencies = [
 name = "raygun-ext-host"
 version = "1.2.0"
 dependencies = [
+ "aes",
  "axum",
  "base64 0.22.1",
+ "cbc",
  "chrono",
  "cookie_store",
  "ego-tree",

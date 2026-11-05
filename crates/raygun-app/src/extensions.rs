@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use raygun_db::extensions::{self as store, InstallRow};
+use raygun_ext_host::mihon;
 use raygun_ext_host::nuclear;
 use raygun_ext_host::package::{self, MAX_PACKAGE_BYTES};
 use raygun_ext_host::repo::{self, PackageFormat, RepoEntry, RepoIndex};
@@ -38,6 +39,26 @@ const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 const INDEX_CACHE: Duration = Duration::from_secs(10 * 60);
 const MAX_INDEX_BYTES: u64 = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Where the reasons Mihon extensions couldn't be converted are kept (`local_value`).
+const MIHON_VERDICTS: &str = "extensions.mihonVerdicts";
+
+/// Why a Mihon extension couldn't be converted, for the version and converter that tried.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MihonVerdict {
+    version: String,
+    converter: u32,
+    reason: String,
+}
+
+impl MihonVerdict {
+    /// What the catalogue says of an entry this verdict is about, while it still holds: the same
+    /// version, tried by this converter.
+    fn unsupported(&self, entry: &RepoEntry) -> Option<String> {
+        (self.version == entry.version && self.converter == mihon::CONVERTER_VERSION)
+            .then(|| format!("Raygun can't convert it: {}", self.reason))
+    }
+}
 
 /// Extensions compiled into the app; an installed copy with the same id overrides one.
 fn built_in() -> Vec<ExtensionSource> {
@@ -195,6 +216,9 @@ pub struct ExtensionService {
     /// The installed files as of the last load, so the dev watcher skips the app's own changes.
     loaded_files: Mutex<Fingerprint>,
     indexes: Mutex<HashMap<String, (Instant, RepoIndex)>>,
+    /// Mihon stores read with their index, by the repository's address: where the extensions
+    /// came from and what the store says of each (its sources, where its code is).
+    mihon_stores: Mutex<HashMap<String, (reqwest::Url, Arc<mihon::Store>)>>,
 }
 
 /// What `music.info` providers answered this run (M46.14).
@@ -223,6 +247,7 @@ impl ExtensionService {
             changing: tokio::sync::Mutex::new(()),
             loaded_files: Mutex::new(Vec::new()),
             indexes: Mutex::new(HashMap::new()),
+            mihon_stores: Mutex::new(HashMap::new()),
             info_cache: Mutex::new(InfoCache::default()),
         });
         // Before anything lists repositories: one quick query when there's nothing to move.
@@ -849,12 +874,13 @@ impl ExtensionService {
         let url = repo::check_index_url(url).map_err(|error| error.to_string())?;
         let (url, index) = self.index_at(url, false).await?;
         let local = self.installed_versions().await;
+        let verdicts = self.mihon_verdicts().await;
         let repo = ExtensionRepo {
             id: String::new(),
             url: url.to_string(),
             name: repo_name(&index, url.as_str()),
         };
-        let entries = self.entries_of(&repo, &index, &local);
+        let entries = self.entries_of(&repo, &index, &local, &verdicts);
         Ok(RepoCatalog {
             repo,
             entries,
@@ -864,19 +890,35 @@ impl ExtensionService {
 
     /// The extensions on this device by id, for marking a repository's entries.
     async fn installed_versions(&self) -> HashMap<String, Installed> {
-        self.list()
-            .await
-            .into_iter()
-            .map(|info| {
-                let installed = Installed {
-                    stale_conversion: info.compatibility.as_ref().is_some_and(|report| {
+        let mut installed = HashMap::new();
+        for info in self.list().await {
+            // A converted Mihon extension says which converter made it in its manifest.
+            let stale_mihon = info.id.starts_with("mihon.")
+                && self
+                    .mihon_converter(&info.id)
+                    .await
+                    .is_some_and(|converter| converter < u64::from(mihon::CONVERTER_VERSION));
+            let entry = Installed {
+                stale_conversion: stale_mihon
+                    || info.compatibility.as_ref().is_some_and(|report| {
                         report.converter < raygun_ext_host::nuclear::CONVERTER_VERSION
                     }),
-                    version: info.version,
-                };
-                (info.id, installed)
-            })
-            .collect()
+                version: info.version,
+            };
+            installed.insert(info.id, entry);
+        }
+        installed
+    }
+
+    /// The converter an installed Mihon extension was made by.
+    async fn mihon_converter(&self, id: &str) -> Option<u64> {
+        let path = self
+            .extensions_dir
+            .join(id)
+            .join(raygun_ext_host::MANIFEST_FILE);
+        let text = tokio::fs::read_to_string(path).await.ok()?;
+        let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+        manifest.get("mihon")?.get("converter")?.as_u64()
     }
 
     /// A repository index's entries as the catalog lists them: 18+ ones (rated `nsfw`, or marked
@@ -887,6 +929,7 @@ impl ExtensionService {
         repo: &ExtensionRepo,
         index: &RepoIndex,
         local: &HashMap<String, Installed>,
+        verdicts: &HashMap<String, MihonVerdict>,
     ) -> Vec<CatalogEntry> {
         let content = self.host.content();
         let show_nsfw = content.show_nsfw();
@@ -899,13 +942,22 @@ impl ExtensionService {
                 let adult = content.listed_adult(&entry.id, &repo.id, &entry.content_rating);
                 (show_nsfw || !adult).then_some((entry, adult))
             })
-            .map(|(entry, adult)| CatalogEntry {
-                icon: index_url
-                    .as_ref()
-                    .and_then(|base| repo::icon_url(base, entry))
-                    .map(|url| images.cover(url.as_str(), &Default::default())),
-                adult,
-                ..catalog_entry(&repo.id, entry, local.get(&entry.id))
+            .map(|(entry, adult)| {
+                let base = catalog_entry(&repo.id, entry, local.get(&entry.id));
+                CatalogEntry {
+                    icon: index_url
+                        .as_ref()
+                        .and_then(|base| repo::icon_url(base, entry))
+                        .map(|url| images.cover(url.as_str(), &Default::default())),
+                    adult,
+                    // A Mihon extension tried before and refused, until its next version.
+                    unsupported: base.unsupported.clone().or_else(|| {
+                        (entry.format == PackageFormat::Mihon)
+                            .then(|| verdicts.get(&entry.id)?.unsupported(entry))
+                            .flatten()
+                    }),
+                    ..base
+                }
             })
             .collect()
     }
@@ -913,8 +965,9 @@ impl ExtensionService {
     pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
         let repos = self.repos().await?;
         let local = self.installed_versions().await;
+        let verdicts = self.mihon_verdicts().await;
         let listings = repos.into_iter().map(|repo| {
-            let local = &local;
+            let (local, verdicts) = (&local, &verdicts);
             async move {
                 match self.fetch_index(&repo.url, refresh).await {
                     Ok(index) => {
@@ -923,7 +976,7 @@ impl ExtensionService {
                             let _ = store::rename_repo(self.db(), &repo.id, &name).await;
                         }
                         let repo = ExtensionRepo { name, ..repo };
-                        let entries = self.entries_of(&repo, &index, local);
+                        let entries = self.entries_of(&repo, &index, local, verdicts);
                         RepoCatalog {
                             repo,
                             entries,
@@ -988,6 +1041,24 @@ impl ExtensionService {
             return Ok(index.clone());
         }
         let bytes = self.download(url, MAX_INDEX_BYTES).await?;
+        // A Mihon store (`index.min.json`, `repo.json`, `index.pb`), followed to its extensions.
+        if mihon::detect(&bytes) {
+            let address: reqwest::Url = url.parse().map_err(|_| "invalid repository URL")?;
+            let (from, store) = mihon::load(&address, bytes, |next: reqwest::Url| async move {
+                self.download(next.as_str(), MAX_INDEX_BYTES).await
+            })
+            .await?;
+            let index = mihon::to_repo_index(&store)?;
+            self.mihon_stores
+                .lock()
+                .unwrap()
+                .insert(url.to_owned(), (from, Arc::new(store)));
+            self.indexes
+                .lock()
+                .unwrap()
+                .insert(url.to_owned(), (Instant::now(), index.clone()));
+            return Ok(index);
+        }
         // Kodi's indexes come gzipped as often as not (`addons.xml.gz`).
         let text = raygun_ext_host::kodi::unpack(&bytes)?;
         let index = repo::parse_index(&text).map_err(|error| error.to_string())?;
@@ -1101,6 +1172,10 @@ impl ExtensionService {
         if entry.format == PackageFormat::Kodi {
             return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned());
         }
+        if entry.format == PackageFormat::Mihon {
+            let verified = self.convert_mihon(&repo, entry, phase).await?;
+            return self.finish_install(&repo, entry, verified, phase).await;
+        }
         let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
         let package_url =
             repo::package_url(&index_url, entry).map_err(|error| error.to_string())?;
@@ -1185,7 +1260,110 @@ impl ExtensionService {
                     .map_err(|error| error.to_string())?
             }
             PackageFormat::Kodi => return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
+            PackageFormat::Mihon => unreachable!("converted before downloading"),
         };
+        self.finish_install(&repo, entry, verified, phase).await
+    }
+
+    /// Converts a Mihon extension from its source code (`raygun_ext_host::mihon`): reads its code
+    /// from the store's repository, converts it, and loads the result once before it's installed.
+    /// An extension that can't be converted is remembered with the reason, which the catalogue
+    /// then shows.
+    async fn convert_mihon(
+        &self,
+        repo: &ExtensionRepo,
+        entry: &RepoEntry,
+        phase: &(dyn Fn(raygun_model::ExtensionInstallPhase) + Send + Sync),
+    ) -> Result<package::VerifiedPackage, String> {
+        use raygun_model::ExtensionInstallPhase as Phase;
+        let (store_url, store) = self
+            .mihon_stores
+            .lock()
+            .unwrap()
+            .get(&repo.url)
+            .cloned()
+            .ok_or("the store wasn't read")?;
+        let extension = mihon::index::find(&store, &entry.id)
+            .cloned()
+            .ok_or_else(|| format!("{} no longer lists {}", repo.name, entry.id))?;
+        let folder = mihon::locate(&extension, &store_url)
+            .ok_or("Raygun can't tell where this extension's source code is")?;
+        let sources = mihon::source::fetch(&folder, &extension, |url: reqwest::Url| async move {
+            self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES)
+                .await
+        })
+        .await?;
+        phase(Phase::Converting);
+        let converted = match mihon::convert(&extension, &sources) {
+            Ok(converted) => converted,
+            Err(reason) => {
+                self.remember_mihon_verdict(&extension, Some(&reason)).await;
+                return Err(format!("{} can't be converted: {reason}", entry.name));
+            }
+        };
+        let verified = mihon::package(&extension, &converted, &store.name, Some(&folder.web_url()))
+            .map_err(|error| error.to_string())?;
+        if let Err(reason) = mihon::convert::validate(&verified, extension.sources.len()).await {
+            self.remember_mihon_verdict(&extension, Some(&reason)).await;
+            return Err(format!("{}'s conversion didn't run: {reason}", entry.name));
+        }
+        self.remember_mihon_verdict(&extension, None).await;
+        tracing::info!(extension = %entry.id, theme = ?converted.theme, "Mihon extension converted");
+        Ok(verified)
+    }
+
+    /// Why each Mihon extension tried couldn't be converted (`None`: it was), for its version and
+    /// the converter that tried, kept on this device.
+    async fn mihon_verdicts(&self) -> HashMap<String, MihonVerdict> {
+        raygun_db::local_value(self.db(), MIHON_VERDICTS)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    async fn remember_mihon_verdict(
+        &self,
+        extension: &mihon::StoreExtension,
+        reason: Option<&str>,
+    ) {
+        let Some(id) = mihon::index::extension_id(&extension.pkg) else {
+            return;
+        };
+        let mut verdicts = self.mihon_verdicts().await;
+        match reason {
+            Some(reason) => {
+                verdicts.insert(
+                    id,
+                    MihonVerdict {
+                        version: mihon::index::semver_version(extension),
+                        converter: mihon::CONVERTER_VERSION,
+                        reason: reason.to_owned(),
+                    },
+                );
+            }
+            None => {
+                verdicts.remove(&id);
+            }
+        }
+        let text = serde_json::to_string(&verdicts).unwrap_or_default();
+        if let Err(error) = raygun_db::set_local_value(self.db(), MIHON_VERDICTS, &text).await {
+            tracing::debug!(%error, "could not remember a conversion's result");
+        }
+    }
+
+    /// Writes a checked package into `extensions/`, records where it came from and keeps its
+    /// icon.
+    async fn finish_install(
+        &self,
+        repo: &ExtensionRepo,
+        entry: &RepoEntry,
+        verified: package::VerifiedPackage,
+        phase: &(dyn Fn(raygun_model::ExtensionInstallPhase) + Send + Sync),
+    ) -> Result<(), String> {
+        use raygun_model::ExtensionInstallPhase as Phase;
+        let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
         phase(Phase::Installing);
         let extensions_dir = self.extensions_dir.clone();
         tauri::async_runtime::spawn_blocking(move || package::install(&extensions_dir, &verified))
@@ -1417,8 +1595,8 @@ fn icon_key(extension_id: &str) -> String {
 #[derive(Debug, Clone, Default)]
 struct Installed {
     version: String,
-    /// A Nuclear plugin converted by an older converter: installing it again brings the fixes
-    /// in the shim (M46.9.1).
+    /// A Nuclear plugin or a Mihon extension converted by an older converter: installing it
+    /// again brings the newer one's fixes (M46.9.1).
     stale_conversion: bool,
 }
 
@@ -1427,8 +1605,11 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&Installed>) ->
         None => CatalogState::Available,
         Some(installed) => match repo::compare_versions(&entry.version, &installed.version) {
             std::cmp::Ordering::Greater => CatalogState::UpdateAvailable,
+            // Converted by an older converter (a Nuclear plugin, a Mihon extension): installing
+            // it again brings what the newer one does.
             std::cmp::Ordering::Equal
-                if installed.stale_conversion && entry.format == PackageFormat::Nuclear =>
+                if installed.stale_conversion
+                    && matches!(entry.format, PackageFormat::Nuclear | PackageFormat::Mihon) =>
             {
                 CatalogState::UpdateAvailable
             }

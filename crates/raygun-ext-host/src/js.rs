@@ -205,6 +205,11 @@ impl JsExtension {
             Runtime::LnReader => Some(crate::lnreader::runtime::Prepared::new(&code)?),
             _ => None,
         };
+        // A converted Mihon extension runs after the Mihon prelude and its themes.
+        let mihon = match manifest.runtime {
+            Runtime::Mihon => Some(crate::mihon::runtime::Prepared::new(&code)?),
+            _ => None,
+        };
         let policy = Arc::new(manifest.net.clone());
         let client =
             extension_client(policy.clone(), cookies.clone()).map_err(|error| error.to_string())?;
@@ -250,6 +255,9 @@ impl JsExtension {
             .with(move |ctx| -> Result<(), String> {
                 install_natives(&ctx, natives).map_err(|error| error.to_string())?;
                 eval_script(&ctx, PRELUDE, "raygun:prelude", true)?;
+                if let Some(prepared) = &mihon {
+                    return crate::mihon::runtime::install(&ctx, prepared, &filename);
+                }
                 match (&miru, &lnreader) {
                     (Some(prepared), _) => crate::miru::runtime::install(
                         &ctx,
