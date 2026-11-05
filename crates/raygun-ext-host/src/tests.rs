@@ -638,7 +638,7 @@ async fn search_music_collects_tracks_per_provider() {
         { id: 7, title: ` ${query} `, artist: 'A', durationMs: 61000.6, artworkUrl: 'https://x.org/a.jpg',
           source: { kind: 'url', url: 'https://x.org/a.mp3', headers: {} } },
         { title: 'local', source: { kind: 'localFile', path: '/etc/passwd' }, artworkUrl: 'file:///x' },
-        { title: 'yt', source: { kind: 'youTube', videoId: 'dQw4w9WgXcQ' } },
+        { title: 'yt', artist: ' "Rick Astley', source: { kind: 'youTube', videoId: 'dQw4w9WgXcQ' } },
         { title: '' },
         { nope: true },
       ].slice(0, limit) }) });"#;
@@ -673,6 +673,8 @@ async fn search_music_collects_tracks_per_provider() {
         &tracks[2].source,
         Some(MediaSource::YouTube { .. })
     ));
+    // A quote a source left before the name is gone.
+    assert_eq!(tracks[2].artist.as_deref(), Some("Rick Astley"));
 }
 
 /// Songs a source marks explicit leave every list while Explicit music is off (M46.36).

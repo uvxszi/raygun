@@ -201,9 +201,12 @@ export const ArtistCard: FC<{ credit: string | null }> = ({ credit }) => {
         </span>
       </span>
       <span className="flex flex-col gap-1 px-4 pb-4">
-        <span className="flex items-center gap-2 text-lg font-bold">
+        {/* Two lines at most, a step smaller in a narrow column (the side panel), never cut. */}
+        <span className="card-title flex items-center gap-2 font-bold">
           {!image && <UserRound aria-hidden size={18} className="text-muted shrink-0" />}
-          <span className="truncate">{info.data?.name ?? name}</span>
+          <span className="line-clamp-2 min-w-0 leading-tight wrap-anywhere">
+            {info.data?.name ?? name}
+          </span>
         </span>
         {facts && <span className="text-muted text-sm">{facts}</span>}
         {info.isPending ? (
@@ -246,7 +249,10 @@ export const CreditsCard: FC<{ item: QueueItem }> = ({ item }) => {
         <span className="flex flex-col gap-3">
           {groups.slice(0, CREDITS_SHOWN).map((group) => (
             <span key={group.role} className="flex flex-col">
-              <span className="truncate font-medium">{group.names.join(', ')}</span>
+              {/* A narrow side panel shows two lines of names rather than one cut short. */}
+              <span className="truncate font-medium @max-xs/panel:line-clamp-2 @max-xs/panel:whitespace-normal">
+                {group.names.join(', ')}
+              </span>
               <span className="text-muted text-sm">{group.role}</span>
             </span>
           ))}

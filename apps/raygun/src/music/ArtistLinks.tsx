@@ -3,7 +3,7 @@ import { Fragment } from 'react';
 import type { FC, KeyboardEvent, MouseEvent } from 'react';
 
 import { useCoarsePointer } from '../shell/useWideScreen';
-import { creditedArtists } from './artists';
+import { creditedArtists, tidyCredit } from './artists';
 
 const LINK = 'hover:text-foreground cursor-pointer hover:underline';
 
@@ -27,7 +27,7 @@ export const ArtistLinks: FC<{
   const touch = useCoarsePointer();
   const artists = creditedArtists(credit);
   if (artists.length === 0) return null;
-  if (row && touch) return <span className={className}>{credit}</span>;
+  if (row && touch) return <span className={className}>{tidyCredit(credit ?? '')}</span>;
   const open = (name: string) => (event: MouseEvent | KeyboardEvent) => {
     event.stopPropagation();
     event.preventDefault();

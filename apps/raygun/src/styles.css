@@ -286,6 +286,15 @@
 .lyric-plain[data-variant='panel'] {
   font-size: calc(clamp(0.9375rem, 0.7rem + 1.1cqi, 1.25rem) + var(--lyrics-offset, 0rem) * 0.8);
 }
+/* Titles by the width of their container: the side panel's song title (player/SidePanel), text-xl
+   on a wide panel, and a card's (player/PlayerCards), text-lg with room; a step smaller in a narrow
+   one, where they wrap to two lines. */
+.panel-title {
+  font-size: clamp(1.0625rem, 0.35rem + 5cqi, 1.25rem);
+}
+.card-title {
+  font-size: clamp(1rem, 0.5rem + 3.5cqi, 1.125rem);
+}
 /* Between a song's title and its artists: room enough not to tap one for the other. */
 .title-gap {
   row-gap: clamp(0.125rem, 0.6svh, 0.375rem);

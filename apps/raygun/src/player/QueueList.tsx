@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 
 import { fromQueueItem, useAddToPlaylist, useCreatePlaylist } from '../collections/useCollections';
 import { ExplicitMark } from '../music/ExplicitMark';
+import { tidyCredit } from '../music/artists';
 import { Artwork } from '../library/Artwork';
 import { songCover } from '../library/coverTargets';
 import { useTrackMenuItems } from '../music/useTrackMenu';
@@ -513,12 +514,12 @@ const QueueRow: FC<{ item: QueueItem; dragged: boolean; first: boolean; actions:
             type="button"
             aria-label={item.title}
             onClick={play}
-            className="flex min-w-0 flex-1 items-center gap-3 py-1.5 pl-2 text-left"
+            className="flex min-w-0 flex-1 items-center gap-3 py-1.5 pl-2 text-left @max-xs/panel:gap-2.5"
           >
             <Artwork
               url={item.artworkUrl}
               fallback={songCover(item)}
-              className="size-10 shrink-0 rounded-md"
+              className="size-10 shrink-0 rounded-md @max-xs/panel:size-9"
               iconSize={18}
             />
             <span className="title-gap flex min-w-0 flex-col">
@@ -527,7 +528,9 @@ const QueueRow: FC<{ item: QueueItem; dragged: boolean; first: boolean; actions:
                 {item.explicit && <ExplicitMark />}
               </span>
               {item.artist && (
-                <span className="text-muted truncate text-xs leading-tight">{item.artist}</span>
+                <span className="text-muted truncate text-xs leading-tight">
+                  {tidyCredit(item.artist)}
+                </span>
               )}
             </span>
           </button>
@@ -536,7 +539,8 @@ const QueueRow: FC<{ item: QueueItem; dragged: boolean; first: boolean; actions:
             aria-label={t('player.removeFromQueue', { title: item.title })}
             title={t('player.removeFromQueueMenu')}
             onClick={remove}
-            className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100"
+            // In a narrow side panel it takes room only under the pointer or with focus.
+            className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center overflow-hidden rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 @max-xs/panel:pointer-fine:w-0 @max-xs/panel:pointer-fine:group-hover:w-9 @max-xs/panel:pointer-fine:focus-visible:w-9"
           >
             <X aria-hidden size={16} />
           </button>
@@ -550,7 +554,7 @@ const QueueRow: FC<{ item: QueueItem; dragged: boolean; first: boolean; actions:
             onPointerUp={() => actions.gripEnd(true)}
             onPointerCancel={() => actions.gripEnd(false)}
             onKeyDown={(event) => actions.gripKey(item, event)}
-            className={`text-muted hover:text-foreground grid size-9 shrink-0 touch-none place-items-center rounded-full ${
+            className={`text-muted hover:text-foreground grid size-9 shrink-0 touch-none place-items-center rounded-full @max-xs/panel:w-8 ${
               dragged ? 'cursor-grabbing' : 'cursor-grab'
             }`}
           >

@@ -69,7 +69,8 @@ pub fn merge_top(results: &[ProviderSearchResult]) -> Vec<OnlineTrack> {
         .collect()
 }
 
-/// The artists named in a credit such as "A, B & C feat. D" (M46.8), trimmed.
+/// The artists named in a credit such as "A, B & C feat. D" (M46.8), trimmed, without brackets
+/// or quotes left around them.
 pub fn credited_artists(credit: &str) -> Vec<String> {
     const SEPARATORS: [&str; 9] = [
         ", ",
@@ -102,7 +103,7 @@ pub fn credited_artists(credit: &str) -> Vec<String> {
     }
     parts
         .into_iter()
-        .map(|part| part.trim().trim_matches(['(', ')']).trim().to_owned())
+        .map(|part| raygun_resolver::tidy_credit(part.trim().trim_matches(['(', ')'])))
         .filter(|part| !part.is_empty())
         .collect()
 }
@@ -212,6 +213,19 @@ mod artist_tests {
             credited_artists("Simon & Garfunkel"),
             ["Simon", "Garfunkel"]
         );
+        // Quotes a source left around a name go; a name's own stay.
+        assert_eq!(
+            credited_artists("\"Five Finger Death Punch"),
+            ["Five Finger Death Punch"]
+        );
+        assert_eq!(
+            credited_artists("\"Weird Al\" Yankovic feat. \"Someone\""),
+            ["\"Weird Al\" Yankovic", "Someone"]
+        );
+        assert!(credits_include(
+            "\"Five Finger Death Punch\"",
+            "Five Finger Death Punch"
+        ));
         assert!(credits_include("Simon & Garfunkel", "simon & garfunkel"));
         assert!(credits_include(
             "Simon & Garfunkel feat. X",
