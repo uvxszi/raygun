@@ -147,6 +147,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'explicitMusic',
       'contentOverrides',
       'failingSourcesLast',
+      'searchListings',
       'browseStartTab',
       'manualBrowserChecks',
       'autoLoad',

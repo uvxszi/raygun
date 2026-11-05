@@ -6,12 +6,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
-use raygun_ext_host::manga::MangaList;
+use raygun_ext_host::listing_search::LEAST_TIME;
+use raygun_ext_host::manga::{MangaList, MangaListing};
 use raygun_ext_host::video::VIDEO_SOURCE;
 use raygun_model::{
     ChapterDownload, FilterValue, LibraryCategory, LibraryList, MangaBrowseMode, MangaCard,
     MangaChapterInfo, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
-    SourceFilter, SourceSearchResult,
+    SearchListingsPrefs, SourceFilter, SourceSearchResult,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -29,8 +30,6 @@ pub struct Catalog {
     kind: &'static str,
     /// The provider capability: `manga.source`, `novel.source` or `video.source`.
     capability: &'static str,
-    /// Listing pages read for searches that found little (M46.49).
-    listings: crate::search_fallback::ListingCache,
     /// The latest search typed; a newer one stops reading listings for this one.
     searching: tokio::sync::watch::Sender<String>,
 }
@@ -61,7 +60,6 @@ impl Catalog {
             images,
             kind,
             capability,
-            listings: crate::search_fallback::ListingCache::default(),
             searching: tokio::sync::watch::Sender::new(String::new()),
         }
     }
@@ -153,13 +151,17 @@ impl Catalog {
         host.manga_filters(source_id).await
     }
 
-    /// A source search with its filters; the query may be empty when filters are set.
+    /// A source search with its filters; the query may be empty when filters are set. A first
+    /// page without filters for a query its search fails at or finds nothing for gets the titles
+    /// of its listings that match instead, as `listings` allows (M46.49), each marked
+    /// `from_listing`.
     pub async fn search(
         &self,
         source_id: &str,
         query: &str,
         page: u32,
         filters: &BTreeMap<String, FilterValue>,
+        listings: SearchListingsPrefs,
     ) -> Result<MangaListingPage, String> {
         let query = query.trim();
         // Nothing asked for yet: the source's popular titles, so Search never starts empty.
@@ -168,13 +170,32 @@ impl Catalog {
                 .browse(source_id, MangaBrowseMode::Popular, None, page)
                 .await;
         }
-        let listing = {
+        let started = tokio::time::Instant::now();
+        let (listing, listed) = {
             let extensions = self.extensions();
             let (_ready, host) = extensions.ready().await;
-            host.manga_search_filtered(source_id, query, page.max(1), filters)
+            let page = page.max(1);
+            let answer = host
+                .manga_search_filtered(source_id, query, page, filters)
+                .await;
+            // Later pages, and searches narrowed by filters, are the source's own.
+            let listings = SearchListingsPrefs {
+                enabled: listings.enabled && page == 1 && filters.is_empty(),
+                ..listings
+            };
+            match self
+                .listed_matches(host, source_id, query, &answer, listings, started)
                 .await
-        }?;
-        self.listing_page(source_id, listing).await
+            {
+                Some(found) => (found, true),
+                None => (answer?, false),
+            }
+        };
+        let mut page = self.listing_page(source_id, listing).await?;
+        for card in &mut page.items {
+            card.from_listing = listed;
+        }
+        Ok(page)
     }
 
     /// The first page of every source's results for `query` (Mihon's global search), or only of
@@ -183,13 +204,14 @@ impl Catalog {
     /// (M46.48: the host's catalogue turns), none for longer than
     /// [`raygun_ext_host::CATALOG_SEARCH_TIMEOUT`]. A source that fails reports why and the
     /// others still show. Search's "No 18+" (`filter`) leaves adult sources unasked and adult
-    /// titles out. A source whose search finds little gets matches from its listings
-    /// ([`Self::search_row`]).
+    /// titles out. A source whose search fails or finds nothing gets matches from its listings
+    /// as `listings` allows ([`Self::search_row`]).
     pub async fn global_search(
         &self,
         query: &str,
         only: &[String],
         filter: raygun_model::SearchFilterPrefs,
+        listings: SearchListingsPrefs,
     ) -> Result<Vec<SourceSearchResult>, String> {
         let query = query.trim();
         let mut sources = self.sources().await;
@@ -200,21 +222,23 @@ impl Catalog {
         }
         sources.retain(|source| crate::search_filter::asks_source(filter, source));
         let searches = sources.into_iter().map(|source| async move {
-            match self.search_row(&source.id, query).await {
-                Ok(mut page) => SourceSearchResult {
-                    items: {
-                        crate::search_filter::keep_cards(filter, &mut page.items);
-                        page.items
-                    },
-                    source,
-                    has_next_page: page.has_next_page,
-                    error: None,
-                },
+            match self.search_row(&source.id, query, listings).await {
+                Ok((mut page, listed)) => {
+                    crate::search_filter::keep_cards(filter, &mut page.items);
+                    SourceSearchResult {
+                        from_listings: listed && !page.items.is_empty(),
+                        items: page.items,
+                        source,
+                        has_next_page: page.has_next_page,
+                        error: None,
+                    }
+                }
                 Err(error) => SourceSearchResult {
                     source,
                     items: Vec::new(),
                     has_next_page: false,
                     error: Some(error),
+                    from_listings: false,
                 },
             }
         });
@@ -224,11 +248,15 @@ impl Catalog {
         Ok(results)
     }
 
-    /// A source's first page for a search row. A search that finds fewer than
-    /// [`crate::search_fallback::FEW_RESULTS`] titles, or fails, is helped by the source's
-    /// listings: their titles that match `query` follow, marked `from_listing` (M46.49).
-    async fn search_row(&self, source_id: &str, query: &str) -> Result<MangaListingPage, String> {
-        use crate::search_fallback::{FEW_RESULTS, LEAST_TIME};
+    /// A source's first page for a search row, and whether it came from the source's listings:
+    /// a search of `query` that fails or finds nothing gets the titles of its listings that match
+    /// instead, as `listings` allows, each marked `from_listing` (M46.49).
+    async fn search_row(
+        &self,
+        source_id: &str,
+        query: &str,
+        listings: SearchListingsPrefs,
+    ) -> Result<(MangaListingPage, bool), String> {
         let started = tokio::time::Instant::now();
         let extensions = self.extensions();
         let (ready, host) = extensions.ready().await;
@@ -236,50 +264,56 @@ impl Catalog {
             .catalog_search_row(source_id, query)
             .await
             .map_err(|error| error.to_string());
-        let few = answer
-            .as_ref()
-            .map_or(true, |listing| listing.items.len() < FEW_RESULTS);
-        let mut listed = Vec::new();
-        let listing = if query.is_empty() || !few {
-            answer?
-        } else {
-            let deadline = (started + raygun_ext_host::CATALOG_SEARCH_TIMEOUT)
-                .max(tokio::time::Instant::now() + LEAST_TIME);
-            let video = self.capability == VIDEO_SOURCE;
-            let matching = self
-                .listings
-                .matches(source_id, query, video, deadline, |page| {
-                    host.manga_list(source_id, MangaList::Popular, page)
-                });
-            match self.searching(query, matching).await {
-                Some(Ok(matches)) if !matches.is_empty() => {
-                    tracing::debug!(
-                        source = source_id,
-                        found = matches.len(),
-                        "search helped by the source's listings"
-                    );
-                    let mut listing = answer.unwrap_or(raygun_ext_host::manga::MangaListing {
-                        items: Vec::new(),
-                        has_next_page: false,
-                    });
-                    for item in matches {
-                        if !listing.items.iter().any(|found| found.id == item.id) {
-                            listed.push(item.id.clone());
-                            listing.items.push(item);
-                        }
-                    }
-                    listing
-                }
-                // Nothing more in its listings, they failed too, or a newer search came.
-                _ => answer?,
-            }
+        let (listing, listed) = match self
+            .listed_matches(host, source_id, query, &answer, listings, started)
+            .await
+        {
+            Some(found) => (found, true),
+            None => (answer?, false),
         };
         drop(ready);
         let mut page = self.listing_page(source_id, listing).await?;
         for card in &mut page.items {
-            card.from_listing = listed.contains(&card.id);
+            card.from_listing = listed;
         }
-        Ok(page)
+        Ok((page, listed))
+    }
+
+    /// For a search of `query` started at `started` that failed or found nothing (`answer`):
+    /// the titles of the source's listings that match it, as `listings` allows. Reading them
+    /// stops within the search's own time, but never sooner than [`LEAST_TIME`] from now, so a
+    /// source that took long to fail still gets a look. `None` keeps the answer: the search
+    /// answered, nothing in its listings matched, they failed too, or a newer search came.
+    async fn listed_matches(
+        &self,
+        host: &raygun_ext_host::ExtensionHost,
+        source_id: &str,
+        query: &str,
+        answer: &Result<MangaListing, String>,
+        listings: SearchListingsPrefs,
+        started: tokio::time::Instant,
+    ) -> Option<MangaListing> {
+        if !looks_through_listings(query, answer, listings) {
+            return None;
+        }
+        let deadline = (started + raygun_ext_host::CATALOG_SEARCH_TIMEOUT)
+            .max(tokio::time::Instant::now() + LEAST_TIME);
+        let video = self.capability == VIDEO_SOURCE;
+        let matching = host.listing_titles(source_id, query, video, listings, deadline);
+        match self.searching(query, matching).await {
+            Some(Ok(items)) if !items.is_empty() => {
+                tracing::debug!(
+                    source = source_id,
+                    found = items.len(),
+                    "search answered from the source's listings"
+                );
+                Some(MangaListing {
+                    items,
+                    has_next_page: false,
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Runs `work` for a search of `query`; `None` once a search for another query starts here.
@@ -763,6 +797,21 @@ impl Catalog {
     }
 }
 
+/// Whether a source's search of `query` that gave `answer` is looked through its listings
+/// instead (M46.49): only when looking is on and something was typed, and only when the search
+/// failed or found nothing, never when it answered.
+fn looks_through_listings(
+    query: &str,
+    answer: &Result<MangaListing, String>,
+    listings: SearchListingsPrefs,
+) -> bool {
+    listings.enabled
+        && !query.trim().is_empty()
+        && answer
+            .as_ref()
+            .map_or(true, |listing| listing.items.is_empty())
+}
+
 /// A category name as typed: trimmed, not empty, at most 40 characters.
 fn category_name(name: &str) -> Result<String, String> {
     let name = name.trim();
@@ -1210,6 +1259,44 @@ mod tests {
         let done = chapter_info(&unit("c", Some(1.0), 0, Some(19), true), &none);
         assert_eq!((done.read, done.last_page), (true, None));
         assert_eq!(done.download, None);
+    }
+
+    #[test]
+    fn only_searches_that_failed_or_found_nothing_look_through_listings() {
+        let on = SearchListingsPrefs::default();
+        let found = |count: usize| -> Result<MangaListing, String> {
+            Ok(MangaListing {
+                items: (0..count)
+                    .map(|id| raygun_ext_host::manga::MangaSummary {
+                        id: id.to_string(),
+                        title: format!("Title {id}"),
+                        cover_url: None,
+                        cover_headers: BTreeMap::new(),
+                        nsfw: false,
+                    })
+                    .collect(),
+                has_next_page: false,
+            })
+        };
+        assert!(looks_through_listings("dragon", &found(0), on));
+        assert!(looks_through_listings(
+            "dragon",
+            &Err("HTTP 500".into()),
+            on
+        ));
+        // A source that answered keeps its answer, even a short one.
+        assert!(!looks_through_listings("dragon", &found(1), on));
+        // Nothing typed: the popular titles are the answer.
+        assert!(!looks_through_listings("  ", &found(0), on));
+        let off = SearchListingsPrefs {
+            enabled: false,
+            ..on
+        };
+        assert!(!looks_through_listings(
+            "dragon",
+            &Err("HTTP 500".into()),
+            off
+        ));
     }
 
     #[test]

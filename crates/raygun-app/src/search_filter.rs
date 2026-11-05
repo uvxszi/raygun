@@ -3,7 +3,10 @@
 //! asked; what comes back loses titles marked adult and songs marked explicit. The UI filters
 //! answers it kept from before the same way (`search/searchFilter.ts`).
 
-use raygun_model::{MangaCard, MangaSource, OnlineTrack, ProviderSearchResult, SearchFilterPrefs};
+use raygun_model::{
+    MangaCard, MangaSource, OnlineTrack, ProviderSearchResult, SearchFilterPrefs,
+    SearchListingsPrefs,
+};
 use tauri::Manager;
 
 /// The switches as stored; both off when the settings can't be read.
@@ -12,6 +15,16 @@ pub async fn current(app: &tauri::AppHandle) -> SearchFilterPrefs {
     crate::settings::load(&db)
         .await
         .map(|settings| settings.search_filter)
+        .unwrap_or_default()
+}
+
+/// How searches look through the listings of sources whose search fails or finds nothing
+/// (`Settings::search_listings`), as stored; the defaults when the settings can't be read.
+pub async fn listings(app: &tauri::AppHandle) -> SearchListingsPrefs {
+    let db = app.state::<crate::startup::AppDb>().inner().0.clone();
+    crate::settings::load(&db)
+        .await
+        .map(|settings| settings.search_listings)
         .unwrap_or_default()
 }
 

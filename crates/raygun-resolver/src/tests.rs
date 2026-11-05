@@ -37,6 +37,18 @@ fn best(query: &TrackQuery, candidates: Vec<Candidate>) -> Option<String> {
 }
 
 #[test]
+fn titles_score_like_search() {
+    assert_eq!(title_score("One Piece", "one piece"), 100);
+    assert_eq!(title_score("One Piece Film Red", "One Piece"), 80);
+    assert_eq!(title_score("Film: One Piece", "one piece"), 70);
+    assert_eq!(title_score("Piece of One", "one piece"), 60);
+    assert_eq!(title_score("Piece of Cake", "one piece"), 20);
+    assert_eq!(title_score("Café Terrace", "cafe"), 80);
+    assert_eq!(title_score("进击的巨人第二季", "巨人"), 65);
+    assert_eq!(title_score("anything", ""), 0);
+}
+
+#[test]
 fn normalizes_titles_and_keys() {
     assert_eq!(normalize("Beyoncé & JAY-Z"), "beyonce and jay z");
     assert_eq!(normalize("  Don't   Stop! "), "don t stop");

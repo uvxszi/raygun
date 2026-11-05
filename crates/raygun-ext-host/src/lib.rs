@@ -11,6 +11,7 @@ mod host;
 mod html;
 mod js;
 pub mod kodi;
+pub mod listing_search;
 pub mod lnreader;
 pub mod manga;
 pub mod manifest;

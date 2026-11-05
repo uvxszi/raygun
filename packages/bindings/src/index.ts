@@ -1138,6 +1138,11 @@ export const commands = {
 	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
 	searchFilter: SearchFilterPrefs,
 	/**
+	 *  Sources whose search fails or finds nothing are looked through instead: their listings
+	 *  are matched against the query (on, 20 matches, 5 pages by default).
+	 */
+	searchListings: SearchListingsPrefs,
+	/**
 	 *  Sources that meet a browser check offer to open their site so it can be passed by hand
 	 *  (experimental, off by default; `raygun_ext_host::browser_check`).
 	 */
@@ -1223,12 +1228,15 @@ export const commands = {
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
 	/**
 	 *  Searches one source with its filters; the query may be empty when filters are set, and with
-	 *  neither it lists the source's popular titles.
+	 *  neither it lists the source's popular titles. A first page its search fails at or finds
+	 *  nothing for comes from its listings (`Settings::search_listings`).
 	 */
 	catalogSearch: (medium: string, sourceId: string, query: string, page: number, filters: { [key in string]: FilterValue }) => typedError<MangaListingPage, string>(__TAURI_INVOKE("catalog_search", { medium, sourceId, query, page, filters })),
 	/**
 	 *  The first page of every manga, novel or video source's results for `query` (their popular
-	 *  titles when it's blank), or only `sources`' when any are given (Search's source chips).
+	 *  titles when it's blank), or only `sources`' when any are given (Search's source chips). A
+	 *  source whose search fails or finds nothing answers from its listings
+	 *  (`Settings::search_listings`).
 	 */
 	catalogGlobalSearch: (medium: string, query: string, sources: string[]) => typedError<SourceSearchResult_Serialize[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query, sources })),
 	/**  Tracks in the device's library matching `query` (title, artist or album). */
@@ -3200,7 +3208,10 @@ export type MangaCard = {
 	inLibrary: boolean,
 	/**  The source marks it adult: the UI marks it 18+. */
 	adult?: boolean,
-	/**  Found by matching the source's listings, not by its search (which found little). */
+	/**
+	 *  Found by matching the source's listings, not by its search (which failed or found
+	 *  nothing).
+	 */
 	fromListing?: boolean,
 };
 
@@ -4089,6 +4100,11 @@ export type ProviderSearchResult_Deserialize = {
 	provider: ProviderInfo_Deserialize,
 	tracks: OnlineTrack[],
 	error: string | null,
+	/**
+	 *  Its search failed or found nothing: these songs were found in its charts instead
+	 *  (`Settings::search_listings`).
+	 */
+	fromListings?: boolean,
 };
 
 /**  One provider's answer to an online search. */
@@ -4096,6 +4112,11 @@ export type ProviderSearchResult_Serialize = {
 	provider: ProviderInfo_Serialize,
 	tracks: OnlineTrack[],
 	error: string | null,
+	/**
+	 *  Its search failed or found nothing: these songs were found in its charts instead
+	 *  (`Settings::search_listings`).
+	 */
+	fromListings: boolean,
 };
 
 /**  The queue changed. */
@@ -4341,6 +4362,19 @@ export type SearchFilterPrefs = {
 	noExplicit?: boolean,
 };
 
+/**
+ *  A source whose own search fails or finds nothing for what was typed is looked through instead
+ *  (`raygun_ext_host::listing_search`): its listings (popular, latest, its sort filters; a music
+ *  source's charts) are read page by page and matched against the query. On by default.
+ */
+export type SearchListingsPrefs = {
+	enabled?: boolean,
+	/**  Matches collected at most from one source's listings. */
+	entries?: number,
+	/**  Listing pages read at most from one source, all its listings together. */
+	pages?: number,
+};
+
 /**  What one source answered, by kind of search. */
 export type SearchPart = SearchPart_Serialize | SearchPart_Deserialize;
 
@@ -4445,7 +4479,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -4567,6 +4601,11 @@ export type Settings = {
 	browseStartTab?: string,
 	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
 	searchFilter: SearchFilterPrefs,
+	/**
+	 *  Sources whose search fails or finds nothing are looked through instead: their listings
+	 *  are matched against the query (on, 20 matches, 5 pages by default).
+	 */
+	searchListings: SearchListingsPrefs,
 	/**
 	 *  Sources that meet a browser check offer to open their site so it can be passed by hand
 	 *  (experimental, off by default; `raygun_ext_host::browser_check`).
@@ -4882,6 +4921,11 @@ export type SourceSearchResult_Deserialize = {
 	items: MangaCard[],
 	hasNextPage: boolean,
 	error: string | null,
+	/**
+	 *  Its search failed or found nothing: these titles were found in its listings instead
+	 *  (`Settings::search_listings`), each marked `from_listing`.
+	 */
+	fromListings?: boolean,
 };
 
 /**  One source's first page of results in a search across sources. */
@@ -4890,6 +4934,11 @@ export type SourceSearchResult_Serialize = {
 	items: MangaCard[],
 	hasNextPage: boolean,
 	error: string | null,
+	/**
+	 *  Its search failed or found nothing: these titles were found in its listings instead
+	 *  (`Settings::search_listings`), each marked `from_listing`.
+	 */
+	fromListings: boolean,
 };
 
 /**  What the webview's speech engine does on desktop (M46.6). */
