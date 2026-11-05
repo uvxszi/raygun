@@ -2406,7 +2406,8 @@
       "title": "Chapters",
       "open": "Chapters",
       "page": "Stopped on page {{page}}",
-      "downloaded": "Downloaded"
+      "downloaded": "Downloaded",
+      "read": "Read"
     },
     "pageTitle": "Page {{page}}",
     "savePage": "Save page",
