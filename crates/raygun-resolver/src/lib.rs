@@ -245,6 +245,32 @@ pub fn title_score(title: &str, wanted: &str) -> u32 {
     u32::try_from(40 * shared / words.len()).unwrap_or(0)
 }
 
+/// Double quotes a source, or a screenshot read as text, may leave around a name.
+const QUOTES: [char; 7] = ['"', '“', '”', '„', '‟', '«', '»'];
+
+/// A credit or a name without the quotes left around it and spaces at its ends: `"Name"` and a
+/// lone `"Name` lose them, while quotes that are part of a name (`"Weird Al" Yankovic`) stay.
+/// The UI's `tidyCredit` (music/artists.ts) does the same for what was saved before.
+pub fn tidy_credit(credit: &str) -> String {
+    let text = credit.trim();
+    let quotes = text.chars().filter(|c| QUOTES.contains(c)).count();
+    let mut chars = text.chars();
+    match (quotes, text.starts_with(QUOTES), text.ends_with(QUOTES)) {
+        (2, true, true) => {
+            chars.next();
+            chars.next_back();
+        }
+        (1, true, _) => {
+            chars.next();
+        }
+        (1, false, true) => {
+            chars.next_back();
+        }
+        _ => {}
+    }
+    chars.as_str().trim().to_owned()
+}
+
 /// A title without its decorations: bracketed parts (`(Remastered 2011)`, `[Official Video]`) and
 /// trailing `feat.` credits are dropped, then the rest is normalized.
 pub fn core_title(title: &str) -> String {

@@ -8,8 +8,8 @@ import { Artwork } from '../library/Artwork';
 import { ExplicitMark } from '../music/ExplicitMark';
 import { songCover } from '../library/coverTargets';
 import { ArtistLinks } from '../music/ArtistLinks';
+import { tidyCredit } from '../music/artists';
 import { TrackTagChips } from '../music/TrackTagChips';
-import { Marquee } from '../shell/Marquee';
 import { ResizeHandle } from '../shell/ResizeHandle';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { usePanelSizes } from '../shell/usePanelSizes';
@@ -87,14 +87,20 @@ export const SidePanel: FC = () => {
         }}
         className="my-2"
       />
+      {/* A container (`panel`): what's inside sizes itself by the panel's width, not the window's. */}
       <aside
         aria-label={t(`player.panel.${panel}`)}
         data-testid="side-panel"
         style={width ? { width } : undefined}
-        className={`bg-surface my-2 mr-2 flex shrink-0 flex-col overflow-hidden rounded-2xl lg:mr-4 ${width ? '' : 'w-72 lg:w-80 xl:w-96'}`}
+        className={`bg-surface @container/panel my-2 mr-2 flex shrink-0 flex-col overflow-hidden rounded-2xl lg:mr-4 ${width ? '' : 'w-72 lg:w-80 xl:w-96'}`}
       >
-        <header className="flex items-center gap-1 px-2 pt-2">
-          <div role="tablist" aria-label={t('player.panel.label')} className="flex flex-1 gap-1">
+        <header className="flex items-center gap-1 px-2 pt-2 @max-3xs/panel:gap-0.5 @max-3xs/panel:px-1">
+          {/* Each label stays on one line: smaller and closer as the panel narrows. */}
+          <div
+            role="tablist"
+            aria-label={t('player.panel.label')}
+            className="flex min-w-0 flex-1 gap-1 @max-3xs/panel:gap-0.5"
+          >
             {TABS.map((tab) => (
               <button
                 key={tab}
@@ -102,22 +108,22 @@ export const SidePanel: FC = () => {
                 role="tab"
                 aria-selected={panel === tab}
                 onClick={() => setPanel(tab)}
-                className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                className={`min-w-0 rounded-full px-3 py-1.5 text-sm font-medium whitespace-nowrap @max-xs/panel:px-2.5 @max-xs/panel:text-xs @max-3xs/panel:px-1.5 @max-3xs/panel:text-[0.6875rem] ${
                   panel === tab
                     ? 'bg-background text-foreground'
                     : 'text-muted hover:text-foreground'
                 }`}
               >
-                {t(`player.panel.${tab}`)}
+                <span className="block truncate">{t(`player.panel.${tab}`)}</span>
               </button>
             ))}
           </div>
-          <MusicSettingsButton />
+          <MusicSettingsButton className="size-9 shrink-0 @max-3xs/panel:size-7" />
           <button
             type="button"
             aria-label={t('player.panel.close')}
             onClick={() => setPanel(null)}
-            className="text-muted hover:text-foreground grid size-9 place-items-center rounded-full"
+            className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full @max-3xs/panel:size-7"
           >
             <X aria-hidden size={18} />
           </button>
@@ -155,7 +161,7 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
 
   return (
     // Its parts keep their height and the panel scrolls: shrinking cut the cards' last lines.
-    <div className="flex shrink-0 flex-col gap-4 px-4 pt-3 pb-4 [&>*]:shrink-0">
+    <div className="flex shrink-0 flex-col gap-4 px-4 pt-3 pb-4 @max-3xs/panel:px-3 [&>*]:shrink-0">
       <PlayingFrom variant="row" className="-mb-2" />
       {/* The one video dock shows here unless the full player has it. */}
       <MediaArt
@@ -166,47 +172,60 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
         videoClassName="aspect-video w-full overflow-hidden rounded-xl bg-black"
         iconSize={72}
       />
-      <div className="flex items-center gap-1">
-        <div className="title-gap flex min-w-0 flex-1 flex-col">
-          <Marquee testId="side-panel-title" text={item.title} className="text-xl font-bold" />
-          {/* Only the names lead to their pages; the space around them doesn't. */}
-          {spoken ? (
-            <SpokenByline spoken={spoken} className="text-muted block truncate text-sm" />
-          ) : (
-            item.artist && (
-              <ArtistLinks credit={item.artist} className="text-muted block truncate text-sm" />
-            )
-          )}
-          {note && (
-            <span className="text-muted text-xs">
-              {t(sourceNoteKey(note), note.kind === 'via' ? { source: note.source } : {})}
-            </span>
-          )}
-          {!spoken && <TrackTagChips track={item} className="pt-1.5" />}
+      {/* The song: its title and artists beside its buttons, its tags under them across the
+          panel. On a narrow panel the title has the whole width too (two lines at most) and the
+          buttons get a row of their own, so nothing is squeezed into a column. */}
+      <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-0.5 @max-xs/panel:grid-cols-1">
+          <div className="title-gap flex min-w-0 flex-col">
+            <p
+              data-testid="side-panel-title"
+              title={item.title}
+              className="panel-title line-clamp-2 leading-tight font-bold wrap-anywhere"
+            >
+              {item.title}
+            </p>
+            {/* Only the names lead to their pages; the space around them doesn't. */}
+            {spoken ? (
+              <SpokenByline spoken={spoken} className="text-muted block truncate text-sm" />
+            ) : (
+              item.artist && (
+                <ArtistLinks credit={item.artist} className="text-muted block truncate text-sm" />
+              )
+            )}
+            {note && (
+              <span className="text-muted truncate text-xs">
+                {t(sourceNoteKey(note), note.kind === 'via' ? { source: note.source } : {})}
+              </span>
+            )}
+          </div>
+          <div data-testid="side-panel-actions" className="flex items-center @max-xs/panel:-ml-2">
+            {!spoken && <FavoriteButton item={item} compact download />}
+            <VideoToggle item={item} className="size-9" />
+            <button
+              type="button"
+              aria-label={t('player.openPlayer')}
+              onClick={() => openSheet({ view: 'artwork' })}
+              className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full"
+            >
+              <Maximize2 aria-hidden size={18} />
+            </button>
+          </div>
         </div>
-        {!spoken && <FavoriteButton item={item} compact download />}
-        <VideoToggle item={item} className="size-9" />
-        <button
-          type="button"
-          aria-label={t('player.openPlayer')}
-          onClick={() => openSheet({ view: 'artwork' })}
-          className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full"
-        >
-          <Maximize2 aria-hidden size={18} />
-        </button>
+        {!spoken && <TrackTagChips track={item} compact />}
       </div>
       <section
         aria-label={spoken ? t('captions.title') : t('player.lyrics')}
         className="bg-background/50 rounded-xl"
       >
-        <header className="flex items-center justify-between px-4 pt-3">
-          <h3 className="text-sm font-semibold">
+        <header className="flex items-center justify-between gap-2 px-4 pt-3">
+          <h3 className="min-w-0 truncate text-sm font-semibold">
             {spoken ? t('captions.title') : t('player.lyrics')}
           </h3>
           <button
             type="button"
             onClick={() => openSheet({ view: 'lyrics' })}
-            className="text-muted hover:text-foreground text-xs font-medium"
+            className="text-muted hover:text-foreground shrink-0 text-xs font-medium whitespace-nowrap"
           >
             {spoken ? t('captions.full') : t('player.panel.fullLyrics')}
           </button>
@@ -218,12 +237,13 @@ const NowPlaying: FC<{ item: QueueItem }> = ({ item }) => {
         )}
       </section>
       <section aria-label={t('player.panel.nextUp')} className="bg-background/50 rounded-xl p-3">
-        <header className="flex items-center justify-between pb-2">
-          <h3 className="text-sm font-semibold">{t('player.panel.nextUp')}</h3>
+        {/* Without room for both, the button goes under the heading rather than cut it. */}
+        <header className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pb-2">
+          <h3 className="min-w-0 truncate text-sm font-semibold">{t('player.panel.nextUp')}</h3>
           <button
             type="button"
             onClick={() => setPanel('queue')}
-            className="text-muted hover:text-foreground flex items-center gap-1 text-xs font-medium"
+            className="text-muted hover:text-foreground ml-auto flex shrink-0 items-center gap-1 text-xs font-medium whitespace-nowrap"
           >
             <ListMusic aria-hidden size={14} />
             {t('player.panel.openQueue')}
@@ -326,7 +346,11 @@ const RowsHandle: FC<{
   );
 };
 
-/** A song in "Next in queue": plays on a tap; its artist is plain text. */
+/**
+ * A song in "Next in queue": plays on a tap; its artist is plain text. On a narrow panel the
+ * remove button only takes room while the pointer is over the row or it has focus, so the names
+ * have it otherwise.
+ */
 const NextRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = false }) => {
   const { t } = useTranslation();
   return (
@@ -336,12 +360,12 @@ const NextRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = f
         aria-label={item.title}
         disabled={current}
         onClick={() => void sendControl({ type: 'playItem', itemId: item.id })}
-        className="flex min-w-0 flex-1 items-center gap-3 py-1.5 pl-2 text-left"
+        className="flex min-w-0 flex-1 items-center gap-3 py-1.5 pl-2 text-left @max-xs/panel:gap-2.5"
       >
         <Artwork
           url={item.artworkUrl}
           fallback={songCover(item)}
-          className="size-10 shrink-0 rounded-md"
+          className="size-10 shrink-0 rounded-md @max-xs/panel:size-9"
           iconSize={18}
         />
         <span className="title-gap flex min-w-0 flex-col">
@@ -354,7 +378,9 @@ const NextRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = f
             {item.explicit && <ExplicitMark />}
           </span>
           {item.artist && (
-            <span className="text-muted truncate text-xs leading-tight">{item.artist}</span>
+            <span className="text-muted truncate text-xs leading-tight">
+              {tidyCredit(item.artist)}
+            </span>
           )}
         </span>
       </button>
@@ -363,7 +389,7 @@ const NextRow: FC<{ item: QueueItem; current?: boolean }> = ({ item, current = f
           type="button"
           aria-label={t('player.removeFromQueue', { title: item.title })}
           onClick={() => void sendControl({ type: 'remove', itemId: item.id })}
-          className="text-muted hover:text-foreground grid size-8 shrink-0 place-items-center rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100"
+          className="text-muted hover:text-foreground grid size-8 shrink-0 place-items-center overflow-hidden rounded-full pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 @max-xs/panel:pointer-fine:w-0 @max-xs/panel:pointer-fine:group-hover:w-8 @max-xs/panel:pointer-fine:focus-visible:w-8"
         >
           <X aria-hidden size={16} />
         </button>

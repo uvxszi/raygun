@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 
 use raygun_model::ImportedSong;
+use raygun_resolver::tidy_credit;
 
 /// What a Spotify link points at.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,7 +223,9 @@ pub fn csv(text: &str) -> Result<Vec<ImportedSong>, String> {
             Some(ImportedSong {
                 title: field(Some(title))?,
                 // Exportify separates artists with commas inside the field.
-                artist: field(artist).map(|artists| artists.replace(";", ", ")),
+                artist: field(artist)
+                    .map(|artists| tidy_credit(&artists.replace(";", ", ")))
+                    .filter(|artists| !artists.is_empty()),
                 album: field(album),
                 duration_ms: field(duration)
                     .and_then(|ms| ms.parse::<f64>().ok())
@@ -257,9 +260,7 @@ pub fn lines(text: &str) -> Vec<ImportedSong> {
             };
             (!title.is_empty()).then(|| ImportedSong {
                 title: title.to_owned(),
-                artist: artist
-                    .filter(|artist| !artist.is_empty())
-                    .map(str::to_owned),
+                artist: artist.map(tidy_credit).filter(|artist| !artist.is_empty()),
                 album: None,
                 duration_ms: None,
                 artwork_url: None,
@@ -337,7 +338,8 @@ pub struct ScreenRow {
 }
 
 /// An artist line's text without its marks, and whether it had any: the explicit badge ("E ")
-/// before the name, and what follows " • " or " · " (the album, a play count).
+/// before the name, and what follows " • " or " · " (the album, a play count). A quote left at
+/// an end of the name (an icon read as one) goes too.
 fn artist_text(text: &str) -> (String, bool) {
     let text = text.trim();
     let badge = text.strip_prefix("E ").or_else(|| text.strip_prefix("🅴 "));
@@ -345,7 +347,7 @@ fn artist_text(text: &str) -> (String, bool) {
     let name = plain.split(" • ").next().unwrap_or(plain);
     let name = name.split(" · ").next().unwrap_or(name).trim();
     (
-        name.to_owned(),
+        tidy_credit(name),
         badge.is_some() || name.len() < plain.trim().len(),
     )
 }
@@ -693,6 +695,23 @@ mod tests {
         );
         assert_eq!(songs[1].artist.as_deref(), Some("The Beatles"));
         assert_eq!(songs[2].artist, None);
+    }
+
+    #[test]
+    fn imported_artists_lose_quotes_left_around_them() {
+        let pasted = lines("\"Five Finger Death Punch\" - Welcome to the Circus\n");
+        assert_eq!(pasted[0].artist.as_deref(), Some("Five Finger Death Punch"));
+        let file = csv("title,artist\nBad Company,\"\"\"Five Finger Death Punch\"\n").unwrap();
+        assert_eq!(file[0].artist.as_deref(), Some("Five Finger Death Punch"));
+        // An icon before the name read as a quote.
+        assert_eq!(
+            artist_text("\" Five Finger Death Punch • F8"),
+            ("Five Finger Death Punch".to_owned(), true)
+        );
+        assert_eq!(
+            artist_text("\"Weird Al\" Yankovic"),
+            ("\"Weird Al\" Yankovic".to_owned(), false)
+        );
     }
 
     #[test]

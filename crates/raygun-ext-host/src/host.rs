@@ -2188,7 +2188,11 @@ pub(crate) fn parse_tracks(value: serde_json::Value) -> Vec<OnlineTrack> {
                 other => other.to_string(),
             }),
             title: track.title.trim().to_owned(),
-            artist: track.artist.filter(|artist| !artist.trim().is_empty()),
+            // Without the quotes some sources leave around a name.
+            artist: track
+                .artist
+                .map(|artist| raygun_resolver::tidy_credit(&artist))
+                .filter(|artist| !artist.is_empty()),
             album: track.album.filter(|album| !album.trim().is_empty()),
             duration_ms: track
                 .duration_ms
@@ -2385,9 +2389,8 @@ pub(crate) fn parse_album(
         artist: album
             .get("artist")
             .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|artist| !artist.is_empty())
-            .map(str::to_owned),
+            .map(raygun_resolver::tidy_credit)
+            .filter(|artist| !artist.is_empty()),
         year: number("year"),
         artwork_url: web_url(album.get("artworkUrl")),
         track_count: number("trackCount"),

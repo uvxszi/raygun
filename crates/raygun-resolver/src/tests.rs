@@ -77,6 +77,33 @@ fn normalizes_titles_and_keys() {
 }
 
 #[test]
+fn credits_lose_quotes_left_around_them() {
+    assert_eq!(
+        tidy_credit("\"Five Finger Death Punch\""),
+        "Five Finger Death Punch"
+    );
+    assert_eq!(
+        tidy_credit(" \"Five Finger Death Punch"),
+        "Five Finger Death Punch"
+    );
+    assert_eq!(tidy_credit("Daft Punk”"), "Daft Punk");
+    assert_eq!(tidy_credit("«Kino»"), "Kino");
+    // Quotes that are part of a name, and apostrophes, stay.
+    assert_eq!(
+        tidy_credit("\"Weird Al\" Yankovic"),
+        "\"Weird Al\" Yankovic"
+    );
+    assert_eq!(tidy_credit("'Til Tuesday"), "'Til Tuesday");
+    assert_eq!(tidy_credit("Guns N' Roses "), "Guns N' Roses");
+    assert_eq!(tidy_credit("\""), "");
+    // The key a tidied credit gives is the one it had.
+    assert_eq!(
+        track_key(&query("Bad Company", "\"Five Finger Death Punch", None)),
+        track_key(&query("Bad Company", "Five Finger Death Punch", None))
+    );
+}
+
+#[test]
 fn prefers_the_studio_recording_over_variants() {
     let wanted = query("What a Wonderful World", "Louis Armstrong", Some(137_000));
     let picked = best(
