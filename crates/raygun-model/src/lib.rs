@@ -6385,6 +6385,26 @@ pub struct YouTubeVideo {
     pub embed_url: String,
 }
 
+/// Something another app opened with Raygun or shared to it that didn't play.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenWithProblem {
+    pub kind: OpenWithProblemKind,
+    /// The file's name, or the address when it has none.
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum OpenWithProblemKind {
+    /// Not a video, a song or a playlist.
+    Unsupported,
+    /// It couldn't be read: gone, too large, or Raygun wasn't given access.
+    Unreadable,
+    /// A playlist with nothing in it that plays.
+    EmptyPlaylist,
+}
+
 /// What the desktop player hands to mpv or VLC (M46.4).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

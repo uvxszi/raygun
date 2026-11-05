@@ -50,6 +50,7 @@ mod music_downloads;
 mod network;
 mod notifications;
 mod novel;
+mod open_with;
 mod permissions;
 mod playback;
 mod podcast_feed;
@@ -568,6 +569,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::VideoPlayerEvent,
             events::CastStatusEvent,
             events::YouTubeVideoEvent,
+            events::OpenWithEvent,
             events::SpeechCommandEvent,
             events::ConnectEvent,
             events::ConnectRequestEvent
@@ -589,15 +591,17 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
     let specta = specta_builder();
     let builder = tauri::Builder::default();
     // One running copy on desktop (M46.11): opening Raygun again brings its window forward, since
-    // two copies would write to one database. The plugin must come first.
+    // two copies would write to one database. The plugin must come first. Files the second copy
+    // was started with ("Open with", a file dropped on Raygun.exe) play in this one.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
         }
+        open_with::from_args(app, &args, std::path::Path::new(&cwd));
     }));
     builder
         .plugin(tauri_plugin_raygun_audio::init())

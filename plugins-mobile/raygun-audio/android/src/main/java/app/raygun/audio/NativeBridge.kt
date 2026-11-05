@@ -48,6 +48,18 @@ object NativeBridge {
     @JvmStatic
     external fun onOpen(route: String)
 
+    /** What another app opened with Raygun or shared to it (see [OpenWith]). */
+    @JvmStatic
+    external fun onOpenWith(json: String)
+
+    fun openWith(json: String) {
+        try {
+            onOpenWith(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     fun notificationAction(json: String) {
         try {
             onNotificationAction(json)

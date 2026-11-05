@@ -96,6 +96,18 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onOpen(
     }
 }
 
+/// Called by `app.raygun.audio.NativeBridge.onOpenWith` on a thread of the plugin's own.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onOpenWith(
+    mut env: JNIEnv,
+    _class: JClass,
+    json: JString,
+) {
+    if let Ok(json) = env.get_string(&json) {
+        crate::deliver_open_with(json.into());
+    }
+}
+
 /// Called by `app.raygun.audio.NativeBridge.onEngineEvent` on the Android main thread.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_app_raygun_audio_NativeBridge_onEngineEvent(

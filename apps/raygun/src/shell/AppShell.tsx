@@ -54,6 +54,7 @@ import { QuickAccessDrawer } from './QuickAccessDrawer';
 import { useIsDesktop } from './useIsDesktop';
 import { useIsPhone } from './useIsPhone';
 import { useLiveInvalidation } from './useLiveInvalidation';
+import { useOpenWithProblems } from './useOpenWithProblems';
 import { useRailStamps } from './useRail';
 import { useScrollMemory } from './scrollMemory';
 import { movesFreely, useDeviceStateSync } from './deviceState';
@@ -157,6 +158,7 @@ export const AppShell: FC = () => {
   useVideoPlayerEvents();
   useYouTubeVideoEvents();
   useNotificationRoutes();
+  useOpenWithProblems();
 
   // Pages scroll inside <main>, not the window: a new page starts at the top, Back and Forward
   // return to where each page was. The readers take the whole screen and keep their own place.

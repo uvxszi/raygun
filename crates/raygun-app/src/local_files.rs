@@ -123,9 +123,22 @@ enum Opener {
 /// read by path: shared storage (`primary:Music/x` → `/storage/emulated/0/Music/x`, an SD card's
 /// volume, `home:` = Documents) and the Downloads provider's own folders.
 pub fn tree_path(location: &str) -> Option<String> {
-    const INTERNAL: &str = "/storage/emulated/0";
     let (provider, rest) = location.strip_prefix("content://")?.split_once("/tree/")?;
-    let document = percent_decode(rest.split('/').next()?);
+    id_path(provider, &percent_decode(rest.split('/').next()?))
+}
+
+/// The file path of a single document another app shared, by the same rules as [`tree_path`]
+/// (a playlist whose songs are named beside it).
+pub fn document_path(location: &str) -> Option<String> {
+    let (provider, rest) = location
+        .strip_prefix("content://")?
+        .split_once("/document/")?;
+    id_path(provider, &percent_decode(rest.split('/').next()?))
+}
+
+/// A document id's file path in shared storage.
+fn id_path(provider: &str, document: &str) -> Option<String> {
+    const INTERNAL: &str = "/storage/emulated/0";
     match provider {
         "com.android.externalstorage.documents" => {
             let (volume, inside) = document.split_once(':')?;
@@ -140,7 +153,7 @@ pub fn tree_path(location: &str) -> Option<String> {
                 format!("{base}/{}", inside.trim_end_matches('/'))
             })
         }
-        "com.android.providers.downloads.documents" => match document.as_str() {
+        "com.android.providers.downloads.documents" => match document {
             "downloads" => Some(format!("{INTERNAL}/Download")),
             raw => raw
                 .strip_prefix("raw:")
@@ -151,7 +164,7 @@ pub fn tree_path(location: &str) -> Option<String> {
     }
 }
 
-fn percent_decode(text: &str) -> String {
+pub(crate) fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let hex = |byte: u8| (byte as char).to_digit(16);
     let mut out = Vec::with_capacity(bytes.len());

@@ -201,9 +201,7 @@ pub async fn prepare(
     resume: Option<String>,
     start_at: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    if !request.url.starts_with("https://") && !request.url.starts_with("http://") {
-        return Err("Only web addresses can be played".into());
-    }
+    let address = playable_address(app, &request.url)?;
     let db = app.state::<AppDb>().0.clone();
     let prefs = player_prefs(&db).await;
     let saved = store::progress(&db, &request.key)
@@ -249,7 +247,7 @@ pub async fn prepare(
                 offline.subtitles,
             ),
             None => (
-                request.url.clone(),
+                address,
                 request.headers.clone(),
                 request.format.clone(),
                 proxied_subtitles(app, &request.subtitles),
@@ -303,6 +301,29 @@ pub async fn prepare(
             .map(|poster| app.state::<raygun_net::ImageLinks>().original(poster)),
     });
     Ok(with_shared_fields(payload, &prefs))
+}
+
+/// The address the player opens for a request's `url`: a web address as it is; a file on this
+/// device (`file://`, one another app opened with Raygun) through the stream proxy, so it stays
+/// the request's address for resuming while the webview's player gets a web address; and on
+/// Android a document another app shared (`content://`), which the player reads itself.
+fn playable_address(app: &AppHandle, url: &str) -> Result<String, String> {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        return Ok(url.to_owned());
+    }
+    if url.starts_with("file:") {
+        let path = crate::open_with::file_path(url)
+            .ok_or_else(|| "This file's address can't be read".to_owned())?;
+        return Ok(app
+            .state::<crate::playback::PlaybackService>()
+            .register_source(&raygun_model::MediaSource::LocalFile {
+                path: path.to_string_lossy().into_owned(),
+            }));
+    }
+    if cfg!(target_os = "android") && url.starts_with("content://") {
+        return Ok(url.to_owned());
+    }
+    Err("Only web addresses can be played".into())
 }
 
 /// What opens the player for a session before any video is known (M44): it shows the title and
