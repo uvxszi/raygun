@@ -11,6 +11,7 @@ import { usePlayerUiStore } from '../player/playerUiStore';
 import { useBackLayer } from './backLayers';
 import { useQuickAccessShown, useQuickAccessStore } from './quickAccessStore';
 import { RailPins } from './RailPins';
+import { swipeScrollsRow } from './useDragScroll';
 import { useRail } from './useRail';
 
 /** How far in from the right edge a drag may start to pull the drawer out, in px. */
@@ -18,7 +19,10 @@ const EDGE_PX = 24;
 /** How far it must travel, mostly sideways, to open it. */
 const PULL_PX = 32;
 
-/** Opens the drawer when a finger drags in from the right edge. */
+/**
+ * Opens the drawer when a finger drags in from the right edge, unless it starts on a row with more
+ * to show that way: the swipe scrolls the row, and pulls the drawer once the row is at its end.
+ */
 const useEdgePull = (enabled: boolean, open: () => void) => {
   useEffect(() => {
     if (!enabled) return;
@@ -26,7 +30,10 @@ const useEdgePull = (enabled: boolean, open: () => void) => {
     const onStart = (event: TouchEvent) => {
       const touch = event.touches[0];
       start =
-        event.touches.length === 1 && touch && touch.clientX >= window.innerWidth - EDGE_PX
+        event.touches.length === 1 &&
+        touch &&
+        touch.clientX >= window.innerWidth - EDGE_PX &&
+        !swipeScrollsRow(event.target)
           ? { x: touch.clientX, y: touch.clientY }
           : null;
     };

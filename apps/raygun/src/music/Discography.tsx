@@ -10,6 +10,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { AlbumTile } from '../search/MusicFinds';
 import { useAlbumMenuItems } from './cardMenus';
 import { Sheet } from '../shell/Sheet';
+import { useDragScroll } from '../shell/useDragScroll';
 import { RELEASE_SORTS, readReleaseSorts, saveReleaseSorts, sortReleases } from './releaseSort';
 import type { ReleaseSort } from './releaseSort';
 import { releaseReveal, useRevealIndex } from './reveal';
@@ -62,6 +63,7 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
   const wanted = wantedAt >= 0 ? list[wantedAt] : undefined;
   // On a chip that doesn't hold it, back to All, which holds every release.
   if (wanted && shelf !== 'all' && shelfOf(wanted.kind) !== shelf) setShelf('all');
+  const chipRow = useDragScroll<HTMLDivElement>();
   const sort: ReleaseSort = sorts[shelf] ?? 'newest';
   const pickSort = (next: ReleaseSort) => {
     const saved = { ...sorts, [shelf]: next };
@@ -135,6 +137,7 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
       )}
       {chips.length > 2 && (
         <div
+          ref={chipRow}
           role="group"
           aria-label={t('artist.releaseKinds')}
           className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4"

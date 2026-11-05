@@ -51,6 +51,7 @@ import { failingLast, useSourceHealth } from '../search/sourceHealth';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { useIsDesktop } from '../shell/useIsDesktop';
+import { useDragScroll } from '../shell/useDragScroll';
 import { SourceMenu } from '../search/SourceMenu';
 import { buildMenu, copyText } from '../music/mediaMenu';
 import type { MenuItem } from '../shell/contextMenuStore';
@@ -269,6 +270,7 @@ const SourcesList: FC = () => {
   const layout = useLayout();
   const [kind, setKindState] = useState<SourceKind>(readKind);
   const [query, setQuery] = useState('');
+  const kindRow = useDragScroll<HTMLDivElement>();
   const setKind = (next: SourceKind) => {
     setKindState(next);
     try {
@@ -465,6 +467,7 @@ const SourcesList: FC = () => {
       )}
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <div
+          ref={kindRow}
           role="group"
           aria-label={t('browse.sourceKinds')}
           className="-mx-4 flex min-w-0 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
@@ -517,6 +520,7 @@ export const BrowsePage: FC = () => {
   const { t } = useTranslation();
   const current = useSearch({ from: '/browse' });
   const layout = useLayout();
+  const listRow = useDragScroll<HTMLElement>();
   // Without a tab in the address, Sources, or the first tab the user shows (M46.5).
   const shownTabs = layout.browseTabs
     .filter((item) => item.visible)
@@ -737,6 +741,7 @@ export const BrowsePage: FC = () => {
       {tab === 'extensions' && (
         <div className="flex flex-col gap-4">
           <nav
+            ref={listRow}
             aria-label={t('extensions.tabs')}
             className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
           >

@@ -9,6 +9,7 @@ import { useBookDirectory } from '../audiobooks/useAudiobooks';
 import type { BookList, useOpenAudiobook } from '../audiobooks/useAudiobooks';
 import { LoadMore } from '../shell/LoadMore';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useDragScroll } from '../shell/useDragScroll';
 import { useOpenBook } from './useOpenBook';
 
 /** What opening a book shows: a line while it opens, a calm note when it couldn't. */
@@ -93,6 +94,7 @@ export const AudiobookSearch: FC<{ query: string }> = ({ query }) => {
   const { openBook, open } = useOpenBook();
   const [genre, setGenre] = useState<string | null>(null);
   const picked = GENRES.find(([id]) => id === genre);
+  const genreRow = useDragScroll<HTMLDivElement>();
 
   return (
     <div data-testid="audiobook-search" className="flex flex-col gap-6">
@@ -102,6 +104,7 @@ export const AudiobookSearch: FC<{ query: string }> = ({ query }) => {
       ) : (
         <>
           <div
+            ref={genreRow}
             role="group"
             aria-label={t('audiobooks.genresLabel')}
             className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4"

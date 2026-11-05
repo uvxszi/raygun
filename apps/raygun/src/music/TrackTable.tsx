@@ -56,6 +56,7 @@ import { formatTime } from '../player/formatTime';
 import { Sheet } from '../shell/Sheet';
 import { TextField } from '../shell/TextField';
 import { useCoarsePointer, useWideScreen } from '../shell/useWideScreen';
+import { useDragScroll } from '../shell/useDragScroll';
 import { ArtistLinks } from './ArtistLinks';
 import {
   COLUMN_TRACKS,
@@ -340,6 +341,7 @@ export const TrackTable: FC<TrackTableProps> = ({
   // Songs no source had when imported (M46.31).
   const unavailable = useUnavailable(trackKeys);
   const [tag, setTag] = useState<string | null>(null);
+  const tagRow = useDragScroll<HTMLDivElement>();
   const tagChips = useMemo(() => {
     const counts = new Map<string, number>();
     for (const track of tracks) {
@@ -602,6 +604,7 @@ export const TrackTable: FC<TrackTableProps> = ({
     <div data-testid="track-table" data-kind={kind} className="flex flex-col gap-2">
       {tagChips.length > 0 && (
         <div
+          ref={tagRow}
           role="group"
           aria-label={t('discover.filterByTag')}
           className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"

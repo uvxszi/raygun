@@ -23,6 +23,7 @@ import { OtherSources } from '../manga/OtherSources';
 import { useKnownCard } from '../manga/knownCard';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { useDragScroll } from '../shell/useDragScroll';
 import { useWideScreen } from '../shell/useWideScreen';
 import { PinButton } from '../shell/PinButton';
 import { LibraryPill } from '../watch/LibraryPill';
@@ -86,6 +87,7 @@ const Episodes: FC<{
   const { t } = useTranslation();
   const setWatched = useSetEpisodeWatched();
   const selection = useEpisodeSelection();
+  const seasonRow = useDragScroll<HTMLDivElement>();
   const canDownload = view.sourceId !== LOCAL_VIDEO;
   const seasons = useMemo(
     () => [...new Set(view.episodes.map((episode) => episode.season))],
@@ -118,6 +120,7 @@ const Episodes: FC<{
       </div>
       {seasons.length > 1 && (
         <div
+          ref={seasonRow}
           role="tablist"
           aria-label={t('watch.seasons')}
           className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
