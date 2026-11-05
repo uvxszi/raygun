@@ -1173,6 +1173,73 @@ pub struct SpokenItem {
     pub author: Option<String>,
 }
 
+/// What a video's subtitles are translated from: the lines of a subtitle track as the player
+/// shows them, or the video's AI subtitles, followed while they're being made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SubtitleSource {
+    #[serde(rename_all = "camelCase")]
+    Cues {
+        /// The track's name and language, as the player lists it.
+        label: Option<String>,
+        language: Option<String>,
+        cues: Vec<Caption>,
+    },
+    Ai,
+}
+
+/// A request to translate a video's subtitles as it plays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleTranslateRequest {
+    /// The video's progress key.
+    pub key: String,
+    pub source: SubtitleSource,
+    /// The language to translate into, a BCP 47 tag.
+    pub language: String,
+    /// `device` (models from the AI catalogue) or `ai:<provider id>`.
+    pub translator: String,
+    /// Where the viewer is: translating starts there and keeps ahead of them.
+    pub from_ms: u32,
+    /// This device's models may be downloaded first (asked with `download_bytes` before).
+    pub download: bool,
+}
+
+/// A video's translated subtitles, and where translating them stands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleTranslation {
+    /// The video's progress key.
+    pub key: String,
+    /// The track's id: its source (`ai`, or a hash of the source's lines) and its language.
+    pub id: String,
+    pub language: String,
+    pub translator: String,
+    /// The AI provider's name; empty for this device.
+    pub by: String,
+    /// The translated track's name and language, when it had them.
+    pub source_label: Option<String>,
+    pub source_language: Option<String>,
+    /// The lines translated so far, timed as the source's.
+    pub cues: Vec<Caption>,
+    /// Lines with words translated, out of all of them.
+    pub done: u32,
+    pub total: u32,
+    /// How far past the viewer the lines are translated; `None` once they are to the end.
+    pub ahead_ms: Option<u32>,
+    /// Until when, from the viewer's place, the lines are translated (`ahead_ms` from where
+    /// the viewer was last reported), so a player can say it as the video moves on.
+    pub ready_until_ms: Option<u32>,
+    /// Every line is translated (AI subtitles: once they're complete too).
+    pub complete: bool,
+    pub running: bool,
+    /// Downloading this device's models first: how much is in, in percent.
+    pub downloading: Option<u32>,
+    pub error: Option<String>,
+    /// What this device would download first, in bytes, before `download` is set; else 0.
+    pub download_bytes: f64,
+}
+
 /// Interface sizes offered, in percent of the screen's (M46.9, M46.48).
 pub const ZOOM_LEVELS: std::ops::RangeInclusive<u32> = 50..=200;
 

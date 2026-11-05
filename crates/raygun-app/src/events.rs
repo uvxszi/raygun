@@ -114,6 +114,11 @@ pub struct LyricsTranscribedEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LyricsTranslationEvent(pub raygun_model::LyricsTranslationProgress);
 
+/// A video's translated subtitles changed: lines were translated, or translating started,
+/// stopped or failed; carries the video's progress key.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct VideoSubtitlesEvent(pub String);
+
 /// Followed artists or their release news changed (M46.42).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ArtistReleasesEvent;

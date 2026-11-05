@@ -83,6 +83,7 @@ mod video_library;
 mod video_quality;
 mod video_session;
 mod video_sources;
+mod video_subtitles;
 mod website_downloads;
 mod websites;
 mod ytdlp;
@@ -241,6 +242,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::captions_clear,
             commands::captions_video_transcribe,
             commands::captions_video_make,
+            commands::video_subtitles_translate,
+            commands::video_subtitles_translations,
+            commands::video_subtitles_stop,
+            commands::video_subtitles_translators,
             commands::spoken_item,
             commands::music_track_tags,
             commands::music_tags_for,
@@ -580,6 +585,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::CaptionsEvent,
             events::LyricsTranscribedEvent,
             events::LyricsTranslationEvent,
+            events::VideoSubtitlesEvent,
             events::ArtistReleasesEvent,
             events::SettingsChangedEvent,
             events::QuickAccessChangedEvent,

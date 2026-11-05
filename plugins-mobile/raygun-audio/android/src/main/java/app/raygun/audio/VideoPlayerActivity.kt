@@ -131,6 +131,8 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** Play on TV: the devices sheet and the TV's remote. */
     internal lateinit var cast: PlayerCast
     internal lateinit var second: SecondSubtitles
+    /** AI subtitles and translations made as the video plays. */
+    internal lateinit var liveTracks: LiveSubtitles
     /** Subtitles over the part of the picture on screen (crop makes the picture larger). */
     internal lateinit var subtitleView: SubtitleView
     private lateinit var secondView: SubtitleView
@@ -369,6 +371,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         }
         loading = PlayerLoading(this)
         sheets = PlayerSheets(this)
+        liveTracks = LiveSubtitles(this)
         tools = PlayerTools(this)
         problem = PlayerProblem(this)
         controls = PlayerControls(this)
@@ -579,7 +582,8 @@ class VideoPlayerActivity : AppCompatActivity() {
         }
 
         override fun onCues(cueGroup: CueGroup) {
-            subtitleView.setCues(cueGroup.cues)
+            // A live track shows instead while it's the main one.
+            if (liveTracks.primary == null) subtitleView.setCues(cueGroup.cues)
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -664,6 +668,7 @@ class VideoPlayerActivity : AppCompatActivity() {
                 }
             }
             "castDevices", "cast", "castError" -> cast.onUpdate(update)
+            "subtitleTools", "subtitleTrack", "subtitleAsk", "subtitleNotice" -> liveTracks.onUpdate(update)
             "chapters" -> if (update.optString("id") == videoId) {
                 // AniSkip's, beside any the source gave.
                 val found = Chapter.list(update.optJSONArray("items")).filter { new ->
@@ -683,6 +688,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         }
         current = request
         videoId = request.optString("id")
+        liveTracks.onLoad(videoId)
         readSettings(request)
         spokenLanguage = request.text("spokenLanguage")
         languages = LanguagePrefs.from(prefs, appLanguage, subtitleLanguage, subtitleMode, spokenLanguage)

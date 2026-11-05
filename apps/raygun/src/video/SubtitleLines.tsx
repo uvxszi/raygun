@@ -30,10 +30,12 @@ type Props = {
   style: Required<SubtitleStyle>;
   /** Moved up while the controls show, so they don't cover the text. */
   lifted: boolean;
+  /** The second subtitles show at the top of the picture. */
+  at?: 'bottom' | 'top';
 };
 
 /** The subtitles over the picture, as Settings → Player → Subtitles styles them. */
-export const SubtitleLines: FC<Props> = ({ lines, style, lifted }) => {
+export const SubtitleLines: FC<Props> = ({ lines, style, lifted, at = 'bottom' }) => {
   if (lines.length === 0) return null;
   const textStyle: CSSProperties = {
     fontFamily: FONTS[style.font],
@@ -47,10 +49,14 @@ export const SubtitleLines: FC<Props> = ({ lines, style, lifted }) => {
   };
   return (
     <div
-      data-testid="subtitle-lines"
+      data-testid={at === 'top' ? 'second-subtitle-lines' : 'subtitle-lines'}
       aria-live="off"
       className="pointer-events-none absolute inset-x-0 flex flex-col items-center gap-1 px-[8%] text-center leading-snug transition-[bottom] duration-200"
-      style={{ bottom: lifted ? `max(${style.position}%, 110px)` : `${style.position}%` }}
+      style={
+        at === 'top'
+          ? { top: '6%' }
+          : { bottom: lifted ? `max(${style.position}%, 110px)` : `${style.position}%` }
+      }
     >
       {lines.map((line, index) => (
         <span

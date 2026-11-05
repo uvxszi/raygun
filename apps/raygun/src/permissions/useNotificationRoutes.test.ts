@@ -8,6 +8,12 @@ describe('notification routes', () => {
     });
     expect(splitRoute('/podcast?id=abc')).toEqual({ to: '/podcast', search: { id: 'abc' } });
     expect(splitRoute('/downloads')).toEqual({ to: '/downloads', search: {} });
+    // The video player's link to a settings section.
+    expect(splitRoute('/settings/ai#transcription')).toEqual({
+      to: '/settings/ai',
+      search: {},
+      hash: 'transcription',
+    });
   });
 
   it('open screens one over another, each with the row to show there', () => {

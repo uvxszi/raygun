@@ -97,6 +97,7 @@ type EventPayloads = {
   artistReleasesEvent: null;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
+  videoSubtitlesEvent: string;
   castStatusEvent: CastStatus | null;
   youTubeVideoEvent: YouTubeVideo;
   openWithEvent: OpenWithProblem;
@@ -319,6 +320,10 @@ export const bindingsMock = {
     captions: vi.fn(),
     captionsVideoTranscribe: vi.fn(),
     captionsVideoMake: vi.fn(),
+    videoSubtitlesTranslate: vi.fn(),
+    videoSubtitlesTranslations: vi.fn(),
+    videoSubtitlesStop: vi.fn(),
+    videoSubtitlesTranslators: vi.fn(),
     videoExternalPlayers: vi.fn(),
     videoFindSubtitles: vi.fn(),
     captionsTranscribe: vi.fn(),
@@ -766,6 +771,7 @@ export const bindingsMock = {
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
+    videoSubtitlesEvent: makeEvent('videoSubtitlesEvent'),
     castStatusEvent: makeEvent('castStatusEvent'),
     youTubeVideoEvent: makeEvent('youTubeVideoEvent'),
     openWithEvent: makeEvent('openWithEvent'),
@@ -1043,6 +1049,30 @@ export const seedBindings = () => {
   );
   commands.captionsVideoTranscribe.mockResolvedValue(ok(null));
   commands.captionsVideoMake.mockResolvedValue(ok(null));
+  commands.videoSubtitlesTranslations.mockResolvedValue(ok([]));
+  commands.videoSubtitlesTranslators.mockResolvedValue(ok([]));
+  commands.videoSubtitlesStop.mockResolvedValue(undefined);
+  commands.videoSubtitlesTranslate.mockImplementation(async (request: { key: string }) =>
+    ok({
+      key: request.key,
+      id: 'ai.en',
+      language: 'en',
+      translator: 'device',
+      by: '',
+      sourceLabel: null,
+      sourceLanguage: null,
+      cues: [],
+      done: 0,
+      total: 0,
+      aheadMs: 0,
+      readyUntilMs: 0,
+      complete: false,
+      running: true,
+      downloading: null,
+      error: null,
+      downloadBytes: 0,
+    }),
+  );
   commands.videoExternalPlayers.mockResolvedValue([]);
   commands.videoFindSubtitles.mockResolvedValue(ok({ tracks: [], suggestion: null, note: null }));
   commands.detailEditSet.mockImplementation(async (_target: unknown, edit: unknown) => ok(edit));

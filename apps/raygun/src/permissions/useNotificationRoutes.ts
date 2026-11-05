@@ -12,14 +12,26 @@ import { usePlayerUiStore } from '../player/playerUiStore';
  */
 const NOTICE_REVEAL_WAIT_MS = 30_000;
 
-/** `/downloads?tab=music` as a path and its search. */
-export const splitRoute = (route: string): { to: string; search: Record<string, string> } => {
-  const [to, query = ''] = route.split('?', 2);
-  return { to: to || '/', search: Object.fromEntries(new URLSearchParams(query)) };
+/** `/downloads?tab=music` (or `/settings/ai#transcription`) as a path, its search and its hash. */
+export const splitRoute = (
+  route: string,
+): { to: string; search: Record<string, string>; hash?: string } => {
+  const [address = '', hash] = route.split('#', 2);
+  const [to, query = ''] = address.split('?', 2);
+  return {
+    to: to || '/',
+    search: Object.fromEntries(new URLSearchParams(query)),
+    ...(hash ? { hash } : {}),
+  };
 };
 
 /** One screen a notification opens, and the row to show there (`music/reveal.ts`), if any. */
-export type RouteStep = { to: string; search: Record<string, string>; reveal: string | null };
+export type RouteStep = {
+  to: string;
+  search: Record<string, string>;
+  hash?: string;
+  reveal: string | null;
+};
 
 /**
  * A notification's route as the screens it opens: routes on separate lines open one over another
@@ -32,9 +44,9 @@ export const routeSteps = (route: string): RouteStep[] =>
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const { to, search } = splitRoute(line);
+      const { to, search, hash } = splitRoute(line);
       const { reveal = null, ...rest } = search;
-      return { to, search: rest, reveal: reveal || null };
+      return { to, search: rest, ...(hash ? { hash } : {}), reveal: reveal || null };
     });
 
 /**
@@ -52,7 +64,7 @@ export const useNotificationRoutes = () => {
         usePlayerUiStore.getState().openSheet();
         return;
       }
-      for (const { to, search, reveal } of routeSteps(route)) {
+      for (const { to, search, hash, reveal } of routeSteps(route)) {
         if (to === 'import') {
           useCollectionSheets.getState().openImportLink(search.link ?? '');
           return;
@@ -62,7 +74,7 @@ export const useNotificationRoutes = () => {
             .getState()
             .request({ keys: [reveal], to, search, waitMs: NOTICE_REVEAL_WAIT_MS });
         }
-        await navigate({ to, search });
+        await navigate({ to, search, hash });
       }
     };
     let alive = true;
