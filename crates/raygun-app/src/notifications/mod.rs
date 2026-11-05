@@ -958,7 +958,7 @@ mod platform {
     use tauri::{AppHandle, Manager};
 
     use super::DownloadNotices;
-    use super::model::{Finished, Plan};
+    use super::model::{Finished, Kind, Plan, key};
 
     /// The plugin's buttons and taps come back here.
     pub fn install(app: &AppHandle) {
@@ -992,6 +992,14 @@ mod platform {
     }
 
     pub async fn show(app: &AppHandle, plan: &Plan, finished: Option<&Finished>) {
+        let finished = finished.map(|notice| {
+            let file = opens(app, notice);
+            let mut value = serde_json::to_value(notice).unwrap_or_default();
+            if let (serde_json::Value::Object(fields), Some(file)) = (&mut value, file) {
+                fields.insert("open".into(), file);
+            }
+            value
+        });
         let value = serde_json::json!({ "plan": plan, "finished": finished });
         let app = app.clone();
         let shown = tauri::async_runtime::spawn_blocking(move || {
@@ -1002,6 +1010,18 @@ mod platform {
         if let Ok(Err(error)) = shown {
             tracing::warn!(%error, "download notifications didn't show");
         }
+    }
+
+    /// The file a lone finished download from a website saved (`{uri, mime}`), for its notice's
+    /// Open button, which opens it straight from the notification.
+    fn opens(app: &AppHandle, finished: &Finished) -> Option<serde_json::Value> {
+        let id = finished
+            .lone
+            .as_deref()?
+            .strip_prefix(&key(Kind::Files, ""))?;
+        let service = app.try_state::<Arc<crate::website_downloads::WebsiteDownloadService>>()?;
+        let (uri, mime) = service.saved_file(id)?;
+        Some(serde_json::json!({ "uri": uri, "mime": mime.unwrap_or_default() }))
     }
 }
 

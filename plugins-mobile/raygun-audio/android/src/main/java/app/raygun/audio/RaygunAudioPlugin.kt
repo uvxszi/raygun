@@ -846,6 +846,18 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /** How the downloads the browser started stand, to its process (data only, no pages). */
+    @Command
+    fun websiteDownloads(invoke: Invoke) {
+        val context = activity.applicationContext
+        context.sendBroadcast(
+            Intent(WebsiteActivity.ACTION_DOWNLOADS)
+                .setPackage(context.packageName)
+                .putExtra(WebsiteActivity.EXTRA_REPORT, invoke.getArgs().toString()),
+        )
+        invoke.resolve()
+    }
+
     // ---- Browser checks passed by hand (experimental): see BrowserCheckActivity ----
 
     /** Opens `{url, userAgent}` for the person to pass its check; answers `{cookies}` on close. */
