@@ -724,6 +724,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn text_sizes_and_fonts_keep_to_what_css_can_take() {
+        use raygun_model::FontPrefs;
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        let saved = load(&db).await.unwrap();
+        assert_eq!((saved.text_size, &saved.fonts), (0, &FontPrefs::default()));
+
+        // Text size: percent more or less than the screen's own, over the interface size.
+        let saved = update(&db, SettingChange::TextSize(-30)).await.unwrap();
+        assert_eq!(saved.text_size, -30);
+        let saved = update(&db, SettingChange::TextSize(100)).await.unwrap();
+        assert_eq!(saved.text_size, 100);
+        for bad in [-35, 105, 400] {
+            assert!(
+                update(&db, SettingChange::TextSize(bad)).await.is_err(),
+                "{bad}"
+            );
+        }
+
+        // Fonts: family names, kept as named, without the spaces around them.
+        let fonts = |interface: &str, reading: &str| {
+            SettingChange::Fonts(FontPrefs {
+                interface: interface.into(),
+                reading: reading.into(),
+            })
+        };
+        let saved = update(&db, fonts(" Segoe UI Variable ", "Noto Serif"))
+            .await
+            .unwrap();
+        assert_eq!(saved.fonts.interface, "Segoe UI Variable");
+        assert_eq!(saved.fonts.reading, "Noto Serif");
+        assert_eq!(load(&db).await.unwrap().fonts, saved.fonts);
+        for bad in [
+            "Arial\"; color: red",
+            "Arial}",
+            "Back\\slash",
+            "Line\nbreak",
+            &"x".repeat(201),
+        ] {
+            assert!(update(&db, fonts(bad, "")).await.is_err(), "{bad}");
+            assert!(update(&db, fonts("", bad)).await.is_err(), "{bad}");
+        }
+        let saved = update(&db, fonts("", "")).await.unwrap();
+        assert_eq!(saved.fonts, FontPrefs::default(), "back to the defaults");
+    }
+
+    #[tokio::test]
     async fn custom_accents_cover_sizes_and_reader_zoom_keep_to_what_is_offered() {
         use raygun_model::{
             Accent, CustomColors, MangaReaderPrefs, PagedScale, PanelPrefs, PlayerLayout,

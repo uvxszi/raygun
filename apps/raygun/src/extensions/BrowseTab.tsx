@@ -325,7 +325,7 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
                       <span className="font-medium">{entry.name}</span>
                       {entry.adult && <AdultMark />}
                       {entry.nuclear && (
-                        <span className="bg-background text-muted rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
+                        <span className="bg-background text-muted rounded px-1.5 py-0.5 text-3xs font-semibold tracking-wide uppercase">
                           {t('extensions.nuclearBadge')}
                         </span>
                       )}

@@ -28,6 +28,8 @@ import {
 import type { FC, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ReadingFontChoices } from '../fonts/ReadingFont';
+import { READER_STACKS, quoteFamily, useInstalledFamily } from '../fonts/systemFonts';
 import { unwrapResult } from '../lib/commandResult';
 import { useSystemBars } from '../manga/reader/useSystemBars';
 import { useWakeLock } from '../manga/reader/useWakeLock';
@@ -64,11 +66,6 @@ const SPEEDS = [8, 10, 12, 15, 20] as const;
 const PAGE_PADDING = 20;
 /** A page's widest, by the Width setting (M46.38): the scrolled column's width and a little more. */
 const PAGE_WIDTH = { narrow: '46rem', wide: '64rem' } as const;
-
-const FONTS: Record<NovelReaderPrefs['font'], string> = {
-  serif: 'Georgia, "Noto Serif", "Times New Roman", serif',
-  sans: 'system-ui, "Noto Sans", sans-serif',
-};
 
 /** The page colours of each theme; the app's own follows the app's theme. */
 const THEMES: Record<NovelTheme, { background: string; text: string } | null> = {
@@ -185,17 +182,15 @@ const Stepper: FC<{
   );
 };
 
+const choiceClass = (pressed: boolean) =>
+  `flex-1 rounded-lg px-3 py-2 text-sm ${pressed ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`;
+
 const Choice: FC<{ pressed: boolean; onClick: () => void; children: ReactNode }> = ({
   pressed,
   onClick,
   children,
 }) => (
-  <button
-    type="button"
-    aria-pressed={pressed}
-    onClick={onClick}
-    className={`flex-1 rounded-lg px-3 py-2 text-sm ${pressed ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`}
-  >
+  <button type="button" aria-pressed={pressed} onClick={onClick} className={choiceClass(pressed)}>
     {children}
   </button>
 );
@@ -228,14 +223,7 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
         value={prefs.lineSpacing}
         onChange={(lineSpacing) => set({ lineSpacing })}
       />
-      <div className="flex gap-2">
-        <Choice pressed={prefs.font === 'serif'} onClick={() => set({ font: 'serif' })}>
-          {t('novel.serif')}
-        </Choice>
-        <Choice pressed={prefs.font === 'sans'} onClick={() => set({ font: 'sans' })}>
-          {t('novel.sans')}
-        </Choice>
-      </div>
+      <ReadingFontChoices buttonClass={choiceClass} />
       <div className="flex gap-2">
         <Choice pressed={prefs.width === 'narrow'} onClick={() => set({ width: 'narrow' })}>
           {t('novel.narrow')}
@@ -343,6 +331,8 @@ const ChapterView: FC<{
   const [pageCount, setPageCount] = useState(1);
   const swipeStart = useRef<number | null>(null);
   const chapterId = data.chapter.id;
+  // A font of the device's in front of the reader's own (Settings → Reader → Typeface).
+  const deviceFont = useInstalledFamily(useSettings().data?.fonts?.reading);
   const register = useCallback((index: number, element: HTMLElement | null) => {
     refs.current[index] = element;
   }, []);
@@ -466,6 +456,7 @@ const ChapterView: FC<{
     prefs.textSize,
     prefs.lineSpacing,
     prefs.font,
+    deviceFont,
     prefs.width,
     prefs.indent,
     prefs.justify,
@@ -529,10 +520,15 @@ const ChapterView: FC<{
       start / Math.max(count - 1, 1),
       t('novel.pageOf', { page: start + 1, total: count }),
     );
-    // A turned phone or a resized window lays the pages out again around the same paragraph.
+    // A turned phone or a resized window lays the pages out again around the same paragraph, and
+    // so does a device font arriving after the text was laid out in its fallback.
     const onResize = () => place(currentBlock.current);
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    document.fonts?.addEventListener?.('loadingdone', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      document.fonts?.removeEventListener?.('loadingdone', onResize);
+    };
     // Re-measure when the layout changes, not on every page turn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -540,6 +536,7 @@ const ChapterView: FC<{
     prefs.textSize,
     prefs.lineSpacing,
     prefs.font,
+    deviceFont,
     prefs.width,
     prefs.indent,
     prefs.justify,
@@ -691,10 +688,13 @@ const ChapterView: FC<{
 
   const textStyle = {
     // The screen's own size (rem follows the screen, M46.48) and the reader's text size on it;
-    // wide windows sit further away than a phone, so text is a fifth larger there (M46.6).
-    fontSize: `calc((1.125rem + ${prefs.textSize ?? 0}px) * var(--reader-scale, 1))`,
+    // wide windows sit further away than a phone, so text is a fifth larger there (M46.6). The
+    // app's text size (`--text-scale`) comes on top.
+    fontSize: `calc((1.125rem + ${prefs.textSize ?? 0}px) * var(--reader-scale, 1) * var(--text-scale, 1))`,
     lineHeight: prefs.lineSpacing / 10,
-    fontFamily: FONTS[prefs.font],
+    fontFamily: deviceFont
+      ? `${quoteFamily(deviceFont)}, ${READER_STACKS[prefs.font]}`
+      : READER_STACKS[prefs.font],
   };
   const endCard = (
     <div

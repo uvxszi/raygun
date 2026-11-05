@@ -22,6 +22,11 @@ export const commands = {
 	/**  Every setting as a fresh install has it, for resetting a settings screen. */
 	settingsDefaults: () => __TAURI_INVOKE<Settings>("settings_defaults"),
 	/**
+	 *  The font families installed on this device, for the font pickers: read once and kept, again
+	 *  with `refresh`.
+	 */
+	fontsList: (refresh: boolean) => typedError<SystemFont[], string>(__TAURI_INVOKE("fonts_list", { refresh })),
+	/**
 	 *  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
 	 *  Hidden artists' pages and tiles marked Not interested are left out.
 	 */
@@ -1113,9 +1118,16 @@ export const commands = {
 	windowFrame: WindowFrame,
 	/**
 	 *  Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
-	 *  app zooms its window; phones scale their text and spacing.
+	 *  app zooms its window; phones scale their text, spacing and icons.
 	 */
 	zoom: number,
+	/**
+	 *  Text size in percent more or less than the screen's own ([`TEXT_SIZES`]), over the
+	 *  interface size: text alone grows or shrinks, boxes and icons stay.
+	 */
+	textSize?: number,
+	/**  The device's own fonts for the interface and the book reader (device-only). */
+	fonts?: FontPrefs,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
 	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
@@ -2667,6 +2679,18 @@ export type FollowedArtist = {
 	/**  Unix ms. */
 	followedAt: number | null,
 	alerts: boolean,
+};
+
+/**
+ *  Fonts installed on the device instead of Raygun's own: each a family name, or empty for the
+ *  default. Kept to the device it was picked on, since what's installed differs between devices;
+ *  a family that isn't there falls back to the default.
+ */
+export type FontPrefs = {
+	/**  The whole interface's text. */
+	interface?: string,
+	/**  The book reader's text, over its Serif or Sans. */
+	reading?: string,
 };
 
 /**  Subtitles found for a video in the player (M46.33). */
@@ -4445,7 +4469,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -4543,9 +4567,16 @@ export type Settings = {
 	windowFrame: WindowFrame,
 	/**
 	 *  Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
-	 *  app zooms its window; phones scale their text and spacing.
+	 *  app zooms its window; phones scale their text, spacing and icons.
 	 */
 	zoom: number,
+	/**
+	 *  Text size in percent more or less than the screen's own ([`TEXT_SIZES`]), over the
+	 *  interface size: text alone grows or shrinks, boxes and icons stay.
+	 */
+	textSize?: number,
+	/**  The device's own fonts for the interface and the book reader (device-only). */
+	fonts?: FontPrefs,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
 	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
@@ -5285,6 +5316,27 @@ export type SyncStatus = {
 	peers: SyncPeerInfo[],
 	log: SyncSessionInfo[],
 	error: string | null,
+};
+
+/**  A font family installed on the device, for the font pickers. */
+export type SystemFont = {
+	/**  The family's name, as `font-family` names it. */
+	family: string,
+	/**
+	 *  The files the webview loads with `@font-face`, where it can't find installed families by
+	 *  name (Android); empty where it can (desktop).
+	 */
+	faces: SystemFontFace[],
+};
+
+/**  One file of a [`SystemFont`]. */
+export type SystemFontFace = {
+	/**  The file through the stream proxy's `/font/` route. */
+	url: string,
+	/**  The weights it draws: one for a fixed face, a range for a variable one. */
+	weightMin: number,
+	weightMax: number,
+	italic: boolean,
 };
 
 /**  How much the system lets things move. */

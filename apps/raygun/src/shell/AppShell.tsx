@@ -18,6 +18,7 @@ import { useSpeechHost } from '../engine/useSpeechHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
 import { useLibraryScanSync } from '../library/useLibrary';
 import { useExtensionsSync } from '../extensions/useExtensions';
+import { useApplyFonts } from '../fonts/systemFonts';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
 import { usePlayerUiStore } from '../player/playerUiStore';
@@ -127,8 +128,9 @@ export const AppShell: FC = () => {
   const desktop = useIsDesktop();
   const { fullscreen } = useWindowState();
   useApplyWindow(desktop, settings.data?.windowFrame);
-  // Sizes from the screen, then Interface size (M46.48).
-  useApplySize(desktop, settings.data?.zoom);
+  // Sizes from the screen, then Interface size and Text size (M46.48); the device's own font.
+  useApplySize(desktop, settings.data?.zoom, settings.data?.textSize);
+  useApplyFonts(settings.data?.fonts);
   useEngineHost();
   // The sidebar's pins (M46.29), also the phone's quick access; incognito (M47) leaves their
   // stamps alone.

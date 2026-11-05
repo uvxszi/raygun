@@ -89,7 +89,7 @@ export const TapGridEditor: FC = () => {
               action: actionLabel(cell),
             })}
             onClick={() => setSelected(index)}
-            className={`grid place-items-center rounded-md p-0.5 text-center text-[0.65rem] leading-tight ${CELL_COLORS[cell]} ${selected === index ? 'ring-primary ring-2' : ''}`}
+            className={`grid place-items-center rounded-md p-0.5 text-center text-[calc(0.65rem*var(--text-scale,1))] leading-tight ${CELL_COLORS[cell]} ${selected === index ? 'ring-primary ring-2' : ''}`}
           >
             {actionLabel(cell)}
           </button>

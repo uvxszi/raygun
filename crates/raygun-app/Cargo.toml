@@ -69,8 +69,11 @@ flacenc = "0.5"
 lofty = "0.25"
 mp3lame-encoder = "0.2.5"
 
+# The device's own fonts for the font pickers: their names, letters and weights.
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "variable-fonts"] }
+
 # Copying pages on desktop (M46.6) and reading screenshots with ocrs (M46.21).
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+image ={ version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
 # Reading screenshots where Windows' own OCR isn't there (M46.21): ocrs over rten.
 [target.'cfg(not(windows))'.dependencies]
@@ -84,6 +87,8 @@ rfd.workspace = true
 tauri-plugin-single-instance = "2.5"
 # Copying a page to the clipboard on desktop (M46.6).
 arboard = { version = "3", default-features = false, features = ["image-data"] }
+# Installed font families for the font pickers (the system's font folders, fontconfig's on Linux).
+fontdb = { version = "0.24", default-features = false, features = ["std", "fs", "memmap", "fontconfig"] }
 
 # The desktop browser's blocker (M46.6): WebView2's request filter, at Tauri's own versions.
 [target.'cfg(windows)'.dependencies]

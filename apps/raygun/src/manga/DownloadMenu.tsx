@@ -52,7 +52,7 @@ export const DownloadMenu: FC<{
           {unread.length > 0 && (
             <span
               aria-hidden
-              className="bg-primary text-background absolute -top-2 -right-3 min-w-5 rounded-full px-1 text-center text-[10px] leading-4 font-bold"
+              className="bg-primary text-background absolute -top-2 -right-3 min-w-5 rounded-full px-1 text-center text-3xs leading-4 font-bold"
             >
               {unread.length}
             </span>

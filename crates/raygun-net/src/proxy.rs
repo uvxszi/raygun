@@ -13,6 +13,7 @@
 //! (M46.2) at `/cover/<token>`, subtitle files for the video player (M41) at
 //! `/subtitle/<token>`, and streams for the desktop video player (M46.4) at
 //! `/media/<token>/<scheme>/<host>/<path>`, with their playlists rewritten to lead back to it.
+//! Font files the app links (the device's own fonts on Android) are served at `/font/<token>`.
 //! While a video plays on a TV, a second listener serves it on the local network ([`lan`]).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -96,6 +97,7 @@ struct ProxyState {
     registry: Arc<Mutex<Registry>>,
     media: Arc<Mutex<MediaRegistry>>,
     images: Arc<Mutex<ImageRegistry>>,
+    fonts: Arc<Mutex<HashMap<String, PathBuf>>>,
     client: reqwest::Client,
     artwork: Option<StaticFiles>,
     pages: Option<PageCache>,
@@ -155,6 +157,7 @@ pub struct StreamProxy {
     registry: Arc<Mutex<Registry>>,
     images: ImageLinks,
     media: MediaLinks,
+    fonts: FontLinks,
     /// What the routes share, for the local network's listener (Play on TV).
     state: ProxyState,
 }
@@ -202,6 +205,32 @@ impl MediaLinks {
             "http://localhost:{}/embed/youtube?controls=1",
             self.address.port()
         )
+    }
+}
+
+/// Hands out `/font/` addresses for font files on disk, which the webview loads with
+/// `@font-face` where it can't use installed families by name (Android). Only linked files are
+/// served, and one file always has one address.
+#[derive(Clone)]
+pub struct FontLinks {
+    address: SocketAddr,
+    files: Arc<Mutex<HashMap<String, PathBuf>>>,
+}
+
+impl FontLinks {
+    pub fn link(&self, path: &std::path::Path) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(path.to_string_lossy().as_bytes());
+        let token: String = digest
+            .iter()
+            .take(16)
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        self.files
+            .lock()
+            .expect("font registry poisoned")
+            .insert(token.clone(), path.to_path_buf());
+        format!("http://{}/font/{token}", self.address)
     }
 }
 
@@ -379,11 +408,13 @@ impl StreamProxy {
         let registry = Arc::new(Mutex::new(Registry::default()));
         let images = Arc::new(Mutex::new(ImageRegistry::default()));
         let media = Arc::new(Mutex::new(MediaRegistry::default()));
+        let fonts = Arc::new(Mutex::new(HashMap::new()));
         let state = ProxyState {
             address,
             registry: registry.clone(),
             media: media.clone(),
             images: images.clone(),
+            fonts: fonts.clone(),
             client,
             artwork,
             pages,
@@ -398,6 +429,7 @@ impl StreamProxy {
             .route("/subtitle/{token}", get(serve_subtitle))
             .route("/art/{name}", get(serve_artwork))
             .route("/local/{*path}", get(serve_local))
+            .route("/font/{token}", get(serve_font))
             .route(
                 "/media/{token}/{*rest}",
                 get(serve_media).options(preflight),
@@ -422,6 +454,10 @@ impl StreamProxy {
                 address,
                 registry: media,
             },
+            fonts: FontLinks {
+                address,
+                files: fonts,
+            },
             state: shared,
         })
     }
@@ -441,6 +477,11 @@ impl StreamProxy {
     /// The handle other services use to link remote images through this proxy.
     pub fn images(&self) -> ImageLinks {
         self.images.clone()
+    }
+
+    /// The handle that links font files at `/font/`.
+    pub fn fonts(&self) -> FontLinks {
+        self.fonts.clone()
     }
 
     pub fn address(&self) -> SocketAddr {
@@ -555,6 +596,34 @@ async fn serve_local(
         .and_then(|root| local_path(root, &relative));
     let response = match path {
         Some(path) => serve_file(&path.to_string_lossy(), request).await,
+        None => StatusCode::NOT_FOUND.into_response(),
+    };
+    with_cors(response)
+}
+
+/// A font file linked with [`FontLinks::link`], by its token.
+async fn serve_font(
+    State(state): State<ProxyState>,
+    Path(token): Path<String>,
+    request: Request,
+) -> Response {
+    let path = state
+        .fonts
+        .lock()
+        .expect("font registry poisoned")
+        .get(&token)
+        .cloned();
+    let response = match path {
+        Some(path) => {
+            let mut response = serve_file(&path.to_string_lossy(), request).await;
+            if response.status().is_success() {
+                response.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("public, max-age=86400"),
+                );
+            }
+            response
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     };
     with_cors(response)

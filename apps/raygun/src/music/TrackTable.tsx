@@ -910,7 +910,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                                 if (!wide) onPlay(shown, index);
                                 else pick(event, index);
                               }}
-                              className={`flex min-w-0 items-center gap-1.5 truncate text-left font-medium ${wide ? 'text-sm' : 'text-[clamp(0.9375rem,4vw,1.0625rem)]'} ${playing ? 'text-primary' : ''}`}
+                              className={`flex min-w-0 items-center gap-1.5 truncate text-left font-medium ${wide ? 'text-sm' : 'text-[calc(clamp(0.9375rem,4vw,1.0625rem)*var(--text-scale,1))]'} ${playing ? 'text-primary' : ''}`}
                             >
                               {playing && !wide && (
                                 <NowPlayingBars playing={playing === 'playing'} />
@@ -940,7 +940,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                             <ArtistLinks
                               credit={track.artist}
                               row
-                              className={`text-muted block truncate ${wide ? 'text-xs' : 'text-[clamp(0.8125rem,3.4vw,0.9375rem)]'}`}
+                              className={`text-muted block truncate ${wide ? 'text-xs' : 'text-[calc(clamp(0.8125rem,3.4vw,0.9375rem)*var(--text-scale,1))]'}`}
                             />
                           </div>
                         </div>

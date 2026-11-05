@@ -240,6 +240,36 @@ async fn undo_restores_what_a_session_changed() {
 }
 
 #[tokio::test]
+async fn fonts_stay_on_the_device_that_has_them() {
+    let temp = TempDir::new().unwrap();
+    let (a, b) = (open(&temp, "a").await, open(&temp, "b").await);
+    crate::settings::put(&a, "fonts", r#"{"interface":"Inter","reading":""}"#)
+        .await
+        .unwrap();
+    crate::settings::put(&a, "textSize", "20").await.unwrap();
+    let (rows, _) = changes_since(&a, 0, &SyncKind::ALL, 10, None)
+        .await
+        .unwrap();
+    let keys: Vec<_> = rows.iter().map(|row| row.row["key"].clone()).collect();
+    assert_eq!(keys, ["textSize"], "the text size travels, the fonts don't");
+
+    // Nor are they taken from a device that sends them anyway.
+    let fonts = SyncRow {
+        table: "setting".into(),
+        row: serde_json::json!({
+            "key": "fonts", "value": r#"{"interface":"Inter","reading":""}"#,
+            "updated_at_hlc": 500, "origin_device": "aaaa", "deleted": 0,
+        }),
+    };
+    let session = start_session(&b, "a", "A", 0).await.unwrap();
+    let applied = apply(&b, session, &[fonts], &SyncKind::ALL, "peer")
+        .await
+        .unwrap();
+    assert_eq!(applied.received, 0);
+    assert!(crate::settings::load(&b).await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn disabled_kinds_are_neither_sent_nor_taken() {
     let temp = TempDir::new().unwrap();
     let (a, b) = (open(&temp, "a").await, open(&temp, "b").await);
