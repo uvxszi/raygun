@@ -45,6 +45,9 @@ describe('Allow running source code', () => {
 
   it('turns on only after its notes are read', async () => {
     const user = userEvent.setup();
+    commands.mihonRuntimeState.mockResolvedValue(
+      ok({ supported: false, ready: false, settingUp: false, note: '' }),
+    );
     await AppShellWrapper.mount('/settings/browse');
 
     const toggle = await screen.findByRole('switch', {
@@ -66,16 +69,18 @@ describe('Mihon APKs', () => {
     commands.extensionCatalog.mockResolvedValue(ok(catalog([MIHON])));
   });
 
+  const RUNTIME_OFF = { supported: false, ready: false, settingUp: false, note: 'Not supported' };
+  const RUNTIME_READY = { supported: true, ready: true, settingUp: false, note: '' };
+
   it('offers no APK while running source code is off', async () => {
+    commands.mihonRuntimeState.mockResolvedValue(ok(RUNTIME_OFF));
     await AppShellWrapper.mount('/extensions?tab=browse');
 
     expect(await screen.findByText(/its code uses extractNextJs/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Download APK' })).not.toBeInTheDocument();
   });
 
-  it('downloads and checks the APK, then says running it is not available yet', async () => {
-    const user = userEvent.setup();
-    commands.settingsGet.mockResolvedValue(ok({ ...DEFAULT_SETTINGS, runSourceCode: true }));
+  const savedApk = () =>
     commands.extensionMihonApk.mockResolvedValue(
       ok({
         package: 'eu.kanade.tachiyomi.extension.en.fixture',
@@ -86,13 +91,50 @@ describe('Mihon APKs', () => {
         note: 'Saved and checked.',
       }),
     );
+
+  it('downloads and checks the APK, then says running it is not available yet', async () => {
+    const user = userEvent.setup();
+    commands.settingsGet.mockResolvedValue(ok({ ...DEFAULT_SETTINGS, runSourceCode: true }));
+    commands.mihonRuntimeState.mockResolvedValue(ok(RUNTIME_OFF));
+    savedApk();
     await AppShellWrapper.mount('/extensions?tab=browse');
 
     await user.click(await screen.findByRole('button', { name: 'Download APK' }));
 
     expect(commands.extensionMihonApk).toHaveBeenCalledWith('repo-1', 'mihon.en.fixture');
-    expect(await screen.findByText(/Not available on this device yet/)).toHaveTextContent(
-      'APK saved and checked against its store (63 KB). Not available on this device yet.',
+    expect(await screen.findByText(/isn.t available on this device yet/)).toBeInTheDocument();
+  });
+
+  it('runs the extension’s own code when the runtime is ready', async () => {
+    const user = userEvent.setup();
+    commands.settingsGet.mockResolvedValue(ok({ ...DEFAULT_SETTINGS, runSourceCode: true }));
+    commands.mihonRuntimeState.mockResolvedValue(ok(RUNTIME_READY));
+    savedApk();
+    commands.mihonRun.mockImplementation((_pkg: string, method: string) =>
+      Promise.resolve(
+        ok(
+          method === 'sources'
+            ? JSON.stringify([{ id: '42', name: 'Fixture', lang: 'en', supportsLatest: true }])
+            : JSON.stringify({
+                items: [
+                  { url: '/a', title: 'One' },
+                  { url: '/b', title: 'Two' },
+                ],
+                hasNextPage: false,
+              }),
+        ),
+      ),
     );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    await user.click(await screen.findByRole('button', { name: 'Download APK' }));
+    await user.click(await screen.findByRole('button', { name: 'Browse with its own code' }));
+
+    expect(commands.mihonRun).toHaveBeenCalledWith(
+      'eu.kanade.tachiyomi.extension.en.fixture',
+      'sources',
+      '{}',
+    );
+    expect(await screen.findByText('Its own code answered with 2 titles.')).toBeInTheDocument();
   });
 });

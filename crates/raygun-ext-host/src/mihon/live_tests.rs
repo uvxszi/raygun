@@ -347,10 +347,31 @@ async fn mihon_apk_live() {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(3);
-    let step = (store.extensions.len() / count.max(1)).max(1);
-    for extension in store.extensions.iter().step_by(step).take(count) {
+    // `MIHON_APK_ONLY=<pkg>,…` picks them; `MIHON_APK_DIR=<dir>` keeps them.
+    let only: Vec<String> = std::env::var("MIHON_APK_ONLY")
+        .map(|list| list.split(',').map(str::to_owned).collect())
+        .unwrap_or_default();
+    let picked: Vec<&StoreExtension> = if only.is_empty() {
+        let step = (store.extensions.len() / count.max(1)).max(1);
+        store.extensions.iter().step_by(step).take(count).collect()
+    } else {
+        store
+            .extensions
+            .iter()
+            .filter(|extension| {
+                only.iter()
+                    .any(|name| extension.pkg.ends_with(name.as_str()))
+            })
+            .collect()
+    };
+    let keep = std::env::var_os("MIHON_APK_DIR").map(PathBuf::from);
+    for extension in picked {
         let url = from.join(&extension.apk).unwrap();
         let bytes = download(&client, url.clone()).await.unwrap();
+        if let Some(dir) = &keep {
+            let _ = std::fs::create_dir_all(dir);
+            let _ = std::fs::write(dir.join(format!("{}.apk", extension.pkg)), &bytes);
+        }
         let facts = super::apk::read(&bytes).unwrap();
         println!(
             "{}: {} bytes, version {}, class {:?}, signers {:?}",

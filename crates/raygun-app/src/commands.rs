@@ -432,6 +432,97 @@ pub async fn extension_mihon_apk(
     extensions.download_mihon_apk(&repo_id, &id).await
 }
 
+/// Whether this device can run a Mihon extension's own code, and whether its tools are in place
+/// (`MihonContainer`). Shown in a source's details and Settings.
+#[tauri::command]
+#[specta::specta]
+pub async fn mihon_runtime_state(
+    container: tauri::State<'_, std::sync::Arc<crate::mihon_container::MihonContainer>>,
+) -> Result<raygun_model::MihonRuntimeState, String> {
+    Ok(container.runtime_state())
+}
+
+/// Fetches the Mihon runtime's tools (desktop: a JRE and dex2jar) while
+/// `Settings::run_source_code` is on; progress comes as `MihonRuntimeEvent`.
+#[tauri::command]
+#[specta::specta]
+pub async fn mihon_runtime_setup(
+    db: tauri::State<'_, AppDb>,
+    container: tauri::State<'_, std::sync::Arc<crate::mihon_container::MihonContainer>>,
+) -> Result<raygun_model::MihonRuntimeState, String> {
+    let settings = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !settings.run_source_code {
+        return Err("Turn on Allow running source code first (Settings → Browse)".into());
+    }
+    #[cfg(not(target_os = "android"))]
+    container.setup().await?;
+    Ok(container.runtime_state())
+}
+
+/// Stops a Mihon runtime setup that's fetching tools.
+#[tauri::command]
+#[specta::specta]
+pub async fn mihon_runtime_cancel(
+    container: tauri::State<'_, std::sync::Arc<crate::mihon_container::MihonContainer>>,
+) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
+    container.cancel_setup();
+    let _ = container;
+    Ok(())
+}
+
+/// Runs one `manga.source` call (`sources`, `popular`, `latest`, `search`, `details`, `chapters`,
+/// `pages`) on an installed, checked Mihon APK through the container, while
+/// `Settings::run_source_code` is on. A source's details page drives this to browse it; the
+/// result is the host's JSON for that call.
+#[tauri::command]
+#[specta::specta]
+pub async fn mihon_run(
+    db: tauri::State<'_, AppDb>,
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    container: tauri::State<'_, std::sync::Arc<crate::mihon_container::MihonContainer>>,
+    pkg: String,
+    method: String,
+    params: String,
+) -> Result<String, String> {
+    let settings = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !settings.run_source_code {
+        return Err("Turn on Allow running source code first (Settings → Browse)".into());
+    }
+    let params: serde_json::Value = serde_json::from_str(&params)
+        .map_err(|error| format!("the call's params aren't JSON: {error}"))?;
+    let _ = &extensions;
+    #[cfg(not(target_os = "android"))]
+    {
+        let apk = extensions.mihon_apk_path(&pkg)?;
+        let facts = raygun_ext_host::mihon::apk::read(
+            &std::fs::read(&apk).map_err(|error| error.to_string())?,
+        )?;
+        let class = facts.source_class.ok_or("the APK names no source class")?;
+        let extension = crate::mihon_container::ApkExtension {
+            package: pkg.clone(),
+            apk,
+            class,
+            cookies: Vec::new(),
+        };
+        let result = if method == "sources" {
+            serde_json::Value::Array(container.sources(&extension).await?)
+        } else {
+            container.call(&extension, &method, params).await?
+        };
+        Ok(result.to_string())
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = (pkg, method, params, container);
+        Err("Running a source's own code on Android isn't available in this build yet".into())
+    }
+}
+
 /// The source behind a failure's text whose browser check can be passed by hand, while
 /// `Settings::manual_browser_checks` is on (`browser_check.rs`).
 #[tauri::command]

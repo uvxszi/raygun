@@ -3567,6 +3567,21 @@ pub struct MihonApk {
     pub note: String,
 }
 
+/// Whether this device can run a Mihon extension's own code (tier 2), for a source's details and
+/// Settings (`Settings::run_source_code`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MihonRuntimeState {
+    /// The platform and build can run it at all (desktop with a JRE, or Android).
+    pub supported: bool,
+    /// Everything it needs is in place (desktop: the tools are fetched).
+    pub ready: bool,
+    /// Whether the tools are being fetched right now.
+    pub setting_up: bool,
+    /// A one-line reason it isn't ready, for the UI.
+    pub note: String,
+}
+
 /// An extension a repository offers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

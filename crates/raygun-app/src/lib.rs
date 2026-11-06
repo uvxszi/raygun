@@ -46,6 +46,7 @@ mod manga;
 mod manga_downloads;
 mod mcp;
 mod mihon;
+mod mihon_container;
 mod miniplayer;
 mod music_downloads;
 mod network;
@@ -130,6 +131,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extensions_reload,
             commands::extension_clear_data,
             commands::extension_mihon_apk,
+            commands::mihon_runtime_state,
+            commands::mihon_runtime_setup,
+            commands::mihon_runtime_cancel,
+            commands::mihon_run,
             commands::miniplayer_open,
             commands::music_artist_info,
             commands::music_song_credits,
@@ -579,6 +584,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::SongRecordingEvent,
             events::RecordingConsentEvent,
             events::YtDlpEvent,
+            events::MihonRuntimeEvent,
             events::WebsiteDownloadsEvent,
             events::AppUpdateEvent,
             events::OpenRouteEvent,

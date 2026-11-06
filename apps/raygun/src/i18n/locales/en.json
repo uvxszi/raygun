@@ -1256,8 +1256,14 @@
     "apk": {
       "download": "Download APK",
       "saved": "APK saved and checked against its store ({{size}} KB).",
-      "notAvailable": "Not available on this device yet.",
-      "failed": "Couldn’t keep the APK"
+      "notAvailable": "Running its own code isn’t available on this device yet.",
+      "setup": "Set up the runtime",
+      "settingUp": "Setting up the runtime…",
+      "tryIt": "Browse with its own code",
+      "ran": "Its own code answered with {{count}} titles.",
+      "noSources": "The extension registered no sources.",
+      "failed": "Couldn’t keep the APK",
+      "setupFailed": "Couldn’t set up the runtime"
     },
     "noRepos": "No repositories. Add one under Repositories.",
     "noReposYet": "No repositories yet.",

@@ -254,48 +254,40 @@ block's certificates), and kept in the extensions folder (`.apk/<package>.apk`) 
 package, version code and signing certificate's SHA-256 match the store
 (`signingKeyFingerprint`). `mihon_apk_live` checks a few of Keiyoushi's APKs this way.
 
-**What isn't.** The container itself, on either platform: after the check the catalogue says
-"Not available on this device yet". The rest of this section is what it takes.
+**The host.** `tools/mihon-host/` is the shared host that runs one extension's own code: Mihon's
+source API (adapted, Apache-2.0: `Source`, `CatalogueSource`, `HttpSource`, `ParsedHttpSource`,
+`SourceFactory`, `ConfigurableSource`, the models and filters), Mihon's `NetworkHelper` and
+`AndroidCookieJar` over OkHttp 5, and JVM stand-ins for the Android classes extensions touch
+(`Context`/`Application` with file-backed `SharedPreferences`, `Base64`, `Log`, `Uri`,
+`SystemClock`, `PreferenceScreen`). `MainKt` reads JSON-RPC lines over stdio — `load` (loads the
+converted jar's `tachiyomi.extension.class` through a `URLClassLoader`, seeds Raygun's cookies,
+lists the sources) then `popular`, `latest`, `search` (with Raygun's filters), `details`,
+`chapters`, `pages`, `image`. It binds a public DNS so an extension can't reach this computer or
+its network, and sends Raygun's User-Agent. `build.gradle.kts`'s `runtimeLibs` prints each
+library pinned by SHA-256 for the desktop fetcher.
 
-**Size and download.** Desktop needs a Java runtime: a jlinked JRE 21 with `java.base`,
-`java.net.http`, `java.logging` and `jdk.crypto.ec` is about 45 MB (Adoptium's full JRE 21 is
-about 50 MB zipped), fetched on demand into Raygun's tools folder under the data root with a
-pinned version and SHA-256, the way `ytdlp.rs` fetches yt-dlp and FFmpeg. dex2jar (about 3 MB,
-Apache-2.0) turns an APK's `classes.dex` into a jar; each converted APK is cached by its SHA-256.
-Android runs the dex as it is.
+**Desktop — built.** `raygun-app/src/mihon_container/`:
+- `tools.rs` fetches a pinned Temurin JRE 21 and dex2jar 2.4 on first use into `tools/mihon/`,
+  each checked against its SHA-256, with progress and cancel (`mihon_runtime_setup`,
+  `MihonRuntimeEvent`); the host jar ships beside them.
+- `sidecar.rs` converts the checked APK's dex to a jar (dex2jar, once, cached), runs
+  `java -Xmx256m -jar mihon-host.jar` per extension, and speaks the JSON-RPC above with a
+  per-call timeout, restart on crash, and idle shutdown after five minutes.
+- `mod.rs` (`MihonContainer`) holds the sidecars and answers the `manga.source` calls.
+- `mihon_run` drives one call; the source's details (`extensions/MihonApkAction.tsx`) offers
+  "Set up the runtime" then "Browse with its own code". The live path (dex2jar + the JVM running
+  third-party code) is exercised by the ignored `desktop_runs_a_real_extension` test, which the
+  lead runs on a desktop; the development sandbox blocks executing converted code.
 
-**Mihon's API.** The classes extensions are compiled against have to exist at run time:
-extensions-lib 1.4–1.6 (`Source`, `CatalogueSource`, `HttpSource`, `ParsedHttpSource`,
-`SourceFactory`, `ConfigurableSource`, `SManga`, `SChapter`, `Page`, `MangasPage`, `Filter`,
-`FilterList`, `SMangaUpdate`), Keiyoushi's `core` (`KeiSource`, `keiyoushi.network`, `utils`),
-and what Mihon injects through Injekt: `NetworkHelper` (an OkHttp 5 client with a cookie jar),
-`Json` (kotlinx.serialization), `Application` (shared preferences). The libraries themselves
-(OkHttp, Okio, Jsoup, kotlinx.serialization and coroutines, RxJava 1, Kotlin's standard library)
-ship in the runtime, about 9 MB of jars. Mihon's `ExtensionLoader` checks the APK's package,
-`tachiyomi.extension.class` metadata, the lib version (1.4 to 1.6) and the signing certificate's
-SHA-256 against the store's `signingKeyFingerprint`; the container would do the same before
-loading anything.
+**Android — not in this build.** The design is a service in a `:mihon` process
+(`android:process=":mihon"`; `android:isolatedProcess` where its no-network limit can be met by
+proxying requests back through the main process over AIDL) loading the dex with a
+`DexClassLoader`/`InMemoryDexClassLoader` against the same stubs, bridged to Rust as the player's
+reports are. The Rust side already routes Android to an honest "not in this build yet", so the UI
+says so; wiring the service is the remaining work.
 
-**Limits.**
-- Desktop: one sidecar process per extension, started on the first call and stopped after five
-  idle minutes, with `-Xmx256m`, a 30-second budget per call and JSON-RPC over stdio. Its only
-  network is an HTTP proxy Raygun runs on the loopback, which applies the extension's `net`
-  hosts and Raygun's per-site limits (`-Dhttp.proxyHost`, and OkHttp's `proxy` set by the
-  stubs); its working folder is the extension's data folder, and the stub `Application` hands
-  out nothing else.
-- Android: a service in a process of its own (`android:process=":mihon"`), loading the dex with
-  an `InMemoryDexClassLoader` (Android 8+) whose parent holds the stubs, bridged to Rust over
-  JNI as the player's reports are. An `android:isolatedProcess` service would be safer (no
-  storage, no permissions) but has no network either, so every request would go through the main
-  process; OkHttp's `Call.Factory` makes that possible.
-
-**What breaks.** Sources that need a WebView (solving checks in a hidden one, reading pages a
-script draws, `lib:cronet`) don't run in either; Raygun never solves browser checks itself. On
-desktop there's no `android.graphics`, so image unscramblers (`lib:speedbinb`, `lib:publus`,
-ComiciViewer, GigaViewer) need stubs drawing with Java2D, and anything else touching Android
-classes (`Base64`, `Log`, `SharedPreferences`) needs a stub of its own.
-
-**Next steps.** The extensions-lib and Keiyoushi `core` stubs as a Kotlin library (built with
-the Android plugin, and as a jar for desktop), a JSON-RPC host loading a checked APK's
-`tachiyomi.extension.class`, the desktop JRE and dex2jar fetched with pinned SHA-256s into the
-tools folder, and the Android `:mihon` service; the kept APKs are what they'd load.
+**What breaks either way.** Sources that need a WebView (solving checks in a hidden one, reading
+pages a script draws, `lib:cronet`); Raygun never solves browser checks itself. On desktop there
+is no `android.graphics`, so image unscramblers that decode bitmaps in an interceptor
+(`lib:speedbinb`, `lib:publus`) don't run; the ComiciViewer and GigaViewer tile shuffles are
+handled by Raygun's own converter instead (above).

@@ -110,6 +110,25 @@ export const commands = {
 	 */
 	extensionMihonApk: (repoId: string, id: string) => typedError<MihonApk, string>(__TAURI_INVOKE("extension_mihon_apk", { repoId, id })),
 	/**
+	 *  Whether this device can run a Mihon extension's own code, and whether its tools are in place
+	 *  (`MihonContainer`). Shown in a source's details and Settings.
+	 */
+	mihonRuntimeState: () => typedError<MihonRuntimeState, string>(__TAURI_INVOKE("mihon_runtime_state")),
+	/**
+	 *  Fetches the Mihon runtime's tools (desktop: a JRE and dex2jar) while
+	 *  `Settings::run_source_code` is on; progress comes as `MihonRuntimeEvent`.
+	 */
+	mihonRuntimeSetup: () => typedError<MihonRuntimeState, string>(__TAURI_INVOKE("mihon_runtime_setup")),
+	/**  Stops a Mihon runtime setup that's fetching tools. */
+	mihonRuntimeCancel: () => typedError<null, string>(__TAURI_INVOKE("mihon_runtime_cancel")),
+	/**
+	 *  Runs one `manga.source` call (`sources`, `popular`, `latest`, `search`, `details`, `chapters`,
+	 *  `pages`) on an installed, checked Mihon APK through the container, while
+	 *  `Settings::run_source_code` is on. A source's details page drives this to browse it; the
+	 *  result is the host's JSON for that call.
+	 */
+	mihonRun: (pkg: string, method: string, params: string) => typedError<string, string>(__TAURI_INVOKE("mihon_run", { pkg, method, params })),
+	/**
 	 *  Opens the miniplayer (M46.13): a small window on top with the song and its controls. Async:
 	 *  on Windows a window made in a synchronous command never loads its page (it stays blank).
 	 */
@@ -1609,6 +1628,7 @@ export const events = {
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
+	mihonRuntimeEvent: makeEvent<MihonRuntimeEvent>("mihon-runtime-event"),
 	openRouteEvent: makeEvent<OpenRouteEvent>("open-route-event"),
 	openWithEvent: makeEvent<OpenWithEvent>("open-with-event"),
 	permissionPromptEvent: makeEvent<PermissionPromptEvent>("permission-prompt-event"),
@@ -3954,6 +3974,27 @@ export type MihonImport = {
 	chapters: number,
 	readChapters: number,
 	skipped: SkippedSource[],
+};
+
+/**
+ *  Setting up the Mihon run-source-code tools: the current runtime state (its `settingUp` says
+ *  whether a fetch is still going).
+ */
+export type MihonRuntimeEvent = MihonRuntimeState;
+
+/**
+ *  Whether this device can run a Mihon extension's own code (tier 2), for a source's details and
+ *  Settings (`Settings::run_source_code`).
+ */
+export type MihonRuntimeState = {
+	/**  The platform and build can run it at all (desktop with a JRE, or Android). */
+	supported: boolean,
+	/**  Everything it needs is in place (desktop: the tools are fetched). */
+	ready: boolean,
+	/**  Whether the tools are being fetched right now. */
+	settingUp: boolean,
+	/**  A one-line reason it isn't ready, for the UI. */
+	note: string,
 };
 
 /**  A mix with its songs. Its name is made by the UI from the kind, `seed` and `number`. */

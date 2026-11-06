@@ -1418,6 +1418,22 @@ impl ExtensionService {
         self.finish_install(&repo, entry, verified, phase).await
     }
 
+    /// The kept, checked APK for a Mihon package (`.apk/<package>.apk`), when it's there.
+    pub fn mihon_apk_path(&self, package: &str) -> Result<std::path::PathBuf, String> {
+        if package.contains(['/', '\\']) || package.contains("..") {
+            return Err("that isn't a package name".into());
+        }
+        let path = self
+            .extensions_dir
+            .join(".apk")
+            .join(format!("{package}.apk"));
+        if path.is_file() {
+            Ok(path)
+        } else {
+            Err("Download the APK first".into())
+        }
+    }
+
     /// Downloads a Mihon extension's APK from its store and checks it against the store's entry
     /// (package, version code, signing key) before keeping it in the extensions folder
     /// (`.apk/<package>.apk`). Running it needs a container for its own code, which this device
