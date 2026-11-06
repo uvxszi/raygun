@@ -1,5 +1,5 @@
-//! Extensions: the built-in first-party extensions plus any installed under `extensions/` (M11),
-//! installed from repositories with per-extension settings (M13).
+//! Extensions: the ones installed under `extensions/` (M11), from repositories with per-extension
+//! settings (M13). Raygun ships none (v1.3.0); Paraline is offered as a suggestion.
 //!
 //! Debug builds also watch that folder and reload when it changes (M12), so `raygun-ext dev`
 //! reaches the running app without a restart.
@@ -15,8 +15,7 @@ use raygun_ext_host::package::{self, MAX_PACKAGE_BYTES};
 use raygun_ext_host::repo::{self, PackageFormat, RepoEntry, RepoIndex};
 use raygun_ext_host::shosetsu;
 use raygun_ext_host::{
-    ExtensionHost, ExtensionSource, HostConfig, ProviderCandidates, ResolvedStream, UserSettings,
-    discover_installed,
+    ExtensionHost, HostConfig, ProviderCandidates, ResolvedStream, UserSettings, discover_installed,
 };
 use raygun_model::{
     CatalogEntry, CatalogState, ExtensionInfo, ExtensionOrigin, ExtensionRepo, ExtensionSetting,
@@ -39,8 +38,10 @@ const INDEX_CACHE: Duration = Duration::from_secs(10 * 60);
 const MAX_INDEX_BYTES: u64 = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Extensions compiled into the app; an installed copy with the same id overrides one.
-fn built_in() -> Vec<ExtensionSource> {
+/// Raygun's first-party extensions, read from their committed bundles: the tests check they load.
+#[cfg(test)]
+fn first_party() -> Vec<raygun_ext_host::ExtensionSource> {
+    use raygun_ext_host::ExtensionSource;
     vec![
         ExtensionSource::built_in(&[
             (
@@ -258,6 +259,7 @@ impl ExtensionService {
             }
             loader.load_all().await;
             drop(guard);
+            loader.move_former_built_ins().await;
             if cfg!(debug_assertions) {
                 loader.watch().await;
             }
@@ -279,8 +281,11 @@ impl ExtensionService {
 
     /// Adds the icons remembered at install, kept in the cover cache (M46.2). Reloads answer with
     /// them too, or the lists they replace in the UI lose every icon (M46.11).
+    /// Each also names the repository it was installed from.
     async fn with_icons(&self, infos: Vec<ExtensionInfo>) -> Vec<ExtensionInfo> {
         let images = self.app.state::<raygun_net::ImageLinks>();
+        let installs = store::installs(self.db()).await.unwrap_or_default();
+        let repos = self.repos().await.unwrap_or_default();
         let mut with_icons = Vec::with_capacity(infos.len());
         for info in infos {
             let icon = raygun_db::local_value(self.db(), &icon_key(&info.id))
@@ -289,7 +294,12 @@ impl ExtensionService {
                 .flatten()
                 .filter(|url| images.is_remote(url))
                 .map(|url| images.kept_cover(&url, &Default::default()));
-            with_icons.push(ExtensionInfo { icon, ..info });
+            let repository = repository_name(&info.id, &installs, &repos);
+            with_icons.push(ExtensionInfo {
+                icon,
+                repository,
+                ..info
+            });
         }
         with_icons
     }
@@ -754,7 +764,66 @@ impl ExtensionService {
         self.host.stream_candidates(query, limit, quality).await
     }
 
-    /// Reloads every extension from scratch (built-in and installed).
+    /// On a device that ran a version carrying sources inside the app (migration 0041 marks it),
+    /// installs those sources from Paraline, adding Paraline when it's missing, so nothing the
+    /// user had stops working. Tried again on the next start until every one is in.
+    async fn move_former_built_ins(&self) {
+        let pending = raygun_db::local_value(self.db(), FORMER_BUILT_INS_KEY)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|value| value == "pending");
+        if !pending {
+            return;
+        }
+        let repo_id = match self.paraline_id().await {
+            Ok(id) => id,
+            Err(error) => {
+                tracing::warn!(%error, "could not add Paraline for the former built-in sources");
+                return;
+            }
+        };
+        let installed: Vec<String> = store::installs(self.db())
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|install| install.extension_id)
+            .collect();
+        let mut missing = 0;
+        for id in FORMER_BUILT_INS {
+            if installed.iter().any(|done| done == id) {
+                continue;
+            }
+            if let Err(error) = self.install_package(&repo_id, id, &|_| {}).await {
+                tracing::warn!(extension = id, %error, "could not install a former built-in source");
+                missing += 1;
+            }
+        }
+        if missing == 0
+            && let Err(error) =
+                raygun_db::set_local_value(self.db(), FORMER_BUILT_INS_KEY, "done").await
+        {
+            tracing::warn!(%error, "could not note the former built-in sources as moved");
+        }
+        self.reload().await;
+    }
+
+    /// Paraline's repository id, adding Paraline when this device doesn't list it.
+    async fn paraline_id(&self) -> Result<String, String> {
+        let find = |repos: &[ExtensionRepo]| {
+            repos
+                .iter()
+                .find(|repo| same_url(&repo.url, PARALINE_URL))
+                .map(|repo| repo.id.clone())
+        };
+        if let Some(id) = find(&self.repos().await?) {
+            return Ok(id);
+        }
+        let repos = self.add_repo(PARALINE_URL).await?;
+        find(&repos).ok_or_else(|| "Paraline wasn't added".to_owned())
+    }
+
+    /// Reloads every installed extension from scratch.
     pub async fn reload(&self) -> Vec<ExtensionInfo> {
         let _loading = self.loading.write().await;
         self.load_all().await
@@ -768,8 +837,7 @@ impl ExtensionService {
         *self.loaded_files.lock().unwrap() = files;
 
         self.learn_extension_repositories().await;
-        let mut sources = built_in();
-        sources.extend(discover_installed(&self.extensions_dir));
+        let sources = discover_installed(&self.extensions_dir);
         let settings = self.user_settings().await;
         // Connected servers' sign-ins, from the secrets store (`servers`).
         let (app, dir) = (self.app.clone(), self.extensions_dir.clone());
@@ -1420,7 +1488,7 @@ impl ExtensionService {
             .website
     }
 
-    /// Removes an installed extension and its storage. A built-in one it overrode comes back.
+    /// Removes an installed extension and its storage.
     pub async fn uninstall(&self, extension_id: &str) -> Result<Vec<ExtensionInfo>, String> {
         let _changing = self.changing.lock().await;
         let installed = self
@@ -1488,8 +1556,27 @@ fn to_repo(row: store::RepoRow) -> ExtensionRepo {
     }
 }
 
-/// Raygun's repository, Paraline: public-domain and openly licensed sources in one index. Every
-/// new install starts with it.
+/// The sources earlier versions carried inside the app; Paraline lists every one.
+const FORMER_BUILT_INS: [&str; 13] = [
+    "dev.raygun.internet-archive",
+    "dev.raygun.wikimedia-commons",
+    "dev.raygun.nasa",
+    "dev.raygun.blender-movies",
+    "dev.raygun.musicbrainz",
+    "dev.raygun.librivox",
+    "dev.raygun.loyalbooks",
+    "dev.raygun.archive-comics",
+    "dev.raygun.peppercarrot",
+    "dev.raygun.xkcd",
+    "dev.raygun.gutenberg",
+    "dev.raygun.standard-ebooks",
+    "dev.raygun.wikisource",
+];
+/// `local_meta`: `pending` until the former built-in sources are installed (migration 0041).
+const FORMER_BUILT_INS_KEY: &str = "extensions.formerBuiltIns";
+
+/// Raygun's repository, Paraline: public-domain and openly licensed sources in one index. New
+/// installs start empty and offer it as a suggestion.
 const PARALINE_URL: &str =
     "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/index.json";
 const PARALINE_NAME: &str = "Paraline";
@@ -1554,6 +1641,28 @@ fn extension_repositories(
             Some((install.extension_id.clone(), repo.id.clone()))
         })
         .collect()
+}
+
+/// The name of the repository an installed extension came from, matched by the address it was
+/// installed from; Paraline for one installed from an index Paraline replaced.
+fn repository_name(
+    extension_id: &str,
+    installs: &[InstallRow],
+    repos: &[ExtensionRepo],
+) -> Option<String> {
+    let install = installs
+        .iter()
+        .find(|install| install.extension_id == extension_id)?;
+    repos
+        .iter()
+        .find(|repo| same_url(&repo.url, &install.repo_url))
+        .map(|repo| repo.name.clone())
+        .or_else(|| {
+            RETIRED_REPOS
+                .iter()
+                .any(|retired| same_url(&install.repo_url, retired))
+                .then(|| PARALINE_NAME.to_owned())
+        })
 }
 
 fn same_url(a: &str, b: &str) -> bool {
@@ -1978,10 +2087,10 @@ mod tests {
     }
 
     #[test]
-    fn built_in_extensions_parse() {
-        for source in built_in() {
+    fn first_party_extensions_parse() {
+        for source in first_party() {
             let raygun_ext_host::ExtensionFiles::Memory(files) = &source.files else {
-                panic!("built-in extensions live in memory");
+                panic!("first-party bundles are read from memory");
             };
             let manifest =
                 raygun_ext_host::Manifest::parse(&files["raygun-extension.json"]).unwrap();
@@ -1991,6 +2100,58 @@ mod tests {
                 manifest.id
             );
         }
+    }
+
+    /// Every source earlier versions carried is moved to an install, and nothing else is.
+    #[test]
+    fn former_built_ins_are_the_first_party_extensions() {
+        let mut bundled: Vec<String> = first_party()
+            .iter()
+            .map(|source| {
+                let raygun_ext_host::ExtensionFiles::Memory(files) = &source.files else {
+                    panic!("first-party bundles are read from memory");
+                };
+                raygun_ext_host::Manifest::parse(&files["raygun-extension.json"])
+                    .unwrap()
+                    .id
+            })
+            .collect();
+        let mut former: Vec<String> = FORMER_BUILT_INS.iter().map(|id| (*id).to_owned()).collect();
+        bundled.sort();
+        former.sort();
+        assert_eq!(former, bundled);
+    }
+
+    #[test]
+    fn extensions_name_the_repository_they_came_from() {
+        let install = |id: &str, url: &str| InstallRow {
+            extension_id: id.into(),
+            repo_url: url.into(),
+            version: "1.0.0".into(),
+            sha256: String::new(),
+            installed_at: 0,
+        };
+        let installs = [
+            install("a", &format!("{PARALINE_URL}/")),
+            install("b", RETIRED_REPOS[0]),
+            install("c", "https://example.org/own.zip"),
+        ];
+        let repos = [ExtensionRepo {
+            id: "p".into(),
+            url: PARALINE_URL.into(),
+            name: "Paraline".into(),
+        }];
+        assert_eq!(
+            repository_name("a", &installs, &repos).as_deref(),
+            Some("Paraline")
+        );
+        // Installed from an index Paraline replaced, before it was folded in.
+        assert_eq!(
+            repository_name("b", &installs, &[]).as_deref(),
+            Some("Paraline")
+        );
+        assert_eq!(repository_name("c", &installs, &repos), None);
+        assert_eq!(repository_name("missing", &installs, &repos), None);
     }
 
     fn entry(version: &str) -> RepoEntry {

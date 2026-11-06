@@ -29,6 +29,7 @@ import type { SourceMedia, SourceType } from '../sources/sourceMedia';
 import { AddonItem, AddonSuggestions } from '../watch/AddonRows';
 import { useSetAddonEnabled, useSetAddonOrder, useStremioAddons } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
+import { originLabel } from '../extensions/originLabel';
 
 /** Connections to servers are extensions too; they're listed as servers. */
 const isServer = (extension: ExtensionInfo) => extension.id.startsWith('server.');
@@ -36,7 +37,7 @@ const isServer = (extension: ExtensionInfo) => extension.id.startsWith('server.'
 const chip = (on: boolean) =>
   `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
 
-/** An installed (or built-in) extension: its page, what it is, and its switch. */
+/** An installed extension: its page, where it came from, and its switch. */
 const ExtensionRow: FC<{
   extension: ExtensionInfo;
   selection: BulkSelection;
@@ -61,11 +62,7 @@ const ExtensionRow: FC<{
             <span className="font-medium">{extension.name}</span>
             <span className="text-muted text-xs">{extension.version}</span>
             <span className="bg-surface text-muted rounded px-1.5 text-[10px] font-semibold tracking-wide uppercase">
-              {t(
-                extension.origin === 'builtIn'
-                  ? 'extensions.builtIn'
-                  : 'extensions.installedOrigin',
-              )}
+              {originLabel(extension, t)}
             </span>
             {extension.adult && <AdultMark />}
             <RatingHint mark={rating.markOf('extensions', extension.id)} />

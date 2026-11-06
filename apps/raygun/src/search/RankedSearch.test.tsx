@@ -197,6 +197,7 @@ describe('Ranked search across sources', () => {
       compatibility: null,
       icon: null,
       website: 'https://www.royalroad.com',
+      repository: null,
     };
     commands.extensionsList.mockResolvedValue(ok([royal]));
     commands.novelSources.mockResolvedValue(ok([ROYAL]));

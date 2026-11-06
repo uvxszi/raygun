@@ -50,6 +50,7 @@ const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
   compatibility: null,
   icon: null,
   website: null,
+  repository: null,
   ...overrides,
 });
 
@@ -108,7 +109,7 @@ describe('Extensions', () => {
   it('summarizes extensions in Settings and links to the extensions page', async () => {
     commands.extensionsList.mockResolvedValue(
       ok([
-        extension({ name: 'Internet Archive', origin: 'builtIn' }),
+        extension({ name: 'Internet Archive', repository: 'Paraline' }),
         extension({ id: 'dev.example.broken', name: 'Broken', status: 'failed', error: 'x' }),
       ]),
     );
@@ -130,7 +131,7 @@ describe('Extensions', () => {
     await userEvent.click(await screen.findByTestId('extension-row'));
 
     expect(await screen.findByTestId('extension-detail-page')).toHaveTextContent(
-      '1.0.0 · installed',
+      '1.0.0 · added by you',
     );
     expect(screen.getByTestId('extension-permissions')).toHaveTextContent('*.api.radio.example');
     expect(screen.getByLabelText('Sort stations by')).toHaveValue('popularity');
@@ -198,12 +199,21 @@ describe('Extensions', () => {
     expect(await screen.findByTestId('installed-tab')).toBeInTheDocument();
   });
 
-  it('offers no uninstall for built-in extensions', async () => {
-    commands.extensionsList.mockResolvedValue(ok([extension({ origin: 'builtIn' })]));
+  it('names the repository an extension came from, never "built-in"', async () => {
+    commands.extensionsList.mockResolvedValue(ok([extension({ repository: 'Paraline' })]));
     await AppShellWrapper.mount('/extensions/detail?id=dev.example.radio');
 
-    expect(await screen.findByTestId('extension-detail-page')).toHaveTextContent('built-in');
-    expect(screen.queryByRole('button', { name: 'Uninstall' })).not.toBeInTheDocument();
+    const page = await screen.findByTestId('extension-detail-page');
+    expect(page).toHaveTextContent('Paraline');
+    expect(page).not.toHaveTextContent(/built-in/i);
+    expect(screen.getByRole('button', { name: 'Uninstall' })).toBeInTheDocument();
+  });
+
+  it('says an extension added on its own was added by the user', async () => {
+    commands.extensionsList.mockResolvedValue(ok([extension({ repository: null })]));
+    await AppShellWrapper.mount('/extensions/detail?id=dev.example.radio');
+
+    expect(await screen.findByTestId('extension-detail-page')).toHaveTextContent('added by you');
   });
 
   it('installs from a repository at once, with what it may access behind the info button', async () => {

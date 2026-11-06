@@ -1249,8 +1249,7 @@
     "reload": "Reload",
     "refresh": "Refresh",
     "noneInstalled": "No extensions yet.",
-    "builtIn": "built-in",
-    "installedOrigin": "installed",
+    "addedByYou": "added by you",
     "failed": "Failed to load: {{message}}",
     "notLoaded": "Didn't load",
     "install": "Install",
@@ -2747,7 +2746,7 @@
         "audiobooks": "Books leave the library; where chapters were left stays.",
         "settings": "Every setting goes back to its default.",
         "pins": "Quick access is emptied.",
-        "sources": "Installed extensions, repositories, Stremio addons and connected servers go. Raygun's built-in sources stay.",
+        "sources": "Installed extensions, repositories, Stremio addons and connected servers go.",
         "caches": "Covers, reader pages and lyrics load again when they're shown.",
         "aiModels": "Downloaded models are deleted; translators stay."
       },

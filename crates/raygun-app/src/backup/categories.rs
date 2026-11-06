@@ -410,7 +410,7 @@ pub async fn clear(
 }
 
 /// Connected servers, extensions from repositories, the repositories and the Stremio addons go.
-/// Raygun's built-in sources stay: they're part of the app.
+/// Raygun ships no sources, so nothing is left.
 async fn clear_sources(app: &AppHandle) -> Result<(), String> {
     let servers = app.state::<crate::servers::ServerService>();
     for (id, _) in servers.configs().await? {

@@ -38,6 +38,7 @@ const extension = (
   compatibility: null,
   icon: null,
   website: null,
+  repository: null,
   ...overrides,
 });
 

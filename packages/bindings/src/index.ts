@@ -2865,6 +2865,11 @@ export type ExtensionInfo_Deserialize = {
 	 *  opened in Raygun's browser from a source's menu (M46.11).
 	 */
 	website: string | null,
+	/**
+	 *  The name of the repository it was installed from (`Paraline`); none for one added on its
+	 *  own or copied into the extensions folder.
+	 */
+	repository: string | null,
 };
 
 export type ExtensionInfo_Serialize = {
@@ -2897,6 +2902,11 @@ export type ExtensionInfo_Serialize = {
 	 *  opened in Raygun's browser from a source's menu (M46.11).
 	 */
 	website: string | null,
+	/**
+	 *  The name of the repository it was installed from (`Paraline`); none for one added on its
+	 *  own or copied into the extensions folder.
+	 */
+	repository: string | null,
 };
 
 /**  One install in the queue. */
