@@ -99,7 +99,26 @@ const read = async (): Promise<Saved | undefined> => {
   }
 };
 
+/** Set by an erase (M46.51): nothing is saved again in this run. */
+let forgotten = false;
+
+/**
+ * Forgets the saved answers and saves none again in this run (M46.51: Erase everything starts
+ * Raygun again as new). Resolves once they're gone, or couldn't go.
+ */
+export const forgetQueryCache = async () => {
+  forgotten = true;
+  if (typeof indexedDB === 'undefined') return;
+  await new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase(DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+  });
+};
+
 const write = async (saved: Saved) => {
+  if (forgotten) return;
   const db = await open();
   try {
     await new Promise<void>((resolve, reject) => {

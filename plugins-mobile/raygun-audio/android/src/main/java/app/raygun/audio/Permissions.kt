@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import app.tauri.plugin.JSArray
@@ -43,7 +44,11 @@ internal object Permissions {
     /** Below Android 13 there's no question to ask: notifications are on or off in settings. */
     fun notificationsOff(context: Context): Boolean = !NotificationManagerCompat.from(context).areNotificationsEnabled()
 
-    fun folders(context: Context): Int = context.contentResolver.persistedUriPermissions.count { it.isReadPermission }
+    /** Picked folders only: single files other apps opened with Raygun ([OpenWith]) aren't counted. */
+    fun folders(context: Context): Int =
+        context.contentResolver.persistedUriPermissions.count {
+            it.isReadPermission && DocumentsContract.isTreeUri(it.uri)
+        }
 
     fun canInstall(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
@@ -68,6 +73,7 @@ internal object Permissions {
             } else {
                 appDetails(pkg)
             }
+            "allFiles" -> LocalStorage.allFilesIntents(context).firstOrNull() ?: appDetails(pkg)
             else -> appDetails(pkg)
         }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }

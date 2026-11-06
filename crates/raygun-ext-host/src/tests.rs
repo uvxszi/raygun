@@ -170,6 +170,7 @@ fn start_server() -> SocketAddr {
                         )
                     }),
                 )
+                .route("/guarded", get(guarded).post(guarded))
                 .route(
                     "/whoami",
                     get(|headers: HeaderMap| async move {
@@ -206,6 +207,34 @@ fn start_server() -> SocketAddr {
         });
     });
     address
+}
+
+/// The User-Agent `/guarded`'s pass holds for, as Cloudflare's `cf_clearance` holds for the
+/// browser that earned it.
+const CHECKED_BROWSER: &str = "Checked Browser/1.0";
+
+/// A page behind a browser check: Cloudflare's challenge answer, unless the request carries the
+/// pass and the User-Agent it was passed with.
+async fn guarded(headers: HeaderMap) -> axum::response::Response {
+    let value = |name: header::HeaderName| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_owned()
+    };
+    if value(header::COOKIE).contains("cf_clearance=passed")
+        && value(header::USER_AGENT) == CHECKED_BROWSER
+    {
+        Html("<title>Novels</title>sword").into_response()
+    } else {
+        (
+            StatusCode::FORBIDDEN,
+            [("cf-mitigated", "challenge")],
+            Html("<title>Just a moment...</title>"),
+        )
+            .into_response()
+    }
 }
 
 fn extension(id: &str, code: &str) -> ExtensionSource {
@@ -328,8 +357,32 @@ async fn cookies_last_per_extension_until_its_data_is_cleared() {
     );
 }
 
+/// What a check window saw: `pages` in order, each an address and a title; a check's page is
+/// one whose answer said so (`cf-mitigated`), translated titles and all.
+fn check_window(pages: &[(&str, &str, bool)]) -> crate::browser_check::CheckWindow {
+    use crate::browser_check::Seen;
+    let mut window = crate::browser_check::CheckWindow::default();
+    for (url, title, check) in pages {
+        if *check {
+            window.see(Seen::Answer {
+                url: (*url).into(),
+                status: 403,
+                mitigated: true,
+            });
+        }
+        window.see(Seen::Start { url: (*url).into() });
+        window.see(Seen::Title {
+            title: (*title).into(),
+        });
+        window.see(Seen::Finish { url: (*url).into() });
+    }
+    window
+}
+
 #[tokio::test]
-async fn a_browser_check_passed_by_hand_gives_its_cookies_to_the_extension() {
+async fn a_browser_check_opens_the_failed_request_and_its_pass_comes_back() {
+    use raygun_model::BrowserCheckOutcome;
+
     let address = start_server();
     let dir = tempfile::tempdir().unwrap();
     let host = ExtensionHost::start(HostConfig {
@@ -338,28 +391,94 @@ async fn a_browser_check_passed_by_hand_gives_its_cookies_to_the_extension() {
         ..HostConfig::default()
     })
     .unwrap();
-    let code = "raygun.providers.register({ kind: 'music.metadata', id: 'p', name: 'P', run: async (args) => { const answer = await raygun.http.fetch(args.url); if (answer.status !== 200) throw new Error('no data'); return answer.text(); } });";
+    let code = "raygun.providers.register({ kind: 'music.metadata', id: 'p', name: 'P', run: async (args) => { const answer = await raygun.http.fetch(args.url, args.options); if (answer.status !== 200) throw new Error('no data'); return answer.text(); } });";
     host.load(vec![extension("dev.raygun.test", code)]).await;
-    let url = |path: &str| json!({ "url": format!("http://{address}{path}") });
+    let page = format!("http://{address}/guarded?q=sword");
+    let search = json!({
+        "url": page,
+        "options": {
+            "method": "POST",
+            "headers": { "Referer": format!("http://{address}/"), "Content-Type": "application/x-www-form-urlencoded" },
+            "body": "q=sword",
+        },
+    });
 
-    let error = run(&host, url("/challenge")).await.unwrap_err();
+    // The request that met the check is what the window opens: its address, method, headers,
+    // body and User-Agent, not the site's front page.
+    let error = run(&host, search.clone()).await.unwrap_err();
     assert_eq!(error.kind(), Some(IssueKind::BotCheck));
     let check = host.browser_check(&error.to_string(), None).unwrap();
     assert_eq!(check.extension_id, "dev.raygun.test");
-    assert_eq!(check.url, "https://127.0.0.1/");
-
-    // The browser's cookies for the site (here plain HTTP) reach the extension's requests.
-    let cookies = crate::browser_check::parse_cookie_header("cf_clearance=passed");
-    let site = format!("http://{address}/");
+    assert_eq!(check.url(), page);
+    let window = check.request.window().unwrap();
+    assert_eq!(window.method, "POST");
+    assert_eq!(window.body.as_deref(), Some("q=sword"));
+    assert_eq!(window.user_agent, raygun_net::user_agent());
     assert_eq!(
-        host.import_browser_cookies("dev.raygun.test", &site, &cookies),
-        Ok(1)
+        window.headers["Referer"],
+        format!("http://{address}/"),
+        "{window:?}"
     );
-    let seen = run(&host, url("/whoami")).await.unwrap();
-    assert!(seen.as_str().unwrap().starts_with("cf_clearance=passed|"));
+    let call = check.call.clone().unwrap();
+    assert_eq!(
+        (call.provider.as_str(), call.method.as_str()),
+        ("dev.raygun.test/p", "run")
+    );
+
+    let cookies = crate::browser_check::parse_cookie_header("cf_clearance=passed");
+    // A page that loads without a check changes nothing, and says so.
+    let plain = check_window(&[(&page, "Novels", false)]);
+    let result = host
+        .finish_browser_check(&check, &plain, &cookies, Some(CHECKED_BROWSER))
+        .await
+        .unwrap();
+    assert_eq!(result.outcome, BrowserCheckOutcome::NoCheck);
+    assert_eq!(result.cookies, 0);
+    // Closed while the check still showed.
+    let closed = check_window(&[(&page, "Un instant…", true)]);
+    let result = host
+        .finish_browser_check(&check, &closed, &cookies, Some(CHECKED_BROWSER))
+        .await
+        .unwrap();
+    assert_eq!(result.outcome, BrowserCheckOutcome::NotPassed);
+    assert!(
+        run(&host, search.clone()).await.is_err(),
+        "nothing was taken"
+    );
+
+    // Passed with a browser the site's pass doesn't hold for: the call meets the check again.
+    let passed = check_window(&[(&page, "Un instant…", true), (&page, "Novels", false)]);
+    let result = host
+        .finish_browser_check(&check, &passed, &cookies, Some("Other Browser/2.0"))
+        .await
+        .unwrap();
+    assert_eq!(result.outcome, BrowserCheckOutcome::StillBlocked);
+    assert_eq!(result.cookies, 1);
+    assert!(result.error.unwrap().contains("browser check"));
+
+    // Passed: the browser's cookies and User-Agent go to the extension, and the failed call is
+    // asked again and works.
+    let check = host.browser_check(&error.to_string(), None).unwrap();
+    let result = host
+        .finish_browser_check(&check, &passed, &cookies, Some(CHECKED_BROWSER))
+        .await
+        .unwrap();
+    assert_eq!(result.outcome, BrowserCheckOutcome::Passed, "{result:?}");
+    assert_eq!((result.cookies, result.error), (1, None));
+    assert_eq!(
+        run(&host, search).await.unwrap(),
+        json!("<title>Novels</title>sword")
+    );
+    let seen = run(&host, json!({ "url": format!("http://{address}/whoami") }))
+        .await
+        .unwrap();
+    assert_eq!(
+        seen.as_str().unwrap(),
+        format!("cf_clearance=passed|{CHECKED_BROWSER}")
+    );
     assert_eq!(host.browser_check(&error.to_string(), None), None);
     assert!(
-        host.import_browser_cookies("../x", &site, &cookies)
+        host.import_browser_cookies("../x", &page, &cookies, None)
             .is_err()
     );
 }
@@ -638,7 +757,7 @@ async fn search_music_collects_tracks_per_provider() {
         { id: 7, title: ` ${query} `, artist: 'A', durationMs: 61000.6, artworkUrl: 'https://x.org/a.jpg',
           source: { kind: 'url', url: 'https://x.org/a.mp3', headers: {} } },
         { title: 'local', source: { kind: 'localFile', path: '/etc/passwd' }, artworkUrl: 'file:///x' },
-        { title: 'yt', source: { kind: 'youTube', videoId: 'dQw4w9WgXcQ' } },
+        { title: 'yt', artist: ' "Rick Astley', source: { kind: 'youTube', videoId: 'dQw4w9WgXcQ' } },
         { title: '' },
         { nope: true },
       ].slice(0, limit) }) });"#;
@@ -673,6 +792,8 @@ async fn search_music_collects_tracks_per_provider() {
         &tracks[2].source,
         Some(MediaSource::YouTube { .. })
     ));
+    // A quote a source left before the name is gone.
+    assert_eq!(tracks[2].artist.as_deref(), Some("Rick Astley"));
 }
 
 /// Songs a source marks explicit leave every list while Explicit music is off (M46.36).
@@ -1508,8 +1629,9 @@ async fn watched_searches_report_each_source_as_it_answers() {
     .await;
 
     let reported = std::cell::RefCell::new(Vec::new());
+    let listings = raygun_model::SearchListingsPrefs::default();
     let songs = host
-        .search_music_as_answered("song", 10, |result, total| {
+        .search_music_as_answered("song", 10, listings, |result, total| {
             reported.borrow_mut().push((
                 result.provider.name.clone(),
                 result.error.is_some(),

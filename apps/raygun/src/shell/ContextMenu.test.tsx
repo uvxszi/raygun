@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { ANDROID_INFO, bindingsMock } from '../test/bindingsMock';
+import { bindingsMock } from '../test/bindingsMock';
 import { AppShellWrapper } from './AppShell.test-wrapper';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -9,70 +9,56 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
-describe('Right-click menu', () => {
+const TUNES = { id: 'x/y', extensionId: 'x', kind: 'music.metadata', name: 'Source' };
+
+const searchArtists = async () => {
+  commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
+  commands.musicSearchArtists.mockResolvedValue(
+    ok([{ provider: TUNES, id: '27', name: 'Daft Punk', imageUrl: null }]),
+  );
+  await AppShellWrapper.mount('/browse?tab=search&type=music&view=artists&q=daft');
+  return screen.findByRole('button', { name: 'More for Daft Punk' });
+};
+
+describe('Item menus', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
   });
 
-  it("offers a song's options, then the page's, and works from the keyboard", async () => {
-    const user = userEvent.setup();
-    commands.playbackQueueTracks.mockResolvedValue(ok(null));
-    commands.onlineSearch.mockResolvedValue(
-      ok({
-        library: [],
-        top: [],
-        providers: [
-          {
-            provider: { id: 'x/y', extensionId: 'x', kind: 'music.metadata', name: 'Source' },
-            tracks: [
-              {
-                externalId: null,
-                title: 'Get Lucky',
-                artist: 'Daft Punk, Pharrell Williams',
-                album: null,
-                durationMs: 200_000,
-                artworkUrl: null,
-                source: null,
-              },
-            ],
-            error: null,
-          },
-        ],
-      }),
-    );
-    await AppShellWrapper.mount('/browse?tab=search&type=music&q=get+lucky');
-    const row = await screen.findByTestId('online-track-row');
-
-    fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
-    const menu = await screen.findByRole('menu');
-    expect(within(menu).getByText('Get Lucky')).toBeInTheDocument();
-    expect(within(menu).getByRole('menuitem', { name: 'Go to Pharrell Williams' })).toBeEnabled();
-    // The page's own options follow the song's.
-    expect(within(menu).getByRole('menuitem', { name: /^Back/ })).toBeInTheDocument();
-
-    await user.click(within(menu).getByRole('menuitem', { name: 'Play next' }));
-    expect(commands.playbackQueueTracks).toHaveBeenCalledWith(
-      [expect.objectContaining({ title: 'Get Lucky' })],
-      true,
-    );
+  it("opens no menu on a right click or a long press; text fields keep the webview's own", async () => {
+    await AppShellWrapper.mount('/');
+    const page = await screen.findByTestId('page-content');
+    // The webview's own menu (Back, Reload, Inspect…) stays away, and Raygun shows none.
+    expect(fireEvent.contextMenu(page, { clientX: 10, clientY: 10 })).toBe(false);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
 
+    const field = document.createElement('input');
+    document.body.append(field);
+    expect(fireEvent.contextMenu(field)).toBe(true);
+    field.remove();
+  });
+
+  it('opens from ⋮ and works from the keyboard', async () => {
+    const button = await searchArtists();
+    fireEvent.click(button);
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByText('Daft Punk')).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', { name: /^Back/ })).not.toBeInTheDocument();
+
     // Arrow keys and Enter choose; Escape closes.
-    fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
-    const again = await screen.findByRole('menu');
-    fireEvent.keyDown(again, { key: 'ArrowDown' });
-    fireEvent.keyDown(again, { key: 'ArrowDown' });
-    fireEvent.keyDown(again, { key: 'Enter' });
-    expect(commands.playbackQueueTracks).toHaveBeenLastCalledWith(
-      [expect.objectContaining({ title: 'Get Lucky' })],
-      true,
-    );
-    fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
+    const items = within(menu).getAllByRole('menuitem');
+    const follow = items.findIndex((item) => item.textContent === 'Follow');
+    for (let step = 0; step <= follow; step += 1) fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    fireEvent.keyDown(menu, { key: 'Enter' });
+    await vi.waitFor(() => expect(commands.artistFollow).toHaveBeenCalledWith('Daft Punk', null));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    fireEvent.click(button);
     fireEvent.keyDown(await screen.findByRole('menu'), { key: 'Escape' });
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
-  it('offers removing a downloaded song, going to its album, and one set of copy items (M46.36)', async () => {
+  it("offers a song's options from its ⋮: removing a download, its album, and copying (M46.36)", async () => {
     const user = userEvent.setup();
     commands.songDownloads.mockResolvedValue(
       ok([{ id: 'dl-1', trackKey: 'daft punk|get lucky', state: 'done' }]) as never,
@@ -81,7 +67,7 @@ describe('Right-click menu', () => {
     commands.songDownloadRemove.mockResolvedValue(ok(null));
     commands.musicFindAlbum.mockResolvedValue(
       ok({
-        provider: { id: 'x/y', extensionId: 'x', kind: 'music.metadata', name: 'Source' },
+        provider: TUNES,
         id: 'ram',
         title: 'Random Access Memories',
         artist: 'Daft Punk',
@@ -97,7 +83,7 @@ describe('Right-click menu', () => {
         top: [],
         providers: [
           {
-            provider: { id: 'x/y', extensionId: 'x', kind: 'music.metadata', name: 'Source' },
+            provider: TUNES,
             tracks: [
               {
                 externalId: null,
@@ -116,43 +102,31 @@ describe('Right-click menu', () => {
       }),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=music&q=get+lucky');
-    const row = await screen.findByTestId('online-track-row');
+    await screen.findByTestId('online-track-row');
     // The downloaded marks come from the one list of downloads, not a request per row.
     await vi.waitFor(() => expect(commands.songDownloads).toHaveBeenCalledTimes(1));
 
-    fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
-    const menu = await screen.findByRole('menu');
-    expect(within(menu).queryByRole('menuitem', { name: 'Download' })).not.toBeInTheDocument();
-    // Copy title and Copy artist, without "Copy “Get Lucky…”" for the words under the pointer.
-    expect(within(menu).getByRole('menuitem', { name: 'Copy title' })).toBeInTheDocument();
-    expect(within(menu).queryByRole('menuitem', { name: /^Copy “/ })).not.toBeInTheDocument();
-    await user.click(within(menu).getByRole('menuitem', { name: 'Remove from downloads' }));
-    // It asks first, in the menu's place.
+    // The top result has one too; the song's row is last.
+    const more = screen.getAllByRole('button', { name: 'More for Get Lucky (Radio Edit)' }).at(-1)!;
+    await user.click(more);
+    const actions = await screen.findByTestId('track-more-actions');
+    expect(within(actions).queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
+    expect(within(actions).getByRole('button', { name: 'Copy title' })).toBeInTheDocument();
+    expect(within(actions).getByRole('button', { name: 'Copy artist' })).toBeInTheDocument();
+    // It asks first, in the row's place; a second tap removes it.
+    await user.click(within(actions).getByRole('button', { name: 'Remove from downloads' }));
     expect(commands.songDownloadRemove).not.toHaveBeenCalled();
-    const question = within(menu).getByRole('alertdialog', {
-      name: /^Delete the downloaded copy of/,
-    });
-    await user.click(within(question).getByRole('button', { name: 'Remove from downloads' }));
+    await user.click(within(actions).getByRole('button', { name: /^Delete the downloaded copy/ }));
     await vi.waitFor(() => expect(commands.songDownloadRemove).toHaveBeenCalledWith('dl-1'));
 
-    fireEvent.contextMenu(row, { clientX: 40, clientY: 40 });
+    await user.click(more);
     await user.click(
-      within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Go to album' }),
+      within(await screen.findByTestId('track-more-actions')).getByRole('button', {
+        name: 'Go to album',
+      }),
     );
     expect(commands.musicFindAlbum).toHaveBeenCalledWith('Random Access Memories', 'Daft Punk');
     await vi.waitFor(() => expect(commands.musicAlbum).toHaveBeenCalledWith('x/y', 'ram'));
-  });
-
-  it('replaces the webview menu everywhere, with the page options', async () => {
-    // Full screen is a desktop window's.
-    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
-    await AppShellWrapper.mount('/');
-    await screen.findByTestId('app-bar');
-    const page = await screen.findByTestId('page-content');
-    const shown = !fireEvent.contextMenu(page, { clientX: 10, clientY: 10 });
-    expect(shown).toBe(true);
-    const menu = await screen.findByRole('menu');
-    expect(within(menu).getByRole('menuitem', { name: /^Full screen/ })).toBeInTheDocument();
   });
 
   describe('on a touch screen', () => {
@@ -173,83 +147,51 @@ describe('Right-click menu', () => {
       delete (window as { matchMedia?: unknown }).matchMedia;
     });
 
-    const openSongSheet = async () => {
-      commands.playbackQueueTracks.mockResolvedValue(ok(null));
-      commands.onlineSearch.mockResolvedValue(
-        ok({
-          library: [],
-          top: [],
-          providers: [
-            {
-              provider: { id: 'x/y', extensionId: 'x', kind: 'music.metadata', name: 'Source' },
-              tracks: [
-                {
-                  externalId: null,
-                  title: 'Get Lucky',
-                  artist: 'Daft Punk',
-                  album: null,
-                  durationMs: 200_000,
-                  artworkUrl: null,
-                  source: null,
-                  explicit: false,
-                },
-              ],
-              error: null,
-            },
-          ],
-        }),
-      );
-      await AppShellWrapper.mount('/browse?tab=search&type=music&q=get+lucky');
-      fireEvent.contextMenu(await screen.findByTestId('online-track-row'), {
-        clientX: 40,
-        clientY: 40,
-      });
+    const openArtistSheet = async () => {
+      fireEvent.click(await searchArtists());
       return screen.findByRole('menu');
     };
 
-    it('keeps the cover and title above rows that scroll inside the sheet', async () => {
-      const menu = await openSongSheet();
+    it('keeps the cover and name above rows that scroll inside the sheet', async () => {
+      const menu = await openArtistSheet();
       expect(menu).toHaveAttribute('data-sheet');
       expect(menu.className).toContain('max-h-[85dvh]');
       const rows = within(menu).getByTestId('context-menu-rows');
       expect(rows.className).toContain('overflow-y-auto');
       expect(rows.className).toContain('env(safe-area-inset-bottom)');
       // The heading sits outside the scrolling rows; every option is inside them.
-      expect(within(rows).queryByText('Get Lucky')).not.toBeInTheDocument();
-      expect(within(menu).getByText('Get Lucky')).toBeInTheDocument();
-      const play = within(rows).getByRole('menuitem', { name: 'Play next' });
-      expect(play.className).toContain('min-h-[max(3rem,7dvh)]');
+      expect(within(rows).queryByText('Daft Punk')).not.toBeInTheDocument();
+      expect(within(menu).getByText('Daft Punk')).toBeInTheDocument();
+      const follow = within(rows).getByRole('menuitem', { name: 'Follow' });
+      expect(follow.className).toContain('min-h-[max(3rem,7dvh)]');
     });
 
     it('treats a scroll as a scroll: no item runs and the sheet stays open', async () => {
-      const menu = await openSongSheet();
+      const menu = await openArtistSheet();
       const rows = within(menu).getByTestId('context-menu-rows');
-      const play = within(rows).getByRole('menuitem', { name: 'Play next' });
+      const follow = within(rows).getByRole('menuitem', { name: 'Follow' });
 
       // A finger that moves over the list before lifting.
-      fireEvent.pointerDown(play, { clientX: 100, clientY: 300 });
-      fireEvent.pointerMove(play, { clientX: 100, clientY: 240 });
-      fireEvent.click(play, { detail: 1 });
-      expect(commands.playbackQueueTracks).not.toHaveBeenCalled();
+      fireEvent.pointerDown(follow, { clientX: 100, clientY: 300 });
+      fireEvent.pointerMove(follow, { clientX: 100, clientY: 240 });
+      fireEvent.click(follow, { detail: 1 });
+      expect(commands.artistFollow).not.toHaveBeenCalled();
 
       // The list scrolled under a still finger.
-      fireEvent.pointerDown(play, { clientX: 100, clientY: 300 });
+      fireEvent.pointerDown(follow, { clientX: 100, clientY: 300 });
       fireEvent.scroll(rows);
-      fireEvent.click(play, { detail: 1 });
-      expect(commands.playbackQueueTracks).not.toHaveBeenCalled();
+      fireEvent.click(follow, { detail: 1 });
+      expect(commands.artistFollow).not.toHaveBeenCalled();
 
       // A drag that ends beside the sheet doesn't close it.
-      fireEvent.pointerDown(play, { clientX: 100, clientY: 300 });
+      fireEvent.pointerDown(follow, { clientX: 100, clientY: 300 });
       fireEvent.click(menu.parentElement as HTMLElement, { detail: 1 });
       expect(screen.getByRole('menu')).toBeInTheDocument();
 
       // A plain tap chooses.
-      fireEvent.pointerDown(play, { clientX: 100, clientY: 300 });
-      fireEvent.click(play, { detail: 1 });
-      expect(commands.playbackQueueTracks).toHaveBeenCalledWith(
-        [expect.objectContaining({ title: 'Get Lucky' })],
-        true,
-      );
+      fireEvent.pointerDown(follow, { clientX: 100, clientY: 300 });
+      fireEvent.click(follow, { detail: 1 });
+      await vi.waitFor(() => expect(commands.artistFollow).toHaveBeenCalledWith('Daft Punk', null));
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     });
 

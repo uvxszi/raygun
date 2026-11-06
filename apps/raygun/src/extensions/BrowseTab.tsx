@@ -8,6 +8,7 @@ import { nativeName } from '../i18n/languages';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
 import { Sheet } from '../shell/Sheet';
+import { useDragScroll } from '../shell/useDragScroll';
 import { NO_FILTER, catalogFacets, filterCatalog } from './catalogFilters';
 import type { CatalogFilter, CatalogShow, ExtensionKind } from './catalogFilters';
 import { AdultMark } from '../shell/AdultMark';
@@ -32,9 +33,11 @@ export const KindChips: FC<{
   onChange: (kind: ExtensionKind | null) => void;
 }> = ({ kinds, kind, onChange }) => {
   const { t } = useTranslation();
+  const row = useDragScroll<HTMLDivElement>();
   if (kinds.length < 2) return null;
   return (
     <div
+      ref={row}
       role="group"
       aria-label={t('extensions.kindFilter')}
       className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
@@ -336,7 +339,7 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
                       <span className="font-medium">{entry.name}</span>
                       {entry.adult && <AdultMark />}
                       {entry.nuclear && (
-                        <span className="bg-background text-muted rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
+                        <span className="bg-background text-muted rounded px-1.5 py-0.5 text-3xs font-semibold tracking-wide uppercase">
                           {t('extensions.nuclearBadge')}
                         </span>
                       )}

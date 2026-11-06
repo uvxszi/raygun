@@ -184,6 +184,19 @@ impl AiService {
         lines: &[String],
         to: &str,
     ) -> Result<(String, Vec<String>), String> {
+        self.translate_texts(id, lines, to, translate::Content::Lyrics)
+            .await
+    }
+
+    /// [`Self::translate_lyrics`] for any kind of text (a video's subtitle cues, a batch at a
+    /// time): the provider is told what the texts are.
+    pub async fn translate_texts(
+        &self,
+        id: &str,
+        lines: &[String],
+        to: &str,
+        content: translate::Content,
+    ) -> Result<(String, Vec<String>), String> {
         let provider = self
             .stored_providers()
             .await?
@@ -199,7 +212,7 @@ impl AiService {
                 lines,
                 None,
                 to,
-                translate::Content::Lyrics,
+                content,
             )
         };
         let mut result = ask().await;
@@ -213,10 +226,19 @@ impl AiService {
         match result {
             Ok(translated) => Ok((provider.name.clone(), translated)),
             Err(error) => {
-                tracing::info!(provider = %provider.name, %error, "lyrics translation failed");
+                tracing::info!(provider = %provider.name, %error, ?content, "translation failed");
                 Err(error.to_string())
             }
         }
+    }
+
+    /// How much of a model downloading now is in, in bytes.
+    pub fn received(&self, id: &str) -> Option<u64> {
+        self.downloads
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(id)
+            .copied()
     }
 
     /// An OpenAI-compatible provider's address and key, for transcription (M46.32).
@@ -255,6 +277,67 @@ impl AiService {
             has_key: self.vault.contains(&secret),
             key_hint: self.vault.hint(&secret),
         }
+    }
+
+    /// The translators as stored, and with `keys` their keys by translator id (backups, M46.51).
+    pub async fn backup_translators(
+        &self,
+        keys: bool,
+    ) -> Result<
+        (
+            serde_json::Value,
+            std::collections::BTreeMap<String, String>,
+        ),
+        String,
+    > {
+        let list = self.stored_providers().await?;
+        let kept = if keys {
+            list.iter()
+                .filter_map(|provider| {
+                    Some((
+                        provider.id.clone(),
+                        self.vault.get(&secret_name(&provider.id))?,
+                    ))
+                })
+                .collect()
+        } else {
+            Default::default()
+        };
+        Ok((
+            serde_json::to_value(&list).map_err(|error| error.to_string())?,
+            kept,
+        ))
+    }
+
+    /// Adds the translators of a backup that aren't here, with their keys when it kept them.
+    /// Returns how many were added.
+    pub async fn restore_translators(
+        &self,
+        list: &serde_json::Value,
+        keys: &std::collections::BTreeMap<String, String>,
+    ) -> Result<u32, String> {
+        let incoming: Vec<Provider> =
+            serde_json::from_value(list.clone()).map_err(|error| error.to_string())?;
+        let _guard = self.providers_lock.lock().await;
+        let mut stored = self.stored_providers().await?;
+        let mut added = 0;
+        for provider in incoming {
+            if stored.iter().any(|known| known.id == provider.id) {
+                continue;
+            }
+            store_key(&self.vault, &provider.id, keys.get(&provider.id).cloned())?;
+            stored.push(provider);
+            added += 1;
+        }
+        if added > 0 {
+            self.store_providers(&stored).await?;
+        }
+        Ok(added)
+    }
+
+    /// How many translators there are.
+    pub async fn translator_count(&self) -> usize {
+        self.stored_providers().await.map_or(0, |list| list.len())
     }
 
     async fn stored_providers(&self) -> Result<Vec<Provider>, String> {

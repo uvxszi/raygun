@@ -37,6 +37,18 @@ fn best(query: &TrackQuery, candidates: Vec<Candidate>) -> Option<String> {
 }
 
 #[test]
+fn titles_score_like_search() {
+    assert_eq!(title_score("One Piece", "one piece"), 100);
+    assert_eq!(title_score("One Piece Film Red", "One Piece"), 80);
+    assert_eq!(title_score("Film: One Piece", "one piece"), 70);
+    assert_eq!(title_score("Piece of One", "one piece"), 60);
+    assert_eq!(title_score("Piece of Cake", "one piece"), 20);
+    assert_eq!(title_score("Café Terrace", "cafe"), 80);
+    assert_eq!(title_score("进击的巨人第二季", "巨人"), 65);
+    assert_eq!(title_score("anything", ""), 0);
+}
+
+#[test]
 fn normalizes_titles_and_keys() {
     assert_eq!(normalize("Beyoncé & JAY-Z"), "beyonce and jay z");
     assert_eq!(normalize("  Don't   Stop! "), "don t stop");
@@ -61,6 +73,33 @@ fn normalizes_titles_and_keys() {
             Some(1)
         )),
         track_key(&query("What a Wonderful World", "louis armstrong", None))
+    );
+}
+
+#[test]
+fn credits_lose_quotes_left_around_them() {
+    assert_eq!(
+        tidy_credit("\"Five Finger Death Punch\""),
+        "Five Finger Death Punch"
+    );
+    assert_eq!(
+        tidy_credit(" \"Five Finger Death Punch"),
+        "Five Finger Death Punch"
+    );
+    assert_eq!(tidy_credit("Daft Punk”"), "Daft Punk");
+    assert_eq!(tidy_credit("«Kino»"), "Kino");
+    // Quotes that are part of a name, and apostrophes, stay.
+    assert_eq!(
+        tidy_credit("\"Weird Al\" Yankovic"),
+        "\"Weird Al\" Yankovic"
+    );
+    assert_eq!(tidy_credit("'Til Tuesday"), "'Til Tuesday");
+    assert_eq!(tidy_credit("Guns N' Roses "), "Guns N' Roses");
+    assert_eq!(tidy_credit("\""), "");
+    // The key a tidied credit gives is the one it had.
+    assert_eq!(
+        track_key(&query("Bad Company", "\"Five Finger Death Punch", None)),
+        track_key(&query("Bad Company", "Five Finger Death Punch", None))
     );
 }
 

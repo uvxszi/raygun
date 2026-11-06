@@ -243,8 +243,25 @@ object DownloadNotices {
             .setCategory(if (finished.optBoolean("failed")) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
         openRaygunIntent(context, finished.optString("route", "/downloads"))?.let(builder::setContentIntent)
+        finished.optJSONObject("open")?.let { file -> openFileIntent(context, file)?.let { builder.addAction(0, "Open", it) } }
         addActions(context, builder, finished.optJSONArray("actions"), finished.optString("route", "/downloads"))
         notify(context, NotificationManagerCompat.from(context), FINISHED_ID, builder.build())
+    }
+
+    /**
+     * Opens a saved file (one from a website, `{uri, mime}`) in the app Android picks, straight
+     * from the notice: a button can't start it through Raygun once it's in the background.
+     */
+    private fun openFileIntent(context: Context, file: JSONObject): PendingIntent? {
+        val uri = file.optString("uri").takeIf { it.isNotBlank() } ?: return null
+        val view = runCatching { Storage(context).view(android.net.Uri.parse(uri), file.optString("mime")) }.getOrNull()
+            ?: return null
+        return PendingIntent.getActivity(
+            context,
+            uri.hashCode(),
+            view,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     private fun build(context: Context, shown: JSONObject, grouped: Boolean, summary: Boolean, expires: Boolean): Notification {

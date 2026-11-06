@@ -163,6 +163,38 @@ impl ServerService {
         self.list().await
     }
 
+    /// The connections as `server.json` keeps them, by extension id (backups, M46.51).
+    pub async fn configs(&self) -> Result<Vec<(String, ServerConfig)>, String> {
+        let dir = self.extensions().extensions_dir().to_owned();
+        tauri::async_runtime::spawn_blocking(move || connections(&dir))
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    /// Connects a server a backup holds without signing in again, with its sign-in when the
+    /// backup kept it. `false` when it's connected already.
+    pub async fn restore(
+        &self,
+        config: &ServerConfig,
+        secret: Option<&str>,
+    ) -> Result<bool, String> {
+        let _changing = self.changing.lock().await;
+        let id = config.extension_id();
+        if self.list().await?.iter().any(|server| server.id == id) {
+            return Ok(false);
+        }
+        if let Some(secret) = secret {
+            self.app
+                .state::<AiService>()
+                .set_server_secret(&id, Some(secret))
+                .map_err(|error| format!("Couldn't keep the sign-in on this device: {error}"))?;
+        }
+        let verified = servers::package(config).map_err(|error| error.to_string())?;
+        self.extensions().install_verified(verified).await?;
+        tracing::info!(server = %id, "server restored");
+        Ok(true)
+    }
+
     /// Disconnects a server: its folder, what it kept, and (with the uninstall) its sign-in go.
     pub async fn remove(&self, id: &str) -> Result<Vec<ServerInfo>, String> {
         let _changing = self.changing.lock().await;

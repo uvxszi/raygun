@@ -41,9 +41,12 @@ export const search = async (words: string) => {
 - **Failures**: a request that can't be made (no network, an unknown host, a refused host, 20 s
   without an answer) rejects. An HTTP error status resolves; check `ok`.
 - **User-Agent**: Raygun's own (people may change it in its settings) unless `headers` names one.
+  After a browser check on a site was passed by hand (an experimental setting), requests to that
+  site that name none go with the browser's, which the pass holds for, while its cookies last.
 - **Cookies**: each extension keeps its own, saved across restarts: a `Set-Cookie` comes back on
   later requests to its site. A `Cookie` header in `headers` replaces them for that request.
-  Clearing the extension's data forgets them.
+  Clearing the extension's data forgets them. A browser check passed by hand adds the browser's
+  cookies for the checked address (such as Cloudflare's `cf_clearance`).
 - **Turns**: 6 requests at once to one site and 32 across every extension; more wait their turn.
   `Promise.all` over a few requests is fine.
 

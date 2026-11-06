@@ -36,4 +36,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.11.1")
     implementation(project(":tauri-android"))
+    // Tauri's own JSON mapper, for the commands Rust runs without the activity (DirectCalls);
+    // tauri-android ships it at run time.
+    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.15.3")
 }

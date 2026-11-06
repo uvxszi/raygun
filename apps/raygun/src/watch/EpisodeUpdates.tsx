@@ -78,7 +78,7 @@ const UpcomingCard: FC<{ item: VideoUpdateItem; when: string }> = ({ item, when 
       <Link to={link.to} search={link.search} className="flex flex-col gap-1.5">
         <span className="relative overflow-hidden rounded-xl">
           <MangaCover url={item.coverUrl} video className="w-full" />
-          <span className="bg-primary text-background absolute top-1.5 left-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold">
+          <span className="bg-primary text-background absolute top-1.5 left-1.5 rounded-md px-1.5 py-0.5 text-3xs font-bold">
             {when}
           </span>
         </span>

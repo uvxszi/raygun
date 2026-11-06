@@ -12,12 +12,14 @@ import { CoverSheet } from '../music/CoverSheet';
 import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
 import { CollectionSheets } from '../collections/CollectionSheetsHost';
+import { RecordingHost } from '../music/RecordingHost';
 import { SongDownloadsHost } from '../music/SongDownloadsHost';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSpeechHost } from '../engine/useSpeechHost';
 import { useSyncLanguage } from '../i18n/useSyncLanguage';
 import { useLibraryScanSync } from '../library/useLibrary';
 import { useExtensionsSync } from '../extensions/useExtensions';
+import { useApplyFonts } from '../fonts/systemFonts';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { PlayerSheet } from '../player/PlayerSheet';
 import { usePlayerUiStore } from '../player/playerUiStore';
@@ -54,7 +56,7 @@ import { QuickAccessDrawer } from './QuickAccessDrawer';
 import { useIsDesktop } from './useIsDesktop';
 import { useIsPhone } from './useIsPhone';
 import { useLiveInvalidation } from './useLiveInvalidation';
-import { useRailStamps } from './useRail';
+import { useOpenWithProblems } from './useOpenWithProblems';
 import { useScrollMemory } from './scrollMemory';
 import { movesFreely, useDeviceStateSync } from './deviceState';
 
@@ -127,13 +129,12 @@ export const AppShell: FC = () => {
   const desktop = useIsDesktop();
   const { fullscreen } = useWindowState();
   useApplyWindow(desktop, settings.data?.windowFrame);
-  // Sizes from the screen, then Interface size (M46.48).
-  useApplySize(desktop, settings.data?.zoom);
+  // Sizes from the screen, then Interface size and Text size (M46.48); the device's own font.
+  useApplySize(desktop, settings.data?.zoom, settings.data?.textSize);
+  useApplyFonts(settings.data?.fonts);
   useEngineHost();
-  // The sidebar's pins (M46.29), also the phone's quick access; incognito (M47) leaves their
-  // stamps alone.
-  const incognito = useIncognitoSync();
-  useRailStamps(incognito === false);
+  // Incognito (M47): Rust keeps nothing it's asked to remember while it's on.
+  useIncognitoSync();
   // Phones keep their own layouts on their side: no side panel.
   const phone = useIsPhone();
   useSpeechHost();
@@ -157,6 +158,7 @@ export const AppShell: FC = () => {
   useVideoPlayerEvents();
   useYouTubeVideoEvents();
   useNotificationRoutes();
+  useOpenWithProblems();
 
   // Pages scroll inside <main>, not the window: a new page starts at the top, Back and Forward
   // return to where each page was. The readers take the whole screen and keep their own place.
@@ -208,6 +210,7 @@ export const AppShell: FC = () => {
         <SourcePickerSheet />
         <CollectionSheets />
         <SongDownloadsHost />
+        <RecordingHost />
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />

@@ -173,6 +173,29 @@ pub async fn track_count(db: &Db) -> Result<i64, DbError> {
         .get("count"))
 }
 
+/// When each album's songs first came into the library, as `(album artist, album, unix
+/// seconds)` grouped like [`albums`]: the oldest of their ids, UUIDv7s made when a path is first
+/// scanned (a rescan keeps them).
+pub async fn albums_first_seen(db: &Db) -> Result<Vec<(String, String, i64)>, DbError> {
+    let rows = sqlx::query(
+        "SELECT group_artist, group_album, MIN(id) AS first_id FROM local_track
+         GROUP BY group_artist COLLATE NOCASE, group_album COLLATE NOCASE",
+    )
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let id: String = row.get("first_id");
+            let seconds = uuid::Uuid::parse_str(&id)
+                .ok()
+                .and_then(|id| id.get_timestamp())
+                .map_or(0, |stamp| stamp.to_unix().0 as i64);
+            (row.get("group_artist"), row.get("group_album"), seconds)
+        })
+        .collect())
+}
+
 pub async fn albums(db: &Db, artist: Option<&str>) -> Result<Vec<AlbumRow>, DbError> {
     let rows = sqlx::query(
         "SELECT group_artist, group_album, MIN(year) AS year, COUNT(*) AS track_count,

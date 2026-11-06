@@ -1,5 +1,5 @@
 import type { OnlineTrack, SavedTrack, SongDownload } from '@raygun/bindings';
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -103,11 +103,19 @@ describe('Song downloads', () => {
     ).toBeInTheDocument();
     expect(within(rows[0] as HTMLElement).queryByRole('img', { name: 'Downloaded' })).toBeNull();
 
-    fireEvent.contextMenu(rows[0] as HTMLElement);
-    await user.click(await screen.findByRole('menuitem', { name: 'Download' }));
-    expect(commands.songsDownload).toHaveBeenCalledWith([
-      expect.objectContaining({ title: 'Get Lucky', artist: 'Daft Punk' }),
-    ]);
+    await user.click(
+      within(rows[0] as HTMLElement).getByRole('button', { name: 'More for Get Lucky' }),
+    );
+    await user.click(
+      within(await screen.findByTestId('track-more-actions')).getByRole('button', {
+        name: 'Download',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(commands.songsDownload).toHaveBeenCalledWith([
+        expect.objectContaining({ title: 'Get Lucky', artist: 'Daft Punk' }),
+      ]),
+    );
 
     // Several at once from the selection bar; a song saved already is left out (M46.46).
     await user.click(screen.getByRole('button', { name: 'Select all' }));
@@ -471,6 +479,20 @@ describe('Song downloads', () => {
     await user.click(screen.getByRole('button', { name: 'Check downloads' }));
     await user.click(await screen.findByRole('button', { name: 'Download 2 again' }));
     expect(commands.songDownloadsRedownload).toHaveBeenLastCalledWith(['moved', 'gone']);
+  });
+
+  it('names a download’s artist without the quotes its source left around it', async () => {
+    commands.songDownloads.mockResolvedValue(
+      ok([
+        download('q', 'Chop Suey!', 'done', { artist: '"System of a Down"' }),
+        download('w', 'White & Nerdy', 'done', { artist: '"Weird Al" Yankovic' }),
+      ]),
+    );
+    await AppShellWrapper.mount('/downloads?tab=music');
+    await list();
+    expect(within(row('Chop Suey!')).getByText('System of a Down')).toBeInTheDocument();
+    // Quotes that are part of a name stay.
+    expect(within(row('White & Nerdy')).getByText('"Weird Al" Yankovic')).toBeInTheDocument();
   });
 
   it('says when every download is fine', async () => {

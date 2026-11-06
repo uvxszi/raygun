@@ -33,9 +33,10 @@ fn parse_color(text: &str) -> Option<tauri::window::Color> {
 }
 
 /// Opens the miniplayer, or brings it forward. `background` (`#rrggbb`, the app's own) shows
-/// while its page loads instead of white.
+/// while its page loads instead of white. The page zooms by the interface size (`zoom`, percent)
+/// as the main window's does, and the window starts as much larger, so it holds the same.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub fn open(app: &AppHandle, background: Option<&str>) -> Result<(), String> {
+pub fn open(app: &AppHandle, background: Option<&str>, zoom: u32) -> Result<(), String> {
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
     if let Some(window) = app.get_webview_window(LABEL) {
@@ -43,10 +44,11 @@ pub fn open(app: &AppHandle, background: Option<&str>) -> Result<(), String> {
         let _ = window.show();
         return window.set_focus().map_err(|error| error.to_string());
     }
+    let scale = f64::from(zoom.clamp(50, 200)) / 100.0;
     let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title("Raygun")
-        .inner_size(320.0, 384.0)
-        .min_inner_size(200.0, 240.0)
+        .inner_size(320.0 * scale, 384.0 * scale)
+        .min_inner_size(200.0 * scale, 240.0 * scale)
         .decorations(false)
         .always_on_top(true)
         .resizable(true);
@@ -63,7 +65,7 @@ pub fn open(app: &AppHandle, background: Option<&str>) -> Result<(), String> {
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn open(_app: &AppHandle, _background: Option<&str>) -> Result<(), String> {
+pub fn open(_app: &AppHandle, _background: Option<&str>, _zoom: u32) -> Result<(), String> {
     Err("The miniplayer is a desktop window".into())
 }
 

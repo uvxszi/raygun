@@ -9,7 +9,6 @@ import { usePlayTitle, useTitleCardMenu } from '../manga/titleMenu';
 import type { CardTitle } from '../manga/titleMenu';
 import { AdultMark } from '../shell/AdultMark';
 import { Carousel } from '../shell/Carousel';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SourceTag } from '../shell/SourceTag';
@@ -105,7 +104,6 @@ export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
         search={{ type: item.kind, id: item.id }}
         aria-label={name}
         data-testid="stremio-card"
-        onContextMenu={(event) => openContextMenu(event, items())}
         className={`flex flex-col gap-1 ${pickable ? '' : className}`}
       >
         <span className="relative">

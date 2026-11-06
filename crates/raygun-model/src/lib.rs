@@ -202,8 +202,15 @@ pub struct Settings {
     /// Who draws the desktop window's top edge (M46.9).
     pub window_frame: WindowFrame,
     /// Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
-    /// app zooms its window; phones scale their text and spacing.
+    /// app zooms its window; phones scale their text, spacing and icons.
     pub zoom: u32,
+    /// Text size in percent more or less than the screen's own ([`TEXT_SIZES`]), over the
+    /// interface size: text alone grows or shrinks, boxes and icons stay.
+    #[serde(default)]
+    pub text_size: i32,
+    /// The device's own fonts for the interface and the book reader (device-only).
+    #[serde(default)]
+    pub fonts: FontPrefs,
     /// Charts and song tags (M46.9).
     pub discovery: DiscoveryPrefs,
     /// Captions for podcasts and audiobooks heard by AI (M46.32).
@@ -224,6 +231,9 @@ pub struct Settings {
     pub browse_start_tab: String,
     /// Search's own switches: no 18+ sources or titles, no explicit songs; both off by default.
     pub search_filter: SearchFilterPrefs,
+    /// Sources whose search fails or finds nothing are looked through instead: their listings
+    /// are matched against the query (on, 20 matches, 5 pages by default).
+    pub search_listings: SearchListingsPrefs,
     /// Sources that meet a browser check offer to open their site so it can be passed by hand
     /// (experimental, off by default; `raygun_ext_host::browser_check`).
     pub manual_browser_checks: bool,
@@ -247,25 +257,45 @@ pub struct Settings {
     pub rail: RailPrefs,
 }
 
-/// The desktop sidebar's pins (M46.29): anything with a page, in the user's order or by when it
-/// was last played from or opened. Quick access (M46.41): what's added to the library is pinned
-/// too, up to `limit` automatic pins.
+/// Quick access: the desktop sidebar's list (M46.29) and the phone's drawer. The audio library
+/// lists itself (the fixed blocks, playlists, albums, artists, shows and books), the most recently
+/// played from first, at most `shown` of them; pins stay on top in the user's order and always
+/// show. Comics, books, videos and sites show while pinned: by hand, or when added to the library
+/// (M46.41, `auto_add`, up to `limit`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RailPrefs {
+    /// Pinned pages, in the user's order.
     pub pins: Vec<RailPin>,
+    /// How the rest is sorted, and the pins too when they don't stay on top.
     pub order: RailOrder,
-    /// The first run's pins were added (Favorites, Downloaded, Local files and the playlists).
+    /// Older versions: the first run's pins were added. Unused since `version` 2.
     pub seeded: bool,
-    /// Pin what's added to the library (M46.41).
+    /// Comics, books, videos and sites added to the library are pinned too (M46.41).
     #[serde(default = "pin_added")]
     pub auto_add: bool,
-    /// Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay.
+    /// Those automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay.
     #[serde(default = "auto_pin_limit")]
     pub limit: u32,
     /// The phone's quick access drawer shows names beside the pins; off, icons only.
     #[serde(default = "drawer_expanded")]
     pub drawer_expanded: bool,
+    /// Audio items listed at most, 10–1000, the most recent ones; pins don't count.
+    #[serde(default = "rail_shown")]
+    pub shown: u32,
+    /// Which parts of the audio library are listed.
+    #[serde(default)]
+    pub kinds: RailKinds,
+    /// Pins stay on top in their own order; off, they're sorted with the rest (and still show).
+    #[serde(default = "pinned_first")]
+    pub pinned_first: bool,
+    /// When pages were last played from, newest first. Kept by Rust (`quick_access::played`):
+    /// what the UI sends back is replaced by what's stored.
+    #[serde(default)]
+    pub played: Vec<RailPlayed>,
+    /// The shape it was saved in: 0 for rows of versions that pinned the audio library by hand.
+    #[serde(default)]
+    pub version: u32,
 }
 
 fn pin_added() -> bool {
@@ -280,8 +310,23 @@ fn drawer_expanded() -> bool {
     true
 }
 
+fn rail_shown() -> u32 {
+    RAIL_SHOWN_DEFAULT
+}
+
+fn pinned_first() -> bool {
+    true
+}
+
 /// Automatic quick access pins allowed at most (M46.41).
 pub const RAIL_AUTO_LIMIT_MAX: u32 = 1000;
+/// Audio items quick access lists at most, and by default.
+pub const RAIL_SHOWN: std::ops::RangeInclusive<u32> = 10..=1000;
+pub const RAIL_SHOWN_DEFAULT: u32 = 100;
+/// Pages whose last play is remembered, at most (as many as can be listed).
+pub const RAIL_PLAYED_KEPT: usize = 1000;
+/// `RailPrefs::version` today: the audio library lists itself and pins stay on top.
+pub const RAIL_VERSION: u32 = 2;
 
 impl Default for RailPrefs {
     fn default() -> Self {
@@ -292,8 +337,53 @@ impl Default for RailPrefs {
             auto_add: true,
             limit: auto_pin_limit(),
             drawer_expanded: drawer_expanded(),
+            shown: RAIL_SHOWN_DEFAULT,
+            kinds: RailKinds::default(),
+            pinned_first: true,
+            played: Vec::new(),
+            version: RAIL_VERSION,
         }
     }
+}
+
+/// The parts of the audio library quick access lists; pinned ones show whatever these say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RailKinds {
+    pub favorites: bool,
+    pub downloaded: bool,
+    pub local_files: bool,
+    pub playlists: bool,
+    /// The albums of the device's own songs (Library → Audio → Albums).
+    pub albums: bool,
+    /// Followed artists and the artists of the device's own songs.
+    pub artists: bool,
+    pub podcasts: bool,
+    pub audiobooks: bool,
+}
+
+impl Default for RailKinds {
+    fn default() -> Self {
+        Self {
+            favorites: true,
+            downloaded: true,
+            local_files: true,
+            playlists: true,
+            albums: true,
+            artists: true,
+            podcasts: true,
+            audiobooks: true,
+        }
+    }
+}
+
+/// When a page was last played from (unix seconds).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RailPlayed {
+    pub to: String,
+    pub search: std::collections::BTreeMap<String, String>,
+    pub at: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -310,6 +400,7 @@ pub struct RailPin {
     pub artwork_url: Option<String>,
     /// Unix seconds; 0 when never.
     pub pinned_at: u32,
+    /// Older versions' stamps (now `RailPrefs::played`), kept for them.
     pub played_at: u32,
     pub opened_at: u32,
     /// Pinned because it was added to the library (M46.41), not by hand: it goes when it leaves
@@ -321,12 +412,15 @@ pub struct RailPin {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum RailOrder {
+    /// The last time something was played from it; what never was after, newest added first.
+    /// Older versions' custom order and Recently opened are read as this
+    /// (`quick_access::migrate_row`).
     #[default]
-    Custom,
-    /// The last time something was played from it.
     Played,
-    /// The last time its page was opened.
-    Opened,
+    /// When it was added to the library (or pinned), newest first.
+    Added,
+    /// By name.
+    Name,
 }
 
 /// Pins the sidebar keeps, at most.
@@ -345,8 +439,65 @@ impl RailPrefs {
                 "quick access keeps 1 to {RAIL_AUTO_LIMIT_MAX} automatic pins"
             ));
         }
+        if !RAIL_SHOWN.contains(&self.shown) {
+            return Err(format!(
+                "quick access lists {} to {} items",
+                RAIL_SHOWN.start(),
+                RAIL_SHOWN.end()
+            ));
+        }
+        if self.played.len() > RAIL_PLAYED_KEPT {
+            return Err(format!(
+                "quick access remembers at most {RAIL_PLAYED_KEPT} plays"
+            ));
+        }
         Ok(())
     }
+}
+
+/// One row of quick access: a page of the audio library, or a pinned page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAccessItem {
+    /// As `RailPin::kind`.
+    pub kind: String,
+    pub to: String,
+    pub search: std::collections::BTreeMap<String, String>,
+    /// Its name now: Favorites', Downloaded's and Local files' as the UI gave them.
+    pub name: String,
+    /// A show's or book's author, an album's artist.
+    pub subtitle: Option<String>,
+    pub artwork_url: Option<String>,
+    /// A playlist's cover made of its first songs' artwork (`artwork_url` is a picked one).
+    pub artwork_urls: Vec<String>,
+    pub pinned: bool,
+    /// The audio library lists it: unpinned, it stays.
+    pub library: bool,
+    /// In the library and taken out with Remove from library: a playlist, a followed artist, a
+    /// followed show, a book. The fixed blocks and the device's own albums and artists aren't.
+    pub removable: bool,
+    /// Unix seconds; 0 when unknown.
+    pub added_at: u32,
+    /// When it was last played from (unix seconds); 0 when never.
+    pub played_at: u32,
+}
+
+/// Quick access as shown: the pins first (when they stay on top), then the rest in order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAccessList {
+    pub items: Vec<QuickAccessItem>,
+    /// Audio items left out past `RailPrefs::shown`.
+    pub more: u32,
+}
+
+/// The fixed blocks' names in the UI's language, for sorting by name.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAccessNames {
+    pub favorites: String,
+    pub downloaded: String,
+    pub local_files: String,
 }
 
 /// How long lyrics stay kept on the device (M46.46).
@@ -432,6 +583,54 @@ pub struct SearchFilterPrefs {
     pub no_adult: bool,
     /// "No explicit": songs marked explicit are left out, and 18+ music sources aren't asked.
     pub no_explicit: bool,
+}
+
+/// A source whose own search fails or finds nothing for what was typed is looked through instead
+/// (`raygun_ext_host::listing_search`): its listings (popular, latest, its sort filters; a music
+/// source's charts) are read page by page and matched against the query. On by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SearchListingsPrefs {
+    pub enabled: bool,
+    /// Matches collected at most from one source's listings.
+    pub entries: u32,
+    /// Listing pages read at most from one source, all its listings together.
+    pub pages: u32,
+}
+
+impl Default for SearchListingsPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            entries: 20,
+            pages: 5,
+        }
+    }
+}
+
+/// Matches a search may collect from one source's listings.
+pub const SEARCH_LISTING_ENTRIES: std::ops::RangeInclusive<u32> = 1..=100;
+/// Listing pages a search may read from one source.
+pub const SEARCH_LISTING_PAGES: std::ops::RangeInclusive<u32> = 1..=20;
+
+impl SearchListingsPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if !SEARCH_LISTING_ENTRIES.contains(&self.entries) {
+            return Err(format!(
+                "a search collects {} to {} titles from a source's listings",
+                SEARCH_LISTING_ENTRIES.start(),
+                SEARCH_LISTING_ENTRIES.end()
+            ));
+        }
+        if !SEARCH_LISTING_PAGES.contains(&self.pages) {
+            return Err(format!(
+                "a search reads {} to {} pages of a source's listings",
+                SEARCH_LISTING_PAGES.start(),
+                SEARCH_LISTING_PAGES.end()
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// A rating the user gives a source, an extension or a repository over its own.
@@ -978,8 +1177,140 @@ pub struct SpokenItem {
     pub author: Option<String>,
 }
 
+/// What a video's subtitles are translated from: the lines of a subtitle track as the player
+/// shows them, or the video's AI subtitles, followed while they're being made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SubtitleSource {
+    #[serde(rename_all = "camelCase")]
+    Cues {
+        /// The track's name and language, as the player lists it.
+        label: Option<String>,
+        language: Option<String>,
+        cues: Vec<Caption>,
+    },
+    Ai,
+}
+
+/// A request to translate a video's subtitles as it plays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleTranslateRequest {
+    /// The video's progress key.
+    pub key: String,
+    pub source: SubtitleSource,
+    /// The language to translate into, a BCP 47 tag.
+    pub language: String,
+    /// `device` (models from the AI catalogue) or `ai:<provider id>`.
+    pub translator: String,
+    /// Where the viewer is: translating starts there and keeps ahead of them.
+    pub from_ms: u32,
+    /// This device's models may be downloaded first (asked with `download_bytes` before).
+    pub download: bool,
+}
+
+/// A video's translated subtitles, and where translating them stands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleTranslation {
+    /// The video's progress key.
+    pub key: String,
+    /// The track's id: its source (`ai`, or a hash of the source's lines) and its language.
+    pub id: String,
+    pub language: String,
+    pub translator: String,
+    /// The AI provider's name; empty for this device.
+    pub by: String,
+    /// The translated track's name and language, when it had them.
+    pub source_label: Option<String>,
+    pub source_language: Option<String>,
+    /// The lines translated so far, timed as the source's.
+    pub cues: Vec<Caption>,
+    /// Lines with words translated, out of all of them.
+    pub done: u32,
+    pub total: u32,
+    /// How far past the viewer the lines are translated; `None` once they are to the end.
+    pub ahead_ms: Option<u32>,
+    /// Until when, from the viewer's place, the lines are translated (`ahead_ms` from where
+    /// the viewer was last reported), so a player can say it as the video moves on.
+    pub ready_until_ms: Option<u32>,
+    /// Every line is translated (AI subtitles: once they're complete too).
+    pub complete: bool,
+    pub running: bool,
+    /// Downloading this device's models first: how much is in, in percent.
+    pub downloading: Option<u32>,
+    pub error: Option<String>,
+    /// What this device would download first, in bytes, before `download` is set; else 0.
+    pub download_bytes: f64,
+}
+
 /// Interface sizes offered, in percent of the screen's (M46.9, M46.48).
 pub const ZOOM_LEVELS: std::ops::RangeInclusive<u32> = 50..=200;
+
+/// Text sizes offered, in percent more or less than the screen's own text (M46.48).
+pub const TEXT_SIZES: std::ops::RangeInclusive<i32> = -30..=100;
+
+/// The longest font family name kept.
+const FONT_FAMILY_MAX: usize = 200;
+
+/// Fonts installed on the device instead of Raygun's own: each a family name, or empty for the
+/// default. Kept to the device it was picked on, since what's installed differs between devices;
+/// a family that isn't there falls back to the default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FontPrefs {
+    /// The whole interface's text.
+    pub interface: String,
+    /// The book reader's text, over its Serif or Sans.
+    pub reading: String,
+}
+
+impl FontPrefs {
+    /// Names go into CSS: nothing that could end a quoted family or a declaration.
+    pub fn validate(&self) -> Result<(), String> {
+        let unsafe_char =
+            |char: char| char.is_control() || matches!(char, '"' | '\\' | ';' | '{' | '}');
+        for family in [&self.interface, &self.reading] {
+            if family.len() > FONT_FAMILY_MAX || family.chars().any(unsafe_char) {
+                return Err(format!(
+                    "A font family name is up to {FONT_FAMILY_MAX} characters, without quotes, \
+                     backslashes, semicolons or braces"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn normalized(self) -> Self {
+        Self {
+            interface: self.interface.trim().to_owned(),
+            reading: self.reading.trim().to_owned(),
+        }
+    }
+}
+
+/// A font family installed on the device, for the font pickers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemFont {
+    /// The family's name, as `font-family` names it.
+    pub family: String,
+    /// The files the webview loads with `@font-face`, where it can't find installed families by
+    /// name (Android); empty where it can (desktop).
+    pub faces: Vec<SystemFontFace>,
+}
+
+/// One file of a [`SystemFont`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemFontFace {
+    /// The file through the stream proxy's `/font/` route.
+    pub url: String,
+    /// The weights it draws: one for a fixed face, a range for a variable one.
+    pub weight_min: u16,
+    pub weight_max: u16,
+    pub italic: bool,
+}
 
 /// Next pages load as a list's end comes near (M46.8), at most one per `cooldown_ms`, so sources
 /// don't rate-limit the user; off, a Load more button stays.
@@ -1163,11 +1494,20 @@ pub struct PanelPrefs {
     pub player_split: u32,
     /// Songs the side panel's "Next in queue" card shows, 1 to 10 (M46.24).
     pub next_up_rows: u32,
+    /// The desktop rail's tabs above quick access, 44 to 2000 px; shorter than its tabs, they
+    /// scroll. 0: as tall as they are.
+    pub rail_nav_height: u32,
 }
 
 impl PanelPrefs {
     pub fn validate(&self) -> Result<(), String> {
         let within = |value: u32, low: u32, high: u32| value == 0 || (low..=high).contains(&value);
+        if !within(self.rail_nav_height, 44, 2000) {
+            return Err(format!(
+                "{} px isn't a height for the rail's tabs",
+                self.rail_nav_height
+            ));
+        }
         if !within(self.rail_width, 72, 360) {
             return Err(format!("{} px isn't a rail width", self.rail_width));
         }
@@ -1637,9 +1977,11 @@ pub struct NovelReaderPrefs {
     /// Reading-aloud speed in tenths, 5–20 (0.5×–2×).
     #[serde(default = "normal_rate")]
     pub tts_rate: u32,
-    /// The first line of each paragraph starts further in, as in printed books (M46.10).
+    /// How far the first line of each paragraph starts in, as in printed books (M46.10), in
+    /// tenths of an em (the text's size), within [`NOVEL_INDENTS`]; 0 = none. Older versions
+    /// stored a switch, which loading settings reads as [`NOVEL_INDENT_SWITCHED_ON`] when on.
     #[serde(default)]
-    pub indent: bool,
+    pub indent: u32,
     #[serde(default)]
     pub theme: NovelTheme,
     /// Lines run to both edges, words hyphenated.
@@ -1652,6 +1994,12 @@ pub struct NovelReaderPrefs {
 
 /// Novel text sizes offered, in CSS pixels more or less than the screen's own (M46.48).
 pub const NOVEL_TEXT_SIZES: std::ops::RangeInclusive<i32> = -6..=12;
+
+/// Paragraph indents offered, in tenths of an em: none to 4 em.
+pub const NOVEL_INDENTS: std::ops::RangeInclusive<u32> = 0..=40;
+
+/// The indent of the old on/off switch (2 em), which a stored `true` becomes.
+pub const NOVEL_INDENT_SWITCHED_ON: u32 = 20;
 
 fn normal_rate() -> u32 {
     10
@@ -1670,7 +2018,7 @@ impl Default for NovelReaderPrefs {
             width: NovelWidth::Narrow,
             paged: false,
             tts_rate: 10,
-            indent: false,
+            indent: 0,
             theme: NovelTheme::App,
             justify: false,
             keep_screen_on: true,
@@ -2116,6 +2464,8 @@ impl Default for Settings {
             auto_load: AutoLoadPrefs::default(),
             window_frame: WindowFrame::App,
             zoom: 100,
+            text_size: 0,
+            fonts: FontPrefs::default(),
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
             privacy: PrivacyPrefs::default(),
@@ -2125,6 +2475,7 @@ impl Default for Settings {
             failing_sources_last: true,
             browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
+            search_listings: SearchListingsPrefs::default(),
             manual_browser_checks: false,
             run_source_code: false,
             user_agent: String::new(),
@@ -2181,9 +2532,12 @@ impl Settings {
             SettingChange::AutoLoad(prefs) => self.auto_load = prefs,
             SettingChange::WindowFrame(frame) => self.window_frame = frame,
             SettingChange::Zoom(percent) => self.zoom = percent,
+            SettingChange::TextSize(percent) => self.text_size = percent,
+            SettingChange::Fonts(prefs) => self.fonts = prefs.normalized(),
             SettingChange::FailingSourcesLast(on) => self.failing_sources_last = on,
             SettingChange::BrowseStartTab(tab) => self.browse_start_tab = tab,
             SettingChange::SearchFilter(prefs) => self.search_filter = prefs,
+            SettingChange::SearchListings(prefs) => self.search_listings = prefs,
             SettingChange::ManualBrowserChecks(on) => self.manual_browser_checks = on,
             SettingChange::RunSourceCode(on) => self.run_source_code = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
@@ -2271,10 +2625,13 @@ pub enum SettingChange {
     AutoLoad(AutoLoadPrefs),
     WindowFrame(WindowFrame),
     Zoom(u32),
+    TextSize(i32),
+    Fonts(FontPrefs),
     Discovery(DiscoveryPrefs),
     FailingSourcesLast(bool),
     BrowseStartTab(String),
     SearchFilter(SearchFilterPrefs),
+    SearchListings(SearchListingsPrefs),
     ManualBrowserChecks(bool),
     RunSourceCode(bool),
     UserAgent(String),
@@ -2334,10 +2691,13 @@ impl SettingChange {
             Self::AutoLoad(_) => "autoLoad",
             Self::WindowFrame(_) => "windowFrame",
             Self::Zoom(_) => "zoom",
+            Self::TextSize(_) => "textSize",
+            Self::Fonts(_) => "fonts",
             Self::Discovery(_) => "discovery",
             Self::FailingSourcesLast(_) => "failingSourcesLast",
             Self::BrowseStartTab(_) => "browseStartTab",
             Self::SearchFilter(_) => "searchFilter",
+            Self::SearchListings(_) => "searchListings",
             Self::ManualBrowserChecks(_) => "manualBrowserChecks",
             Self::RunSourceCode(_) => "runSourceCode",
             Self::UserAgent(_) => "userAgent",
@@ -2399,6 +2759,7 @@ impl SettingChange {
                 Ok(())
             }
             Self::Hidden(prefs) => prefs.validate(),
+            Self::SearchListings(prefs) => prefs.validate(),
             Self::ContentOverrides(overrides) => overrides.validate(),
             Self::Rail(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
@@ -2434,6 +2795,14 @@ impl SettingChange {
                     Err(format!("{percent}% isn't an offered zoom"))
                 }
             }
+            Self::TextSize(percent) => {
+                if TEXT_SIZES.contains(percent) {
+                    Ok(())
+                } else {
+                    Err(format!("{percent}% isn't an offered text size"))
+                }
+            }
+            Self::Fonts(prefs) => prefs.validate(),
             Self::NextPromptSeconds(seconds) => {
                 if NEXT_PROMPT_SECONDS.contains(seconds) {
                     Ok(())
@@ -2511,6 +2880,8 @@ impl SettingChange {
                     Err("That line spacing isn't offered".into())
                 } else if !(5..=20).contains(&prefs.tts_rate) {
                     Err("That reading speed isn't offered".into())
+                } else if !NOVEL_INDENTS.contains(&prefs.indent) {
+                    Err("That paragraph indent isn't offered".into())
                 } else {
                     Ok(())
                 }
@@ -2695,6 +3066,14 @@ pub struct PlaybackState {
     pub sleep_at: Option<f64>,
     /// The sleep timer pauses when the current song ends (M46.8).
     pub stop_after_current: bool,
+    /// What the current song had to play didn't (its stream stopped working, or none was found
+    /// at first): another source is being looked for, and the player says so meanwhile.
+    #[serde(default)]
+    pub looking_for_source: bool,
+    /// The queue item skipped last because nothing played it, kept with `error` until a song
+    /// plays: the skip notice offers to find a source for it.
+    #[serde(default)]
+    pub skipped_item_id: Option<String>,
 }
 
 /// The sleep timer (M46.8).
@@ -3009,8 +3388,36 @@ pub struct BrowserCheckTarget {
     pub extension_id: String,
     /// The source's name for people.
     pub source: String,
-    /// The page that opens.
+    /// The page that opens: the address of the request that met the check.
     pub url: String,
+}
+
+/// How a browser check opened by hand ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserCheckOutcome {
+    /// The check was passed, and the source answered when asked again.
+    Passed,
+    /// The check was passed, but the source's request met a check again: the site doesn't let
+    /// Raygun's requests through with the browser's pass.
+    StillBlocked,
+    /// The check was passed, but the source still failed, for another reason.
+    StillFailing,
+    /// The page loaded without asking for a check: the problem is something else.
+    NoCheck,
+    /// The browser closed before a check was passed, or before the page loaded.
+    NotPassed,
+}
+
+/// What opening a browser check by hand did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserCheckResult {
+    pub outcome: BrowserCheckOutcome,
+    /// How many of the browser's cookies the extension took.
+    pub cookies: u32,
+    /// The source's error when it was asked again and failed.
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -3984,6 +4391,10 @@ pub struct ProviderSearchResult {
     pub provider: ProviderInfo,
     pub tracks: Vec<OnlineTrack>,
     pub error: Option<String>,
+    /// Its search failed or found nothing: these songs were found in its charts instead
+    /// (`Settings::search_listings`).
+    #[serde(default)]
+    pub from_listings: bool,
 }
 
 /// Everything a search found (M18).
@@ -4468,7 +4879,8 @@ pub struct MangaCard {
     /// The source marks it adult: the UI marks it 18+.
     #[serde(default)]
     pub adult: bool,
-    /// Found by matching the source's listings, not by its search (which found little).
+    /// Found by matching the source's listings, not by its search (which failed or found
+    /// nothing).
     #[serde(default)]
     pub from_listing: bool,
 }
@@ -4634,6 +5046,41 @@ pub struct SongCaptureRequest {
     pub format: Option<String>,
     pub from_ms: f64,
     pub speed: f64,
+}
+
+/// A song recorded as it plays (Android): nothing gives a file of it and only YouTube's player
+/// plays it, so the webview plays it aloud in a player of its own while Raygun's own sound is
+/// recorded. The webview reports the player with `song_recording_report`. A request without a
+/// `video_id` stops that player.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongRecordingRequest {
+    pub session: String,
+    /// The song download it's for, for Cancel.
+    pub download_id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub video_id: Option<String>,
+    /// Where it plays from.
+    pub start_ms: f64,
+    /// The YouTube embed host page.
+    pub embed_url: String,
+}
+
+/// What the recording's player in the webview did.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongRecordingReport {
+    pub session: String,
+    pub event: EngineEvent,
+}
+
+/// Songs wait to be recorded as they play: the person is asked to allow recording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingConsentRequest {
+    /// How many songs wait.
+    pub songs: u32,
 }
 
 /// What a background capture reports (M46.49).
@@ -4846,6 +5293,8 @@ pub struct LocalFolder {
     pub name: String,
     /// Its path (or, without one, the address the picker gave).
     pub location: String,
+    /// How Raygun reads it (M46.51).
+    pub access: LocalFolderAccess,
     pub counts: LocalCounts,
     /// Unix ms.
     pub scanned_at: Option<f64>,
@@ -4879,6 +5328,90 @@ pub struct LocalCounts {
 pub struct LocalScanProgress {
     pub done: u32,
     pub total: u32,
+}
+
+/// How Raygun reads a Local Files folder (M46.51).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalFolderAccess {
+    /// By its path: a desktop folder, or one chosen in Raygun's own folder browser (Android).
+    Path,
+    /// Through the grant of Android's system folder picker (SD cards, USB drives, cloud folders).
+    Tree,
+    /// Raygun's own folder of songs and videos added one by one (the copies it keeps).
+    Added,
+}
+
+/// What Local Files' folder browser shows of the phone's storage (M46.51).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalStorageView {
+    /// Every file: access to all files is allowed (or a desktop, where nothing is asked).
+    AllFiles,
+    /// Songs, videos and pictures only: the media permissions. Other apps' books and comic
+    /// archives (EPUB, CBZ, ZIP) stay hidden.
+    Media,
+    /// Nothing until media access is allowed.
+    None,
+}
+
+/// One step of the folder browser's trail, the top first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBrowseCrumb {
+    pub name: String,
+    pub path: String,
+}
+
+/// A folder inside the one shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBrowseFolder {
+    pub name: String,
+    pub path: String,
+    /// Files Raygun plays or reads in it and its folders; `None` when there were too many to
+    /// count in time.
+    pub items: Option<u32>,
+}
+
+/// A folder of the phone's storage in Local Files' folder browser (M46.51).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBrowse {
+    pub path: String,
+    pub name: String,
+    /// From the top of the storage down to this folder.
+    pub trail: Vec<LocalBrowseCrumb>,
+    /// Its folders holding anything Raygun plays or reads, by name.
+    pub folders: Vec<LocalBrowseFolder>,
+    /// Files Raygun plays or reads right in this folder.
+    pub items: u32,
+    pub view: LocalStorageView,
+    /// Android can be asked for access to all files (11 and later).
+    pub can_allow_all_files: bool,
+    /// The folder is in Local Files already.
+    pub added: bool,
+}
+
+/// A file Add files couldn't add, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAddFailure {
+    pub name: String,
+    pub error: String,
+}
+
+/// What Add files added (M46.51): comics and books are imported, songs and videos copied into
+/// Raygun's own Added files folder.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalFilesAdded {
+    pub songs: u32,
+    pub videos: u32,
+    pub comics: u32,
+    pub books: u32,
+    pub failed: Vec<LocalAddFailure>,
+    pub folders: Vec<LocalFolder>,
 }
 
 /// The file type a saved cover image gets (M46.26).
@@ -4960,6 +5493,8 @@ pub struct MangaDownloadItem {
     pub title_id: String,
     pub title: String,
     pub chapter: String,
+    /// The title's medium: `manga` or `novel` (novel chapters share the queue).
+    pub medium: String,
     pub download: ChapterDownload,
 }
 
@@ -5916,16 +6451,258 @@ pub struct MangaChapterPages {
     pub next_chapter_id: Option<String>,
 }
 
-// ---- Backups (M30) ----
+// ---- Backups (M30) and Settings → Data (M46.51) ----
 
-/// A backup file kept on this device.
+/// One kind of data Settings → Data backs up, restores and clears.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum DataCategory {
+    /// Library → Comics, with chapters, what was read and categories.
+    Comics,
+    /// Library → Books.
+    Books,
+    /// Library → Videos.
+    Videos,
+    /// Followed podcasts and where each episode was left.
+    Podcasts,
+    Audiobooks,
+    /// Sites added to the built-in browser.
+    Websites,
+    /// Playlists and favorite songs.
+    Playlists,
+    /// Quick access: its pins and when its pages were last played from.
+    Pins,
+    /// Songs played, videos watched and what was played from.
+    History,
+    /// Every setting but quick access's.
+    Settings,
+    /// Extensions, repositories, Stremio addons and connected servers.
+    Sources,
+    /// What was downloaded: backups keep the list, never the files.
+    Downloads,
+    /// Local Files' folders: where Raygun looks for songs, comics, books and videos on this
+    /// device. Backups keep the list, and a restore adds back the folders this device has.
+    LocalFiles,
+    /// Recent searches.
+    Searches,
+    /// AI models and translators.
+    AiModels,
+    /// Covers, reader pages, lyrics, videos' AI subtitles and songs opened from other apps, kept
+    /// to show or play them quickly; never backed up.
+    Caches,
+}
+
+impl DataCategory {
+    pub const ALL: [DataCategory; 16] = [
+        DataCategory::Comics,
+        DataCategory::Books,
+        DataCategory::Videos,
+        DataCategory::Podcasts,
+        DataCategory::Audiobooks,
+        DataCategory::Websites,
+        DataCategory::Playlists,
+        DataCategory::Pins,
+        DataCategory::History,
+        DataCategory::Settings,
+        DataCategory::Sources,
+        DataCategory::Downloads,
+        DataCategory::LocalFiles,
+        DataCategory::Searches,
+        DataCategory::AiModels,
+        DataCategory::Caches,
+    ];
+
+    /// Whether backups can hold it (caches are only cleared).
+    pub fn backs_up(self) -> bool {
+        self != DataCategory::Caches
+    }
+}
+
+/// What a count in Settings → Data or a backup's index counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DataItem {
+    Titles,
+    Chapters,
+    Read,
+    Episodes,
+    Watched,
+    Categories,
+    Shows,
+    Books,
+    Sites,
+    Playlists,
+    PlaylistSongs,
+    Favorites,
+    Pins,
+    /// Pages quick access sorts by when they were last played from.
+    Played,
+    Settings,
+    Repositories,
+    Extensions,
+    Addons,
+    Servers,
+    /// Passwords, sign-ins and API keys.
+    Secrets,
+    Plays,
+    /// Places music was played from (an album, a playlist…).
+    Contexts,
+    /// Downloaded songs.
+    Songs,
+    /// Downloaded videos.
+    Videos,
+    /// Downloads waiting or failed: entries without a file.
+    Waiting,
+    /// Files saved from websites.
+    Files,
+    /// Local Files' folders.
+    Folders,
+    Searches,
+    Models,
+    Translators,
+    Covers,
+    Pages,
+    Lyrics,
+    /// Videos with AI subtitles or translated subtitles kept.
+    Subtitles,
+    /// Songs other apps opened with Raygun, copied to play them.
+    Opened,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct BackupFile {
-    pub name: String,
-    pub size_bytes: f64,
+pub struct DataCount {
+    pub item: DataItem,
+    pub count: u32,
+    /// What its files take on this device, where it's files.
+    pub bytes: Option<f64>,
+}
+
+/// Where clearing a category reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DataScope {
+    /// Linked devices remove it too: device sync carries the clear like any change.
+    Synced,
+    /// This device only.
+    Device,
+}
+
+/// One category in Settings → Data: what's in it on this device.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DataUsage {
+    pub category: DataCategory,
+    pub counts: Vec<DataCount>,
+    /// Bytes its files take (downloads, models, caches); 0 for rows in the database.
+    pub bytes: f64,
+    pub scope: DataScope,
+}
+
+/// What clearing downloads removes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadsClear {
+    /// Downloaded files and their entries. Copies saved outside Raygun stay.
+    Files,
+    /// Entries waiting or failed, which have no file yet.
+    Records,
+}
+
+/// One category's counts in a backup.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupSection {
+    pub category: DataCategory,
+    pub counts: Vec<DataCount>,
+}
+
+/// What a backup file says about itself, read without unpacking the rest.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupManifest {
+    /// The file's format version (1: before M46.51, read in full to describe it).
+    pub version: u32,
     /// Unix ms.
     pub created_at: f64,
+    pub device_id: String,
+    /// The device's name as linked devices see it; empty for version 1.
+    pub device_name: String,
+    /// The Raygun that made it; empty for version 1.
+    pub app_version: String,
+    /// `android`, `windows`…; empty for version 1.
+    pub platform: String,
+    /// Whether passwords, sign-ins and API keys are inside, readable.
+    pub secrets: bool,
+    /// What it holds, category by category.
+    pub sections: Vec<BackupSection>,
+}
+
+/// Where a backup was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BackupPlace {
+    /// Raygun's own data folder.
+    App,
+    /// `Download/Raygun` on the phone, `Downloads/Raygun` on a computer.
+    Downloads,
+    /// A folder picked for backups.
+    Folder,
+}
+
+/// A backup found on this device.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupEntry {
+    /// Names the file to read, restore or delete it; good until the next scan.
+    pub id: String,
+    pub name: String,
+    pub place: BackupPlace,
+    /// Its folder as shown ("Download/Raygun", a picked folder's name).
+    pub folder: String,
+    pub size_bytes: f64,
+    /// Unix ms; the file's time.
+    pub modified_at: f64,
+    /// What it says about itself; `None` when it couldn't be read (`problem` says why).
+    pub manifest: Option<BackupManifest>,
+    pub problem: Option<String>,
+}
+
+/// A folder picked for backups, remembered so its backups are found again.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupFolder {
+    /// Its path on a computer, its tree address on Android.
+    pub uri: String,
+    pub name: String,
+    /// Unix ms of the last backup saved there.
+    pub used_at: f64,
+}
+
+/// Where a backup can be saved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupDestinations {
+    /// The usual place, as shown.
+    pub usual: String,
+    pub usual_place: BackupPlace,
+    pub folders: Vec<BackupFolder>,
+    /// The last place used: a folder's `uri`, or `None` for the usual place.
+    pub last: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupRequest {
+    pub categories: Vec<DataCategory>,
+    /// Passwords, sign-ins and API keys too, readable by anyone with the file.
+    #[serde(default)]
+    pub secrets: bool,
+    /// A remembered folder's `uri`; `None` saves to the usual place.
+    #[serde(default)]
+    pub folder: Option<String>,
 }
 
 /// Titles of one Mihon source that Raygun has no source for.
@@ -5951,10 +6728,13 @@ pub struct MihonImport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum BackupOutcome {
-    /// A Raygun backup: rows read and rows that changed here.
+    /// A Raygun backup: rows read, rows that changed here, downloads and installs started again,
+    /// and what couldn't come back (each a sentence).
     Raygun {
         received: u32,
         changed: u32,
+        queued: u32,
+        problems: Vec<String>,
     },
     Mihon {
         summary: MihonImport,
@@ -6464,6 +7244,26 @@ pub struct YouTubeVideo {
     pub embed_url: String,
 }
 
+/// Something another app opened with Raygun or shared to it that didn't play.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenWithProblem {
+    pub kind: OpenWithProblemKind,
+    /// The file's name, or the address when it has none.
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum OpenWithProblemKind {
+    /// Not a video, a song or a playlist.
+    Unsupported,
+    /// It couldn't be read: gone, too large, or Raygun wasn't given access.
+    Unreadable,
+    /// A playlist with nothing in it that plays.
+    EmptyPlaylist,
+}
+
 /// What the desktop player hands to mpv or VLC (M46.4).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -6671,6 +7471,10 @@ pub struct SourceSearchResult {
     pub items: Vec<MangaCard>,
     pub has_next_page: bool,
     pub error: Option<String>,
+    /// Its search failed or found nothing: these titles were found in its listings instead
+    /// (`Settings::search_listings`), each marked `from_listing`.
+    #[serde(default)]
+    pub from_listings: bool,
 }
 
 // ---- Stremio addons (M41) ----
@@ -6971,10 +7775,13 @@ pub enum PermissionKind {
     Notifications,
     /// Running in the background without Android's battery limits.
     Battery,
-    /// Reading the phone's songs and videos (Local Files, the device's music).
+    /// Reading the phone's songs, videos and pictures (Local Files, the device's music).
     Media,
     /// Folders picked in the system's folder picker.
     Folders,
+    /// Optional (Android 11+): reading every file in shared storage, so Local Files' folders
+    /// show other apps' books and comic archives (EPUB, CBZ, ZIP) too (M46.51).
+    AllFiles,
     /// Android 17's local network access.
     LocalNetwork,
     /// Installing Raygun's own updates.
@@ -7204,4 +8011,35 @@ pub struct VideoDownloadItem {
 pub struct VideoDownloads {
     pub paused: bool,
     pub items: Vec<VideoDownloadItem>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_indent_is_saved_as_an_amount_and_checked() {
+        let prefs = NovelReaderPrefs {
+            indent: 15,
+            ..NovelReaderPrefs::default()
+        };
+        let json = serde_json::to_value(prefs).unwrap();
+        assert_eq!(json["indent"], 15);
+        assert_eq!(
+            serde_json::from_value::<NovelReaderPrefs>(json).unwrap(),
+            prefs
+        );
+        assert!(SettingChange::NovelReader(prefs).validate().is_ok());
+        let beyond = NovelReaderPrefs {
+            indent: 41,
+            ..prefs
+        };
+        assert!(SettingChange::NovelReader(beyond).validate().is_err());
+        // A row without one has none.
+        let missing: NovelReaderPrefs = serde_json::from_str(
+            r#"{"lineSpacing":16,"font":"serif","width":"narrow","paged":false}"#,
+        )
+        .unwrap();
+        assert_eq!(missing.indent, 0);
+    }
 }

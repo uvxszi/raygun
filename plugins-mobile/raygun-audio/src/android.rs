@@ -1,27 +1,77 @@
-use jni::JNIEnv;
-use jni::objects::{JClass, JString};
-use raygun_model::EngineCommand;
-use serde_json::Value;
-use tauri::Runtime;
-use tauri::plugin::PluginHandle;
+use std::sync::OnceLock;
 
-pub(crate) fn send<R: Runtime>(
-    handle: &PluginHandle<R>,
-    command: &EngineCommand,
-) -> Result<(), String> {
-    // The Kotlin commands are named after the `type` tag; the rest of the object is the payload.
-    let mut payload = serde_json::to_value(command).map_err(|error| error.to_string())?;
-    let name = match payload
-        .as_object_mut()
-        .and_then(|fields| fields.remove("type"))
-    {
-        Some(Value::String(name)) => name,
-        _ => return Err("engine command has no type".into()),
-    };
-    handle
-        .run_mobile_plugin::<Value>(&name, payload)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+use jni::objects::{GlobalRef, JClass, JObject, JString};
+use jni::{JNIEnv, JavaVM};
+use serde_json::Value;
+
+/// The plugin's own line to Kotlin (`NativeBridge.call`): the VM and the bridge's class, which
+/// Kotlin hands over when the plugin loads. A class found from one of Rust's threads would come
+/// from the system's class loader, which doesn't know the app's classes.
+struct Bridge {
+    vm: JavaVM,
+    class: GlobalRef,
+}
+
+static BRIDGE: OnceLock<Bridge> = OnceLock::new();
+
+/// Called by `app.raygun.audio.NativeBridge.onAttach` on the Android main thread.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onAttach(env: JNIEnv, class: JClass) {
+    if BRIDGE.get().is_some() {
+        return;
+    }
+    if let (Ok(vm), Ok(class)) = (env.get_java_vm(), env.new_global_ref(&class)) {
+        let _ = BRIDGE.set(Bridge { vm, class });
+    }
+}
+
+/// Whether Kotlin handed over the bridge (it does as the plugin loads).
+pub(crate) fn attached() -> bool {
+    BRIDGE.get().is_some()
+}
+
+/// Runs one of the plugin's commands on its own line, from any of Rust's threads, with or
+/// without an activity. Blocks until it answers.
+pub(crate) fn call(command: &str, payload: &Value) -> Result<Value, String> {
+    let bridge = BRIDGE.get().ok_or("Raygun's player isn't ready")?;
+    let mut env = bridge
+        .vm
+        .attach_current_thread_permanently()
+        .map_err(|error| error.to_string())?;
+    let reply = answer(&mut env, &bridge.class, command, payload);
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_describe();
+        let _ = env.exception_clear();
+    }
+    crate::parse_reply(&reply?)
+}
+
+fn answer(
+    env: &mut JNIEnv,
+    class: &GlobalRef,
+    command: &str,
+    payload: &Value,
+) -> Result<String, String> {
+    let to_text = |error: jni::errors::Error| error.to_string();
+    let command = env.new_string(command).map_err(to_text)?;
+    let args = env.new_string(payload.to_string()).map_err(to_text)?;
+    let class: &JClass = class.as_obj().into();
+    let reply = env
+        .call_static_method(
+            class,
+            "call",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            &[(&command).into(), (&args).into()],
+        )
+        .and_then(|value| value.l())
+        .map_err(to_text)?;
+    let reply = JString::from(reply);
+    let text: String = env.get_string(&reply).map_err(to_text)?.into();
+    // Rust's threads stay attached: their local references are dropped here, not at detach.
+    let _ = env.delete_local_ref(JObject::from(reply));
+    let _ = env.delete_local_ref(JObject::from(command));
+    let _ = env.delete_local_ref(JObject::from(args));
+    Ok(text)
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onControl` on the Android main thread.
@@ -93,6 +143,18 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onOpen(
 ) {
     if let Ok(route) = env.get_string(&route) {
         crate::deliver_open(route.into());
+    }
+}
+
+/// Called by `app.raygun.audio.NativeBridge.onOpenWith` on a thread of the plugin's own.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onOpenWith(
+    mut env: JNIEnv,
+    _class: JClass,
+    json: JString,
+) {
+    if let Ok(json) = env.get_string(&json) {
+        crate::deliver_open_with(json.into());
     }
 }
 

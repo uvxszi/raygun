@@ -12,7 +12,7 @@ import { ROUTES } from '../manga/medium';
 import type { Medium } from '../manga/medium';
 import { useMangaSources } from '../manga/useManga';
 import { BrowseTile } from '../music/BrowseAll';
-import { menuHandler, titlePage, useBookMenuItems, useTitleMenuItems } from '../music/cardMenus';
+import { titlePage, useBookMenuItems, useTitleMenuItems } from '../music/cardMenus';
 import { HomeChartRow } from '../music/ChartRow';
 import { feedKey, pageKey, useHidden } from '../music/hidden';
 import { chartKey, useMusicCharts, useTagSummary, useTagVocabulary } from '../music/useDiscovery';
@@ -178,7 +178,7 @@ export const AudiobooksSection: FC<{ id: string }> = ({ id }) => {
               <BookCard
                 key={book.feedUrl}
                 book={book}
-                onMenu={menuHandler(() =>
+                menu={() =>
                   menu(
                     {
                       title: book.title,
@@ -187,8 +187,8 @@ export const AudiobooksSection: FC<{ id: string }> = ({ id }) => {
                       feedUrl: book.feedUrl,
                     },
                     { notInterested: true },
-                  ),
-                )}
+                  )
+                }
                 onOpen={(chosen) =>
                   open(chosen.feedUrl, {
                     onSuccess: (bookId) =>
@@ -282,7 +282,6 @@ export const PopularTitlesSection: FC<{ id: string; medium: Medium }> = ({ id, m
                     to={page.to}
                     search={page.search}
                     aria-label={item.title}
-                    onContextMenu={menuHandler(() => menu(title, { notInterested: true }))}
                     className="flex flex-col gap-1.5"
                   >
                     <span className="relative">

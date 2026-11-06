@@ -11,7 +11,6 @@ import { CardPlayButton } from '../manga/CardPlayButton';
 import { useTitleCardMenu } from '../manga/titleMenu';
 import { buildMenu } from '../music/mediaMenu';
 import { Carousel } from '../shell/Carousel';
-import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -106,11 +105,7 @@ const Card: FC<{ item: ContinueWatching }> = ({ item }) => {
   );
   const cardClass = 'flex w-full flex-col gap-1.5 overflow-hidden text-left';
   return (
-    <li
-      aria-label={item.title}
-      className="relative w-56 shrink-0"
-      onContextMenu={(event) => openContextMenu(event, menu())}
-    >
+    <li aria-label={item.title} className="relative w-56 shrink-0">
       {page ? (
         <Link
           to={page.to}
@@ -151,16 +146,29 @@ const Card: FC<{ item: ContinueWatching }> = ({ item }) => {
   );
 };
 
-/** Videos started and not finished, as a sideways row; nothing when there are none. */
-export const ContinueWatchingRow: FC = () => {
+/**
+ * Videos started and not finished, as a sideways row; nothing when there are none. `menu` puts
+ * a ⋯ beside its heading (Home's Hide).
+ */
+export const ContinueWatchingRow: FC<{ menu?: () => MenuItem[] }> = ({ menu }) => {
   const { t } = useTranslation();
   const continuing = useContinueWatching();
   if (!continuing.data?.length) return null;
   return (
     <section aria-labelledby="continue-watching" className="flex flex-col gap-2">
-      <h2 id="continue-watching" className="text-lg font-semibold">
-        {t('watch.continue')}
-      </h2>
+      <div className="flex min-h-9 items-center gap-3">
+        <h2 id="continue-watching" className="text-lg font-semibold">
+          {t('watch.continue')}
+        </h2>
+        {menu && (
+          <MenuButton
+            horizontal
+            label={t('menu.more', { name: t('watch.continue') })}
+            items={menu}
+            className="text-muted hover:text-foreground hover:bg-surface ml-auto grid size-8 place-items-center rounded-full"
+          />
+        )}
+      </div>
       <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
         {continuing.data.map((item) => (
           <Card key={item.key} item={item} />

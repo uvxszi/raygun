@@ -1,49 +1,15 @@
-import { useNavigate, useRouter } from '@tanstack/react-router';
-import {
-  ArrowLeft,
-  ArrowRight,
-  ClipboardPaste,
-  Copy,
-  ExternalLink,
-  Image as ImageIcon,
-  Link as LinkIcon,
-  Maximize,
-  RotateCw,
-  Scissors,
-  Search,
-  TextSelect,
-} from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 
 import { Artwork } from '../library/Artwork';
-import { afterLayersClose, backPastLayers, useBackLayer } from './backLayers';
-import { menuFromEvent, useContextMenuStore } from './contextMenuStore';
+import { afterLayersClose, useBackLayer } from './backLayers';
+import { useContextMenuStore } from './contextMenuStore';
 import type { MenuItem } from './contextMenuStore';
-import { useIsDesktop } from './useIsDesktop';
-import { toggleWindowFullscreen } from './useWindowFullscreen';
 
 /** A touch screen: menus come up from the bottom as a sheet, with rows a finger can hit. */
 const coarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
-
-const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
-
-/** An address only this app can open: its own pages, or its proxy on this device. */
-const internalAddress = (address: string) => {
-  try {
-    const url = new URL(address);
-    return (
-      url.origin === window.location.origin ||
-      ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
-      !/^https?:$/.test(url.protocol)
-    );
-  } catch {
-    return true;
-  }
-};
 
 const editable = (target: EventTarget | null): HTMLInputElement | HTMLTextAreaElement | null => {
   if (target instanceof HTMLTextAreaElement) return target;
@@ -57,145 +23,19 @@ const editable = (target: EventTarget | null): HTMLInputElement | HTMLTextAreaEl
 };
 
 /**
- * What every right click offers for the spot it's on: fields, selected text, links, images.
- * `words` adds the text under the pointer; it's left out when the menu already copies (a song's
- * Copy title and Copy artist would otherwise show twice, M46.36).
- */
-const spotItems = (
-  event: MouseEvent,
-  t: TFunction,
-  search: (text: string) => void,
-  words: boolean,
-): MenuItem[] => {
-  const items: MenuItem[] = [];
-  const target = event.target as Element | null;
-  const field = editable(target);
-  const selected = (
-    field
-      ? field.value.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0)
-      : (window.getSelection()?.toString() ?? '')
-  ).trim();
-  if (field) {
-    items.push(
-      {
-        label: t('menu.cut'),
-        icon: Scissors,
-        hint: 'Ctrl+X',
-        disabled: !selected,
-        onSelect: () => {
-          copy(selected);
-          field.setRangeText('', field.selectionStart ?? 0, field.selectionEnd ?? 0, 'end');
-          field.dispatchEvent(new Event('input', { bubbles: true }));
-        },
-      },
-      {
-        label: t('menu.copy'),
-        icon: Copy,
-        hint: 'Ctrl+C',
-        disabled: !selected,
-        onSelect: () => copy(selected),
-      },
-      {
-        label: t('menu.paste'),
-        icon: ClipboardPaste,
-        hint: 'Ctrl+V',
-        onSelect: () => {
-          void navigator.clipboard
-            ?.readText()
-            .then((text) => {
-              field.focus();
-              field.setRangeText(text, field.selectionStart ?? 0, field.selectionEnd ?? 0, 'end');
-              field.dispatchEvent(new Event('input', { bubbles: true }));
-            })
-            .catch(() => undefined);
-        },
-      },
-      {
-        label: t('menu.selectAll'),
-        icon: TextSelect,
-        hint: 'Ctrl+A',
-        onSelect: () => field.select(),
-      },
-    );
-  } else if (selected) {
-    items.push(
-      { label: t('menu.copy'), icon: Copy, hint: 'Ctrl+C', onSelect: () => copy(selected) },
-      {
-        label: t('menu.searchFor', {
-          text: selected.length > 28 ? `${selected.slice(0, 28)}…` : selected,
-        }),
-        icon: Search,
-        onSelect: () => search(selected),
-      },
-    );
-  }
-  // Text isn't selectable in the app, so the words under the pointer can be copied as they are.
-  if (words && !field && !selected) {
-    const spot = target?.closest(
-      'h1, h2, h3, h4, h5, h6, p, span, a, li, td, th, label, button, dd, dt',
-    );
-    // As shown: a title and an artist on two lines stay two words apart.
-    const text = (
-      spot instanceof HTMLElement ? spot.innerText || spot.textContent : spot?.textContent
-    )
-      ?.replace(/\s+/g, ' ')
-      .trim();
-    if (text && text.length <= 300) {
-      items.push({
-        label: t('menu.copyText', {
-          text: text.length > 28 ? `${text.slice(0, 28)}…` : text,
-        }),
-        icon: Copy,
-        onSelect: () => copy(text),
-      });
-    }
-  }
-  // Links out of the app; Raygun's own pages (album, artist…) have addresses only it can open.
-  const link = target?.closest('a[href]');
-  if (link instanceof HTMLAnchorElement && !internalAddress(link.href)) {
-    if (items.length) items.push({ kind: 'separator' });
-    items.push(
-      { label: t('menu.copyLink'), icon: LinkIcon, onSelect: () => copy(link.href) },
-      {
-        label: t('menu.openLink'),
-        icon: ExternalLink,
-        onSelect: () => window.open(link.href, '_blank', 'noopener'),
-      },
-    );
-  }
-  // Covers come through Raygun's own image proxy (loopback): their addresses mean nothing elsewhere.
-  const image = target instanceof HTMLImageElement ? target : null;
-  if (image?.src && !internalAddress(image.src)) {
-    if (items.length) items.push({ kind: 'separator' });
-    items.push({
-      label: t('menu.copyImageAddress'),
-      icon: ImageIcon,
-      onSelect: () => copy(image.src),
-    });
-  }
-  return items;
-};
-
-/**
- * Raygun's own right-click menu (M46.8), in the theme's colours and accent. Whatever is under the
- * pointer adds its options (a song, a cover, a source); the spot adds fields, text, links and
- * images; the page adds Back, Forward, Reload and (on desktop) full screen. The webview's menu
- * never shows.
+ * The menu of an item's ⋮ button (`openMenuAt`), in the theme's colours and accent: under the
+ * button, or a sheet from the bottom on a touch screen. A right click or a long press opens no
+ * menu: the webview's own shows only in text fields and on selected text, to cut, copy and paste.
  */
 export const ContextMenuHost: FC = () => {
   const { t } = useTranslation();
-  const router = useRouter();
-  const navigate = useNavigate();
   const open = useContextMenuStore((state) => state.open);
-  const show = useContextMenuStore((state) => state.show);
   const close = useContextMenuStore((state) => state.close);
   const menu = useRef<HTMLDivElement>(null);
   // A touch that moved or scrolled the list is a scroll, never a tap on the row under it.
   const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   // Closing on the backdrop's click alone would close a drag that started in the menu.
   const pressedBackdrop = useRef(false);
-  // A phone app is full screen already: only a desktop window toggles it.
-  const desktop = useIsDesktop();
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const [active, setActive] = useState(-1);
   // An item that asks first (M46.45): the menu becomes its question.
@@ -205,69 +45,22 @@ export const ContextMenuHost: FC = () => {
 
   useEffect(() => {
     const onContextMenu = (event: MouseEvent) => {
-      // Our menu's own right clicks (and long presses on the sheet's backdrop) do nothing.
-      if (
-        menu.current?.contains(event.target as Node) ||
-        (event.target as Element | null)?.closest?.('[data-menu-backdrop]')
-      ) {
-        event.preventDefault();
-        return;
-      }
+      if (editable(event.target)) return;
+      if ((window.getSelection()?.toString() ?? '').trim()) return;
       event.preventDefault();
-      const own = menuFromEvent(event) ?? [];
-      const copies = own.some(
-        (item) => (item.kind ?? 'item') === 'item' && 'icon' in item && item.icon === Copy,
-      );
-      const spot = spotItems(
-        event,
-        t,
-        (text) => void navigate({ to: '/browse', search: { tab: 'search', q: text } as never }),
-        !copies,
-      );
-      // On a touch screen a long press on something shows only its own options: Back, Forward,
-      // Reload and full screen are what the page's own buttons do there.
-      const touch = coarsePointer();
-      const page: MenuItem[] =
-        touch && own.length > 0
-          ? []
-          : [
-              {
-                label: t('menu.back'),
-                icon: ArrowLeft,
-                hint: 'Alt+←',
-                // The menu's own entry goes along with the page's (backLayers).
-                onSelect: () => backPastLayers(() => router.history.back()),
-              },
-              {
-                label: t('menu.forward'),
-                icon: ArrowRight,
-                hint: 'Alt+→',
-                onSelect: () => router.history.forward(),
-              },
-              { label: t('menu.reload'), icon: RotateCw, onSelect: () => void router.invalidate() },
-              ...(desktop
-                ? [
-                    {
-                      label: t('menu.fullscreen'),
-                      icon: Maximize,
-                      hint: 'F11',
-                      onSelect: () => void toggleWindowFullscreen(),
-                    },
-                  ]
-                : []),
-            ];
-      const groups = [own, spot, page].filter((group) => group.length > 0);
-      const items = groups.flatMap((group, index) =>
-        index === 0 ? group : [{ kind: 'separator' } as MenuItem, ...group],
-      );
-      setActive(-1);
-      setConfirming(null);
-      setPlace(null);
-      show(event.clientX, event.clientY, items);
     };
     window.addEventListener('contextmenu', onContextMenu);
     return () => window.removeEventListener('contextmenu', onContextMenu);
-  }, [navigate, router, show, t, desktop]);
+  }, []);
+
+  // A new menu starts unpicked, unasked, and placed again.
+  const [shown, setShown] = useState(open);
+  if (shown !== open) {
+    setShown(open);
+    setActive(-1);
+    setConfirming(null);
+    setPlace(null);
+  }
 
   // On a touch screen the menu is a sheet from the bottom. Back and Escape close it first.
   const sheet = useMemo(() => open !== null && coarsePointer(), [open]);

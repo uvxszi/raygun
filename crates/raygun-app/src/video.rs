@@ -201,9 +201,7 @@ pub async fn prepare(
     resume: Option<String>,
     start_at: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    if !request.url.starts_with("https://") && !request.url.starts_with("http://") {
-        return Err("Only web addresses can be played".into());
-    }
+    let address = playable_address(app, &request.url)?;
     let db = app.state::<AppDb>().0.clone();
     let prefs = player_prefs(&db).await;
     let saved = store::progress(&db, &request.key)
@@ -249,7 +247,7 @@ pub async fn prepare(
                 offline.subtitles,
             ),
             None => (
-                request.url.clone(),
+                address,
                 request.headers.clone(),
                 request.format.clone(),
                 proxied_subtitles(app, &request.subtitles),
@@ -303,6 +301,29 @@ pub async fn prepare(
             .map(|poster| app.state::<raygun_net::ImageLinks>().original(poster)),
     });
     Ok(with_shared_fields(payload, &prefs))
+}
+
+/// The address the player opens for a request's `url`: a web address as it is; a file on this
+/// device (`file://`, one another app opened with Raygun) through the stream proxy, so it stays
+/// the request's address for resuming while the webview's player gets a web address; and on
+/// Android a document another app shared (`content://`), which the player reads itself.
+fn playable_address(app: &AppHandle, url: &str) -> Result<String, String> {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        return Ok(url.to_owned());
+    }
+    if url.starts_with("file:") {
+        let path = crate::open_with::file_path(url)
+            .ok_or_else(|| "This file's address can't be read".to_owned())?;
+        return Ok(app
+            .state::<crate::playback::PlaybackService>()
+            .register_source(&raygun_model::MediaSource::LocalFile {
+                path: path.to_string_lossy().into_owned(),
+            }));
+    }
+    if cfg!(target_os = "android") && url.starts_with("content://") {
+        return Ok(url.to_owned());
+    }
+    Err("Only web addresses can be played".into())
 }
 
 /// What opens the player for a session before any video is known (M44): it shows the title and
@@ -571,16 +592,30 @@ fn with_cast(app: &AppHandle, payload: &Value) -> Value {
 
 /// A video loaded into the player goes to the TV while one is connected (Play on TV).
 fn follow_load(app: &AppHandle, update: &Value) {
-    if update.get("type").and_then(Value::as_str) == Some("load")
-        && let Some(request) = update.get("request")
-        && let Some(cast) = app.try_state::<std::sync::Arc<crate::cast::CastService>>()
-    {
+    if update.get("type").and_then(Value::as_str) != Some("load") {
+        return;
+    }
+    let Some(request) = update.get("request") else {
+        return;
+    };
+    note_loaded(app, request);
+    if let Some(cast) = app.try_state::<std::sync::Arc<crate::cast::CastService>>() {
         cast.follow(request);
+    }
+}
+
+/// What a player loads: AI subtitles fetch the same stream.
+fn note_loaded(app: &AppHandle, payload: &Value) {
+    if let Some(subtitles) =
+        app.try_state::<std::sync::Arc<crate::video_subtitles::VideoSubtitles>>()
+    {
+        subtitles.loaded(payload);
     }
 }
 
 #[cfg(target_os = "android")]
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    note_loaded(app, payload);
     let payload = &with_cast(app, payload);
     let started = app.clone();
     tauri::async_runtime::spawn(
@@ -594,6 +629,7 @@ pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), S
 
 #[cfg(not(target_os = "android"))]
 pub fn open_player(app: &AppHandle, payload: &serde_json::Value) -> Result<(), String> {
+    note_loaded(app, payload);
     let payload = &with_cast(app, payload);
     let started = app.clone();
     tauri::async_runtime::spawn(
@@ -650,6 +686,13 @@ async fn handle_report(app: &AppHandle, json: &str) {
         tracing::warn!(%json, "unreadable video player report");
         return;
     };
+    // Where the viewer is: AI subtitles and translations keep ahead of there.
+    let subtitles = app
+        .try_state::<std::sync::Arc<crate::video_subtitles::VideoSubtitles>>()
+        .map(|subtitles| subtitles.inner().clone());
+    if let Some(subtitles) = &subtitles {
+        subtitles.report(&raw);
+    }
     // The player's own requests are handled here; the rest (next episode, another source...)
     // are the session's business.
     if raw.get("state").and_then(serde_json::Value::as_str) == Some("request") {
@@ -660,6 +703,13 @@ async fn handle_report(app: &AppHandle, json: &str) {
         match action {
             "state" | "prefs" | "seekStep" | "openSettings" | "brightness" | "duration" => {
                 player_request(app, action, &raw).await;
+            }
+            // AI subtitles in Android's player: transcribing and translating as it plays.
+            "subtitleTools" | "transcribe" | "transcribeStop" | "transcribeSetup"
+            | "translateSubtitles" | "translateStop" | "openAiSettings" => {
+                if let Some(subtitles) = &subtitles {
+                    subtitles.on_request(action, &raw).await;
+                }
             }
             _ if action.starts_with("cast") => crate::cast::on_request(app, action, &raw).await,
             _ => app.state::<VideoSessions>().on_report(&raw).await,

@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useLayout } from '../layout/useLayout';
+import { useDragScroll } from '../shell/useDragScroll';
 import { isLibraryView } from './views';
 import type { LibraryView } from './views';
 
@@ -14,8 +15,10 @@ export const AudioViewChips: FC<{ view: LibraryView }> = ({ view }) => {
     .audioViews.filter((item) => item.visible || item.id === view)
     .map((item) => item.id)
     .filter(isLibraryView);
+  const row = useDragScroll<HTMLElement>();
   return (
     <nav
+      ref={row}
       className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
       aria-label={t('library.views')}
     >

@@ -11,6 +11,7 @@ import { usePlayerUiStore } from '../player/playerUiStore';
 import { useBackLayer } from './backLayers';
 import { useQuickAccessShown, useQuickAccessStore } from './quickAccessStore';
 import { RailPins } from './RailPins';
+import { swipeScrollsRow } from './useDragScroll';
 import { useRail } from './useRail';
 
 /** How far in from the right edge a drag may start to pull the drawer out, in px. */
@@ -18,7 +19,10 @@ const EDGE_PX = 24;
 /** How far it must travel, mostly sideways, to open it. */
 const PULL_PX = 32;
 
-/** Opens the drawer when a finger drags in from the right edge. */
+/**
+ * Opens the drawer when a finger drags in from the right edge, unless it starts on a row with more
+ * to show that way: the swipe scrolls the row, and pulls the drawer once the row is at its end.
+ */
 const useEdgePull = (enabled: boolean, open: () => void) => {
   useEffect(() => {
     if (!enabled) return;
@@ -26,7 +30,10 @@ const useEdgePull = (enabled: boolean, open: () => void) => {
     const onStart = (event: TouchEvent) => {
       const touch = event.touches[0];
       start =
-        event.touches.length === 1 && touch && touch.clientX >= window.innerWidth - EDGE_PX
+        event.touches.length === 1 &&
+        touch &&
+        touch.clientX >= window.innerWidth - EDGE_PX &&
+        !swipeScrollsRow(event.target)
           ? { x: touch.clientX, y: touch.clientY }
           : null;
     };
@@ -58,10 +65,11 @@ const useEdgePull = (enabled: boolean, open: () => void) => {
 };
 
 /**
- * Quick access on phones: the sidebar's pins (M46.29) in a drawer from the right, opened by
- * Raygun's icon in the top bar or a drag in from the right edge. Compact shows covers only,
- * expanded their names too (`Settings::rail.drawerExpanded`). Tapping outside, swiping it back,
- * Back and opening a pin close it.
+ * Quick access on phones: the sidebar's list (M46.29) in a drawer from the right, opened by
+ * Raygun's icon in the top bar or a drag in from the right edge: pins on top, then the audio
+ * library by itself; a hold or ⋮ opens an item's menu. Compact shows covers only, expanded their
+ * names too (`Settings::rail.drawerExpanded`). Tapping outside, swiping it back, Back and opening
+ * an item close it.
  */
 export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
   const { t } = useTranslation();
@@ -160,7 +168,7 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
               onClick={(event) => {
                 if ((event.target as Element).closest('a')) setTimeout(close, 0);
               }}
-              className={`flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain pb-3 ${expanded ? 'px-2' : 'px-1'}`}
+              className={`flex min-h-0 flex-1 flex-col gap-1 pb-3 ${expanded ? 'px-2' : 'px-1'}`}
             >
               <RailPins narrow={!expanded} shown drawer />
             </nav>

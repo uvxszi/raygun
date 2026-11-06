@@ -36,6 +36,10 @@ type ItemProps = {
   onToggle: (entry: MangaLibraryEntry) => void;
   onLongPress: (entry: MangaLibraryEntry) => void;
   onContinue: (entry: MangaLibraryEntry) => void;
+  /** Items added at the end of the title's ⋮ (Downloads adds deleting its downloads). */
+  moreItems?: (entry: MangaLibraryEntry) => MenuItem[];
+  /** The title is in the library: Downloads lists titles kept out of it too. */
+  inLibrary: boolean;
 };
 
 const Badges: FC<{ entry: MangaLibraryEntry; medium: Medium; badges: BadgeChoice }> = ({
@@ -126,6 +130,8 @@ const LibraryItem: FC<ItemProps> = ({
   onToggle,
   onLongPress,
   onContinue,
+  moreItems,
+  inLibrary,
 }) => {
   const link =
     medium === 'video'
@@ -148,15 +154,17 @@ const LibraryItem: FC<ItemProps> = ({
       title: entry.title,
       coverUrl: entry.coverUrl,
       subtitle: entry.authors.join(', ') || null,
-      inLibrary: true,
+      inLibrary,
       titleId: entry.titleId,
     });
+    const more = moreItems?.(entry) ?? [];
     const first = items.findIndex((item) => item.kind !== 'heading');
     return [
       ...items.slice(0, first),
       { label: t('menu.select'), icon: CheckSquare, onSelect: () => onLongPress(entry) },
       { kind: 'separator' },
       ...items.slice(first),
+      ...(more.length > 0 ? [{ kind: 'separator' } as MenuItem, ...more] : []),
     ];
   };
   const onContextMenu = (event: MouseEvent) => {
@@ -273,8 +281,22 @@ export const LibraryItems: FC<{
   onToggle: (entry: MangaLibraryEntry) => void;
   onLongPress: (entry: MangaLibraryEntry) => void;
   onContinue: (entry: MangaLibraryEntry) => void;
+  moreItems?: (entry: MangaLibraryEntry) => MenuItem[];
+  /** Whether a title is in the library; all are unless said (Downloads says). */
+  inLibrary?: (entry: MangaLibraryEntry) => boolean;
   footer?: ReactNode;
-}> = ({ entries, medium, mode, display, selected, onToggle, onLongPress, onContinue }) => {
+}> = ({
+  entries,
+  medium,
+  mode,
+  display,
+  selected,
+  onToggle,
+  onLongPress,
+  onContinue,
+  moreItems,
+  inLibrary = () => true,
+}) => {
   const settings = useSettings().data;
   const selecting = selected.size > 0;
   const badges: BadgeChoice = {
@@ -310,6 +332,8 @@ export const LibraryItems: FC<{
         onToggle={onToggle}
         onLongPress={onLongPress}
         onContinue={onContinue}
+        moreItems={moreItems}
+        inLibrary={inLibrary(entry)}
       />
     </li>
   );

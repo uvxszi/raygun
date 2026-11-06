@@ -13,8 +13,8 @@ use futures_util::{StreamExt, stream};
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
 use raygun_ext_host::manga::MANGA_SOURCE;
 use raygun_model::{
-    MangaBrowseMode, MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource,
-    MangaTitleView, MangaUpdateItem, MangaUpdateStatus, ReaderMode, UpdateFailure,
+    MangaBrowseMode, MangaChapterInfo, MangaChapterPages, MangaLibraryEntry, MangaListingPage,
+    MangaSource, MangaTitleView, MangaUpdateItem, MangaUpdateStatus, ReaderMode, UpdateFailure,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -258,6 +258,20 @@ impl MangaService {
 
     pub async fn library(&self) -> Result<Vec<MangaLibraryEntry>, String> {
         self.catalog.library().await
+    }
+
+    /// A stored title's chapters as its page lists them, with their read and download states,
+    /// without asking the source: the reader's chapter list.
+    pub async fn chapters(&self, title_id: &str) -> Result<Vec<MangaChapterInfo>, String> {
+        let units = titles::units(&self.db(), title_id)
+            .await
+            .map_err(to_message)?;
+        let ids: Vec<String> = units.iter().map(|unit| unit.id.clone()).collect();
+        let downloads = self.downloads().for_chapters(&ids).await;
+        Ok(units
+            .iter()
+            .map(|unit| chapter_info(unit, &downloads))
+            .collect())
     }
 
     /// One chapter's pages, with its neighbours in reading order.

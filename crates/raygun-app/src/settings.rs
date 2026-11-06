@@ -64,6 +64,8 @@ pub async fn load(db: &Db) -> Result<Settings, SettingsError> {
         settings.video_player.preferred_resolution =
             raygun_model::VideoResolution::from_height(height);
     }
+    // Quick access saved by a version that pinned the audio library by hand.
+    settings.rail = crate::quick_access::migrated(settings.rail);
     Ok(settings)
 }
 
@@ -93,10 +95,15 @@ fn cover_size_from(columns: u32, width: u32) -> i32 {
     )
 }
 
-/// Rows stored before sizes followed the screen (M46.48), in today's shape: the novel text's
-/// size in px becomes px more or less than the screen's own (18 px then), and the manga reader's
-/// widths in percent of the window become percent more or less than the screen's own.
+/// Rows stored by older versions, in today's shape. Before sizes followed the screen (M46.48):
+/// the novel text's size in px becomes px more or less than the screen's own (18 px then), and
+/// the manga reader's widths in percent of the window become percent more or less than the
+/// screen's own. The novel reader's paragraph indent was a switch: on is the indent it gave
+/// (2 em), off none.
 fn migrate_row(key: &str, value: &str) -> String {
+    if key == "rail" {
+        return crate::quick_access::migrate_row(value);
+    }
     type Rename = (&'static str, &'static str, fn(i64) -> i64);
     const NOVEL: &[Rename] = &[("fontSize", "textSize", old_novel_text)];
     const READER: &[Rename] = &[
@@ -117,6 +124,17 @@ fn migrate_row(key: &str, value: &str) -> String {
         {
             fields.insert((*new).to_owned(), convert(number).into());
         }
+    }
+    if key == "novelReader"
+        && let Some(indent) = fields.get_mut("indent")
+        && let Some(switch) = indent.as_bool().or(indent.is_null().then_some(false))
+    {
+        *indent = if switch {
+            raygun_model::NOVEL_INDENT_SWITCHED_ON
+        } else {
+            0
+        }
+        .into();
     }
     serde_json::Value::Object(fields).to_string()
 }
@@ -513,18 +531,39 @@ mod tests {
         assert!(saved.resume_videos && !saved.auto_subtitles, "defaults");
     }
 
+    #[test]
+    fn the_old_indent_switch_becomes_an_amount() {
+        let indent = |stored: &str| {
+            let row = format!(
+                r#"{{"lineSpacing":16,"font":"serif","width":"narrow","paged":false,"indent":{stored}}}"#
+            );
+            match parse_row("novelReader", &migrate_row("novelReader", &row)) {
+                Ok(SettingChange::NovelReader(prefs)) => prefs.indent,
+                other => panic!("{stored}: {other:?}"),
+            }
+        };
+        assert_eq!(indent("true"), raygun_model::NOVEL_INDENT_SWITCHED_ON);
+        assert_eq!(indent("false"), 0);
+        assert_eq!(indent("null"), 0);
+        assert_eq!(indent("15"), 15, "an amount stays as it is");
+        // Only the novel reader's row has one.
+        let other = r#"{"indent":true}"#;
+        assert_eq!(migrate_row("mangaReader", other), other);
+    }
+
     #[tokio::test]
     async fn fixed_sizes_from_before_become_sizes_from_the_screen() {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;
-        // An older version's rows: four covers per row, a cover width, 20 px novel text, a webtoon
-        // column at 60 % of the window and the page bar at the screen's own width.
+        // An older version's rows: four covers per row, a cover width, 20 px novel text with the
+        // paragraph indent switched on, a webtoon column at 60 % of the window and the page bar at
+        // the screen's own width.
         for (key, value) in [
             ("gridColumns", "4"),
             ("coverWidth", "140"),
             (
                 "novelReader",
-                r#"{"fontSize":20,"lineSpacing":16,"font":"serif","width":"narrow","paged":false}"#,
+                r#"{"fontSize":20,"lineSpacing":16,"font":"serif","width":"narrow","paged":false,"indent":true}"#,
             ),
             ("mangaReader", r#"{"webtoonWidth":60,"barWidth":0}"#),
         ] {
@@ -536,6 +575,11 @@ mod tests {
             "four across a phone: smaller covers"
         );
         assert_eq!(loaded.novel_reader.text_size, 2);
+        assert_eq!(
+            loaded.novel_reader.indent,
+            raygun_model::NOVEL_INDENT_SWITCHED_ON,
+            "the switch's indent, 2 em"
+        );
         assert_eq!(loaded.manga_reader.webtoon_size, -40);
         assert_eq!(loaded.manga_reader.bar_size, 0);
 
@@ -699,6 +743,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn searching_through_listings_keeps_to_what_is_offered() {
+        use raygun_model::SearchListingsPrefs;
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        assert_eq!(
+            load(&db).await.unwrap().search_listings,
+            SearchListingsPrefs {
+                enabled: true,
+                entries: 20,
+                pages: 5
+            }
+        );
+        let prefs = |entries, pages| {
+            SettingChange::SearchListings(SearchListingsPrefs {
+                enabled: false,
+                entries,
+                pages,
+            })
+        };
+        for bad in [prefs(0, 5), prefs(101, 5), prefs(20, 0), prefs(20, 21)] {
+            assert!(update(&db, bad.clone()).await.is_err(), "{bad:?}");
+        }
+        let saved = update(&db, prefs(100, 20)).await.unwrap();
+        assert_eq!(
+            (
+                saved.search_listings.enabled,
+                saved.search_listings.entries,
+                saved.search_listings.pages
+            ),
+            (false, 100, 20)
+        );
+        // A row saved without a field keeps that field's default.
+        settings::put(&db, "searchListings", r#"{"enabled":false}"#)
+            .await
+            .unwrap();
+        assert_eq!(
+            load(&db).await.unwrap().search_listings,
+            SearchListingsPrefs {
+                enabled: false,
+                ..SearchListingsPrefs::default()
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn browse_start_tab_is_one_of_browses_tabs() {
         let temp = TempDir::new().unwrap();
         let db = open(&temp).await;
@@ -721,6 +810,53 @@ mod tests {
                 .is_err()
         );
         assert_eq!(load(&db).await.unwrap().browse_start_tab, "extensions");
+    }
+
+    #[tokio::test]
+    async fn text_sizes_and_fonts_keep_to_what_css_can_take() {
+        use raygun_model::FontPrefs;
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        let saved = load(&db).await.unwrap();
+        assert_eq!((saved.text_size, &saved.fonts), (0, &FontPrefs::default()));
+
+        // Text size: percent more or less than the screen's own, over the interface size.
+        let saved = update(&db, SettingChange::TextSize(-30)).await.unwrap();
+        assert_eq!(saved.text_size, -30);
+        let saved = update(&db, SettingChange::TextSize(100)).await.unwrap();
+        assert_eq!(saved.text_size, 100);
+        for bad in [-35, 105, 400] {
+            assert!(
+                update(&db, SettingChange::TextSize(bad)).await.is_err(),
+                "{bad}"
+            );
+        }
+
+        // Fonts: family names, kept as named, without the spaces around them.
+        let fonts = |interface: &str, reading: &str| {
+            SettingChange::Fonts(FontPrefs {
+                interface: interface.into(),
+                reading: reading.into(),
+            })
+        };
+        let saved = update(&db, fonts(" Segoe UI Variable ", "Noto Serif"))
+            .await
+            .unwrap();
+        assert_eq!(saved.fonts.interface, "Segoe UI Variable");
+        assert_eq!(saved.fonts.reading, "Noto Serif");
+        assert_eq!(load(&db).await.unwrap().fonts, saved.fonts);
+        for bad in [
+            "Arial\"; color: red",
+            "Arial}",
+            "Back\\slash",
+            "Line\nbreak",
+            &"x".repeat(201),
+        ] {
+            assert!(update(&db, fonts(bad, "")).await.is_err(), "{bad}");
+            assert!(update(&db, fonts("", bad)).await.is_err(), "{bad}");
+        }
+        let saved = update(&db, fonts("", "")).await.unwrap();
+        assert_eq!(saved.fonts, FontPrefs::default(), "back to the defaults");
     }
 
     #[tokio::test]
@@ -892,6 +1028,7 @@ mod tests {
             side_panel_width: 400,
             player_split: 40,
             next_up_rows: 4,
+            rail_nav_height: 240,
         };
         assert_eq!(
             update(&db, SettingChange::Panels(panels))
@@ -910,6 +1047,18 @@ mod tests {
             )
             .await
             .is_err()
+        );
+        assert!(
+            update(
+                &db,
+                SettingChange::Panels(PanelPrefs {
+                    rail_nav_height: 20,
+                    ..panels
+                })
+            )
+            .await
+            .is_err(),
+            "the rail's tabs keep a row"
         );
         let colors = CustomColors {
             background: "#101010".into(),

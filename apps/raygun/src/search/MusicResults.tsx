@@ -7,6 +7,7 @@ import { TrackRow } from '../library/TrackRow';
 import { playFromLibrary } from '../library/useLibrary';
 import { AudiobookSearch } from './AudiobookSearch';
 import { FailedSources } from './FailedSources';
+import { FromListingsNote } from './FromListingsNote';
 import { NoSources } from './NoSources';
 import { AlbumFinds, ArtistFinds, Asking, BestSongs } from './MusicFinds';
 import { PlaylistFinds } from './PlaylistFinds';
@@ -21,6 +22,7 @@ import { SourceMenu } from './SourceMenu';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
 import { AdultMark } from '../shell/AdultMark';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useDragScroll } from '../shell/useDragScroll';
 import { useSettings } from '../settings/useSettings';
 
 type ProviderResultsProps = { result: ProviderSearchResult; ambiguous: boolean; limit?: number };
@@ -37,6 +39,7 @@ const ProviderResults: FC<ProviderResultsProps> = ({ result, ambiguous, limit })
           {ambiguous && <span className="font-normal"> · {result.provider.extensionId}</span>}
         </span>
         {result.provider.adult && <AdultMark />}
+        {result.fromListings && <FromListingsNote />}
         <SourceMenu
           sourceId={result.provider.id}
           extensionId={result.provider.extensionId}
@@ -162,6 +165,7 @@ export const MusicResults: FC<{
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
   const answered = search.data?.providers ?? [];
   useMusicHealth(answered);
+  const viewRow = useDragScroll<HTMLDivElement>();
   // Sources with songs lead, then those that found none, then failures; and those that failed
   // lately go last among each, as they do in every source list (M46.9).
   const results = answeredFirst(
@@ -204,6 +208,7 @@ export const MusicResults: FC<{
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2">
         <div
+          ref={viewRow}
           role="group"
           aria-label={t('search.music.kind')}
           className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0"

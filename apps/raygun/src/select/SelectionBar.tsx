@@ -10,6 +10,7 @@ import { groupWords } from '../manga/groupWords';
 import { DownloadSheet } from '../manga/LibrarySelection';
 import { useMenuSheetsStore } from '../music/menuSheetsStore';
 import { showToast } from '../shell/toastStore';
+import { useDragScroll } from '../shell/useDragScroll';
 import {
   addTitles,
   downloadAll,
@@ -37,6 +38,7 @@ export const SelectionBar: FC = () => {
   const media = useMemo(() => [...new Set(titles.map((title) => title.medium))], [titles]);
   const onlySongs = titles.length === 0;
   const onlyTitles = songs.length === 0;
+  const actions = useDragScroll<HTMLDivElement>();
 
   const run = useMutation({
     mutationFn: async (action: () => Promise<string>) => action(),
@@ -117,7 +119,7 @@ export const SelectionBar: FC = () => {
             ? t('search.select.working', { count: items.length })
             : t('search.select.count', { count: items.length })}
         </span>
-        <div className="flex no-scrollbar overflow-x-auto">
+        <div ref={actions} className="flex no-scrollbar overflow-x-auto">
           {action(t('search.select.favorite'), Heart, favorite)}
           {onlySongs && action(t('search.select.addToPlaylist'), ListPlus, addToPlaylist)}
           {onlyTitles && action(t('search.select.addToLibrary'), BookmarkPlus, addToLibrary)}

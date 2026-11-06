@@ -1,6 +1,15 @@
 import type { AppPermission, PermissionKind } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { BatteryCharging, Bell, Camera, Download, FolderOpen, Music, Wifi } from 'lucide-react';
+import {
+  BatteryCharging,
+  Bell,
+  Camera,
+  Download,
+  FolderOpen,
+  HardDrive,
+  Music,
+  Wifi,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,9 +22,15 @@ const ICONS: Record<PermissionKind, LucideIcon> = {
   battery: BatteryCharging,
   media: Music,
   folders: FolderOpen,
+  allFiles: HardDrive,
   localNetwork: Wifi,
   installApps: Download,
   camera: Camera,
+};
+
+/** Permissions that are optional say what they add (M46.51). */
+const ABOUT: Partial<Record<PermissionKind, string>> = {
+  allFiles: 'permissions.about.allFiles',
 };
 
 /**
@@ -63,6 +78,7 @@ const PermissionRow: FC<{ permission: AppPermission; busy: boolean; onAsk: () =>
       ? t('permissions.folderCount', { count: permission.count ?? 0 })
       : t(`permissions.state.${permission.state}`);
   const granted = permission.state === 'granted';
+  const about = ABOUT[permission.kind];
   return (
     <li
       className="flex items-center gap-4 rounded-xl px-1 py-3"
@@ -72,6 +88,7 @@ const PermissionRow: FC<{ permission: AppPermission; busy: boolean; onAsk: () =>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="font-medium">{title}</span>
         <span className="text-muted text-sm">{state}</span>
+        {about && <span className="text-muted text-xs">{t(about)}</span>}
       </span>
       {permission.kind === 'folders' ? (
         <Link to="/local-files" className="bg-surface shrink-0 rounded-full px-4 py-1.5 text-sm">

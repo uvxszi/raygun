@@ -18,6 +18,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.media.audiofx.PresetReverb
+import android.media.projection.MediaProjectionManager
 import android.provider.Settings
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
@@ -122,6 +123,20 @@ class CaptureArgs {
     lateinit var session: String
 }
 
+/** A recording of what Raygun plays ([PlaybackRecorder]): its pieces go to [dir]. */
+@InvokeArg
+class RecordingStartArgs {
+    lateinit var session: String
+    lateinit var dir: String
+}
+
+/** Where the song plays from now, or `null` while it doesn't (a run held). */
+@InvokeArg
+class RecordingMarkArgs {
+    lateinit var session: String
+    var positionMs: Double? = null
+}
+
 @InvokeArg
 class SpeechItem {
     var id: String = ""
@@ -144,6 +159,18 @@ class FolderArgs {
     var uri: String = ""
 }
 
+/** A folder of shared storage for Local Files' browser (M46.51), and the kinds of file it counts. */
+@InvokeArg
+class BrowseMediaArgs {
+    var path: String = ""
+    var extensions: Array<String> = emptyArray()
+}
+
+@InvokeArg
+class PickDocumentsArgs {
+    var mimes: Array<String> = emptyArray()
+}
+
 @InvokeArg
 class OutputArgs {
     var place: String = ""
@@ -158,6 +185,13 @@ class OutputArgs {
 class FileArgs {
     var uri: String = ""
     var mime: String = "*/*"
+}
+
+@InvokeArg
+class SavedArgs {
+    var place: String = ""
+    var tree: String? = null
+    var contains: String = ""
 }
 
 @InvokeArg
@@ -243,10 +277,13 @@ private fun soundConfig(sound: JSONObject): SoundConfig {
     permissions = [
         Permission(strings = [Manifest.permission.READ_MEDIA_AUDIO], alias = "audio"),
         Permission(strings = [Manifest.permission.READ_MEDIA_VIDEO], alias = "video"),
+        Permission(strings = [Manifest.permission.READ_MEDIA_IMAGES], alias = "images"),
         Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
         Permission(strings = [Manifest.permission.ACCESS_LOCAL_NETWORK], alias = "localNetwork"),
         Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications"),
         Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
+        // Recording what Raygun plays (PlaybackRecorder): Android asks for it with the capture.
+        Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "recordAudio"),
     ],
 )
 class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
@@ -434,8 +471,8 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             quiet = true
             main.removeCallbacks(endWatch)
             // The session shows the deck before anything goes into it: notification and headset
-            // buttons are about this song from now on, and the mirror lets go of the audio focus
-            // before the deck asks for it.
+            // buttons are about this song from now on, and the mirror stops passing on headphone
+            // changes before the deck handles them.
             syncSession()
             val player: Player = service?.deck?.player ?: controller
             val metadata = MediaMetadata.Builder()
@@ -847,22 +884,42 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /** How the downloads the browser started stand, to its process (data only, no pages). */
+    @Command
+    fun websiteDownloads(invoke: Invoke) {
+        val context = activity.applicationContext
+        context.sendBroadcast(
+            Intent(WebsiteActivity.ACTION_DOWNLOADS)
+                .setPackage(context.packageName)
+                .putExtra(WebsiteActivity.EXTRA_REPORT, invoke.getArgs().toString()),
+        )
+        invoke.resolve()
+    }
+
     // ---- Browser checks passed by hand (experimental): see BrowserCheckActivity ----
 
-    /** Opens `{url, userAgent}` for the person to pass its check; answers `{cookies}` on close. */
+    /**
+     * Opens the request `{url, method, headers, body, userAgent}` that met a check, for the person
+     * to pass it; answers `{cookies, userAgent, seen}` on close.
+     */
     @Command
     fun browserCheck(invoke: Invoke) {
-        val args = invoke.getArgs()
         val intent = Intent(activity, BrowserCheckActivity::class.java)
-            .putExtra(BrowserCheckActivity.EXTRA_URL, args.getString("url", ""))
-            .putExtra(BrowserCheckActivity.EXTRA_USER_AGENT, args.getString("userAgent", ""))
+            .putExtra(BrowserCheckActivity.EXTRA_REQUEST, invoke.getArgs().toString())
         startActivityForResult(invoke, intent, "browserCheckClosed")
     }
 
     @ActivityCallback
     fun browserCheckClosed(invoke: Invoke, result: ActivityResult) {
-        val cookies = result.data?.getStringExtra(BrowserCheckActivity.EXTRA_COOKIES).orEmpty()
-        invoke.resolve(JSObject().put("cookies", cookies))
+        val data = result.data
+        val seen = runCatching { JSONArray(data?.getStringExtra(BrowserCheckActivity.EXTRA_SEEN) ?: "[]") }
+            .getOrElse { JSONArray() }
+        invoke.resolve(
+            JSObject()
+                .put("cookies", data?.getStringExtra(BrowserCheckActivity.EXTRA_COOKIES).orEmpty())
+                .put("userAgent", data?.getStringExtra(BrowserCheckActivity.EXTRA_USER_AGENT).orEmpty())
+                .put("seen", seen),
+        )
     }
 
     // ---- Connect (M46.15): hearing other devices' mDNS needs a multicast lock ----
@@ -974,6 +1031,127 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    // ---- Recording what Raygun plays (see PlaybackRecorder) ----
+
+    /** Whether a consent's projection is held: songs can be recorded now. */
+    @Command
+    fun recordingReady(invoke: Invoke) {
+        invoke.resolve(JSObject().put("ready", PlaybackRecorder.ready()))
+    }
+
+    /**
+     * Asks to record what Raygun plays: RECORD_AUDIO, then Android's capture question. Answers
+     * `{granted, reason}`; `reason` is `unsupported` (before Android 10), `microphone` (RECORD_AUDIO
+     * refused), `declined` (the capture refused) or `failed`.
+     */
+    @Command
+    fun recordingConsent(invoke: Invoke) {
+        when {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> invoke.resolve(consent(false, "unsupported"))
+            PlaybackRecorder.ready() -> invoke.resolve(consent(true, null))
+            getPermissionState("recordAudio") != PermissionState.GRANTED ->
+                requestPermissionForAlias("recordAudio", invoke, "recordingMicrophoneAnswered")
+            else -> askToCapture(invoke)
+        }
+    }
+
+    @PermissionCallback
+    fun recordingMicrophoneAnswered(invoke: Invoke) {
+        if (getPermissionState("recordAudio") == PermissionState.GRANTED) {
+            askToCapture(invoke)
+        } else {
+            invoke.resolve(consent(false, "microphone"))
+        }
+    }
+
+    private fun askToCapture(invoke: Invoke) {
+        val manager = activity.getSystemService(MediaProjectionManager::class.java)
+        if (manager == null) {
+            invoke.resolve(consent(false, "unsupported"))
+            return
+        }
+        startActivityForResult(invoke, captureIntent(manager), "recordingCaptureAnswered")
+    }
+
+    /**
+     * Android's capture question. From Android 14 it may also offer a single app's screen, which
+     * would leave Raygun's own sound out: only the whole screen's is asked for (Raygun records
+     * nothing but its own sound either way).
+     */
+    private fun captureIntent(manager: MediaProjectionManager): Intent =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            manager.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+            manager.createScreenCaptureIntent()
+        }
+
+    @ActivityCallback
+    fun recordingCaptureAnswered(invoke: Invoke, result: ActivityResult) {
+        val data = result.data
+        if (result.resultCode != Activity.RESULT_OK || data == null) {
+            invoke.resolve(consent(false, "declined"))
+            return
+        }
+        // The projection is handed only to a running mediaProjection service: it answers.
+        RecordingService.onAnswer = { held -> invoke.resolve(consent(held, if (held) null else "failed")) }
+        val context = activity.applicationContext
+        try {
+            androidx.core.content.ContextCompat.startForegroundService(
+                context,
+                Intent(context, RecordingService::class.java)
+                    .putExtra(RecordingService.EXTRA_CODE, result.resultCode)
+                    .putExtra(RecordingService.EXTRA_DATA, data),
+            )
+        } catch (error: Exception) {
+            RecordingService.onAnswer = null
+            invoke.resolve(consent(false, "failed"))
+        }
+    }
+
+    private fun consent(granted: Boolean, reason: String?): JSObject {
+        val answer = JSObject().put("granted", granted)
+        reason?.let { answer.put("reason", it) }
+        return answer
+    }
+
+    @Command
+    fun recordingStart(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingStartArgs::class.java)
+        try {
+            PlaybackRecorder.start(args.session, args.dir)
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "The recording didn't start")
+        }
+    }
+
+    @Command
+    fun recordingMark(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingMarkArgs::class.java)
+        PlaybackRecorder.mark(args.session, args.positionMs)
+        invoke.resolve()
+    }
+
+    @Command
+    fun recordingStatus(invoke: Invoke) {
+        val args = invoke.parseArgs(CaptureArgs::class.java)
+        invoke.resolve(PlaybackRecorder.status(args.session))
+    }
+
+    @Command
+    fun recordingStop(invoke: Invoke) {
+        val args = invoke.parseArgs(CaptureArgs::class.java)
+        PlaybackRecorder.stop(args.session)
+        invoke.resolve()
+    }
+
+    /** No recording waits: the consent's projection goes back. */
+    @Command
+    fun recordingEnd(invoke: Invoke) {
+        PlaybackRecorder.end(activity.applicationContext)
+        invoke.resolve()
+    }
+
     @Command
     fun networkKind(invoke: Invoke) {
         val connectivity = activity.applicationContext.getSystemService(ConnectivityManager::class.java)
@@ -1051,23 +1229,93 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
 
     // ---- Local Files (M46.27): reading folders the user picked ----
 
-    /** Asks to read the device's songs and videos (Android 13+), which Local Files plays by path. */
+    /** The media permissions: songs, videos and pictures (Android 13+), else the storage one. */
+    private fun mediaAliases() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video", "images") else arrayOf("storage")
+
+    private fun mediaGranted() = mediaAliases().all { getPermissionState(it) == PermissionState.GRANTED }
+
+    /** Asks to read the device's songs, videos and pictures, which Local Files reads by path. */
     @Command
     fun requestMediaAccess(invoke: Invoke) {
-        val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
-        val granted = aliases.all { getPermissionState(it) == PermissionState.GRANTED }
+        val granted = mediaGranted()
         // "Not now" to Raygun's own question just before: Android isn't asked over it.
         if (granted || Permissions.recentlyDeclined("media")) {
             invoke.resolve(JSObject().put("granted", granted))
         } else {
-            requestPermissionForAliases(aliases, invoke, "mediaAccessResult")
+            requestPermissionForAliases(mediaAliases(), invoke, "mediaAccessResult")
         }
     }
 
     @PermissionCallback
     fun mediaAccessResult(invoke: Invoke) {
-        val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
-        invoke.resolve(JSObject().put("granted", aliases.all { getPermissionState(it) == PermissionState.GRANTED }))
+        invoke.resolve(JSObject().put("granted", mediaGranted()))
+    }
+
+    /**
+     * What Raygun may read of shared storage (M46.51; see LocalStorage). `media` is any of the
+     * media permissions: MediaStore then lists the kinds allowed.
+     */
+    @Command
+    fun storageAccess(invoke: Invoke) {
+        val media = mediaAliases().any { getPermissionState(it) == PermissionState.GRANTED }
+        invoke.resolve(
+            JSObject()
+                .put("root", LocalStorage.root())
+                .put("media", media)
+                .put("allFiles", LocalStorage.allFiles(media))
+                .put("canAskAllFiles", LocalStorage.canAskAllFiles()),
+        )
+    }
+
+    /** A folder of shared storage as MediaStore lists it, for Local Files' browser (M46.51). */
+    @Command
+    fun browseMedia(invoke: Invoke) {
+        val args = invoke.parseArgs(BrowseMediaArgs::class.java)
+        val context = activity.applicationContext
+        thread(name = "raygun-local-files") {
+            try {
+                val extensions = args.extensions.map { it.lowercase() }.toSet()
+                invoke.resolve(LocalStorage.mediaFolders(context, args.path, extensions))
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't list the phone's folders")
+            }
+        }
+    }
+
+    /** The system's file picker for several files at once: Local Files' Add files (M46.51). */
+    @Command
+    fun pickDocuments(invoke: Invoke) {
+        val args = invoke.parseArgs(PickDocumentsArgs::class.java)
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        if (args.mimes.isNotEmpty()) intent.putExtra(Intent.EXTRA_MIME_TYPES, args.mimes)
+        try {
+            startActivityForResult(invoke, intent, "documentsPicked")
+        } catch (error: android.content.ActivityNotFoundException) {
+            invoke.reject("No app on this phone picks files")
+        }
+    }
+
+    @ActivityCallback
+    fun documentsPicked(invoke: Invoke, result: ActivityResult) {
+        val data = result.data
+        val uris = mutableListOf<Uri>()
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            data.clipData?.let { clip ->
+                for (index in 0 until clip.itemCount) clip.getItemAt(index).uri?.let(uris::add)
+            }
+            if (uris.isEmpty()) data.data?.let(uris::add)
+        }
+        val context = activity.applicationContext
+        // Providers may be slow to describe their files (a cloud drive).
+        thread(name = "raygun-local-files") {
+            val files = JSArray()
+            uris.forEach { files.put(LocalStorage.describe(context, it)) }
+            invoke.resolve(JSObject().put("files", files))
+        }
     }
 
     /** Every file under a picked folder: its document address, path inside the folder, size and time. */
@@ -1205,6 +1453,59 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /** Files Raygun saved in `Download/Raygun/` or a picked folder, by name (M46.51: backups). */
+    @Command
+    fun listSaved(invoke: Invoke) {
+        val args = invoke.parseArgs(SavedArgs::class.java)
+        thread(name = "raygun-output") {
+            try {
+                val files = JSONArray()
+                for (file in storage.listSaved(args.place, args.tree, args.contains)) {
+                    files.put(
+                        JSObject()
+                            .put("uri", file.uri.toString())
+                            .put("name", file.name)
+                            .put("size", file.size)
+                            .put("modified", file.modified),
+                    )
+                }
+                invoke.resolve(JSObject().put("files", files))
+            } catch (error: Exception) {
+                invoke.reject(error.message ?: "Couldn't read the folder")
+            }
+        }
+    }
+
+    /**
+     * Starts Raygun again from its first screen (M46.51: after erasing everything). The WebView's
+     * storage and cookies go first; the app's other processes (the built-in browser, browser
+     * checks) end with this one.
+     */
+    @Command
+    fun restartApp(invoke: Invoke) {
+        activity.runOnUiThread {
+            runCatching { android.webkit.WebStorage.getInstance().deleteAllData() }
+            runCatching {
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+            }
+            val launch = activity.packageManager.getLaunchIntentForPackage(activity.packageName)?.component
+            if (launch == null) {
+                invoke.reject("Raygun couldn't start again; open it from the launcher")
+                return@runOnUiThread
+            }
+            invoke.resolve()
+            Handler(Looper.getMainLooper()).postDelayed({
+                activity.startActivity(Intent.makeRestartActivityTask(launch))
+                val manager = activity.getSystemService(android.app.ActivityManager::class.java)
+                manager?.runningAppProcesses
+                    ?.filter { it.uid == android.os.Process.myUid() && it.pid != android.os.Process.myPid() }
+                    ?.forEach { android.os.Process.killProcess(it.pid) }
+                Runtime.getRuntime().exit(0)
+            }, 300)
+        }
+    }
+
     @Command
     fun deleteFile(invoke: Invoke) {
         val args = invoke.parseArgs(FileArgs::class.java)
@@ -1274,6 +1575,14 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /** A notification that opens a screen when tapped (see Notices). */
+    @Command
+    fun notice(invoke: Invoke) {
+        val notice = JSONObject(invoke.getArgs().toString())
+        main.post { Notices.show(activity.applicationContext, notice) }
+        invoke.resolve()
+    }
+
     /** A tapped notification: the screen it opens, and a button pressed on it. */
     private fun takeOpenExtras(intent: Intent?) {
         val extras = intent ?: return
@@ -1287,15 +1596,31 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /**
+     * Media and links another app opened with Raygun or shared to it (see OpenWith): taken from
+     * the intent at once, described off the main thread (that asks the sharing app's provider).
+     */
+    private fun takeHandover(intent: Intent?) {
+        val handover = OpenWith.take(intent) ?: return
+        val context = activity.applicationContext
+        thread(name = "raygun-open-with") { NativeBridge.openWith(handover.describe(context).toString()) }
+    }
+
     override fun load(webView: WebView) {
+        // Rust's commands reach this instance on their own line from now on, with or without an
+        // activity (see DirectCalls).
+        DirectCalls.plugin = this
+        NativeBridge.attach()
         // The browser's process may outlive this one: its reports and downloads find a listener.
         listenToWebsites()
         takeOpenExtras(activity.intent)
+        takeHandover(activity.intent)
         DeviceState.start(activity)
     }
 
     override fun onNewIntent(intent: Intent) {
         takeOpenExtras(intent)
+        takeHandover(intent)
     }
 
     // ---- Settings → Permissions (see Permissions) ----
@@ -1315,8 +1640,7 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         }
         rows.add(Permissions.row("notifications", notifications))
         rows.add(Permissions.row("battery", Permissions.battery(context)))
-        val media = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) listOf("audio", "video") else listOf("storage")
-        val mediaStates = media.map { getPermissionState(it) }
+        val mediaStates = mediaAliases().map { getPermissionState(it) }
         rows.add(
             Permissions.row(
                 "media",
@@ -1327,6 +1651,10 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 },
             ),
         )
+        // Optional (M46.51): only its own settings page allows it.
+        if (LocalStorage.canAskAllFiles()) {
+            rows.add(Permissions.row("allFiles", if (LocalStorage.allFiles(false)) "granted" else "denied"))
+        }
         rows.add(Permissions.row("folders", "granted", Permissions.folders(context)))
         if (localNetworkEnforced()) {
             val local = localNetworkAccess()
@@ -1386,14 +1714,9 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
                 }
                 startActivityForResult(invoke, intent, "permissionPageClosed")
             }
-            "media" -> {
-                val aliases = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf("audio", "video") else arrayOf("storage")
-                if (aliases.any { getPermissionState(it) == PermissionState.DENIED }) {
-                    startActivityForResult(invoke, Permissions.settingsIntent(context, kind), "permissionPageClosed")
-                } else {
-                    requestPermissionForAliases(aliases, invoke, "permissionAnswered")
-                }
-            }
+            "media" -> requestMedia(invoke)
+            // Android 10 and older have no such page: the storage permission reads every file.
+            "allFiles" -> if (LocalStorage.canAskAllFiles()) openAllFilesPage(invoke) else requestMedia(invoke)
             "localNetwork" -> if (localNetworkEnforced() && getPermissionState("localNetwork") != PermissionState.DENIED) {
                 requestPermissionForAlias("localNetwork", invoke, "permissionAnswered")
             } else {
@@ -1407,6 +1730,32 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
             }
             else -> invoke.resolve(permissionRows())
         }
+    }
+
+    private fun requestMedia(invoke: Invoke) {
+        val aliases = mediaAliases()
+        if (aliases.any { getPermissionState(it) == PermissionState.DENIED }) {
+            startActivityForResult(
+                invoke,
+                Permissions.settingsIntent(activity.applicationContext, "media"),
+                "permissionPageClosed",
+            )
+        } else {
+            requestPermissionForAliases(aliases, invoke, "permissionAnswered")
+        }
+    }
+
+    /** Access to all files' page (M46.51), answered with every state once the user is back. */
+    private fun openAllFilesPage(invoke: Invoke) {
+        for (intent in LocalStorage.allFilesIntents(activity.applicationContext)) {
+            try {
+                startActivityForResult(invoke, intent, "permissionPageClosed")
+                return
+            } catch (error: android.content.ActivityNotFoundException) {
+                // Some builds have only the list of apps.
+            }
+        }
+        invoke.resolve(permissionRows())
     }
 
     @PermissionCallback

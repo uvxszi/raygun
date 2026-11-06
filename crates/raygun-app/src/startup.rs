@@ -28,6 +28,8 @@ struct LogGuard(#[allow(dead_code)] WorkerGuard);
 
 pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let paths = resolve_paths(app)?;
+    // Erase everything (M46.51) happens here, before anything opens the data root.
+    let erased = crate::backup::erase::finish_pending(paths.root(), paths.mode());
     paths.ensure_base_dirs()?;
     let guard = init_logging(&paths)?;
     tracing::info!(
@@ -36,6 +38,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         version = env!("CARGO_PKG_VERSION"),
         "storage resolved"
     );
+    if let Some(erased) = erased {
+        tracing::warn!(
+            removed = erased.removed,
+            failed = ?erased.failed,
+            "erased everything but the backups"
+        );
+    }
 
     let db = tauri::async_runtime::block_on(raygun_db::Db::open(&paths.db()))?;
     tracing::info!(device_id = %db.device_id(), "database ready");
@@ -80,6 +89,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(proxy.images());
     app.manage(proxy.media());
     app.manage(proxy.lan());
+    app.manage(crate::fonts::FontService::new(proxy.fonts()));
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),
         art_dir,
@@ -165,6 +175,11 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::backup::BackupService::new(
         app.handle().clone(),
         paths.root().join("backups"),
+        crate::export::Outputs::new(
+            app.handle().clone(),
+            paths.exports(),
+            paths.cache(raygun_paths::CacheKind::Share),
+        ),
     ));
     app.manage(crate::playback::PlaybackService::new(
         app.handle().clone(),
@@ -218,6 +233,11 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::lyrics_translation::LyricsTranslations::new(
         app.handle().clone(),
     ));
+    // AI subtitles and translated subtitles in the video player.
+    let video_subtitles =
+        crate::video_subtitles::VideoSubtitles::new(app.handle().clone(), &paths.downloads());
+    video_subtitles.start();
+    app.manage(video_subtitles);
     // Covers from other sources when one's missing or fails (M46.40).
     app.manage(crate::cover_fallback::CoverFallbacks::new(
         app.handle().clone(),
@@ -312,6 +332,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     crate::tts::install(app.handle());
     crate::video::install(app.handle());
     crate::websites::install(app.handle());
+    // Last: what another app opened Raygun with plays through the services above.
+    crate::open_with::install(app.handle());
     app.state::<crate::manga::MangaService>().start_scheduler();
     crate::system_ui::apply_saved_theme(app.handle().clone());
     Ok(())

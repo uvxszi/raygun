@@ -15,7 +15,7 @@ import {
   SquareCheck,
 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
-import type { FC, MouseEvent, ReactNode } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
@@ -51,10 +51,9 @@ import { failingLast, useSourceHealth } from '../search/sourceHealth';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { QuickAccessButton } from '../shell/QuickAccessButton';
 import { useIsDesktop } from '../shell/useIsDesktop';
+import { useDragScroll } from '../shell/useDragScroll';
 import { SourceMenu } from '../search/SourceMenu';
-import { useSourceMenuItems } from '../search/sourceMenuItems';
 import { buildMenu, copyText } from '../music/mediaMenu';
-import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { mediaOfKind } from '../sources/sourceMedia';
 import { WebsitesSection } from '../websites/WebsitesSection';
@@ -68,6 +67,7 @@ import { useSetAddonEnabled, useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
 import { SourceIssue } from '../shell/SourceIssue';
 import { BROWSE_TAB_LABEL, browseStartTab } from './browseTabs';
+import { MenuButton } from '../shell/MenuButton';
 
 export type BrowseSection = 'search' | 'discover' | 'sources' | 'extensions';
 export type { ExtensionList };
@@ -99,7 +99,7 @@ const rowEnabled = (row: SourceRow) =>
 
 type Page = { to: string; search: Record<string, unknown> };
 
-/** A Stremio addon's long-press menu: open it, manage addons, copy its name, mark it 18+ or not. */
+/** A Stremio addon's ⋮ menu: open it, manage addons, copy its name, mark it 18+ or not. */
 const addonMenu = (
   row: SourceRow,
   t: TFunction,
@@ -126,10 +126,7 @@ const addonMenu = (
     edit: row.addonId ? marks : [],
   });
 
-const SourceRowLink: FC<{ row: SourceRow; onMenu?: (event: MouseEvent) => void }> = ({
-  row,
-  onMenu,
-}) => {
+const SourceRowLink: FC<{ row: SourceRow }> = ({ row }) => {
   const { t } = useTranslation();
   const rating = useContentRating();
   const mark = row.source
@@ -142,7 +139,6 @@ const SourceRowLink: FC<{ row: SourceRow; onMenu?: (event: MouseEvent) => void }
       to={row.to}
       search={row.search}
       aria-label={row.name}
-      onContextMenu={onMenu}
       className={`hover:bg-surface flex min-w-0 flex-1 items-center gap-4 rounded-xl px-1 py-2.5 ${rowEnabled(row) ? '' : 'opacity-50'}`}
     >
       <LetterAvatar name={row.name} logo={row.logo} />
@@ -174,21 +170,14 @@ const LatestLink: FC<{ row: SourceRow }> = ({ row }) => {
   ) : null;
 };
 
-/** An extension's source: its menu needs the source's switch and its extension's website. */
+/** An extension's source, with its ⋯ (SourceMenu). */
 const ExtensionSourceRow: FC<{
   row: SourceRow;
   source: NonNullable<SourceRow['source']>;
 }> = ({ row, source }) => {
-  const items = useSourceMenuItems({
-    sourceId: source.id,
-    extensionId: source.extensionId,
-    name: row.name,
-    page: { to: row.to, search: row.search },
-    ...(row.latest ? { latest: row.latest } : {}),
-  });
   return (
     <>
-      <SourceRowLink row={row} onMenu={(event) => openContextMenu(event, items())} />
+      <SourceRowLink row={row} />
       <LatestLink row={row} />
       <SourceMenu sourceId={source.id} extensionId={source.extensionId} name={row.name} />
     </>
@@ -223,21 +212,14 @@ const SourceSection: FC<{
               <SourceRowLink row={row} />
             ) : (
               <>
-                <SourceRowLink
-                  row={row}
-                  onMenu={(event) =>
-                    openContextMenu(
-                      event,
-                      addonMenu(
-                        row,
-                        t,
-                        go,
-                        rating.menuItems('addons', row.addonId ?? '', row.adult),
-                      ),
-                    )
+                <SourceRowLink row={row} />
+                <LatestLink row={row} />
+                <MenuButton
+                  label={t('menu.options', { name: row.name })}
+                  items={() =>
+                    addonMenu(row, t, go, rating.menuItems('addons', row.addonId ?? '', row.adult))
                   }
                 />
-                <LatestLink row={row} />
               </>
             )}
             <OnOffSwitch
@@ -288,6 +270,7 @@ const SourcesList: FC = () => {
   const layout = useLayout();
   const [kind, setKindState] = useState<SourceKind>(readKind);
   const [query, setQuery] = useState('');
+  const kindRow = useDragScroll<HTMLDivElement>();
   const setKind = (next: SourceKind) => {
     setKindState(next);
     try {
@@ -484,6 +467,7 @@ const SourcesList: FC = () => {
       )}
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <div
+          ref={kindRow}
           role="group"
           aria-label={t('browse.sourceKinds')}
           className="-mx-4 flex min-w-0 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
@@ -536,6 +520,7 @@ export const BrowsePage: FC = () => {
   const { t } = useTranslation();
   const current = useSearch({ from: '/browse' });
   const layout = useLayout();
+  const listRow = useDragScroll<HTMLElement>();
   // Without a tab in the address, Sources, or the first tab the user shows (M46.5).
   const shownTabs = layout.browseTabs
     .filter((item) => item.visible)
@@ -756,6 +741,7 @@ export const BrowsePage: FC = () => {
       {tab === 'extensions' && (
         <div className="flex flex-col gap-4">
           <nav
+            ref={listRow}
             aria-label={t('extensions.tabs')}
             className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
           >

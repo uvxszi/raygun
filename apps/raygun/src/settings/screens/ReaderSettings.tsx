@@ -1,9 +1,10 @@
-import type { NovelFont, NovelReaderPrefs, NovelTheme, NovelWidth } from '@raygun/bindings';
+import type { NovelReaderPrefs, NovelTheme, NovelWidth } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { ReadingFontRow } from '../../fonts/ReadingFont';
 import { ReaderDisplaySettings } from '../../manga/ReaderDisplaySettings';
-import { DEFAULT_PREFS, LINE_SPACING, TEXT_SIZE } from '../../novel/useNovel';
+import { DEFAULT_PREFS, INDENT, LINE_SPACING, TEXT_SIZE } from '../../novel/useNovel';
 import { PrefChoice, PrefGroup, PrefSize, PrefSlider, PrefSwitch } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
@@ -36,15 +37,7 @@ export const ReaderSettings: FC = () => {
           value={prefs.lineSpacing}
           onChange={(lineSpacing) => set({ lineSpacing })}
         />
-        <PrefChoice<NovelFont>
-          title={t('settings.font')}
-          value={prefs.font}
-          options={[
-            { value: 'serif', label: t('settings.fontSerif') },
-            { value: 'sans', label: t('settings.fontSans') },
-          ]}
-          onChange={(font) => set({ font })}
-        />
+        <ReadingFontRow />
         <PrefChoice<NovelWidth>
           title={t('settings.pageWidth')}
           value={prefs.width}
@@ -63,9 +56,12 @@ export const ReaderSettings: FC = () => {
           }))}
           onChange={(theme) => set({ theme })}
         />
-        <PrefSwitch
+        <PrefSize
           title={t('settings.indent')}
-          checked={prefs.indent ?? false}
+          unit="em"
+          {...INDENT}
+          factor={0.1}
+          value={prefs.indent ?? 0}
           onChange={(indent) => set({ indent })}
         />
         <PrefSwitch

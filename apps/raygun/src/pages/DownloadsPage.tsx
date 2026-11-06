@@ -10,6 +10,8 @@ import { useExportJobs } from '../export/useExports';
 import { unwrapResult } from '../lib/commandResult';
 import { formatBytes } from '../lib/formatBytes';
 import { ChapterDownloads } from '../manga/ChapterDownloads';
+import { DownloadedTitles } from '../downloads/DownloadedTitles';
+import { useDownloadedTitles } from '../downloads/useDownloadedTitles';
 import { SongDownloadsList } from '../music/SongDownloadsList';
 import { useSongDownloads } from '../music/useSongDownloads';
 import { useMangaDownloads, useMangaLiveEvents } from '../manga/useManga';
@@ -23,7 +25,10 @@ import { useFileDownloads } from '../websites/useFileDownloads';
 import { YtDlpJobs } from '../youtube/YtDlpJobs';
 import { useYtDlpJobs } from '../youtube/useYtDlp';
 
-export type DownloadsTab = 'all' | 'music' | 'chapters' | 'videos' | 'files' | 'exports';
+export type DownloadsTab = 'all' | 'music' | 'comics' | 'books' | 'videos' | 'files' | 'exports';
+
+/** Titles each kind shows on the All tab; its own tab has the rest. */
+const ALL_TAB_TITLES = 5;
 
 /** How much room downloads take on this device, with the way to Storage. */
 const StorageLine: FC = () => {
@@ -74,6 +79,33 @@ const Section: FC<{ tab: DownloadsTab; title: string; children: ReactNode }> = (
 };
 
 /**
+ * Downloads → Comics or Books: that medium's chapters in the queue, then every title with
+ * chapters downloaded; one empty state when there are neither.
+ */
+const TitleDownloads: FC<{ medium: 'manga' | 'novel'; limit?: number }> = ({ medium, limit }) => {
+  const { t } = useTranslation();
+  const queue = useMangaDownloads();
+  const titles = useDownloadedTitles(medium);
+  const queued = (queue.data?.items ?? []).some((item) => item.medium === medium);
+  const empty = queue.isSuccess && titles.isSuccess && !queued && titles.data.length === 0;
+  return (
+    <div className="flex flex-col gap-4">
+      <ChapterDownloads medium={medium} />
+      <DownloadedTitles medium={medium} limit={limit} />
+      {empty && <EmptyState icon={Download} title={t('downloads.noneTitle')} />}
+    </div>
+  );
+};
+
+/** Downloads → Videos: the episodes saved or saving, after the titles they belong to. */
+const VideoDownloads: FC<{ limit?: number }> = ({ limit }) => (
+  <div className="flex flex-col gap-4">
+    <DownloadedTitles medium="video" limit={limit} />
+    <VideoDownloadsList />
+  </div>
+);
+
+/**
  * Downloads → All (M46.37): every kind that has something, each with its own list; one empty
  * state when nothing is downloaded at all.
  */
@@ -81,16 +113,21 @@ const AllDownloads: FC = () => {
   const { t } = useTranslation();
   const songs = useSongDownloads();
   const chapters = useMangaDownloads();
+  const comics = useDownloadedTitles('manga');
+  const books = useDownloadedTitles('novel');
   const videos = useVideoDownloads();
   const exports = useExportJobs();
   const youtube = useYtDlpJobs();
   const files = useFileDownloads();
-  const answered = [songs, chapters, videos, exports, youtube, files].every(
+  const answered = [songs, chapters, comics, books, videos, exports, youtube, files].every(
     (query) => query.data !== undefined || query.isError,
   );
+  const queued = (medium: string) =>
+    (chapters.data?.items ?? []).some((item) => item.medium === medium);
   const shown = {
     music: (songs.data?.length ?? 0) > 0,
-    chapters: (chapters.data?.items.length ?? 0) > 0,
+    comics: queued('manga') || (comics.data?.length ?? 0) > 0,
+    books: queued('novel') || (books.data?.length ?? 0) > 0,
     videos: (videos.data?.items.length ?? 0) > 0,
     files: (files.data ?? []).some((file) => file.state !== 'cancelled'),
     exports: (exports.data?.length ?? 0) + (youtube.data?.length ?? 0) > 0,
@@ -107,14 +144,19 @@ const AllDownloads: FC = () => {
           <SongDownloadsList compact />
         </Section>
       )}
-      {shown.chapters && (
-        <Section tab="chapters" title={t('updates.chapters')}>
-          <ChapterDownloads />
+      {shown.comics && (
+        <Section tab="comics" title={t('library.tabs.manga')}>
+          <TitleDownloads medium="manga" limit={ALL_TAB_TITLES} />
+        </Section>
+      )}
+      {shown.books && (
+        <Section tab="books" title={t('library.tabs.novel')}>
+          <TitleDownloads medium="novel" limit={ALL_TAB_TITLES} />
         </Section>
       )}
       {shown.videos && (
         <Section tab="videos" title={t('downloads.videos')}>
-          <VideoDownloadsList />
+          <VideoDownloads limit={ALL_TAB_TITLES} />
         </Section>
       )}
       {shown.files && (
@@ -132,7 +174,10 @@ const AllDownloads: FC = () => {
   );
 };
 
-/** Downloads (More → Downloads): songs, the chapter queue, saved videos, files from websites and exports, in tabs. */
+/**
+ * Downloads (More → Downloads): songs, comics, books, videos, files from websites and exports,
+ * in tabs. Each downloaded title or song opens and has its menu as in the Library.
+ */
 export const DownloadsPage: FC = () => {
   const { t } = useTranslation();
   // All first (M46.37): every kind of download on one page, each with its own list.
@@ -154,10 +199,16 @@ export const DownloadsPage: FC = () => {
             search: { tab: 'music' },
           },
           {
-            id: 'chapters',
-            label: t('updates.chapters'),
+            id: 'comics',
+            label: t('library.tabs.manga'),
             to: '/downloads',
-            search: { tab: 'chapters' },
+            search: { tab: 'comics' },
+          },
+          {
+            id: 'books',
+            label: t('library.tabs.novel'),
+            to: '/downloads',
+            search: { tab: 'books' },
           },
           {
             id: 'videos',
@@ -181,8 +232,9 @@ export const DownloadsPage: FC = () => {
       />
       {tab === 'all' && <AllDownloads />}
       {tab === 'music' && <SongDownloadsList />}
-      {tab === 'chapters' && <ChapterDownloads />}
-      {tab === 'videos' && <VideoDownloadsList />}
+      {tab === 'comics' && <TitleDownloads medium="manga" />}
+      {tab === 'books' && <TitleDownloads medium="novel" />}
+      {tab === 'videos' && <VideoDownloads />}
       {tab === 'files' && <FileDownloadsList />}
       {tab === 'exports' && (
         <>

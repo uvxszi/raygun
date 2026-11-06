@@ -250,7 +250,7 @@ describe('Websites', () => {
       );
 
       const pin = await within(screen.getByTestId('rail-pins')).findByRole('button', {
-        name: /Internet Archive/,
+        name: /^Internet Archive/,
       });
       commands.websiteOpen.mockClear();
       await user.click(pin);

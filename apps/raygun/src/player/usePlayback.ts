@@ -193,13 +193,15 @@ export const isActive = (state: PlaybackState | undefined) =>
   state?.status === 'playing' || state?.status === 'loading' || state?.status === 'buffering';
 
 /**
- * Where the stream comes from: "finding" while the resolver looks for one (M14), else the
- * provider it picked, or `null` for items that carry their own source.
+ * Where the stream comes from: "looking" while another source is looked for (what the song had
+ * stopped working), "finding" while the resolver looks for one (M14), else the provider it
+ * picked, or `null` for items that carry their own source.
  */
 export const sourceNote = (
   state: PlaybackState | undefined,
   item: QueueItem | undefined,
-): { kind: 'finding' } | { kind: 'via'; source: string } | null => {
+): { kind: 'looking' } | { kind: 'finding' } | { kind: 'via'; source: string } | null => {
+  if (state?.lookingForSource) return { kind: 'looking' };
   if (state?.sourceLabel) return { kind: 'via', source: state.sourceLabel };
   if (item?.source.kind === 'lookup' && state?.status === 'loading') return { kind: 'finding' };
   return null;
@@ -208,9 +210,19 @@ export const sourceNote = (
 /** {@link sourceNote} for the playing item, re-rendering only when it changes. */
 export const useSourceNote = (item: QueueItem | undefined) => {
   const lookup = item?.source.kind === 'lookup';
+  const looking = usePlayerSelect((state) => state?.lookingForSource ?? false);
   const label = usePlayerSelect((state) => state?.sourceLabel ?? null);
   const loading = usePlayerSelect((state) => state?.status === 'loading');
+  if (looking) return { kind: 'looking' } as const;
   if (label) return { kind: 'via', source: label } as const;
   if (lookup && loading) return { kind: 'finding' } as const;
   return null;
 };
+
+/** The words for a {@link sourceNote}. */
+export const sourceNoteKey = (note: NonNullable<ReturnType<typeof sourceNote>>) =>
+  note.kind === 'looking'
+    ? 'player.lookingForSource'
+    : note.kind === 'finding'
+      ? 'player.findingSource'
+      : 'player.via';

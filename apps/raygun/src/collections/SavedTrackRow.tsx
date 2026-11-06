@@ -3,7 +3,6 @@ import type { FC, ReactNode } from 'react';
 
 import { Artwork } from '../library/Artwork';
 import { ArtistLinks } from '../music/ArtistLinks';
-import { useTrackMenu } from '../music/useTrackMenu';
 import { formatTime } from '../player/formatTime';
 import { TrackMoreButton } from './TrackMoreButton';
 import { fromSavedTrack } from './useCollections';
@@ -29,14 +28,9 @@ export const SavedTrackRow: FC<SavedTrackRowProps> = ({
   playlistItemId,
   actions,
 }) => {
-  const menu = useTrackMenu();
   const playing = usePlayingMatch()(track);
   return (
-    <div
-      className="flex items-center"
-      data-reveal={songReveal(track.title, track.artist)}
-      onContextMenu={menu(fromSavedTrack(track), { onPlay, playlistItemId })}
-    >
+    <div className="flex items-center" data-reveal={songReveal(track.title, track.artist)}>
       <button
         type="button"
         data-testid="saved-track-row"
@@ -66,7 +60,13 @@ export const SavedTrackRow: FC<SavedTrackRowProps> = ({
           {track.durationMs ? formatTime(track.durationMs) : ''}
         </span>
       </button>
-      {actions ?? <TrackMoreButton track={fromSavedTrack(track)} playlistItemId={playlistItemId} />}
+      {actions ?? (
+        <TrackMoreButton
+          track={fromSavedTrack(track)}
+          playlistItemId={playlistItemId}
+          extras={{ onPlay, playlistItemId }}
+        />
+      )}
     </div>
   );
 };

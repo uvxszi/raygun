@@ -337,6 +337,7 @@
     "noResults": "Nothing found for “{{query}}”.",
     "providerEmpty": "No results from this source.",
     "fromListing": "From its listings",
+    "fromListingsHint": "Its own search failed or found nothing, so these were found by looking through what it lists",
     "providerFailed": "This source failed: {{message}}",
     "yourLibrary": "Your library",
     "topResults": "Top results",
@@ -565,6 +566,10 @@
         "title": "Library",
         "summary": "Covers, badges, updates, categories, music folders"
       },
+      "quickAccess": {
+        "title": "Quick access",
+        "summary": "What the sidebar and the drawer list, and in what order"
+      },
       "reader": {
         "title": "Reader",
         "summary": "Novel text, page layout, reading aloud"
@@ -650,7 +655,7 @@
     "musicFoldersHint": "Folders on this device that Raygun reads for your music library.",
     "novelReader": "Novels",
     "fontSize": "Text size",
-    "indent": "Indent paragraphs",
+    "indent": "Paragraph indent",
     "indentHint": "The first line of each paragraph starts further in, as in printed books",
     "justify": "Justify text",
     "lineSpacing": "Line spacing",
@@ -958,7 +963,21 @@
       "zoomHint": "Everything larger or smaller (Ctrl+= and Ctrl+-, or Ctrl and the mouse wheel; Ctrl+0 resets)",
       "interface": "Interface",
       "interfaceSize": "Interface size",
-      "interfaceSizeHint": "Text and spacing larger or smaller"
+      "interfaceSizeHint": "Text and spacing larger or smaller",
+      "textSize": "Text size"
+    },
+    "fonts": {
+      "interface": "Font",
+      "default": "Default",
+      "onDevice": "On this device",
+      "search": "Search fonts",
+      "loading": "Looking for this device's fonts…",
+      "failed": "This device's fonts couldn't be read",
+      "none": "No other fonts on this device",
+      "noMatch": "No font by that name",
+      "refresh": "Look for new fonts",
+      "missing": "{{name}} isn't on this device; the default shows instead",
+      "more": "More fonts"
     },
     "colors": {
       "title": "Colours",
@@ -975,6 +994,14 @@
       "cooldown": "Wait between pages",
       "cooldownHint": "Longer waits keep sources from blocking you",
       "seconds": "{{n}} s"
+    },
+    "searchListings": {
+      "title": "Look through sources whose search fails",
+      "hint": "When a source's search fails or finds nothing, its popular, latest and sorted lists (a music source's charts) are matched against what you typed",
+      "entries": "Matches to collect",
+      "entriesHint": "From each of those sources",
+      "pages": "Pages to look through",
+      "pagesHint": "At most, from each of those sources"
     },
     "musicPlayback": "Music and audio",
     "resumeOnStart": "Open with what played last",
@@ -1007,13 +1034,21 @@
     "explicitMusic": "Show explicit music",
     "explicitMusicHint": "Off hides songs their sources mark explicit and music sources rated 18+. The 18+ switch doesn't change music.",
     "quickAccess": {
-      "title": "Sidebar",
       "autoAdd": "Pin what you add to the library",
-      "autoAddHint": "Comics, books, videos, playlists, podcasts, audiobooks and artists you follow are pinned to the sidebar too, and leave it when they leave the library.",
+      "autoAddHint": "Comics, books, videos and sites you add are pinned, and go when they leave the library. Your audio library always shows.",
       "limit": "Keep at most",
       "limitHint": "The oldest automatic pins go when there are more. Pins you made yourself always stay.",
       "pins_one": "{{count}} pin",
-      "pins_other": "{{count}} pins"
+      "pins_other": "{{count}} pins",
+      "shown": "Items shown",
+      "shownHint": "The most recent ones. Pins always show and don’t count.",
+      "items_one": "{{count}} item",
+      "items_other": "{{count}} items",
+      "order": "Sort by",
+      "pinnedFirst": "Pins stay on top",
+      "pinnedFirstHint": "In the order you drag them into. Off, they’re sorted with the rest.",
+      "listed": "What’s listed",
+      "otherKinds": "Comics, books, videos and sites"
     },
     "privacy": {
       "title": "Privacy",
@@ -1059,6 +1094,7 @@
     },
     "nowPlaying": "Now playing",
     "findingSource": "Finding a source…",
+    "lookingForSource": "Looking for another source…",
     "skipped": "Skipped: {{reason}}",
     "via": "via {{source}}",
     "lyrics": "Lyrics",
@@ -1422,11 +1458,15 @@
     "kind": {
       "notifications": "Notifications",
       "battery": "Background activity",
-      "media": "Songs and videos on this phone",
+      "media": "Songs, videos and pictures on this phone",
       "folders": "Picked folders",
+      "allFiles": "All files (optional)",
       "localNetwork": "Local network",
       "installApps": "Install updates",
       "camera": "Camera, to scan link codes"
+    },
+    "about": {
+      "allFiles": "Lets Local files read EPUB books and CBZ or ZIP comics in any folder, such as Download"
     },
     "state": {
       "granted": "Allowed",
@@ -1453,8 +1493,8 @@
         "why": "See progress, pause or cancel, and know when downloads finish."
       },
       "folders": {
-        "title": "Read songs and videos",
-        "why": "Raygun plays the songs and videos in the folders you add."
+        "title": "Read songs, videos and pictures",
+        "why": "Raygun plays the songs and videos in the folders you add, and reads folders of pictures as comics."
       }
     }
   },
@@ -1615,9 +1655,6 @@
     "cancelAllConfirm_other": "Cancel all {{count}}",
     "downloadFailed": "Didn't download",
     "downloadsUnreadable": "Couldn't read the download queue",
-    "downloadedChapters_one": "{{count}} chapter on this device",
-    "downloadedChapters_other": "{{count}} chapters on this device",
-    "queueEmpty": "Nothing is downloading.",
     "queueFailed": "The download queue couldn't be read.",
     "nsfwHiddenTitle": "This title is for adults",
     "nsfwHiddenHint": "Turn on “Show NSFW (18+) content” in Settings to see it.",
@@ -1653,8 +1690,7 @@
     "serif": "Serif",
     "sans": "Sans",
     "narrow": "Narrow",
-    "noIndent": "Flush paragraphs",
-    "indent": "Indented paragraphs",
+    "indent": "Paragraph indent",
     "alignStart": "Align left",
     "justify": "Justify",
     "theme": "Page colours",
@@ -2134,6 +2170,10 @@
     "noneTitle": "Nothing downloaded yet",
     "makeSubtitles": "Make subtitles with AI",
     "makingSubtitles": "Making subtitles…",
+    "deleteChapters": "Delete downloaded chapters",
+    "deleteChaptersAsk": "Delete the downloaded chapters of “{{name}}”?",
+    "deleteEpisodes": "Delete downloaded episodes",
+    "deleteEpisodesAsk": "Delete the downloaded episodes of “{{name}}”?",
     "files": {
       "tab": "Files",
       "none": "No files from websites yet",
@@ -2333,7 +2373,45 @@
     "italic": "Italic",
     "unreliable": "didn't work lately",
     "workedLastTime": "worked last time",
-    "playingFrom": "Playing from {{n}}"
+    "playingFrom": "Playing from {{n}}",
+    "aiTranscribe": "Transcribe with AI",
+    "aiTrack": "AI subtitles",
+    "aiNotSetUp": "Not set up yet",
+    "aiChecking": "Checking what’s set up…",
+    "aiDownload": "Download the speech model",
+    "aiDownloading": "Downloading the speech model… {{n}}%",
+    "aiSettings": "Set up in Settings → AI",
+    "aiStart": "Transcribe from here",
+    "aiContinue": "Keep transcribing from here",
+    "aiStarting": "Transcribing from here…",
+    "aiStop": "Stop transcribing",
+    "aiPreparing": "Getting the sound…",
+    "aiAhead": "Transcribing… {{n}} ahead",
+    "aiComplete": "Transcribed to the end",
+    "aiEngine": "Transcribed by",
+    "aiOnDevice": "On this device",
+    "aiOnline": "Online · {{n}}",
+    "aiOnlineCost": "This sends the video’s sound to your transcription provider, which may charge for it.",
+    "translate": "Translate subtitles",
+    "translatedTrack": "{{n}} (translated)",
+    "translateInto": "Into {{n}}",
+    "translateFrom": "From {{n}}",
+    "translateWith": "Translate with",
+    "translateDevice": "This device",
+    "translateDeviceHint": "Free and offline; its models download once",
+    "translateNoModel": "No model here for this language",
+    "translateNeedsKey": "Needs its key in Settings → AI",
+    "translateNeedsTrack": "Turn on the subtitles to translate first",
+    "translateNeedsText": "These subtitles are part of the video and can’t be read as text: pick a subtitle file, or transcribe with AI",
+    "translateFromOriginal": "Show the original subtitles to translate them, not a translation",
+    "translateDownloadAsk": "Translating here downloads {{n}} of models first, once.",
+    "translateDownloadStart": "Download and translate",
+    "translateDownloading": "Downloading the models… {{n}}%",
+    "translating": "Translating…",
+    "translateAhead": "Translating… {{n}} ahead",
+    "translateComplete": "Translated to the end",
+    "translateDone": "{{n}} of {{of}} lines",
+    "translateStop": "Stop translating"
   },
   "export": {
     "title": "Export",
@@ -2418,6 +2496,13 @@
     "none": "Export a title from its page or from a selection in the library to keep its files."
   },
   "reader": {
+    "chapters": {
+      "title": "Chapters",
+      "open": "Chapters",
+      "page": "Stopped on page {{page}}",
+      "downloaded": "Downloaded",
+      "read": "Read"
+    },
     "pageTitle": "Page {{page}}",
     "savePage": "Save page",
     "sharePage": "Share page",
@@ -2499,6 +2584,197 @@
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
       "zoomReset": "Back to the fit"
+    }
+  },
+  "data": {
+    "categories": {
+      "comics": "Comics",
+      "books": "Books",
+      "videos": "Videos",
+      "podcasts": "Podcasts",
+      "audiobooks": "Audiobooks",
+      "websites": "Websites",
+      "playlists": "Playlists and favorites",
+      "pins": "Quick access",
+      "history": "History and recently played",
+      "settings": "Settings",
+      "sources": "Extensions, repositories, addons and servers",
+      "downloads": "Downloads",
+      "localFiles": "Local Files folders",
+      "searches": "Search history",
+      "aiModels": "AI models and translators",
+      "caches": "Caches"
+    },
+    "items": {
+      "titles_one": "{{count}} title",
+      "titles_other": "{{count}} titles",
+      "chapters_one": "{{count}} chapter",
+      "chapters_other": "{{count}} chapters",
+      "read_one": "{{count}} read",
+      "read_other": "{{count}} read",
+      "episodes_one": "{{count}} episode",
+      "episodes_other": "{{count}} episodes",
+      "watched_one": "{{count}} watched",
+      "watched_other": "{{count}} watched",
+      "categories_one": "{{count}} category",
+      "categories_other": "{{count}} categories",
+      "shows_one": "{{count}} show",
+      "shows_other": "{{count}} shows",
+      "books_one": "{{count}} book",
+      "books_other": "{{count}} books",
+      "sites_one": "{{count}} site",
+      "sites_other": "{{count}} sites",
+      "playlists_one": "{{count}} playlist",
+      "playlists_other": "{{count}} playlists",
+      "playlistSongs_one": "{{count}} song in playlists",
+      "playlistSongs_other": "{{count}} songs in playlists",
+      "favorites_one": "{{count}} favorite",
+      "favorites_other": "{{count}} favorites",
+      "pins_one": "{{count}} pin",
+      "pins_other": "{{count}} pins",
+      "played_one": "{{count}} recently played",
+      "played_other": "{{count}} recently played",
+      "settings_one": "{{count}} setting changed",
+      "settings_other": "{{count}} settings changed",
+      "repositories_one": "{{count}} repository",
+      "repositories_other": "{{count}} repositories",
+      "extensions_one": "{{count}} extension",
+      "extensions_other": "{{count}} extensions",
+      "addons_one": "{{count}} addon",
+      "addons_other": "{{count}} addons",
+      "servers_one": "{{count}} server",
+      "servers_other": "{{count}} servers",
+      "secrets_one": "{{count}} password or key",
+      "secrets_other": "{{count}} passwords and keys",
+      "plays_one": "{{count}} play",
+      "plays_other": "{{count}} plays",
+      "contexts_one": "{{count}} place played from",
+      "contexts_other": "{{count}} places played from",
+      "songs_one": "{{count}} song",
+      "songs_other": "{{count}} songs",
+      "videos_one": "{{count}} video",
+      "videos_other": "{{count}} videos",
+      "waiting_one": "{{count}} waiting or failed",
+      "waiting_other": "{{count}} waiting or failed",
+      "files_one": "{{count}} file from websites",
+      "files_other": "{{count}} files from websites",
+      "folders_one": "{{count}} folder",
+      "folders_other": "{{count}} folders",
+      "searches_one": "{{count}} search",
+      "searches_other": "{{count}} searches",
+      "models_one": "{{count}} model",
+      "models_other": "{{count}} models",
+      "translators_one": "{{count}} translator",
+      "translators_other": "{{count}} translators",
+      "covers_one": "{{count}} cover",
+      "covers_other": "{{count}} covers",
+      "pages_one": "{{count}} page",
+      "pages_other": "{{count}} pages",
+      "lyrics_one": "Lyrics of {{count}} song",
+      "lyrics_other": "Lyrics of {{count}} songs",
+      "subtitles_one": "AI subtitles of {{count}} video",
+      "subtitles_other": "AI subtitles of {{count}} videos",
+      "opened_one": "{{count}} song opened from another app",
+      "opened_other": "{{count}} songs opened from other apps"
+    },
+    "places": {
+      "app": "Raygun's data folder"
+    },
+    "backups": {
+      "title": "Backups",
+      "scan": "Look for backups",
+      "scanHint": "In Raygun's folder, Download/Raygun and the folders you picked",
+      "scanning": "Looking…",
+      "none": "No backups found yet.",
+      "open": "Open the backup from {{date}}",
+      "madeBy": "{{device}} · Raygun {{version}}",
+      "madeEarlier": "Made by an earlier Raygun",
+      "someDevice": "Another device",
+      "where": "{{size}} · {{folder}}",
+      "unreadable": "This backup can't be read"
+    },
+    "create": {
+      "title": "Create backup",
+      "summary": "Choose what to keep and where",
+      "what": "What to keep",
+      "all": "Select all",
+      "none": "Select none",
+      "secrets": "Include passwords and keys",
+      "secretsHint": "Server sign-ins and translator keys, readable by anyone who has the file",
+      "where": "Where to save it",
+      "usual": "Save to the usual place",
+      "choose": "Choose a folder…",
+      "forget": "Stop using {{name}}",
+      "placeFailed": "Couldn't use that folder",
+      "save": "Create",
+      "saving": "Saving…",
+      "saved": "Saved {{name}} in {{folder}}"
+    },
+    "restore": {
+      "title": "Backup from {{date}}",
+      "secrets": "Holds passwords and keys",
+      "choose": "What to restore",
+      "empty": "Nothing in it",
+      "merges": "Restoring merges: newer changes win, and nothing here is removed.",
+      "restore": "Restore",
+      "restoring": "Restoring…",
+      "queued_one": "{{count}} download, install or folder scan started again.",
+      "queued_other": "{{count}} downloads, installs and folder scans started again."
+    },
+    "usage": {
+      "title": "On this device",
+      "empty": "Nothing yet",
+      "synced": "Linked devices clear it too",
+      "device": "This device only",
+      "clear": "Clear",
+      "clearOne": "Clear {{name}}",
+      "failed": "Couldn't count what's here"
+    },
+    "clear": {
+      "title": "Clear {{name}}?",
+      "failed": "Couldn't clear {{name}}",
+      "scope": {
+        "synced": "Linked devices remove it too the next time they sync.",
+        "device": "Only on this device; backups keep their copy."
+      },
+      "notes": {
+        "comics": "Titles leave the library and its categories go; what was read stays.",
+        "books": "Titles leave the library and its categories go; what was read stays.",
+        "videos": "Titles leave the library; what was watched stays.",
+        "podcasts": "Shows are no longer followed; where episodes were left stays.",
+        "audiobooks": "Books leave the library; where chapters were left stays.",
+        "settings": "Every setting goes back to its default.",
+        "pins": "Quick access is emptied.",
+        "sources": "Installed extensions, repositories, Stremio addons and connected servers go. Raygun's built-in sources stay.",
+        "caches": "Covers, reader pages and lyrics load again when they're shown.",
+        "aiModels": "Downloaded models are deleted; translators stay."
+      },
+      "downloadsTitle": "Clear downloads",
+      "downloads": {
+        "files": "Delete downloaded files",
+        "records": "Clear waiting and failed"
+      },
+      "downloadsHint": {
+        "files": "The files and their entries go. Copies saved outside Raygun stay.",
+        "records": "Entries without a file go; downloaded files stay."
+      },
+      "downloadsAsk": {
+        "files": "Delete every downloaded file?",
+        "records": "Clear downloads waiting or failed?"
+      }
+    },
+    "erase": {
+      "group": "Start over",
+      "title": "Erase everything",
+      "summary": "Raygun as after a new install; backups stay",
+      "ask": "Erase everything?",
+      "detail": "Your library, playlists, history, settings, downloads, extensions, passwords and caches are erased from this device, and Raygun starts again as new.",
+      "kept": "Backups stay, and the folders you picked for them are still searched. Linked devices keep their data.",
+      "type": "Type {{word}} to confirm",
+      "confirm": "Erase and restart",
+      "erasing": "Erasing…",
+      "restarting": "Raygun is starting again.",
+      "failed": "Couldn't erase"
     }
   },
   "storage": {
@@ -2675,14 +2951,19 @@
       "close": "Close a panel, full screen, or the player"
     },
     "ai": {
-      "title": "AI subtitles",
+      "title": "Transcribe with AI",
       "track": "AI subtitles",
-      "needsModel": "Download a speech model, or set up an online provider, to make subtitles as you watch.",
+      "needsModel": "Download the speech model, or set up an online provider, to make subtitles as you watch.",
       "setUp": "Set up in Settings → AI",
       "online": "Online provider",
-      "make": "Make subtitles from here",
-      "continue": "Keep making subtitles",
-      "listening": "Listening… {{n}} lines so far"
+      "make": "Transcribe from here",
+      "continue": "Keep transcribing from here",
+      "download": "Download the speech model ({{size}})",
+      "downloading": "Downloading the speech model… {{percent}}%",
+      "preparing": "Getting the video’s sound…",
+      "ahead": "Transcribing… {{time}} ahead",
+      "complete": "Transcribed to the end",
+      "onlineCost": "This sends the video’s sound to your transcription provider, which may charge for it. Raygun stays at most 10 minutes ahead of you."
     },
     "find": {
       "title": "Find subtitles",
@@ -2692,6 +2973,30 @@
       "track": "Subtitles",
       "suggest": "None of your addons has subtitles. {{name}} has them for most films and series.",
       "add": "Add {{name}}"
+    },
+    "translate": {
+      "title": "Translate subtitles",
+      "track": "{{language}} (translated)",
+      "from": "From: {{name}}",
+      "into": "Into",
+      "device": "This device",
+      "with": "With {{name}}",
+      "offline": "Offline and free",
+      "downloadsFirst": "Offline and free; its models download first",
+      "noModel": "No model here for this language",
+      "needsKey": "Needs its key in Settings → AI",
+      "downloadAsk": "Translating on this device downloads {{size}} of models first, once.",
+      "downloadStart": "Download and translate",
+      "needsTrack": "Turn on subtitles above to translate them.",
+      "needsText": "These subtitles are part of the video and can’t be read as text: pick a subtitle file, find subtitles or transcribe with AI.",
+      "notTranslation": "Pick the original subtitles to translate them.",
+      "loading": "Loading the subtitles…",
+      "downloading": "Downloading the models… {{percent}}%",
+      "running": "Translating…",
+      "ahead": "Translating… {{time}} ahead",
+      "complete": "Translated to the end",
+      "partly": "{{done}} of {{total}} lines translated",
+      "stop": "Stop"
     }
   },
   "layout": {
@@ -2945,14 +3250,9 @@
     "copy": "Copy",
     "paste": "Paste",
     "selectAll": "Select all",
-    "searchFor": "Search Raygun for “{{text}}”",
-    "copyLink": "Copy link address",
-    "openLink": "Open link in your browser",
-    "copyImageAddress": "Copy image address",
     "back": "Back",
     "forward": "Forward",
     "reload": "Reload",
-    "fullscreen": "Full screen",
     "play": "Play",
     "playNext": "Play next",
     "addToQueue": "Add to queue",
@@ -2995,7 +3295,6 @@
     "linkCopied": "Link copied",
     "noLink": "{{name}} has no link to copy",
     "editSong": "Edit sound and lyrics",
-    "copyText": "Copy “{{text}}”",
     "copyArtist": "Copy artist",
     "goToAlbum": "Go to album",
     "noSongs": "{{name}} has no songs to add",
@@ -3096,6 +3395,7 @@
     "editOrderLabel": "Edit the order",
     "doneEditing": "Done",
     "clearSelection": "Clear the selection",
+    "selectRow": "Select {{title}}",
     "playRow": "Play {{title}}",
     "sortButton": "Sort and view: {{sort}}",
     "resizeColumn": "Drag to resize {{name}}",
@@ -3111,18 +3411,27 @@
     "moveDown": "Move down",
     "order": "Sort the sidebar",
     "orders": {
-      "custom": "Custom order",
-      "played": "Recently played from",
-      "opened": "Recently opened"
+      "played": "Recently played",
+      "added": "Recently added",
+      "name": "Name"
     },
-    "empty": "Right-click a playlist, album, artist, show or book to pin it here.",
-    "emptyTouch": "Pin a playlist, album, artist, show or book from its menu to see it here."
+    "empty": "Nothing is listed here. Choose what shows in Settings → Quick access.",
+    "resizeTabs": "Drag to resize the tabs and Your library"
   },
   "quickAccess": {
     "title": "Quick access",
     "open": "Open quick access",
     "compact": "Show icons only",
-    "expand": "Show names"
+    "expand": "Show names",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinned": "Pinned",
+    "menu": "More for {{name}}",
+    "more_one": "{{count}} more in your library",
+    "more_other": "{{count}} more in your library",
+    "settings": "Quick access settings",
+    "removeConfirm": "Remove “{{name}}” from your library?",
+    "removePlaylistConfirm": "Remove “{{name}}” from your library? The playlist is deleted; its songs stay wherever they came from."
   },
   "album": {
     "title": "Album",
@@ -3133,6 +3442,19 @@
   "songs": {
     "tab": "Music",
     "title": "Downloaded songs",
+    "recording": {
+      "askTitle": "Record songs as they play?",
+      "askQuestion_one": "{{count}} song can only be saved by recording it as it plays",
+      "askQuestion_other": "{{count}} songs can only be saved by recording them as they play",
+      "askExplain": "No source gives a file of them: they play in YouTube’s player. Raygun can record them while they play, one at a time and in real time, so a 4-minute song takes 4 minutes. They play aloud; turning the volume down or muting doesn’t affect the recording.",
+      "askAndroid": "Android then asks to let Raygun record audio and capture the screen. Raygun records only its own sound, and stops once no song waits.",
+      "allow": "Allow recording",
+      "notNow": "Not now",
+      "now": "Recording {{title}}",
+      "aloud": "playing aloud",
+      "progress": "Recording progress",
+      "stop": "Stop recording {{title}}"
+    },
     "download": "Download",
     "downloadSelected": "Download",
     "downloaded": "Downloaded",
@@ -3411,14 +3733,43 @@
       "cover": "Cover"
     }
   },
+  "openWith": {
+    "unsupported": "Raygun can’t play {{name}}",
+    "unreadable": "Couldn’t open {{name}}",
+    "emptyPlaylist": "{{name}} has nothing Raygun can play"
+  },
   "localFiles": {
     "title": "Local files",
     "add": "Add a folder",
+    "addFiles": "Add files",
+    "addingFiles": "Adding files…",
+    "addedFiles": "Added",
+    "addFilesFailed": "Couldn't add the files",
+    "addedFolder": "Added files",
+    "addedWhere": "Copies of the songs and videos you added",
     "pickAgain": "Pick it again",
     "rescan": "Scan the folders again",
     "rescanOne": "Scan {{name}} again",
     "remove": "Remove {{name}}",
     "removeConfirm": "Remove",
+    "removeCopies": "Remove and delete the copies",
+    "browser": {
+      "title": "Add a folder",
+      "trail": "Folder path",
+      "top": "Internal storage",
+      "loading": "Opening the folder",
+      "folders": "Folders",
+      "here_one": "{{count}} item right in this folder",
+      "here_other": "{{count}} items right in this folder",
+      "noFolders": "No folders here with anything Raygun plays or reads",
+      "use": "Use this folder",
+      "added": "Already in Local files",
+      "systemPicker": "Use system picker",
+      "needsMedia": "Allow access to the phone's songs, videos and pictures to see its folders.",
+      "mediaOnly": "EPUB books and comic archives (CBZ, ZIP) show once Raygun may read all files.",
+      "allowAllFiles": "Allow access to all files",
+      "unreadable": "Couldn't open this folder"
+    },
     "empty": "No folders yet",
     "holds": "What a folder can hold",
     "holdsKinds": {
@@ -3433,7 +3784,7 @@
     "nothingYet": "Nothing found yet",
     "nothingFound": "Nothing Raygun plays or reads",
     "missing": "Can't open this folder",
-    "needsAccess": "Songs and videos need access to the phone's media",
+    "needsAccess": "Needs access to the phone's songs, videos and pictures",
     "allowAccess": "Allow access",
     "failed_one": "{{count}} file couldn't be added",
     "failed_other": "{{count}} files couldn't be added",
@@ -3946,7 +4297,13 @@
     "browserCheck": {
       "open": "Open the site to pass the check",
       "opening": "Waiting for the browser…",
-      "notPassed": "The check wasn’t passed — no cookies came back",
+      "outcome": {
+        "passed": "Check passed — {{source}} works again",
+        "stillBlocked": "The check was passed, but the site still blocks {{source}}’s requests",
+        "stillFailing": "The check was passed, but {{source}} still fails for another reason",
+        "noCheck": "This site didn’t ask for a check; the problem is something else",
+        "notPassed": "The check wasn’t passed, so nothing changed"
+      },
       "failed": "Couldn’t open the site"
     }
   },

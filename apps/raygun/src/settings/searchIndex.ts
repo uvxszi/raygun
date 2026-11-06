@@ -34,6 +34,8 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.accent',
     'settings.language',
     'settings.window.interfaceSize',
+    'settings.window.textSize',
+    'settings.fonts.interface',
     'settings.startScreen',
     'settings.motion',
     'settings.scrollbars',
@@ -178,8 +180,25 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'library.categories.novelTitle',
   ),
   ...on('library')('settings.musicFolders'),
-  { title: 'settings.quickAccess.autoAdd', at: 'library', only: 'desktop' },
-  { title: 'settings.quickAccess.limit', at: 'library', only: 'desktop' },
+  ...on('quickAccess')(
+    'settings.quickAccess.shown',
+    'settings.quickAccess.order',
+    'settings.quickAccess.pinnedFirst',
+  ),
+  ...on('quickAccess', 'settings.quickAccess.listed')(
+    'collections.favorites',
+    'library.view.downloaded',
+    'localFiles.title',
+    'library.view.playlists',
+    'library.view.albums',
+    'library.view.artists',
+    'library.view.podcasts',
+    'library.view.audiobooks',
+  ),
+  ...on('quickAccess', 'settings.quickAccess.otherKinds')(
+    'settings.quickAccess.autoAdd',
+    'settings.quickAccess.limit',
+  ),
 
   ...on('downloads')(
     'settings.saveLocation',
@@ -214,6 +233,9 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.extensions',
     'sources.title',
     'sources.failingLast',
+    'settings.searchListings.title',
+    'settings.searchListings.entries',
+    'settings.searchListings.pages',
     'settings.autoLoad.title',
     'settings.autoLoad.cooldown',
     'sources.userAgent',
@@ -227,7 +249,19 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.privacy.clearHistory',
   ),
 
-  ...on('data', 'settings.backup')('settings.createBackup', 'settings.importBackup'),
+  ...on('data', 'data.backups.title')(
+    'settings.createBackup',
+    'settings.importBackup',
+    'data.backups.scan',
+  ),
+  ...on('data', 'data.usage.title')(
+    'data.categories.pins',
+    'data.categories.history',
+    'data.categories.searches',
+    'data.categories.aiModels',
+    'data.categories.caches',
+  ),
+  ...on('data', 'data.erase.group')('data.erase.title'),
   ...on('data', 'storage.limits')(
     'storage.coverLimit',
     'storage.pageLimit',

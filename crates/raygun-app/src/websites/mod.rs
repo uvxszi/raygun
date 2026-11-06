@@ -426,6 +426,16 @@ async fn site_blocks_ads(db: &raygun_db::Db, id: &str, reported: bool) -> bool {
         .is_none_or(|site| site.block_ads)
 }
 
+/// The downloads site windows started, in each window's Downloads menu (desktop). Waits on the
+/// main thread.
+#[cfg(not(target_os = "android"))]
+pub fn show_downloads(
+    app: &AppHandle,
+    downloads: &[crate::website_downloads::browser::BrowserDownload],
+) {
+    desktop::show_downloads(app, downloads);
+}
+
 /// Where the browser's reports go: Android's over JNI, the desktop windows' when they close.
 /// Only the desktop windows hold the sender.
 #[cfg_attr(target_os = "android", allow(dead_code))]
@@ -438,13 +448,19 @@ pub fn install(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(json) = reports.recv().await {
-            // A download the browser's sheet sent here (`{"download": …}`).
+            // A download the browser's sheet sent here (`{"download": …}`), or a question about
+            // the ones it started (`{"downloadAsk": …}`).
             if let Ok(serde_json::Value::Object(mut fields)) =
                 serde_json::from_str::<serde_json::Value>(&json)
-                && let Some(download) = fields.remove("download")
             {
-                crate::website_downloads::take_request(&app, download);
-                continue;
+                if let Some(download) = fields.remove("download") {
+                    crate::website_downloads::take_request(&app, download);
+                    continue;
+                }
+                if let Some(ask) = fields.remove("downloadAsk") {
+                    crate::website_downloads::take_ask(&app, ask);
+                    continue;
+                }
             }
             let Ok(report) = serde_json::from_str::<Report>(&json) else {
                 tracing::warn!(%json, "unreadable browser report");

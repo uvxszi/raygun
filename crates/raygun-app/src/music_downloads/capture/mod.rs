@@ -8,6 +8,7 @@
 
 pub mod bytes;
 pub mod pcm;
+pub mod record;
 pub mod sound;
 
 use std::path::{Path, PathBuf};
@@ -37,6 +38,9 @@ pub enum CaptureError {
     /// It couldn't be written here: nothing else would work either.
     Device(String),
     Failed(String),
+    /// A recording of what Raygun plays had to stop: Raygun's player played something else, or
+    /// the consent to record went away. It waits to be recorded again.
+    Interrupted,
 }
 
 /// A saved capture: the file's name in the folder, how it was made and how long it is.
@@ -127,8 +131,10 @@ pub async fn capture(
     let share = |share: f64| progress(0, Some(share.clamp(0.0, 1.0)));
     let stitched = sound::capture(
         app,
-        &link,
-        format,
+        sound::Player::Stream {
+            link: &link,
+            format,
+        },
         request.dir,
         &request.expected,
         &share,
@@ -141,6 +147,56 @@ pub async fn capture(
         }
         (error, _) => error,
     })?;
+    encode(stitched, request).await
+}
+
+/// Records a song only YouTube's player plays (Android, `request.source` its video): it plays
+/// aloud, in real time, in the webview's recording player while Raygun's own sound is recorded
+/// ([`record`]), once Raygun's player is quiet, and is saved as a captured song is. The person
+/// must have allowed recording ([`record::ready`]).
+pub async fn record(
+    app: &AppHandle,
+    request: Request<'_>,
+    recording: record::Song<'_>,
+    progress: Progress<'_>,
+    stop: &Notify,
+) -> Result<Captured, CaptureError> {
+    let MediaSource::YouTube { video_id } = request.source else {
+        return Err(CaptureError::Failed(
+            "Only YouTube's player's songs are recorded".into(),
+        ));
+    };
+    tokio::fs::create_dir_all(request.dir)
+        .await
+        .map_err(|error| CaptureError::Device(error.to_string()))?;
+    record::wait_until_quiet(app, stop).await?;
+    let _turn = tokio::select! {
+        turn = SOUND_TURN.lock() => turn,
+        () = stop.notified() => return Err(CaptureError::Stopped),
+    };
+    progress(0, Some(0.0));
+    let share = |share: f64| progress(0, Some(share.clamp(0.0, 1.0)));
+    let player = sound::Player::Recording {
+        video_id,
+        download_id: recording.download_id,
+        title: recording.title,
+        artist: recording.artist,
+    };
+    let recorded = sound::capture(app, player, request.dir, &request.expected, &share, stop).await;
+    let stitched = match recorded {
+        Ok(stitched) => stitched,
+        Err(error) => {
+            // What was recorded of it doesn't carry over to the next try.
+            let _ = tokio::fs::remove_dir_all(request.dir.join("sound")).await;
+            return Err(error);
+        }
+    };
+    encode(stitched, request).await
+}
+
+/// A capture's stitched sound checked against the song's length, then saved as FLAC (Best) or
+/// MP3 at the Downloads quality, tagged, with its cover.
+async fn encode(stitched: sound::Stitched, request: Request<'_>) -> Result<Captured, CaptureError> {
     if let Err(error) = check_length(stitched.ms, stitched.stream_ms, &request.expected) {
         let _ = tokio::fs::remove_file(&stitched.wav).await;
         return Err(CaptureError::Failed(error));

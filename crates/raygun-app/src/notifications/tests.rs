@@ -140,6 +140,38 @@ fn the_batch_ends_with_one_notice() {
     // Already said: the next update has nothing to add.
     let after = tracker.update(3_000.0, &[song("a", Phase::Done, 5e6)]);
     assert!(after.finished.is_none());
+    // A batch of several has no one file to open.
+    assert_eq!(finished.lone, None);
+}
+
+#[test]
+fn a_lone_finished_download_is_named_for_its_open_button() {
+    let file = |phase| Download {
+        kind: Kind::Files,
+        title: "manual.pdf".into(),
+        subtitle: Some("example.org".into()),
+        route: Kind::Files.route().into(),
+        ..song("f1", phase, 0.0)
+    };
+    let mut tracker = Tracker::default();
+    tracker.update(0.0, &[file(Phase::Running)]);
+    let end = tracker.update(1_000.0, &[file(Phase::Done)]);
+    let finished = end.finished.expect("a notice");
+    assert_eq!(finished.title, "manual.pdf");
+    assert_eq!(finished.lone.as_deref(), Some("files:f1"));
+    // Only the platform adds what it opens; the key itself isn't sent.
+    assert!(
+        serde_json::to_value(&finished)
+            .unwrap()
+            .get("lone")
+            .is_none()
+    );
+
+    // One that failed has nothing to open.
+    let mut tracker = Tracker::default();
+    tracker.update(0.0, &[file(Phase::Running)]);
+    let end = tracker.update(1_000.0, &[file(Phase::Failed)]);
+    assert_eq!(end.finished.expect("a notice").lone, None);
 }
 
 #[test]
@@ -678,4 +710,54 @@ fn extension_installs_beside_downloads_add_their_summary() {
         .unwrap();
     assert_eq!(finished.title, "Song a");
     assert_eq!(finished.text, "Downloaded · 2 installed");
+}
+
+/// What a desktop notification reports when clicked: its action and the notification it showed.
+fn clicked(action: &str, extra: serde_json::Value) -> tauri_plugin_notification::ActionPerformed {
+    serde_json::from_value(serde_json::json!({
+        "actionId": action,
+        "inputValue": null,
+        "notification": { "id": 7, "title": "New from Nina Simone", "extra": extra },
+    }))
+    .unwrap()
+}
+
+#[test]
+fn a_click_on_a_notification_opens_the_route_it_carries() {
+    let route = "/artist?name=Nina+Simone\n/music/album?provider=dz&id=1";
+    assert_eq!(
+        super::tapped_route(&clicked("tap", serde_json::json!({ "route": route }))).as_deref(),
+        Some(route)
+    );
+    // Its buttons, and notifications without a route, open nothing.
+    assert_eq!(
+        super::tapped_route(&clicked("cancel", serde_json::json!({ "route": route }))),
+        None
+    );
+    assert_eq!(
+        super::tapped_route(&clicked("tap", serde_json::json!({}))),
+        None
+    );
+    assert_eq!(
+        super::tapped_route(&clicked("tap", serde_json::json!({ "route": "" }))),
+        None
+    );
+}
+
+#[test]
+fn notices_tell_the_plugin_their_channel_and_route() {
+    let notice = super::Notice {
+        id: super::notice_id("dz/1"),
+        channel: &super::RELEASES,
+        title: "New from Nina Simone".into(),
+        text: "Little Girl Blue".into(),
+        route: "/artist?name=Nina+Simone".into(),
+    };
+    let json = notice.to_json();
+    assert_eq!(json["channel"], "raygun.releases");
+    assert_eq!(json["channelName"], "New releases");
+    assert_eq!(json["title"], "New from Nina Simone");
+    assert_eq!(json["text"], "Little Girl Blue");
+    assert_eq!(json["route"], "/artist?name=Nina+Simone");
+    assert_eq!(json["id"], super::notice_id("dz/1"));
 }

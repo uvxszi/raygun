@@ -28,7 +28,8 @@ pub struct ConnectRequestEvent(pub raygun_model::ConnectRequest);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct PermissionPromptEvent(pub raygun_model::PermissionPrompt);
 
-/// A notification was tapped: the screen it opens (`/downloads?tab=music`, or `player`).
+/// A screen to open: a tapped notification's (`/downloads?tab=music`, or `player`), or the one
+/// for what another app handed over (`player`, a search, `import?link=` for a Spotify link).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct OpenRouteEvent(pub String);
 
@@ -80,9 +81,24 @@ pub struct SongDownloadProgressEvent(pub raygun_model::SongDownload);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongCaptureEvent(pub raygun_model::SongCaptureRequest);
 
+/// A song for the webview to play aloud in its recording player (Android), or (no `video_id`)
+/// to stop it; it reports with `song_recording_report`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SongRecordingEvent(pub raygun_model::SongRecordingRequest);
+
+/// Songs wait to be recorded as they play: the shell explains it and asks to allow recording
+/// (`song_recording_consent`, or `song_recording_decline`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct RecordingConsentEvent(pub raygun_model::RecordingConsentRequest);
+
 /// An import matched another song in the background; carries the playlist's id (M46.31).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ImportEvent(pub String);
+
+/// Playback found no source for a song, or found one for it again: its unavailable mark and
+/// saved copies changed; carries the song's title.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct UnavailableEvent(pub String);
 
 /// An episode's captions changed: a feed transcript arrived, a window was transcribed, or
 /// transcribing started or stopped; carries the episode's id (M46.32).
@@ -97,6 +113,11 @@ pub struct LyricsTranscribedEvent(pub String);
 /// How far a song's lyrics translation on this device is (M46.48), a few times a second.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LyricsTranslationEvent(pub raygun_model::LyricsTranslationProgress);
+
+/// A video's translated subtitles changed: lines were translated, or translating started,
+/// stopped or failed; carries the video's progress key.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct VideoSubtitlesEvent(pub String);
 
 /// Followed artists or their release news changed (M46.42).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
@@ -152,6 +173,11 @@ pub struct ExportEvent(pub Option<raygun_model::ExportJob>);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SettingsChangedEvent(pub String);
 
+/// What quick access lists changed (`quick_access`); carries the page that changed (its route),
+/// or an empty string.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct QuickAccessChangedEvent(pub String);
+
 /// Incognito was turned on or off (M47).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct IncognitoEvent(pub raygun_model::IncognitoStatus);
@@ -176,3 +202,7 @@ pub struct SpeechCommandEvent(pub raygun_model::SpeechCommand);
 /// A YouTube video to open in its own full-window player (trailers, M46.4).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct YouTubeVideoEvent(pub raygun_model::YouTubeVideo);
+
+/// Something another app opened with Raygun or shared to it didn't play (`open_with`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct OpenWithEvent(pub raygun_model::OpenWithProblem);

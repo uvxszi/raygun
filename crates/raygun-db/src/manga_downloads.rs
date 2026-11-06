@@ -29,6 +29,8 @@ pub struct DownloadEntry {
     pub download: DownloadRow,
     pub title: String,
     pub chapter: String,
+    /// The title's kind: `manga` or `novel`.
+    pub kind: String,
 }
 
 const COLUMNS: &str = "d.unit_id, d.title_id, d.state, d.pages_done, d.pages_total, d.error, \
@@ -108,7 +110,7 @@ pub async fn for_units(db: &Db, unit_ids: &[String]) -> Result<Vec<DownloadRow>,
 /// The whole queue with names, in queue order.
 pub async fn entries(db: &Db) -> Result<Vec<DownloadEntry>, DbError> {
     let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "SELECT {COLUMNS}, t.remote_title, u.remote_name
+        "SELECT {COLUMNS}, t.remote_title, u.remote_name, t.kind
          FROM local_manga_download d
          JOIN unit u ON u.id = d.unit_id
          JOIN title t ON t.id = d.title_id
@@ -122,6 +124,7 @@ pub async fn entries(db: &Db) -> Result<Vec<DownloadEntry>, DbError> {
             download: download_row(row),
             title: row.get("remote_title"),
             chapter: row.get("remote_name"),
+            kind: row.get("kind"),
         })
         .collect())
 }

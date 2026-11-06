@@ -1,6 +1,8 @@
 //! Runs the playback state machine and carries out its effects: finding streams for items that
 //! need one (M14), serving sources through the stream proxy, commanding the right engine for each
-//! item, broadcasting state to every client and counting plays for history (M18).
+//! item, broadcasting state to every client and counting plays for history (M18). A song whose
+//! stream stops working isn't skipped at once: it looks for another source as `resolution`
+//! plans, and the player says so meanwhile.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -9,7 +11,7 @@ use std::time::{Duration, Instant};
 use raygun_model::{
     ConnectCommand, EngineCommand, EngineEvent, EngineReport, MediaSource, PlayContext,
     PlaybackControl, PlaybackState, QueueItem, QueueItemInput, QueueSnapshot, SleepTimer,
-    SoundPrefs, TrackQuery,
+    SoundPrefs, TrackInput, TrackQuery,
 };
 use raygun_net::StreamProxy;
 use raygun_playback::{Effect, PlaybackCore};
@@ -20,7 +22,7 @@ use tauri_specta::Event;
 use crate::collections::CollectionsService;
 use crate::events::{EngineCommandEvent, PlaybackStateEvent, QueueEvent};
 use crate::history::PlayCounter;
-use crate::resolution::{ErrorPlan, LoadPlan, Tracker};
+use crate::resolution::{Cause, ErrorPlan, Failed, LoadPlan, Notes, Tracker, Unresolved};
 use crate::resolver::ResolverService;
 use crate::sound::{SoundService, Tuning};
 
@@ -83,6 +85,8 @@ pub struct PlaybackService {
     /// Where the next queue is played from, said by the page just before it plays
     /// ([`Self::arm_context`]); the next replace takes it.
     armed: Mutex<Option<(PlayContext, Instant)>>,
+    /// The clock looking for another source runs on.
+    clock: Instant,
 }
 
 /// Everything to emit once the core lock is released.
@@ -94,14 +98,37 @@ struct Outbox {
     /// when only the position moved (a seek while paused).
     asked: bool,
     queue: Option<QueueSnapshot>,
-    /// Find a stream for this load.
-    resolve: Option<u32>,
+    /// Find a stream for this load, after this long.
+    resolve: Option<(u32, Duration)>,
     verified: Option<Pick>,
     failed: Option<(Pick, String)>,
+    /// A remembered pick whose stream stopped working: its stream is forgotten.
+    stale: Option<Pick>,
+    /// The song's own stream stopped working: picks remembered with it are forgotten.
+    dead: Option<(QueueItem, MediaSource)>,
+    /// The song's downloaded copy didn't play: its download is checked.
+    broken_download: Option<QueueItem>,
+    /// The song plays again after looking for another source, from that source: its marks go,
+    /// its saved copies leave the stream that stopped working, its download is checked.
+    rescued: Option<(QueueItem, Option<MediaSource>)>,
+    /// Nothing played the song: it's skipped, and marked as one no source has when that's known.
+    gave_up: Option<(QueueItem, bool)>,
     /// The current item just counted as a play.
     played: Option<QueueItem>,
     /// The current item when `state` changed, for followers like podcasts (M37).
     current: Option<QueueItem>,
+}
+
+impl Outbox {
+    /// What failed for a load, for the stream cache and the downloads to learn.
+    fn note(&mut self, failed: Failed, item: Option<QueueItem>, message: String) {
+        match failed {
+            Failed::Pick(pick) => self.failed = Some((*pick, message)),
+            Failed::Stale(pick) => self.stale = Some(*pick),
+            Failed::Own(source) => self.dead = item.map(|item| (item, source)),
+            Failed::Download => self.broken_download = item,
+        }
+    }
 }
 
 impl PlaybackService {
@@ -128,7 +155,13 @@ impl PlaybackService {
             restored: std::sync::atomic::AtomicBool::new(false),
             sent: Mutex::new(None),
             armed: Mutex::new(None),
+            clock: Instant::now(),
         }
+    }
+
+    /// Now on the clock looking for another source runs on, ms.
+    fn now_ms(&self) -> f64 {
+        self.clock.elapsed().as_secs_f64() * 1_000.0
     }
 
     /// Says where the next queue is played from (a page's `PlayContext`), or that it's from
@@ -214,7 +247,7 @@ impl PlaybackService {
                         ?after,
                         "the engine doesn't play what the state says plays: nudged it",
                     );
-                    playback.resolve(&mut inner, effects)
+                    playback.resolve(&mut inner, effects, Cause::Advance)
                 };
                 playback.send(outbox);
             }
@@ -258,7 +291,7 @@ impl PlaybackService {
                 last.repeat,
             );
             effects.extend(inner.core.set_context(context));
-            self.resolve(&mut inner, effects)
+            self.resolve(&mut inner, effects, Cause::Chosen)
         };
         self.send(effects_ran);
     }
@@ -355,6 +388,11 @@ impl PlaybackService {
 
     pub fn register_source(&self, source: &MediaSource) -> String {
         self.proxy.register(source)
+    }
+
+    /// The YouTube embed host page the player uses (a recording plays songs in one of its own).
+    pub fn youtube_embed_url(&self) -> String {
+        self.proxy.youtube_embed_url()
     }
 
     /// Changes queued items in place (M46.48: a song given a source or names); `update` says
@@ -521,7 +559,11 @@ impl PlaybackService {
             let position_ms = inner.core.state().position_ms;
             // It plays on if it played (a paused song stays paused there).
             let autoplay = inner.core.plays_when_found();
-            if inner.tracker.begin(load_id, &item, position_ms) == LoadPlan::Direct {
+            if inner
+                .tracker
+                .begin(load_id, &item, position_ms, Cause::Chosen)
+                == LoadPlan::Direct
+            {
                 let source = item.source.clone();
                 self.load_into(
                     &mut inner,
@@ -608,11 +650,20 @@ impl PlaybackService {
         }
     }
 
-    pub fn report(&self, report: EngineReport) {
+    pub fn report(&self, mut report: EngineReport) {
         let outbox = {
             let mut inner = self.lock();
             let current = report.load_id == inner.core.load_id();
+            // The song after one that couldn't play is given less time to look (a run of them).
+            let cause = if matches!(report.event, EngineEvent::Error { .. }) {
+                Cause::AfterFailure
+            } else {
+                Cause::Advance
+            };
             let mut verified = None;
+            let mut rescued = None;
+            let mut gave_up = None;
+            let mut lost = None;
             let counted = current
                 && match &report.event {
                     EngineEvent::Progress {
@@ -630,26 +681,57 @@ impl PlaybackService {
             match &report.event {
                 EngineEvent::Error { message } => {
                     tracing::info!(load_id = report.load_id, %message, "engine reported an error");
-                    if current
-                        && let ErrorPlan::Retry { failed } =
-                            inner.tracker.engine_error(report.load_id)
-                    {
+                    let plan = if current {
+                        inner.tracker.engine_error(report.load_id, self.now_ms())
+                    } else {
+                        ErrorPlan::Forward
+                    };
+                    match plan {
                         // Another stream may work: try it before the core gives up on the item.
-                        let mut outbox = Outbox {
-                            resolve: Some(report.load_id),
-                            failed: failed.map(|pick| (*pick, message.clone())),
-                            ..Outbox::default()
-                        };
-                        if let Some(engine) = inner.active.take() {
-                            outbox.engine.push((engine, EngineCommand::Stop));
+                        ErrorPlan::Retry { failed } => {
+                            let item = inner.core.current_item().cloned();
+                            let mut outbox = Outbox {
+                                resolve: Some((report.load_id, Duration::ZERO)),
+                                ..Outbox::default()
+                            };
+                            outbox.note(failed, item, message.clone());
+                            if let Some(engine) = inner.active.take() {
+                                outbox.engine.push((engine, EngineCommand::Stop));
+                            }
+                            let effects = inner.core.set_looking(report.load_id, true);
+                            let looking = self.resolve(&mut inner, effects, cause);
+                            outbox.state = looking.state;
+                            outbox.current = looking.current;
+                            drop(inner);
+                            self.send(outbox);
+                            return;
                         }
-                        drop(inner);
-                        self.send(outbox);
-                        return;
+                        ErrorPlan::GiveUp { mark, failed } => {
+                            let item = inner.core.current_item().cloned();
+                            if let Some(failed) = failed {
+                                lost = Some((failed, item.clone(), message.clone()));
+                            }
+                            if let Some(item) = item {
+                                tracing::info!(load_id = report.load_id, title = %item.title, "no source played the song");
+                                report.event = EngineEvent::Error {
+                                    message: unplayable(&item.title),
+                                };
+                                gave_up = Some((item, mark));
+                            }
+                        }
+                        ErrorPlan::Forward => {}
                     }
                 }
                 EngineEvent::Playing if current => {
-                    verified = inner.tracker.engine_playing(report.load_id);
+                    if let Some(played) = inner.tracker.engine_playing(report.load_id) {
+                        if played.rescued
+                            && let Some(item) = inner.core.current_item().cloned()
+                        {
+                            tracing::info!(load_id = report.load_id, provider = %played.pick.provider_name, "the song plays again from another source");
+                            rescued = Some((item, played.replaced));
+                        }
+                        verified = Some(played.pick);
+                    }
                 }
                 EngineEvent::Loudness { lufs } if current => {
                     if let (Some(item), Some(sound)) = (
@@ -666,16 +748,22 @@ impl PlaybackService {
                 _ => {}
             }
             let effects = inner.core.report(report);
-            let mut outbox = self.resolve(&mut inner, effects);
+            let mut outbox = self.resolve(&mut inner, effects, cause);
             outbox.verified = verified;
             outbox.played = played;
+            outbox.rescued = rescued;
+            outbox.gave_up = gave_up;
+            if let Some((failed, item, message)) = lost {
+                outbox.note(failed, item, message);
+            }
             outbox
         };
         self.send(outbox);
     }
 
-    /// A resolution started by [`Self::start_resolving`] finished.
-    fn on_resolved(&self, load_id: u32, result: Result<Pick, String>) {
+    /// A resolution started by [`Self::start_resolving`] finished; `marked` says the song is
+    /// marked as one no source had (only looked up when nothing was found).
+    fn on_resolved(&self, load_id: u32, result: Result<Pick, String>, notes: Notes, marked: bool) {
         let outbox = {
             let mut inner = self.lock();
             if inner.core.load_id() != load_id {
@@ -684,7 +772,10 @@ impl PlaybackService {
             match result {
                 Ok(pick) => {
                     let position = inner.core.state().position_ms;
-                    let Some(start_ms) = inner.tracker.resolved(load_id, pick.clone(), position)
+                    let Some(start_ms) =
+                        inner
+                            .tracker
+                            .resolved(load_id, pick.clone(), &notes, position)
                     else {
                         return;
                     };
@@ -712,39 +803,71 @@ impl PlaybackService {
                     let effects = inner
                         .core
                         .set_source_label(load_id, Some(pick.provider_name));
-                    let labelled = self.resolve(&mut inner, effects);
+                    let labelled = self.resolve(&mut inner, effects, Cause::Advance);
                     outbox.state = labelled.state.or(outbox.state);
                     outbox.current = labelled.current.or(outbox.current);
                     outbox
                 }
                 Err(message) => {
-                    if inner.tracker.request(load_id).is_none() {
+                    let now = self.now_ms();
+                    let Some(next) = inner.tracker.unresolved(load_id, &notes, now, marked) else {
                         return;
+                    };
+                    match next {
+                        // Look again, harder, after a while; the player says it looks meanwhile.
+                        Unresolved::Retry { wait } => {
+                            tracing::info!(load_id, %message, ?wait, "no stream found; looking harder");
+                            let effects = inner.core.set_looking(load_id, true);
+                            Outbox {
+                                resolve: Some((load_id, wait)),
+                                ..self.resolve(&mut inner, effects, Cause::Advance)
+                            }
+                        }
+                        Unresolved::GiveUp { mark } => {
+                            tracing::info!(load_id, %message, "no stream found");
+                            let gave_up =
+                                inner.core.current_item().cloned().map(|item| (item, mark));
+                            let effects = inner.core.report(EngineReport {
+                                load_id,
+                                event: EngineEvent::Error { message },
+                            });
+                            Outbox {
+                                gave_up,
+                                ..self.resolve(&mut inner, effects, Cause::AfterFailure)
+                            }
+                        }
                     }
-                    tracing::info!(load_id, %message, "no stream found");
-                    let effects = inner.core.report(EngineReport {
-                        load_id,
-                        event: EngineEvent::Error { message },
-                    });
-                    self.resolve(&mut inner, effects)
                 }
             }
         };
         self.send(outbox);
     }
 
-    /// Resolves a stream for `load_id` in the background, then loads it if that load is still
-    /// current.
-    fn start_resolving(&self, load_id: u32) {
+    /// Resolves a stream for `load_id` in the background after `wait`, then loads it if that load
+    /// is still current.
+    fn start_resolving(&self, load_id: u32, wait: Duration) {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
+            if !wait.is_zero() {
+                tokio::time::sleep(wait).await;
+            }
             let playback = app.state::<PlaybackService>();
-            let Some((query, exclusions)) = playback.lock().tracker.request(load_id) else {
+            let (request, cause) = {
+                let mut inner = playback.lock();
+                (inner.tracker.request(load_id), inner.tracker.cause(load_id))
+            };
+            let Some((query, exclusions)) = request else {
                 return;
             };
             let resolver = app.state::<Arc<ResolverService>>().inner().clone();
-            let result = resolver.resolve(&query, &exclusions).await;
-            playback.on_resolved(load_id, result);
+            let (result, notes) = resolver.find(&query, &exclusions).await;
+            // A song the queue moved on to that's marked as one no source had is skipped when
+            // its first search comes up empty, without looking harder.
+            let marked = result.is_err()
+                && !exclusions.deep
+                && cause != Some(Cause::Chosen)
+                && marked_unavailable(&app, &query).await;
+            playback.on_resolved(load_id, result, notes, marked);
         });
     }
 
@@ -754,7 +877,7 @@ impl PlaybackService {
             let effects = operation(&mut inner.core);
             Outbox {
                 asked: true,
-                ..self.resolve(&mut inner, effects)
+                ..self.resolve(&mut inner, effects, Cause::Chosen)
             }
         };
         self.send(outbox);
@@ -775,7 +898,8 @@ impl PlaybackService {
         send
     }
 
-    fn resolve(&self, inner: &mut Inner, effects: Vec<Effect>) -> Outbox {
+    /// Carries out the core's effects; loads among them came about by `cause`.
+    fn resolve(&self, inner: &mut Inner, effects: Vec<Effect>, cause: Cause) -> Outbox {
         let mut outbox = Outbox::default();
         for effect in effects {
             match effect {
@@ -786,10 +910,23 @@ impl PlaybackService {
                     autoplay,
                     fade_ms,
                 } => {
-                    // A downloaded song plays its saved copy (M46.10).
-                    let item =
-                        crate::music_downloads::offline_item(&self.app, &item).unwrap_or(item);
-                    match inner.tracker.begin(load_id, &item, start_ms) {
+                    // A downloaded song plays its saved copy (M46.10), and its stream when the
+                    // copy doesn't play.
+                    let (item, plan) = match crate::music_downloads::offline_item(&self.app, &item)
+                    {
+                        Some(copy) => {
+                            let file = copy.source.clone();
+                            let plan = inner
+                                .tracker
+                                .begin_download(load_id, &item, file, start_ms, cause);
+                            (copy, plan)
+                        }
+                        None => {
+                            let plan = inner.tracker.begin(load_id, &item, start_ms, cause);
+                            (item, plan)
+                        }
+                    };
+                    match plan {
                         LoadPlan::Direct => {
                             let source = item.source.clone();
                             self.load_into(
@@ -812,7 +949,7 @@ impl PlaybackService {
                                 // Nothing to play until a stream is found; silence the previous item.
                                 outbox.engine.push((previous, EngineCommand::Stop));
                             }
-                            outbox.resolve = Some(load_id);
+                            outbox.resolve = Some((load_id, Duration::ZERO));
                         }
                     }
                 }
@@ -872,23 +1009,24 @@ impl PlaybackService {
                 log_emit(PlaybackStateEvent(state).emit(&self.app));
             }
         }
-        if outbox.verified.is_some() || outbox.failed.is_some() {
-            let resolver = self.app.state::<Arc<ResolverService>>().inner().clone();
-            let (verified, failed) = (outbox.verified, outbox.failed);
-            tauri::async_runtime::spawn(async move {
-                if let Some(pick) = verified {
-                    resolver.mark_verified(&pick).await;
-                }
-                if let Some((pick, reason)) = failed {
-                    resolver.mark_failed(&pick, &reason).await;
-                }
-            });
+        let found = Found {
+            verified: outbox.verified,
+            failed: outbox.failed,
+            stale: outbox.stale,
+            dead: outbox.dead,
+            broken_download: outbox.broken_download,
+            rescued: outbox.rescued,
+            gave_up: outbox.gave_up,
+        };
+        if !found.is_empty() {
+            let app = self.app.clone();
+            tauri::async_runtime::spawn(async move { found.keep(&app).await });
         }
         if let Some(item) = outbox.played {
             self.app.state::<CollectionsService>().record_play(item);
         }
-        if let Some(load_id) = outbox.resolve {
-            self.start_resolving(load_id);
+        if let Some((load_id, wait)) = outbox.resolve {
+            self.start_resolving(load_id, wait);
         }
     }
 
@@ -980,6 +1118,7 @@ impl PlaybackService {
             let stuck = {
                 let inner = playback.lock();
                 let state = inner.core.state();
+                // While another source is looked for, the engine has nothing to start.
                 inner.core.load_id() == load_id
                     && matches!(
                         state.status,
@@ -988,6 +1127,7 @@ impl PlaybackService {
                     )
                     && !inner.core.started()
                     && !inner.core.held()
+                    && inner.tracker.loaded(load_id)
             };
             if stuck {
                 tracing::warn!(load_id, "the stream didn't start in time");
@@ -1004,6 +1144,101 @@ impl PlaybackService {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().expect("playback state poisoned")
     }
+}
+
+/// What the stream cache, the saved songs and the downloads learn from a load, written once the
+/// playback lock is released.
+struct Found {
+    verified: Option<Pick>,
+    failed: Option<(Pick, String)>,
+    stale: Option<Pick>,
+    dead: Option<(QueueItem, MediaSource)>,
+    broken_download: Option<QueueItem>,
+    rescued: Option<(QueueItem, Option<MediaSource>)>,
+    gave_up: Option<(QueueItem, bool)>,
+}
+
+impl Found {
+    fn is_empty(&self) -> bool {
+        self.verified.is_none()
+            && self.failed.is_none()
+            && self.stale.is_none()
+            && self.dead.is_none()
+            && self.broken_download.is_none()
+            && self.rescued.is_none()
+            && self.gave_up.is_none()
+    }
+
+    async fn keep(self, app: &AppHandle) {
+        let resolver = app.state::<Arc<ResolverService>>().inner().clone();
+        if let Some(pick) = &self.verified {
+            resolver.mark_verified(pick).await;
+        }
+        if let Some((pick, reason)) = &self.failed {
+            resolver.mark_failed(pick, reason).await;
+        }
+        if let Some(pick) = &self.stale {
+            resolver.forget_stream(pick).await;
+        }
+        if let Some((item, source)) = &self.dead {
+            resolver.forget_source(&song_keys(item), source).await;
+        }
+        let collections = app.state::<CollectionsService>();
+        let downloads = app
+            .try_state::<Arc<crate::music_downloads::SongDownloadService>>()
+            .map(|service| service.inner().clone());
+        if let Some((item, replaced)) = &self.rescued {
+            let song = song_of(item);
+            collections.source_found(&song, replaced.as_ref()).await;
+            // A downloaded song's copy may be from the stream that stopped working.
+            if let Some(downloads) = &downloads {
+                downloads.check_song(&song).await;
+            }
+        }
+        if let (Some(item), Some(downloads)) = (&self.broken_download, &downloads) {
+            downloads.check_song(&song_of(item)).await;
+        }
+        if let Some((item, true)) = &self.gave_up {
+            collections.mark_unplayable(&song_of(item)).await;
+        }
+    }
+}
+
+/// A queue item as the song it is, for its marks, saved copies and download.
+fn song_of(item: &QueueItem) -> TrackInput {
+    TrackInput {
+        title: item.title.clone(),
+        artist: item.artist.clone(),
+        album: item.album.clone(),
+        duration_ms: item.duration_ms,
+        artwork_url: None,
+        source: None,
+        explicit: item.explicit,
+    }
+}
+
+/// The keys a queue item's song is remembered under: the resolver's and the saved songs'.
+fn song_keys(item: &QueueItem) -> Vec<String> {
+    let mut keys = crate::collections::identity::keys_of(&item.title, item.artist.as_deref());
+    keys.push(raygun_resolver::track_key(&TrackQuery::for_item(item)));
+    keys.sort_unstable();
+    keys.dedup();
+    keys
+}
+
+/// Whether the song `query` names is marked as one no source had.
+async fn marked_unavailable(app: &AppHandle, query: &TrackQuery) -> bool {
+    let db = &app.state::<crate::startup::AppDb>().inner().0;
+    let mut keys = crate::collections::identity::keys_of(&query.title, query.artist.as_deref());
+    keys.push(raygun_resolver::track_key(query));
+    raygun_db::collections::unavailable(db, &keys)
+        .await
+        .is_ok_and(|marked| !marked.is_empty())
+}
+
+/// Why a song was skipped after looking for another source for it.
+fn unplayable(title: &str) -> String {
+    format!("No source could play \u{201c}{title}\u{201d}")
 }
 
 /// How often the queue is saved for reopening (M46.16).
@@ -1094,6 +1329,8 @@ mod tests {
             rate: 1.0,
             sleep_at: None,
             stop_after_current: false,
+            looking_for_source: false,
+            skipped_item_id: None,
         }
     }
 

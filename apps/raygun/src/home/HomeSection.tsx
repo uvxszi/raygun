@@ -3,7 +3,6 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Carousel } from '../shell/Carousel';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
 import { useHomeRowActions } from './homeRows';
 import type { RowLink } from './homeRows';
@@ -44,10 +43,7 @@ export const HomeSection: FC<HomeSectionProps> = ({
       data-home-section={id}
       className="group/section flex flex-col gap-1"
     >
-      <div
-        className="flex min-h-9 items-center gap-3"
-        onContextMenu={(event) => openContextMenu(event, rowMenu(id, title))}
-      >
+      <div className="flex min-h-9 items-center gap-3">
         <h2 className="min-w-0 truncate text-lg font-semibold">
           {all ? (
             <Link to={all.to} search={all.search as never} className="hover:underline">

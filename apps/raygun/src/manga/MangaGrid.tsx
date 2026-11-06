@@ -1,12 +1,11 @@
 import { Link } from '@tanstack/react-router';
 import { CheckSquare, FolderPlus, ImageIcon } from 'lucide-react';
 import { useState } from 'react';
-import type { FC, MouseEvent } from 'react';
+import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useCoverSheetStore } from '../music/coverSheetStore';
 import { useSettings } from '../settings/useSettings';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
 import { SourceTag } from '../shell/SourceTag';
 import { CARD_MENU_CLASS, CardPlayButton } from './CardPlayButton';
@@ -114,8 +113,6 @@ export const MangaGrid: FC<{
             },
           },
     );
-  const coverMenu = (item: MangaGridItem) => (event: MouseEvent) =>
-    openContextMenu(event, itemMenu(item));
   const video = medium === 'video';
   const compact = (settings?.coverStyle ?? 'compact') === 'compact';
   const unreadBadges = settings?.unreadBadges ?? true;
@@ -138,7 +135,6 @@ export const MangaGrid: FC<{
                 search={item.link?.search ?? { source: item.sourceId, id: item.id }}
                 aria-label={item.title}
                 data-testid="manga-card"
-                onContextMenu={coverMenu(item)}
                 className="flex flex-col gap-1"
               >
                 <span className="relative overflow-hidden rounded-xl">
@@ -150,7 +146,7 @@ export const MangaGrid: FC<{
                   />
                   <span className="absolute top-1.5 left-1.5 flex gap-1">
                     {item.inLibrary && (
-                      <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-[10px] font-bold">
+                      <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-3xs font-bold">
                         {t('manga.inLibraryBadge')}
                       </span>
                     )}
@@ -197,7 +193,7 @@ export const MangaGrid: FC<{
                 </span>
                 {!compact && <span className="line-clamp-2 text-xs font-medium">{item.title}</span>}
                 {item.subtitle && (
-                  <span className="text-muted line-clamp-1 text-[11px]">{item.subtitle}</span>
+                  <span className="text-muted line-clamp-1 text-2xs">{item.subtitle}</span>
                 )}
                 {(item.source || item.adult) && (
                   <span className="flex min-w-0 items-center gap-1">

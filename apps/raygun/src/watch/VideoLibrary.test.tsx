@@ -499,9 +499,9 @@ describe('Video library', () => {
     emitEvent('videoDownloadsEvent', '2');
     await vi.waitFor(() => expect(commands.videoDownloads).toHaveBeenCalled());
 
-    // Chapters keep their own tab.
-    await user.click(within(page).getByRole('link', { name: 'Chapters' }));
-    expect(await within(page).findByTestId('chapter-downloads')).toBeInTheDocument();
+    // Comics and books keep their own tabs.
+    await user.click(within(page).getByRole('link', { name: 'Comics' }));
+    expect(await within(page).findByText('Nothing downloaded yet')).toBeInTheDocument();
   });
 
   it('lists new and upcoming episodes in Updates', async () => {

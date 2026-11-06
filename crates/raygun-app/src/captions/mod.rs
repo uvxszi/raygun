@@ -10,7 +10,7 @@
 //! (`local_value` [`SONG_QUEUE_VALUE`]); a song heard to the end becomes its own synced lyrics.
 
 mod audio;
-mod cues;
+pub(crate) mod cues;
 pub(crate) mod video_audio;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -301,6 +301,28 @@ impl CaptionService {
             .job
             .as_ref()
             .is_some_and(|(id, _, _)| id == episode_id)
+    }
+
+    /// A video's viewer moved on (the player's reports): its subtitles keep ahead of there.
+    pub fn follow(&self, key: &str, position_ms: u64) {
+        if let Some((_, _, anchor)) = self.state().job.as_ref().filter(|(id, _, _)| id == key) {
+            anchor.store(position_ms, Ordering::Relaxed);
+        }
+    }
+
+    /// Where the viewer of the video being transcribed is, as last reported.
+    pub fn anchor(&self, key: &str) -> Option<u64> {
+        self.state()
+            .job
+            .as_ref()
+            .filter(|(id, _, _)| id == key)
+            .map(|(_, _, anchor)| anchor.load(Ordering::Relaxed))
+    }
+
+    /// Why nothing can be transcribed now (off, no model, no provider); `None` when it can.
+    pub async fn engine_problem(&self) -> Option<String> {
+        let prefs = self.prefs().await;
+        self.engine(&prefs).await.err()
     }
 
     /// Starts transcribing an episode from `from_ms` (the listener's place), stopping any other.

@@ -20,7 +20,6 @@ import { unwrapResult } from '../lib/commandResult';
 import { titleScore } from '../search/rankResults';
 import { sourceSearchOptions } from '../search/useCatalogSearch';
 import type { MenuItem } from '../shell/contextMenuStore';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { GroupPickSheet } from '../select/GroupPickSheet';
 import { MenuButton } from '../shell/MenuButton';
 import { collectFromCache } from '../shell/queryMemory';
@@ -278,12 +277,12 @@ const SizeChips: FC<{ medium: Medium; size: MatchSize; most: string | null }> = 
   return (
     <span className="flex flex-wrap gap-1" data-testid="match-size">
       {most && (
-        <span className="bg-primary/15 text-primary rounded-full px-2 py-0.5 text-[11px] font-semibold">
+        <span className="bg-primary/15 text-primary rounded-full px-2 py-0.5 text-2xs font-semibold">
           {most}
         </span>
       )}
       {chips.map((chip) => (
-        <span key={chip} className="bg-background text-muted rounded-full px-2 py-0.5 text-[11px]">
+        <span key={chip} className="bg-background text-muted rounded-full px-2 py-0.5 text-2xs">
           {chip}
         </span>
       ))}
@@ -388,10 +387,7 @@ const Match: FC<{
       : []),
   ];
   return (
-    <div
-      className="flex flex-col gap-1 py-1.5"
-      onContextMenu={(event) => openContextMenu(event, items())}
-    >
+    <div className="flex flex-col gap-1 py-1.5">
       <div className="flex items-center gap-3">
         <Link {...route} className="flex min-w-0 flex-1 items-center gap-3">
           <MangaCover

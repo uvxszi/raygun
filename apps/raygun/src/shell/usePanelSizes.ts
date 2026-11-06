@@ -13,6 +13,7 @@ export const usePanelSizes = () => {
     sidePanelWidth: 0,
     playerSplit: 0,
     nextUpRows: 0,
+    railNavHeight: 0,
     ...settings?.panels,
   };
   const save = (patch: Partial<PanelPrefs>) => {

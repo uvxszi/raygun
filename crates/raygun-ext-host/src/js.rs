@@ -21,6 +21,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::{Notify, Semaphore};
 
+use crate::browser_check::CheckedRequest;
 use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
 use crate::failure::{Failure, Trouble};
@@ -41,6 +42,11 @@ const SITE_REQUESTS: usize = 6;
 /// Requests extensions make at once in all: a phone has only so many sockets and TLS handshakes
 /// in it.
 const ALL_REQUESTS: usize = 32;
+/// The longest a site's `Retry-After` is kept; a site that asks more is asked again then.
+const LONGEST_HOLD: Duration = Duration::from_secs(60);
+/// A request waits this long at most for a site that asked to be left alone; one that would wait
+/// longer fails at once, as the site limiting requests.
+const HOLD_WAIT: Duration = Duration::from_secs(5);
 /// What requests met, kept per extension to explain a failed call (newest last).
 const NET_LOG: usize = 32;
 /// How much of a failed answer is kept to tell a browser check from a plain refusal.
@@ -70,6 +76,9 @@ struct Shared {
     manifest: Manifest,
     policy: Arc<NetPolicy>,
     client: reqwest::Client,
+    /// The jar the client keeps cookies in, which also knows the User-Agent each site's passed
+    /// browser check holds for.
+    cookies: Arc<CookieJar>,
     storage: RefCell<KvStore>,
     settings: BTreeMap<String, serde_json::Value>,
     /// Settings the script declared while running (Miru's `registerSetting`), after the
@@ -91,8 +100,13 @@ struct Shared {
 enum NetEvent {
     /// The site answered (2xx or 3xx).
     Answered,
-    Trouble(Trouble),
+    /// What went wrong, with the request as it was sent when a browser check answered it.
+    Trouble(Trouble, Option<Box<CheckedRequest>>),
 }
+
+/// What a call's requests met: the worst trouble, whether one got a good answer, and the request
+/// a browser check answered when that's the trouble.
+type RequestsMet = (Option<Trouble>, bool, Option<Box<CheckedRequest>>);
 
 impl Shared {
     fn restart_budget(&self) {
@@ -107,22 +121,26 @@ impl Shared {
         log.push_back((Instant::now(), event));
     }
 
-    /// The worst trouble requests met since `since`, and whether one got a good answer.
-    fn since(&self, since: Instant) -> (Option<Trouble>, bool) {
+    /// The worst trouble requests met since `since` (the first of the worst), whether one got a
+    /// good answer, and the request that met a browser check when that's the trouble.
+    fn since(&self, since: Instant) -> RequestsMet {
         let log = self.net_log.borrow();
-        let mut worst: Option<&Trouble> = None;
+        let mut worst: Option<(&Trouble, Option<&CheckedRequest>)> = None;
         let mut answered = false;
         for (_, event) in log.iter().filter(|(at, _)| *at >= since) {
             match event {
                 NetEvent::Answered => answered = true,
-                NetEvent::Trouble(trouble) => {
-                    if worst.is_none_or(|worst| trouble.kind.weight() > worst.kind.weight()) {
-                        worst = Some(trouble);
+                NetEvent::Trouble(trouble, checked) => {
+                    if worst.is_none_or(|(worst, _)| trouble.kind.weight() > worst.kind.weight()) {
+                        worst = Some((trouble, checked.as_deref()));
                     }
                 }
             }
         }
-        (worst.cloned(), answered)
+        let checked = worst
+            .and_then(|(_, checked)| checked.cloned())
+            .map(Box::new);
+        (worst.map(|(trouble, _)| trouble.clone()), answered, checked)
     }
 
     /// Resolves once no call is running.
@@ -219,6 +237,7 @@ impl JsExtension {
             manifest,
             policy,
             client,
+            cookies: cookies.clone(),
             storage: RefCell::new(storage),
             settings,
             registered: registered.clone(),
@@ -367,11 +386,12 @@ impl JsExtension {
             })
             .await;
         answer.map_err(|message| {
-            let (trouble, answered) = self.shared.since(started);
+            let (trouble, answered, checked) = self.shared.since(started);
             Failure {
                 message,
                 trouble,
                 answered,
+                checked,
             }
         })
     }
@@ -735,6 +755,74 @@ pub(crate) fn network() -> Option<&'static tokio::runtime::Runtime> {
 struct Gates {
     all: Arc<Semaphore>,
     sites: Mutex<HashMap<String, Arc<Semaphore>>>,
+    holds: Holds,
+}
+
+/// Sites that answered "too many requests" or "busy" with a `Retry-After`: their requests wait
+/// until then, so a source asked again (a song looking for another source, a search repeated)
+/// gives the site the time it asked for.
+#[derive(Default)]
+struct Holds(Mutex<HashMap<String, Instant>>);
+
+impl Holds {
+    /// How long requests to `site` still wait at `now`, if they do.
+    fn left(&self, site: &str, now: Instant) -> Option<Duration> {
+        let mut holds = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let until = *holds.get(site)?;
+        if until > now {
+            return Some(until - now);
+        }
+        holds.remove(site);
+        None
+    }
+
+    /// `site` asked at `now` to be left alone for `wait` (up to [`LONGEST_HOLD`]).
+    fn hold(&self, site: &str, wait: Duration, now: Instant) {
+        let until = now + wait.min(LONGEST_HOLD);
+        let mut holds = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if holds.len() > 256 {
+            holds.retain(|_, kept| *kept > now);
+        }
+        let kept = holds.entry(site.to_owned()).or_insert(until);
+        *kept = (*kept).max(until);
+    }
+}
+
+/// What a request held back for its site says, which [`asked_wait`] reads.
+fn held_detail(host: &str, wait: Duration) -> String {
+    format!(
+        "{host} asked to wait {} s before more requests",
+        wait.as_secs().max(1)
+    )
+}
+
+/// How long a failed call's site still asked to be left alone, when one of its requests was held
+/// back for that: whoever asks again can wait as long.
+pub fn asked_wait(error: &crate::CallError) -> Option<Duration> {
+    match error {
+        crate::CallError::Failed(issue) if issue.kind == IssueKind::RateLimited => {
+            let (_, rest) = issue.detail.split_once(" asked to wait ")?;
+            let (seconds, _) = rest.split_once(" s before more requests")?;
+            seconds.parse().ok().map(Duration::from_secs)
+        }
+        crate::CallError::Resting { last, .. } => asked_wait(last),
+        _ => None,
+    }
+}
+
+/// How long a 429 or 503 answer asks to wait (its `Retry-After` in seconds; dates aren't read).
+fn retry_after(status: u16, headers: &BTreeMap<String, String>) -> Option<Duration> {
+    if !matches!(status, 429 | 503) {
+        return None;
+    }
+    let seconds = headers.get("retry-after")?.trim().parse::<u64>().ok()?;
+    Some(Duration::from_secs(seconds))
 }
 
 impl Gates {
@@ -743,6 +831,7 @@ impl Gates {
         GATES.get_or_init(|| Self {
             all: Arc::new(Semaphore::new(ALL_REQUESTS)),
             sites: Mutex::new(HashMap::new()),
+            holds: Holds::default(),
         })
     }
 
@@ -778,14 +867,43 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     let host = url.host_str().unwrap_or_default().to_owned();
     // Requests take turns per server: the host and its port.
     let site = format!("{host}:{}", url.port_or_known_default().unwrap_or_default());
-    let mut request = shared.client.request(method, url);
+    // The extension's own User-Agent, else the one a browser check on the site was passed with
+    // (the pass holds only for it), else the one sources send.
+    let own_agent = options
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+        .map(|(_, agent)| agent.clone());
+    let agent = own_agent
+        .clone()
+        .or_else(|| shared.cookies.user_agent_for(&url))
+        .unwrap_or_else(raygun_net::user_agent);
+    let address = url.to_string();
+    let mut request = shared.client.request(method.clone(), url);
     for (name, value) in &options.headers {
         request = request.header(name, value);
     }
-    request = raygun_net::with_user_agent(request, options.headers.keys().map(String::as_str));
-    if let Some(body) = options.body {
+    if own_agent.is_none() {
+        request = request.header(reqwest::header::USER_AGENT, &agent);
+    }
+    if let Some(body) = options.body.clone() {
         request = request.body(body);
     }
+    // The request as sent, kept when a browser check answers it: the check window opens it.
+    let checked = |trouble: &Trouble| {
+        (trouble.kind == IssueKind::BotCheck).then(|| {
+            Box::new(CheckedRequest::new(
+                &address,
+                method.as_str(),
+                options
+                    .headers
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+                options.body.as_deref(),
+                &agent,
+            ))
+        })
+    };
     let exchange = exchange(request, host, site);
     let stopped = || "stopped: nothing waits for this request any more".to_owned();
     let exchanged = match network() {
@@ -807,12 +925,18 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     };
     match exchanged {
         Ok((response, trouble)) => {
-            shared.note(trouble.map_or(NetEvent::Answered, NetEvent::Trouble));
+            shared.note(match trouble {
+                Some(trouble) => {
+                    let checked = checked(&trouble);
+                    NetEvent::Trouble(trouble, checked)
+                }
+                None => NetEvent::Answered,
+            });
             Ok(response)
         }
         Err(trouble) => {
             let message = trouble.detail.clone();
-            shared.note(NetEvent::Trouble(trouble));
+            shared.note(NetEvent::Trouble(trouble, None));
             Err(message)
         }
     }
@@ -822,6 +946,17 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
 /// Runs on the network runtime.
 async fn exchange(request: reqwest::RequestBuilder, host: String, site: String) -> Exchanged {
     let gates = Gates::get();
+    // A site that asked to be left alone gets the time it asked for: a short wait here, a longer
+    // one fails at once (the caller tries later).
+    if let Some(wait) = gates.holds.left(&site, Instant::now()) {
+        if wait > HOLD_WAIT {
+            return Err(Trouble {
+                kind: IssueKind::RateLimited,
+                detail: held_detail(&host, wait),
+            });
+        }
+        tokio::time::sleep(wait).await;
+    }
     // The gates are never closed, so acquiring only waits.
     let _site = gates.site(&site).acquire_owned().await;
     let _all = gates.all.clone().acquire_owned().await;
@@ -842,6 +977,9 @@ async fn exchange(request: reqwest::RequestBuilder, host: String, site: String) 
                 existing.push_str(&value);
             })
             .or_insert_with(|| value.into_owned());
+    }
+    if let Some(wait) = retry_after(status, &headers) {
+        gates.holds.hold(&site, wait, Instant::now());
     }
     let too_large = || Trouble {
         kind: IssueKind::ExtensionFailed,
@@ -906,5 +1044,71 @@ fn request_trouble(host: &str, error: &reqwest::Error) -> Trouble {
     Trouble {
         kind,
         detail: issue::request_detail(host, error),
+    }
+}
+
+#[cfg(test)]
+mod hold_tests {
+    use super::*;
+
+    #[test]
+    fn a_site_that_asks_to_wait_is_given_the_time_it_asked() {
+        let headers = |wait: &str| BTreeMap::from([("retry-after".to_owned(), wait.to_owned())]);
+        assert_eq!(
+            retry_after(429, &headers("12")),
+            Some(Duration::from_secs(12))
+        );
+        assert_eq!(
+            retry_after(503, &headers(" 3 ")),
+            Some(Duration::from_secs(3))
+        );
+        assert_eq!(retry_after(200, &headers("12")), None, "only refusals ask");
+        assert_eq!(
+            retry_after(429, &headers("Wed, 21 Oct 2026 07:28:00 GMT")),
+            None
+        );
+        assert_eq!(retry_after(429, &BTreeMap::new()), None);
+
+        let holds = Holds::default();
+        let start = Instant::now();
+        assert_eq!(holds.left("api.example:443", start), None);
+        holds.hold("api.example:443", Duration::from_secs(12), start);
+        assert_eq!(
+            holds.left("api.example:443", start + Duration::from_secs(2)),
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(holds.left("other.example:443", start), None, "per site");
+        // A shorter ask doesn't shorten the hold; a longer one is kept to the longest hold.
+        holds.hold("api.example:443", Duration::from_secs(1), start);
+        assert_eq!(
+            holds.left("api.example:443", start),
+            Some(Duration::from_secs(12))
+        );
+        holds.hold("api.example:443", Duration::from_secs(3_600), start);
+        assert_eq!(holds.left("api.example:443", start), Some(LONGEST_HOLD));
+        assert_eq!(holds.left("api.example:443", start + LONGEST_HOLD), None);
+
+        // A call whose request was held back says how long, for whoever asks again.
+        let held = crate::failure::into_error(
+            Failure {
+                message: "fetch failed".into(),
+                trouble: Some(Trouble {
+                    kind: IssueKind::RateLimited,
+                    detail: held_detail("api.example", Duration::from_secs(25)),
+                }),
+                answered: false,
+                checked: None,
+            },
+            "Example",
+            "dev.example/stream",
+            "resolve",
+        );
+        assert_eq!(asked_wait(&held), Some(Duration::from_secs(25)));
+        let resting = crate::CallError::Resting {
+            last: Box::new(held),
+            failures: 3,
+        };
+        assert_eq!(asked_wait(&resting), Some(Duration::from_secs(25)));
+        assert_eq!(asked_wait(&crate::CallError::Cancelled), None);
     }
 }

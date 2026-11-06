@@ -93,6 +93,8 @@ pub enum Content {
     Text,
     /// A song's lines, in order (M46.48).
     Lyrics,
+    /// A video's subtitle cues, in the order they show.
+    Subtitles,
 }
 
 /// DeepL takes at most this many texts per request.
@@ -161,6 +163,16 @@ fn instructions(from: Option<&str>, to: &str, content: Content) -> String {
              as many as there are lines. Translate each line so it reads naturally and the song's \
              meaning carries across lines; keep names; leave a line that is only sounds (\"oh\", \
              \"la la\") as it is; never merge, split, skip or explain lines."
+        ),
+        Content::Subtitles => format!(
+            "You translate a video's subtitles from {source} into the language with code `{to}`. \
+             You get a JSON array of the subtitle cues in the order they show and answer with a \
+             JSON object {{\"translations\": [...]}} holding one translation per cue, in the \
+             same order and as many as there are cues. Translate each cue as natural spoken \
+             dialogue that is short enough to read on screen, carrying the meaning across cues; \
+             keep names, the line breaks inside a cue and a leading dash that marks another \
+             speaker; leave sound descriptions like \"[music]\" translated but in brackets; \
+             never merge, split, skip or explain cues."
         ),
     }
 }

@@ -388,10 +388,12 @@ impl ExtensionService {
     }
 
     /// [`Self::search`] for Search itself: each source's answer goes to `report` as it comes,
-    /// with how many sources were asked; the answers come back in that order.
+    /// with how many sources were asked; the answers come back in that order. A source whose
+    /// search fails or finds nothing answers from its charts, as `listings` allows.
     pub async fn search_as_answered(
         &self,
         query: &str,
+        listings: raygun_model::SearchListingsPrefs,
         report: impl Fn(&ProviderSearchResult, usize),
     ) -> Vec<ProviderSearchResult> {
         let query = query.trim();
@@ -400,7 +402,7 @@ impl ExtensionService {
         }
         let _ready = self.loading.read().await;
         self.host
-            .search_music_as_answered(query, SEARCH_LIMIT, report)
+            .search_music_as_answered(query, SEARCH_LIMIT, listings, report)
             .await
     }
 
@@ -730,11 +732,54 @@ impl ExtensionService {
         candidate_id: &str,
         using: raygun_ext_host::StreamUse,
     ) -> Result<ResolvedStream, String> {
-        let _ready = self.loading.read().await;
-        self.host
-            .resolve_stream(provider_id, candidate_id, using)
+        self.resolve_stream_call(provider_id, candidate_id, using)
             .await
             .map_err(|error| error.to_string())
+    }
+
+    /// [`Self::resolve_stream`] with the call's own error, which says what kind of failure it was
+    /// (a source busy now, or a stream that's gone). Answers and the site's own trouble count in
+    /// the sources' health, as fan-outs' calls do; one song a source doesn't have doesn't.
+    pub async fn resolve_stream_call(
+        &self,
+        provider_id: &str,
+        candidate_id: &str,
+        using: raygun_ext_host::StreamUse,
+    ) -> Result<ResolvedStream, raygun_ext_host::CallError> {
+        let _ready = self.loading.read().await;
+        let started = std::time::Instant::now();
+        let answer = self
+            .host
+            .resolve_stream(provider_id, candidate_id, using)
+            .await;
+        let counts = match &answer {
+            Ok(_) => true,
+            Err(error) => error
+                .kind()
+                .is_some_and(raygun_net::IssueKind::is_transient),
+        };
+        if counts {
+            self.host
+                .health()
+                .record(provider_id, answer.as_ref().map(|_| ()), started.elapsed());
+        }
+        answer
+    }
+
+    /// Whether a source sits out after failing again and again lately: it isn't asked meanwhile.
+    pub fn resting(&self, provider_id: &str) -> bool {
+        self.host.health().resting(provider_id).is_some()
+    }
+
+    /// [`Self::stream_candidates`] asking each provider for up to `limit` candidates.
+    pub async fn stream_candidates_up_to(
+        &self,
+        query: &TrackQuery,
+        limit: u32,
+        quality: raygun_resolver::QualityTarget,
+    ) -> Vec<ProviderCandidates> {
+        let _ready = self.loading.read().await;
+        self.host.stream_candidates(query, limit, quality).await
     }
 
     /// Reloads every extension from scratch (built-in and installed).

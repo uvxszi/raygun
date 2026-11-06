@@ -10,6 +10,7 @@ import { useStremioCatalog, useStremioCatalogs } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
 import { LoadMore } from '../shell/LoadMore';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useDragScroll } from '../shell/useDragScroll';
 
 /** Types in Stremio's order (`TYPE_PRIORITIES`); others after, as the addons list them. */
 const TYPE_ORDER = ['movie', 'series', 'channel', 'tv'];
@@ -51,15 +52,19 @@ const effectiveExtras = (
 const chip = (on: boolean) =>
   `shrink-0 rounded-full px-4 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
 
-const ChipRow: FC<{ label: string; children: ReactNode }> = ({ label, children }) => (
-  <div
-    role="group"
-    aria-label={label}
-    className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
-  >
-    {children}
-  </div>
-);
+const ChipRow: FC<{ label: string; children: ReactNode }> = ({ label, children }) => {
+  const row = useDragScroll<HTMLDivElement>();
+  return (
+    <div
+      ref={row}
+      role="group"
+      aria-label={label}
+      className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+    >
+      {children}
+    </div>
+  );
+};
 
 /** One catalog's items as a grid, page after page. */
 const CatalogGrid: FC<{ catalog: StremioCatalogInfo; extra: StremioExtraValue[] }> = ({

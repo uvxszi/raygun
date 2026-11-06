@@ -259,7 +259,7 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
         </button>
       )}
       <PlaylistPicker track={track} onDone={close} />
-      {sheet && <MoreActions track={track} onDone={close} />}
+      <MoreActions track={track} onDone={close} />
       {sheet && (
         <button
           type="button"
@@ -274,12 +274,13 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
 };
 
 /**
- * The rest of a song's menu on phones (M46.36): what a long press offers (play next, download,
- * go to the album or artist, edit, copy...), minus what the sheet already has above.
+ * The rest of a song's menu (M46.36): play next, download, go to the album or artist, edit,
+ * copy..., minus what the actions already have above.
  */
 const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onDone }) => {
   const { t } = useTranslation();
   const menu = useTrackMenuItems();
+  const extras = useTrackActionsStore((state) => state.extras);
   // A row that asks first (deleting a download) shows its question; a second tap does it.
   const [asking, setAsking] = useState<number | null>(null);
   const above = new Set([
@@ -288,7 +289,7 @@ const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onD
     t('collections.addToPlaylist'),
     t('collections.removeFromPlaylist'),
   ]);
-  const items = menu(track, {}, { x: window.innerWidth / 2, y: window.innerHeight / 2 }).filter(
+  const items = menu(track, extras, { x: window.innerWidth / 2, y: window.innerHeight / 2 }).filter(
     (item) => item.kind !== 'heading' && !('label' in item && above.has(item.label)),
   );
   return (

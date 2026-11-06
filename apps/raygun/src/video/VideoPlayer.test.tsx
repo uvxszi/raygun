@@ -232,7 +232,7 @@ describe('desktop video player', () => {
     ).toBeInTheDocument();
 
     // AI subtitles from where the viewer is, with the chosen model.
-    await user.click(within(panel).getByRole('button', { name: 'Make subtitles from here' }));
+    await user.click(within(panel).getByRole('button', { name: 'Transcribe from here' }));
     expect(commands.captionsVideoTranscribe).toHaveBeenCalledWith(
       MOVIE.id,
       MOVIE.url,

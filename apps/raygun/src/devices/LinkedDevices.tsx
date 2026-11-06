@@ -32,13 +32,11 @@ import { Problem } from '../settings/Problem';
 import { useRemoteStatus } from '../settings/remoteQueries';
 import { ScanLinkCode, ShowLinkCode } from './LinkSheets';
 import { useSince } from './since';
+import { TAP_BUTTON, TAP_ICON, TAP_NOTE } from './tapTargets';
 import { useRemovePeer, useSyncNow, useSyncStatus } from './useDeviceSync';
 
-const BUTTON =
-  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-50';
-
 const KindIcon: FC<{ kind: string }> = ({ kind }) =>
-  kind === 'phone' ? <Smartphone aria-hidden size={20} /> : <Laptop aria-hidden size={20} />;
+  kind === 'phone' ? <Smartphone aria-hidden size={24} /> : <Laptop aria-hidden size={24} />;
 
 /** A linked device: one Connect knows (it plays there too), or one linked by code (sync only). */
 type Linked = { kind: 'connect'; device: ConnectDevice } | { kind: 'sync'; peer: SyncPeerInfo };
@@ -50,16 +48,16 @@ const DeviceRow: FC<{
   testId: string;
   children: ReactNode;
 }> = ({ name, kind, detail, testId, children }) => (
-  <li data-testid={testId} className="flex flex-wrap items-center gap-3 px-1 py-2.5">
-    <span className="text-muted">
+  <li data-testid={testId} className="flex min-h-14 flex-wrap items-center gap-3 px-1 py-3">
+    <span className="text-muted shrink-0">
       <KindIcon kind={kind} />
     </span>
     {/* Wide enough for the name: the buttons go under it on a narrow phone. */}
-    <span className="flex min-w-[9rem] flex-1 flex-col">
-      <span className="truncate font-medium">{name}</span>
-      <span className="text-muted truncate text-xs">{detail}</span>
+    <span className="flex min-w-[9rem] flex-1 flex-col gap-0.5">
+      <span className="truncate text-base font-medium">{name}</span>
+      <span className={TAP_NOTE}>{detail}</span>
     </span>
-    <span className="flex flex-wrap gap-1.5">{children}</span>
+    <span className="flex flex-wrap gap-2">{children}</span>
   </li>
 );
 
@@ -154,9 +152,9 @@ export const LinkedDevices: FC = () => {
         type="button"
         disabled={syncNow.isPending}
         onClick={() => syncNow.mutate(syncId)}
-        className={`${BUTTON} bg-background`}
+        className={`${TAP_BUTTON} bg-background`}
       >
-        <RefreshCw aria-hidden size={13} className={running ? 'animate-spin' : ''} />
+        <RefreshCw aria-hidden size={16} className={running ? 'animate-spin' : ''} />
         {t('link.syncNow')}
       </button>
     );
@@ -168,9 +166,9 @@ export const LinkedDevices: FC = () => {
       title={t('link.unlink', { name: nameOf(item) })}
       disabled={forget.isPending || removePeer.isPending}
       onClick={() => setUnlinking(item)}
-      className={`${BUTTON} bg-background`}
+      className={`${TAP_ICON} bg-background`}
     >
-      <Unlink aria-hidden size={13} />
+      <Unlink aria-hidden size={18} />
     </button>
   );
 
@@ -225,9 +223,9 @@ export const LinkedDevices: FC = () => {
                   type="button"
                   disabled={playHere.isPending}
                   onClick={() => playHere.mutate(true)}
-                  className={`${BUTTON} bg-primary text-background`}
+                  className={`${TAP_BUTTON} bg-primary text-background`}
                 >
-                  <Play aria-hidden size={13} className="fill-current" />
+                  <Play aria-hidden size={16} className="fill-current" />
                   {t('link.playHere')}
                 </button>
               ) : (
@@ -235,9 +233,9 @@ export const LinkedDevices: FC = () => {
                   type="button"
                   disabled={play.isPending}
                   onClick={() => play.mutate(device.id)}
-                  className={`${BUTTON} bg-primary text-background`}
+                  className={`${TAP_BUTTON} bg-primary text-background`}
                 >
-                  <Play aria-hidden size={13} className="fill-current" />
+                  <Play aria-hidden size={16} className="fill-current" />
                   {t('link.playThere')}
                 </button>
               )}
@@ -263,8 +261,8 @@ export const LinkedDevices: FC = () => {
             detail={device.found ? device.address : t('link.away')}
           >
             {asking === device.id ? (
-              <span className="text-muted flex items-center gap-1.5 text-xs">
-                <LoaderCircle aria-hidden size={13} className="animate-spin" />
+              <span className="text-muted flex min-h-11 items-center gap-2 text-sm">
+                <LoaderCircle aria-hidden size={16} className="animate-spin" />
                 {t('link.waiting', { name: device.name })}
               </span>
             ) : (
@@ -272,9 +270,9 @@ export const LinkedDevices: FC = () => {
                 type="button"
                 disabled={link.isPending}
                 onClick={() => void localNetwork.guard(null, () => link.mutate(device))}
-                className={`${BUTTON} bg-primary text-background`}
+                className={`${TAP_BUTTON} bg-primary text-background`}
               >
-                <Link2 aria-hidden size={13} />
+                <Link2 aria-hidden size={16} />
                 {t('link.link')}
               </button>
             )}

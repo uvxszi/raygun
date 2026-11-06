@@ -79,6 +79,31 @@ async fn injects_source_headers_and_streams_the_body() {
 }
 
 #[tokio::test]
+async fn linked_fonts_are_served_and_nothing_else() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let file = temp.path().join("Face-Regular.ttf");
+    std::fs::write(&file, b"\x00\x01\x00\x00font").unwrap();
+    let proxy = proxy().await;
+    let url = proxy.fonts().link(&file);
+    assert_eq!(proxy.fonts().link(&file), url, "one file, one address");
+
+    let response = reqwest::get(&url).await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "font/ttf");
+    assert_eq!(
+        response.bytes().await.unwrap().as_ref(),
+        b"\x00\x01\x00\x00font"
+    );
+
+    let unknown = format!(
+        "http://{}/font/00112233445566778899aabbccddeeff",
+        proxy.address()
+    );
+    assert_eq!(reqwest::get(&unknown).await.unwrap().status(), 404);
+}
+
+#[tokio::test]
 async fn without_the_header_the_host_refuses() {
     let origin = start_origin().await;
     let proxy = proxy().await;

@@ -1,18 +1,16 @@
 import type { TrackInput } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { savesIn, useSavedSongs } from '../collections/savedSongs';
-import { openContextMenu } from '../shell/contextMenuStore';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { useHidden, useHideActions } from './hidden';
 import { keysOf } from './trackKey';
 import { trackMenu } from './trackMenu';
 import { useDownloadedKeys } from './useSongDownloads';
 
-type Extras = {
+export type TrackMenuExtras = {
   onPlay?: () => void;
   playlistItemId?: string;
   favorite?: boolean;
@@ -20,7 +18,7 @@ type Extras = {
   notInterested?: boolean;
 };
 
-/** A song's menu items (M46.8), for the right-click menu or the phone's ⋮ sheet (M46.36). */
+/** A song's menu items (M46.8), for its ⋮ menu (M46.36). */
 export const useTrackMenuItems = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -29,7 +27,7 @@ export const useTrackMenuItems = () => {
   const saved = useSavedSongs();
   const hidden = useHidden();
   const hideActions = useHideActions();
-  return (track: TrackInput, extras: Extras, at: { x: number; y: number }): MenuItem[] => {
+  return (track: TrackInput, extras: TrackMenuExtras, at: { x: number; y: number }): MenuItem[] => {
     // A download made under the title with or without its " - Remastered" (M46.48).
     const keys = keysOf(track.title, track.artist);
     return trackMenu(track, {
@@ -45,12 +43,4 @@ export const useTrackMenuItems = () => {
       ...extras,
     });
   };
-};
-
-/** `onContextMenu` for a song: its right-click options (M46.8). */
-export const useTrackMenu = () => {
-  const items = useTrackMenuItems();
-  return (track: TrackInput, extras: Extras = {}) =>
-    (event: MouseEvent) =>
-      openContextMenu(event, items(track, extras, { x: event.clientX, y: event.clientY }));
 };

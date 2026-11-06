@@ -5,7 +5,6 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { MenuItem } from '../shell/contextMenuStore';
-import { openContextMenu } from '../shell/contextMenuStore';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -55,17 +54,7 @@ export const WebsiteList: FC<{ sites: Website[]; large?: boolean }> = ({ sites, 
     <>
       <ul className="flex flex-col">
         {sites.map((site) => (
-          <li
-            key={site.id}
-            data-testid="website-row"
-            className="flex items-center gap-1"
-            onContextMenu={(event) =>
-              openContextMenu(event, [
-                { kind: 'heading', label: site.name, subtitle: site.host },
-                ...itemsFor(site),
-              ])
-            }
-          >
+          <li key={site.id} data-testid="website-row" className="flex items-center gap-1">
             <button
               type="button"
               aria-label={t('websites.open', { name: site.name })}

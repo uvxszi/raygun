@@ -979,6 +979,7 @@ async fn run_blocking<T: Send + 'static>(
             message,
             trouble: None,
             answered: true,
+            checked: None,
         })
 }
 

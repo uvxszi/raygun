@@ -12,31 +12,22 @@ import {
   withLibraryDisplay,
 } from '../../manga/libraryDisplay';
 import type { LibraryDisplay } from '../../manga/libraryDisplay';
-import { useIsDesktop } from '../../shell/useIsDesktop';
-import { useSideRail } from '../../shell/useWideScreen';
 import { PrefBlock, PrefChoice, PrefGroup, PrefLink, PrefSize, PrefSwitch } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
 /** Matches `MANGA_UPDATE_HOURS` in raygun-model. */
 const UPDATE_HOURS = [0, 6, 12, 24, 48, 168];
-/** How many automatic quick access pins are kept (M46.41). */
-const QUICK_ACCESS_LIMITS = [10, 20, 50, 100, 250, 500, 1000];
 
-/** Settings → Library: how titles show, updates, categories, music folders and the sidebar. */
+/** Settings → Library: how titles show, updates, categories and music folders. */
 export const LibrarySettings: FC = () => {
   const { t } = useTranslation();
   const data = useSettings().data;
   const update = useUpdateSetting();
   const status = useLibraryStatus();
-  // The sidebar's pins show on desktop and on windows wide enough for the side rail (M46.29).
-  const desktop = useIsDesktop();
-  const wide = useSideRail();
-  const sidebar = desktop || wide;
   if (!data) return null;
   const display = withLibraryDisplay(data.libraryDisplay);
   const setDisplay = (change: Partial<LibraryDisplay>) =>
     update.mutate({ key: 'libraryDisplay', value: { ...display, ...change } });
-  const rail = data.rail;
 
   return (
     <>
@@ -149,25 +140,6 @@ export const LibrarySettings: FC = () => {
           <LibraryFolders roots={status.data?.roots ?? []} />
         </PrefBlock>
       </PrefGroup>
-      {sidebar && (
-        <PrefGroup title={t('settings.quickAccess.title')}>
-          <PrefSwitch
-            title={t('settings.quickAccess.autoAdd')}
-            checked={rail.autoAdd ?? true}
-            onChange={(autoAdd) => update.mutate({ key: 'rail', value: { ...rail, autoAdd } })}
-          />
-          <PrefChoice<number>
-            title={t('settings.quickAccess.limit')}
-            value={rail.limit ?? 20}
-            disabled={rail.autoAdd === false}
-            options={QUICK_ACCESS_LIMITS.map((value) => ({
-              value,
-              label: t('settings.quickAccess.pins', { count: value }),
-            }))}
-            onChange={(limit) => update.mutate({ key: 'rail', value: { ...rail, limit } })}
-          />
-        </PrefGroup>
-      )}
     </>
   );
 };

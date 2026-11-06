@@ -10,13 +10,11 @@ import { TrackRow } from '../library/TrackRow';
 import { Artwork } from '../library/Artwork';
 import { playFromLibrary } from '../library/useLibrary';
 import { fromOnlineTrack } from '../collections/useCollections';
-import {
-  menuHandler,
-  useAlbumMenuItems,
-  useArtistMenuItems,
-  usePodcastMenuItems,
-} from '../music/cardMenus';
-import { useTrackMenuItems } from '../music/useTrackMenu';
+import { useAlbumMenuItems, useArtistMenuItems, usePodcastMenuItems } from '../music/cardMenus';
+import { TrackMoreButton } from '../collections/TrackMoreButton';
+import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
+import { CardMenu } from '../shell/CardMenu';
+import { MenuButton } from '../shell/MenuButton';
 import { PodcastArt } from '../podcasts/PodcastArt';
 import { PodcastResultList } from '../podcasts/PodcastResultList';
 import { useOpenFeed, usePodcastSearch } from '../podcasts/usePodcasts';
@@ -33,6 +31,9 @@ import { rankSongs, useAlbumFinds, useArtistFinds, usePlaylistFinds } from './us
 import type { RankedSong } from './useMusicFinds';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
 
+/** The top result's ⋮, in its card's top right corner. */
+const TOP_MENU_CLASS =
+  'text-muted hover:text-foreground absolute top-2 right-2 grid size-9 place-items-center rounded-full';
 /** How many of each kind Relevant shows before its See all. */
 const SONGS = 5;
 const ROW = 10;
@@ -88,7 +89,6 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   const podcasts = usePodcastSearch(query);
   const books = useBookDirectory('search', query.trim());
   const bookList = books.data?.pages[0]?.books ?? [];
-  const trackMenu = useTrackMenuItems();
   const artistMenu = useArtistMenuItems();
   const albumMenu = useAlbumMenuItems();
   const podcastMenu = usePodcastMenuItems();
@@ -205,69 +205,75 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
       {top && (
         <section aria-label={t('search.topResult')} className="flex flex-col gap-2">
           <h2 className="text-lg font-bold">{t('search.topResult')}</h2>
-          <button
-            type="button"
-            data-testid="top-result"
-            onClick={openTop}
-            // A book's page has its actions; the others have menus of their own.
-            onContextMenu={
-              top.kind === 'book'
-                ? undefined
-                : (event) =>
-                    menuHandler(() =>
-                      top.kind === 'song'
-                        ? trackMenu(
-                            fromOnlineTrack(top.track),
-                            { onPlay: openTop },
-                            { x: event.clientX, y: event.clientY },
-                          )
-                        : top.kind === 'artist'
-                          ? artistMenu({ name: top.name, imageUrl: top.imageUrl }, { goTo: true })
-                          : podcastMenu({
-                              title: top.podcast.title,
-                              author: top.podcast.author,
-                              feedUrl: top.podcast.feedUrl,
-                              artworkUrl: top.podcast.artworkUrl,
-                            }),
-                    )(event)
-            }
-            className="bg-surface hover:bg-surface/70 group relative flex max-w-md items-center gap-4 rounded-2xl p-4 text-left"
-          >
-            {top.kind === 'song' && (
-              <Artwork
-                url={top.track.artworkUrl}
-                className="size-24 shrink-0 rounded-lg"
-                iconSize={32}
-              />
-            )}
-            {top.kind === 'artist' &&
-              (top.imageUrl ? (
+          <div className="relative max-w-md">
+            <button
+              type="button"
+              data-testid="top-result"
+              onClick={openTop}
+              className="bg-surface hover:bg-surface/70 group relative flex w-full items-center gap-4 rounded-2xl p-4 text-left"
+            >
+              {top.kind === 'song' && (
                 <Artwork
-                  url={top.imageUrl}
-                  className="size-24 shrink-0 rounded-full"
+                  url={top.track.artworkUrl}
+                  className="size-24 shrink-0 rounded-lg"
                   iconSize={32}
                 />
-              ) : (
-                <span className="bg-background text-muted grid size-24 shrink-0 place-items-center rounded-full">
-                  <UserRound aria-hidden size={40} />
-                </span>
-              ))}
-            {top.kind === 'podcast' && (
-              <PodcastArt url={top.podcast.artworkUrl} className="w-24 shrink-0 rounded-lg" />
-            )}
-            {top.kind === 'book' && (
-              <PodcastArt url={top.book.artworkUrl} className="w-24 shrink-0 rounded-lg" />
-            )}
-            <span className="flex min-w-0 flex-col gap-1">
-              <span className="line-clamp-2 text-2xl font-bold">{topTitle}</span>
-              <span className="text-muted truncate text-sm">{topKind}</span>
-            </span>
-            {top.kind === 'song' && (
-              <span className="bg-primary text-background absolute right-4 bottom-4 grid size-11 place-items-center rounded-full opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                <Play aria-hidden size={20} className="fill-current" />
+              )}
+              {top.kind === 'artist' &&
+                (top.imageUrl ? (
+                  <Artwork
+                    url={top.imageUrl}
+                    className="size-24 shrink-0 rounded-full"
+                    iconSize={32}
+                  />
+                ) : (
+                  <span className="bg-background text-muted grid size-24 shrink-0 place-items-center rounded-full">
+                    <UserRound aria-hidden size={40} />
+                  </span>
+                ))}
+              {top.kind === 'podcast' && (
+                <PodcastArt url={top.podcast.artworkUrl} className="w-24 shrink-0 rounded-lg" />
+              )}
+              {top.kind === 'book' && (
+                <PodcastArt url={top.book.artworkUrl} className="w-24 shrink-0 rounded-lg" />
+              )}
+              <span className="flex min-w-0 flex-col gap-1">
+                <span className="line-clamp-2 text-2xl font-bold">{topTitle}</span>
+                <span className="text-muted truncate text-sm">{topKind}</span>
               </span>
+              {top.kind === 'song' && (
+                <span className="bg-primary text-background absolute right-4 bottom-4 grid size-11 place-items-center rounded-full opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                  <Play aria-hidden size={20} className="fill-current" />
+                </span>
+              )}
+            </button>
+            {/* A book's page has its actions; the others have menus of their own. */}
+            {top.kind === 'song' && (
+              <TrackMoreButton
+                track={fromOnlineTrack(top.track)}
+                extras={{ onPlay: openTop }}
+                className={TOP_MENU_CLASS}
+              />
             )}
-          </button>
+            {(top.kind === 'artist' || top.kind === 'podcast') && (
+              <MenuButton
+                label={t('menu.options', { name: topTitle })}
+                items={() =>
+                  top.kind === 'artist'
+                    ? artistMenu({ name: top.name, imageUrl: top.imageUrl }, { goTo: true })
+                    : top.kind === 'podcast'
+                      ? podcastMenu({
+                          title: top.podcast.title,
+                          author: top.podcast.author,
+                          feedUrl: top.podcast.feedUrl,
+                          artworkUrl: top.podcast.artworkUrl,
+                        })
+                      : []
+                }
+                className={TOP_MENU_CLASS}
+              />
+            )}
+          </div>
         </section>
       )}
       {(ranked.length > 0 || library.length > 0) && (
@@ -294,6 +300,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
                   track={entry.track}
                   source={entry.source}
                   sourceAdult={entry.sourceAdult}
+                  sourceListed={entry.fromListings}
                   onPlay={(tapped) => void playResults(tracks, tapped)}
                 />
               </li>
@@ -309,11 +316,13 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
                 <Link
                   to="/artist"
                   search={{ name: found.name }}
-                  onContextMenu={menuHandler(() =>
-                    artistMenu({ name: found.name, imageUrl: found.imageUrl }),
-                  )}
-                  className="hover:bg-surface flex flex-col items-center gap-2 rounded-xl p-2 text-center"
+                  className="hover:bg-surface relative flex flex-col items-center gap-2 rounded-xl p-2 text-center"
                 >
+                  <CardMenu
+                    label={t('menu.options', { name: found.name })}
+                    items={() => artistMenu({ name: found.name, imageUrl: found.imageUrl })}
+                    className={CARD_MENU_BESIDE}
+                  />
                   {found.imageUrl ? (
                     <Artwork url={found.imageUrl} className="size-28 rounded-full" iconSize={32} />
                   ) : (
@@ -336,7 +345,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
                 <AlbumTile
                   album={album}
                   detail={[album.year, album.artist].filter(Boolean).join(' · ')}
-                  onMenu={menuHandler(() => albumMenu(album))}
+                  menu={() => albumMenu(album)}
                 />
               </li>
             ))}

@@ -271,6 +271,14 @@ fn lyrics_are_asked_for_line_by_line() {
 }
 
 #[test]
+fn subtitles_are_asked_for_cue_by_cue() {
+    let subtitles = instructions(Some("ja"), "en", Content::Subtitles);
+    assert!(subtitles.contains("subtitle cues") && subtitles.contains("`en`"));
+    assert!(subtitles.contains("`ja`") && subtitles.contains("as many as there are cues"));
+    assert!(subtitles.contains("never merge, split, skip"));
+}
+
+#[test]
 fn defaults_and_parsing() {
     let deepl = Provider {
         id: "d".into(),

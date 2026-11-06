@@ -14,8 +14,12 @@ const CHECK =
 const TARGET = {
   extensionId: 'dev.raygun.royalroad',
   source: 'Royal Road',
-  url: 'https://www.royalroad.com/',
+  url: 'https://www.royalroad.com/fictions/search?title=sword',
 };
+const outcome = (
+  name: 'passed' | 'stillBlocked' | 'stillFailing' | 'noCheck' | 'notPassed',
+  cookies = 0,
+) => ok({ outcome: name, cookies, error: null });
 
 describe('Browser checks passed by hand', () => {
   beforeEach(() => {
@@ -34,11 +38,11 @@ describe('Browser checks passed by hand', () => {
     expect(commands.browserCheckTarget).not.toHaveBeenCalled();
   });
 
-  it('opens the site when on, then asks the failed source again', async () => {
+  it('opens the check when on, then asks the failed source again once it’s passed', async () => {
     const user = userEvent.setup();
     commands.settingsGet.mockResolvedValue(ok({ ...DEFAULT_SETTINGS, manualBrowserChecks: true }));
     commands.browserCheckTarget.mockResolvedValue(ok(TARGET));
-    commands.browserCheckOpen.mockResolvedValue(ok(2));
+    commands.browserCheckOpen.mockResolvedValue(outcome('passed', 2));
     await AppShellWrapper.mount('/music/chart?provider=x&id=top');
 
     const issue = await screen.findByTestId('source-issue');
@@ -54,20 +58,30 @@ describe('Browser checks passed by hand', () => {
     await waitFor(() => expect(commands.musicChart.mock.calls.length).toBeGreaterThan(asked));
   });
 
-  it('says so when the browser closed without the check passed', async () => {
-    const user = userEvent.setup();
-    commands.settingsGet.mockResolvedValue(ok({ ...DEFAULT_SETTINGS, manualBrowserChecks: true }));
-    commands.browserCheckTarget.mockResolvedValue(ok(TARGET));
-    commands.browserCheckOpen.mockResolvedValue(ok(0));
-    await AppShellWrapper.mount('/music/chart?provider=x&id=top');
+  it.each([
+    ['notPassed', 'The check wasn’t passed, so nothing changed'],
+    ['noCheck', 'This site didn’t ask for a check; the problem is something else'],
+    ['stillBlocked', 'The check was passed, but the site still blocks Royal Road’s requests'],
+  ] as const)(
+    'says what happened when the outcome is %s, without asking again',
+    async (name, text) => {
+      const user = userEvent.setup();
+      commands.settingsGet.mockResolvedValue(
+        ok({ ...DEFAULT_SETTINGS, manualBrowserChecks: true }),
+      );
+      commands.browserCheckTarget.mockResolvedValue(ok(TARGET));
+      commands.browserCheckOpen.mockResolvedValue(outcome(name));
+      await AppShellWrapper.mount('/music/chart?provider=x&id=top');
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Open the site to pass the check' }),
-    );
-    expect(
-      await screen.findByText('The check wasn’t passed — no cookies came back'),
-    ).toBeInTheDocument();
-  });
+      const open = await screen.findByRole('button', { name: 'Open the site to pass the check' });
+      const asked = commands.musicChart.mock.calls.length;
+      await user.click(open);
+
+      expect(await screen.findByText(text)).toBeInTheDocument();
+      expect(screen.queryByText(/works again/)).not.toBeInTheDocument();
+      expect(commands.musicChart.mock.calls.length).toBe(asked);
+    },
+  );
 
   it('turns on only after the warnings are confirmed', async () => {
     const user = userEvent.setup();

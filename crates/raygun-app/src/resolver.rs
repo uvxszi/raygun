@@ -1,13 +1,17 @@
 //! Finds a stream for a track (ARCHITECTURE §6.1, M14): verified cache first, then candidates from
-//! every `music.stream` provider, ranked by `raygun-resolver`, resolved lazily.
+//! every `music.stream` provider, ranked by `raygun-resolver`, resolved lazily. A deeper search
+//! (a load looking for another source, `Exclusions::deep`) skips what was remembered, asks the
+//! sources again, gives matches that failed lately a try and searches the other sources for the
+//! song, as Find a source does; sources that can't answer now are left for a later look.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use raygun_db::streams::{self, CandidateRow};
-use raygun_ext_host::{ResolvedStream, StreamUse};
+use raygun_ext_host::{CallError, ResolvedStream, StreamUse};
 use raygun_model::{AudioQuality, MediaSource, TrackQuery};
+use raygun_net::IssueKind;
 use raygun_resolver::{
     Candidate, CandidateKey, History, Pick, ProviderRecord, QualityTarget, Scored, rank_for,
     track_key,
@@ -15,7 +19,7 @@ use raygun_resolver::{
 use tauri::{AppHandle, Manager};
 
 use crate::extensions::ExtensionService;
-use crate::resolution::Exclusions;
+use crate::resolution::{Exclusions, Notes};
 use crate::startup::AppDb;
 
 /// Searches are kept this long, so trying the next candidate doesn't search again.
@@ -29,6 +33,14 @@ const OWN_AUDIO_COOLDOWN_MS: i64 = 60 * 60 * 1000;
 const EXPIRY_MARGIN_MS: i64 = 60 * 1000;
 /// Matches tried again when all of them failed within the cooldown (M46.48).
 const COOLED_RETRIES: usize = 1;
+/// A deeper search tries this many matches at most, and asks each source for this many streams
+/// at most, so a song no source plays doesn't keep them busy.
+const DEEP_TRIES: usize = 8;
+const DEEP_PER_SOURCE: usize = 2;
+/// Candidates each stream source is asked for in a deeper search.
+const DEEP_CANDIDATES: u32 = 20;
+/// Other sources' answers a deeper search looks through.
+const OTHER_SOURCES: usize = 6;
 /// The YouTube extension's stream provider (M46.51), when one is installed (Raygun ships none): its
 /// `audio:<video>` candidates resolve to the video's own audio file, its plain `<video>` ones play
 /// in the embed. Without it a YouTube item plays in the embed.
@@ -80,6 +92,27 @@ impl ResolverService {
         query: &TrackQuery,
         exclusions: &Exclusions,
     ) -> Result<Pick, String> {
+        self.find(query, exclusions).await.0
+    }
+
+    /// [`Self::resolve`], with what the search met on its way: matches that failed for good,
+    /// those whose source couldn't answer now, and whether a source limited requests.
+    pub async fn find(
+        &self,
+        query: &TrackQuery,
+        exclusions: &Exclusions,
+    ) -> (Result<Pick, String>, Notes) {
+        let mut notes = Notes::default();
+        let found = self.search(query, exclusions, &mut notes).await;
+        (found, notes)
+    }
+
+    async fn search(
+        &self,
+        query: &TrackQuery,
+        exclusions: &Exclusions,
+        notes: &mut Notes,
+    ) -> Result<Pick, String> {
         let key = track_key(query);
         let now = unix_ms();
         let target = self.quality_target(exclusions.quality).await;
@@ -95,6 +128,7 @@ impl ResolverService {
             });
         let excluded = |candidate_key: &CandidateKey, source: Option<&MediaSource>| {
             exclusions.tried.contains(candidate_key)
+                || exclusions.unanswered.contains(candidate_key)
                 || source.is_some_and(|source| exclusions.failed_sources.contains(source))
         };
         let recently_failed =
@@ -110,10 +144,11 @@ impl ResolverService {
         }
 
         // 1. A pick that played before and is still valid plays right away. One that played in
-        // YouTube's embed is found again: the video's audio file may play now (M46.51).
+        // YouTube's embed is found again: the video's audio file may play now (M46.51). A deeper
+        // search is past them: what was remembered didn't play.
         for row in rows
             .iter()
-            .filter(|row| !exclusions.fresh_only && !plays_in_embed(row))
+            .filter(|row| !exclusions.fresh_only && !exclusions.deep && !plays_in_embed(row))
         {
             let candidate_key = CandidateKey {
                 provider_id: row.provider_id.clone(),
@@ -173,7 +208,12 @@ impl ResolverService {
                 },
             );
         }
-        let candidates = self.candidates(&key, query, target).await;
+        let mut candidates = self
+            .candidates(&key, query, target, exclusions.deep, notes)
+            .await;
+        if exclusions.deep {
+            candidates.extend(self.other_sources(&key, query, target, notes).await);
+        }
         if candidates.is_empty() {
             return Err(format!(
                 "No streaming source has \u{201c}{}\u{201d}",
@@ -183,7 +223,11 @@ impl ResolverService {
         let ranked = to_try(query, candidates, &history, target, exclusions);
         tracing::info!(track = %key, ranked = ranked.len(), ?target, "stream candidates ranked");
 
-        // 3. The best one that resolves.
+        // 3. The best one that resolves. Sources sitting out aren't asked, nor those that limited
+        // requests in this search; a deeper search asks each source for a few streams at most.
+        let extensions = self.extensions();
+        let mut asked: HashMap<String, usize> = HashMap::new();
+        let mut limited: HashSet<String> = HashSet::new();
         for scored in ranked {
             let candidate = scored.candidate;
             let candidate_key = candidate.key();
@@ -193,14 +237,28 @@ impl ResolverService {
             }
             let resolved = match candidate.source.clone() {
                 Some(source) => Ok((source, None)),
-                None => self
-                    .extensions()
-                    .resolve_stream(&candidate.provider_id, &candidate.id, using)
-                    .await
-                    .map(|stream| (stream.source, stream.expires_at)),
+                None => {
+                    let provider = candidate.provider_id.as_str();
+                    let calls = asked.entry(provider.to_owned()).or_default();
+                    if limited.contains(provider)
+                        || extensions.resting(provider)
+                        || (exclusions.deep && *calls >= DEEP_PER_SOURCE)
+                    {
+                        notes.unanswered.push(candidate_key);
+                        continue;
+                    }
+                    *calls += 1;
+                    extensions
+                        .resolve_stream_call(provider, &candidate.id, using)
+                        .await
+                        .map(|stream| (stream.source, stream.expires_at))
+                }
             };
             match resolved {
-                Ok((source, _)) if exclusions.failed_sources.contains(&source) => continue,
+                // The stream that just failed, again: this match has nothing else for the load.
+                Ok((source, _)) if exclusions.failed_sources.contains(&source) => {
+                    notes.failed.push(candidate_key);
+                }
                 Ok((source, expires_at)) => {
                     tracing::info!(
                         track = %key,
@@ -221,6 +279,17 @@ impl ResolverService {
                         bitrate_kbps,
                     });
                 }
+                // The source's trouble now, not the match's: a later look asks again.
+                Err(error) if passing(&error) => {
+                    tracing::info!(provider = %candidate.provider_id, %error, "a source couldn't answer now");
+                    if error.kind() == Some(IssueKind::RateLimited) {
+                        notes.limited = true;
+                        notes.retry_after =
+                            notes.retry_after.max(raygun_ext_host::asked_wait(&error));
+                        limited.insert(candidate.provider_id.clone());
+                    }
+                    notes.unanswered.push(candidate_key);
+                }
                 Err(error) => {
                     tracing::warn!(provider = %candidate.provider_id, %error, "candidate didn't resolve");
                     let _ = streams::mark_failed(
@@ -229,10 +298,11 @@ impl ResolverService {
                         &candidate.provider_id,
                         &candidate.id,
                         &candidate.title,
-                        &error,
+                        &error.to_string(),
                         now,
                     )
                     .await;
+                    notes.failed.push(candidate_key);
                 }
             }
         }
@@ -240,6 +310,64 @@ impl ResolverService {
             "No playable source found for \u{201c}{}\u{201d}",
             query.title
         ))
+    }
+
+    /// The other sources' answers for a song (a deeper search): each source's best answer that
+    /// names the song's artist, as Find a source lists them. An answer with a stream of its own
+    /// is a candidate as it is; for the best one without, the stream sources are asked again
+    /// under the names that source spells the song with.
+    async fn other_sources(
+        &self,
+        key: &str,
+        query: &TrackQuery,
+        target: QualityTarget,
+        notes: &mut Notes,
+    ) -> Vec<Candidate> {
+        let extensions = self.extensions();
+        let answers = crate::import::find_songs(&extensions, query, OTHER_SOURCES).await;
+        let mut found = Vec::new();
+        let mut respelled: Option<TrackQuery> = None;
+        for answer in answers {
+            let track = answer.track;
+            match track.source.clone().and_then(crate::collections::portable) {
+                Some(source) => {
+                    let id = match &track.external_id {
+                        Some(id) => id.clone(),
+                        None => serde_json::to_string(&source).unwrap_or_default(),
+                    };
+                    found.push(Candidate {
+                        provider_id: answer.provider_id,
+                        provider_name: answer.provider_name,
+                        id,
+                        title: track.title,
+                        artist: track.artist,
+                        duration_ms: track.duration_ms,
+                        quality: None,
+                        bitrate_kbps: None,
+                        source: Some(source),
+                    });
+                }
+                None if respelled.is_none() => {
+                    let names = TrackQuery {
+                        title: track.title,
+                        artist: track.artist,
+                        album: track.album,
+                        duration_ms: track.duration_ms.or(query.duration_ms),
+                    };
+                    if track_key(&names) != key {
+                        respelled = Some(names);
+                    }
+                }
+                None => {}
+            }
+        }
+        if let Some(names) = respelled {
+            found.extend(
+                self.candidates(&track_key(&names), &names, target, true, notes)
+                    .await,
+            );
+        }
+        found
     }
 
     /// The item's own YouTube video (M46.51): its audio file, remembered or asked for now, else its
@@ -293,16 +421,22 @@ impl ResolverService {
                         serde_json::from_str::<MediaSource>(row.source.as_deref()?).ok()?;
                     Some((source, row.expires_at))
                 });
+            // A remembered file whose stream just failed is asked for again; a deeper search asks
+            // even when it failed lately.
             match remembered {
-                Some((source, expires_at)) if !failed_lately => {
+                Some((source, expires_at))
+                    if !failed_lately && !exclusions.failed_sources.contains(&source) =>
+                {
                     return Some(pick(audio, source, expires_at, true));
                 }
-                _ if failed_lately => {}
+                _ if failed_lately && !exclusions.deep => {}
                 _ => match self
                     .extensions()
                     .resolve_stream(YOUTUBE_STREAMS, &audio.candidate_id, using)
                     .await
                 {
+                    // The same stream that failed just now: on to the embed.
+                    Ok(stream) if exclusions.failed_sources.contains(&stream.source) => {}
                     Ok(stream) => {
                         return Some(pick(audio, stream.source, stream.expires_at, false));
                     }
@@ -322,17 +456,16 @@ impl ResolverService {
                 },
             }
         }
-        if using.decodable || exclusions.tried.contains(&embed) {
+        let video = MediaSource::YouTube {
+            video_id: video_id.to_owned(),
+        };
+        if using.decodable
+            || exclusions.tried.contains(&embed)
+            || exclusions.failed_sources.contains(&video)
+        {
             return None;
         }
-        Some(pick(
-            embed,
-            MediaSource::YouTube {
-                video_id: video_id.to_owned(),
-            },
-            None,
-            false,
-        ))
+        Some(pick(embed, video, None, false))
     }
 
     /// A YouTube video's own audio file (M46.51), for `using`: downloads and captions ask for it
@@ -382,25 +515,39 @@ impl ResolverService {
             .map_or(QualityTarget::Best, QualityTarget::Kbps)
     }
 
-    /// Candidates from every provider, kept for a while per track and quality.
+    /// Candidates from every provider, kept for a while per track and quality. `again` asks the
+    /// providers anew, for more candidates (a deeper search: the kept ones didn't play). A
+    /// provider that failed to answer is noted: then it's not known that no source has the song.
     async fn candidates(
         &self,
         key: &str,
         query: &TrackQuery,
         target: QualityTarget,
+        again: bool,
+        notes: &mut Notes,
     ) -> Vec<Candidate> {
         let key = format!("{key}|{target:?}");
         let key = key.as_str();
-        if let Some((searched, candidates)) = self.searches.lock().unwrap().get(key)
+        if !again
+            && let Some((searched, candidates)) = self.searches.lock().unwrap().get(key)
             && searched.elapsed() < CANDIDATES_TTL
         {
             return candidates.clone();
         }
+        let extensions = self.extensions();
+        let answers = if again {
+            extensions
+                .stream_candidates_up_to(query, DEEP_CANDIDATES, target)
+                .await
+        } else {
+            extensions.stream_candidates(query, target).await
+        };
         let mut candidates = Vec::new();
-        for answer in self.extensions().stream_candidates(query, target).await {
+        for answer in answers {
             match answer.result {
                 Ok(found) => candidates.extend(found),
                 Err(error) => {
+                    notes.troubled = true;
                     tracing::warn!(provider = %answer.provider.id, %error, "stream provider failed");
                 }
             }
@@ -448,6 +595,33 @@ impl ResolverService {
         }
     }
 
+    /// A remembered pick's stream stopped working: the stream is forgotten without counting
+    /// against the pick or its provider, and the pick's source is asked for a new one.
+    pub async fn forget_stream(&self, pick: &Pick) {
+        tracing::info!(provider = %pick.key.provider_id, candidate = %pick.key.candidate_id, "a remembered stream stopped working; asking its source again");
+        if let Err(error) = streams::forget_stream(
+            self.db(),
+            &pick.track_key,
+            &pick.key.provider_id,
+            &pick.key.candidate_id,
+        )
+        .await
+        {
+            tracing::warn!(%error, "could not forget a stream");
+        }
+    }
+
+    /// A song's own stream (one picked for it) stopped working: picks remembered with it go too,
+    /// under every key in `track_keys`.
+    pub async fn forget_source(&self, track_keys: &[String], source: &MediaSource) {
+        let Ok(json) = serde_json::to_string(source) else {
+            return;
+        };
+        if let Err(error) = streams::forget_source(self.db(), track_keys, &json).await {
+            tracing::warn!(%error, "could not forget a stream");
+        }
+    }
+
     /// The pick failed to play: skip it for a while and count it against its provider.
     pub async fn mark_failed(&self, pick: &Pick, reason: &str) {
         tracing::info!(provider = %pick.key.provider_id, candidate = %pick.key.candidate_id, %reason, "stream failed, trying the next");
@@ -473,9 +647,18 @@ fn unix_ms() -> i64 {
         .map_or(0, |elapsed| elapsed.as_millis() as i64)
 }
 
+/// Whether a failed resolve is the source's trouble now (it timed out, limited requests, had
+/// server trouble, the connection dropped) rather than the match's: it's asked again later
+/// instead of being kept out for a day.
+fn passing(error: &CallError) -> bool {
+    matches!(error, CallError::Cancelled | CallError::HostStopped)
+        || error.kind().is_some_and(IssueKind::is_transient)
+}
+
 /// The matches to try for a track, best first, leaving out what this load tried. Matches that
 /// failed lately are kept out for a day, but when that leaves nothing, the best of them gets
-/// one real try per load (M46.48): a song played on purpose is never skipped untried.
+/// one real try per load (M46.48): a song played on purpose is never skipped untried. A deeper
+/// search tries those too, after the rest, and a few matches at most.
 fn to_try(
     query: &TrackQuery,
     candidates: Vec<Candidate>,
@@ -484,13 +667,25 @@ fn to_try(
     exclusions: &Exclusions,
 ) -> Vec<Scored> {
     let untried = |scored: &Scored| {
-        !exclusions.tried.contains(&scored.candidate.key())
+        let key = scored.candidate.key();
+        !exclusions.tried.contains(&key)
+            && !exclusions.unanswered.contains(&key)
             && scored
                 .candidate
                 .source
                 .as_ref()
                 .is_none_or(|source| !exclusions.failed_sources.contains(source))
     };
+    if exclusions.deep {
+        let mut again = history.clone();
+        again.failed.clear();
+        let (fresh, failed): (Vec<Scored>, Vec<Scored>) =
+            rank_for(query, candidates, &again, target)
+                .into_iter()
+                .filter(untried)
+                .partition(|scored| !history.failed.contains(&scored.candidate.key()));
+        return fresh.into_iter().chain(failed).take(DEEP_TRIES).collect();
+    }
     let ranked = rank_for(query, candidates.clone(), history, target);
     let retried = exclusions
         .tried
@@ -607,5 +802,74 @@ mod tests {
             titles(&to_try(&query, found, &history, QualityTarget::Any, &none)),
             ["b"]
         );
+    }
+
+    #[test]
+    fn a_deeper_search_tries_every_match_those_that_failed_lately_last() {
+        let query = TrackQuery {
+            title: "Song".into(),
+            artist: Some("Artist".into()),
+            album: None,
+            duration_ms: None,
+        };
+        let ids = |scored: &[Scored]| -> Vec<String> {
+            scored
+                .iter()
+                .map(|scored| scored.candidate.id.clone())
+                .collect()
+        };
+        let found = vec![
+            candidate("a", "Song"),
+            candidate("b", "Song"),
+            candidate("c", "Song"),
+        ];
+        let mut history = History::default();
+        history.failed.insert(found[0].key());
+        let deep = Exclusions {
+            deep: true,
+            ..Exclusions::default()
+        };
+        assert_eq!(
+            ids(&to_try(
+                &query,
+                found.clone(),
+                &history,
+                QualityTarget::Any,
+                &deep
+            )),
+            ["b", "c", "a"]
+        );
+        // What this load tried waits, and so do matches whose source couldn't answer just now.
+        let busy = Exclusions {
+            tried: vec![found[1].key()],
+            unanswered: vec![found[2].key()],
+            ..deep.clone()
+        };
+        assert_eq!(
+            ids(&to_try(&query, found, &history, QualityTarget::Any, &busy)),
+            ["a"]
+        );
+        // A few at most.
+        let many: Vec<Candidate> = (0..20).map(|n| candidate(&n.to_string(), "Song")).collect();
+        assert_eq!(
+            to_try(&query, many, &History::default(), QualityTarget::Any, &deep).len(),
+            DEEP_TRIES
+        );
+    }
+
+    #[test]
+    fn a_source_busy_now_isnt_held_against_its_match() {
+        let failed = |kind| CallError::Failed(raygun_net::Issue::new(kind, "Example", "HTTP"));
+        assert!(passing(&failed(IssueKind::RateLimited)));
+        assert!(passing(&failed(IssueKind::ServerError)));
+        assert!(passing(&CallError::Timeout {
+            name: "Example".into(),
+            after: Duration::from_secs(12),
+        }));
+        assert!(!passing(&failed(IssueKind::NotFound)));
+        assert!(!passing(&CallError::Said {
+            name: "Example".into(),
+            message: "This song isn't on Example".into(),
+        }));
     }
 }

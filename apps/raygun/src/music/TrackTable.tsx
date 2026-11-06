@@ -56,6 +56,7 @@ import { formatTime } from '../player/formatTime';
 import { Sheet } from '../shell/Sheet';
 import { TextField } from '../shell/TextField';
 import { useCoarsePointer, useWideScreen } from '../shell/useWideScreen';
+import { useDragScroll } from '../shell/useDragScroll';
 import { ArtistLinks } from './ArtistLinks';
 import {
   COLUMN_TRACKS,
@@ -72,7 +73,6 @@ import { useSortRequest } from './sortRequest';
 import { useSourcePickerStore } from './sourcePickerStore';
 import { useTrackLengths } from './useTrackLengths';
 import { useUnavailable } from './useUnavailable';
-import { useTrackMenu } from './useTrackMenu';
 import { SongMarks } from './SongMarks';
 import { ExplicitMark } from './ExplicitMark';
 import { NowPlayingBars } from '../player/NowPlayingBars';
@@ -162,6 +162,86 @@ const HeaderCell: FC<{
   );
 };
 
+/**
+ * A row's cover, which picks the row: a click or tap on it puts the song in the selection or
+ * takes it out (Shift adds the range from the last one picked). The compact view shows no
+ * covers, so a round box stands in for it there, shown on hover while nothing is picked.
+ */
+const PickCover: FC<{
+  track: TableTrack;
+  selected: boolean;
+  selecting: boolean;
+  compact: boolean;
+  wide: boolean;
+  touch: boolean;
+  onPick: (event: MouseEvent) => void;
+}> = ({ track, selected, selecting, compact, wide, touch, onPick }) => {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={selected}
+      aria-label={t('tracks.selectRow', { title: track.title })}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPick(event);
+      }}
+      // Two quick clicks pick and unpick: they don't play the row too.
+      onDoubleClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        // Enter picks here, as Space does; it plays the row everywhere else.
+        if (event.key === 'Enter') event.stopPropagation();
+      }}
+      className="group/cover relative grid shrink-0 place-items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-current"
+    >
+      {compact ? (
+        <span
+          className={`grid size-5 place-items-center rounded-full border-2 transition-opacity ${
+            selected ? 'border-primary bg-primary text-background' : 'text-transparent'
+          } ${
+            selected || selecting || touch
+              ? ''
+              : 'opacity-0 group-hover:opacity-100 group-focus-visible/cover:opacity-100'
+          }`}
+        >
+          <Check aria-hidden size={12} strokeWidth={3} />
+        </span>
+      ) : (
+        <>
+          <Artwork
+            url={track.artworkUrl}
+            fallback={songCover(track)}
+            // Phones get larger rows, sized from the screen (M46.49).
+            className={`shrink-0 rounded ${wide ? 'size-10' : 'size-[clamp(3rem,14vw,4.25rem)]'}`}
+            iconSize={wide ? 18 : 22}
+          />
+          <span
+            aria-hidden
+            className={`absolute inset-0 grid place-items-center rounded transition-opacity ${
+              selected
+                ? 'bg-primary/85 text-background'
+                : `bg-black/40 text-transparent ${
+                    selecting
+                      ? ''
+                      : 'opacity-0 group-hover/cover:opacity-100 group-focus-visible/cover:opacity-100'
+                  }`
+            }`}
+          >
+            <span
+              className={`grid size-5 place-items-center rounded-full border-2 ${
+                selected ? 'border-transparent' : 'border-white/90'
+              }`}
+            >
+              <Check aria-hidden size={14} strokeWidth={3} />
+            </span>
+          </span>
+        </>
+      )}
+    </button>
+  );
+};
+
 type RowSortable = ReturnType<typeof useSortable>;
 
 /** A row's drag state (M46.44), handed to the row it wraps; null when rows don't move. */
@@ -204,8 +284,8 @@ const TAG_CHIPS = 12;
 
 /**
  * Songs as a table (M46.8), Spotify's: sort by clicking a column or from Sort by, filter, list
- * or compact, columns to show, drag and resize, and several songs at once with Ctrl and Shift.
- * Playing plays the table in the order it shows.
+ * or compact, columns to show, drag and resize, and several songs at once: a row's cover picks
+ * it, as Ctrl and Shift clicks do anywhere on rows. Playing plays the table in the order it shows.
  */
 export const TrackTable: FC<TrackTableProps> = ({
   kind,
@@ -224,7 +304,6 @@ export const TrackTable: FC<TrackTableProps> = ({
   const tracks = useTrackLengths(givenTracks);
   const wide = useWideScreen();
   const touch = useCoarsePointer();
-  const menu = useTrackMenu();
   const playingMatch = usePlayingMatch();
   const { view, set } = useTableView(kind);
   const [filter, setFilter] = useState('');
@@ -262,6 +341,7 @@ export const TrackTable: FC<TrackTableProps> = ({
   // Songs no source had when imported (M46.31).
   const unavailable = useUnavailable(trackKeys);
   const [tag, setTag] = useState<string | null>(null);
+  const tagRow = useDragScroll<HTMLDivElement>();
   const tagChips = useMemo(() => {
     const counts = new Map<string, number>();
     for (const track of tracks) {
@@ -380,17 +460,18 @@ export const TrackTable: FC<TrackTableProps> = ({
       ),
   });
 
+  /** Puts a row in the selection or takes it out; with Shift, adds the range from the last pick. */
   const pick = (event: MouseEvent, index: number) => {
     const key = shown[index]?.rowKey;
     if (!key) return;
     // Read now: the update runs later, after `lastPicked` has moved to this row.
     const anchor = lastPicked.current;
     setSelected((current) => {
-      const next = new Set(event.ctrlKey || event.metaKey || event.shiftKey ? current : []);
+      const next = new Set(current);
       if (event.shiftKey && anchor !== null) {
         const [from, to] = [Math.min(anchor, index), Math.max(anchor, index)];
         for (const track of shown.slice(from, to + 1)) next.add(track.rowKey);
-      } else if (next.has(key) && (event.ctrlKey || event.metaKey)) {
+      } else if (next.has(key)) {
         next.delete(key);
       } else {
         next.add(key);
@@ -399,6 +480,8 @@ export const TrackTable: FC<TrackTableProps> = ({
     });
     lastPicked.current = index;
   };
+  /** Ctrl, Cmd or Shift with a click: several rows at once, or a range. */
+  const picking = (event: MouseEvent) => event.ctrlKey || event.metaKey || event.shiftKey;
   const queue = (next: boolean) =>
     void unwrapResult(
       commands.playbackQueueTracks(
@@ -521,6 +604,7 @@ export const TrackTable: FC<TrackTableProps> = ({
     <div data-testid="track-table" data-kind={kind} className="flex flex-col gap-2">
       {tagChips.length > 0 && (
         <div
+          ref={tagRow}
           role="group"
           aria-label={t('discover.filterByTag')}
           className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
@@ -832,18 +916,16 @@ export const TrackTable: FC<TrackTableProps> = ({
                         data-testid="track-table-row"
                         data-reveal={songReveal(track.title, track.artist)}
                         onClick={(event) => {
-                          // A finger's tap anywhere plays the song; once some are picked, it picks.
-                          if (touch && !wide && selected.size === 0) onPlay(shown, index);
-                          else pick(event, index);
+                          // Only the cover picks a row, or a click with Ctrl, Cmd or Shift. A
+                          // finger's tap anywhere else plays the song; a mouse plays on a
+                          // double click.
+                          if (picking(event)) pick(event, index);
+                          else if (touch) onPlay(shown, index);
                         }}
                         onDoubleClick={() => onPlay(shown, index)}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') onPlay(shown, index);
                         }}
-                        onContextMenu={menu(track.input, {
-                          onPlay: () => onPlay(shown, index),
-                          playlistItemId: track.playlistItemId,
-                        })}
                         tabIndex={0}
                         style={{
                           ...(wide ? { gridTemplateColumns: template } : {}),
@@ -891,15 +973,15 @@ export const TrackTable: FC<TrackTableProps> = ({
                         )}
                         <div className="flex min-w-0 items-center gap-3">
                           {!wide && grip}
-                          {!compact && (
-                            <Artwork
-                              url={track.artworkUrl}
-                              fallback={songCover(track)}
-                              // Phones get larger rows, sized from the screen (M46.49).
-                              className={`shrink-0 rounded ${wide ? 'size-10' : 'size-[clamp(3rem,14vw,4.25rem)]'}`}
-                              iconSize={wide ? 18 : 22}
-                            />
-                          )}
+                          <PickCover
+                            track={track}
+                            selected={isSelected}
+                            selecting={chosen.length > 0}
+                            compact={compact}
+                            wide={wide}
+                            touch={touch}
+                            onPick={(event) => pick(event, index)}
+                          />
                           <div
                             className={`flex min-w-0 flex-1 ${compact ? 'items-baseline gap-2' : 'flex-col gap-1.5'}`}
                           >
@@ -907,10 +989,10 @@ export const TrackTable: FC<TrackTableProps> = ({
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                if (!wide) onPlay(shown, index);
-                                else pick(event, index);
+                                if (picking(event)) pick(event, index);
+                                else if (touch || !wide) onPlay(shown, index);
                               }}
-                              className={`flex min-w-0 items-center gap-1.5 truncate text-left font-medium ${wide ? 'text-sm' : 'text-[clamp(0.9375rem,4vw,1.0625rem)]'} ${playing ? 'text-primary' : ''}`}
+                              className={`flex min-w-0 items-center gap-1.5 truncate text-left font-medium ${wide ? 'text-sm' : 'text-[calc(clamp(0.9375rem,4vw,1.0625rem)*var(--text-scale,1))]'} ${playing ? 'text-primary' : ''}`}
                             >
                               {playing && !wide && (
                                 <NowPlayingBars playing={playing === 'playing'} />
@@ -940,7 +1022,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                             <ArtistLinks
                               credit={track.artist}
                               row
-                              className={`text-muted block truncate ${wide ? 'text-xs' : 'text-[clamp(0.8125rem,3.4vw,0.9375rem)]'}`}
+                              className={`text-muted block truncate ${wide ? 'text-xs' : 'text-[calc(clamp(0.8125rem,3.4vw,0.9375rem)*var(--text-scale,1))]'}`}
                             />
                           </div>
                         </div>
@@ -989,6 +1071,10 @@ export const TrackTable: FC<TrackTableProps> = ({
                               <TrackMoreButton
                                 track={track.input}
                                 playlistItemId={track.playlistItemId}
+                                extras={{
+                                  onPlay: () => onPlay(shown, index),
+                                  playlistItemId: track.playlistItemId,
+                                }}
                               />
                             </>
                           )}

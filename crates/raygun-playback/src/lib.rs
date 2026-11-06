@@ -97,6 +97,10 @@ pub struct PlaybackCore {
     watch: Watch,
     /// Where the queue was played from; see [`QueueSnapshot::context`].
     context: Option<PlayContext>,
+    /// See [`PlaybackState::looking_for_source`]; set by the service.
+    looking: bool,
+    /// See [`PlaybackState::skipped_item_id`].
+    skipped: Option<String>,
 }
 
 impl PlaybackCore {
@@ -125,6 +129,8 @@ impl PlaybackCore {
             held: false,
             watch: Watch::default(),
             context: None,
+            looking: false,
+            skipped: None,
         }
     }
 
@@ -266,6 +272,8 @@ impl PlaybackCore {
             rate: self.rate,
             sleep_at: self.sleep_at,
             stop_after_current: self.stop_after_current,
+            looking_for_source: self.looking,
+            skipped_item_id: self.skipped.clone(),
         }
     }
 
@@ -367,6 +375,26 @@ impl PlaybackCore {
 
     /// Records where the current load's stream came from (the resolver's pick). Ignored when a
     /// newer load has started.
+    /// What load `load_id` had didn't play, and the service looks for another stream (or stopped
+    /// looking). While it looks the player says so and reads as loading (a pause stays a pause),
+    /// and the next stream it loads is watched from its start, as a new load's is.
+    pub fn set_looking(&mut self, load_id: u32, looking: bool) -> Vec<Effect> {
+        if load_id != self.load_id || self.cursor.is_none() || self.looking == looking {
+            return Vec::new();
+        }
+        self.looking = looking;
+        if looking {
+            self.watch = Watch::default();
+            if matches!(
+                self.status,
+                PlaybackStatus::Playing | PlaybackStatus::Buffering
+            ) {
+                self.status = PlaybackStatus::Loading;
+            }
+        }
+        vec![Effect::StateChanged]
+    }
+
     pub fn set_source_label(&mut self, load_id: u32, label: Option<String>) -> Vec<Effect> {
         if load_id != self.load_id || self.cursor.is_none() || self.source_label == label {
             return Vec::new();
@@ -767,6 +795,8 @@ impl PlaybackCore {
             EngineEvent::Playing => {
                 self.consecutive_errors = 0;
                 self.error = None;
+                self.skipped = None;
+                self.looking = false;
                 self.watch.started = true;
                 self.watch.nudging = false;
                 if self.held {
@@ -862,6 +892,8 @@ impl PlaybackCore {
         self.consecutive_errors += 1;
         self.status = PlaybackStatus::Error;
         self.error = Some(message);
+        self.skipped = self.current_item().map(|item| item.id.clone());
+        self.looking = false;
         if self.consecutive_errors >= self.items.len().min(MAX_SKIPPED_ERRORS) {
             return vec![Effect::Engine(EngineCommand::Stop), Effect::StateChanged];
         }
@@ -880,6 +912,8 @@ impl PlaybackCore {
         self.duration_ms = None;
         self.error = None;
         self.source_label = None;
+        self.looking = false;
+        self.skipped = None;
         vec![Effect::Engine(EngineCommand::Stop), Effect::StateChanged]
     }
 
@@ -896,12 +930,14 @@ impl PlaybackCore {
         };
         self.position_ms = start_ms;
         self.source_label = None;
+        self.looking = false;
         self.watch = Watch::default();
         let item = self.items[self.order[cursor]].clone();
         self.duration_ms = item.duration_ms.map(f64::from);
         self.end_ms = None;
         if self.consecutive_errors == 0 {
             self.error = None;
+            self.skipped = None;
         }
         vec![
             Effect::Load {

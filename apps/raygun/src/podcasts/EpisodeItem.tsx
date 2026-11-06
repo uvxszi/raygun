@@ -6,7 +6,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmButton } from '../shell/ConfirmButton';
-import { openContextMenu } from '../shell/contextMenuStore';
+import { MenuButton } from '../shell/MenuButton';
 import { formatLength } from './formatLength';
 import { episodeMenu } from './podcastMenus';
 import { ShowNotes } from './ShowNotes';
@@ -103,26 +103,6 @@ export const EpisodeItem: FC<{
       className="flex flex-col gap-2"
       aria-label={episode.title}
       data-reveal={episodeReveal(episode.id)}
-      onContextMenu={(event) =>
-        openContextMenu(
-          event,
-          episodeMenu(episode, t, {
-            chapter,
-            play: start,
-            setPlayed: (played) => setPlayed.mutate({ id: episode.id, played }),
-            setEarlierPlayed: () => setEarlier.mutate(episode.id),
-            startOver: started ? () => forget.mutate(episode.id) : undefined,
-            download: () => download.mutate(episode.id),
-            cancelDownload: () => cancel.mutate(episode.id),
-            removeDownload: () => removeDownload.mutate(episode.id),
-            toggleNotes: () => setExpanded(!expanded),
-            notesShown: expanded,
-            openPodcast: showPodcast
-              ? () => void navigate({ to: '/podcast', search: { id: episode.podcastId } })
-              : undefined,
-          }),
-        )
-      }
     >
       <div className="flex items-start gap-3">
         {chapter && episode.number !== null && (
@@ -207,6 +187,28 @@ export const EpisodeItem: FC<{
             <Download aria-hidden size={16} />
           </button>
         )}
+        <MenuButton
+          label={t('menu.options', { name: episode.title })}
+          items={() =>
+            episodeMenu(episode, t, {
+              chapter,
+              play: start,
+              setPlayed: (played) => setPlayed.mutate({ id: episode.id, played }),
+              setEarlierPlayed: () => setEarlier.mutate(episode.id),
+              startOver: started ? () => forget.mutate(episode.id) : undefined,
+              download: () => download.mutate(episode.id),
+              cancelDownload: () => cancel.mutate(episode.id),
+              removeDownload: () => removeDownload.mutate(episode.id),
+              toggleNotes: () => setExpanded(!expanded),
+              notesShown: expanded,
+              openPodcast: showPodcast
+                ? () => void navigate({ to: '/podcast', search: { id: episode.podcastId } })
+                : undefined,
+            })
+          }
+          className={ICON_BUTTON}
+          iconSize={16}
+        />
       </div>
       {started && duration > 0 && (
         <div

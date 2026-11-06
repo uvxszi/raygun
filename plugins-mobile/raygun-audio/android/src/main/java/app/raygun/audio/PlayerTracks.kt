@@ -18,6 +18,8 @@ import androidx.media3.exoplayer.text.TextRenderer
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.ui.SubtitleView
+import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -302,60 +304,13 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
     }
 }
 
-/**
- * A second subtitle track shown at the top of the picture (M45). Media3 plays one text track, so
- * this one is a subtitle file read and parsed here, its cues shown as the position moves.
- */
-internal class SecondSubtitles(private val host: VideoPlayerActivity, private val view: SubtitleView) {
-    private class Timed(val startUs: Long, val endUs: Long, val cues: List<Cue>)
+/** Cues showing from `startUs` to `endUs` in a subtitle file. */
+internal class TimedCues(val startUs: Long, val endUs: Long, val cues: List<Cue>)
 
-    private var timed: List<Timed> = emptyList()
-    private var generation = 0
-    var current: Sidecar? = null
-        private set
-
-    val active: Boolean get() = current != null
-
-    fun load(sidecar: Sidecar, onFailed: (String) -> Unit) {
-        generation += 1
-        val mine = generation
-        current = sidecar
-        timed = emptyList()
-        view.setCues(null)
-        thread(name = "raygun-subtitles") {
-            val result = runCatching { parse(read(sidecar.uri), sidecar.mime) }
-            host.runOnUiThread {
-                if (mine != generation) return@runOnUiThread
-                result.onSuccess { timed = it }.onFailure {
-                    current = null
-                    onFailed(it.message ?: it.javaClass.simpleName)
-                }
-            }
-        }
-    }
-
-    fun clear() {
-        generation += 1
-        current = null
-        timed = emptyList()
-        view.setCues(null)
-    }
-
-    /** Shows the cues at `positionMs`, shifted by the subtitle delay, at the top of the picture. */
-    fun update(positionMs: Long, delayMs: Long) {
-        if (timed.isEmpty()) return
-        val at = (positionMs - delayMs) * 1000
-        view.setCues(
-            timed.filter { at >= it.startUs && at < it.endUs }.flatMap { it.cues }.map { cue ->
-                cue.buildUpon()
-                    .setLine(0.04f, Cue.LINE_TYPE_FRACTION)
-                    .setLineAnchor(Cue.ANCHOR_TYPE_START)
-                    .build()
-            },
-        )
-    }
-
-    private fun read(uri: Uri): ByteArray {
+/** Subtitle files read and parsed here (Media3's parsers: SubRip, WebVTT, SSA/ASS, TTML). */
+internal object SubtitleFiles {
+    /** The file at `uri`: a web address (the proxy's) or one picked on the device. */
+    fun read(host: VideoPlayerActivity, uri: Uri): ByteArray {
         val stream = when (uri.scheme) {
             "http", "https" -> (URL(uri.toString()).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
@@ -370,7 +325,7 @@ internal class SecondSubtitles(private val host: VideoPlayerActivity, private va
         }
     }
 
-    private fun parse(bytes: ByteArray, mime: String): List<Timed> {
+    fun parse(bytes: ByteArray, mime: String): List<TimedCues> {
         val format = Format.Builder().setSampleMimeType(mime).build()
         val factory = DefaultSubtitleParserFactory()
         require(factory.supportsFormat(format)) { "unsupported subtitles" }
@@ -388,7 +343,332 @@ internal class SecondSubtitles(private val host: VideoPlayerActivity, private va
             } else {
                 start + duration
             }
-            Timed(start, end, cues)
+            TimedCues(start, end, cues)
         }
+    }
+
+    /** A file's lines as `{startMs, endMs, text}` for Rust: what's said, without styling. */
+    fun lines(timed: List<TimedCues>): JSONArray {
+        val out = JSONArray()
+        for (entry in timed) {
+            val text = entry.cues.mapNotNull { it.text?.toString()?.trim() }.filter { it.isNotEmpty() }
+                .joinToString("\n")
+            if (text.isBlank()) continue
+            val startMs = (entry.startUs / 1000).coerceAtLeast(0)
+            // The last cue without a length shows a few seconds.
+            val endMs = if (entry.endUs == Long.MAX_VALUE) startMs + 4_000 else (entry.endUs / 1000).coerceAtLeast(startMs)
+            out.put(JSONObject().put("startMs", startMs).put("endMs", endMs).put("text", text))
+        }
+        return out
+    }
+}
+
+/** A cue at the top of the picture, where the second subtitles show. */
+private fun Cue.atTop(): Cue = buildUpon()
+    .setLine(0.04f, Cue.LINE_TYPE_FRACTION)
+    .setLineAnchor(Cue.ANCHOR_TYPE_START)
+    .build()
+
+/**
+ * A second subtitle track shown at the top of the picture (M45). Media3 plays one text track, so
+ * this one is a subtitle file read and parsed here, or one of the [LiveSubtitles] tracks, its
+ * cues shown as the position moves.
+ */
+internal class SecondSubtitles(private val host: VideoPlayerActivity, private val view: SubtitleView) {
+    private var timed: List<TimedCues> = emptyList()
+    private var generation = 0
+    var current: Sidecar? = null
+        private set
+    /** The live track shown second (AI subtitles or a translation), by its id. */
+    var liveId: String? = null
+        private set
+
+    val active: Boolean get() = current != null || liveId != null
+
+    fun load(sidecar: Sidecar, onFailed: (String) -> Unit) {
+        generation += 1
+        val mine = generation
+        current = sidecar
+        liveId = null
+        timed = emptyList()
+        view.setCues(null)
+        thread(name = "raygun-subtitles") {
+            val result = runCatching { SubtitleFiles.parse(SubtitleFiles.read(host, sidecar.uri), sidecar.mime) }
+            host.runOnUiThread {
+                if (mine != generation) return@runOnUiThread
+                result.onSuccess { timed = it }.onFailure {
+                    current = null
+                    onFailed(it.message ?: it.javaClass.simpleName)
+                }
+            }
+        }
+    }
+
+    /** Shows a live track second; its cues come as they're made. */
+    fun showLive(id: String) {
+        generation += 1
+        current = null
+        timed = emptyList()
+        liveId = id
+        view.setCues(null)
+    }
+
+    fun clear() {
+        generation += 1
+        current = null
+        liveId = null
+        timed = emptyList()
+        view.setCues(null)
+    }
+
+    /** Shows the cues at `positionMs`, shifted by the subtitle delay, at the top of the picture. */
+    fun update(positionMs: Long, delayMs: Long) {
+        liveId?.let { id ->
+            view.setCues(host.liveTracks.cuesAt(id, positionMs - delayMs).map { it.atTop() })
+            return
+        }
+        if (timed.isEmpty()) return
+        val at = (positionMs - delayMs) * 1000
+        view.setCues(timed.filter { at >= it.startUs && at < it.endUs }.flatMap { it.cues }.map { it.atTop() })
+    }
+}
+
+/** A cue of a live track, in milliseconds. */
+internal class LiveCue(val startMs: Long, val endMs: Long, val text: String)
+
+/** Where making a live track stands, as Rust says. */
+internal class LiveStatus(json: JSONObject?) {
+    val running = json?.optBoolean("running") == true
+    val preparing = json?.optBoolean("preparing") == true
+    val complete = json?.optBoolean("complete") == true
+    /** How far past the viewer it's ready; null once it is to the end. */
+    val aheadMs: Long? = json?.number("aheadMs")
+    /** Until when it's ready from where the viewer was, to say as the video moves on. */
+    private val readyUntilMs: Long? = json?.number("readyUntilMs")
+    val done = json?.optInt("done") ?: 0
+
+    /** How far past `positionMs` it's ready; null once it is to the end. */
+    fun aheadOf(positionMs: Long): Long? = readyUntilMs?.let { (it - positionMs).coerceAtLeast(0) } ?: aheadMs
+    val total = json?.optInt("total") ?: 0
+    /** Downloading this device's models first, in percent. */
+    val downloading: Int? = json?.number("downloading")?.toInt()
+    val error: String? = json?.text("error")
+    /** Who translates (an AI provider's name). */
+    val by: String? = json?.text("by")
+}
+
+/** A number that may be missing or null. */
+internal fun JSONObject.number(key: String): Long? = if (has(key) && !isNull(key)) optLong(key) else null
+
+/** A subtitle track Rust makes as the video plays: the video's AI subtitles, or a translation. */
+internal class LiveTrack(val id: String, val kind: String) {
+    var language: String? = null
+    var sourceLabel: String? = null
+    var status = LiveStatus(null)
+    /** In time order. */
+    val cues = ArrayList<LiveCue>()
+
+    fun merge(list: JSONArray?, replace: Boolean) {
+        if (replace) cues.clear()
+        val known = cues.mapTo(HashSet()) { it.startMs to it.text }
+        for (index in 0 until (list?.length() ?: 0)) {
+            val cue = list?.optJSONObject(index) ?: continue
+            val text = cue.optString("text").trim()
+            val start = cue.optLong("startMs")
+            if (text.isEmpty() || !known.add(start to text)) continue
+            cues += LiveCue(start, cue.optLong("endMs").coerceAtLeast(start), text)
+        }
+        cues.sortWith(compareBy({ it.startMs }, { it.endMs }))
+    }
+
+    /** The cues showing at `positionMs`. */
+    fun at(positionMs: Long): List<LiveCue> {
+        // The first cue starting after the position; those before it may still show.
+        var low = 0
+        var high = cues.size
+        while (low < high) {
+            val middle = (low + high) / 2
+            if (cues[middle].startMs <= positionMs) low = middle + 1 else high = middle
+        }
+        val out = ArrayList<LiveCue>(2)
+        var index = low - 1
+        // Cues rarely overlap by more than a few; a long one is found within that window.
+        while (index >= 0 && low - index <= 8) {
+            val cue = cues[index]
+            if (positionMs < cue.endMs) out.add(0, cue)
+            index -= 1
+        }
+        return out
+    }
+}
+
+/**
+ * AI subtitles in the player: the video transcribed as it plays, and subtitles translated into
+ * another language ahead of the viewer. Rust makes them (`video_subtitles` in raygun-app) and
+ * sends their cues as they're done (`subtitleTrack` updates), so the player shows these tracks
+ * itself rather than through Media3, which only reads a file once: as the main subtitles (Media3's
+ * text track off) or as the second ones ([SecondSubtitles]). `subtitleTools` says whether
+ * transcription is set up and who translates into what.
+ */
+internal class LiveSubtitles(private val host: VideoPlayerActivity) {
+    /** AI subtitles first, then translations, as they came. */
+    val tracks = LinkedHashMap<String, LiveTrack>()
+    /** Rust's `subtitleTools`: `transcription` and `translation`. */
+    var tools: JSONObject? = null
+        private set
+    /** The live track shown as the main subtitles, by id. */
+    var primary: String? = null
+        private set
+    /** The language translations go into (this video's choice, else the subtitle language). */
+    var language: String? = null
+    /** The last translation asked for, sent again once its models may be downloaded. */
+    var lastTranslation: JSONObject? = null
+    private var videoId = ""
+    /** Shown first when its cues come: what the viewer just asked for. */
+    private var wantAi = false
+    private var wantLanguage: String? = null
+    private var shown: List<LiveCue> = emptyList()
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            render()
+            if (primary != null) host.main.postDelayed(this, RENDER_MS)
+        }
+    }
+
+    val transcription: JSONObject? get() = tools?.optJSONObject("transcription")
+    val translation: JSONObject? get() = tools?.optJSONObject("translation")
+
+    /** A video loaded: another one's tracks go, and Rust says what this one has. */
+    fun onLoad(id: String) {
+        if (id != videoId) {
+            tracks.clear()
+            show(null)
+            if (host.second.liveId != null) host.second.clear()
+            tools = null
+            language = null
+            lastTranslation = null
+            wantAi = false
+            wantLanguage = null
+            videoId = id
+        }
+        if (id.isNotEmpty()) host.request("subtitleTools")
+    }
+
+    fun onUpdate(update: JSONObject) {
+        if (update.optString("id") != videoId || videoId.isEmpty()) return
+        when (update.optString("type")) {
+            "subtitleTools" -> tools = update
+            "subtitleTrack" -> {
+                val id = update.optString("track")
+                val track = tracks.getOrPut(id) { LiveTrack(id, update.optString("kind")) }
+                track.language = update.text("language") ?: track.language
+                track.sourceLabel = update.text("sourceLabel") ?: track.sourceLabel
+                track.status = LiveStatus(update.optJSONObject("status"))
+                track.merge(update.optJSONArray("cues"), update.optBoolean("replace"))
+                if (track.kind == "ai" && wantAi) {
+                    wantAi = false
+                    show(id)
+                } else if (track.kind == "translation" && wantLanguage != null && track.language == wantLanguage) {
+                    wantLanguage = null
+                    show(id)
+                }
+            }
+            "subtitleAsk" -> host.sheets.askDownload(update.optDouble("downloadBytes").toLong())
+            "subtitleNotice" -> {
+                // What was asked for didn't start: nothing new is shown by itself.
+                wantAi = false
+                wantLanguage = null
+                host.showHint(update.optString("text"), 4_000)
+            }
+        }
+        host.sheets.refreshAi()
+    }
+
+    /** Shows `id` as the main subtitles (Media3's text track off), or none. */
+    fun show(id: String?) {
+        primary = id
+        shown = emptyList()
+        host.main.removeCallbacks(ticker)
+        host.subtitleView.setCues(null)
+        if (id != null) {
+            host.tracks.select(C.TRACK_TYPE_TEXT, null)
+            host.main.post(ticker)
+        }
+    }
+
+    private fun render() {
+        val id = primary ?: return
+        val track = tracks[id]
+        // Media3's own track turned on again (picked after a reload): it shows instead.
+        if (track == null || !host.tracks.textOff()) {
+            primary = null
+            if (track == null) host.subtitleView.setCues(null)
+            return
+        }
+        val now = track.at(host.player.currentPosition - host.state.subtitleDelayMs)
+        if (now == shown) return
+        shown = now
+        host.subtitleView.setCues(now.map { Cue.Builder().setText(it.text).build() })
+    }
+
+    /** The cues of live track `id` at `positionMs`, for the second subtitles. */
+    fun cuesAt(id: String, positionMs: Long): List<Cue> =
+        tracks[id]?.at(positionMs)?.map { Cue.Builder().setText(it.text).build() } ?: emptyList()
+
+    /** Asks Rust to transcribe from here; the AI subtitles show as they come. */
+    fun transcribe(confirmed: Boolean = false) {
+        wantAi = true
+        host.request("transcribe", JSONObject().put("confirmed", confirmed))
+    }
+
+    /** Downloads the speech model, sets transcription up with it, then transcribes. */
+    fun setUpTranscription() {
+        wantAi = true
+        host.request("transcribeSetup")
+    }
+
+    /** Asks Rust to translate `source` into `language` with `translator`. */
+    fun translate(source: JSONObject, language: String, translator: String, download: Boolean = false) {
+        val ask = JSONObject()
+            .put("source", source)
+            .put("language", language)
+            .put("translator", translator)
+            .put("download", download)
+        lastTranslation = ask
+        wantLanguage = language
+        host.request("translateSubtitles", ask)
+    }
+
+    /** The last translation again, its models downloaded first. */
+    fun translateWithDownload() {
+        val ask = lastTranslation ?: return
+        ask.put("download", true)
+        wantLanguage = ask.optString("language")
+        host.request("translateSubtitles", ask)
+    }
+
+    fun stop(track: LiveTrack) {
+        if (track.kind == "ai") {
+            host.request("transcribeStop")
+        } else {
+            host.request("translateStop", JSONObject().put("track", track.id))
+        }
+    }
+
+    /** The saved AI subtitles file of this video, which the live AI track replaces while shown. */
+    fun isAiFile(sidecar: Sidecar): Boolean = sidecar.uri.toString().contains("/local/subtitles/ai/")
+
+    /** Whether Media3's `track` is the saved AI subtitles file, hidden while the live one shows. */
+    fun hides(track: TrackRef): Boolean {
+        if (!tracks.containsKey(AI_TRACK)) return false
+        val file = host.sidecars.firstOrNull { isAiFile(it) } ?: return false
+        return track.format.label == file.label
+    }
+
+    companion object {
+        const val AI_TRACK = "ai"
+        /** How often the main live subtitles follow the position. */
+        private const val RENDER_MS = 100L
     }
 }

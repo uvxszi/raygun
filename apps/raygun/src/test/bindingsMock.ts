@@ -2,6 +2,7 @@ import type {
   AiModelProgress,
   AppInfo,
   AppUpdate,
+  AudiobookSummary,
   CastStatus,
   ConnectRequest,
   ConnectStatus,
@@ -10,6 +11,7 @@ import type {
   ExportJob,
   ExtensionInfo,
   ExtensionInstallStatus,
+  FollowedArtist,
   PermissionPrompt,
   IncognitoStatus,
   HiddenItem,
@@ -18,12 +20,19 @@ import type {
   LibraryStatus,
   LyricsTranslationProgress,
   MangaUpdateStatus,
+  OpenWithProblem,
   PlaybackState,
+  PlaylistSummary,
+  PodcastSummary,
   QueueSnapshot,
+  QuickAccessItem,
+  QuickAccessNames,
+  RecordingConsentRequest,
   SearchProgress,
   Settings,
   SongCaptureRequest,
   SongDownload,
+  SongRecordingRequest,
   SpeechCommand,
   StorageInfo,
   TrackDuration,
@@ -39,6 +48,7 @@ import { CACHE_DEFAULTS } from '../settings/cacheDefaults';
 import { LAYOUT_DEFAULTS } from '../layout/layout';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from '../settings/playerOptions';
+import { pageKey, RAIL_DEFAULTS, withRailDefaults } from '../shell/railPrefs';
 
 /**
  * Stand-in for `@raygun/bindings` (the Rust IPC layer). Use with
@@ -71,20 +81,26 @@ type EventPayloads = {
   songDownloadsEvent: string;
   songDownloadProgressEvent: SongDownload;
   songCaptureEvent: SongCaptureRequest;
+  songRecordingEvent: SongRecordingRequest;
+  recordingConsentEvent: RecordingConsentRequest;
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
+  unavailableEvent: string;
   captionsEvent: string;
   lyricsTranscribedEvent: string;
   lyricsTranslationEvent: LyricsTranslationProgress;
   localFilesEvent: string;
   settingsChangedEvent: string;
+  quickAccessChangedEvent: string;
   incognitoEvent: IncognitoStatus;
   artistReleasesEvent: null;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
+  videoSubtitlesEvent: string;
   castStatusEvent: CastStatus | null;
   youTubeVideoEvent: YouTubeVideo;
+  openWithEvent: OpenWithProblem;
   speechCommandEvent: SpeechCommand;
   appUpdateEvent: AppUpdate;
   ytDlpEvent: string;
@@ -127,6 +143,8 @@ export const IDLE_STATE: PlaybackState = {
   rate: 1,
   sleepAt: null,
   stopAfterCurrent: false,
+  lookingForSource: false,
+  skippedItemId: null,
 };
 
 export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [], context: null };
@@ -191,23 +209,26 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollbars: 'thin',
   motion: 'lively',
   trackTables: { tables: {} },
-  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0, nextUpRows: 0 },
+  panels: { railWidth: 0, sidePanelWidth: 0, playerSplit: 0, nextUpRows: 0, railNavHeight: 0 },
   colors: { background: '', surface: '', foreground: '', muted: '' },
   disabledSources: [],
   autoLoad: { enabled: true, cooldownMs: 1500 },
   windowFrame: 'app',
   zoom: 100,
+  textSize: 0,
+  fonts: { interface: '', reading: '' },
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
   browseStartTab: 'discover',
   searchFilter: { noAdult: false, noExplicit: false },
+  searchListings: { enabled: true, entries: 20, pages: 5 },
   manualBrowserChecks: false,
   userAgent: '',
   keepMusicPlaying: false,
   resumeOnStart: true,
   downloadsInBatterySaver: false,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
-  rail: { pins: [], order: 'custom', seeded: false },
+  rail: RAIL_DEFAULTS,
   transcription: {
     engine: 'off',
     localModel: 'whisper-tiny',
@@ -236,7 +257,7 @@ export const DEFAULT_SETTINGS: Settings = {
     width: 'narrow',
     paged: false,
     ttsRate: 10,
-    indent: false,
+    indent: 0,
   },
 };
 
@@ -299,6 +320,10 @@ export const bindingsMock = {
     captions: vi.fn(),
     captionsVideoTranscribe: vi.fn(),
     captionsVideoMake: vi.fn(),
+    videoSubtitlesTranslate: vi.fn(),
+    videoSubtitlesTranslations: vi.fn(),
+    videoSubtitlesStop: vi.fn(),
+    videoSubtitlesTranslators: vi.fn(),
     videoExternalPlayers: vi.fn(),
     videoFindSubtitles: vi.fn(),
     captionsTranscribe: vi.fn(),
@@ -310,6 +335,9 @@ export const bindingsMock = {
     detailCoverOptions: vi.fn(),
     localFolders: vi.fn(),
     localFolderAdd: vi.fn(),
+    localFolderAddPath: vi.fn(),
+    localFilesBrowse: vi.fn(),
+    localFilesAddFiles: vi.fn(),
     localFolderRemove: vi.fn(),
     localFoldersRescan: vi.fn(),
     localFilesAllowAccess: vi.fn(),
@@ -386,6 +414,10 @@ export const bindingsMock = {
     songDownloadsCheck: vi.fn(),
     songDownloadsRedownload: vi.fn(),
     songCaptureReport: vi.fn(),
+    songRecordingReport: vi.fn(),
+    songRecordingConsent: vi.fn(),
+    songRecordingDecline: vi.fn(),
+    songDownloadCancelRecording: vi.fn(),
     songsSave: vi.fn(),
     songDownloadedKeys: vi.fn(),
     songDownloadFor: vi.fn(),
@@ -405,9 +437,11 @@ export const bindingsMock = {
     settingsUpdate: vi.fn(),
     settingsUpdateMany: vi.fn(),
     settingsDefaults: vi.fn(),
+    fontsList: vi.fn(),
     playbackGetState: vi.fn(),
     playbackGetQueue: vi.fn(),
     playbackArmContext: vi.fn(),
+    quickAccessList: vi.fn(),
     playbackSetVideo: vi.fn(),
     playbackEnqueue: vi.fn(),
     playbackControl: vi.fn(),
@@ -516,6 +550,7 @@ export const bindingsMock = {
     mangaSetInLibrary: vi.fn(),
     mangaLibrary: vi.fn(),
     mangaChapter: vi.fn(),
+    mangaChapters: vi.fn(),
     mangaSetProgress: vi.fn(),
     mangaSetRead: vi.fn(),
     mangaSetReaderMode: vi.fn(),
@@ -526,11 +561,17 @@ export const bindingsMock = {
     mangaDownload: vi.fn(),
     mangaRemoveDownloads: vi.fn(),
     mangaSetDownloadsPaused: vi.fn(),
+    backupDestinations: vi.fn(),
+    backupPickFolder: vi.fn(),
+    backupForgetFolder: vi.fn(),
     backupCreate: vi.fn(),
-    backupList: vi.fn(),
+    backupScan: vi.fn(),
     backupRestore: vi.fn(),
     backupDelete: vi.fn(),
     backupImport: vi.fn(),
+    dataUsage: vi.fn(),
+    dataClear: vi.fn(),
+    dataEraseEverything: vi.fn(),
     novelSources: vi.fn(),
     novelBrowse: vi.fn(),
     novelTitle: vi.fn(),
@@ -596,6 +637,7 @@ export const bindingsMock = {
     libraryDownloadTitles: vi.fn(),
     libraryContinue: vi.fn(),
     libraryDuplicates: vi.fn(),
+    libraryDownloaded: vi.fn(),
     libraryMigrate: vi.fn(),
     librarySetCategoryDisplay: vi.fn(),
     libraryUpdateCategory: vi.fn(),
@@ -720,20 +762,26 @@ export const bindingsMock = {
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
     songDownloadProgressEvent: makeEvent('songDownloadProgressEvent'),
     songCaptureEvent: makeEvent('songCaptureEvent'),
+    songRecordingEvent: makeEvent('songRecordingEvent'),
+    recordingConsentEvent: makeEvent('recordingConsentEvent'),
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
+    unavailableEvent: makeEvent('unavailableEvent'),
     captionsEvent: makeEvent('captionsEvent'),
     lyricsTranscribedEvent: makeEvent('lyricsTranscribedEvent'),
     lyricsTranslationEvent: makeEvent('lyricsTranslationEvent'),
     localFilesEvent: makeEvent('localFilesEvent'),
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
+    quickAccessChangedEvent: makeEvent('quickAccessChangedEvent'),
     incognitoEvent: makeEvent('incognitoEvent'),
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
+    videoSubtitlesEvent: makeEvent('videoSubtitlesEvent'),
     castStatusEvent: makeEvent('castStatusEvent'),
     youTubeVideoEvent: makeEvent('youTubeVideoEvent'),
+    openWithEvent: makeEvent('openWithEvent'),
     speechCommandEvent: makeEvent('speechCommandEvent'),
     appUpdateEvent: makeEvent('appUpdateEvent'),
     ytDlpEvent: makeEvent('ytDlpEvent'),
@@ -765,6 +813,113 @@ export const NO_UPDATE: AppUpdate = {
   state: 'idle',
   progress: null,
   message: null,
+};
+
+const answerOf = async <T>(call: () => unknown): Promise<T[]> => {
+  const answer = (await call()) as { status?: string; data?: T[] } | undefined;
+  return answer?.status === 'ok' && Array.isArray(answer.data) ? answer.data : [];
+};
+
+/**
+ * Quick access as Rust's `quick_access_list` answers, from what the other mocks answer: the fixed
+ * blocks, the playlists, followed artists, shows and books, the pins first in their order (a pin
+ * of a missing playlist left out), the kinds that are on, at most `shown`. Tests answer
+ * otherwise for orders Rust works out.
+ */
+const quickAccessFromMocks = async (names: QuickAccessNames) => {
+  const { commands } = bindingsMock;
+  const settings = (await commands.settingsGet()) as { data?: Settings } | undefined;
+  const rail = withRailDefaults(settings?.data?.rail);
+  const page = (
+    kind: string,
+    to: string,
+    search: Record<string, string>,
+    name: string,
+    extra: Partial<QuickAccessItem> = {},
+  ): QuickAccessItem => ({
+    kind,
+    to,
+    search,
+    name,
+    subtitle: null,
+    artworkUrl: null,
+    artworkUrls: [],
+    pinned: false,
+    library: true,
+    removable: false,
+    addedAt: 0,
+    playedAt: 0,
+    ...extra,
+  });
+  const playlists = await answerOf<PlaylistSummary>(() => commands.playlistsList());
+  const artists = await answerOf<FollowedArtist>(() => commands.artistsFollowed());
+  const shows = await answerOf<PodcastSummary>(() => commands.podcastSubscriptions());
+  const books = await answerOf<AudiobookSummary>(() => commands.audiobooks());
+  const library = [
+    page('favorites', '/library', { view: 'favorites' }, names.favorites),
+    page('downloaded', '/library', { view: 'downloaded' }, names.downloaded),
+    page('localFiles', '/local-files', {}, names.localFiles),
+    ...playlists.map((list) =>
+      page('playlist', '/library/playlist', { id: list.id }, list.name, {
+        artworkUrls: list.artworkUrls,
+        artworkUrl: list.coverUrl ?? null,
+        removable: true,
+      }),
+    ),
+    ...artists.map((artist) =>
+      page('artist', '/artist', { name: artist.name }, artist.name, {
+        artworkUrl: artist.imageUrl,
+        removable: true,
+      }),
+    ),
+    ...shows.map((show) =>
+      page('podcast', '/podcast', { id: show.id }, show.title, {
+        artworkUrl: show.artworkUrl,
+        removable: true,
+      }),
+    ),
+    ...books.map((book) =>
+      page('audiobook', '/audiobook', { id: book.id }, book.title, {
+        artworkUrl: book.artworkUrl,
+        removable: true,
+      }),
+    ),
+  ];
+  const kindOn: Record<string, keyof typeof rail.kinds> = {
+    favorites: 'favorites',
+    downloaded: 'downloaded',
+    localFiles: 'localFiles',
+    playlist: 'playlists',
+    artist: 'artists',
+    podcast: 'podcasts',
+    audiobook: 'audiobooks',
+  };
+  const byKey = new Map(library.map((item) => [pageKey(item), item]));
+  const pins = rail.pins.flatMap((pin) => {
+    const own = byKey.get(pageKey(pin));
+    if (own) {
+      byKey.delete(pageKey(pin));
+      return [{ ...own, pinned: true }];
+    }
+    if (pin.to === '/library/playlist') return [];
+    return [
+      page(pin.kind, pin.to, pin.search, pin.name, {
+        artworkUrl: pin.artworkUrl,
+        pinned: true,
+        library: false,
+        addedAt: pin.pinnedAt,
+      }),
+    ];
+  });
+  const listed = [...byKey.values()].filter((item) => {
+    const kind = kindOn[item.kind];
+    return kind ? rail.kinds[kind] : true;
+  });
+  const rest = listed.slice(0, rail.shown);
+  return {
+    status: 'ok' as const,
+    data: { items: [...pins, ...rest], more: listed.length - rest.length },
+  };
 };
 
 /** Default answers for every command, as an idle app on Android would give. */
@@ -801,9 +956,11 @@ export const seedBindings = () => {
     applied(changes),
   );
   commands.settingsDefaults.mockResolvedValue(DEFAULT_SETTINGS);
+  commands.fontsList.mockResolvedValue({ status: 'ok', data: [] });
   commands.playbackGetState.mockResolvedValue(IDLE_STATE);
   commands.playbackGetQueue.mockResolvedValue(EMPTY_QUEUE);
   commands.playbackArmContext.mockResolvedValue(undefined);
+  commands.quickAccessList.mockImplementation(quickAccessFromMocks);
   commands.playbackSetVideo.mockResolvedValue(undefined);
   commands.playbackEnqueue.mockResolvedValue(undefined);
   commands.playbackControl.mockResolvedValue(undefined);
@@ -899,11 +1056,50 @@ export const seedBindings = () => {
   );
   commands.captionsVideoTranscribe.mockResolvedValue(ok(null));
   commands.captionsVideoMake.mockResolvedValue(ok(null));
+  commands.videoSubtitlesTranslations.mockResolvedValue(ok([]));
+  commands.videoSubtitlesTranslators.mockResolvedValue(ok([]));
+  commands.videoSubtitlesStop.mockResolvedValue(undefined);
+  commands.videoSubtitlesTranslate.mockImplementation(async (request: { key: string }) =>
+    ok({
+      key: request.key,
+      id: 'ai.en',
+      language: 'en',
+      translator: 'device',
+      by: '',
+      sourceLabel: null,
+      sourceLanguage: null,
+      cues: [],
+      done: 0,
+      total: 0,
+      aheadMs: 0,
+      readyUntilMs: 0,
+      complete: false,
+      running: true,
+      downloading: null,
+      error: null,
+      downloadBytes: 0,
+    }),
+  );
   commands.videoExternalPlayers.mockResolvedValue([]);
   commands.videoFindSubtitles.mockResolvedValue(ok({ tracks: [], suggestion: null, note: null }));
   commands.detailEditSet.mockImplementation(async (_target: unknown, edit: unknown) => ok(edit));
   commands.localFolders.mockResolvedValue(ok([]));
   commands.localFolderAdd.mockResolvedValue(ok(null));
+  commands.localFolderAddPath.mockResolvedValue(ok([]));
+  // The phone's storage, empty, read with the media permissions.
+  commands.localFilesBrowse.mockResolvedValue(
+    ok({
+      path: '/storage/emulated/0',
+      name: '',
+      trail: [],
+      folders: [],
+      items: 0,
+      view: 'media',
+      canAllowAllFiles: true,
+      added: false,
+    }),
+  );
+  commands.localFilesAddFiles.mockResolvedValue(ok(null));
   commands.localFolderRemove.mockResolvedValue(ok([]));
   commands.localFoldersRescan.mockResolvedValue(ok(null));
   commands.localFilesAllowAccess.mockResolvedValue(ok(true));
@@ -975,6 +1171,10 @@ export const seedBindings = () => {
   commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 0, problems: 0 }));
   commands.songDownloadsRedownload.mockResolvedValue(ok(0));
   commands.songCaptureReport.mockResolvedValue(ok(null));
+  commands.songRecordingReport.mockResolvedValue(ok(null));
+  commands.songRecordingConsent.mockResolvedValue(ok(true));
+  commands.songRecordingDecline.mockResolvedValue(null);
+  commands.songDownloadCancelRecording.mockResolvedValue(ok(null));
   commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));
   commands.songDownloadedKeys.mockResolvedValue([]);
   commands.songDownloadFor.mockResolvedValue(ok(null));
@@ -997,7 +1197,9 @@ export const seedBindings = () => {
   commands.miniplayerClose.mockResolvedValue(ok(null));
   commands.extensionOpenWebsite.mockResolvedValue(ok(null));
   commands.browserCheckTarget.mockResolvedValue(ok(null));
-  commands.browserCheckOpen.mockResolvedValue(ok(0));
+  commands.browserCheckOpen.mockResolvedValue(
+    ok({ outcome: 'notPassed', cookies: 0, error: null }),
+  );
   commands.sourcesDetect.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.sourcesAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.filesPick.mockResolvedValue(ok(null));
@@ -1123,13 +1325,36 @@ export const seedBindings = () => {
   commands.mangaDownload.mockResolvedValue(ok(null));
   commands.mangaRemoveDownloads.mockResolvedValue(ok(null));
   commands.mangaSetDownloadsPaused.mockResolvedValue(ok(null));
-  commands.backupCreate.mockResolvedValue(
-    ok({ name: 'raygun-20261031-120000.raygunbk', sizeBytes: 2048, createdAt: 0 }),
+  commands.backupDestinations.mockResolvedValue(
+    ok({ usual: 'Download/Raygun', usualPlace: 'downloads', folders: [], last: null }),
   );
-  commands.backupList.mockResolvedValue(ok([]));
-  commands.backupRestore.mockResolvedValue(ok({ kind: 'raygun', received: 0, changed: 0 }));
+  commands.backupPickFolder.mockResolvedValue(ok(null));
+  commands.backupForgetFolder.mockResolvedValue(
+    ok({ usual: 'Download/Raygun', usualPlace: 'downloads', folders: [], last: null }),
+  );
+  commands.backupCreate.mockResolvedValue(
+    ok({
+      id: 'content://media/external/downloads/1',
+      name: 'raygun-20261031-120000.raygunbk',
+      place: 'downloads',
+      folder: 'Download/Raygun',
+      sizeBytes: 2048,
+      modifiedAt: 0,
+      manifest: null,
+      problem: null,
+    }),
+  );
+  commands.backupScan.mockResolvedValue(ok([]));
+  commands.backupRestore.mockResolvedValue(
+    ok({ kind: 'raygun', received: 0, changed: 0, queued: 0, problems: [] }),
+  );
   commands.backupDelete.mockResolvedValue(ok(null));
-  commands.backupImport.mockResolvedValue(ok({ kind: 'raygun', received: 0, changed: 0 }));
+  commands.backupImport.mockResolvedValue(
+    ok({ kind: 'raygun', received: 0, changed: 0, queued: 0, problems: [] }),
+  );
+  commands.dataUsage.mockResolvedValue(ok([]));
+  commands.dataClear.mockResolvedValue(ok([]));
+  commands.dataEraseEverything.mockResolvedValue(ok(null));
   commands.novelSources.mockResolvedValue(ok([]));
   commands.novelBrowse.mockResolvedValue(ok({ items: [], hasNextPage: false }));
   commands.novelTitle.mockResolvedValue(ok(null));
@@ -1198,6 +1423,8 @@ export const seedBindings = () => {
   commands.libraryDownloadTitles.mockResolvedValue(ok({ titleIds: [], queued: 0, failed: [] }));
   commands.libraryContinue.mockResolvedValue(ok(null));
   commands.libraryDuplicates.mockResolvedValue(ok([]));
+  commands.libraryDownloaded.mockResolvedValue(ok([]));
+  commands.mangaChapters.mockResolvedValue(ok([]));
   commands.libraryMigrate.mockResolvedValue(ok('migrated-title'));
   commands.libraryUpdateCategory.mockResolvedValue(
     ok({ running: true, checked: 0, total: 0, newChapters: 0, failed: 0, lastRunAt: null }),

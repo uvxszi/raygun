@@ -5,13 +5,10 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { CardMenu } from '../shell/CardMenu';
+import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
 import { artistCover } from '../library/coverTargets';
-import {
-  menuHandler,
-  useAlbumMenuItems,
-  useArtistMenuItems,
-  usePodcastMenuItems,
-} from '../music/cardMenus';
+import { useAlbumMenuItems, useArtistMenuItems, usePodcastMenuItems } from '../music/cardMenus';
 import { useReleaseNews } from '../music/follows';
 import { feedKey, pageKey, useHidden } from '../music/hidden';
 import { useMadeForYou } from '../music/useMadeForYou';
@@ -60,9 +57,12 @@ export const TopArtistsSection: FC<{ id: string }> = ({ id }) => {
             <Link
               to="/artist"
               search={{ name }}
-              onContextMenu={menuHandler(() => menu({ name, imageUrl: null }))}
-              className="flex flex-col items-center gap-1.5 text-center"
+              className="relative flex flex-col items-center gap-1.5 text-center"
             >
+              <CardMenu
+                label={t('menu.options', { name })}
+                items={() => menu({ name, imageUrl: null })}
+              />
               <Artwork
                 url={null}
                 fallback={artistCover(name)}
@@ -95,19 +95,23 @@ const EpisodeCard: FC<{ episode: PodcastEpisode }> = ({ episode }) => {
       )
     : null;
   return (
-    <li className="w-36 shrink-0 sm:w-40">
-      <button
-        type="button"
-        onClick={() => play.mutate(episode.id)}
-        onContextMenu={menuHandler(() =>
+    <li className="relative w-36 shrink-0 sm:w-40">
+      <CardMenu
+        label={t('menu.options', { name: episode.title })}
+        items={() =>
           episodeMenu(episode, t, {
             play: () => play.mutate(episode.id),
             setPlayed: (played) => setPlayed.mutate({ id: episode.id, played }),
             download: () => download.mutate(episode.id),
             removeDownload: () => removeDownload.mutate(episode.id),
             openPodcast: () => void navigate({ to: '/podcast', search: { id: episode.podcastId } }),
-          }),
-        )}
+          })
+        }
+        className={CARD_MENU_BESIDE}
+      />
+      <button
+        type="button"
+        onClick={() => play.mutate(episode.id)}
         aria-label={t('home.playEpisode', { title: episode.title, show: episode.podcastTitle })}
         data-testid="episode-card"
         className="group hover:bg-surface flex w-full flex-col gap-2 rounded-xl p-2 text-left"
@@ -197,17 +201,10 @@ export const PopularPodcastsSection: FC<{ id: string }> = ({ id }) => {
         {shows.length > 0 ? (
           <HomeCarousel>
             {shows.slice(0, SHOWN).map((show) => (
-              <li key={show.feedUrl} className="w-28 shrink-0 sm:w-32">
-                <button
-                  type="button"
-                  disabled={open.isPending}
-                  onClick={() =>
-                    open.mutate(show.feedUrl, {
-                      onSuccess: (view) =>
-                        void navigate({ to: '/podcast', search: { id: view.id } }),
-                    })
-                  }
-                  onContextMenu={menuHandler(() =>
+              <li key={show.feedUrl} className="relative w-28 shrink-0 sm:w-32">
+                <CardMenu
+                  label={t('menu.options', { name: show.title })}
+                  items={() =>
                     menu(
                       {
                         title: show.title,
@@ -218,8 +215,18 @@ export const PopularPodcastsSection: FC<{ id: string }> = ({ id }) => {
                         subscribed: following.has(show.feedUrl),
                       },
                       { notInterested: true },
-                    ),
-                  )}
+                    )
+                  }
+                />
+                <button
+                  type="button"
+                  disabled={open.isPending}
+                  onClick={() =>
+                    open.mutate(show.feedUrl, {
+                      onSuccess: (view) =>
+                        void navigate({ to: '/podcast', search: { id: view.id } }),
+                    })
+                  }
                   className="flex w-full flex-col gap-1.5 text-left"
                 >
                   <PodcastArt url={show.artworkUrl} className="w-full rounded-lg" />
@@ -266,7 +273,7 @@ export const FollowedReleasesSection: FC<{ id: string }> = ({ id }) => {
             <AlbumTile
               album={item.album}
               detail={item.artist}
-              onMenu={menuHandler(() => menu(item.album, { notInterested: true }))}
+              menu={() => menu(item.album, { notInterested: true })}
             />
           </li>
         ))}

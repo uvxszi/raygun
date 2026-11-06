@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use raygun_model::{
-    AiModel, AiProvider, AiProviderInput, AppInfo, BackupFile, BackupOutcome,
-    CollectionPlayRequest, EngineReport, ExtensionInfo, ExtensionRepo, HistoryEntry, ImportedBook,
-    LibraryAlbum, LibraryArtist, LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode,
-    MangaChapterPages, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
-    MangaUpdateItem, MangaUpdateStatus, McpStatus, NovelChapter, PlayRequest, PlaybackControl,
-    PlaybackState, PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode,
-    RemoteStatus, RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings,
-    StorageInfo, StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
+    AiModel, AiProvider, AiProviderInput, AppInfo, BackupDestinations, BackupEntry, BackupOutcome,
+    BackupRequest, CollectionPlayRequest, DataCategory, DataUsage, DownloadsClear, EngineReport,
+    ExtensionInfo, ExtensionRepo, HistoryEntry, ImportedBook, LibraryAlbum, LibraryArtist,
+    LibraryStatus, LibraryTrack, Lyrics, MangaBrowseMode, MangaChapterInfo, MangaChapterPages,
+    MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView, MangaUpdateItem,
+    MangaUpdateStatus, McpStatus, NovelChapter, PlayRequest, PlaybackControl, PlaybackState,
+    PlaylistDetail, PlaylistSummary, QueueItemInput, QueueSnapshot, ReaderMode, RemoteStatus,
+    RepoCatalog, SavedTrack, SearchResults, SettingChange, SettingValue, Settings, StorageInfo,
+    StorageMode, SyncKind, SyncStatus, TrackInput, TrackQuery,
 };
 
 use crate::ai::AiService;
@@ -105,14 +106,18 @@ pub async fn settings_update_many(
 ) -> Result<Settings, String> {
     let mut kept = Vec::with_capacity(changes.len());
     for change in changes {
-        // Incognito (M47): the sidebar doesn't remember pages opened or played from.
-        kept.push(crate::privacy::without_new_stamps(&app, &db.0, change).await);
+        // When quick access's pages were played from is Rust's to keep (and never while
+        // incognito, M47): the UI's copy stays out.
+        kept.push(crate::quick_access::keep_stamps(&db.0, change).await);
     }
     let keys: Vec<&'static str> = kept.iter().map(SettingChange::key).collect();
     let settings = settings::update_many(&db.0, kept)
         .await
         .map_err(|error| error.to_string())?;
     settings::apply_live(&app, &settings, Some(&keys)).await;
+    if keys.contains(&"rail") {
+        crate::quick_access::changed(&app, "");
+    }
     Ok(settings)
 }
 
@@ -121,6 +126,17 @@ pub async fn settings_update_many(
 #[specta::specta]
 pub fn settings_defaults() -> Settings {
     Settings::default()
+}
+
+/// The font families installed on this device, for the font pickers: read once and kept, again
+/// with `refresh`.
+#[tauri::command]
+#[specta::specta]
+pub async fn fonts_list(
+    fonts: tauri::State<'_, crate::fonts::FontService>,
+    refresh: bool,
+) -> Result<Vec<raygun_model::SystemFont>, String> {
+    Ok(fonts.list(refresh).await)
 }
 
 /// Current player state. Afterwards, changes arrive as `PlaybackStateEvent`.
@@ -139,6 +155,8 @@ pub async fn playback_restore(
     playback: tauri::State<'_, PlaybackService>,
 ) -> Result<(), String> {
     playback.restore_last(&app).await;
+    // The UI is up: what another app opened with Raygun before it was goes ahead.
+    crate::open_with::ready(&app);
     Ok(())
 }
 
@@ -154,10 +172,34 @@ pub fn playback_get_queue(playback: tauri::State<'_, PlaybackService>) -> QueueS
 #[tauri::command]
 #[specta::specta]
 pub fn playback_arm_context(
+    app: tauri::AppHandle,
     playback: tauri::State<'_, PlaybackService>,
     context: Option<raygun_model::PlayContext>,
 ) {
+    // Quick access's Recently played: the page played from goes first.
+    if let Some(context) = &context {
+        let (kind, to, search) = (
+            context.kind.clone(),
+            context.to.clone(),
+            context.search.clone(),
+        );
+        tauri::async_runtime::spawn(async move {
+            crate::quick_access::played(&app, &kind, &to, &search).await;
+        });
+    }
     playback.arm_context(context);
+}
+
+/// Quick access: the audio library (playlists, albums, artists, shows, books and the fixed
+/// blocks), the most recently played from first, with the pins; `names` are the fixed blocks'
+/// names in the UI's language, for sorting by name.
+#[tauri::command]
+#[specta::specta]
+pub async fn quick_access_list(
+    app: tauri::AppHandle,
+    names: raygun_model::QuickAccessNames,
+) -> Result<raygun_model::QuickAccessList, String> {
+    crate::quick_access::list(&app, names).await
 }
 
 /// Shows or hides YouTube songs' videos (M46.51): they play as their audio file, and in YouTube's
@@ -344,9 +386,14 @@ pub async fn extensions_reload(
 #[specta::specta]
 pub async fn miniplayer_open(
     app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
     background: Option<String>,
 ) -> Result<(), String> {
-    crate::miniplayer::open(&app, background.as_deref())
+    let zoom = settings::load(&db.0)
+        .await
+        .map(|settings| settings.zoom)
+        .unwrap_or(100);
+    crate::miniplayer::open(&app, background.as_deref(), zoom)
 }
 
 /// Closes the miniplayer; with `show_main`, Raygun's main window comes forward.
@@ -404,8 +451,10 @@ pub async fn browser_check_target(
         .await)
 }
 
-/// Opens the site of `extension_id`'s browser check for the person to pass, waits until the
-/// browser closes, and gives the extension the site's cookies. Returns how many it took.
+/// Opens the request `extension_id`'s source met a browser check on, for the person to pass the
+/// check, and waits until the browser closes. A passed check gives the extension the browser's
+/// cookies and User-Agent, and the failed call is asked again; the result says how it went (a
+/// page that loads without a check says so).
 #[tauri::command]
 #[specta::specta]
 pub async fn browser_check_open(
@@ -413,7 +462,7 @@ pub async fn browser_check_open(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     checks: tauri::State<'_, crate::browser_check::BrowserChecks>,
     extension_id: String,
-) -> Result<u32, String> {
+) -> Result<raygun_model::BrowserCheckResult, String> {
     let settings = settings::load(&db.0)
         .await
         .map_err(|error| error.to_string())?;
@@ -870,7 +919,8 @@ pub async fn online_search(
     let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(&app);
     // Search's "No 18+" and "No explicit": 18+ music sources aren't asked, explicit songs drop.
     let filter = crate::search_filter::current(&app).await;
-    let songs = extensions.search_as_answered(trimmed, |result, total| {
+    let listings = crate::search_filter::listings(&app).await;
+    let songs = extensions.search_as_answered(trimmed, listings, |result, total| {
         // Lengths the sources sent are kept for lists that lack them (M46.26).
         durations.learn_tracks(&result.tracks);
         let mut result = result.clone();
@@ -1048,9 +1098,8 @@ pub fn audio_output_set(app: tauri::AppHandle, id: Option<String>) -> Result<(),
     #[cfg(target_os = "android")]
     {
         use tauri::Manager;
-        return app
-            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
-            .set_audio_output(id);
+        app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .set_audio_output(id)
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -1067,9 +1116,8 @@ pub fn reader_system_bars(app: tauri::AppHandle, hidden: bool) -> Result<(), Str
     #[cfg(target_os = "android")]
     {
         use tauri::Manager;
-        return app
-            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
-            .system_bars(hidden);
+        app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .system_bars(hidden)
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -1388,6 +1436,41 @@ pub async fn song_downloads_redownload(
 #[specta::specta]
 pub fn song_capture_report(report: raygun_model::SongCaptureReport) -> Result<(), String> {
     crate::music_downloads::capture::sound::report(report)
+}
+
+/// What the webview's recording player did (Android). An error means the recording was stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn song_recording_report(report: raygun_model::SongRecordingReport) -> Result<(), String> {
+    crate::music_downloads::capture::record::report(report)
+}
+
+/// Asks to record songs as they play (Android: RECORD_AUDIO, then Android's capture question,
+/// after the shell explained it). Allowed, the songs waiting to be recorded are, one at a time.
+/// Returns whether it was allowed.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_recording_consent(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+) -> Result<bool, String> {
+    songs.inner().clone().allow_recording().await
+}
+
+/// "Not now" to recording songs as they play: they wait without asking again until retried.
+#[tauri::command]
+#[specta::specta]
+pub fn song_recording_decline(songs: tauri::State<'_, Arc<SongDownloadService>>) {
+    songs.decline_recording();
+}
+
+/// Stops the song being recorded: it waits to be recorded again, and recording is given back.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_download_cancel_recording(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    id: String,
+) -> Result<(), String> {
+    songs.cancel_recording(&id).await
 }
 
 /// Writes saved songs out as files (M46.10).
@@ -1777,6 +1860,51 @@ pub async fn captions_video_make(
         .await
 }
 
+type VideoSubtitlesState<'a> = tauri::State<'a, Arc<crate::video_subtitles::VideoSubtitles>>;
+
+/// Translates the subtitles a video shows (a track's lines, or its AI subtitles) into
+/// `request.language` from where the viewer is, keeping ahead of them in batches; what was
+/// translated before for the same lines carries on. With this device's translator, models it
+/// lacks are downloaded only once `request.download` is set: until then `downloadBytes` says
+/// how much and nothing starts.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_subtitles_translate(
+    subtitles: VideoSubtitlesState<'_>,
+    request: raygun_model::SubtitleTranslateRequest,
+) -> Result<raygun_model::SubtitleTranslation, String> {
+    subtitles.inner().translate(request).await
+}
+
+/// A video's translated subtitles: those translating now and those kept from before, with
+/// their lines so far.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_subtitles_translations(
+    subtitles: VideoSubtitlesState<'_>,
+    key: String,
+) -> Result<Vec<raygun_model::SubtitleTranslation>, String> {
+    subtitles.translations(&key).await
+}
+
+/// Stops translating a video's subtitles track `id`; what's translated stays.
+#[tauri::command]
+#[specta::specta]
+pub fn video_subtitles_stop(subtitles: VideoSubtitlesState<'_>, key: String, id: String) {
+    subtitles.stop(&key, &id);
+}
+
+/// Who can translate a video's subtitles into `language`: this device, then the translators
+/// from Settings → AI.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_subtitles_translators(
+    subtitles: VideoSubtitlesState<'_>,
+    language: String,
+) -> Result<Vec<raygun_model::LyricsTranslatorOption>, String> {
+    subtitles.translators(&language).await
+}
+
 /// Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32).
 #[tauri::command]
 #[specta::specta]
@@ -1845,13 +1973,44 @@ pub async fn local_folders(
     local.folders().await
 }
 
-/// Adds a folder the user picks to Local Files and scans it; `None` when they cancelled.
+/// Adds a folder the user picks in the system's picker to Local Files and scans it; `None` when
+/// they cancelled.
 #[tauri::command]
 #[specta::specta]
 pub async fn local_folder_add(
     local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
 ) -> Result<Option<Vec<raygun_model::LocalFolder>>, String> {
     local.inner().add().await
+}
+
+/// Adds a folder chosen in Local Files' own folder browser, by its path, and scans it (M46.51).
+#[tauri::command]
+#[specta::specta]
+pub async fn local_folder_add_path(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+    path: String,
+) -> Result<Vec<raygun_model::LocalFolder>, String> {
+    local.inner().add_path(&path).await
+}
+
+/// A folder of the device's storage for Local Files' folder browser; its top for `None` (M46.51).
+#[tauri::command]
+#[specta::specta]
+pub async fn local_files_browse(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+    path: Option<String>,
+) -> Result<raygun_model::LocalBrowse, String> {
+    local.browse(path.as_deref()).await
+}
+
+/// Add files (M46.51): files picked in the system's file picker, imported or copied in; `None`
+/// when the user cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn local_files_add_files(
+    local: tauri::State<'_, Arc<crate::local_files::LocalFilesService>>,
+) -> Result<Option<raygun_model::LocalFilesAdded>, String> {
+    local.inner().add_files().await
 }
 
 /// Takes a folder out of Local Files.
@@ -2938,6 +3097,16 @@ pub async fn manga_library(
     manga.library().await
 }
 
+/// A stored title's chapters (read and download states, no fetching), for the reader's list.
+#[tauri::command]
+#[specta::specta]
+pub async fn manga_chapters(
+    manga: tauri::State<'_, MangaService>,
+    title_id: String,
+) -> Result<Vec<MangaChapterInfo>, String> {
+    manga.chapters(&title_id).await
+}
+
 /// A chapter's pages and its neighbours, for the reader.
 #[tauri::command]
 #[specta::specta]
@@ -3053,9 +3222,30 @@ pub async fn manga_set_read(
 #[tauri::command]
 #[specta::specta]
 pub async fn collection_play(
+    app: tauri::AppHandle,
     collections: tauri::State<'_, CollectionsService>,
     request: CollectionPlayRequest,
 ) -> Result<(), String> {
+    // Played from quick access's menus too, wherever the page on screen is.
+    let page: Option<(&'static str, &'static str, &'static str, String)> = match &request.collection
+    {
+        raygun_model::Collection::Favorites => {
+            Some(("favorites", "/library", "view", "favorites".to_owned()))
+        }
+        raygun_model::Collection::Downloaded => {
+            Some(("downloaded", "/library", "view", "downloaded".to_owned()))
+        }
+        raygun_model::Collection::Playlist { id } => {
+            Some(("playlist", "/library/playlist", "id", id.clone()))
+        }
+        raygun_model::Collection::History => None,
+    };
+    if let Some((kind, to, key, value)) = page {
+        let search = [(key.to_owned(), value)].into_iter().collect();
+        tauri::async_runtime::spawn(async move {
+            crate::quick_access::played(&app, kind, to, &search).await;
+        });
+    }
     collections.play(request).await
 }
 
@@ -3118,39 +3308,134 @@ mod tests {
     }
 }
 
-/// Writes a backup of settings, collections, history, the manga library and progress.
+/// Where backups can be saved: the usual place, the folders picked before, the one used last.
 #[tauri::command]
 #[specta::specta]
-pub async fn backup_create(backups: tauri::State<'_, BackupService>) -> Result<BackupFile, String> {
-    backups.create().await
-}
-
-/// Backups kept on this device, newest first.
-#[tauri::command]
-#[specta::specta]
-pub async fn backup_list(
+pub async fn backup_destinations(
     backups: tauri::State<'_, BackupService>,
-) -> Result<Vec<BackupFile>, String> {
-    backups.list().await
+) -> Result<BackupDestinations, String> {
+    Ok(backups.destinations().await)
 }
 
-/// Merges a kept backup into the current data (newer rows win).
+/// Shows the system's folder picker; the folder chosen is remembered for backups and used next.
+/// `None` when the picker was cancelled.
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_pick_folder(
+    backups: tauri::State<'_, BackupService>,
+) -> Result<Option<BackupDestinations>, String> {
+    backups.pick_folder().await
+}
+
+/// Stops saving and looking for backups in a folder; its files stay.
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_forget_folder(
+    backups: tauri::State<'_, BackupService>,
+    uri: String,
+) -> Result<BackupDestinations, String> {
+    backups.forget_folder(&uri).await
+}
+
+/// Writes a backup of the categories asked for, where asked (M46.51).
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_create(
+    backups: tauri::State<'_, BackupService>,
+    request: BackupRequest,
+) -> Result<BackupEntry, String> {
+    backups.create(request).await
+}
+
+/// Every backup Raygun finds (its data folder, Download/Raygun, the folders picked), newest
+/// first, each with what it holds.
+#[tauri::command]
+#[specta::specta]
+pub async fn backup_scan(
+    backups: tauri::State<'_, BackupService>,
+) -> Result<Vec<BackupEntry>, String> {
+    backups.scan().await
+}
+
+/// Merges the categories chosen from a backup the last scan found (newer rows win).
 #[tauri::command]
 #[specta::specta]
 pub async fn backup_restore(
     backups: tauri::State<'_, BackupService>,
-    name: String,
+    id: String,
+    categories: Vec<DataCategory>,
 ) -> Result<BackupOutcome, String> {
-    backups.restore(&name).await
+    backups.restore(&id, categories).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn backup_delete(
     backups: tauri::State<'_, BackupService>,
-    name: String,
+    id: String,
 ) -> Result<(), String> {
-    backups.delete(&name).await
+    backups.delete(&id).await
+}
+
+/// What each kind of data holds on this device, with sizes (Settings → Data).
+#[tauri::command]
+#[specta::specta]
+pub async fn data_usage(app: tauri::AppHandle) -> Result<Vec<DataUsage>, String> {
+    crate::backup::categories::usage(&app).await
+}
+
+/// Clears one kind of data (`downloads` says what goes of the downloads); returns what's left.
+#[tauri::command]
+#[specta::specta]
+pub async fn data_clear(
+    app: tauri::AppHandle,
+    category: DataCategory,
+    downloads: Option<DownloadsClear>,
+) -> Result<Vec<DataUsage>, String> {
+    crate::backup::categories::clear(&app, category, downloads).await?;
+    crate::backup::categories::usage(&app).await
+}
+
+/// Erases everything but the backups and starts Raygun again as after a new install.
+/// `confirm` must be `ERASE`.
+#[tauri::command]
+#[specta::specta]
+pub async fn data_erase_everything(
+    app: tauri::AppHandle,
+    paths: tauri::State<'_, crate::startup::AppPaths>,
+    confirm: String,
+) -> Result<(), String> {
+    if confirm.trim() != "ERASE" {
+        return Err("Type ERASE to erase everything".into());
+    }
+    let root = paths.0.root().to_owned();
+    tauri::async_runtime::spawn_blocking(move || crate::backup::erase::request(&root))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("Raygun couldn't prepare the erase: {error}"))?;
+    tracing::warn!("everything is erased at the next start");
+    restart_erased(&app)
+}
+
+#[cfg(target_os = "android")]
+fn restart_erased(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+        .restart_app()
+}
+
+/// The webview's storage goes now (its profile folder goes at the next start too), then Raygun
+/// starts again.
+#[cfg(not(target_os = "android"))]
+fn restart_erased(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    for window in app.webview_windows().values() {
+        if let Err(error) = window.clear_all_browsing_data() {
+            tracing::warn!(%error, "couldn't clear the webview's storage");
+        }
+    }
+    app.request_restart();
+    Ok(())
 }
 
 /// Restores a Raygun backup or imports a Mihon backup from a picked file (base64 contents).
@@ -3918,6 +4203,16 @@ pub async fn library_continue(
     crate::library_actions::continue_unit(catalog_for(&app, &medium)?, &title_id).await
 }
 
+/// Titles of `medium` with downloaded chapters or episodes, in the library or not.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_downloaded(
+    app: tauri::AppHandle,
+    medium: String,
+) -> Result<Vec<MangaLibraryEntry>, String> {
+    catalog_for(&app, &medium)?.downloaded().await
+}
+
 /// Library titles with the same name as `title` from other sources.
 #[tauri::command]
 #[specta::specta]
@@ -4100,6 +4395,40 @@ async fn pick_folder(
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// A folder for backups (M46.51): the system picker on Android, a folder dialog on desktop.
+#[cfg(target_os = "android")]
+pub(crate) async fn pick_backup_folder(
+    app: &tauri::AppHandle,
+) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
+    pick_folder(app).await
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) async fn pick_backup_folder(
+    _app: &tauri::AppHandle,
+) -> Result<tauri_plugin_raygun_audio::PickedFolder, String> {
+    let picked = rfd::AsyncFileDialog::new()
+        .set_title("Where Raygun saves backups")
+        .pick_folder()
+        .await;
+    Ok(match picked {
+        Some(folder) => {
+            let path = folder.path().to_path_buf();
+            tauri_plugin_raygun_audio::PickedFolder {
+                name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .or_else(|| Some(path.to_string_lossy().into_owned())),
+                uri: Some(path.to_string_lossy().into_owned()),
+            }
+        }
+        None => tauri_plugin_raygun_audio::PickedFolder {
+            uri: None,
+            name: None,
+        },
+    })
 }
 
 /// A folder for Local Files (M46.27): the system picker on Android, a folder dialog on desktop.
@@ -4476,7 +4805,8 @@ pub async fn catalog_filters(
 }
 
 /// Searches one source with its filters; the query may be empty when filters are set, and with
-/// neither it lists the source's popular titles.
+/// neither it lists the source's popular titles. A first page its search fails at or finds
+/// nothing for comes from its listings (`Settings::search_listings`).
 #[tauri::command]
 #[specta::specta]
 pub async fn catalog_search(
@@ -4487,13 +4817,16 @@ pub async fn catalog_search(
     page: u32,
     filters: std::collections::BTreeMap<String, raygun_model::FilterValue>,
 ) -> Result<MangaListingPage, String> {
+    let listings = crate::search_filter::listings(&app).await;
     catalog_for(&app, &medium)?
-        .search(&source_id, &query, page, &filters)
+        .search(&source_id, &query, page, &filters, listings)
         .await
 }
 
 /// The first page of every manga, novel or video source's results for `query` (their popular
-/// titles when it's blank), or only `sources`' when any are given (Search's source chips).
+/// titles when it's blank), or only `sources`' when any are given (Search's source chips). A
+/// source whose search fails or finds nothing answers from its listings
+/// (`Settings::search_listings`).
 #[tauri::command]
 #[specta::specta]
 pub async fn catalog_global_search(
@@ -4503,8 +4836,9 @@ pub async fn catalog_global_search(
     sources: Vec<String>,
 ) -> Result<Vec<raygun_model::SourceSearchResult>, String> {
     let filter = crate::search_filter::current(&app).await;
+    let listings = crate::search_filter::listings(&app).await;
     catalog_for(&app, &medium)?
-        .global_search(&query, &sources, filter)
+        .global_search(&query, &sources, filter, listings)
         .await
 }
 

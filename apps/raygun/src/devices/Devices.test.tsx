@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock, emitEvent } from '../test/bindingsMock';
+import { ROOMY, labelOf, tapTargets } from './tapTargets.test-wrapper';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -78,10 +79,17 @@ describe('Devices', () => {
     commands.connectDevices.mockResolvedValue(
       ok([{ ...nearby, paired: true, syncId: 'sync-pc', lastSyncAt: Date.now() - 120_000 }]),
     );
+    expect(within(row).getByRole('button', { name: 'Link' }).className).toMatch(ROOMY);
     await user.click(within(row).getByRole('button', { name: 'Link' }));
     expect(commands.connectLink).toHaveBeenCalledWith('pc');
     const linked = await within(card).findByTestId('linked-device');
     expect(linked).toHaveTextContent('Synced 2 minutes ago');
+    // Play there, Sync now and Unlink: each 44 px or more, in readable type.
+    expect(tapTargets(linked)).toHaveLength(3);
+    for (const target of tapTargets(linked)) {
+      expect(target.className, labelOf(target)).toMatch(ROOMY);
+    }
+    expect(linked.querySelector('.text-xs')).toBeNull();
     await user.click(within(linked).getByRole('button', { name: 'Sync now' }));
     expect(commands.syncNow).toHaveBeenCalledWith('sync-pc');
     await user.click(within(linked).getByRole('button', { name: 'Play there' }));

@@ -18,7 +18,7 @@ pub use issue::{Issue, IssueKind};
 pub use page_cache::PageCache;
 pub use proxy::lan::{LanLinks, LanRoute, SubtitleFormat};
 pub use proxy::{
-    ImageLinks, MediaLinks, ProxyStorage, StaticFiles, StreamProxy, artwork_url,
+    FontLinks, ImageLinks, MediaLinks, ProxyStorage, StaticFiles, StreamProxy, artwork_url,
     image_token as proxy_image_token,
 };
 

@@ -6,7 +6,7 @@ import type {
   SettingChange,
   TapCell,
 } from '@raygun/bindings';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../../shell/AppShell.test-wrapper';
@@ -88,6 +88,91 @@ describe('The manga reader', () => {
       .getAllByTestId('manga-page')
       .map((page) => page.getAttribute('data-index'));
     expect(shown).toEqual(['8', '9', '10', '11', '12', '13', '14']);
+  });
+
+  it('counts a short first page as the first, at the top of the strip and after scrolling', async () => {
+    commands.mangaChapter.mockResolvedValue(ok(chapter('webtoon', 4)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const slots = await within(reader).findAllByTestId('webtoon-page');
+    // A wide strip: pages 150 px tall on an 800 px screen, so the reading line (a third down)
+    // crosses the second page while the first is at the top.
+    let scrolled = 0;
+    slots.forEach((slot, index) =>
+      vi.spyOn(slot, 'getBoundingClientRect').mockImplementation(() => {
+        const top = index * 150 - scrolled;
+        return { top, bottom: top + 150, height: 150, left: 0, right: 400, width: 400 } as DOMRect;
+      }),
+    );
+    const indicator = within(reader).getByTestId('page-indicator');
+    act(() => observer.notify?.([{ isIntersecting: true, target: slots[1]! }]));
+    expect(indicator).toHaveTextContent('Page 1 of 4');
+
+    // Read on: the first page leaves the top, and the line crosses the third page while the
+    // second's top is still on screen.
+    scrolled = 100;
+    observer.notify?.([
+      { isIntersecting: false, target: slots[1]! },
+      { isIntersecting: true, target: slots[2]! },
+    ]);
+    await vi.waitFor(() => expect(indicator).toHaveTextContent('Page 2 of 4'));
+    // The second's top leaves too, without the line crossing anything new.
+    scrolled = 200;
+    fireEvent.scroll(screen.getByTestId('page-content'));
+    await vi.waitFor(() => expect(indicator).toHaveTextContent('Page 3 of 4'));
+  });
+
+  it('counts the page shown in the paged modes, from the first', async () => {
+    const user = userEvent.setup();
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const indicator = await within(reader).findByTestId('page-indicator');
+    expect(indicator).toHaveTextContent('Page 1 of 3');
+    expect(within(reader).getByTestId('manga-page')).toHaveAttribute('data-index', '0');
+    await user.keyboard('{ArrowRight}');
+    expect(indicator).toHaveTextContent('Page 2 of 3');
+    expect(within(reader).getByTestId('manga-page')).toHaveAttribute('data-index', '1');
+  });
+
+  it('lists the chapters in the reader, sorted as asked, and reads the one picked there', async () => {
+    const user = userEvent.setup();
+    const numbered = (id: string, number: number, read = false): MangaChapterInfo => ({
+      ...info(id),
+      number,
+      read,
+    });
+    // As the source lists them: newest first.
+    commands.mangaChapters.mockResolvedValue(
+      ok([numbered('c3', 3), numbered('c2', 2), numbered('c1', 1, true)]),
+    );
+    commands.mangaChapter.mockImplementation(async (_title: string, id: string) =>
+      ok({ ...chapter('pagedLtr', 3), chapter: info(id) }),
+    );
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    await user.click(await within(reader).findByRole('button', { name: 'Chapters' }));
+    const list = await screen.findByTestId('reader-chapters');
+    expect(commands.mangaChapters).toHaveBeenCalledWith('t1');
+    const names = () =>
+      within(list)
+        .getAllByTestId('reader-chapter')
+        .map((row) => row.textContent);
+    await vi.waitFor(() => expect(names()).toEqual(['Chapter c3', 'Chapter c2', 'Chapter c1']));
+    expect(within(list).getByRole('button', { name: /Chapter c1/ })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+
+    // Sorted the other way round, as on the title page.
+    await user.click(within(list).getByRole('button', { name: 'Sort and filter chapters' }));
+    await user.click(await screen.findByRole('button', { name: /Source order/ }));
+    await vi.waitFor(() => expect(names()).toEqual(['Chapter c1', 'Chapter c2', 'Chapter c3']));
+
+    await user.click(within(list).getByRole('button', { name: /Chapter c2/ }));
+    await vi.waitFor(() => expect(commands.mangaChapter).toHaveBeenLastCalledWith('t1', 'c2'));
+    expect(screen.queryByTestId('reader-chapters')).not.toBeInTheDocument();
+    expect(await within(reader).findByText('Chapter c2')).toBeInTheDocument();
   });
 
   it('turns tapped zones of the strip into scrolls, and the middle into the controls', async () => {

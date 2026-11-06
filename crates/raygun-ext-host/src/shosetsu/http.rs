@@ -18,6 +18,7 @@ use reqwest::cookie::CookieStore;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 
 use super::dom::{LuaNode, parse_document};
+use crate::browser_check::CheckedRequest;
 use crate::cookies::CookieJar;
 use crate::permissions::{HostPattern, NetPolicy, is_public_ip};
 
@@ -120,8 +121,8 @@ pub struct Fetcher {
     client: OnceLock<(reqwest::Client, tokio::runtime::Runtime)>,
     policy: NetPolicy,
     cookies: Arc<CookieJar>,
-    /// The host of the last bot check seen since [`Fetcher::start_call`].
-    challenged: Mutex<Option<String>>,
+    /// The request a bot check last answered since [`Fetcher::start_call`], as it was sent.
+    challenged: Mutex<Option<CheckedRequest>>,
     /// When each host was last asked, for [`HOST_SPACING`].
     asked: Mutex<std::collections::HashMap<String, std::time::Instant>>,
 }
@@ -205,12 +206,23 @@ impl Fetcher {
 
     /// The host of a bot check seen during the current call.
     pub fn challenged(&self) -> Option<String> {
+        let checked = self.checked()?;
+        reqwest::Url::parse(&checked.url)
+            .ok()?
+            .host_str()
+            .map(str::to_owned)
+    }
+
+    /// The request a bot check answered during the current call, as it was sent: what a check
+    /// window opens (`crate::browser_check`).
+    pub fn checked(&self) -> Option<CheckedRequest> {
         self.challenged.lock().ok()?.clone()
     }
 
     /// Sends a script's request, as Shosetsu's client does: Shosetsu's User-Agent (or the one
-    /// chosen in settings) in place of the script's, requests to one host spaced out, and one more
-    /// try after a short `Retry-After` (a 429 or 503).
+    /// chosen in settings, or the one a browser check on the site was passed with) in place of the
+    /// script's, requests to one host spaced out, and one more try after a short `Retry-After` (a
+    /// 429 or 503).
     pub fn execute(&self, request: &LuaRequest) -> Result<LuaResponse, FetchError> {
         let url = reqwest::Url::parse(&request.url).map_err(|error| FetchError::BadUrl {
             url: request.url.clone(),
@@ -227,7 +239,7 @@ impl Fetcher {
                 url: url.to_string(),
                 detail: format!("unknown method {}", request.method),
             })?;
-        let agent = user_agent();
+        let agent = self.cookies.user_agent_for(&url).unwrap_or_else(user_agent);
         let mut retried = false;
         loop {
             self.space(&host);
@@ -332,7 +344,7 @@ impl Fetcher {
         if bot_check(response.status, &response.headers, &response.body) {
             tracing::debug!(%host, status = response.status, "a bot check answered");
             if let Ok(mut challenged) = self.challenged.lock() {
-                *challenged = Some(host);
+                *challenged = Some(checked_request(request, agent));
             }
         }
         Ok(response)
@@ -393,6 +405,24 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
         .iter()
         .find(|(key, _)| key.eq_ignore_ascii_case(name))
         .map(|(_, value)| value.as_str())
+}
+
+/// A script's request as it was sent with User-Agent `agent`, for a check window to open.
+fn checked_request(request: &LuaRequest, agent: &str) -> CheckedRequest {
+    let mut headers: Vec<(&str, &str)> = request
+        .headers
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    let body = request.body.as_ref();
+    if let Some(body) = body
+        && !body.content_type.is_empty()
+        && header(&request.headers, "content-type").is_none()
+    {
+        headers.push(("Content-Type", &body.content_type));
+    }
+    let text = body.and_then(|body| std::str::from_utf8(&body.bytes).ok());
+    CheckedRequest::new(&request.url, &request.method, headers, text, agent)
 }
 
 /// Whether a bot check (Cloudflare's challenge, DDoS-Guard, DataDome, a captcha page) answered
@@ -1550,6 +1580,43 @@ mod tests {
         page.extend_from_slice(&cp1251);
         assert!(decode(&page, Some("text/html"), true).ends_with("Привет"));
         assert!(!decode(&page, Some("text/html"), false).ends_with("Привет"));
+    }
+
+    #[test]
+    fn a_checked_request_is_kept_as_the_script_sent_it() {
+        let search = LuaRequest {
+            method: "POST".into(),
+            url: "https://novels.example/wp-admin/admin-ajax.php".into(),
+            headers: vec![
+                ("Referer".into(), "https://novels.example/".into()),
+                ("User-Agent".into(), "Script/1.0".into()),
+            ],
+            body: Some(LuaBody {
+                content_type: "application/x-www-form-urlencoded".into(),
+                bytes: b"action=search&q=sword".to_vec(),
+            }),
+        };
+        // The User-Agent the request went with (Shosetsu's, not the script's), and the body's type.
+        let checked = checked_request(&search, SHOSETSU_USER_AGENT);
+        assert_eq!(checked.url, search.url);
+        assert_eq!(checked.method, "POST");
+        assert_eq!(checked.user_agent, SHOSETSU_USER_AGENT);
+        assert_eq!(checked.body.as_deref(), Some("action=search&q=sword"));
+        assert_eq!(
+            checked.headers,
+            vec![
+                ("Referer".to_owned(), "https://novels.example/".to_owned()),
+                (
+                    "Content-Type".to_owned(),
+                    "application/x-www-form-urlencoded".to_owned()
+                ),
+            ]
+        );
+        let window = checked.window().unwrap();
+        assert_eq!(
+            (window.method.as_str(), window.body.as_deref()),
+            ("POST", Some("action=search&q=sword"))
+        );
     }
 
     #[test]

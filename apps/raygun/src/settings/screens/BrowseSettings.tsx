@@ -98,6 +98,14 @@ export const BrowseSettings: FC = () => {
     enabled: data.autoLoad?.enabled ?? true,
     cooldownMs: data.autoLoad?.cooldownMs ?? 1500,
   };
+  // Sources whose search fails or finds nothing are looked through instead (M46.49).
+  const listings = {
+    enabled: data.searchListings?.enabled ?? true,
+    entries: data.searchListings?.entries ?? 20,
+    pages: data.searchListings?.pages ?? 5,
+  };
+  const updateListings = (change: Partial<typeof listings>) =>
+    update.mutate({ key: 'searchListings', value: { ...listings, ...change } });
 
   return (
     <>
@@ -172,6 +180,34 @@ export const BrowseSettings: FC = () => {
           title={t('sources.failingLast')}
           checked={data.failingSourcesLast ?? true}
           onChange={(value) => update.mutate({ key: 'failingSourcesLast', value })}
+        />
+        <PrefSwitch
+          title={t('settings.searchListings.title')}
+          summary={t('settings.searchListings.hint')}
+          checked={listings.enabled}
+          onChange={(enabled) => updateListings({ enabled })}
+        />
+        <PrefSlider
+          title={t('settings.searchListings.entries')}
+          summary={t('settings.searchListings.entriesHint')}
+          value={listings.entries}
+          min={5}
+          max={100}
+          step={5}
+          format={String}
+          disabled={!listings.enabled}
+          onChange={(entries) => updateListings({ entries })}
+        />
+        <PrefSlider
+          title={t('settings.searchListings.pages')}
+          summary={t('settings.searchListings.pagesHint')}
+          value={listings.pages}
+          min={1}
+          max={20}
+          step={1}
+          format={String}
+          disabled={!listings.enabled}
+          onChange={(pages) => updateListings({ pages })}
         />
         <PrefSwitch
           title={t('settings.autoLoad.title')}

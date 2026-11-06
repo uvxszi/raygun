@@ -477,6 +477,142 @@ async fn the_repair_migration_keeps_the_first_copy_of_a_song() {
 }
 
 #[tokio::test]
+async fn the_artist_migration_drops_quotes_left_around_saved_names() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let saved = |artist: &str, title: &str| TrackFields {
+        artist: Some(artist.into()),
+        ..track(&format!("{}|{title}", artist.to_lowercase()))
+    };
+    for (at, (artist, title)) in [
+        ("\"System of a Down\"", "chop suey"),
+        ("\"Weird Al\" Yankovic", "white & nerdy"),
+        ("Guns N' Roses", "patience"),
+        ("\"", "untitled"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        set_favorite(&db, &saved(artist, title), true, at as i64)
+            .await
+            .unwrap();
+    }
+    let road = create_playlist(&db, "Road", 1).await.unwrap();
+    add_to_playlist(
+        &db,
+        &road,
+        &[
+            saved("“Daft Punk”", "one more time"),
+            saved(" «Kino»", "gruppa krovi"),
+            saved("Nirvana\" ", "lithium"),
+            saved("'Til Tuesday", "voices carry"),
+        ],
+        20,
+    )
+    .await
+    .unwrap();
+    crate::music_downloads::enqueue(
+        &db,
+        &crate::music_downloads::NewSong {
+            track_key: "a|swim".into(),
+            title: "Swim".into(),
+            artist: Some("\"BTS".into()),
+            album: None,
+            duration_ms: None,
+            artwork_url: None,
+            source: None,
+        },
+        30,
+    )
+    .await
+    .unwrap();
+    async fn stamp_of(db: &Db, title: &str) -> i64 {
+        sqlx::query_scalar("SELECT updated_at_hlc FROM music_favorite WHERE title = ?")
+            .bind(title)
+            .fetch_one(db.pool())
+            .await
+            .unwrap()
+    }
+    let before = sqlx::query_scalar::<_, i64>(
+        "SELECT MAX(updated_at_hlc) FROM (SELECT updated_at_hlc FROM music_favorite
+         UNION ALL SELECT updated_at_hlc FROM music_playlist_item)",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    let kept = stamp_of(&db, "white & nerdy").await;
+
+    sqlx::raw_sql(include_str!("../migrations/0040_tidy_saved_artists.sql"))
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let mut favorites: Vec<(String, Option<String>)> = favorites(&db)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| (row.track.title, row.track.artist))
+        .collect();
+    favorites.sort();
+    assert_eq!(
+        favorites,
+        [
+            ("chop suey".to_owned(), Some("System of a Down".to_owned())),
+            ("patience".to_owned(), Some("Guns N' Roses".to_owned())),
+            ("untitled".to_owned(), None),
+            (
+                "white & nerdy".to_owned(),
+                Some("\"Weird Al\" Yankovic".to_owned())
+            ),
+        ]
+    );
+    let items: Vec<Option<String>> = playlist_items(&db, &road)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|item| item.track.artist)
+        .collect();
+    assert_eq!(
+        items,
+        [
+            Some("Daft Punk".to_owned()),
+            Some("Kino".to_owned()),
+            Some("Nirvana".to_owned()),
+            Some("'Til Tuesday".to_owned()),
+        ]
+    );
+    let download = crate::music_downloads::by_key(&db, "a|swim")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(download.song.artist.as_deref(), Some("BTS"));
+
+    // The tidied rows are this device's newer writes; the others keep their stamps.
+    assert!(stamp_of(&db, "chop suey").await > before);
+    assert_eq!(stamp_of(&db, "white & nerdy").await, kept);
+    let device: String =
+        sqlx::query_scalar("SELECT origin_device FROM music_favorite WHERE title = ?")
+            .bind("chop suey")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(device, db.device_id().to_string());
+    let tidied = stamp_of(&db, "chop suey").await;
+    db.close().await;
+    let db = open(&temp).await;
+    set_favorite(&db, &track("a|new"), true, 50).await.unwrap();
+    let next: i64 =
+        sqlx::query_scalar("SELECT updated_at_hlc FROM music_favorite WHERE title = 'new'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert!(
+        next > tidied,
+        "the clock goes on past the migration's stamps"
+    );
+}
+
+#[tokio::test]
 async fn playlists_bring_their_first_items_for_covers() {
     let temp = TempDir::new().unwrap();
     let db = open(&temp).await;

@@ -6,7 +6,7 @@ import type {
   SettingChange,
   Settings,
 } from '@raygun/bindings';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -114,13 +114,15 @@ describe('Home', () => {
     await AppShellWrapper.mount('/');
     const popular = await screen.findByRole('region', { name: 'Popular now' });
     const trending = await screen.findByRole('region', { name: 'Trending' });
-    const card = await within(popular).findByRole('button', { name: 'Play Housewife' });
+    await within(popular).findByRole('button', { name: 'Play Housewife' });
 
-    fireEvent.contextMenu(card, { clientX: 20, clientY: 20 });
-    const menu = await screen.findByRole('menu');
-    await user.click(within(menu).getByRole('menuitem', { name: "Don't show Tate McRae" }));
+    await user.click(within(popular).getByRole('button', { name: 'More for Housewife' }));
+    const actions = await screen.findByTestId('track-more-actions');
+    await user.click(within(actions).getByRole('button', { name: "Don't show Tate McRae" }));
 
-    expect(commands.hiddenArtistSet).toHaveBeenCalledWith('Tate McRae', true);
+    await vi.waitFor(() =>
+      expect(commands.hiddenArtistSet).toHaveBeenCalledWith('Tate McRae', true),
+    );
     // Gone from every Home row, not only the one it was hidden from.
     await vi.waitFor(() =>
       expect(within(popular).queryByRole('button', { name: 'Play Housewife' })).toBeNull(),
@@ -142,16 +144,18 @@ describe('Home', () => {
     });
     await AppShellWrapper.mount('/');
     const popular = await screen.findByRole('region', { name: 'Popular now' });
-    fireEvent.contextMenu(await within(popular).findByRole('button', { name: 'Play Babydoll' }), {
-      clientX: 20,
-      clientY: 20,
-    });
+    await within(popular).findByRole('button', { name: 'Play Babydoll' });
+    await user.click(within(popular).getByRole('button', { name: 'More for Babydoll' }));
     await user.click(
-      within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Not interested' }),
+      within(await screen.findByTestId('track-more-actions')).getByRole('button', {
+        name: 'Not interested',
+      }),
     );
-    expect(commands.hiddenItemSet).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'song', key: 'jamie miller|babydoll', name: 'Babydoll' }),
-      true,
+    await vi.waitFor(() =>
+      expect(commands.hiddenItemSet).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'song', key: 'jamie miller|babydoll', name: 'Babydoll' }),
+        true,
+      ),
     );
     await vi.waitFor(() =>
       expect(within(popular).queryByRole('button', { name: 'Play Babydoll' })).toBeNull(),
@@ -185,13 +189,11 @@ describe('Home', () => {
     await user.click(within(toast).getByRole('button', { name: 'Undo' }));
     expect(await screen.findByRole('region', { name: 'Trending' })).toBeInTheDocument();
 
-    // A right click on the heading offers the same, and Edit Home.
-    fireEvent.contextMenu(
-      within(screen.getByRole('region', { name: 'Popular now' })).getByRole('heading'),
-      {
-        clientX: 20,
-        clientY: 20,
-      },
+    // The heading's ⋯ offers Edit Home too.
+    await user.click(
+      within(screen.getByRole('region', { name: 'Popular now' })).getByRole('button', {
+        name: 'More for Popular now',
+      }),
     );
     await user.click(
       within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Edit Home' }),

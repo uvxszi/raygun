@@ -88,6 +88,7 @@ fn api_failure(host: &str, error: &Value) -> Failure {
             detail: format!("{host} said: {message} (Subsonic error {code})"),
         }),
         answered: true,
+        checked: None,
     }
 }
 

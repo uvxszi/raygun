@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { listOutputs, outputSink, setOutputSink } from '../engine/outputSink';
 import { usePlatform } from '../lib/usePlatform';
 import { unwrapResult } from '../lib/commandResult';
+import { TAP_OPTION } from './tapTargets';
 
 const ICONS = {
   speaker: Speaker,
@@ -17,8 +18,7 @@ const ICONS = {
   hdmi: Monitor,
 };
 
-const ROW =
-  'hover:bg-background flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-sm';
+const ROW = `${TAP_OPTION} hover:bg-background`;
 
 /**
  * Where this device's sound comes out (M46.43): Automatic (the system's choice, which follows
@@ -79,7 +79,7 @@ export const AudioOutputs: FC = () => {
       : output.name;
 
   return (
-    <ul aria-label={t('outputs.title')} data-testid="audio-outputs" className="flex flex-col pl-8">
+    <ul aria-label={t('outputs.title')} data-testid="audio-outputs" className="flex flex-col pl-6">
       <li>
         <button
           type="button"
@@ -88,9 +88,9 @@ export const AudioOutputs: FC = () => {
           onClick={() => pick.mutate(null)}
           className={ROW}
         >
-          <Cable aria-hidden size={16} className="text-muted" />
-          <span className="flex-1">{t('outputs.automatic')}</span>
-          {chosen === null && <Check aria-hidden size={16} className="text-primary" />}
+          <Cable aria-hidden size={20} className="text-muted shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{t('outputs.automatic')}</span>
+          {chosen === null && <Check aria-hidden size={20} className="text-primary shrink-0" />}
         </button>
       </li>
       {outputs.map((output) => {
@@ -105,11 +105,15 @@ export const AudioOutputs: FC = () => {
               onClick={() => pick.mutate(output.id)}
               className={ROW}
             >
-              <Icon aria-hidden size={16} className={on ? 'text-primary' : 'text-muted'} />
+              <Icon
+                aria-hidden
+                size={20}
+                className={`shrink-0 ${on ? 'text-primary' : 'text-muted'}`}
+              />
               <span className={`min-w-0 flex-1 truncate ${on ? 'text-primary font-medium' : ''}`}>
                 {name(output)}
               </span>
-              {on && <Check aria-hidden size={16} className="text-primary" />}
+              {on && <Check aria-hidden size={20} className="text-primary shrink-0" />}
             </button>
           </li>
         );

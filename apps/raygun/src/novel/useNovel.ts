@@ -13,7 +13,7 @@ export const DEFAULT_PREFS: NovelReaderPrefs = {
   width: 'narrow',
   paged: false,
   ttsRate: 10,
-  indent: false,
+  indent: 0,
   theme: 'app',
   justify: false,
   keepScreenOn: true,
@@ -23,6 +23,12 @@ export const DEFAULT_PREFS: NovelReaderPrefs = {
 export const TEXT_SIZE = { min: -6, max: 12, step: 1 } as const;
 /** Line spacing in tenths, 1.2 to 2.2. */
 export const LINE_SPACING = { min: 12, max: 22, step: 1 } as const;
+/** Matches `NOVEL_INDENTS` in raygun-model: the paragraph indent in tenths of an em, none to 4. */
+export const INDENT = { min: 0, max: 40, step: 1 } as const;
+
+/** A paragraph indent (tenths of an em) as CSS, or nothing for none. */
+export const indentStyle = (tenths: number | null | undefined) =>
+  tenths && tenths > 0 ? { textIndent: `${tenths / 10}em` } : {};
 
 export const novelChapterQuery = (titleId: string, chapterId: string) => ({
   queryKey: [NOVEL, 'chapter', titleId, chapterId],

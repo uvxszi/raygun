@@ -439,9 +439,11 @@ fn requests_from_the_browser_are_read() {
         "mime": "application/zip",
         "size": 1234.0,
         "destination": { "kind": "folder", "uri": "content://tree/x", "name": "Books" },
+        "ticket": "t-1",
     }))
     .unwrap();
     assert_eq!(request.file_name(), "a.zip");
+    assert_eq!(request.ticket.as_deref(), Some("t-1"));
     assert_eq!(
         request.destination,
         Destination::Folder {
@@ -455,33 +457,40 @@ fn requests_from_the_browser_are_read() {
     }))
     .unwrap();
     assert_eq!(request.destination, Destination::Downloads);
+    assert_eq!(request.ticket, None);
+}
+
+/// A kept download in `state`, started by the browser when it has a `ticket`.
+fn stored(id: &str, state: WebsiteDownloadState, ticket: Option<&str>) -> Stored {
+    Stored {
+        item: WebsiteDownload {
+            id: id.to_owned(),
+            url: format!("https://example.org/{id}.zip"),
+            name: format!("{id}.zip"),
+            mime: Some("application/zip".into()),
+            site: Some("example.org".into()),
+            state,
+            done_bytes: 250.0,
+            total_bytes: Some(1000.0),
+            bytes_per_second: None,
+            resumable: false,
+            folder: "Download/Raygun".into(),
+            shown: None,
+            error: None,
+            created_at: 0.0,
+        },
+        origin: Origin::default(),
+        destination: Destination::Downloads,
+        validator: Validator::default(),
+        saved: None,
+        ticket: ticket.map(str::to_owned),
+    }
 }
 
 #[test]
 fn the_list_keeps_running_downloads_and_the_newest_finished() {
     let entry = |state| Entry {
-        stored: Stored {
-            item: WebsiteDownload {
-                id: String::new(),
-                url: String::new(),
-                name: String::new(),
-                mime: None,
-                site: None,
-                state,
-                done_bytes: 0.0,
-                total_bytes: None,
-                bytes_per_second: None,
-                resumable: false,
-                folder: String::new(),
-                shown: None,
-                error: None,
-                created_at: 0.0,
-            },
-            origin: Origin::default(),
-            destination: Destination::Downloads,
-            validator: Validator::default(),
-            saved: None,
-        },
+        stored: stored("", state, None),
         cancel: None,
     };
     let mut entries: Vec<Entry> = (0..KEEP + 5)
@@ -493,5 +502,134 @@ fn the_list_keeps_running_downloads_and_the_newest_finished() {
     assert_eq!(
         entries.last().unwrap().stored.item.state,
         WebsiteDownloadState::Queued
+    );
+}
+
+#[test]
+fn the_browser_hears_only_about_the_downloads_it_started() {
+    let mut done = stored("b", WebsiteDownloadState::Done, Some("t-b"));
+    done.saved = Some("content://media/downloads/7".into());
+    let kept = [
+        stored("a", WebsiteDownloadState::Downloading, Some("t-a")),
+        done,
+        // Started some other way (an older one retried from Downloads, say).
+        stored("c", WebsiteDownloadState::Downloading, None),
+        stored("d", WebsiteDownloadState::Queued, Some("t-d")),
+    ];
+    let all: Vec<&Stored> = kept.iter().collect();
+    let changed = ["a", "b", "c"].map(str::to_owned).into_iter().collect();
+
+    let views = browser::turn(&changed, Vec::new(), &all);
+    let tickets: Vec<&str> = views.iter().map(|view| view.ticket.as_str()).collect();
+    assert_eq!(tickets, ["t-a", "t-b"]);
+    assert_eq!(views[0].done_bytes, 250.0);
+    assert_eq!(views[0].total_bytes, Some(1000.0));
+    // A finished one carries the file, to open it from the browser.
+    assert_eq!(
+        views[1].saved.as_deref(),
+        Some("content://media/downloads/7")
+    );
+    assert_eq!(views[1].mime.as_deref(), Some("application/zip"));
+
+    // What's said as it is comes once, its latest word replacing the view.
+    let said = vec![
+        browser::BrowserDownload::gone("t-a"),
+        browser::BrowserDownload::refused("t-x", "x.zip", "This download couldn't start"),
+    ];
+    let views = browser::turn(&changed, said, &all);
+    let states: Vec<(&str, WebsiteDownloadState)> = views
+        .iter()
+        .map(|view| (view.ticket.as_str(), view.state))
+        .collect();
+    assert_eq!(
+        states,
+        [
+            ("t-b", WebsiteDownloadState::Done),
+            ("t-a", WebsiteDownloadState::Cancelled),
+            ("t-x", WebsiteDownloadState::Failed),
+        ]
+    );
+    assert_eq!(views[2].name, "x.zip");
+    assert_eq!(
+        views[2].error.as_deref(),
+        Some("This download couldn't start")
+    );
+}
+
+#[test]
+fn only_a_browser_on_screen_is_told() {
+    let feed = browser::Feed::default();
+    // Desktop windows always hear (their menus); Android's browser while it's on screen.
+    assert_eq!(feed.heard(), !cfg!(target_os = "android"));
+    feed.watch();
+    assert!(feed.heard());
+    feed.unwatch();
+    // One more leaving than came (a browser killed on screen, say) doesn't wrap around.
+    feed.unwatch();
+    assert_eq!(feed.heard(), !cfg!(target_os = "android"));
+    feed.watch();
+    assert!(feed.heard());
+
+    feed.touch("a");
+    feed.touch("");
+    feed.say(browser::BrowserDownload::gone("t-x"));
+    let (changed, said) = feed.take();
+    assert_eq!(changed.into_iter().collect::<Vec<_>>(), ["a"]);
+    assert_eq!(said, [browser::BrowserDownload::gone("t-x")]);
+    let (changed, said) = feed.take();
+    assert!(changed.is_empty() && said.is_empty());
+}
+
+#[test]
+fn the_browser_reads_its_downloads_in_its_own_words() {
+    let mut running = stored("a", WebsiteDownloadState::Downloading, Some("t-a"));
+    running.item.total_bytes = None;
+    let view = browser::view(&running).unwrap();
+    assert_eq!(
+        serde_json::to_value(&view).unwrap(),
+        serde_json::json!({
+            "ticket": "t-a",
+            "id": "a",
+            "name": "a.zip",
+            "state": "downloading",
+            "doneBytes": 250.0,
+            "totalBytes": null,
+            "folder": "Download/Raygun",
+            "error": null,
+            "saved": null,
+            "mime": "application/zip",
+        })
+    );
+    assert!(browser::view(&stored("b", WebsiteDownloadState::Done, None)).is_none());
+}
+
+#[test]
+fn the_browsers_questions_are_read() {
+    let read = |json| serde_json::from_value::<browser::BrowserAsk>(json).unwrap();
+    assert_eq!(
+        read(serde_json::json!({ "action": "watch", "tickets": ["t-a", "t-b"] })),
+        browser::BrowserAsk::Watch {
+            tickets: vec!["t-a".into(), "t-b".into()]
+        }
+    );
+    assert_eq!(
+        read(serde_json::json!({ "action": "unwatch" })),
+        browser::BrowserAsk::Unwatch
+    );
+    assert_eq!(
+        read(serde_json::json!({ "action": "cancel", "ticket": "t-a" })),
+        browser::BrowserAsk::Cancel {
+            ticket: "t-a".into()
+        }
+    );
+    assert_eq!(
+        read(serde_json::json!({ "action": "retry", "ticket": "t-a" })),
+        browser::BrowserAsk::Retry {
+            ticket: "t-a".into()
+        }
+    );
+    assert!(
+        serde_json::from_value::<browser::BrowserAsk>(serde_json::json!({ "action": "delete" }))
+            .is_err()
     );
 }

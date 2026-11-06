@@ -57,7 +57,7 @@ const withMarks = (contentOverrides: Settings['contentOverrides']) =>
 
 /** Opens an installed extension's right-click menu. */
 const openMenu = async () =>
-  userEvent.pointer({ keys: '[MouseRight]', target: await screen.findByTestId('extension-row') });
+  userEvent.click(await screen.findByRole('button', { name: /^Options for / }));
 
 /** The last `contentOverrides` change sent to Rust. */
 const lastMarks = () =>

@@ -337,6 +337,89 @@ export const PrefSize: FC<SizeFieldProps> = (props) => (
   </li>
 );
 
+/**
+ * A count (how many items a list shows): a slider and the number to type (kept on the step and
+ * within the limits), with Reset back to `defaultValue`.
+ */
+export const PrefNumber: FC<{
+  title: string;
+  summary?: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  defaultValue: number;
+  /** The number as read out with the slider ("100 items"). */
+  format: (value: number) => string;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}> = ({ title, summary, value, min, max, step = 1, defaultValue, format, onChange, disabled }) => {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const slider = useSlider(value, onChange);
+  const limits = { min, max, step };
+  // The field is the browser's while it's being typed in (its key holds still); Enter or leaving
+  // it saves.
+  const [typingKey, setTypingKey] = useState<number | null>(null);
+  const save = (field: HTMLInputElement) => {
+    setTypingKey(null);
+    const next = parseSize(field.value, limits) ?? value;
+    field.value = String(next);
+    if (next !== value) onChange(next);
+  };
+  return (
+    <li data-pref={title} className="flex flex-col gap-2 px-1 py-3">
+      <div className="flex items-center gap-2">
+        <RowText title={title} summary={summary} titleId={titleId} />
+        <label className="bg-surface focus-within:ring-primary flex shrink-0 items-center rounded-lg px-2 py-1 focus-within:ring-2">
+          <input
+            key={typingKey ?? slider.shown}
+            type="number"
+            aria-label={t('settings.sizeValue', { name: title })}
+            defaultValue={slider.shown}
+            min={min}
+            max={max}
+            step={step}
+            disabled={disabled}
+            onFocus={(event) => {
+              setTypingKey(slider.shown);
+              event.currentTarget.select();
+            }}
+            onBlur={(event) => save(event.currentTarget)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Escape') {
+                event.currentTarget.value = String(value);
+                event.currentTarget.blur();
+              }
+            }}
+            className="w-16 [appearance:textfield] bg-transparent text-right font-semibold tabular-nums outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+        </label>
+        <button
+          type="button"
+          aria-label={t('settings.sizeReset', { name: title })}
+          title={t('settings.sizeReset', { name: title })}
+          disabled={disabled || value === defaultValue}
+          onClick={() => onChange(defaultValue)}
+          className="text-muted hover:text-foreground hover:bg-surface grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-30"
+        >
+          <RotateCcw aria-hidden size={16} />
+        </button>
+      </div>
+      <input
+        {...slider.props}
+        aria-labelledby={titleId}
+        aria-valuetext={format(slider.shown)}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+      />
+    </li>
+  );
+};
+
 /** A row that opens another screen. */
 export const PrefLink: FC<{
   title: string;

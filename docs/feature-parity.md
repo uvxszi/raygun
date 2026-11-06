@@ -137,6 +137,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party
 | CBZ, Wi-Fi only, delete after reading, download ahead, auto-download new chapters, concurrency | Mihon | ✅ M46.1 (downloads also saved as CBZ or images to Downloads or a picked folder; retries with backoff and Retry-After; resumed chapters) / 🔜 M49 (the rest) |
 | Export titles as CBZ, PDF, image folders, EPUB, text or video files, waiting for downloads first | (none of the reference apps) | ✅ M46.1 |
 | Websites added by address, in a built-in browser with an ad, tracker, popup and redirect blocker | CloudStream (WebView), browsers | ✅ M46.3 |
+| Browser tabs (tapped links meant for new windows, New tab, Open in new tab) with a compact tab list; downloads' progress, Open and Retry in the browser and the notification | browsers | ✅ (Android; desktop site windows list downloads in a Downloads menu) |
 | Video on desktop: HLS and DASH with headers, subtitles, tracks and quality, sessions, keys, full screen, mpv/VLC for other codecs | Stremio desktop, CloudStream | ✅ M46.4 |
 | Desktop: exports to user folders, page copy and Show in folder, read-aloud, websites browser with blocker | (desktop apps) | ✅ M46.6 |
 | Trailers in their own full-window player | Stremio, CloudStream | ✅ M46.4 |

@@ -3,21 +3,29 @@
 //! reload and home, and a Page menu the rest (with their shortcuts). The blocker answers listed ad
 //! and tracker requests with 403 (WebView2's `WebResourceRequested`, on Windows) and keeps popups
 //! to the site. Where a site was left and its switch are reported the way Android's browser
-//! reports them.
+//! reports them. Files the site downloads show in a Downloads menu that appears with the first:
+//! how far each is, then Open (or Retry).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use raygun_model::WebsiteDownloadState;
 use serde::Deserialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 
 use super::blocklist::{self, Blocklist};
+use crate::website_downloads::browser::BrowserDownload;
 
 /// Browser windows' labels start with this.
 const LABEL_PREFIX: &str = "site-";
+/// Between a window's label and the rest of a download's ticket.
+const TICKET_MARK: char = '|';
+/// Downloads a window's menu lists at most (the newest).
+const MENU_DOWNLOADS: usize = 8;
 /// The browser's profile, under the websites folder.
 pub const PROFILE: &str = "desktop";
 /// Left when the profile couldn't be deleted; it's deleted at the next start.
@@ -36,8 +44,22 @@ struct Request {
     profile: PathBuf,
 }
 
+/// The open site windows, by label, for their Downloads menus.
+#[derive(Default)]
+struct OpenSites(Mutex<HashMap<String, Arc<Site>>>);
+
+/// A window's Downloads menu, once something downloads, and what it lists (newest first).
+#[derive(Default)]
+struct DownloadsMenu {
+    menu: Option<Submenu<Wry>>,
+    items: Vec<(BrowserDownload, MenuItem<Wry>)>,
+}
+
 /// One open site.
 struct Site {
+    /// Its window's label.
+    label: String,
+    downloads: Mutex<DownloadsMenu>,
     id: String,
     home: Url,
     /// Where the page is (from the navigation that started it), for first-party requests.
@@ -135,6 +157,8 @@ pub fn open(
     let url = Url::parse(&request.url).map_err(|error| error.to_string())?;
     let home = Url::parse(&request.home).map_err(|error| error.to_string())?;
     let site = Arc::new(Site {
+        label: label.clone(),
+        downloads: Mutex::new(DownloadsMenu::default()),
         id: request.id.clone(),
         home,
         url: Mutex::new(url.clone()),
@@ -241,6 +265,15 @@ pub fn open(
         };
         menu_action(&webview, &on_menu, action);
     });
+    // Managed with the first window (later calls keep the one there).
+    app.manage(OpenSites::default());
+    if let Some(sites) = app.try_state::<OpenSites>() {
+        sites
+            .0
+            .lock()
+            .expect("sites poisoned")
+            .insert(label.clone(), site.clone());
+    }
     let on_close = site.clone();
     let watched = window.clone();
     window.on_window_event(move |event| match event {
@@ -254,7 +287,19 @@ pub fn open(
             }
             report(on_close.report());
         }
-        tauri::WindowEvent::Destroyed => report(on_close.report()),
+        tauri::WindowEvent::Destroyed => {
+            report(on_close.report());
+            if let Some(sites) = watched.app_handle().try_state::<OpenSites>() {
+                let mut open = sites.0.lock().expect("sites poisoned");
+                // A window opened again under the label since is left alone.
+                if open
+                    .get(&on_close.label)
+                    .is_some_and(|site| Arc::ptr_eq(site, &on_close))
+                {
+                    open.remove(&on_close.label);
+                }
+            }
+        }
         _ => {}
     });
     #[cfg(windows)]
@@ -290,7 +335,208 @@ impl Site {
             mime,
             size,
             destination: crate::website_downloads::Destination::Downloads,
+            ticket: Some(new_ticket(&self.label)),
         }
+    }
+
+    /// Shows changes to the window's downloads in its Downloads menu, made with the first.
+    fn show_downloads(&self, window: &WebviewWindow, changes: &[&BrowserDownload]) {
+        let app = window.app_handle();
+        let mut shown = self.downloads.lock().expect("site poisoned");
+        if shown.menu.is_none() {
+            if changes
+                .iter()
+                .all(|change| change.state == WebsiteDownloadState::Cancelled)
+            {
+                return;
+            }
+            match self.downloads_menu(app, window) {
+                Ok(menu) => shown.menu = Some(menu),
+                Err(error) => {
+                    tracing::warn!(%error, "the browser's Downloads menu wasn't made");
+                    return;
+                }
+            }
+        }
+        let Some(menu) = shown.menu.clone() else {
+            return;
+        };
+        for change in changes {
+            let at = shown
+                .items
+                .iter()
+                .position(|(known, _)| known.ticket == change.ticket);
+            let result = match at {
+                Some(index) if change.state == WebsiteDownloadState::Cancelled => {
+                    let (_, item) = shown.items.remove(index);
+                    menu.remove(&item)
+                }
+                Some(index) => {
+                    let item = &shown.items[index].1;
+                    let result = item
+                        .set_text(menu_safe(&download_text(change)))
+                        .and_then(|()| item.set_enabled(download_acts(change)));
+                    shown.items[index].0 = (*change).clone();
+                    result
+                }
+                None if change.state == WebsiteDownloadState::Cancelled => Ok(()),
+                None => MenuItem::with_id(
+                    app,
+                    format!("{}:download:{}", self.label, change.ticket),
+                    menu_safe(&download_text(change)),
+                    download_acts(change),
+                    None::<&str>,
+                )
+                .and_then(|item| {
+                    menu.insert(&item, 0)?;
+                    shown.items.insert(0, ((*change).clone(), item));
+                    Ok(())
+                }),
+            };
+            if let Err(error) = result {
+                tracing::debug!(%error, "the browser's Downloads menu didn't change");
+            }
+        }
+        while shown.items.len() > MENU_DOWNLOADS {
+            if let Some((_, item)) = shown.items.pop() {
+                let _ = menu.remove(&item);
+            }
+        }
+        let listed: Vec<&BrowserDownload> = shown.items.iter().map(|(known, _)| known).collect();
+        let _ = menu.set_text(downloads_title(&listed));
+    }
+
+    /// The Downloads menu, added to the window's menu bar: the downloads, then a way to Raygun's
+    /// list of them.
+    fn downloads_menu(
+        &self,
+        app: &AppHandle,
+        window: &WebviewWindow,
+    ) -> tauri::Result<Submenu<Wry>> {
+        let all = MenuItem::with_id(
+            app,
+            format!("{}:downloads-all", self.label),
+            "All downloads in Raygun",
+            true,
+            None::<&str>,
+        )?;
+        let menu = Submenu::with_id_and_items(
+            app,
+            format!("{}:downloads", self.label),
+            "Downloads",
+            true,
+            &[&PredefinedMenuItem::separator(app)?, &all],
+        )?;
+        if let Some(bar) = window.menu() {
+            bar.append(&menu)?;
+        }
+        Ok(menu)
+    }
+}
+
+/// Shows the downloads site windows started in their Downloads menus. Waits on the main thread.
+pub fn show_downloads(app: &AppHandle, downloads: &[BrowserDownload]) {
+    let Some(sites) = app.try_state::<OpenSites>() else {
+        return;
+    };
+    let mut by_window: HashMap<&str, Vec<&BrowserDownload>> = HashMap::new();
+    for download in downloads {
+        if let Some(label) = ticket_label(&download.ticket) {
+            by_window.entry(label).or_default().push(download);
+        }
+    }
+    for (label, changes) in by_window {
+        let site = sites.0.lock().expect("sites poisoned").get(label).cloned();
+        if let (Some(site), Some(window)) = (site, app.get_webview_window(label)) {
+            site.show_downloads(&window, &changes);
+        }
+    }
+}
+
+/// A new download ticket for a window: its label, then a name of its own.
+fn new_ticket(label: &str) -> String {
+    format!("{label}{TICKET_MARK}{}", uuid::Uuid::now_v7())
+}
+
+/// The window a ticket was made for.
+fn ticket_label(ticket: &str) -> Option<&str> {
+    ticket
+        .split_once(TICKET_MARK)
+        .map(|(label, _)| label)
+        .filter(|label| label.starts_with(LABEL_PREFIX))
+}
+
+/// A download's line in the menu: its name and how far it is, or what clicking it does.
+fn download_text(download: &BrowserDownload) -> String {
+    let name = &download.name;
+    match download.state {
+        WebsiteDownloadState::Queued => format!("{name} — waiting"),
+        WebsiteDownloadState::Downloading => match download.total_bytes {
+            Some(total) if total > 0.0 => format!(
+                "{name} — {}% of {}",
+                percent(download.done_bytes, total),
+                crate::website_downloads::desktop::size_text(total)
+            ),
+            _ => format!(
+                "{name} — {}",
+                crate::website_downloads::desktop::size_text(download.done_bytes)
+            ),
+        },
+        WebsiteDownloadState::Done => format!("Open {name}"),
+        // One that never started (refused) has nothing to try again.
+        WebsiteDownloadState::Failed if download.id.is_empty() => format!("{name} didn't download"),
+        WebsiteDownloadState::Failed => format!("{name} didn't download — Retry"),
+        WebsiteDownloadState::Cancelled => format!("{name} — cancelled"),
+    }
+}
+
+/// Whether clicking a download's line does something: opens it, or tries it again.
+fn download_acts(download: &BrowserDownload) -> bool {
+    match download.state {
+        WebsiteDownloadState::Done => true,
+        WebsiteDownloadState::Failed => !download.id.is_empty(),
+        _ => false,
+    }
+}
+
+/// The Downloads menu's own name: how far the running ones are together, while any runs.
+fn downloads_title(downloads: &[&BrowserDownload]) -> String {
+    let running: Vec<&&BrowserDownload> = downloads
+        .iter()
+        .filter(|download| {
+            matches!(
+                download.state,
+                WebsiteDownloadState::Queued | WebsiteDownloadState::Downloading
+            )
+        })
+        .collect();
+    if running.is_empty() {
+        return "Downloads".into();
+    }
+    let sized = running
+        .iter()
+        .all(|download| download.total_bytes.is_some_and(|total| total > 0.0));
+    if !sized {
+        return "↓ Downloading".into();
+    }
+    let done: f64 = running.iter().map(|download| download.done_bytes).sum();
+    let total: f64 = running
+        .iter()
+        .filter_map(|download| download.total_bytes)
+        .sum();
+    format!("↓ {}%", percent(done, total))
+}
+
+fn percent(done: f64, total: f64) -> u32 {
+    ((done / total).clamp(0.0, 1.0) * 100.0).floor() as u32
+}
+
+/// Menu text as written: Windows reads `&` as a shortcut mark.
+fn menu_safe(text: &str) -> String {
+    if cfg!(windows) {
+        text.replace('&', "&&")
+    } else {
+        text.to_owned()
     }
 }
 
@@ -450,6 +696,14 @@ fn menu(app: &AppHandle, label: &str, site: &Arc<Site>) -> tauri::Result<Menu<Wr
 }
 
 fn menu_action(window: &WebviewWindow, site: &Site, action: &str) {
+    if let Some(ticket) = action.strip_prefix("download:") {
+        download_action(window.app_handle(), ticket);
+        return;
+    }
+    if action == "downloads-all" {
+        show_raygun_downloads(window.app_handle());
+        return;
+    }
     let current = || site.url.lock().expect("site poisoned").clone();
     let done = match action.trim_end_matches("-key") {
         "back" => window.eval("history.back()"),
@@ -480,6 +734,36 @@ fn menu_action(window: &WebviewWindow, site: &Site, action: &str) {
     };
     if let Err(error) = done {
         tracing::warn!(%error, action, "browser menu action failed");
+    }
+}
+
+/// A download's line clicked: a finished one opens, a failed one is tried again.
+fn download_action(app: &AppHandle, ticket: &str) {
+    let Some(service) = app.try_state::<Arc<crate::website_downloads::WebsiteDownloadService>>()
+    else {
+        return;
+    };
+    let Some((id, state)) = service.by_ticket(ticket) else {
+        return;
+    };
+    let done = match state {
+        WebsiteDownloadState::Done => service.open(&id),
+        WebsiteDownloadState::Failed => service.inner().retry(&id),
+        _ => Ok(()),
+    };
+    if let Err(error) = done {
+        tracing::info!(%error, "a browser download's menu item didn't work");
+    }
+}
+
+/// Raygun's window, at Downloads → Files.
+fn show_raygun_downloads(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    if let Some(notices) = app.try_state::<Arc<crate::notifications::DownloadNotices>>() {
+        notices.open("/downloads?tab=files".to_owned());
     }
 }
 
@@ -608,4 +892,83 @@ unsafe fn add_blocker(
         webview.add_WebResourceRequested(&handler, &mut token)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn download(state: WebsiteDownloadState, done: f64, total: Option<f64>) -> BrowserDownload {
+        BrowserDownload {
+            ticket: new_ticket("site-abc"),
+            id: "1".into(),
+            name: "Q&A.pdf".into(),
+            state,
+            done_bytes: done,
+            total_bytes: total,
+            folder: "Downloads/Raygun".into(),
+            error: None,
+            saved: None,
+            mime: None,
+        }
+    }
+
+    #[test]
+    fn tickets_name_their_window() {
+        let ticket = new_ticket("site-abc");
+        assert_eq!(ticket_label(&ticket), Some("site-abc"));
+        assert_ne!(new_ticket("site-abc"), ticket);
+        // Android's (no window) and stray ones name none.
+        assert_eq!(ticket_label("0190d9a0-8c3e-7"), None);
+        assert_eq!(ticket_label("main|x"), None);
+    }
+
+    #[test]
+    fn downloads_read_in_the_menu() {
+        use WebsiteDownloadState::*;
+        assert_eq!(
+            download_text(&download(Downloading, 250_000.0, Some(1_000_000.0))),
+            "Q&A.pdf — 25% of 1.0 MB"
+        );
+        assert_eq!(
+            download_text(&download(Downloading, 2_500_000.0, None)),
+            "Q&A.pdf — 2.5 MB"
+        );
+        assert_eq!(
+            download_text(&download(Queued, 0.0, None)),
+            "Q&A.pdf — waiting"
+        );
+        assert_eq!(
+            download_text(&download(Done, 1.0, Some(1.0))),
+            "Open Q&A.pdf"
+        );
+        assert_eq!(
+            download_text(&download(Failed, 0.0, None)),
+            "Q&A.pdf didn't download — Retry"
+        );
+        assert!(download_acts(&download(Done, 1.0, Some(1.0))));
+        assert!(download_acts(&download(Failed, 0.0, None)));
+        assert!(!download_acts(&download(Downloading, 0.0, None)));
+        // A request that never started can't be tried again.
+        let refused = BrowserDownload::refused(&new_ticket("site-abc"), "x.zip", "No");
+        assert_eq!(download_text(&refused), "x.zip didn't download");
+        assert!(!download_acts(&refused));
+        if cfg!(windows) {
+            assert_eq!(menu_safe("Q&A.pdf"), "Q&&A.pdf");
+        }
+    }
+
+    #[test]
+    fn the_menus_name_says_how_far_the_running_ones_are() {
+        use WebsiteDownloadState::*;
+        let half = download(Downloading, 500.0, Some(1000.0));
+        let waiting = download(Queued, 0.0, Some(1000.0));
+        let done = download(Done, 1000.0, Some(1000.0));
+        assert_eq!(downloads_title(&[&half, &waiting, &done]), "↓ 25%");
+        assert_eq!(downloads_title(&[&half]), "↓ 50%");
+        let no_size = download(Downloading, 500.0, None);
+        assert_eq!(downloads_title(&[&half, &no_size]), "↓ Downloading");
+        assert_eq!(downloads_title(&[&done]), "Downloads");
+        assert_eq!(downloads_title(&[]), "Downloads");
+    }
 }

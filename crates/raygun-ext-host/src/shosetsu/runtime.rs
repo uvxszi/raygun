@@ -25,6 +25,7 @@ use super::filters::{self, Spec};
 use super::http::Fetcher;
 use super::lualib;
 use crate::cookies::CookieJar;
+use crate::failure::Failure;
 use crate::host::ExtensionSource;
 use crate::manifest::{Manifest, SettingDef};
 use crate::novel::NOVEL_SOURCE;
@@ -76,7 +77,7 @@ const LATEST_NAMES: [&str; 12] = [
 struct Job {
     method: String,
     args: serde_json::Value,
-    reply: oneshot::Sender<Result<serde_json::Value, String>>,
+    reply: oneshot::Sender<Result<serde_json::Value, Failure>>,
 }
 
 pub struct ShosetsuExtension {
@@ -191,8 +192,20 @@ impl ShosetsuExtension {
         method: &str,
         args: &serde_json::Value,
     ) -> Result<serde_json::Value, String> {
+        self.call_reporting(local_id, method, args)
+            .await
+            .map_err(|failure| failure.message)
+    }
+
+    /// Like [`Self::call`]; a failure also carries the request a bot check answered meanwhile.
+    pub(crate) async fn call_reporting(
+        &self,
+        local_id: &str,
+        method: &str,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, Failure> {
         if local_id != PROVIDER {
-            return Err(format!("no provider {local_id}"));
+            return Err(Failure::said(format!("no provider {local_id}")));
         }
         let (reply, answer) = oneshot::channel();
         self.jobs
@@ -201,10 +214,10 @@ impl ShosetsuExtension {
                 args: args.clone(),
                 reply,
             })
-            .map_err(|_| "the script has stopped".to_owned())?;
+            .map_err(|_| Failure::said("the script has stopped"))?;
         answer
             .await
-            .map_err(|_| "the script stopped during the call".to_owned())?
+            .map_err(|_| Failure::said("the script stopped during the call"))?
     }
 }
 
@@ -252,7 +265,7 @@ fn work(
             match Script::load(setup) {
                 Ok(loaded) => script = Some(loaded),
                 Err(error) => {
-                    let _ = job.reply.send(Err(error));
+                    let _ = job.reply.send(Err(Failure::said(error)));
                     continue;
                 }
             }
@@ -357,7 +370,7 @@ impl Script {
         })
     }
 
-    fn call(&self, method: &str, args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    fn call(&self, method: &str, args: &serde_json::Value) -> Result<serde_json::Value, Failure> {
         self.deadline.set(Instant::now() + self.budget);
         self.fetcher.start_call();
         let text = |key: &str| {
@@ -387,13 +400,16 @@ impl Script {
             // How much memory the state holds (for the load-cost survey).
             #[cfg(test)]
             "memory" => Ok(json!(self.lua.used_memory())),
-            other => return Err(format!("{other} isn't a novel source call")),
+            other => return Err(Failure::said(format!("{other} isn't a novel source call"))),
         };
         result.map_err(|error| {
             let message =
                 errors::describe(&self.name, &error, self.fetcher.challenged().as_deref());
             tracing::debug!(script = %self.name, %method, %error, "a Shosetsu call failed");
-            message
+            Failure {
+                checked: self.fetcher.checked().map(Box::new),
+                ..Failure::said(message)
+            }
         })
     }
 

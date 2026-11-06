@@ -8,6 +8,7 @@ pub mod backup;
 pub mod captions;
 pub mod categories;
 pub mod collections;
+pub mod data;
 pub mod detail_edits;
 pub mod extensions;
 pub mod hlc;

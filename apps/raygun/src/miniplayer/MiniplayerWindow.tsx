@@ -18,6 +18,7 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { tidyCredit } from '../music/artists';
 import { ExplicitMark } from '../music/ExplicitMark';
 import { FavoriteButton } from '../player/FavoriteButton';
 import { formatTime } from '../player/formatTime';
@@ -69,7 +70,7 @@ const SeekBar: FC = () => {
   };
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="flex justify-between text-[clamp(11px,3.4vw,1.1rem)] text-white/85 tabular-nums">
+      <div className="flex justify-between text-[calc(clamp(11px,3.4vw,1.1rem)*var(--text-scale,1))] text-white/85 tabular-nums">
         <span>{formatTime(position)}</span>
         <span>{formatTime(duration)}</span>
       </div>
@@ -233,18 +234,18 @@ export const MiniplayerWindow: FC = () => {
               <span className="flex min-w-0 items-center gap-2">
                 <Marquee
                   text={item.title}
-                  className="min-w-0 text-[clamp(1.05rem,6.5vw,2.75rem)] leading-tight font-extrabold"
+                  className="min-w-0 text-[calc(clamp(1.05rem,6.5vw,2.75rem)*var(--text-scale,1))] leading-tight font-extrabold"
                 />
                 {item.explicit && <ExplicitMark />}
               </span>
-              <p className="text-muted mt-[clamp(0.125rem,1.2vw,0.5rem)] truncate text-[clamp(0.85rem,4.4vw,1.75rem)]">
-                {item.artist}
+              <p className="text-muted mt-[clamp(0.125rem,1.2vw,0.5rem)] truncate text-[calc(clamp(0.85rem,4.4vw,1.75rem)*var(--text-scale,1))]">
+                {tidyCredit(item.artist ?? '')}
               </p>
             </div>
             <FavoriteButton item={item} compact />
           </>
         ) : (
-          <p className="text-muted flex-1 text-[clamp(0.85rem,4.4vw,1.75rem)]">
+          <p className="text-muted flex-1 text-[calc(clamp(0.85rem,4.4vw,1.75rem)*var(--text-scale,1))]">
             {t('miniplayer.nothing')}
           </p>
         )}

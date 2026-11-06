@@ -69,6 +69,27 @@ pub async fn clear(db: &Db) -> Result<(), String> {
     store(db, &[]).await
 }
 
+/// Every search kept, newest first, whether search history is on or not (backups, M46.51).
+pub async fn all(db: &Db) -> Result<Vec<RecentSearch>, String> {
+    stored(db).await
+}
+
+/// Adds searches from a backup to the ones kept: once per query and kind, newest first.
+pub async fn merge(db: &Db, more: Vec<RecentSearch>) -> Result<(), String> {
+    let _writing = WRITING.lock().await;
+    let mut searches = stored(db).await?;
+    for search in more {
+        let query = tidy(&search.query);
+        if query.is_empty() || searches.iter().any(|kept| same(kept, &query, &search.kind)) {
+            continue;
+        }
+        searches.push(RecentSearch { query, ..search });
+    }
+    searches.sort_by(|a, b| b.searched_at.total_cmp(&a.searched_at));
+    searches.truncate(KEPT);
+    store(db, &searches).await
+}
+
 async fn settings(db: &Db) -> Settings {
     crate::settings::load(db).await.unwrap_or_default()
 }

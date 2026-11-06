@@ -69,13 +69,14 @@ const DEFAULT_SETTINGS: Settings = {
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
   searchFilter: { noAdult: false, noExplicit: false },
+  searchListings: { enabled: true, entries: 20, pages: 5 },
   manualBrowserChecks: false,
   userAgent: '',
   keepMusicPlaying: false,
   downloadsInBatterySaver: false,
   resumeOnStart: true,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
-  rail: { pins: [], order: 'custom', seeded: false },
+  rail: { pins: [], order: 'played', seeded: false },
   transcription: {
     engine: 'off',
     localModel: 'whisper-tiny',
@@ -104,7 +105,7 @@ const DEFAULT_SETTINGS: Settings = {
     width: 'narrow',
     paged: false,
     ttsRate: 10,
-    indent: false,
+    indent: 0,
   },
 };
 

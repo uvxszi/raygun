@@ -138,40 +138,11 @@ describe('Incognito (M47)', () => {
       ).not.toBeInTheDocument();
     });
 
-    const favoritesPinned = () =>
-      withSettings({
-        ...DEFAULT_SETTINGS,
-        rail: {
-          pins: [
-            {
-              kind: 'favorites',
-              to: '/library',
-              search: { view: 'favorites' },
-              name: '',
-              artworkUrl: null,
-              pinnedAt: 1,
-              playedAt: 0,
-              openedAt: 0,
-            },
-          ],
-          order: 'custom',
-          seeded: true,
-        },
-      });
-
-    it("stamps the sidebar's pins only while it's off", async () => {
-      const saved = favoritesPinned();
-      await AppShellWrapper.mount('/library?view=favorites');
-      await vi.waitFor(() => expect(saved().rail.pins[0]?.openedAt).toBeGreaterThan(0));
-    });
-
-    it("doesn't stamp the sidebar's pins while it's on", async () => {
+    it('leaves when pages are played from to Rust, which keeps nothing while it is on', async () => {
       withIncognito(ON);
-      const saved = favoritesPinned();
       await AppShellWrapper.mount('/library?view=favorites');
       await screen.findByRole('button', { name: turnOff });
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(saved().rail.pins[0]?.openedAt).toBe(0);
       expect(commands.settingsUpdate).not.toHaveBeenCalledWith(
         expect.objectContaining({ key: 'rail' }),
       );

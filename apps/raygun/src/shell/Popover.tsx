@@ -42,7 +42,7 @@ type PopoverProps = {
   label: string;
   onClose: () => void;
   children: ReactNode;
-  /** In px. */
+  /** In px at Interface size 100 %. */
   width?: number;
 };
 
@@ -60,7 +60,8 @@ export const Popover: FC<PopoverProps> = ({ anchor, label, onClose, children, wi
     const follow = () => {
       const box = anchor.getBoundingClientRect();
       const height = panel.current?.scrollHeight ?? 0;
-      const next = placeBeside(box, width, height);
+      // As wide as drawn: phones scale it with Interface size.
+      const next = placeBeside(box, panel.current?.offsetWidth || width, height);
       setPlace((current) =>
         current &&
         current.top === next.top &&
@@ -124,7 +125,8 @@ export const Popover: FC<PopoverProps> = ({ anchor, label, onClose, children, wi
       style={{
         top: place?.top ?? -9999,
         left: place?.left ?? -9999,
-        width,
+        // In px at Interface size 100 %: phones scale the root, not the px (`--ui-scale`).
+        width: `calc(${width}px * var(--ui-scale, 1))`,
         maxHeight: place?.maxHeight,
       }}
       className="bg-surface motion-pop fixed z-[70] flex flex-col overflow-y-auto rounded-2xl p-2 shadow-2xl ring-1 shadow-black/40 ring-white/5 outline-none"

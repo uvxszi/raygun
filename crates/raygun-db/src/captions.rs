@@ -199,6 +199,27 @@ pub async fn song_keys(db: &Db) -> Result<Vec<String>, DbError> {
     Ok(rows.iter().map(|row| row.get("episode_id")).collect())
 }
 
+/// The videos with AI subtitles (M46.33), by progress key: every caption that's neither a song's
+/// nor an episode's (a podcast's or an audiobook's, shelved copies like `<id>#ai` included).
+pub async fn video_keys(db: &Db) -> Result<Vec<String>, DbError> {
+    let rows = sqlx::query(
+        "SELECT episode_id FROM (
+             SELECT episode_id FROM local_caption_progress
+             UNION
+             SELECT DISTINCT episode_id FROM local_episode_caption
+         )
+         WHERE episode_id NOT LIKE 'song:%'
+           AND CASE WHEN instr(episode_id, '#') > 0
+                    THEN substr(episode_id, 1, instr(episode_id, '#') - 1)
+                    ELSE episode_id
+               END NOT IN (SELECT id FROM podcast_episode)
+         ORDER BY episode_id",
+    )
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.iter().map(|row| row.get("episode_id")).collect())
+}
+
 pub async fn clear(db: &Db, episode_id: &str) -> Result<(), DbError> {
     let mut tx = db.pool().begin().await?;
     sqlx::query("DELETE FROM local_episode_caption WHERE episode_id = ?")
@@ -283,5 +304,33 @@ mod tests {
         assert!(cue_before(&db, "e1", 0).await.unwrap().is_none());
         clear(&db, "e1").await.unwrap();
         assert!(super::progress(&db, "e1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn videos_are_the_captions_of_neither_songs_nor_episodes() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        sqlx::query(
+            "INSERT INTO podcast_episode (id, podcast_id, guid, remote_title, remote_audio_url,
+                 state_found_at, updated_at_hlc, origin_device)
+             VALUES ('e1', 'p1', 'g1', 'Episode', 'https://feed.example/e1.mp3', 1, 1, 'd')",
+        )
+        .execute(db.pool())
+        .await
+        .unwrap();
+        let line = [cue(0, 2_000, "Hello.")];
+        for key in [
+            "e1",
+            "e1#ai",
+            "song:a|b",
+            "stremio:movie:tt0032138",
+            "source:dev.example/films:42",
+        ] {
+            replace(&db, key, "local", &line).await.unwrap();
+        }
+        assert_eq!(
+            video_keys(&db).await.unwrap(),
+            ["source:dev.example/films:42", "stremio:movie:tt0032138"]
+        );
     }
 }

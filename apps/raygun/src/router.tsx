@@ -123,9 +123,13 @@ const routeTree = rootRoute.addChildren([
       search.tab === 'exports' ||
       search.tab === 'files' ||
       search.tab === 'music' ||
-      search.tab === 'chapters'
+      search.tab === 'comics' ||
+      search.tab === 'books'
         ? { tab: search.tab }
-        : {},
+        : // Chapters was Comics and Books together.
+          search.tab === 'chapters'
+          ? { tab: 'comics' }
+          : {},
   }),
   createRoute({
     getParentRoute: () => rootRoute,
@@ -138,7 +142,7 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/manga/downloads',
     beforeLoad: () => {
-      throw redirect({ to: '/downloads', search: { tab: 'chapters' }, replace: true });
+      throw redirect({ to: '/downloads', search: { tab: 'comics' }, replace: true });
     },
   }),
   createRoute({

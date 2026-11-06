@@ -22,6 +22,11 @@ export const commands = {
 	/**  Every setting as a fresh install has it, for resetting a settings screen. */
 	settingsDefaults: () => __TAURI_INVOKE<Settings>("settings_defaults"),
 	/**
+	 *  The font families installed on this device, for the font pickers: read once and kept, again
+	 *  with `refresh`.
+	 */
+	fontsList: (refresh: boolean) => typedError<SystemFont[], string>(__TAURI_INVOKE("fonts_list", { refresh })),
+	/**
 	 *  What was played from lately: albums, playlists, mixes, artists, podcasts, books (M46.37).
 	 *  Hidden artists' pages and tiles marked Not interested are left out.
 	 */
@@ -51,6 +56,12 @@ export const commands = {
 	/**  Unix ms; set when it's remembered. */
 	playedAt?: number | null,
 } | null) => __TAURI_INVOKE<void>("playback_arm_context", { context }),
+	/**
+	 *  Quick access: the audio library (playlists, albums, artists, shows, books and the fixed
+	 *  blocks), the most recently played from first, with the pins; `names` are the fixed blocks'
+	 *  names in the UI's language, for sorting by name.
+	 */
+	quickAccessList: (names: QuickAccessNames) => typedError<QuickAccessList, string>(__TAURI_INVOKE("quick_access_list", { names })),
 	/**
 	 *  Shows or hides YouTube songs' videos (M46.51): they play as their audio file, and in YouTube's
 	 *  embed while the video shows (the song playing now moves there).
@@ -169,14 +180,16 @@ export const commands = {
 	extensionId: string,
 	/**  The source's name for people. */
 	source: string,
-	/**  The page that opens. */
+	/**  The page that opens: the address of the request that met the check. */
 	url: string,
 } | null, string>(__TAURI_INVOKE("browser_check_target", { error, source })),
 	/**
-	 *  Opens the site of `extension_id`'s browser check for the person to pass, waits until the
-	 *  browser closes, and gives the extension the site's cookies. Returns how many it took.
+	 *  Opens the request `extension_id`'s source met a browser check on, for the person to pass the
+	 *  check, and waits until the browser closes. A passed check gives the extension the browser's
+	 *  cookies and User-Agent, and the failed call is asked again; the result says how it went (a
+	 *  page that loads without a check says so).
 	 */
-	browserCheckOpen: (extensionId: string) => typedError<number, string>(__TAURI_INVOKE("browser_check_open", { extensionId })),
+	browserCheckOpen: (extensionId: string) => typedError<BrowserCheckResult, string>(__TAURI_INVOKE("browser_check_open", { extensionId })),
 	/**
 	 *  Opens a title's page at its source in Raygun's browser (M46.38: the website button on comic,
 	 *  book and video pages): the source's address for it, joined to the source's website when it's
@@ -449,8 +462,27 @@ export const commands = {
 	coverFallback: (target: DetailTarget) => typedError<string | null, string>(__TAURI_INVOKE("cover_fallback", { target })),
 	/**  The folders in Local Files and what each holds (M46.27). */
 	localFolders: () => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folders")),
-	/**  Adds a folder the user picks to Local Files and scans it; `None` when they cancelled. */
+	/**
+	 *  Adds a folder the user picks in the system's picker to Local Files and scans it; `None` when
+	 *  they cancelled.
+	 */
 	localFolderAdd: () => typedError<LocalFolder[] | null, string>(__TAURI_INVOKE("local_folder_add")),
+	/**  Adds a folder chosen in Local Files' own folder browser, by its path, and scans it (M46.51). */
+	localFolderAddPath: (path: string) => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folder_add_path", { path })),
+	/**  A folder of the device's storage for Local Files' folder browser; its top for `None` (M46.51). */
+	localFilesBrowse: (path: string | null) => typedError<LocalBrowse, string>(__TAURI_INVOKE("local_files_browse", { path })),
+	/**
+	 *  Add files (M46.51): files picked in the system's file picker, imported or copied in; `None`
+	 *  when the user cancelled.
+	 */
+	localFilesAddFiles: () => typedError<{
+	songs: number,
+	videos: number,
+	comics: number,
+	books: number,
+	failed: LocalAddFailure[],
+	folders: LocalFolder[],
+} | null, string>(__TAURI_INVOKE("local_files_add_files")),
 	/**  Takes a folder out of Local Files. */
 	localFolderRemove: (id: string) => typedError<LocalFolder[], string>(__TAURI_INVOKE("local_folder_remove", { id })),
 	/**  Scans a Local Files folder again, or every one; files that couldn't be added are tried again. */
@@ -516,6 +548,26 @@ export const commands = {
 	captionsVideoTranscribe: (key: string, url: string, format: string | null, fromMs: number) => typedError<null, string>(__TAURI_INVOKE("captions_video_transcribe", { key, url, format, fromMs })),
 	/**  Makes AI subtitles for a downloaded video, the whole of it, in the background (M46.33). */
 	captionsVideoMake: (key: string) => typedError<null, string>(__TAURI_INVOKE("captions_video_make", { key })),
+	/**
+	 *  Translates the subtitles a video shows (a track's lines, or its AI subtitles) into
+	 *  `request.language` from where the viewer is, keeping ahead of them in batches; what was
+	 *  translated before for the same lines carries on. With this device's translator, models it
+	 *  lacks are downloaded only once `request.download` is set: until then `downloadBytes` says
+	 *  how much and nothing starts.
+	 */
+	videoSubtitlesTranslate: (request: SubtitleTranslateRequest) => typedError<SubtitleTranslation, string>(__TAURI_INVOKE("video_subtitles_translate", { request })),
+	/**
+	 *  A video's translated subtitles: those translating now and those kept from before, with
+	 *  their lines so far.
+	 */
+	videoSubtitlesTranslations: (key: string) => typedError<SubtitleTranslation[], string>(__TAURI_INVOKE("video_subtitles_translations", { key })),
+	/**  Stops translating a video's subtitles track `id`; what's translated stays. */
+	videoSubtitlesStop: (key: string, id: string) => __TAURI_INVOKE<void>("video_subtitles_stop", { key, id }),
+	/**
+	 *  Who can translate a video's subtitles into `language`: this device, then the translators
+	 *  from Settings → AI.
+	 */
+	videoSubtitlesTranslators: (language: string) => typedError<LyricsTranslatorOption[], string>(__TAURI_INVOKE("video_subtitles_translators", { language })),
 	/**  Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32). */
 	spokenItem: (source: MediaSource) => typedError<{
 	kind: SpokenKind,
@@ -672,6 +724,18 @@ export const commands = {
 	 *  was stopped.
 	 */
 	songCaptureReport: (report: SongCaptureReport) => typedError<null, string>(__TAURI_INVOKE("song_capture_report", { report })),
+	/**  What the webview's recording player did (Android). An error means the recording was stopped. */
+	songRecordingReport: (report: SongRecordingReport) => typedError<null, string>(__TAURI_INVOKE("song_recording_report", { report })),
+	/**
+	 *  Asks to record songs as they play (Android: RECORD_AUDIO, then Android's capture question,
+	 *  after the shell explained it). Allowed, the songs waiting to be recorded are, one at a time.
+	 *  Returns whether it was allowed.
+	 */
+	songRecordingConsent: () => typedError<boolean, string>(__TAURI_INVOKE("song_recording_consent")),
+	/**  "Not now" to recording songs as they play: they wait without asking again until retried. */
+	songRecordingDecline: () => __TAURI_INVOKE<void>("song_recording_decline"),
+	/**  Stops the song being recorded: it waits to be recorded again, and recording is given back. */
+	songDownloadCancelRecording: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_cancel_recording", { id })),
 	/**  Writes saved songs out as files (M46.10). */
 	songsSave: (ids: string[], format: AudioFileFormat, destination: SongDestination) => typedError<SongsSaved, string>(__TAURI_INVOKE("songs_save", { ids, format, destination })),
 	/**  Keys of every downloaded song, to mark them in lists (M46.10). */
@@ -828,6 +892,8 @@ export const commands = {
 	mangaLibrary: () => typedError<MangaLibraryEntry[], string>(__TAURI_INVOKE("manga_library")),
 	/**  A chapter's pages and its neighbours, for the reader. */
 	mangaChapter: (titleId: string, chapterId: string) => typedError<MangaChapterPages, string>(__TAURI_INVOKE("manga_chapter", { titleId, chapterId })),
+	/**  A stored title's chapters (read and download states, no fetching), for the reader's list. */
+	mangaChapters: (titleId: string) => typedError<MangaChapterInfo[], string>(__TAURI_INVOKE("manga_chapters", { titleId })),
 	/**  The page reached in a chapter; reaching the last page marks it read. */
 	mangaSetProgress: (chapterId: string, page: number, total: number) => typedError<null, string>(__TAURI_INVOKE("manga_set_progress", { chapterId, page, total })),
 	mangaSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_read", { chapterId, read })),
@@ -857,15 +923,47 @@ export const commands = {
 	/**  Cancels queued chapters and deletes downloaded ones. */
 	mangaRemoveDownloads: (chapterIds: string[]) => typedError<null, string>(__TAURI_INVOKE("manga_remove_downloads", { chapterIds })),
 	mangaSetDownloadsPaused: (paused: boolean) => typedError<null, string>(__TAURI_INVOKE("manga_set_downloads_paused", { paused })),
-	/**  Writes a backup of settings, collections, history, the manga library and progress. */
-	backupCreate: () => typedError<BackupFile, string>(__TAURI_INVOKE("backup_create")),
-	/**  Backups kept on this device, newest first. */
-	backupList: () => typedError<BackupFile[], string>(__TAURI_INVOKE("backup_list")),
-	/**  Merges a kept backup into the current data (newer rows win). */
-	backupRestore: (name: string) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_restore", { name })),
-	backupDelete: (name: string) => typedError<null, string>(__TAURI_INVOKE("backup_delete", { name })),
+	/**  Where backups can be saved: the usual place, the folders picked before, the one used last. */
+	backupDestinations: () => typedError<BackupDestinations, string>(__TAURI_INVOKE("backup_destinations")),
+	/**
+	 *  Shows the system's folder picker; the folder chosen is remembered for backups and used next.
+	 *  `None` when the picker was cancelled.
+	 */
+	backupPickFolder: () => typedError<{
+	/**  The usual place, as shown. */
+	usual: string,
+	usualPlace: BackupPlace,
+	folders: BackupFolder[],
+	/**  The last place used: a folder's `uri`, or `None` for the usual place. */
+	last: string | null,
+} | null, string>(__TAURI_INVOKE("backup_pick_folder")),
+	/**  Stops saving and looking for backups in a folder; its files stay. */
+	backupForgetFolder: (uri: string) => typedError<BackupDestinations, string>(__TAURI_INVOKE("backup_forget_folder", { uri })),
+	/**  Writes a backup of the categories asked for, where asked (M46.51). */
+	backupCreate: (request: BackupRequest) => typedError<BackupEntry, string>(__TAURI_INVOKE("backup_create", { request })),
+	/**
+	 *  Every backup Raygun finds (its data folder, Download/Raygun, the folders picked), newest
+	 *  first, each with what it holds.
+	 */
+	backupScan: () => typedError<BackupEntry[], string>(__TAURI_INVOKE("backup_scan")),
+	/**  Merges the categories chosen from a backup the last scan found (newer rows win). */
+	backupRestore: (id: string, categories: DataCategory[]) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_restore", { id, categories })),
+	backupDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("backup_delete", { id })),
 	/**  Restores a Raygun backup or imports a Mihon backup from a picked file (base64 contents). */
 	backupImport: (contents: string) => typedError<BackupOutcome, string>(__TAURI_INVOKE("backup_import", { contents })),
+	/**  What each kind of data holds on this device, with sizes (Settings → Data). */
+	dataUsage: () => typedError<DataUsage[], string>(__TAURI_INVOKE("data_usage")),
+	/**  Clears one kind of data (`downloads` says what goes of the downloads); returns what's left. */
+	dataClear: (category: DataCategory, downloads: 
+/**  Downloaded files and their entries. Copies saved outside Raygun stay. */
+"files" | 
+/**  Entries waiting or failed, which have no file yet. */
+"records" | null) => typedError<DataUsage[], string>(__TAURI_INVOKE("data_clear", { category, downloads })),
+	/**
+	 *  Erases everything but the backups and starts Raygun again as after a new install.
+	 *  `confirm` must be `ERASE`.
+	 */
+	dataEraseEverything: (confirm: string) => typedError<null, string>(__TAURI_INVOKE("data_erase_everything", { confirm })),
 	/**  Installed novel sources (`novel.source` providers). */
 	novelSources: () => typedError<MangaSource_Serialize[], string>(__TAURI_INVOKE("novel_sources")),
 	/**  A page of a novel source's catalogue: popular, latest, or search results. */
@@ -1011,6 +1109,8 @@ export const commands = {
 	libraryDownloadTitles: (medium: string, titles: RemoteTitleRef[], amount: number | null) => typedError<BulkResult, string>(__TAURI_INVOKE("library_download_titles", { medium, titles, amount })),
 	/**  The chapter or episode a title continues at. */
 	libraryContinue: (medium: string, titleId: string) => typedError<string | null, string>(__TAURI_INVOKE("library_continue", { medium, titleId })),
+	/**  Titles of `medium` with downloaded chapters or episodes, in the library or not. */
+	libraryDownloaded: (medium: string) => typedError<MangaLibraryEntry[], string>(__TAURI_INVOKE("library_downloaded", { medium })),
 	/**  Library titles with the same name as `title` from other sources. */
 	libraryDuplicates: (medium: string, titleId: string, title: string) => typedError<LibraryDuplicate[], string>(__TAURI_INVOKE("library_duplicates", { medium, titleId, title })),
 	/**
@@ -1134,9 +1234,16 @@ export const commands = {
 	windowFrame: WindowFrame,
 	/**
 	 *  Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
-	 *  app zooms its window; phones scale their text and spacing.
+	 *  app zooms its window; phones scale their text, spacing and icons.
 	 */
 	zoom: number,
+	/**
+	 *  Text size in percent more or less than the screen's own ([`TEXT_SIZES`]), over the
+	 *  interface size: text alone grows or shrinks, boxes and icons stay.
+	 */
+	textSize?: number,
+	/**  The device's own fonts for the interface and the book reader (device-only). */
+	fonts?: FontPrefs,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
 	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
@@ -1158,6 +1265,11 @@ export const commands = {
 	browseStartTab?: string,
 	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
 	searchFilter: SearchFilterPrefs,
+	/**
+	 *  Sources whose search fails or finds nothing are looked through instead: their listings
+	 *  are matched against the query (on, 20 matches, 5 pages by default).
+	 */
+	searchListings: SearchListingsPrefs,
 	/**
 	 *  Sources that meet a browser check offer to open their site so it can be passed by hand
 	 *  (experimental, off by default; `raygun_ext_host::browser_check`).
@@ -1249,12 +1361,15 @@ export const commands = {
 	catalogFilters: (medium: string, sourceId: string) => typedError<SourceFilter[], string>(__TAURI_INVOKE("catalog_filters", { medium, sourceId })),
 	/**
 	 *  Searches one source with its filters; the query may be empty when filters are set, and with
-	 *  neither it lists the source's popular titles.
+	 *  neither it lists the source's popular titles. A first page its search fails at or finds
+	 *  nothing for comes from its listings (`Settings::search_listings`).
 	 */
 	catalogSearch: (medium: string, sourceId: string, query: string, page: number, filters: { [key in string]: FilterValue }) => typedError<MangaListingPage, string>(__TAURI_INVOKE("catalog_search", { medium, sourceId, query, page, filters })),
 	/**
 	 *  The first page of every manga, novel or video source's results for `query` (their popular
-	 *  titles when it's blank), or only `sources`' when any are given (Search's source chips).
+	 *  titles when it's blank), or only `sources`' when any are given (Search's source chips). A
+	 *  source whose search fails or finds nothing answers from its listings
+	 *  (`Settings::search_listings`).
 	 */
 	catalogGlobalSearch: (medium: string, query: string, sources: string[]) => typedError<SourceSearchResult_Serialize[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query, sources })),
 	/**  Tracks in the device's library matching `query` (title, artist or album). */
@@ -1495,21 +1610,27 @@ export const events = {
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
 	openRouteEvent: makeEvent<OpenRouteEvent>("open-route-event"),
+	openWithEvent: makeEvent<OpenWithEvent>("open-with-event"),
 	permissionPromptEvent: makeEvent<PermissionPromptEvent>("permission-prompt-event"),
 	playbackStateEvent: makeEvent<PlaybackStateEvent>("playback-state-event"),
 	podcastsChangedEvent: makeEvent<PodcastsChangedEvent>("podcasts-changed-event"),
 	queueEvent: makeEvent<QueueEvent>("queue-event"),
+	quickAccessChangedEvent: makeEvent<QuickAccessChangedEvent>("quick-access-changed-event"),
+	recordingConsentEvent: makeEvent<RecordingConsentEvent>("recording-consent-event"),
 	searchProgressEvent: makeEvent<SearchProgressEvent_Deserialize>("search-progress-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
 	songCaptureEvent: makeEvent<SongCaptureEvent>("song-capture-event"),
 	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
+	songRecordingEvent: makeEvent<SongRecordingEvent>("song-recording-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	trackDurationsEvent: makeEvent<TrackDurationsEvent>("track-durations-event"),
 	ttsEvent: makeEvent<TtsEvent>("tts-event"),
+	unavailableEvent: makeEvent<UnavailableEvent>("unavailable-event"),
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
 	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
+	videoSubtitlesEvent: makeEvent<VideoSubtitlesEvent>("video-subtitles-event"),
 	watchChangedEvent: makeEvent<WatchChangedEvent>("watch-changed-event"),
 	websiteDownloadsEvent: makeEvent<WebsiteDownloadsEvent>("website-downloads-event"),
 	youTubeVideoEvent: makeEvent<YouTubeVideoEvent>("you-tube-video-event"),
@@ -1841,18 +1962,90 @@ export type AutoLoadPrefs = {
 	cooldownMs?: number,
 };
 
-/**  A backup file kept on this device. */
-export type BackupFile = {
+/**  Where a backup can be saved. */
+export type BackupDestinations = {
+	/**  The usual place, as shown. */
+	usual: string,
+	usualPlace: BackupPlace,
+	folders: BackupFolder[],
+	/**  The last place used: a folder's `uri`, or `None` for the usual place. */
+	last: string | null,
+};
+
+/**  A backup found on this device. */
+export type BackupEntry = {
+	/**  Names the file to read, restore or delete it; good until the next scan. */
+	id: string,
 	name: string,
+	place: BackupPlace,
+	/**  Its folder as shown ("Download/Raygun", a picked folder's name). */
+	folder: string,
 	sizeBytes: number | null,
+	/**  Unix ms; the file's time. */
+	modifiedAt: number | null,
+	/**  What it says about itself; `None` when it couldn't be read (`problem` says why). */
+	manifest: BackupManifest | null,
+	problem: string | null,
+};
+
+/**  A folder picked for backups, remembered so its backups are found again. */
+export type BackupFolder = {
+	/**  Its path on a computer, its tree address on Android. */
+	uri: string,
+	name: string,
+	/**  Unix ms of the last backup saved there. */
+	usedAt: number | null,
+};
+
+/**  What a backup file says about itself, read without unpacking the rest. */
+export type BackupManifest = {
+	/**  The file's format version (1: before M46.51, read in full to describe it). */
+	version: number,
 	/**  Unix ms. */
 	createdAt: number | null,
+	deviceId: string,
+	/**  The device's name as linked devices see it; empty for version 1. */
+	deviceName: string,
+	/**  The Raygun that made it; empty for version 1. */
+	appVersion: string,
+	/**  `android`, `windows`…; empty for version 1. */
+	platform: string,
+	/**  Whether passwords, sign-ins and API keys are inside, readable. */
+	secrets: boolean,
+	/**  What it holds, category by category. */
+	sections: BackupSection[],
 };
 
 /**  The outcome of restoring or importing a backup. */
 export type BackupOutcome = 
-/**  A Raygun backup: rows read and rows that changed here. */
-{ kind: "raygun"; received: number; changed: number } | { kind: "mihon"; summary: MihonImport };
+/**
+ *  A Raygun backup: rows read, rows that changed here, downloads and installs started again,
+ *  and what couldn't come back (each a sentence).
+ */
+{ kind: "raygun"; received: number; changed: number; queued: number; problems: string[] } | { kind: "mihon"; summary: MihonImport };
+
+/**  Where a backup was found. */
+export type BackupPlace = 
+/**  Raygun's own data folder. */
+"app" | 
+/**  `Download/Raygun` on the phone, `Downloads/Raygun` on a computer. */
+"downloads" | 
+/**  A folder picked for backups. */
+"folder";
+
+export type BackupRequest = {
+	categories: DataCategory[],
+	/**  Passwords, sign-ins and API keys too, readable by anyone with the file. */
+	secrets?: boolean,
+	/**  A remembered folder's `uri`; `None` saves to the usual place. */
+	folder?: string | null,
+};
+
+/**  One category's counts in a backup. */
+export type BackupSection = {
+	category: DataCategory,
+	counts: DataCount[],
+};
 
 /**  The list of ad and tracker domains the built-in browser blocks. */
 export type Blocklist = 
@@ -1886,6 +2079,31 @@ export type BookResume = {
 	positionMs: number | null,
 };
 
+/**  How a browser check opened by hand ended. */
+export type BrowserCheckOutcome = 
+/**  The check was passed, and the source answered when asked again. */
+"passed" | 
+/**
+ *  The check was passed, but the source's request met a check again: the site doesn't let
+ *  Raygun's requests through with the browser's pass.
+ */
+"stillBlocked" | 
+/**  The check was passed, but the source still failed, for another reason. */
+"stillFailing" | 
+/**  The page loaded without asking for a check: the problem is something else. */
+"noCheck" | 
+/**  The browser closed before a check was passed, or before the page loaded. */
+"notPassed";
+
+/**  What opening a browser check by hand did. */
+export type BrowserCheckResult = {
+	outcome: BrowserCheckOutcome,
+	/**  How many of the browser's cookies the extension took. */
+	cookies: number,
+	/**  The source's error when it was asked again and failed. */
+	error: string | null,
+};
+
 /**
  *  A source that met a browser check, whose site can be opened to pass it by hand
  *  (`Settings::manual_browser_checks`).
@@ -1894,7 +2112,7 @@ export type BrowserCheckTarget = {
 	extensionId: string,
 	/**  The source's name for people. */
 	source: string,
-	/**  The page that opens. */
+	/**  The page that opens: the address of the request that met the check. */
 	url: string,
 };
 
@@ -2267,6 +2485,91 @@ export type CustomColors = {
 	muted?: string,
 };
 
+/**  One kind of data Settings → Data backs up, restores and clears. */
+export type DataCategory = 
+/**  Library → Comics, with chapters, what was read and categories. */
+"comics" | 
+/**  Library → Books. */
+"books" | 
+/**  Library → Videos. */
+"videos" | 
+/**  Followed podcasts and where each episode was left. */
+"podcasts" | "audiobooks" | 
+/**  Sites added to the built-in browser. */
+"websites" | 
+/**  Playlists and favorite songs. */
+"playlists" | 
+/**  Quick access: its pins and when its pages were last played from. */
+"pins" | 
+/**  Songs played, videos watched and what was played from. */
+"history" | 
+/**  Every setting but quick access's. */
+"settings" | 
+/**  Extensions, repositories, Stremio addons and connected servers. */
+"sources" | 
+/**  What was downloaded: backups keep the list, never the files. */
+"downloads" | 
+/**
+ *  Local Files' folders: where Raygun looks for songs, comics, books and videos on this
+ *  device. Backups keep the list, and a restore adds back the folders this device has.
+ */
+"localFiles" | 
+/**  Recent searches. */
+"searches" | 
+/**  AI models and translators. */
+"aiModels" | 
+/**
+ *  Covers, reader pages, lyrics, videos' AI subtitles and songs opened from other apps, kept
+ *  to show or play them quickly; never backed up.
+ */
+"caches";
+
+export type DataCount = {
+	item: DataItem,
+	count: number,
+	/**  What its files take on this device, where it's files. */
+	bytes: number | null,
+};
+
+/**  What a count in Settings → Data or a backup's index counts. */
+export type DataItem = "titles" | "chapters" | "read" | "episodes" | "watched" | "categories" | "shows" | "books" | "sites" | "playlists" | "playlistSongs" | "favorites" | "pins" | 
+/**  Pages quick access sorts by when they were last played from. */
+"played" | "settings" | "repositories" | "extensions" | "addons" | "servers" | 
+/**  Passwords, sign-ins and API keys. */
+"secrets" | "plays" | 
+/**  Places music was played from (an album, a playlist…). */
+"contexts" | 
+/**  Downloaded songs. */
+"songs" | 
+/**  Downloaded videos. */
+"videos" | 
+/**  Downloads waiting or failed: entries without a file. */
+"waiting" | 
+/**  Files saved from websites. */
+"files" | 
+/**  Local Files' folders. */
+"folders" | "searches" | "models" | "translators" | "covers" | "pages" | "lyrics" | 
+/**  Videos with AI subtitles or translated subtitles kept. */
+"subtitles" | 
+/**  Songs other apps opened with Raygun, copied to play them. */
+"opened";
+
+/**  Where clearing a category reaches. */
+export type DataScope = 
+/**  Linked devices remove it too: device sync carries the clear like any change. */
+"synced" | 
+/**  This device only. */
+"device";
+
+/**  One category in Settings → Data: what's in it on this device. */
+export type DataUsage = {
+	category: DataCategory,
+	counts: DataCount[],
+	/**  Bytes its files take (downloads, models, caches); 0 for rows in the database. */
+	bytes: number | null,
+	scope: DataScope,
+};
+
 /**  Which decoders play video. */
 export type DecoderMode = 
 /**  Hardware, falling back to software when it fails. */
@@ -2353,6 +2656,13 @@ export type DiscoveryPrefs = {
 };
 
 export type DownloadState = "queued" | "downloading" | "done" | "failed";
+
+/**  What clearing downloads removes. */
+export type DownloadsClear = 
+/**  Downloaded files and their entries. Copies saved outside Raygun stay. */
+"files" | 
+/**  Entries waiting or failed, which have no file yet. */
+"records";
 
 /**  Lyrics a person wrote or corrected for a song (M46.12), replacing what sources have. */
 export type EditedLyrics = {
@@ -2733,6 +3043,18 @@ export type FollowedArtist = {
 	alerts: boolean,
 };
 
+/**
+ *  Fonts installed on the device instead of Raygun's own: each a family name, or empty for the
+ *  default. Kept to the device it was picked on, since what's installed differs between devices;
+ *  a family that isn't there falls back to the default.
+ */
+export type FontPrefs = {
+	/**  The whole interface's text. */
+	interface?: string,
+	/**  The book reader's text, over its Serif or Sans. */
+	reading?: string,
+};
+
 /**  Subtitles found for a video in the player (M46.33). */
 export type FoundSubtitles = {
 	tracks: VideoSubtitle[],
@@ -3048,6 +3370,46 @@ export type ListeningStats = {
 	topArtists?: string[],
 };
 
+/**  A file Add files couldn't add, and why. */
+export type LocalAddFailure = {
+	name: string,
+	error: string,
+};
+
+/**  A folder of the phone's storage in Local Files' folder browser (M46.51). */
+export type LocalBrowse = {
+	path: string,
+	name: string,
+	/**  From the top of the storage down to this folder. */
+	trail: LocalBrowseCrumb[],
+	/**  Its folders holding anything Raygun plays or reads, by name. */
+	folders: LocalBrowseFolder[],
+	/**  Files Raygun plays or reads right in this folder. */
+	items: number,
+	view: LocalStorageView,
+	/**  Android can be asked for access to all files (11 and later). */
+	canAllowAllFiles: boolean,
+	/**  The folder is in Local Files already. */
+	added: boolean,
+};
+
+/**  One step of the folder browser's trail, the top first. */
+export type LocalBrowseCrumb = {
+	name: string,
+	path: string,
+};
+
+/**  A folder inside the one shown. */
+export type LocalBrowseFolder = {
+	name: string,
+	path: string,
+	/**
+	 *  Files Raygun plays or reads in it and its folders; `None` when there were too many to
+	 *  count in time.
+	 */
+	items: number | null,
+};
+
 export type LocalCounts = {
 	songs: number,
 	comics: number,
@@ -3062,6 +3424,19 @@ export type LocalCounts = {
 	unplayable: number,
 };
 
+/**
+ *  What Add files added (M46.51): comics and books are imported, songs and videos copied into
+ *  Raygun's own Added files folder.
+ */
+export type LocalFilesAdded = {
+	songs: number,
+	videos: number,
+	comics: number,
+	books: number,
+	failed: LocalAddFailure[],
+	folders: LocalFolder[],
+};
+
 /**  A Local Files folder was added, scanned or removed; carries its id (M46.27). */
 export type LocalFilesEvent = string;
 
@@ -3071,6 +3446,8 @@ export type LocalFolder = {
 	name: string,
 	/**  Its path (or, without one, the address the picker gave). */
 	location: string,
+	/**  How Raygun reads it (M46.51). */
+	access: LocalFolderAccess,
 	counts: LocalCounts,
 	/**  Unix ms. */
 	scannedAt: number | null,
@@ -3085,6 +3462,15 @@ export type LocalFolder = {
 	 */
 	missing: boolean,
 };
+
+/**  How Raygun reads a Local Files folder (M46.51). */
+export type LocalFolderAccess = 
+/**  By its path: a desktop folder, or one chosen in Raygun's own folder browser (Android). */
+"path" | 
+/**  Through the grant of Android's system folder picker (SD cards, USB drives, cloud folders). */
+"tree" | 
+/**  Raygun's own folder of songs and videos added one by one (the copies it keeps). */
+"added";
 
 /**
  *  Android 17's local network permission, for one connection: reaching an addon on the user's
@@ -3106,6 +3492,18 @@ export type LocalScanProgress = {
 	done: number,
 	total: number,
 };
+
+/**  What Local Files' folder browser shows of the phone's storage (M46.51). */
+export type LocalStorageView = 
+/**  Every file: access to all files is allowed (or a desktop, where nothing is asked). */
+"allFiles" | 
+/**
+ *  Songs, videos and pictures only: the media permissions. Other apps' books and comic
+ *  archives (EPUB, CBZ, ZIP) stay hidden.
+ */
+"media" | 
+/**  Nothing until media access is allowed. */
+"none";
 
 /**  One timed line of synced lyrics. */
 export type LyricLine = {
@@ -3264,7 +3662,10 @@ export type MangaCard = {
 	inLibrary: boolean,
 	/**  The source marks it adult: the UI marks it 18+. */
 	adult?: boolean,
-	/**  Found by matching the source's listings, not by its search (which found little). */
+	/**
+	 *  Found by matching the source's listings, not by its search (which failed or found
+	 *  nothing).
+	 */
 	fromListing?: boolean,
 };
 
@@ -3306,6 +3707,8 @@ export type MangaDownloadItem = {
 	titleId: string,
 	title: string,
 	chapter: string,
+	/**  The title's medium: `manga` or `novel` (novel chapters share the queue). */
+	medium: string,
 	download: ChapterDownload,
 };
 
@@ -3812,8 +4215,12 @@ export type NovelReaderPrefs = {
 	paged: boolean,
 	/**  Reading-aloud speed in tenths, 5–20 (0.5×–2×). */
 	ttsRate?: number,
-	/**  The first line of each paragraph starts further in, as in printed books (M46.10). */
-	indent?: boolean,
+	/**
+	 *  How far the first line of each paragraph starts in, as in printed books (M46.10), in
+	 *  tenths of an em (the text's size), within [`NOVEL_INDENTS`]; 0 = none. Older versions
+	 *  stored a switch, which loading settings reads as [`NOVEL_INDENT_SWITCHED_ON`] when on.
+	 */
+	indent?: number,
 	theme?: NovelTheme,
 	/**  Lines run to both edges, words hyphenated. */
 	justify?: boolean,
@@ -3841,8 +4248,29 @@ export type OnlineTrack = {
 	explicit?: boolean,
 };
 
-/**  A notification was tapped: the screen it opens (`/downloads?tab=music`, or `player`). */
+/**
+ *  A screen to open: a tapped notification's (`/downloads?tab=music`, or `player`), or the one
+ *  for what another app handed over (`player`, a search, `import?link=` for a Spotify link).
+ */
 export type OpenRouteEvent = string;
+
+/**  Something another app opened with Raygun or shared to it didn't play (`open_with`). */
+export type OpenWithEvent = OpenWithProblem;
+
+/**  Something another app opened with Raygun or shared to it that didn't play. */
+export type OpenWithProblem = {
+	kind: OpenWithProblemKind,
+	/**  The file's name, or the address when it has none. */
+	name: string,
+};
+
+export type OpenWithProblemKind = 
+/**  Not a video, a song or a playlist. */
+"unsupported" | 
+/**  It couldn't be read: gone, too large, or Raygun wasn't given access. */
+"unreadable" | 
+/**  A playlist with nothing in it that plays. */
+"emptyPlaylist";
 
 /**  A page of the manga reader, by its proxy URL. */
 export type PageRef = {
@@ -3874,6 +4302,11 @@ export type PanelPrefs = {
 	playerSplit?: number,
 	/**  Songs the side panel's "Next in queue" card shows, 1 to 10 (M46.24). */
 	nextUpRows?: number,
+	/**
+	 *  The desktop rail's tabs above quick access, 44 to 2000 px; shorter than its tabs, they
+	 *  scroll. 0: as tall as they are.
+	 */
+	railNavHeight?: number,
 };
 
 /**  A permission Raygun uses on this device. */
@@ -3882,10 +4315,15 @@ export type PermissionKind =
 "notifications" | 
 /**  Running in the background without Android's battery limits. */
 "battery" | 
-/**  Reading the phone's songs and videos (Local Files, the device's music). */
+/**  Reading the phone's songs, videos and pictures (Local Files, the device's music). */
 "media" | 
 /**  Folders picked in the system's folder picker. */
 "folders" | 
+/**
+ *  Optional (Android 11+): reading every file in shared storage, so Local Files' folders
+ *  show other apps' books and comic archives (EPUB, CBZ, ZIP) too (M46.51).
+ */
+"allFiles" | 
 /**  Android 17's local network access. */
 "localNetwork" | 
 /**  Installing Raygun's own updates. */
@@ -3980,6 +4418,16 @@ export type PlaybackState = {
 	sleepAt: number | null,
 	/**  The sleep timer pauses when the current song ends (M46.8). */
 	stopAfterCurrent: boolean,
+	/**
+	 *  What the current song had to play didn't (its stream stopped working, or none was found
+	 *  at first): another source is being looked for, and the player says so meanwhile.
+	 */
+	lookingForSource?: boolean,
+	/**
+	 *  The queue item skipped last because nothing played it, kept with `error` until a song
+	 *  plays: the skip notice offers to find a source for it.
+	 */
+	skippedItemId?: string | null,
 };
 
 /**  The canonical player state changed. */
@@ -4179,6 +4627,11 @@ export type ProviderSearchResult_Deserialize = {
 	provider: ProviderInfo_Deserialize,
 	tracks: OnlineTrack[],
 	error: string | null,
+	/**
+	 *  Its search failed or found nothing: these songs were found in its charts instead
+	 *  (`Settings::search_listings`).
+	 */
+	fromListings?: boolean,
 };
 
 /**  One provider's answer to an online search. */
@@ -4186,6 +4639,11 @@ export type ProviderSearchResult_Serialize = {
 	provider: ProviderInfo_Serialize,
 	tracks: OnlineTrack[],
 	error: string | null,
+	/**
+	 *  Its search failed or found nothing: these songs were found in its charts instead
+	 *  (`Settings::search_listings`).
+	 */
+	fromListings: boolean,
 };
 
 /**  The queue changed. */
@@ -4232,11 +4690,78 @@ export type QueueSnapshot = {
 	context?: PlayContext | null,
 };
 
-export type RailOrder = "custom" | 
-/**  The last time something was played from it. */
+/**
+ *  What quick access lists changed (`quick_access`); carries the page that changed (its route),
+ *  or an empty string.
+ */
+export type QuickAccessChangedEvent = string;
+
+/**  One row of quick access: a page of the audio library, or a pinned page. */
+export type QuickAccessItem = {
+	/**  As `RailPin::kind`. */
+	kind: string,
+	to: string,
+	search: { [key in string]: string },
+	/**  Its name now: Favorites', Downloaded's and Local files' as the UI gave them. */
+	name: string,
+	/**  A show's or book's author, an album's artist. */
+	subtitle: string | null,
+	artworkUrl: string | null,
+	/**  A playlist's cover made of its first songs' artwork (`artwork_url` is a picked one). */
+	artworkUrls: string[],
+	pinned: boolean,
+	/**  The audio library lists it: unpinned, it stays. */
+	library: boolean,
+	/**
+	 *  In the library and taken out with Remove from library: a playlist, a followed artist, a
+	 *  followed show, a book. The fixed blocks and the device's own albums and artists aren't.
+	 */
+	removable: boolean,
+	/**  Unix seconds; 0 when unknown. */
+	addedAt: number,
+	/**  When it was last played from (unix seconds); 0 when never. */
+	playedAt: number,
+};
+
+/**  Quick access as shown: the pins first (when they stay on top), then the rest in order. */
+export type QuickAccessList = {
+	items: QuickAccessItem[],
+	/**  Audio items left out past `RailPrefs::shown`. */
+	more: number,
+};
+
+/**  The fixed blocks' names in the UI's language, for sorting by name. */
+export type QuickAccessNames = {
+	favorites: string,
+	downloaded: string,
+	localFiles: string,
+};
+
+/**  The parts of the audio library quick access lists; pinned ones show whatever these say. */
+export type RailKinds = {
+	favorites?: boolean,
+	downloaded?: boolean,
+	localFiles?: boolean,
+	playlists?: boolean,
+	/**  The albums of the device's own songs (Library → Audio → Albums). */
+	albums?: boolean,
+	/**  Followed artists and the artists of the device's own songs. */
+	artists?: boolean,
+	podcasts?: boolean,
+	audiobooks?: boolean,
+};
+
+export type RailOrder = 
+/**
+ *  The last time something was played from it; what never was after, newest added first.
+ *  Older versions' custom order and Recently opened are read as this
+ *  (`quick_access::migrate_row`).
+ */
 "played" | 
-/**  The last time its page was opened. */
-"opened";
+/**  When it was added to the library (or pinned), newest first. */
+"added" | 
+/**  By name. */
+"name";
 
 export type RailPin = {
 	/**
@@ -4252,6 +4777,7 @@ export type RailPin = {
 	artworkUrl: string | null,
 	/**  Unix seconds; 0 when never. */
 	pinnedAt: number,
+	/**  Older versions' stamps (now `RailPrefs::played`), kept for them. */
 	playedAt: number,
 	openedAt: number,
 	/**
@@ -4261,22 +4787,46 @@ export type RailPin = {
 	auto?: boolean,
 };
 
+/**  When a page was last played from (unix seconds). */
+export type RailPlayed = {
+	to: string,
+	search: { [key in string]: string },
+	at: number,
+};
+
 /**
- *  The desktop sidebar's pins (M46.29): anything with a page, in the user's order or by when it
- *  was last played from or opened. Quick access (M46.41): what's added to the library is pinned
- *  too, up to `limit` automatic pins.
+ *  Quick access: the desktop sidebar's list (M46.29) and the phone's drawer. The audio library
+ *  lists itself (the fixed blocks, playlists, albums, artists, shows and books), the most recently
+ *  played from first, at most `shown` of them; pins stay on top in the user's order and always
+ *  show. Comics, books, videos and sites show while pinned: by hand, or when added to the library
+ *  (M46.41, `auto_add`, up to `limit`).
  */
 export type RailPrefs = {
+	/**  Pinned pages, in the user's order. */
 	pins: RailPin[],
+	/**  How the rest is sorted, and the pins too when they don't stay on top. */
 	order: RailOrder,
-	/**  The first run's pins were added (Favorites, Downloaded, Local files and the playlists). */
+	/**  Older versions: the first run's pins were added. Unused since `version` 2. */
 	seeded: boolean,
-	/**  Pin what's added to the library (M46.41). */
+	/**  Comics, books, videos and sites added to the library are pinned too (M46.41). */
 	autoAdd?: boolean,
-	/**  Automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay. */
+	/**  Those automatic pins kept at most, 1–1000; the oldest go first. Pins made by hand stay. */
 	limit?: number,
 	/**  The phone's quick access drawer shows names beside the pins; off, icons only. */
 	drawerExpanded?: boolean,
+	/**  Audio items listed at most, 10–1000, the most recent ones; pins don't count. */
+	shown?: number,
+	/**  Which parts of the audio library are listed. */
+	kinds?: RailKinds,
+	/**  Pins stay on top in their own order; off, they're sorted with the rest (and still show). */
+	pinnedFirst?: boolean,
+	/**
+	 *  When pages were last played from, newest first. Kept by Rust (`quick_access::played`):
+	 *  what the UI sends back is replaced by what's stored.
+	 */
+	played?: RailPlayed[],
+	/**  The shape it was saved in: 0 for rows of versions that pinned the audio library by hand. */
+	version?: number,
 };
 
 /**  How a title is read (M27). */
@@ -4298,6 +4848,18 @@ export type RecentSearch = {
 	kind: string,
 	/**  Unix ms. */
 	searchedAt: number | null,
+};
+
+/**
+ *  Songs wait to be recorded as they play: the shell explains it and asks to allow recording
+ *  (`song_recording_consent`, or `song_recording_decline`).
+ */
+export type RecordingConsentEvent = RecordingConsentRequest;
+
+/**  Songs wait to be recorded as they play: the person is asked to allow recording. */
+export type RecordingConsentRequest = {
+	/**  How many songs wait. */
+	songs: number,
 };
 
 /**  A release's kind (M46.36), as MusicBrainz and Deezer name them. */
@@ -4431,6 +4993,19 @@ export type SearchFilterPrefs = {
 	noExplicit?: boolean,
 };
 
+/**
+ *  A source whose own search fails or finds nothing for what was typed is looked through instead
+ *  (`raygun_ext_host::listing_search`): its listings (popular, latest, its sort filters; a music
+ *  source's charts) are read page by page and matched against the query. On by default.
+ */
+export type SearchListingsPrefs = {
+	enabled?: boolean,
+	/**  Matches collected at most from one source's listings. */
+	entries?: number,
+	/**  Listing pages read at most from one source, all its listings together. */
+	pages?: number,
+};
+
 /**  What one source answered, by kind of search. */
 export type SearchPart = SearchPart_Serialize | SearchPart_Deserialize;
 
@@ -4535,7 +5110,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -4633,9 +5208,16 @@ export type Settings = {
 	windowFrame: WindowFrame,
 	/**
 	 *  Interface size in percent of the size the screen gives (M46.48): 50 to 200. The desktop
-	 *  app zooms its window; phones scale their text and spacing.
+	 *  app zooms its window; phones scale their text, spacing and icons.
 	 */
 	zoom: number,
+	/**
+	 *  Text size in percent more or less than the screen's own ([`TEXT_SIZES`]), over the
+	 *  interface size: text alone grows or shrinks, boxes and icons stay.
+	 */
+	textSize?: number,
+	/**  The device's own fonts for the interface and the book reader (device-only). */
+	fonts?: FontPrefs,
 	/**  Charts and song tags (M46.9). */
 	discovery: DiscoveryPrefs,
 	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
@@ -4657,6 +5239,11 @@ export type Settings = {
 	browseStartTab?: string,
 	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
 	searchFilter: SearchFilterPrefs,
+	/**
+	 *  Sources whose search fails or finds nothing are looked through instead: their listings
+	 *  are matched against the query (on, 20 matches, 5 pages by default).
+	 */
+	searchListings: SearchListingsPrefs,
 	/**
 	 *  Sources that meet a browser check offer to open their site so it can be passed by hand
 	 *  (experimental, off by default; `raygun_ext_host::browser_check`).
@@ -4883,6 +5470,37 @@ export type SongEdit = {
 	lyrics?: EditedLyrics | null,
 };
 
+/**
+ *  A song for the webview to play aloud in its recording player (Android), or (no `video_id`)
+ *  to stop it; it reports with `song_recording_report`.
+ */
+export type SongRecordingEvent = SongRecordingRequest;
+
+/**  What the recording's player in the webview did. */
+export type SongRecordingReport = {
+	session: string,
+	event: EngineEvent,
+};
+
+/**
+ *  A song recorded as it plays (Android): nothing gives a file of it and only YouTube's player
+ *  plays it, so the webview plays it aloud in a player of its own while Raygun's own sound is
+ *  recorded. The webview reports the player with `song_recording_report`. A request without a
+ *  `video_id` stops that player.
+ */
+export type SongRecordingRequest = {
+	session: string,
+	/**  The song download it's for, for Cancel. */
+	downloadId: string,
+	title: string,
+	artist: string | null,
+	videoId: string | null,
+	/**  Where it plays from. */
+	startMs: number | null,
+	/**  The YouTube embed host page. */
+	embedUrl: string,
+};
+
 /**  What saving songs as files did (M46.10). */
 export type SongsSaved = {
 	/**  Where each file went, as the user sees it. */
@@ -4980,6 +5598,11 @@ export type SourceSearchResult_Deserialize = {
 	items: MangaCard[],
 	hasNextPage: boolean,
 	error: string | null,
+	/**
+	 *  Its search failed or found nothing: these titles were found in its listings instead
+	 *  (`Settings::search_listings`), each marked `from_listing`.
+	 */
+	fromListings?: boolean,
 };
 
 /**  One source's first page of results in a search across sources. */
@@ -4988,6 +5611,11 @@ export type SourceSearchResult_Serialize = {
 	items: MangaCard[],
 	hasNextPage: boolean,
 	error: string | null,
+	/**
+	 *  Its search failed or found nothing: these titles were found in its listings instead
+	 *  (`Settings::search_listings`), each marked `from_listing`.
+	 */
+	fromListings: boolean,
 };
 
 /**  What the webview's speech engine does on desktop (M46.6). */
@@ -5308,6 +5936,14 @@ export type SubtitleMode =
 /**  Only when turned on in the player. */
 "never";
 
+/**
+ *  What a video's subtitles are translated from: the lines of a subtitle track as the player
+ *  shows them, or the video's AI subtitles, followed while they're being made.
+ */
+export type SubtitleSource = { kind: "cues"; 
+/**  The track's name and language, as the player lists it. */
+label: string | null; language: string | null; cues: Caption[] } | { kind: "ai" };
+
 /**  How subtitles look in the video player (M45). */
 export type SubtitleStyle = {
 	/**  Percent of the normal size, 50–200. */
@@ -5325,6 +5961,56 @@ export type SubtitleStyle = {
 	position?: number,
 	/**  Ignores the colours, fonts and positions a subtitle file sets itself. */
 	ignoreEmbedded?: boolean,
+};
+
+/**  A request to translate a video's subtitles as it plays. */
+export type SubtitleTranslateRequest = {
+	/**  The video's progress key. */
+	key: string,
+	source: SubtitleSource,
+	/**  The language to translate into, a BCP 47 tag. */
+	language: string,
+	/**  `device` (models from the AI catalogue) or `ai:<provider id>`. */
+	translator: string,
+	/**  Where the viewer is: translating starts there and keeps ahead of them. */
+	fromMs: number,
+	/**  This device's models may be downloaded first (asked with `download_bytes` before). */
+	download: boolean,
+};
+
+/**  A video's translated subtitles, and where translating them stands. */
+export type SubtitleTranslation = {
+	/**  The video's progress key. */
+	key: string,
+	/**  The track's id: its source (`ai`, or a hash of the source's lines) and its language. */
+	id: string,
+	language: string,
+	translator: string,
+	/**  The AI provider's name; empty for this device. */
+	by: string,
+	/**  The translated track's name and language, when it had them. */
+	sourceLabel: string | null,
+	sourceLanguage: string | null,
+	/**  The lines translated so far, timed as the source's. */
+	cues: Caption[],
+	/**  Lines with words translated, out of all of them. */
+	done: number,
+	total: number,
+	/**  How far past the viewer the lines are translated; `None` once they are to the end. */
+	aheadMs: number | null,
+	/**
+	 *  Until when, from the viewer's place, the lines are translated (`ahead_ms` from where
+	 *  the viewer was last reported), so a player can say it as the video moves on.
+	 */
+	readyUntilMs: number | null,
+	/**  Every line is translated (AI subtitles: once they're complete too). */
+	complete: boolean,
+	running: boolean,
+	/**  Downloading this device's models first: how much is in, in percent. */
+	downloading: number | null,
+	error: string | null,
+	/**  What this device would download first, in bytes, before `download` is set; else 0. */
+	downloadBytes: number | null,
 };
 
 /**  A well-known repository the Repositories tab offers to add with one tap (M36). */
@@ -5383,6 +6069,27 @@ export type SyncStatus = {
 	peers: SyncPeerInfo[],
 	log: SyncSessionInfo[],
 	error: string | null,
+};
+
+/**  A font family installed on the device, for the font pickers. */
+export type SystemFont = {
+	/**  The family's name, as `font-family` names it. */
+	family: string,
+	/**
+	 *  The files the webview loads with `@font-face`, where it can't find installed families by
+	 *  name (Android); empty where it can (desktop).
+	 */
+	faces: SystemFontFace[],
+};
+
+/**  One file of a [`SystemFont`]. */
+export type SystemFontFace = {
+	/**  The file through the stream proxy's `/font/` route. */
+	url: string,
+	/**  The weights it draws: one for a fixed face, a range for a variable one. */
+	weightMin: number,
+	weightMax: number,
+	italic: boolean,
 };
 
 /**  How much the system lets things move. */
@@ -5628,6 +6335,12 @@ export type TtsUpdate = {
 	state: TtsState,
 	paragraph: number,
 };
+
+/**
+ *  Playback found no source for a song, or found one for it again: its unavailable mark and
+ *  saved copies changed; carries the song's title.
+ */
+export type UnavailableEvent = string;
 
 /**  A library title an update couldn't check. */
 export type UpdateFailure = {
@@ -5894,6 +6607,12 @@ export type VideoSubtitle = {
 	/**  `srt`, `vtt`, `ass` or `ttml`; guessed from the URL when missing. */
 	format: string | null,
 };
+
+/**
+ *  A video's translated subtitles changed: lines were translated, or translating started,
+ *  stopped or failed; carries the video's progress key.
+ */
+export type VideoSubtitlesEvent = string;
 
 /**  A video source's title page. */
 export type VideoTitleView = {

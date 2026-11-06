@@ -29,6 +29,7 @@ mod export;
 mod extension_installs;
 mod extensions;
 mod follows;
+mod fonts;
 mod genres;
 mod hidden;
 mod history;
@@ -50,6 +51,7 @@ mod music_downloads;
 mod network;
 mod notifications;
 mod novel;
+mod open_with;
 mod permissions;
 mod picker;
 mod playback;
@@ -62,7 +64,6 @@ mod remote;
 mod resolution;
 mod resolver;
 mod search;
-mod search_fallback;
 mod search_filter;
 mod servers;
 mod settings;
@@ -82,6 +83,7 @@ mod video_library;
 mod video_quality;
 mod video_session;
 mod video_sources;
+mod video_subtitles;
 mod website_downloads;
 mod websites;
 mod ytdlp;
@@ -101,11 +103,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::settings_update,
             commands::settings_update_many,
             commands::settings_defaults,
+            commands::fonts_list,
             commands::recent_contexts,
             commands::recent_contexts_add,
             commands::playback_get_state,
             commands::playback_get_queue,
             commands::playback_arm_context,
+            commands::quick_access_list,
             commands::playback_set_video,
             commands::playback_enqueue,
             commands::playback_queue_tracks,
@@ -215,6 +219,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::cover_fallback,
             commands::local_folders,
             commands::local_folder_add,
+            commands::local_folder_add_path,
+            commands::local_files_browse,
+            commands::local_files_add_files,
             commands::local_folder_remove,
             commands::local_folders_rescan,
             commands::local_files_allow_access,
@@ -236,6 +243,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::captions_clear,
             commands::captions_video_transcribe,
             commands::captions_video_make,
+            commands::video_subtitles_translate,
+            commands::video_subtitles_translations,
+            commands::video_subtitles_stop,
+            commands::video_subtitles_translators,
             commands::spoken_item,
             commands::music_track_tags,
             commands::music_tags_for,
@@ -272,6 +283,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::song_downloads_check,
             commands::song_downloads_redownload,
             commands::song_capture_report,
+            commands::song_recording_report,
+            commands::song_recording_consent,
+            commands::song_recording_decline,
+            commands::song_download_cancel_recording,
             commands::songs_save,
             commands::song_downloaded_keys,
             commands::favorite_get,
@@ -340,6 +355,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::manga_set_in_library,
             commands::manga_library,
             commands::manga_chapter,
+            commands::manga_chapters,
             commands::manga_set_progress,
             commands::manga_set_read,
             commands::manga_set_reader_mode,
@@ -350,11 +366,17 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::manga_download,
             commands::manga_remove_downloads,
             commands::manga_set_downloads_paused,
+            commands::backup_destinations,
+            commands::backup_pick_folder,
+            commands::backup_forget_folder,
             commands::backup_create,
-            commands::backup_list,
+            commands::backup_scan,
             commands::backup_restore,
             commands::backup_delete,
             commands::backup_import,
+            commands::data_usage,
+            commands::data_clear,
+            commands::data_erase_everything,
             commands::novel_sources,
             commands::novel_browse,
             commands::novel_title,
@@ -420,6 +442,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library_add_titles,
             commands::library_download_titles,
             commands::library_continue,
+            commands::library_downloaded,
             commands::library_duplicates,
             commands::library_migrate,
             commands::library_set_category_display,
@@ -553,6 +576,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::SongDownloadsEvent,
             events::SongDownloadProgressEvent,
             events::SongCaptureEvent,
+            events::SongRecordingEvent,
+            events::RecordingConsentEvent,
             events::YtDlpEvent,
             events::WebsiteDownloadsEvent,
             events::AppUpdateEvent,
@@ -563,16 +588,20 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::TrackDurationsEvent,
             events::LocalFilesEvent,
             events::ImportEvent,
+            events::UnavailableEvent,
             events::CaptionsEvent,
             events::LyricsTranscribedEvent,
             events::LyricsTranslationEvent,
+            events::VideoSubtitlesEvent,
             events::ArtistReleasesEvent,
             events::SettingsChangedEvent,
+            events::QuickAccessChangedEvent,
             events::IncognitoEvent,
             events::ExportEvent,
             events::VideoPlayerEvent,
             events::CastStatusEvent,
             events::YouTubeVideoEvent,
+            events::OpenWithEvent,
             events::SpeechCommandEvent,
             events::ConnectEvent,
             events::ConnectRequestEvent
@@ -594,15 +623,17 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
     let specta = specta_builder();
     let builder = tauri::Builder::default();
     // One running copy on desktop (M46.11): opening Raygun again brings its window forward, since
-    // two copies would write to one database. The plugin must come first.
+    // two copies would write to one database. The plugin must come first. Files the second copy
+    // was started with ("Open with", a file dropped on Raygun.exe) play in this one.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
         }
+        open_with::from_args(app, &args, std::path::Path::new(&cwd));
     }));
     builder
         .plugin(tauri_plugin_raygun_audio::init())

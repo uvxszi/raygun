@@ -9,6 +9,30 @@ import android.util.Log
  * background.
  */
 object NativeBridge {
+    /** Hands Rust this class, for [call]: once, when the plugin loads. */
+    @JvmStatic
+    external fun onAttach()
+
+    /**
+     * Rust's line to the plugin's commands that work without a window (see [DirectCalls]):
+     * `ok:<JSON>` or `error:<message>`. Called on Rust's threads.
+     */
+    @JvmStatic
+    fun call(command: String, args: String): String =
+        try {
+            DirectCalls.run(command, args)
+        } catch (error: Throwable) {
+            "error:${error.message ?: error.javaClass.simpleName}"
+        }
+
+    fun attach() {
+        try {
+            onAttach()
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     @JvmStatic
     external fun onEngineEvent(json: String)
 
@@ -47,6 +71,18 @@ object NativeBridge {
     /** A tapped notification's screen (`player`, `/downloads?tab=music`). */
     @JvmStatic
     external fun onOpen(route: String)
+
+    /** What another app opened with Raygun or shared to it (see [OpenWith]). */
+    @JvmStatic
+    external fun onOpenWith(json: String)
+
+    fun openWith(json: String) {
+        try {
+            onOpenWith(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
 
     fun notificationAction(json: String) {
         try {

@@ -219,7 +219,7 @@ describe('Song tables', () => {
     await screen.findByTestId('track-table');
     const rows = screen.getAllByTestId('track-table-row');
 
-    await user.click(rows[0] as HTMLElement);
+    await user.click(screen.getByRole('checkbox', { name: 'Select Bravo' }));
     await user.keyboard('{Shift>}');
     await user.click(rows[2] as HTMLElement);
     await user.keyboard('{/Shift}');
@@ -234,6 +234,113 @@ describe('Song tables', () => {
         expect.objectContaining({ title: 'Charlie' }),
       ],
       true,
+    );
+  });
+
+  it('picks songs by their covers; a plain click elsewhere on a row picks nothing', async () => {
+    setWide();
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/library?view=favorites');
+    await screen.findByTestId('track-table');
+    const rows = () => screen.getAllByTestId('track-table-row');
+    const selection = () => screen.queryByRole('toolbar', { name: 'Selected songs' });
+
+    // A click on the row or its title doesn't pick it.
+    await user.click(rows()[0] as HTMLElement);
+    await user.click(within(rows()[1] as HTMLElement).getByRole('button', { name: 'Alpha' }));
+    expect(selection()).not.toBeInTheDocument();
+    expect(rows()[0]).toHaveAttribute('aria-selected', 'false');
+
+    // Covers put songs in and take them out, keeping the rest.
+    const bravo = screen.getByRole('checkbox', { name: 'Select Bravo' });
+    await user.click(bravo);
+    await user.click(screen.getByRole('checkbox', { name: 'Select Charlie' }));
+    expect(selection()).toHaveTextContent('2 songs selected');
+    expect(bravo).toHaveAttribute('aria-checked', 'true');
+    await user.click(bravo);
+    expect(selection()).toHaveTextContent('1 song selected');
+    expect(bravo).toHaveAttribute('aria-checked', 'false');
+
+    // With a selection, a plain click on a row still leaves it; Ctrl picks on the whole row.
+    await user.click(rows()[1] as HTMLElement);
+    expect(selection()).toHaveTextContent('1 song selected');
+    await user.keyboard('{Control>}');
+    await user.click(rows()[1] as HTMLElement);
+    await user.keyboard('{/Control}');
+    expect(selection()).toHaveTextContent('2 songs selected');
+    expect(rows()[1]).toHaveAttribute('aria-selected', 'true');
+
+    // A double click plays the row and leaves the selection as it is.
+    await user.dblClick(rows()[0] as HTMLElement);
+    await waitFor(() =>
+      expect(commands.collectionPlay).toHaveBeenLastCalledWith(
+        expect.objectContaining({ collection: { kind: 'favorites' }, startIndex: 0 }),
+      ),
+    );
+    expect(selection()).toHaveTextContent('2 songs selected');
+  });
+
+  it('picks from the keyboard with the cover’s box, without playing', async () => {
+    setWide();
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/library?view=favorites');
+    await screen.findByTestId('track-table');
+
+    const plays = commands.collectionPlay.mock.calls.length;
+    const alpha = screen.getByRole('checkbox', { name: 'Select Alpha' });
+    alpha.focus();
+    await user.keyboard(' ');
+    expect(alpha).toHaveAttribute('aria-checked', 'true');
+    await user.keyboard('{Enter}');
+    expect(alpha).toHaveAttribute('aria-checked', 'false');
+    expect(commands.collectionPlay).toHaveBeenCalledTimes(plays);
+
+    // The compact view has no covers: a box stands in for them.
+    await user.click(screen.getByRole('button', { name: /^Sort and view/ }));
+    const menu = await screen.findByRole('dialog', { name: 'Sort by' });
+    await user.click(within(menu).getByRole('radio', { name: 'Compact' }));
+    await user.keyboard('{Escape}');
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Charlie' }));
+    expect(screen.getByRole('toolbar', { name: 'Selected songs' })).toHaveTextContent(
+      '1 song selected',
+    );
+  });
+
+  it('plays on a tap on a touch screen, even with songs picked, and covers pick', async () => {
+    // A phone: a finger, and a narrow window.
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('coarse'),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/library?view=favorites');
+    const rows = await screen.findAllByTestId('track-table-row');
+    const plays = commands.collectionPlay.mock.calls.length;
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select Bravo' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Charlie' }));
+    expect(screen.getByRole('toolbar', { name: 'Selected songs' })).toHaveTextContent(
+      '2 songs selected',
+    );
+    expect(commands.collectionPlay).toHaveBeenCalledTimes(plays);
+
+    // A tap on the rest of a row plays it; the selection stays.
+    await user.click(within(rows[1] as HTMLElement).getByText('Mia'));
+    await waitFor(() =>
+      expect(commands.collectionPlay).toHaveBeenCalledWith(
+        expect.objectContaining({ collection: { kind: 'favorites' }, startIndex: 1 }),
+      ),
+    );
+    expect(rows[1]).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('toolbar', { name: 'Selected songs' })).toHaveTextContent(
+      '2 songs selected',
+    );
+    // A cover tapped again takes its song out.
+    await user.click(screen.getByRole('checkbox', { name: 'Select Bravo' }));
+    expect(screen.getByRole('toolbar', { name: 'Selected songs' })).toHaveTextContent(
+      '1 song selected',
     );
   });
 });
