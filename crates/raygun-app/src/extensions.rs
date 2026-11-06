@@ -872,6 +872,11 @@ impl ExtensionService {
                 found.ok_or(error)?
             }
         };
+        let repos = self.repos().await?;
+        // A project's page read at `HEAD` is the branch an added address may name: no second copy.
+        if repos.iter().any(|repo| same_repo(&repo.url, url.as_str())) {
+            return Ok(repos);
+        }
         store::add_repo(self.db(), url.as_str(), &repo_name(&index, url.as_str()))
             .await
             .map_err(|error| error.to_string())?;
@@ -910,7 +915,7 @@ impl ExtensionService {
         Ok(SUGGESTED_REPOS
             .iter()
             .map(|(url, name, description)| SuggestedRepo {
-                added: repos.iter().any(|repo| same_url(&repo.url, url)),
+                added: repos.iter().any(|repo| same_repo(&repo.url, url)),
                 url: (*url).to_owned(),
                 name: (*name).to_owned(),
                 description: (*description).to_owned(),
@@ -954,7 +959,7 @@ impl ExtensionService {
             .await
             .unwrap_or_default()
             .iter()
-            .any(|repo| same_url(&repo.url, &wanted))
+            .any(|repo| same_repo(&repo.url, &wanted))
     }
 
     /// How the catalogue shows an extension found on its own, marked against this device's.
@@ -1823,6 +1828,33 @@ fn same_url(a: &str, b: &str) -> bool {
         .eq_ignore_ascii_case(b.trim().trim_end_matches('/'))
 }
 
+/// A GitHub file's address as owner, project, branch and path within the project.
+fn github_file(url: &str) -> Option<(&str, &str, &str, &str)> {
+    let rest = url
+        .trim()
+        .strip_prefix("https://raw.githubusercontent.com/")?
+        .trim_end_matches('/');
+    let mut parts = rest.splitn(4, '/');
+    Some((parts.next()?, parts.next()?, parts.next()?, parts.next()?))
+}
+
+/// Whether two addresses are one repository's index: the same address, or the same file of a
+/// GitHub project where one names the default branch as `HEAD` (as a project's page is read).
+fn same_repo(a: &str, b: &str) -> bool {
+    if same_url(a, b) {
+        return true;
+    }
+    match (github_file(a), github_file(b)) {
+        (Some((owner, project, branch, path)), Some((owner_b, project_b, branch_b, path_b))) => {
+            owner.eq_ignore_ascii_case(owner_b)
+                && project.eq_ignore_ascii_case(project_b)
+                && path == path_b
+                && (branch == branch_b || branch == "HEAD" || branch_b == "HEAD")
+        }
+        _ => false,
+    }
+}
+
 /// Where an installed extension's icon address is kept.
 fn icon_key(extension_id: &str) -> String {
     format!("extension.icon.{extension_id}")
@@ -2260,6 +2292,24 @@ mod tests {
         assert!(!same_url(
             "https://a.example/index.json",
             "https://b.example/index.json"
+        ));
+        // A project's page is read at HEAD: the branch an added address names.
+        let added = "https://raw.githubusercontent.com/uvxszi/paraline-raygun/main/index.json";
+        assert!(same_repo(
+            added,
+            "https://raw.githubusercontent.com/uvxszi/Paraline-Raygun/HEAD/index.json"
+        ));
+        assert!(!same_repo(
+            added,
+            "https://raw.githubusercontent.com/uvxszi/paraline-raygun/dev/index.json"
+        ));
+        assert!(!same_repo(
+            added,
+            "https://raw.githubusercontent.com/uvxszi/paraline-raygun/HEAD/novels/index.json"
+        ));
+        assert!(!same_repo(
+            added,
+            "https://raw.githubusercontent.com/someone/paraline-raygun/HEAD/index.json"
         ));
         assert!(
             SUGGESTED_REPOS

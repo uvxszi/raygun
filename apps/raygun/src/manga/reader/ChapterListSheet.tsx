@@ -7,6 +7,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../../lib/commandResult';
+import { afterLayersClose } from '../../shell/backLayers';
 import { Sheet } from '../../shell/Sheet';
 import { SourceIssue } from '../../shell/SourceIssue';
 import { ChapterOrderButton } from '../ChapterOrderButton';
@@ -81,7 +82,13 @@ export const ChapterListSheet: FC<{
                   type="button"
                   aria-current={current ? 'true' : undefined}
                   data-testid="reader-chapter"
-                  onClick={() => (current ? onClose() : onPick(chapter.id))}
+                  onClick={() => {
+                    onClose();
+                    // The chapter takes the reader's place once the list's history entry is
+                    // gone: put in that entry's place, it would leave the chapter read before
+                    // under it, where Back and Close would go.
+                    if (!current) afterLayersClose(() => onPick(chapter.id));
+                  }}
                   className={`hover:bg-background flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left text-sm ${
                     current ? 'bg-primary/15 text-primary font-semibold' : ''
                   } ${chapter.read && !current ? 'text-muted' : ''}`}

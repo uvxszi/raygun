@@ -47,6 +47,22 @@ const OTHER_SOURCES: usize = 6;
 pub const YOUTUBE_STREAMS: &str = "dev.raygun.youtube/stream";
 const YOUTUBE_AUDIO: &str = "audio:";
 
+/// What "via …" says for a provider no installed extension lists: YouTube's embed (no YouTube
+/// extension installed), or a remembered pick of an extension removed since. Its extension's own
+/// name, from the last part of its id (`dev.raygun.audius/stream` → `Audius`).
+fn unlisted_provider_name(provider_id: &str) -> String {
+    if provider_id == YOUTUBE_STREAMS {
+        return "YouTube".to_owned();
+    }
+    let extension = provider_id.split('/').next().unwrap_or(provider_id);
+    let last = extension.rsplit('.').next().unwrap_or(extension);
+    let mut chars = last.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => provider_id.to_owned(),
+    }
+}
+
 /// The YouTube video a pick of YouTube's stream provider is, its audio file or its embed.
 pub fn youtube_video(key: &CandidateKey) -> Option<&str> {
     (key.provider_id == YOUTUBE_STREAMS).then(|| {
@@ -568,7 +584,10 @@ impl ResolverService {
             .into_iter()
             .flat_map(|extension| extension.providers)
             .find(|provider| provider.id == provider_id)
-            .map_or_else(|| provider_id.to_owned(), |provider| provider.name)
+            .map_or_else(
+                || unlisted_provider_name(provider_id),
+                |provider| provider.name,
+            )
     }
 
     /// The pick played: cache it and credit its provider.
@@ -719,6 +738,17 @@ mod tests {
             bitrate_kbps: None,
             source: None,
         }
+    }
+
+    #[test]
+    fn providers_no_extension_lists_get_readable_names() {
+        assert_eq!(unlisted_provider_name(YOUTUBE_STREAMS), "YouTube");
+        assert_eq!(unlisted_provider_name("dev.raygun.audius/stream"), "Audius");
+        assert_eq!(
+            unlisted_provider_name("community.paraline.openverse/search"),
+            "Openverse"
+        );
+        assert_eq!(unlisted_provider_name("local"), "Local");
     }
 
     #[test]

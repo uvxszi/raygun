@@ -179,6 +179,9 @@ export const PagedView: FC<PagedViewProps> = ({
       onPointerCancel={() => {
         swipe.current = null;
       }}
+      // Sideways finger moves are the reader's swipes: a browser pan would cancel the pointer
+      // before it lifts. A zoomed or full-size page pans both ways (and doesn't swipe).
+      style={{ touchAction: zoomed || scale === 'original' ? 'pan-x pan-y' : 'pan-y' }}
       className={`relative h-[100dvh] w-full select-none [-webkit-touch-callout:none] ${fitted ? 'flex items-center justify-center overflow-hidden' : 'grid overflow-auto [place-items:safe_center]'}`}
     >
       <ReaderImage

@@ -419,6 +419,17 @@ describe('The manga reader', () => {
     await vi.waitFor(() => expect(commands.readerSystemBars).toHaveBeenLastCalledWith(false));
   });
 
+  it('keeps sideways finger moves for its swipes', async () => {
+    withReader({ doubleTapZoom: false });
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    // A browser pan would cancel the finger's pointer before the swipe lifts.
+    expect(await within(reader).findByTestId('paged-reader')).toHaveStyle({
+      touchAction: 'pan-y',
+    });
+  });
+
   describe('custom tap zones', () => {
     const grid = (cells: Record<number, TapCell>) =>
       Array.from({ length: 9 }, (_, index) => cells[index] ?? 'menu') as unknown as NonNullable<

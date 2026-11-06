@@ -31,7 +31,9 @@ export const KindChips: FC<{
   kinds: ExtensionKind[];
   kind: ExtensionKind | null;
   onChange: (kind: ExtensionKind | null) => void;
-}> = ({ kinds, kind, onChange }) => {
+  /** A button follows the row (Installed's Select): the chips stop short of it, not under it. */
+  beforeButton?: boolean;
+}> = ({ kinds, kind, onChange, beforeButton = false }) => {
   const { t } = useTranslation();
   const row = useDragScroll<HTMLDivElement>();
   if (kinds.length < 2) return null;
@@ -40,7 +42,9 @@ export const KindChips: FC<{
       ref={row}
       role="group"
       aria-label={t('extensions.kindFilter')}
-      className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+      className={`-ml-4 flex gap-2 no-scrollbar overflow-x-auto pl-4 lg:ml-0 lg:pl-0 ${
+        beforeButton ? '' : '-mr-4 pr-4 lg:mr-0 lg:pr-0'
+      }`}
     >
       {kinds.map((option) => {
         const selected = kind === option;

@@ -67,7 +67,7 @@ export const InstalledTab: FC = () => {
       )}
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <KindChips kinds={kinds} kind={kind} onChange={setKind} />
+          <KindChips kinds={kinds} kind={kind} onChange={setKind} beforeButton={shown.length > 0} />
         </div>
         {shown.length > 0 && <SelectButton selection={selection} />}
       </div>

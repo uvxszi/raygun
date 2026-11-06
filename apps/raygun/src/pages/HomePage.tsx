@@ -466,8 +466,9 @@ const MadeForYouRow: FC<SectionProps> = ({ id }) => {
 const ContinueWatching: FC<SectionProps> = ({ id }) => {
   const { t } = useTranslation();
   const rowMenu = useHomeRowActions();
+  // Empty, the wrapper isn't laid out: Home's gap would leave a blank band at the top.
   return (
-    <div data-home-section={id}>
+    <div data-home-section={id} className="empty:hidden">
       <ContinueWatchingRow menu={() => rowMenu(id, t('watch.continue'))} />
     </div>
   );
@@ -478,7 +479,7 @@ const ContinueListeningSection: FC<SectionProps> = ({ id }) => {
   const { t } = useTranslation();
   const rowMenu = useHomeRowActions();
   return (
-    <div data-home-section={id}>
+    <div data-home-section={id} className="empty:hidden">
       <ContinueListening menu={() => rowMenu(id, t('podcasts.continueListening'))} />
     </div>
   );

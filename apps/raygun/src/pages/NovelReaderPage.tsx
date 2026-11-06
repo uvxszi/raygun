@@ -53,6 +53,7 @@ import {
 } from '../novel/useNovel';
 import { SizeField } from '../settings/prefs';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { useBackLayer } from '../shell/backLayers';
 import { SourceIssue } from '../shell/SourceIssue';
 
 /** Progress is saved this long after reading stops moving. */
@@ -824,6 +825,8 @@ export const NovelReaderPage: FC = () => {
   }, []);
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
+  // Back closes the text settings before it leaves the reader.
+  useBackLayer(chrome && panel, () => setPanel(false));
   /** The chapter list's button while the list is open. */
   const [chapterList, setChapterList] = useState<HTMLElement | null>(null);
   const [progress, setProgress] = useState({ fraction: 0, label: '' });
