@@ -858,6 +858,23 @@ fn class_definition(
             ));
         }
     }
+    // Each field's protobuf number and how its number is written (`@ProtoNumber`, `@ProtoType`).
+    let proto: Vec<String> = class
+        .params
+        .iter()
+        .filter_map(|param| {
+            let number = param
+                .annotations
+                .iter()
+                .find_map(|annotation| annotation.strip_prefix("ProtoNumber="))?;
+            let kind = param
+                .annotations
+                .iter()
+                .find_map(|annotation| annotation.strip_prefix("ProtoType="))
+                .map_or_else(|| "null".to_owned(), quote);
+            Some(format!("{}: [{number}, {kind}]", quote(&param.name)))
+        })
+        .collect();
     // Each field's type, for JSON decoded into the class (`List<ChapterDto>`), nested classes by
     // the names that tell them apart.
     let types: Vec<String> = class
@@ -1012,7 +1029,7 @@ fn class_definition(
         statics.push(format!("{}: {function}", quote(&fun.name)));
     }
     Ok(format!(
-        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}}, statics: {{{statics}}} }});",
+        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}}, statics: {{{statics}}} }});",
         extensions = extensions
             .iter()
             .map(|code| format!("{code} "))
@@ -1038,6 +1055,7 @@ fn class_definition(
             .join(", "),
         params = params.join(", "),
         types = types.join(", "),
+        proto = proto.join(", "),
         defaults = defaults.join(", "),
         supers = supers.join(", "),
         entries = entries.join(", "),
@@ -1230,8 +1248,12 @@ const PICTURE_CALLS: [&str; 7] = [
     "\"byteStream\"",
 ];
 
+/// Whether the source's client changes the pictures it fetches: it draws them, or an interceptor
+/// decrypts answers (`response.aesDecrypt(cipher)`).
 fn images_from_source(code: &str) -> bool {
     PICTURE_CALLS.iter().any(|call| code.contains(call))
+        || ((code.contains("\"aesDecrypt") || code.contains("\"cipherSource\""))
+            && code.contains("\"intercept\""))
 }
 
 /// Each member of the classes, their companions, the files and their classes (but the source

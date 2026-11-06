@@ -183,6 +183,9 @@ pub const METHODS: &[&str] = &[
     "setAntiAlias", "setFilterBitmap", "setDither", "setXfermode", "setColorFilter", "rgb",
     "argb", "alpha", "red", "green", "blue", "parseColor", "defaultFromStyle", "decode",
     "createUrl",
+    // Protobuf: Keiyoushi's readers and writers over kotlinx.serialization's
+    "parseAsProto", "decodeProto", "decodeProtoBase64", "toRequestBodyProto", "encodeProto",
+    "encodeProtoBase64", "aesDecryptWithPrependedIv", "cipherSource",
     // Bodies, streams, okio's `Buffer`, `ByteBuffer`
     "byteStream", "source", "byteString", "charStream", "contentLength", "asResponseBody",
     "write", "writeAll", "writeUtf8", "writeString", "writeByte", "writeShort", "writeShortLe",
@@ -261,6 +264,30 @@ pub struct Gen<'a> {
     pub imports: Vec<(String, String)>,
     /// Parameters that are functions with a receiver, by JavaScript name (`builder.params()`).
     receiver_params: HashSet<String>,
+    /// The type a decoder without a type argument decodes into: the declared type of what it
+    /// gives (`fun parse(): Dto = text.parseAs()`, `val dto: Dto = text.parseAs()`).
+    expected: Option<Type>,
+}
+
+/// Calls that decode into the type they're given.
+const DECODER_CALLS: [&str; 7] = [
+    "parseAs",
+    "decodeFromString",
+    "decodeFromJsonElement",
+    "parseAsProto",
+    "decodeProto",
+    "decodeProtoBase64",
+    "decodeFromByteArray",
+];
+
+/// Whether `expr` is a decoder called without a type argument (`text.parseAs()`).
+fn untyped_decoder(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Call { callee, type_args, .. }
+            if type_args.is_empty()
+                && matches!(&**callee, Expr::Member { name, .. } if DECODER_CALLS.contains(&name.as_str()))
+    )
 }
 
 /// Functions whose lambda has no parameter (`ifEmpty { … }`, `require(…) { "message" }`).
@@ -328,6 +355,7 @@ impl<'a> Gen<'a> {
             jumped: HashSet::new(),
             replaced: HashMap::new(),
             plain: HashSet::new(),
+            expected: None,
             vals: HashSet::new(),
             imports: Vec::new(),
             receiver_params: HashSet::new(),
@@ -571,7 +599,12 @@ impl<'a> Gen<'a> {
                 });
             }
             let code = match body {
-                Body::Expr(expr) => format!("return {};", writer.expr(expr)?),
+                Body::Expr(expr) => {
+                    if untyped_decoder(expr) {
+                        writer.expected = fun.ret.clone();
+                    }
+                    format!("return {};", writer.expr(expr)?)
+                }
                 Body::Block(block) => writer.block(block, Tail::Discard)?,
             };
             let code = if defaults.is_empty() {
@@ -1551,8 +1584,10 @@ impl<'a> Gen<'a> {
         args: &[Arg],
         lambda: Option<&Lambda>,
     ) -> Result<String, String> {
+        let expected = self.expected.take();
         let type_arg = type_args
             .first()
+            .or(expected.as_ref())
             .map(|ty| quote(&type_name(&self.cx.unaliased(ty))))
             .unwrap_or_else(|| "null".to_owned());
         match callee {

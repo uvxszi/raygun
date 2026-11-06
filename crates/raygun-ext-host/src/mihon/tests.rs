@@ -1820,3 +1820,122 @@ class FlipInterceptor : Interceptor {
         Err(error) => assert!(error.contains("no font"), "{error}"),
     }
 }
+
+/// A protobuf message: `(number, wire type, bytes)` fields, written as the wire has them.
+fn proto(fields: &[(u32, u8, Vec<u8>)]) -> Vec<u8> {
+    fn varint(mut value: u64, out: &mut Vec<u8>) {
+        loop {
+            let byte = (value & 127) as u8;
+            value >>= 7;
+            if value == 0 {
+                out.push(byte);
+                return;
+            }
+            out.push(byte | 128);
+        }
+    }
+    let mut out = Vec::new();
+    for (number, wire, bytes) in fields {
+        varint(u64::from(*number) * 8 + u64::from(*wire), &mut out);
+        if *wire == 2 {
+            varint(bytes.len() as u64, &mut out);
+        }
+        out.extend_from_slice(bytes);
+    }
+    out
+}
+
+#[tokio::test]
+async fn protobuf_answers_and_bodies_convert() {
+    // The answer: two titles (one with packed tags), whether there's more, a signed number.
+    let titles = [(7u8, "First"), (9, "Second")];
+    let answer = proto(
+        &titles
+            .iter()
+            .map(|(id, name)| {
+                let mut fields = vec![(1, 0, vec![*id]), (2, 2, name.as_bytes().to_vec())];
+                if *id == 7 {
+                    fields.push((4, 2, vec![3, 150, 1]));
+                }
+                (1, 2, proto(&fields))
+            })
+            .chain([(2, 0, vec![1]), (3, 0, vec![3])])
+            .collect::<Vec<_>>(),
+    );
+    let app = Router::new().route(
+        "/api/list",
+        post(move |body: axum::body::Bytes| {
+            let answer = answer.clone();
+            async move {
+                // The request: page 1 and the query "x".
+                if body.as_ref() != proto(&[(1, 0, vec![1]), (2, 2, b"x".to_vec())]).as_slice() {
+                    return (axum::http::StatusCode::BAD_REQUEST, Vec::new());
+                }
+                (axum::http::StatusCode::OK, answer)
+            }
+        }),
+    );
+    let source = STANDALONE_SOURCE.replace(
+        "    override suspend fun getPopularManga(page: Int) = getSearchMangaList(page, \"\", FilterList())\n",
+        r#"    override suspend fun getPopularManga(page: Int): MangasPage {
+        val body = ListRequest(page, "x").toRequestBodyProto()
+        val result = client.post("$baseUrl/api/list", body = body).parseAsProto<ListResponse>()
+        val mangas = result.titles.map { title ->
+            SManga.create().apply {
+                url = "/manga/${title.id}"
+                this.title = title.name + title.tags.joinToString("") { "-$it" }
+            }
+        }
+        return MangasPage(mangas, hasNextPage = result.next && result.delta == -2)
+    }
+"#,
+    ) + r#"
+@Serializable
+class ListRequest(@ProtoNumber(1) val page: Int, @ProtoNumber(2) val query: String)
+
+@Serializable
+class ListResponse(
+    @ProtoNumber(1) val titles: List<TitleDto> = emptyList(),
+    @ProtoNumber(2) val next: Boolean = false,
+    @ProtoNumber(3) @ProtoType(ProtoIntegerType.SIGNED) val delta: Int = 0,
+)
+
+@Serializable
+class TitleDto(
+    @ProtoNumber(1) val id: Int,
+    @ProtoNumber(2) val name: String,
+    @ProtoNumber(4) val tags: List<Int> = emptyList(),
+)
+"#;
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            STANDALONE_BUILD,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Popular,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<&str> = listing
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(titles, ["First-3-150", "Second"]);
+    assert!(listing.has_next_page);
+}

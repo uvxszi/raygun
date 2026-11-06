@@ -171,6 +171,7 @@ made into a new body) gets its pages' pictures through its own client, as Mihon 
 - answers keep their bytes when they aren't text (`raygun.http.fetch`'s `binary`), as
   `Uint8Array`s that bodies, `byteStream()`, `source()`, okio's `Buffer`, Java's byte streams and
   `ByteBuffer` read;
+- an interceptor decrypting answers (`response.aesDecrypt(cipher)`, `cipherSource`) counts too;
 - pictures are held in Rust (`raygun_net::bitmap`, `mihon/pictures.rs`): `BitmapFactory` decodes
   PNG, JPEG, WebP, GIF and JPEG XL; a `Canvas` draws through its matrix (translations, scales,
   rotations, mirrors) inside its clip; `compress` writes JPEG or PNG.
@@ -221,6 +222,8 @@ the themes:
 | Keiyoushi's other helpers | `MarkdownDescription.Builder`, `toMarkdown` and `ratingStars` as plain text (Raygun shows descriptions as text), `tryParseZonedDateTime`, `Instant.tryParse`, Jsoup's `attrOrNull`, `selectLast`, `textNodes`, `createElement`, `:containsData` |
 | Android's graphics | `Bitmap`, `BitmapFactory`, `Canvas`, `Matrix`, `Rect`, `Paint`, `Color` over pictures held in Rust (`raygun_net::bitmap`) |
 | Bytes | Answers' bytes as `Uint8Array`s; okio's `Buffer` and `ByteString`, Java's byte streams, `ByteBuffer` |
+| Protobuf | Keiyoushi's `parseAsProto`, `decodeProto`, `toRequestBodyProto`, `encodeProto` over the classes the source declares (`@ProtoNumber`, `@ProtoType`, packed lists, maps, enums by number) |
+| Decrypted answers | Keiyoushi's `response.aesDecrypt(cipher)`, `aesDecryptWithPrependedIv`, okio's `cipherSource`; pictures decrypted this way are fetched through the source |
 
 Titles are known by their path (`/manga/one/`), chapters by theirs; covers and pages go through
 the image proxy with the source's Referer. Mihon's `memo`s (what a source keeps with a title or
@@ -256,11 +259,10 @@ doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 35 | 35 |
 | MangaHub, Grouple, MMRCMS | 5 | 23 |
 | Other themes | 71 | 118 |
-| No theme | 507 | 771 |
-| All | 1113 (75.8%) | 1469 |
+| No theme | 516 | 771 |
+| All | 1122 (76.4%) | 1469 |
 
-The refusals left are a long tail of a few extensions each: protobuf answers (`parseAsProto` 7),
-calls the runtime doesn't have yet (`searchQuery()` 11, `foldIndexed()` 8, `resolve()` 8,
+The refusals left are a long tail of a few extensions each: calls the runtime doesn't have yet (`searchQuery()` 11, `foldIndexed()` 8, `resolve()` 8,
 `IntRange()` 7), and the like.
 
 `mihon_popular_live` with a sample of 60 converted sources (2026-11-06) follows each listing

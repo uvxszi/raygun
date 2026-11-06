@@ -384,6 +384,7 @@
   /// Bytes from a `ByteArray`, or from text in `charset` (UTF-8 unless it says Latin-1).
   const bytesOf = (value, charset = null) => {
     if (Array.isArray(value)) return value.map((byte) => byte & 255);
+    if (value instanceof Uint8Array) return [...value];
     if (value === null || value === undefined) return [];
     if (isLatin1(charset)) return [...KT.str(value)].map((char) => char.charCodeAt(0) & 255);
     return utf8Encode(value);
@@ -1407,6 +1408,15 @@
   };
 
   const ANY = {
+    // Keiyoushi's protobuf writers, on an instance of a class the source declares.
+    toRequestBodyProto: (value, [type = 'application/protobuf']) => ({
+      isBody: true,
+      bytes: protoEncode(value),
+      text: '',
+      type: KT.str(type),
+    }),
+    encodeProto: (value) => listOfBytes(protoEncode(value)),
+    encodeProtoBase64: (value) => K.bin.toBase64(protoEncode(value)),
     toString: (value) => KT.str(value),
     equals: (value, [other]) => KT.eq(value, other),
     hashCode: (value) => {
@@ -1645,6 +1655,12 @@
       throw new KotlinError(`${name}() was called on null`, 'NullPointerException');
     }
     if (hasNextJs(receiver, name)) return NEXT_JS[name](receiver, args, lambda, type);
+    // Protobuf answers read as the type asked (`parseAsProto<T>()`), after a `transform` if any.
+    if (type && PROTO_DECODERS.has(name)) {
+      let bytes = await protoBytesOf(receiver, name);
+      if (lambda) bytes = u8Of(await streamBytes(await lambda(okioBuffer(bytes))));
+      return decodeProtoAs(bytes, type);
+    }
     const kind = kindOf(receiver);
     if (receiver instanceof RegExp && REGEX[name]) return REGEX[name](receiver, args, lambda);
     // `response.parseAs<List<MangaDto>>()`, `json.decodeFromString<T>(text)`: as the type asked.
@@ -1661,6 +1677,19 @@
     // A range is a list of its numbers (`(1..n).reversed()`, `(0 until size).map { … }`).
     if (receiver.isRange && name !== 'contains' && LIST[name])
       return LIST[name](KT.iter(receiver), args, lambda, named, type);
+    // Keiyoushi's `response.aesDecrypt(cipher)` (and on a body): the answer, decrypted.
+    if (
+      (receiver instanceof Response || (receiver && receiver.isResponseBody)) &&
+      (name === 'aesDecrypt' || name === 'aesDecryptWithPrependedIv')
+    )
+      return decryptAnswer(receiver, name, args, lambda, named);
+    // okio's `source.cipherSource(cipher)` (Keiyoushi's `source.aesDecrypt(cipher)`): the bytes
+    // left, decrypted.
+    if (
+      name === 'cipherSource' ||
+      (name === 'aesDecrypt' && receiver && typeof receiver.u8Now === 'function')
+    )
+      return okioBuffer(u8Of(await args[0].doFinal(await streamBytes(receiver))));
     // OkHttp's `response.headers("Content-Type")`: that header's values.
     if (receiver instanceof Response && name === 'headers' && args.length)
       return receiver.headers.values(args[0]);
@@ -2898,6 +2927,15 @@
     post(url, ...rest) {
       return this.request('POST', url, rest);
     }
+    put(url, ...rest) {
+      return this.request('PUT', url, rest);
+    }
+    patch(url, ...rest) {
+      return this.request('PATCH', url, rest);
+    }
+    delete(url, ...rest) {
+      return this.request('DELETE', url, rest);
+    }
     async request(method, url, rest) {
       // Every argument named (`client.post(url = …, body = …)`).
       if (url && url[NAMED]) {
@@ -3472,6 +3510,302 @@
     return body;
   };
   KT.bytesBody = bytesBody;
+
+  /// An answer (or a body) decrypted by a cipher; `aesDecryptWithPrependedIv` takes the IV from the
+  /// body's first bytes and makes the cipher with it.
+  const decryptAnswer = async (receiver, name, args, lambda, given = null) => {
+    const body = receiver instanceof Response ? receiver.body : receiver;
+    let bytes = await bodyU8(body);
+    let cipher;
+    let type = null;
+    if (name === 'aesDecrypt') {
+      [cipher = given?.cipher, type = given?.contentType ?? null] = args;
+    } else {
+      // `(ivSize, contentType) { iv -> cipher }` or `(key, ivSize, contentType)` for AES-CBC,
+      // by position or by name.
+      const options = { ...named(args), ...(given ?? {}) };
+      const plain = args.filter((arg) => !(arg && arg[NAMED]));
+      const key =
+        options.key ??
+        (Array.isArray(plain[0]) || plain[0] instanceof Uint8Array ? plain.shift() : null);
+      const ivSize = Number(options.ivSize ?? plain.shift());
+      type = options.contentType ?? plain.find((arg) => typeof arg === 'string') ?? null;
+      const make =
+        options.cipher ?? lambda ?? plain.find((arg) => typeof arg === 'function') ?? null;
+      const iv = bytes.subarray(0, ivSize);
+      bytes = bytes.subarray(ivSize);
+      cipher = make
+        ? await make(listOfBytes(iv))
+        : aesCipher({ key: bytesOf(await key), iv: [...iv], encrypt: false });
+    }
+    const plain = u8Of(await cipher.doFinal(bytes));
+    const next = bytesBody(
+      async () => plain,
+      type ?? (body.contentType ? body.contentType() : null),
+    );
+    if (!(receiver instanceof Response)) return next;
+    const builder = await KT.m(receiver, 'newBuilder', []);
+    await KT.m(builder, 'body', [next]);
+    return KT.m(builder, 'build', []);
+  };
+
+  // ---- Protobuf: kotlinx.serialization's, as Keiyoushi's `parseAsProto` reads it ----
+  // A class's fields carry their numbers (`@ProtoNumber`, the definition's `proto`); a message
+  // is read into the field values JSON would give, then made into the class as JSON is.
+
+  /// A message's fields by number: each occurrence `[wire type, value]` (varints as `BigInt`s,
+  /// the rest as their bytes).
+  const protoFields = (bytes) => {
+    const fields = new Map();
+    let at = 0;
+    const varint = () => {
+      let result = 0n;
+      let shift = 0n;
+      for (;;) {
+        if (at >= bytes.length)
+          throw new KotlinError('truncated protobuf', 'SerializationException');
+        const byte = bytes[at++];
+        result |= BigInt(byte & 127) << shift;
+        if (byte < 128) return result;
+        shift += 7n;
+      }
+    };
+    while (at < bytes.length) {
+      const key = Number(varint());
+      const number = Math.floor(key / 8);
+      const wire = key & 7;
+      let value;
+      if (wire === 0) value = varint();
+      else if (wire === 1 || wire === 5) {
+        const size = wire === 1 ? 8 : 4;
+        value = bytes.subarray(at, at + size);
+        at += size;
+      } else if (wire === 2) {
+        const length = Number(varint());
+        value = bytes.subarray(at, at + length);
+        at += length;
+      } else throw new KotlinError(`protobuf wire type ${wire}`, 'SerializationException');
+      if (!fields.has(number)) fields.set(number, []);
+      fields.get(number).push([wire, value]);
+    }
+    return fields;
+  };
+  const PROTO_WHOLE = new Set(['Int', 'Long', 'Short', 'Byte', 'UInt', 'ULong', 'Char']);
+  const littleView = (bytes) => new DataView(Uint8Array.from(bytes).buffer);
+  /// A scalar of `type` from one occurrence (`kind`: `@ProtoType`'s `SIGNED` or `FIXED`).
+  const protoScalar = (wire, value, type, kind) => {
+    const name = type.name;
+    if (name === 'String') return K.bin.text(value);
+    if (name === 'ByteArray') return listOfBytes(value);
+    if (name === 'Boolean') return wire === 0 ? value !== 0n : Boolean(value[0]);
+    if (name === 'Double')
+      return wire === 1 ? littleView(value).getFloat64(0, true) : Number(BigInt.asIntN(64, value));
+    if (name === 'Float')
+      return wire === 5 ? littleView(value).getFloat32(0, true) : Number(BigInt.asIntN(32, value));
+    let whole;
+    if (wire === 0) whole = value;
+    else if (wire === 5) whole = BigInt(littleView(value).getUint32(0, true));
+    else if (wire === 1) whole = littleView(value).getBigUint64(0, true);
+    else return null;
+    if (kind === 'SIGNED' && wire === 0) whole = (whole >> 1n) ^ -(whole & 1n);
+    const bits = name === 'Long' || name === 'ULong' ? 64 : 32;
+    return Number(name.startsWith('U') ? BigInt.asUintN(bits, whole) : BigInt.asIntN(bits, whole));
+  };
+  /// The values packed in one occurrence of a repeated number (`[1, 2, 3]` written together).
+  const protoPacked = (bytes, type, kind) => {
+    const out = [];
+    if (type.name === 'Double' || (type.name === 'Long' && kind === 'FIXED')) {
+      for (let at = 0; at + 8 <= bytes.length; at += 8)
+        out.push(protoScalar(1, bytes.subarray(at, at + 8), type, kind));
+      return out;
+    }
+    if (type.name === 'Float' || kind === 'FIXED') {
+      for (let at = 0; at + 4 <= bytes.length; at += 4)
+        out.push(protoScalar(5, bytes.subarray(at, at + 4), type, kind));
+      return out;
+    }
+    let at = 0;
+    while (at < bytes.length) {
+      let result = 0n;
+      let shift = 0n;
+      for (;;) {
+        const byte = bytes[at++];
+        result |= BigInt(byte & 127) << shift;
+        if (byte < 128 || at >= bytes.length) break;
+        shift += 7n;
+      }
+      out.push(protoScalar(0, result, type, kind));
+    }
+    return out;
+  };
+  const protoOne = (wire, value, type, kind) => {
+    const holder = classOf(type);
+    if (holder && holder.definition) {
+      // An enum by its number (its place, as kotlinx writes it).
+      if (holder.definition.kind === 'enum')
+        return holder.definition.entries[Number(value)] ?? holder.definition.entries[0] ?? null;
+      return protoMessage(value, holder, type.args);
+    }
+    return protoScalar(wire, value, type, kind);
+  };
+  const protoValue = (occurrences, type, kind) => {
+    if (LISTS.has(type.name)) {
+      const item = type.args[0] ?? { name: 'Any', args: [] };
+      const out = [];
+      for (const [wire, value] of occurrences) {
+        if (
+          wire === 2 &&
+          (PROTO_WHOLE.has(item.name) || ['Boolean', 'Double', 'Float'].includes(item.name))
+        )
+          out.push(...protoPacked(value, item, kind));
+        else out.push(protoOne(wire, value, item, kind));
+      }
+      return out;
+    }
+    if (['Map', 'HashMap', 'MutableMap', 'LinkedHashMap'].includes(type.name)) {
+      const [keyType = { name: 'String', args: [] }, valueType = { name: 'Any', args: [] }] =
+        type.args;
+      const out = {};
+      for (const [, value] of occurrences) {
+        const entry = protoFields(value);
+        const key = entry.get(1)?.at(-1);
+        const item = entry.get(2)?.at(-1);
+        out[KT.str(key ? protoOne(key[0], key[1], keyType, null) : '')] = item
+          ? protoOne(item[0], item[1], valueType, null)
+          : null;
+      }
+      return out;
+    }
+    const [wire, value] = occurrences[occurrences.length - 1];
+    return protoOne(wire, value, type, kind);
+  };
+  /// A message's fields as JSON would give them, by name.
+  const protoMessage = (bytes, holder, typeArgs = []) => {
+    const definition = holder.definition;
+    const fields = protoFields(bytes);
+    const out = {};
+    for (const name of definition.params) {
+      const spec = definition.proto?.[name];
+      const number = spec ? spec[0] : definition.params.indexOf(name) + 1;
+      const occurrences = fields.get(number);
+      if (!occurrences) continue;
+      const type = substitute(
+        parseType(definition.types?.[name] ?? 'Any'),
+        definition.typeParams ?? [],
+        typeArgs,
+      );
+      out[name] = protoValue(occurrences, type, spec ? spec[1] : null);
+    }
+    return out;
+  };
+  /// Bytes read as the class `type` names (`parseAsProto<MangaPlusResponse>()`).
+  const decodeProtoAs = async (bytes, type) => {
+    const parsed = parseType(type);
+    const holder = classOf(parsed);
+    if (!holder || !holder.definition)
+      throw new KotlinError(`Raygun doesn't know the class ${type}`, 'SerializationException');
+    return decode(protoMessage(bytes, holder, parsed.args), type);
+  };
+
+  const protoVarint = (value, out) => {
+    let rest = BigInt.asUintN(64, BigInt(value));
+    do {
+      let byte = Number(rest & 127n);
+      rest >>= 7n;
+      if (rest) byte |= 128;
+      out.push(byte);
+    } while (rest);
+  };
+  const protoKey = (number, wire, out) => protoVarint(number * 8 + wire, out);
+  /// A value of `type` written under `number` (repeated ones one by one).
+  const protoWrite = (number, value, type, kind, out) => {
+    if (value === null || value === undefined) return;
+    if (LISTS.has(type.name) && Array.isArray(value)) {
+      for (const item of value)
+        protoWrite(number, item, type.args[0] ?? { name: 'Any', args: [] }, kind, out);
+      return;
+    }
+    const holder = classOf(type);
+    if (holder && holder.definition && holder.definition.kind === 'enum') {
+      protoKey(number, 0, out);
+      protoVarint(
+        typeof value === 'object'
+          ? (value.ordinal ?? 0)
+          : holder.definition.entries.indexOf(KT.str(value)),
+        out,
+      );
+      return;
+    }
+    if (holder && holder.definition) {
+      const bytes = protoEncode(value, holder);
+      protoKey(number, 2, out);
+      protoVarint(bytes.length, out);
+      out.push(...bytes);
+      return;
+    }
+    const name = type.name;
+    if (name === 'String' || typeof value === 'string') {
+      const bytes = K.bin.utf8(KT.str(value));
+      protoKey(number, 2, out);
+      protoVarint(bytes.length, out);
+      out.push(...bytes);
+    } else if (name === 'ByteArray' || Array.isArray(value)) {
+      const bytes = u8Of(value);
+      protoKey(number, 2, out);
+      protoVarint(bytes.length, out);
+      out.push(...bytes);
+    } else if (name === 'Double') {
+      const view = new DataView(new ArrayBuffer(8));
+      view.setFloat64(0, Number(value), true);
+      protoKey(number, 1, out);
+      out.push(...new Uint8Array(view.buffer));
+    } else if (name === 'Float') {
+      const view = new DataView(new ArrayBuffer(4));
+      view.setFloat32(0, Number(value), true);
+      protoKey(number, 5, out);
+      out.push(...new Uint8Array(view.buffer));
+    } else if (typeof value === 'boolean') {
+      protoKey(number, 0, out);
+      protoVarint(value ? 1 : 0, out);
+    } else if (kind === 'FIXED') {
+      const size = name === 'Long' || name === 'ULong' ? 8 : 4;
+      protoKey(number, size === 8 ? 1 : 5, out);
+      out.push(...bytesOfNumber(value, size, true));
+    } else {
+      protoKey(number, 0, out);
+      const whole = BigInt(Math.trunc(Number(value)));
+      protoVarint(kind === 'SIGNED' ? (whole << 1n) ^ (whole >> 63n) : whole, out);
+    }
+  };
+  /// An instance of a class the source declares, written as a protobuf message.
+  const protoEncode = (instance, holder = null) => {
+    const owner = holder ?? CLASSES[instance?.__class];
+    if (!owner || !owner.definition)
+      throw new KotlinError("Raygun can't write this value as protobuf", 'SerializationException');
+    const definition = owner.definition;
+    const out = [];
+    for (const name of definition.params) {
+      const spec = definition.proto?.[name];
+      const number = spec ? spec[0] : definition.params.indexOf(name) + 1;
+      protoWrite(
+        number,
+        instance[name],
+        parseType(definition.types?.[name] ?? 'Any'),
+        spec ? spec[1] : null,
+        out,
+      );
+    }
+    return Uint8Array.from(out);
+  };
+  /// The bytes a protobuf decoder reads from its receiver: an answer, a body, a buffer, a
+  /// `ByteArray`, base64 text.
+  const protoBytesOf = async (receiver, name) => {
+    if (name === 'decodeProtoBase64') return K.bin.fromBase64(KT.str(receiver));
+    if (receiver instanceof Response) return bodyU8(receiver.body);
+    if (receiver && receiver.isResponseBody) return bodyU8(receiver);
+    return u8Of(receiver);
+  };
+  const PROTO_DECODERS = new Set(['parseAsProto', 'decodeProto', 'decodeProtoBase64']);
 
   // ---- Pictures: Android's `Bitmap`, `BitmapFactory`, `Canvas`, held in Rust ----
 
@@ -5812,6 +6146,7 @@
     };
     const holder = {
       isClass: true,
+      definition,
       name: definition.name,
       make,
       fromJson,

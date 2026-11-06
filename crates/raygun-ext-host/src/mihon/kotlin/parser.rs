@@ -296,6 +296,24 @@ impl Parser {
             {
                 return Ok(format!("SerialName={text}"));
             }
+            // A protobuf field's number (`@ProtoNumber(3)`).
+            if name == "ProtoNumber"
+                && let Some(Arg {
+                    value: Expr::Int(number),
+                    ..
+                }) = args.first()
+            {
+                return Ok(format!("ProtoNumber={number}"));
+            }
+            // How a protobuf number is written (`@ProtoType(ProtoIntegerType.SIGNED)`).
+            if name == "ProtoType"
+                && let Some(Arg {
+                    value: Expr::Member { name: kind, .. },
+                    ..
+                }) = args.first()
+            {
+                return Ok(format!("ProtoType={kind}"));
+            }
             // The other JSON names it's read by (`@JsonNames("results", "manga_list")`).
             if name == "JsonNames" {
                 let names: Vec<&str> = args
