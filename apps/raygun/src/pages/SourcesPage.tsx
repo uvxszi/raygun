@@ -252,7 +252,10 @@ export const SourcesPage: FC = () => {
           <div
             role="group"
             aria-label={t('sources.page.media')}
-            className="-mx-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
+            // To the screen's edge, unless Select sits at the row's end: pills would pass under it.
+            className={`-ml-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto pl-4 lg:ml-0 lg:pl-0 ${
+              switchable.length > 0 ? '' : '-mr-4 pr-4 lg:mr-0 lg:pr-0'
+            }`}
           >
             {mediaPills.map((option) => (
               <button
