@@ -15,6 +15,13 @@ class MainActivity : TauriActivity() {
   /** Lets mDNS (device sync discovery) through Android's Wi-Fi multicast filter. */
   private var multicastLock: WifiManager.MulticastLock? = null
 
+  /** wry's own webview field (`WryActivity.mWebView`), or null if a wry version renamed it. */
+  private val wryWebView: java.lang.reflect.Field? by lazy {
+    runCatching {
+      WryActivity::class.java.getDeclaredField("mWebView").apply { isAccessible = true }
+    }.getOrNull()
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // Recreated after Android stopped Raygun in the background: what another app opened it with
     // played then, and doesn't again.
@@ -53,7 +60,17 @@ class MainActivity : TauriActivity() {
   override fun onPause() {
     multicastLock?.release()
     multicastLock = null
-    super.onPause()
+    // While a song plays in the webview (YouTube's player), wry mustn't pause it at all: even a
+    // moment's pause hides the page, and YouTube's player stops and stays stopped when the page
+    // shows again. Its webview field is set aside while wry pauses the activity.
+    val field = if (WebAwake.keepAwake) wryWebView else null
+    val webView = field?.get(this)
+    if (webView != null) field?.set(this, null)
+    try {
+      super.onPause()
+    } finally {
+      if (webView != null) field?.set(this, webView)
+    }
     // After wry paused the webview: YouTube's player keeps going while a song plays there.
     WebAwake.paused()
   }

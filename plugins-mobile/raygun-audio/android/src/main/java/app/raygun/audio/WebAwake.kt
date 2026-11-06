@@ -15,12 +15,14 @@ import java.lang.ref.WeakReference
  *
  * When the activity pauses, wry calls `WebView.onPause()`, and when it stops, the window turns
  * invisible: either way Chromium hides the page and pauses its video elements, so YouTube's
- * embed stops a moment after the screen goes off. While [keepAwake] holds, the webview is resumed
- * again after each pause and told its window is still visible; the media session service keeps
- * the process in the foreground meanwhile. Once it's let go, the webview gets the real state back.
+ * embed stops a moment after the screen goes off. While [keepAwake] holds, the webview isn't
+ * paused (`MainActivity` keeps wry's `onPause` from reaching it: even a moment hidden stops
+ * YouTube's player for good) or is resumed again, and is told its window is still visible; the
+ * media session service keeps the process in the foreground meanwhile. Once it's let go, the
+ * webview gets the real state back.
  *
- * The app's `MainActivity` wraps the webview in a [WebAwakeLayout] (`setContentView`) and calls
- * [paused] and [resumed]; everything else is decided here.
+ * The app's `MainActivity` wraps the webview in a [WebAwakeLayout] (`setContentView`), reads
+ * [keepAwake] as it pauses, and calls [paused] and [resumed]; everything else is decided here.
  */
 object WebAwake {
     private val main = Handler(Looper.getMainLooper())
