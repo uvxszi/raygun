@@ -306,7 +306,13 @@
     JsonNull: (value) => value === null,
     JsonElement: () => true,
     Element: (value) => value && typeof value.select === 'function' && !Array.isArray(value),
+    Elements: (value) => value instanceof mihon.Elements,
     Document: (value) => value && typeof value.location === 'function',
+    Response: (value) => value instanceof Response,
+    HttpUrl: (value) => value instanceof HttpUrl,
+    TextNode: (value) => Boolean(value && value.__class === 'TextNode'),
+    Node: (value) =>
+      Boolean(value && (typeof value.select === 'function' || value.__class === 'TextNode')),
     Any: (value) => value !== null && value !== undefined,
   };
   KT.is = (value, type) => {
@@ -315,6 +321,190 @@
     return Boolean(value && value.__classes && value.__classes.includes(name));
   };
   KT.asOrNull = (value, type) => (KT.is(value, type) ? value : null);
+
+  // ---- Bytes ----
+  // A `ByteArray` is a list of numbers 0–255; text where bytes are asked for is its UTF-8.
+
+  const utf8Encode = (text) => {
+    const out = [];
+    for (const char of KT.str(text)) {
+      const code = char.codePointAt(0);
+      if (code < 0x80) out.push(code);
+      else if (code < 0x800) out.push(0xc0 | (code >> 6), 0x80 | (code & 63));
+      else if (code < 0x10000)
+        out.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 63), 0x80 | (code & 63));
+      else
+        out.push(
+          0xf0 | (code >> 18),
+          0x80 | ((code >> 12) & 63),
+          0x80 | ((code >> 6) & 63),
+          0x80 | (code & 63),
+        );
+    }
+    return out;
+  };
+  /// UTF-8 bytes as text; a byte that doesn't decode becomes U+FFFD, as Java's decoder does.
+  const utf8Decode = (bytes) => {
+    let out = '';
+    let at = 0;
+    while (at < bytes.length) {
+      const first = bytes[at] & 255;
+      if (first < 0x80) {
+        out += String.fromCharCode(first);
+        at += 1;
+        continue;
+      }
+      let need = 0;
+      let code = 0;
+      if (first >> 5 === 6) [need, code] = [1, first & 0x1f];
+      else if (first >> 4 === 14) [need, code] = [2, first & 0x0f];
+      else if (first >> 3 === 30) [need, code] = [3, first & 0x07];
+      let valid = need > 0 && at + need < bytes.length;
+      for (let index = 1; valid && index <= need; index++) {
+        const next = bytes[at + index] & 255;
+        if (next >> 6 !== 2) valid = false;
+        else code = (code << 6) | (next & 63);
+      }
+      if (!valid || code > 0x10ffff) {
+        out += '�';
+        at += 1;
+        continue;
+      }
+      out += String.fromCodePoint(code);
+      at += need + 1;
+    }
+    return out;
+  };
+  const isLatin1 = (charset) => /8859-1|latin|us-ascii|ascii/i.test(KT.str(charset ?? ''));
+  /// Bytes from a `ByteArray`, or from text in `charset` (UTF-8 unless it says Latin-1).
+  const bytesOf = (value, charset = null) => {
+    if (Array.isArray(value)) return value.map((byte) => byte & 255);
+    if (value === null || value === undefined) return [];
+    if (isLatin1(charset)) return [...KT.str(value)].map((char) => char.charCodeAt(0) & 255);
+    return utf8Encode(value);
+  };
+  const textOf = (bytes, charset = null) =>
+    isLatin1(charset)
+      ? bytes.map((byte) => String.fromCharCode(byte & 255)).join('')
+      : utf8Decode(bytes);
+  const binaryOf = (bytes) => {
+    let out = '';
+    for (let at = 0; at < bytes.length; at += 8192)
+      out += String.fromCharCode(...bytes.slice(at, at + 8192).map((byte) => byte & 255));
+    return out;
+  };
+  const base64Of = (bytes) => btoa(binaryOf(bytesOf(bytes)));
+  const fromBase64 = (text) => {
+    let clean = KT.str(text).replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    while (clean.length % 4) clean += '=';
+    const binary = atob(clean);
+    const out = new Array(binary.length);
+    for (let index = 0; index < binary.length; index++) out[index] = binary.charCodeAt(index);
+    return out;
+  };
+  const hexOf = (bytes) =>
+    bytesOf(bytes)
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  const fromHex = (text) => {
+    const clean = KT.str(text).trim();
+    if (clean.length % 2) throw new KotlinError('Hex string must have an even length');
+    const out = [];
+    for (let at = 0; at < clean.length; at += 2) {
+      const byte = parseInt(clean.slice(at, at + 2), 16);
+      if (Number.isNaN(byte)) throw new KotlinError(`invalid hex: ${clean.slice(at, at + 2)}`);
+      out.push(byte);
+    }
+    return out;
+  };
+  /// Android's `Base64` flags (and Kotlin's `Base64.UrlSafe`): URL-safe letters, no padding,
+  /// and lines of 76 unless `NO_WRAP`.
+  const base64Encode = (value, flags = 0) => {
+    let text = base64Of(value);
+    if (flags & 8) text = text.replace(/\+/g, '-').replace(/\//g, '_');
+    if (flags & 1) text = text.replace(/=+$/, '');
+    if (!(flags & 2) && flags !== -1) text = `${text.replace(/(.{76})/g, '$1\n')}\n`;
+    return text;
+  };
+  const crypto = (args) => K.crypto(args);
+  const digestOf = (algorithm, data) =>
+    fromBase64(crypto({ op: 'digest', algorithm, data: base64Of(data) }));
+  /// An AES cipher (`aesCbc(key, iv)`, `Cipher.getInstance("AES/CBC/PKCS5Padding")`): its
+  /// `doFinal(bytes)` runs it in Rust.
+  const aesCipher = (fields) => {
+    const cipher = {
+      __class: 'Cipher',
+      __classes: ['Cipher'],
+      isCipher: true,
+      mode: 'cbc',
+      padding: true,
+      encrypt: false,
+      key: null,
+      iv: null,
+      ...fields,
+      init: (opmode, keySpec, params = null) => {
+        cipher.encrypt = opmode === 1;
+        cipher.key = bytesOf(keySpec?.key ?? keySpec);
+        if (params) cipher.iv = bytesOf(params.iv ?? params);
+      },
+      doFinal: (data = []) =>
+        fromBase64(
+          crypto({
+            op: 'aes',
+            mode: cipher.mode,
+            key: base64Of(cipher.key),
+            iv: cipher.iv ? base64Of(cipher.iv) : null,
+            padding: cipher.padding,
+            encrypt: cipher.encrypt,
+            data: base64Of(data),
+          }),
+        ),
+      getIV: () => cipher.iv,
+      iv_: null,
+    };
+    return cipher;
+  };
+  /// A transformation (`AES/CBC/PKCS5Padding`) as a cipher's mode and padding.
+  const transformation = (text) => {
+    const [, mode = 'ECB', padding = 'PKCS5Padding'] = KT.str(text).split('/');
+    return {
+      mode: mode.toLowerCase(),
+      padding: !/nopadding/i.test(padding) && !/zerobyte/i.test(padding),
+    };
+  };
+  /// Java's `MessageDigest` and `Mac` by algorithm name, collecting what's `update`d.
+  const digester = (algorithm, keyed = false) => {
+    let pending = [];
+    let key = null;
+    const run = () => {
+      const data = pending;
+      pending = [];
+      return keyed
+        ? fromBase64(
+            crypto({ op: 'hmac', algorithm, key: base64Of(key ?? []), data: base64Of(data) }),
+          )
+        : digestOf(algorithm, data);
+    };
+    return {
+      init: (spec) => {
+        key = bytesOf(spec?.key ?? spec);
+      },
+      update: (data) => {
+        pending = pending.concat(bytesOf(data));
+      },
+      digest: (data = null) => {
+        if (data !== null) pending = pending.concat(bytesOf(data));
+        return run();
+      },
+      doFinal: (data = null) => {
+        if (data !== null) pending = pending.concat(bytesOf(data));
+        return run();
+      },
+      reset: () => {
+        pending = [];
+      },
+    };
+  };
 
   // ---- Strings ----
 
@@ -484,10 +674,30 @@
     toMediaType: (s) => s,
     toResponseBody: (s, [type]) => KT.textBody(s, type ?? null),
     toMediaTypeOrNull: (s) => s,
-    encodeToByteArray: (s) => s,
-    // Bytes are kept as the text they spell (`Base64.encodeToString(id.toByteArray(), …)`).
-    toByteArray: (s) => s,
+    // Bytes: UTF-8 (or Latin-1 when the charset says so).
+    encodeToByteArray: (s) => utf8Encode(s),
+    toByteArray: (s, [charset]) => bytesOf(s, charset),
     decodeToString: (s) => s,
+    // Keiyoushi's `keiyoushi.utils` byte helpers on text.
+    decodeHex: (s) => fromHex(s),
+    md5: (s) => digestOf('md5', utf8Encode(s)),
+    sha1: (s) => digestOf('sha1', utf8Encode(s)),
+    sha256: (s) => digestOf('sha256', utf8Encode(s)),
+    sha512: (s) => digestOf('sha512', utf8Encode(s)),
+    hmacSha256: (s, [key]) =>
+      fromBase64(
+        crypto({
+          op: 'hmac',
+          algorithm: 'sha256',
+          key: base64Of(key),
+          data: base64Of(utf8Encode(s)),
+        }),
+      ),
+    // Keiyoushi's `cryptoJsDecrypt(passphrase)`: CryptoJS's AES with a passphrase.
+    cryptoJsDecrypt: (s, [passphrase]) => K.decrypt({ data: s, password: KT.str(passphrase) }),
+    decodeBase64: (s) => fromBase64(s),
+    // Descriptions are shown as plain text: there's nothing to escape.
+    escapeMarkdown: (s) => s,
     compareTo: (s, [other]) => KT.cmp(s, other),
     reversed: (s) => [...s].reverse().join(''),
     first: (s) => s.charAt(0),
@@ -645,9 +855,11 @@
     return keyed.map(([, item]) => item);
   };
   /// `List(size) { index -> … }`.
+  /// A list of `size` items: each `init(index)` when it's a function, else `init` itself.
   const listOfSize = async (size, init) => {
     const out = [];
-    for (let index = 0; index < size; index++) out.push(init ? await init(index) : null);
+    for (let index = 0; index < size; index++)
+      out.push(typeof init === 'function' ? await init(index) : (init ?? null));
     return out;
   };
   /// `DateTimeFormatterBuilder()…toFormatter()`: its pattern pieces, as one date format.
@@ -671,6 +883,51 @@
     size: (l) => l.length,
     // A JSON array's `parseAs<List<T>>()`.
     parseAs: (l, _args, _lambda, _named, type) => decode(l, type),
+    // A `ByteArray`'s own calls, and Keiyoushi's byte helpers on it.
+    decodeToString: (l) => utf8Decode(l),
+    // A body of bytes (the text they spell: requests carry text).
+    toRequestBody: (l, [type = 'application/octet-stream']) => ({
+      isBody: true,
+      text: textOf(l),
+      type: KT.str(type),
+    }),
+    // `bytes.toString(Charsets.UTF_8)` is the text they spell; a list's own is Kotlin's.
+    toString: (l, [charset]) =>
+      charset !== undefined && l.every((item) => typeof item === 'number')
+        ? textOf(l, charset)
+        : KT.str(l),
+    copyOfRange: (l, [from, to]) => l.slice(from, to),
+    copyOf: (l, [size]) =>
+      size === undefined ? [...l] : Array.from({ length: size }, (_, index) => l[index] ?? 0),
+    reversedArray: (l) => [...l].reverse(),
+    sliceArray: (l, [range]) =>
+      range && range.isRange ? KT.iter(range).map((index) => l[index]) : l.slice(),
+    contentEquals: (l, [other]) =>
+      Array.isArray(other) &&
+      l.length === other.length &&
+      l.every((item, at) => item === other[at]),
+    toHexString: (l) => hexOf(l),
+    md5: (l) => digestOf('md5', l),
+    sha1: (l) => digestOf('sha1', l),
+    sha256: (l) => digestOf('sha256', l),
+    sha512: (l) => digestOf('sha512', l),
+    hmacSha256: (l, [key]) =>
+      fromBase64(
+        crypto({ op: 'hmac', algorithm: 'sha256', key: base64Of(key), data: base64Of(l) }),
+      ),
+    aesDecrypt: (l, [cipher]) => aesCipher({ ...cipher, encrypt: false }).doFinal(l),
+    aesEncrypt: (l, [cipher]) => aesCipher({ ...cipher, encrypt: true }).doFinal(l),
+    xor: (l, [key]) => {
+      const keys = Array.isArray(key) ? key : [key];
+      return l.map((byte, at) => (byte ^ keys[at % keys.length]) & 255);
+    },
+    xorInPlace: (l, [key]) => {
+      const keys = Array.isArray(key) ? key : [key];
+      for (let at = 0; at < l.length; at++) l[at] = (l[at] ^ keys[at % keys.length]) & 255;
+      return l;
+    },
+    cryptoJsDecrypt: (l, [passphrase]) =>
+      utf8Encode(K.decrypt({ data: base64Of(l), password: KT.str(passphrase) })),
     map: async (l, _args, lambda) => mapAll(l, lambda),
     mapNotNull: async (l, _args, lambda) =>
       (await mapAll(l, lambda)).filter((value) => value !== null && value !== undefined),
@@ -1064,6 +1321,9 @@
   const OBJECT = {
     // Keiyoushi's `JsonElement.parseAs<T>()`: the element decoded as the type.
     parseAs: (o, _args, _lambda, _named, type) => decode(o, type),
+    // Keiyoushi's `Element.toMarkdown(keepNewlines)`: its text with paragraphs, plain.
+    toMarkdown: (o, [keepNewlines = false], _lambda, named_) =>
+      htmlText(o, named_?.keepNewlines ?? keepNewlines),
     get: (o, [key]) => (Object.prototype.hasOwnProperty.call(o, key) ? o[key] : null),
     getOrDefault: (o, [key, fallback]) => o[key] ?? fallback,
     containsKey: (o, [key]) => Object.prototype.hasOwnProperty.call(o, key),
@@ -1132,6 +1392,7 @@
     },
     use: async (value, _args, lambda) => lambda(value),
     closeQuietly: () => KT.unit,
+    printStackTrace: () => KT.unit,
     toJsonString: (value) => JSON.stringify(plain(value)),
     toJsonRequestBody: (value) => ({
       isBody: true,
@@ -2902,13 +3163,124 @@
         named_?.availableLanguages ?? availableLanguages,
         named_?.baseLanguage ?? baseLanguage ?? 'en',
       ),
-    // `String(chars)`, `String(bytes)` (one byte a character).
-    String: ([value]) =>
-      Array.isArray(value)
-        ? value
-            .map((item) => (typeof item === 'number' ? String.fromCharCode(item) : KT.str(item)))
-            .join('')
-        : KT.str(value),
+    // `String(chars)`, and `String(bytes, charset)` (UTF-8 unless it says otherwise).
+    String: ([value, charset]) => {
+      if (!Array.isArray(value)) return KT.str(value);
+      if (value.length && value.every((item) => typeof item === 'number'))
+        return textOf(value, charset);
+      return value.map(KT.str).join('');
+    },
+    // Keiyoushi's AES ciphers (`keiyoushi.utils.aesCbc(key, iv)`…) and Java's key specs.
+    aesCbc: ([key, iv, padding = true, encrypt = false], named_) =>
+      aesCipher({
+        mode: 'cbc',
+        key: bytesOf(key),
+        iv: bytesOf(iv),
+        padding: named_?.padding ?? padding,
+        encrypt: named_?.encrypt ?? encrypt,
+      }),
+    aesEcb: ([key, padding = true, encrypt = false], named_) =>
+      aesCipher({
+        mode: 'ecb',
+        key: bytesOf(key),
+        padding: named_?.padding ?? padding,
+        encrypt: named_?.encrypt ?? encrypt,
+      }),
+    aesGcm: ([key, iv, tagLength = 128, encrypt = false], named_) =>
+      aesCipher({
+        mode: 'gcm',
+        key: bytesOf(key),
+        iv: bytesOf(iv),
+        tagLength: named_?.tagLength ?? tagLength,
+        encrypt: named_?.encrypt ?? (typeof tagLength === 'boolean' ? tagLength : encrypt),
+      }),
+    aesCtr: ([key, iv, encrypt = false], named_) =>
+      aesCipher({
+        mode: 'ctr',
+        key: bytesOf(key),
+        iv: bytesOf(iv),
+        encrypt: named_?.encrypt ?? encrypt,
+      }),
+    newAesCipher: ([name, key, params = null, encrypt = false], named_) =>
+      aesCipher({
+        ...transformation(name),
+        key: bytesOf(key),
+        iv: params ? bytesOf(params.iv ?? params) : null,
+        encrypt: named_?.encrypt ?? encrypt,
+      }),
+    IvParameterSpec: ([iv]) => ({ __class: 'IvParameterSpec', iv: bytesOf(iv) }),
+    SecretKeySpec: ([key, algorithm]) => ({
+      __class: 'SecretKeySpec',
+      key: bytesOf(key),
+      algorithm: KT.str(algorithm),
+      encoded: bytesOf(key),
+    }),
+    GCMParameterSpec: ([tagLength, iv]) => ({
+      __class: 'GCMParameterSpec',
+      iv: bytesOf(iv),
+      tagLength,
+    }),
+    PBEKeySpec: ([password, salt, iterations, keyLength]) => ({
+      __class: 'PBEKeySpec',
+      password: Array.isArray(password) ? password.map(KT.str).join('') : KT.str(password),
+      salt: bytesOf(salt),
+      iterations,
+      keyLength,
+    }),
+    // Collections made by their constructors (`ArrayList()`, `ArrayList(other)`, `ArrayDeque()`).
+    ArrayList: ([from]) => (from && typeof from === 'object' ? [...KT.iter(from)] : []),
+    ArrayDeque: ([from]) => (from && typeof from === 'object' ? [...KT.iter(from)] : []),
+    // Arrays of a size (`ByteArray(16)`, `IntArray(n) { it }`) and of values.
+    ByteArray: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init ?? 0),
+    IntArray: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init ?? 0),
+    LongArray: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init ?? 0),
+    DoubleArray: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init ?? 0),
+    FloatArray: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init ?? 0),
+    BooleanArray: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init ?? false),
+    CharArray: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init ?? '\u0000'),
+    intArrayOf: (args) => [...args],
+    byteArrayOf: (args) => [...args],
+    longArrayOf: (args) => [...args],
+    doubleArrayOf: (args) => [...args],
+    floatArrayOf: (args) => [...args],
+    charArrayOf: (args) => [...args],
+    booleanArrayOf: (args) => [...args],
+    sequenceOf: (args) => [...args],
+    emptySequence: () => [],
+    // `kotlin.math`'s `min`/`max` of two values.
+    min: ([left, right]) => (KT.cmp(left, right) <= 0 ? left : right),
+    max: ([left, right]) => (KT.cmp(left, right) >= 0 ? left : right),
+    // There's one thread: `synchronized(lock) { … }` runs the block.
+    synchronized: async (_args, _named, lambda) => lambda(),
+    // A coroutine scope of its own (`CoroutineScope(Dispatchers.IO)`): its jobs run at once.
+    CoroutineScope: () => coroutineScope(),
+    // Keiyoushi's `ratingStars(rating, max)`: five stars with halves.
+    ratingStars: ([rating, max = 10], named_) => ratingStars(rating, named_?.max ?? max),
+  };
+  /// A coroutine scope: `launch` runs its block (not awaited), `async` a deferred value.
+  const coroutineScope = () => ({
+    __class: 'CoroutineScope',
+    __classes: ['CoroutineScope'],
+    launch: (...rest) => {
+      const block = rest.find((arg) => typeof arg === 'function');
+      const job = block ? Promise.resolve().then(() => block()) : Promise.resolve();
+      job.catch(() => {});
+      return { join: () => job, cancel: () => KT.unit, isActive: true };
+    },
+    async: (...rest) => {
+      const block = rest.find((arg) => typeof arg === 'function');
+      return KT.deferred(async () => (block ? block() : null));
+    },
+    cancel: () => KT.unit,
+  });
+  /// Keiyoushi's `ratingStars`: a rating out of `max` as five stars, with half stars.
+  const ratingStars = (rating, max = 10) => {
+    const halves = Math.min(10, Math.max(0, Math.ceil((rating * 10) / max - 0.5)));
+    return (
+      '★'.repeat(Math.trunc(halves / 2)) +
+      '✬'.repeat(halves % 2) +
+      '☆'.repeat(5 - Math.trunc((halves + 1) / 2))
+    );
   };
   const instant = (ms) => moment(ms, 'Instant');
   /// An ISO 8601 instant (`1999-03-22T05:06:07.000Z`, `…+01:00`) in milliseconds, or null; one
@@ -3425,7 +3797,165 @@
     };
     return preferences;
   })();
+  // Keiyoushi's Markdown descriptions (`keiyoushi.utils.MarkdownDescription`, `toMarkdown`), as
+  // the plain text Raygun shows: sections a blank line apart, a run of inline ones (rating,
+  // facts, fields) on one line.
+  /// An element's text with its paragraphs and line breaks.
+  const htmlText = (element, keepNewlines = false) => {
+    if (element === null || element === undefined) return '';
+    let html = KT.str(typeof element.html === 'function' ? element.html() : element);
+    if (keepNewlines) html = html.replace(/\r?\n/g, '<br>');
+    const text = html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|h[1-6]|li|ul|ol|blockquote|section|article|tr|table)>/gi, '\n\n')
+      .replace(/<li[^>]*>/gi, '- ')
+      .replace(/<[^>]+>/g, '');
+    return unescapeEntities(text)
+      .replace(/[ \t ]+/g, ' ')
+      .replace(/ *\n */g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  };
+  const markdownBuilder = () => {
+    const sections = [];
+    let lastInline = false;
+    const add = (section) => {
+      if (section === null || section === undefined || KT.str(section).trim() === '') return;
+      sections.push(KT.str(section));
+      lastInline = false;
+    };
+    const addInline = (text) => {
+      if (text === null || text === undefined || KT.str(text).trim() === '') return;
+      if (lastInline) sections[sections.length - 1] += ` · ${text}`;
+      else sections.push(KT.str(text));
+      lastInline = true;
+    };
+    const list = (label, items) => {
+      const lines = items.map((item) => KT.str(item).trim()).filter(Boolean);
+      return lines.length
+        ? `${KT.str(label)}:\n${lines.map((line) => `- ${line}`).join('\n')}`
+        : null;
+    };
+    const builder = {
+      rating: (rating, ...rest) => {
+        const named_ = rest.find((arg) => arg && arg[NAMED]) ?? {};
+        const max = named_.max ?? (typeof rest[0] === 'number' ? rest[0] : 10);
+        const votes = named_.votes ?? (typeof rest[1] === 'number' ? rest[1] : null);
+        if (typeof rating === 'number' && Number.isFinite(rating)) {
+          const number = String(Math.round(rating * 100) / 100);
+          addInline(`${ratingStars(rating, max)} ${number}${votes !== null ? ` (${votes})` : ''}`);
+        }
+        return builder;
+      },
+      info: (...facts) => {
+        addInline(
+          facts
+            .filter((fact) => typeof fact === 'string' && fact.trim() !== '')
+            .map((fact) => fact.trim())
+            .join(' · '),
+        );
+        return builder;
+      },
+      description: (value, ...rest) => {
+        const keepNewlines = rest.find((arg) => typeof arg === 'boolean') ?? false;
+        add(typeof value === 'string' ? value.trim() : htmlText(value, keepNewlines));
+        return builder;
+      },
+      markdown: (text) => {
+        add(typeof text === 'string' ? text.trim() : null);
+        return builder;
+      },
+      field: (label, value) => {
+        const text = Array.isArray(value)
+          ? value
+              .map((item) => KT.str(item).trim())
+              .filter(Boolean)
+              .join(', ')
+          : typeof value === 'string'
+            ? value.trim()
+            : '';
+        if (text) addInline(`${KT.str(label)}: ${text}`);
+        return builder;
+      },
+      altTitles: (titles, ...rest) => {
+        const label = rest.find((arg) => typeof arg === 'string') ?? 'Alternative Names';
+        add(list(label, [...new Set((titles ?? []).map((title) => KT.str(title).trim()))]));
+        return builder;
+      },
+      links: (links, ...rest) => {
+        const label = rest.find((arg) => typeof arg === 'string') ?? 'Links';
+        add(
+          list(
+            label,
+            (links ?? [])
+              .filter((link) => link && link.second)
+              .map((link) => `${KT.str(link.first)}: ${KT.str(link.second)}`),
+          ),
+        );
+        return builder;
+      },
+      build: () => (sections.length ? sections.join('\n\n') : null),
+    };
+    return builder;
+  };
+
+  /// Kotlin's `Random` (`Random.nextInt(…)`, `Random.Default.nextBytes(16)`).
+  const random = {
+    nextInt: (from, until) => {
+      if (until === undefined && from === undefined) return Math.floor(Math.random() * 2 ** 31);
+      const [low, high] = until === undefined ? [0, from] : [from, until];
+      return low + Math.floor(Math.random() * (high - low));
+    },
+    nextLong: (from, until) => random.nextInt(from ?? 0, until ?? Number.MAX_SAFE_INTEGER),
+    nextDouble: () => Math.random(),
+    nextFloat: () => Math.random(),
+    nextBoolean: () => Math.random() < 0.5,
+    nextBytes: (sizeOrArray) => {
+      const size = Array.isArray(sizeOrArray) ? sizeOrArray.length : Number(sizeOrArray) || 0;
+      const bytes = Array.from({ length: size }, () => Math.floor(Math.random() * 256));
+      if (Array.isArray(sizeOrArray)) {
+        bytes.forEach((byte, index) => (sizeOrArray[index] = byte));
+        return sizeOrArray;
+      }
+      return bytes;
+    },
+  };
+  random.Default = random;
+  /// Android's `Build`: a phone's, as an extension asks for a User-Agent's parts.
+  const build = {
+    VERSION: { RELEASE: '14', SDK_INT: 34, CODENAME: 'REL', INCREMENTAL: '1' },
+    MODEL: 'Pixel 4',
+    MANUFACTURER: 'Google',
+    BRAND: 'google',
+    DEVICE: 'flame',
+    PRODUCT: 'flame',
+    ID: 'UQ1A.240205.002',
+  };
+  /// Java's `Normalizer.normalize(text, Normalizer.Form.NFD)`.
+  const normalizer = {
+    Form: { NFC: 'NFC', NFD: 'NFD', NFKC: 'NFKC', NFKD: 'NFKD' },
+    normalize: (text, form) => KT.str(text).normalize(KT.str(form ?? 'NFC')),
+  };
+
   const OBJECTS = {
+    // Mihon's `UpdateStrategy`: Raygun refreshes every title alike.
+    UpdateStrategy: { ALWAYS_UPDATE: 0, ONLY_FETCH_ONCE: 1 },
+    Random: random,
+    Build: build,
+    VERSION: build.VERSION,
+    Normalizer: normalizer,
+    Entities: {
+      unescape: (text) => unescapeEntities(text),
+      escape: (text) =>
+        KT.str(text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;'),
+    },
+    StandardCharsets: { UTF_8: 'UTF-8', ISO_8859_1: 'ISO-8859-1', US_ASCII: 'US-ASCII' },
+    Charset: { forName: (name) => KT.str(name), defaultCharset: () => 'UTF-8' },
+    MarkdownDescription: { Builder: () => markdownBuilder() },
     // OkHttp's `Cookie` and Android's `CookieManager`, over the extension's cookie jar.
     Cookie: {
       parse: (url, line) => parseCookie(url, line),
@@ -3603,12 +4133,54 @@
     URLEncoder: { encode: (text) => encodeURIComponent(KT.str(text)).replace(/%20/g, '+') },
     URLDecoder: { decode: (text) => decodeURIComponent(KT.str(text).replace(/\+/g, ' ')) },
     Charsets: { UTF_8: 'UTF-8' },
+    // Android's `Base64` (flags), and Kotlin's (`Base64.Default`, `Base64.UrlSafe`): bytes.
     Base64: {
-      decode: (text) => K.base64Decode(text),
+      decode: (value) => fromBase64(Array.isArray(value) ? binaryOf(value) : value),
+      encode: (value, flags = 0) => utf8Encode(base64Encode(value, flags)),
+      encodeToString: (value, flags = 0) => base64Encode(value, flags),
       DEFAULT: 0,
+      NO_PADDING: 1,
       NO_WRAP: 2,
+      CRLF: 4,
       URL_SAFE: 8,
-      encodeToString: (text) => btoa(KT.str(text)),
+      Default: {
+        decode: (value) => fromBase64(Array.isArray(value) ? binaryOf(value) : value),
+        encode: (value) => base64Encode(value, 2),
+        encodeToByteArray: (value) => utf8Encode(base64Encode(value, 2)),
+      },
+      UrlSafe: {
+        decode: (value) => fromBase64(Array.isArray(value) ? binaryOf(value) : value),
+        encode: (value) => base64Encode(value, 2 | 8),
+      },
+      Mime: {
+        decode: (value) => fromBase64(Array.isArray(value) ? binaryOf(value) : value),
+        encode: (value) => base64Encode(value, 0),
+      },
+    },
+    // Java's `Cipher`, `MessageDigest`, `Mac` and `SecretKeyFactory`, over the Rust natives.
+    Cipher: {
+      getInstance: (name) => aesCipher(transformation(name)),
+      ENCRYPT_MODE: 1,
+      DECRYPT_MODE: 2,
+    },
+    MessageDigest: { getInstance: (algorithm) => digester(KT.str(algorithm)) },
+    Mac: { getInstance: (algorithm) => digester(KT.str(algorithm), true) },
+    SecretKeyFactory: {
+      getInstance: (algorithm) => ({
+        generateSecret: (spec) => {
+          const encoded = fromBase64(
+            crypto({
+              op: 'pbkdf2',
+              algorithm: KT.str(algorithm),
+              password: base64Of(utf8Encode(spec.password)),
+              salt: base64Of(spec.salt),
+              iterations: spec.iterations,
+              length: Math.ceil((spec.keyLength ?? 256) / 8),
+            }),
+          );
+          return { encoded, getEncoded: () => encoded };
+        },
+      }),
     },
     JsonNull: null,
     Instant: {
@@ -3786,8 +4358,11 @@
       };
       for (const name of definition.params) {
         let value = fields[name];
+        // A default reads the parameters before it, as they're set.
         if (value === undefined && definition.defaults[name])
-          value = await definition.defaults[name]();
+          value = await definition.defaults[name](
+            ...definition.params.map((other) => (other in object ? object[other] : undefined)),
+          );
         object[name] = value ?? null;
       }
       const parentName = definition.supers.length
@@ -4044,6 +4619,7 @@
     const layers = builds.map(() => ({ functions: new Map(), properties: new Map() }));
     const values = new Map();
     const extensions = new Map();
+    const extensionOverloads = new Map();
     const constants = new Map();
     const constantValues = new Map();
     const C = {
@@ -4157,7 +4733,24 @@
       classes: D,
       define: (name, overloads) => layers[index].functions.set(name, overloads),
       prop: (name, getter, once = true) => layers[index].properties.set(name, { getter, once }),
-      extension: (name, function_) => extensions.set(name, function_),
+      // Extensions of one name on different receivers are told apart by the receiver's type
+      // (the latest of those that fit, else the latest).
+      extension: (name, function_, type = null) => {
+        const list = extensionOverloads.get(name) ?? [];
+        list.push({ type, function_ });
+        extensionOverloads.set(name, list);
+        extensions.set(
+          name,
+          list.length === 1
+            ? function_
+            : (receiver, ...args) => {
+                const fitting = [...list]
+                  .reverse()
+                  .find((entry) => entry.type && KT.is(receiver, entry.type));
+                return (fitting ?? list[list.length - 1]).function_(receiver, ...args);
+              },
+        );
+      },
       has: (name) =>
         findProperty(name, top) >= 0 || Object.prototype.hasOwnProperty.call(base, name),
       hasFunction: (name) =>

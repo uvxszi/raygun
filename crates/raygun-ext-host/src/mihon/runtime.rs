@@ -106,7 +106,297 @@ fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
         "decrypt",
         Function::new(ctx.clone(), |args: String| envelope(decrypt(&args)))?,
     )?;
+    native.set(
+        "crypto",
+        Function::new(ctx.clone(), |args: String| envelope(crypto(&args)))?,
+    )?;
     ctx.globals().set("__rgMihon", native)
+}
+
+/// What Keiyoushi's crypto helpers (and Java's `Cipher`, `MessageDigest`, `Mac`,
+/// `SecretKeyFactory` as sources call them) ask of the runtime. Bytes go as base64.
+#[derive(serde::Deserialize)]
+#[serde(tag = "op", rename_all = "camelCase")]
+enum CryptoArgs {
+    /// AES in `mode` (`cbc`, `ecb`, `gcm`, `ctr`).
+    #[serde(rename_all = "camelCase")]
+    Aes {
+        mode: String,
+        key: String,
+        #[serde(default)]
+        iv: Option<String>,
+        #[serde(default = "yes")]
+        padding: bool,
+        #[serde(default)]
+        encrypt: bool,
+        data: String,
+    },
+    /// A digest (`md5`, `sha1`, `sha256`, `sha512`).
+    Digest { algorithm: String, data: String },
+    /// An HMAC with the digest `algorithm`.
+    Hmac {
+        algorithm: String,
+        key: String,
+        data: String,
+    },
+    /// PBKDF2 with HMAC over the digest `algorithm`: `length` bytes.
+    Pbkdf2 {
+        algorithm: String,
+        password: String,
+        salt: String,
+        iterations: u32,
+        length: usize,
+    },
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn crypto(args: &str) -> Result<String, String> {
+    let args: CryptoArgs =
+        serde_json::from_str(args).map_err(|error| format!("invalid arguments: {error}"))?;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let bytes = |text: &str| {
+        engine
+            .decode(text)
+            .map_err(|error| format!("not base64: {error}"))
+    };
+    let out = match args {
+        CryptoArgs::Aes {
+            mode,
+            key,
+            iv,
+            padding,
+            encrypt,
+            data,
+        } => aes_run(
+            &mode,
+            &bytes(&key)?,
+            iv.as_deref().map(bytes).transpose()?.as_deref(),
+            padding,
+            encrypt,
+            &bytes(&data)?,
+        )?,
+        CryptoArgs::Digest { algorithm, data } => digest(&algorithm, &bytes(&data)?)?,
+        CryptoArgs::Hmac {
+            algorithm,
+            key,
+            data,
+        } => hmac_of(&algorithm, &bytes(&key)?, &bytes(&data)?)?,
+        CryptoArgs::Pbkdf2 {
+            algorithm,
+            password,
+            salt,
+            iterations,
+            length,
+        } => pbkdf2(
+            &algorithm,
+            &bytes(&password)?,
+            &bytes(&salt)?,
+            iterations,
+            length,
+        )?,
+    };
+    Ok(engine.encode(out))
+}
+
+fn digest(algorithm: &str, data: &[u8]) -> Result<Vec<u8>, String> {
+    use sha2::Digest as _;
+    Ok(
+        match algorithm.to_ascii_lowercase().replace('-', "").as_str() {
+            "md5" => Md5::digest(data).to_vec(),
+            "sha1" => sha1::Sha1::digest(data).to_vec(),
+            "sha256" => sha2::Sha256::digest(data).to_vec(),
+            "sha384" => sha2::Sha384::digest(data).to_vec(),
+            "sha512" => sha2::Sha512::digest(data).to_vec(),
+            other => return Err(format!("no {other} digest")),
+        },
+    )
+}
+
+fn hmac_of(algorithm: &str, key: &[u8], data: &[u8]) -> Result<Vec<u8>, String> {
+    use hmac::{KeyInit as _, Mac as _};
+    macro_rules! run {
+        ($digest:ty) => {{
+            let mut mac =
+                hmac::Hmac::<$digest>::new_from_slice(key).map_err(|error| error.to_string())?;
+            mac.update(data);
+            mac.finalize().into_bytes().to_vec()
+        }};
+    }
+    let name = algorithm.to_ascii_lowercase().replace(['-', '_'], "");
+    let name = name.trim_start_matches("hmac");
+    Ok(match name {
+        "md5" => run!(Md5),
+        "sha1" => run!(sha1::Sha1),
+        "sha256" => run!(sha2::Sha256),
+        "sha384" => run!(sha2::Sha384),
+        "sha512" => run!(sha2::Sha512),
+        other => return Err(format!("no HMAC with {other}")),
+    })
+}
+
+/// PBKDF2 (RFC 8018) over HMAC.
+fn pbkdf2(
+    algorithm: &str,
+    password: &[u8],
+    salt: &[u8],
+    iterations: u32,
+    length: usize,
+) -> Result<Vec<u8>, String> {
+    let name = algorithm
+        .to_ascii_lowercase()
+        .replace("pbkdf2with", "")
+        .replace("hmac", "");
+    let mut out = Vec::new();
+    let mut block = 1u32;
+    while out.len() < length {
+        let mut first = salt.to_vec();
+        first.extend_from_slice(&block.to_be_bytes());
+        let mut u = hmac_of(&name, password, &first)?;
+        let mut t = u.clone();
+        for _ in 1..iterations.max(1) {
+            u = hmac_of(&name, password, &u)?;
+            for (byte, next) in t.iter_mut().zip(&u) {
+                *byte ^= next;
+            }
+        }
+        out.extend_from_slice(&t);
+        block += 1;
+    }
+    out.truncate(length);
+    Ok(out)
+}
+
+fn aes_run(
+    mode: &str,
+    key: &[u8],
+    iv: Option<&[u8]>,
+    padding: bool,
+    encrypt: bool,
+    data: &[u8],
+) -> Result<Vec<u8>, String> {
+    use aes::cipher::block_padding::NoPadding;
+    use aes::cipher::{BlockDecrypt, BlockEncrypt, BlockEncryptMut, KeyInit, StreamCipher};
+    let wrong = |_| "the data didn't decrypt (wrong key or padding)".to_owned();
+    let iv_of = || iv.ok_or_else(|| "this AES mode needs an IV".to_owned());
+    macro_rules! by_key {
+        ($run:ident) => {
+            match key.len() {
+                16 => $run!(aes::Aes128),
+                24 => $run!(aes::Aes192),
+                32 => $run!(aes::Aes256),
+                other => return Err(format!("a {other}-byte AES key isn't one")),
+            }
+        };
+    }
+    Ok(match mode {
+        "cbc" => {
+            let iv = iv_of()?;
+            macro_rules! cbc_run {
+                ($aes:ty) => {{
+                    if encrypt {
+                        let cipher = cbc::Encryptor::<$aes>::new_from_slices(key, iv)
+                            .map_err(|error| error.to_string())?;
+                        if padding {
+                            cipher.encrypt_padded_vec_mut::<Pkcs7>(data)
+                        } else {
+                            cipher.encrypt_padded_vec_mut::<NoPadding>(data)
+                        }
+                    } else {
+                        let cipher = cbc::Decryptor::<$aes>::new_from_slices(key, iv)
+                            .map_err(|error| error.to_string())?;
+                        if padding {
+                            cipher
+                                .decrypt_padded_vec_mut::<Pkcs7>(data)
+                                .map_err(wrong)?
+                        } else {
+                            cipher
+                                .decrypt_padded_vec_mut::<NoPadding>(data)
+                                .map_err(wrong)?
+                        }
+                    }
+                }};
+            }
+            by_key!(cbc_run)
+        }
+        "ecb" => {
+            macro_rules! ecb_run {
+                ($aes:ty) => {{
+                    let cipher = <$aes>::new_from_slice(key).map_err(|error| error.to_string())?;
+                    let mut input = data.to_vec();
+                    if encrypt && padding {
+                        let pad = 16 - input.len() % 16;
+                        input.extend(std::iter::repeat_n(pad as u8, pad));
+                    }
+                    if input.len() % 16 != 0 {
+                        return Err("the data isn't whole AES blocks".into());
+                    }
+                    for chunk in input.chunks_mut(16) {
+                        let block = aes::cipher::generic_array::GenericArray::from_mut_slice(chunk);
+                        if encrypt {
+                            cipher.encrypt_block(block);
+                        } else {
+                            cipher.decrypt_block(block);
+                        }
+                    }
+                    if !encrypt && padding {
+                        let pad = usize::from(*input.last().ok_or("no data")?);
+                        if pad == 0 || pad > 16 || pad > input.len() {
+                            return Err("the data didn't decrypt (wrong key or padding)".into());
+                        }
+                        input.truncate(input.len() - pad);
+                    }
+                    input
+                }};
+            }
+            by_key!(ecb_run)
+        }
+        "ctr" => {
+            let iv = iv_of()?;
+            macro_rules! ctr_run {
+                ($aes:ty) => {{
+                    use aes::cipher::KeyIvInit as _;
+                    let mut cipher = ctr::Ctr128BE::<$aes>::new_from_slices(key, iv)
+                        .map_err(|error| error.to_string())?;
+                    let mut out = data.to_vec();
+                    cipher.apply_keystream(&mut out);
+                    out
+                }};
+            }
+            by_key!(ctr_run)
+        }
+        "gcm" => {
+            use aes_gcm::aead::{Aead, KeyInit as _, generic_array::GenericArray};
+            let iv = iv_of()?;
+            if iv.len() != 12 {
+                return Err("GCM takes a 12-byte IV".into());
+            }
+            let nonce = GenericArray::from_slice(iv);
+            macro_rules! gcm_run {
+                ($cipher:ty) => {{
+                    let cipher =
+                        <$cipher>::new_from_slice(key).map_err(|error| error.to_string())?;
+                    if encrypt {
+                        cipher
+                            .encrypt(nonce, data)
+                            .map_err(|_| "couldn't encrypt".to_owned())?
+                    } else {
+                        cipher
+                            .decrypt(nonce, data)
+                            .map_err(|_| "the data didn't decrypt (wrong key or tag)".to_owned())?
+                    }
+                }};
+            }
+            match key.len() {
+                16 => gcm_run!(aes_gcm::Aes128Gcm),
+                32 => gcm_run!(aes_gcm::Aes256Gcm),
+                other => return Err(format!("a {other}-byte AES-GCM key isn't one")),
+            }
+        }
+        other => return Err(format!("no AES mode {other}")),
+    })
 }
 
 /// The cookies the jar sends to `url`, as `[name, value]` pairs.

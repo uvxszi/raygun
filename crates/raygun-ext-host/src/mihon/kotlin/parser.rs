@@ -394,8 +394,8 @@ impl Parser {
                     }
                     self.expect_op("=")?;
                     self.skip_newlines();
-                    self.ty()?;
-                    Ok(Member::TypeAlias(name))
+                    let target = self.ty()?;
+                    Ok(Member::TypeAlias(name, target))
                 }
                 "constructor" => {
                     // A secondary constructor: its parameters, a delegation and a body.

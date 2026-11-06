@@ -29,6 +29,22 @@ pub struct Context {
     pub companions: HashMap<String, HashSet<String>>,
     /// The functions each of those classes' companion objects has, called on `D.Class`.
     pub companion_functions: HashMap<String, HashSet<String>>,
+    /// `typealias ChaptersListDto = List<ChapterDto>`: what each alias stands for.
+    pub type_aliases: HashMap<String, Type>,
+}
+
+impl Context {
+    /// A type with its aliases replaced by what they stand for.
+    pub fn unaliased(&self, ty: &Type) -> Type {
+        let short = ty.name.rsplit('.').next().unwrap_or(&ty.name);
+        match self.type_aliases.get(short) {
+            Some(target) if ty.args.is_empty() => self.unaliased(target),
+            _ => Type {
+                args: ty.args.iter().map(|arg| self.unaliased(arg)).collect(),
+                ..ty.clone()
+            },
+        }
+    }
 }
 
 /// A companion value's key on `C`.
@@ -137,6 +153,16 @@ pub const METHODS: &[&str] = &[
     "deleteCharAt", "deleteRange", "setCharAt", "reverse", "parseOrNull",
     // Text nodes
     "textNodes", "getWholeText",
+    // Bytes, crypto, Markdown descriptions, and the rest of Keiyoushi's helpers
+    "decodeHex", "md5", "sha1", "sha256", "sha512", "hmacSha256", "cryptoJsDecrypt",
+    "decodeBase64", "copyOfRange", "copyOf", "reversedArray", "sliceArray", "contentEquals",
+    "toHexString", "aesDecrypt", "aesEncrypt", "xor", "xorInPlace", "doFinal", "init", "digest",
+    "update", "reset", "generateSecret", "getEncoded", "encoded", "getIV", "encode",
+    "nextBytes", "nextInt", "nextLong", "nextDouble", "nextFloat", "nextBoolean", "normalize",
+    "unescape", "escape", "forName", "defaultCharset", "tryParseZonedDateTime", "rating", "info",
+    "description", "markdown", "field", "altTitles", "links", "toMarkdown", "escapeMarkdown",
+    "printStackTrace", "ownerDocument", "createElement", "launch", "cancel", "join",
+    "getStringSet",
     // Cookies
     "loadForRequest", "saveFromResponse", "getCookie", "setCookie", "flush", "parseAll",
     "hostOnlyDomain", "expiresAt", "secure", "httpOnly", "name", "domain", "path", "hasCookies",
@@ -332,6 +358,11 @@ impl<'a> Gen<'a> {
         let target = self.jump_target(label)?;
         self.jumped.insert(target.id);
         Ok(format!("KT.jump({}, {})", quote(kind), target.id))
+    }
+
+    /// A type with the source's type aliases replaced.
+    pub fn unaliased(&self, ty: &Type) -> Type {
+        self.cx.unaliased(ty)
     }
 
     /// Whether `name` here is a library's class the file imports rather than one of the source's
@@ -540,6 +571,87 @@ impl<'a> Gen<'a> {
         })
     }
 
+    /// A local's initial value: its initializer, or `by lazy { … }`'s.
+    fn local_value(
+        &mut self,
+        value: Option<&Expr>,
+        delegate: Option<&Expr>,
+    ) -> Result<String, String> {
+        Ok(match (value, delegate) {
+            (Some(value), _) => self.expr(value)?,
+            (
+                None,
+                Some(Expr::Call {
+                    callee,
+                    lambda: Some(lambda),
+                    ..
+                }),
+            ) if matches!(callee.as_ref(), Expr::Name(name) if name == "lazy") => {
+                self.lambda_call(lambda, "lazy")?
+            }
+            (None, Some(_)) => return Err(unsupported("a delegated local")),
+            (None, None) => "undefined".to_owned(),
+        })
+    }
+
+    /// A `do { … } while (…)`: the body's own locals are declared before the loop, as Kotlin's
+    /// condition sees them (`do { val page = … } while (page.hasNext)`).
+    fn do_while(
+        &mut self,
+        label: Option<&String>,
+        condition: &Expr,
+        body: &Block,
+    ) -> Result<String, String> {
+        let id = self.enter_loop(label);
+        let result = self.scoped(|writer| -> Result<(String, String, Vec<String>), String> {
+            let mut hoisted = Vec::new();
+            let mut out = Vec::new();
+            for statement in body {
+                match statement {
+                    Stmt::Val {
+                        names,
+                        destructured: false,
+                        mutable,
+                        value,
+                        delegate,
+                    } if names.len() == 1 => {
+                        let value = writer.local_value(value.as_ref(), delegate.as_ref())?;
+                        writer.next += 1;
+                        let js = format!("{}${}", local(&names[0]), writer.next);
+                        if let Some(scope) = writer.scopes.last_mut() {
+                            scope.insert(names[0].clone(), js.clone());
+                        }
+                        writer.plain.remove(&js);
+                        if *mutable {
+                            writer.vals.remove(&js);
+                        } else {
+                            writer.vals.insert(js.clone());
+                        }
+                        out.push(format!("{js} = {value};"));
+                        hoisted.push(js);
+                    }
+                    _ => out.push(writer.statement(statement, false)?),
+                }
+            }
+            let condition = writer.expr(condition)?;
+            Ok((out.join(" "), condition, hoisted))
+        });
+        self.loops.pop();
+        let (body, condition, hoisted) = result?;
+        let body = self.loop_body(id, body);
+        let declared = if hoisted.is_empty() {
+            String::new()
+        } else {
+            format!("let {}; ", hoisted.join(", "))
+        };
+        let label = label
+            .map(|label| format!("{}: ", local(label)))
+            .unwrap_or_default();
+        Ok(format!(
+            "{declared}{label}do {{ {body} }} while (KT.truthy({condition}));"
+        ))
+    }
+
     fn statement(&mut self, statement: &Stmt, returned: bool) -> Result<String, String> {
         Ok(match statement {
             Stmt::Val {
@@ -550,21 +662,7 @@ impl<'a> Gen<'a> {
                 delegate,
             } => {
                 let keyword = if *mutable { "let" } else { "const" };
-                let value = match (value, delegate) {
-                    (Some(value), _) => self.expr(value)?,
-                    (
-                        None,
-                        Some(Expr::Call {
-                            callee,
-                            lambda: Some(lambda),
-                            ..
-                        }),
-                    ) if matches!(callee.as_ref(), Expr::Name(name) if name == "lazy") => {
-                        self.lambda_call(lambda, "lazy")?
-                    }
-                    (None, Some(_)) => return Err(unsupported("a delegated local")),
-                    (None, None) => "undefined".to_owned(),
-                };
+                let value = self.local_value(value.as_ref(), delegate.as_ref())?;
                 // Declared after the value is worked out: an initializer reads what the name
                 // meant before.
                 let code = if *destructured {
@@ -710,6 +808,19 @@ impl<'a> Gen<'a> {
                 });
                 self.loops.pop();
                 let code = code?;
+                if returned {
+                    format!("{code} return KT.unit;")
+                } else {
+                    code
+                }
+            }
+            Stmt::While {
+                label,
+                condition,
+                body,
+                after: true,
+            } => {
+                let code = self.do_while(label.as_ref(), condition, body)?;
                 if returned {
                     format!("{code} return KT.unit;")
                 } else {
@@ -1241,6 +1352,14 @@ impl<'a> Gen<'a> {
         if let Expr::Super = target {
             return Ok(format!("(await self.base.get({}))", quote(name)));
         }
+        // `this.baseUrl` in the source: its own property.
+        if matches!(target, Expr::This(None))
+            && self.receivers.is_empty()
+            && self.class_scope.is_none()
+            && self.cx.properties.contains(name)
+        {
+            return Ok(format!("(await self.get({}))", quote(name)));
+        }
         // A companion's or an object's member (`Companion.X`, `SManga.ONGOING`).
         if let Expr::Name(owner) = target
             && !self.is_local(owner)
@@ -1248,6 +1367,7 @@ impl<'a> Gen<'a> {
             && self.receivers.is_empty()
             && !self.cx.properties.contains(owner)
             && !self.cx.constants.contains(owner)
+            && self.companion_value(owner).is_none()
         {
             if self
                 .cx
@@ -1306,6 +1426,28 @@ impl<'a> Gen<'a> {
                 Some(name) => named.push((name.clone(), value)),
             }
         }
+        // A vararg before other parameters (`listUrl(vararg segments, page)`) takes the
+        // positional arguments as one list.
+        if let Some(params) = params
+            && let Some(at) = params.iter().position(|param| param.starts_with('*'))
+        {
+            let mut placed: Vec<Option<String>> = vec![None; params.len()];
+            placed[at] = Some(format!("[{}]", positional.join(", ")));
+            for (name, value) in named {
+                let index = params
+                    .iter()
+                    .position(|param| param.trim_start_matches('*') == name)
+                    .ok_or_else(|| unsupported(format!("a named argument {name}")))?;
+                placed[index] = Some(value);
+            }
+            return Ok((
+                placed
+                    .into_iter()
+                    .map(|value| value.unwrap_or_else(|| "undefined".to_owned()))
+                    .collect(),
+                None,
+            ));
+        }
         if named.is_empty() {
             return Ok((positional, None));
         }
@@ -1344,10 +1486,13 @@ impl<'a> Gen<'a> {
         overloads
             .iter()
             .find(|params| {
-                params.len() >= args.len()
-                    && named
-                        .iter()
-                        .all(|name| params.iter().any(|param| param == name))
+                let vararg = params.iter().any(|param| param.starts_with('*'));
+                (vararg || params.len() >= args.len())
+                    && named.iter().all(|name| {
+                        params
+                            .iter()
+                            .any(|param| param.trim_start_matches('*') == *name)
+                    })
             })
             .or_else(|| overloads.first())
             .cloned()
@@ -1362,7 +1507,7 @@ impl<'a> Gen<'a> {
     ) -> Result<String, String> {
         let type_arg = type_args
             .first()
-            .map(|ty| quote(&type_name(ty)))
+            .map(|ty| quote(&type_name(&self.cx.unaliased(ty))))
             .unwrap_or_else(|| "null".to_owned());
         match callee {
             Expr::Name(name) => {
@@ -1557,12 +1702,30 @@ impl<'a> Gen<'a> {
                         args.join(", ")
                     ));
                 }
-                // `Foo.create()`, `Jsoup.parse(…)`: an object's member.
+                // `this.pageListParseAlternative(document)` in the source: its own function.
+                if matches!(target.as_ref(), Expr::This(None))
+                    && self.receivers.is_empty()
+                    && self.class_scope.is_none()
+                    && let Some(params) = self.own_params(name, args)
+                {
+                    let (mut args, _) = self.args(args, Some(&params))?;
+                    if let Some(lambda) = lambda {
+                        args.push(self.lambda(lambda, name)?);
+                    }
+                    return Ok(format!(
+                        "(await self.call({}, [{}]))",
+                        quote(name),
+                        args.join(", ")
+                    ));
+                }
+                // `Foo.create()`, `Jsoup.parse(…)`: an object's member (not a constant's, such as
+                // a class's companion's `NUMBER_REGEX.findAll(…)`).
                 if let Expr::Name(owner) = target.as_ref()
                     && !self.is_local(owner)
                     && owner.chars().next().is_some_and(char::is_uppercase)
                     && !self.cx.properties.contains(owner)
                     && !self.cx.constants.contains(owner)
+                    && self.companion_value(owner).is_none()
                 {
                     let owner_code = if self.cx.classes.contains(owner) {
                         format!("D.{owner}")
@@ -1958,7 +2121,12 @@ pub const GLOBALS: &[&str] = &[
     "Comparator", "compareBy", "compareByDescending", "naturalOrder", "reverseOrder", "List",
     "MutableList", "Array", "arrayOfNulls", "HashMap", "LinkedHashMap", "ConcurrentHashMap", "HashSet",
     "LinkedHashSet", "DateTimeFormatterBuilder", "GraphQLErrorInterceptor", "graphQLBody",
-    "persistedQueryExtension",
+    "persistedQueryExtension", "ArrayList", "ArrayDeque", "ByteArray", "IntArray", "LongArray",
+    "DoubleArray", "FloatArray", "BooleanArray", "CharArray", "intArrayOf", "byteArrayOf",
+    "longArrayOf", "doubleArrayOf", "floatArrayOf", "charArrayOf", "booleanArrayOf", "sequenceOf",
+    "emptySequence", "min", "max", "synchronized", "CoroutineScope", "ratingStars", "aesCbc",
+    "aesEcb", "aesGcm", "aesCtr", "newAesCipher", "IvParameterSpec", "SecretKeySpec",
+    "GCMParameterSpec", "PBEKeySpec",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -1969,5 +2137,7 @@ pub const OBJECTS: &[&str] = &[
     "Unit", "LocalDate", "LocalDateTime", "ZonedDateTime", "Parser", "DateTimeFormatter", "System",
     "FormBody", "Headers", "Request", "RegexOption", "Filter", "Math", "Integer", "Long", "Int",
     "URLEncoder", "URLDecoder", "Charsets", "Base64", "JsonNull", "Instant", "Clock", "AppInfo",
-    "ChronoUnit", "ChronoField", "Log", "Regex", "Cookie", "CookieManager",
+    "ChronoUnit", "ChronoField", "Log", "Regex", "Cookie", "CookieManager", "Random", "Build",
+    "VERSION", "Normalizer", "Entities", "StandardCharsets", "Charset", "MarkdownDescription",
+    "Cipher", "MessageDigest", "Mac", "SecretKeyFactory", "UpdateStrategy",
 ];

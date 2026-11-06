@@ -44,6 +44,12 @@ base64 = "0.22"
 # protector).
 aes = "0.8"
 cbc = { version = "0.1", features = ["alloc"] }
+# Keiyoushi's crypto helpers (`aesCbc`, `aesGcm`, `aesCtr`, digests, HMAC and PBKDF2) as
+# converted code calls them.
+aes-gcm = "0.10"
+ctr = "0.9"
+sha1 = "0.11"
+hmac = "0.13"
 uuid.workspace = true
 flate2 = "1"
 

@@ -184,6 +184,8 @@ the themes:
 | Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones, month names in 20 languages, Thai Buddhist years; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `Instant` as Unix milliseconds |
 | Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…) |
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
+| Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256` in Rust (`runtime.rs`'s `crypto`) |
+| Keiyoushi's other helpers | `MarkdownDescription.Builder`, `toMarkdown` and `ratingStars` as plain text (Raygun shows descriptions as text), `tryParseZonedDateTime`, `Instant.tryParse`, Jsoup's `attrOrNull`, `selectLast`, `textNodes`, `createElement`, `:containsData` |
 
 Titles are known by their path (`/manga/one/`), chapters by theirs; covers and pages go through
 the image proxy with the source's Referer. Mihon's `memo`s (what a source keeps with a title or

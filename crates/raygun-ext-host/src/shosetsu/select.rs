@@ -60,6 +60,8 @@ enum Condition {
     Not(Box<Selector>),
     Contains(String),
     ContainsOwn(String),
+    /// Jsoup's `:containsData(…)`: a script's or a style's contents.
+    ContainsData(String),
     Matches(Regex),
     MatchesOwn(Regex),
     Eq(usize),
@@ -275,6 +277,7 @@ impl Condition {
             Self::Not(inner) => !inner.matches(node, scope),
             Self::Contains(text) => lower(&element_text(node)).contains(&lower(text)),
             Self::ContainsOwn(text) => lower(&own_text(node)).contains(&lower(text)),
+            Self::ContainsData(text) => lower(&data_text(node)).contains(&lower(text)),
             Self::Matches(pattern) => pattern.is_match(&element_text(node)),
             Self::MatchesOwn(pattern) => pattern.is_match(&own_text(node)),
             Self::Eq(index) => sibling_index(node) == *index,
@@ -420,6 +423,17 @@ pub fn own_text(node: NodeRef<'_, Node>) -> String {
         })
         .collect();
     normalize(&raw)
+}
+
+/// Jsoup's `data()`: the text in the element's scripts and styles (its own when it's one).
+pub fn data_text(node: NodeRef<'_, Node>) -> String {
+    node.descendants()
+        .filter(|descendant| is_data(*descendant))
+        .filter_map(|descendant| match descendant.value() {
+            Node::Text(text) => Some(text.to_string()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Collapses whitespace runs to one space and trims.
@@ -779,6 +793,7 @@ impl Parser {
             }
             "contains" => Condition::Contains(unquote(self.argument()?)),
             "containsown" => Condition::ContainsOwn(unquote(self.argument()?)),
+            "containsdata" => Condition::ContainsData(unquote(self.argument()?)),
             "matches" => Condition::Matches(regex(self.argument()?)?),
             "matchesown" => Condition::MatchesOwn(regex(self.argument()?)?),
             "eq" => Condition::Eq(index(self.argument()?)?),

@@ -552,7 +552,7 @@ fn convert_themed(
     for member in &class.members {
         match member {
             Member::Init(_) => return Err("it runs code of its own when it starts".into()),
-            Member::Class(_) | Member::TypeAlias(_) => continue,
+            Member::Class(_) | Member::TypeAlias(..) => continue,
             _ => {}
         }
         if !member.is_override() {

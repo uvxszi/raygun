@@ -614,16 +614,41 @@ impl Documents {
                 Some(handle) => json!(self.read(*handle, jsoup_own_text)?),
                 None => json!(""),
             },
-            // Jsoup's `textNodes()`: the node's own text children, as written.
+            // Jsoup's `textNodes()`: the node's own text children, as written, with the elements
+            // beside each (`textNode.nextElementSibling()`).
             "textNodes" => match nodes.first() {
-                Some(handle) => json!(self.read(*handle, |node| {
-                    node.children()
-                        .filter_map(|child| match child.value() {
-                            Node::Text(text) => Some(text.to_string()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                })?),
+                Some(handle) => {
+                    let found = self.with(*handle, |document, number, id| {
+                        let texts: Vec<(String, Option<NodeId>, Option<NodeId>)> = document
+                            .html
+                            .tree
+                            .get(id)
+                            .map(|node| {
+                                node.children()
+                                    .filter_map(|child| match child.value() {
+                                        Node::Text(text) => Some((
+                                            text.to_string(),
+                                            child.next_siblings().find(is_element).map(|s| s.id()),
+                                            child.prev_siblings().find(is_element).map(|s| s.id()),
+                                        )),
+                                        _ => None,
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        texts
+                            .into_iter()
+                            .map(|(text, next, previous)| {
+                                json!({
+                                    "text": text,
+                                    "next": next.map(|id| document.handle(number, id)),
+                                    "previous": previous.map(|id| document.handle(number, id)),
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                    })?;
+                    json!(found)
+                }
                 None => json!([]),
             },
             "data" => match nodes.first() {

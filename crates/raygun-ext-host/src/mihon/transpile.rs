@@ -299,8 +299,20 @@ fn source_class(files: &[(String, File)]) -> Option<&ClassDecl> {
     fallback
 }
 
+/// A function's parameter names, as calls place their arguments; a vararg before other
+/// parameters is `*name`: the call's positional arguments go to it, as a list.
 fn param_names(params: &[Param]) -> Vec<String> {
-    params.iter().map(|param| param.name.clone()).collect()
+    params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| {
+            if param.vararg && index + 1 < params.len() {
+                format!("*{}", param.name)
+            } else {
+                param.name.clone()
+            }
+        })
+        .collect()
 }
 
 /// A property's value as a function body: its initializer, getter or delegate.
@@ -328,6 +340,14 @@ fn property_value(prop: &PropDecl) -> Option<Body> {
                 type_args: type_args.clone(),
                 args: Vec::new(),
                 lambda: Some(lambda),
+            }))
+        }
+        // `by getPreferencesLazy()`: a `Lazy`'s value.
+        Some(other @ Expr::Call { callee, .. }) if matches!(callee.as_ref(), Expr::Name(name) if name.ends_with("Lazy")) => {
+            Some(Body::Expr(Expr::Member {
+                target: Box::new(other.clone()),
+                name: "value".to_owned(),
+                safe: false,
             }))
         }
         Some(other) => Some(Body::Expr(other.clone())),
@@ -379,6 +399,11 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
     };
     for (_, file) in files {
         add_members(&mut cx, &file.members, true);
+        for member in &file.members {
+            if let Member::TypeAlias(name, target) = member {
+                cx.type_aliases.insert(name.clone(), target.clone());
+            }
+        }
     }
     for class in chain {
         add_members(&mut cx, &class.members, false);
@@ -434,6 +459,14 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                     if matches!(nested, Member::Fun(_) | Member::Prop(_)) {
                         cx.class_members.insert(nested.name().to_owned());
                     }
+                    // A class's own extensions (`private fun Float.formatNumber()`) are the
+                    // source's (`transpile::class_definition`).
+                    if let Member::Fun(fun) = nested
+                        && fun.receiver.is_some()
+                        && fun.body.is_some()
+                    {
+                        cx.extensions.insert(fun.name.clone());
+                    }
                 }
                 // Its constructor's properties too (`GenreRoute::name`).
                 for param in &inner.params {
@@ -475,7 +508,7 @@ fn members(
     for member in members {
         match member {
             Member::Init(_) => return Err("it runs code of its own when it starts".into()),
-            Member::TypeAlias(_) => {}
+            Member::TypeAlias(..) => {}
             Member::Class(inner) if inner.modifiers.iter().any(|m| m == "companion") => {
                 self::members(writer, &inner.members, out, "C", true, reached)?;
             }
@@ -508,8 +541,14 @@ fn members(
                     Ok(function) => function,
                     Err(reason) => unreached(&fun.name, reason)?,
                 };
-                if fun.receiver.is_some() {
-                    out.push(format!("self.extension({}, {function});", quote(&fun.name)));
+                if let Some(receiver) = &fun.receiver {
+                    // Overloads by receiver (`Elements.imgAttr()` beside `Element.imgAttr()`) are
+                    // told apart by the receiver's type when called.
+                    out.push(format!(
+                        "self.extension({}, {function}, {});",
+                        quote(&fun.name),
+                        quote(receiver.name.rsplit('.').next().unwrap_or(&receiver.name))
+                    ));
                 } else {
                     let required = fun
                         .params
@@ -752,13 +791,33 @@ fn class_definition(
         .iter()
         .map(|param| quote(&param.name))
         .collect();
+    // Each default sees the parameters before it (`val coinPrice: Int = if (isLocked) 1 else 0`):
+    // it's a function of them all, called with the values set so far.
     let mut defaults = Vec::new();
     for param in &class.params {
         if let Some(default) = &param.default {
+            let function = super::kotlin::ast::FunDecl {
+                name: param.name.clone(),
+                modifiers: Vec::new(),
+                annotations: Vec::new(),
+                receiver: None,
+                params: class
+                    .params
+                    .iter()
+                    .map(|param| Param {
+                        default: None,
+                        vararg: false,
+                        ..param.clone()
+                    })
+                    .collect(),
+                ret: None,
+                body: Some(Body::Expr(default.clone())),
+                line: class.line,
+            };
             defaults.push(format!(
-                "{}: async () => {}",
+                "{}: {}",
                 quote(&param.name),
-                writer.expr(default)?
+                writer.function(&function)?
             ));
         }
     }
@@ -771,7 +830,7 @@ fn class_definition(
             format!(
                 "{}: {}",
                 quote(&param.name),
-                quote(&qualified_type(&param.ty, &scope))
+                quote(&qualified_type(&writer.unaliased(&param.ty), &scope))
             )
         })
         .collect();
@@ -808,8 +867,26 @@ fn class_definition(
         .map(|entry| quote(&entry.name))
         .collect();
     let mut methods = Vec::new();
+    // Extensions the class declares for its own code (`private fun Float.formatNumber()`): the
+    // source's, as they read nothing of the instance but their receiver.
+    let mut extensions = Vec::new();
     for member in &class.members {
         match member {
+            Member::Fun(fun) if fun.body.is_some() && fun.receiver.is_some() => {
+                let receiver = fun
+                    .receiver
+                    .as_ref()
+                    .map(|ty| ty.name.as_str())
+                    .unwrap_or("");
+                let function = writer
+                    .function(fun)
+                    .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?;
+                extensions.push(format!(
+                    "self.extension({}, {function}, {});",
+                    quote(&fun.name),
+                    quote(receiver.rsplit('.').next().unwrap_or(receiver))
+                ));
+            }
             Member::Fun(fun) if fun.body.is_some() => {
                 let mut method = fun.clone();
                 // Members read the instance as their receiver.
@@ -874,7 +951,11 @@ fn class_definition(
         statics.push(format!("{}: {function}", quote(&fun.name)));
     }
     Ok(format!(
-        "D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}}, statics: {{{statics}}} }});",
+        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}}, statics: {{{statics}}} }});",
+        extensions = extensions
+            .iter()
+            .map(|code| format!("{code} "))
+            .collect::<String>(),
         qualified = quote(&qualified_name),
         // The name a polymorphic answer gives it (`"type": "selfhosted"`).
         serial = quote(
@@ -1115,7 +1196,7 @@ fn member_mentions(
                     continue;
                 }
                 Member::Init(block) => block_mentions(block, &mut mentioned),
-                Member::TypeAlias(_) => continue,
+                Member::TypeAlias(..) => continue,
             }
             // A class's member reached reaches its class too.
             if let Some(owner) = owner {

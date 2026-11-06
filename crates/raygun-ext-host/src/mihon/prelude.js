@@ -679,6 +679,10 @@
       return this.tryParse(text);
     }
 
+    tryParseZonedDateTime(text) {
+      return this.tryParse(text);
+    }
+
     setTimeZone(zone) {
       this.timeZone = zone;
     }
@@ -826,6 +830,8 @@
   };
 
   K.decrypt = (options) => unwrap(native.decrypt(JSON.stringify(options)));
+  /** AES, digests, HMAC and PBKDF2 in Rust, bytes as base64 (`runtime.rs`'s `CryptoArgs`). */
+  K.crypto = (args) => unwrap(native.crypto(JSON.stringify(args)));
   /** The extension's cookie jar: what it sends to `url` (`[name, value]` pairs), and keeping
    * `Set-Cookie` lines for it. */
   K.cookies = (href) => unwrap(native.cookies(K.str(href)));
@@ -930,17 +936,27 @@
     }
   }
 
-  /** A Jsoup `TextNode`: `text()` with its whitespace runs made one space, `wholeText` as written. */
-  const textNode = (raw) => ({
-    __class: 'TextNode',
-    __classes: ['TextNode', 'Node'],
-    wholeText: raw,
-    text: () => raw.replace(/\s+/g, ' '),
-    getWholeText: () => raw,
-    isBlank: () => raw.trim() === '',
-    outerHtml: () => raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
-    toString: () => raw,
-  });
+  /** A Jsoup `TextNode`: `text()` with its whitespace runs made one space, `wholeText` as written,
+   * and the elements beside it. */
+  const textNode = (found, doc) => {
+    const raw = found.text;
+    const beside = (handle) =>
+      handle === null || handle === undefined ? null : new Element(handle, doc);
+    return {
+      __class: 'TextNode',
+      __classes: ['TextNode', 'Node'],
+      wholeText: raw,
+      text: () => raw.replace(/\s+/g, ' '),
+      getWholeText: () => raw,
+      isBlank: () => raw.trim() === '',
+      nextElementSibling: () => beside(found.next),
+      previousElementSibling: () => beside(found.previous),
+      nextSibling: () => beside(found.next),
+      previousSibling: () => beside(found.previous),
+      outerHtml: () => raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+      toString: () => raw,
+    };
+  };
 
   class Element {
     constructor(handle, doc) {
@@ -990,7 +1006,16 @@
     baseUri() {
       return this.doc ? this.doc.location() : '';
     }
-    attr(name) {
+    ownerDocument() {
+      return this.doc ?? null;
+    }
+    attr(name, ...value) {
+      // `attr(key, value)` sets it, as Jsoup's does, and gives the element.
+      if (value.length && typeof value[0] === 'string') {
+        dom('setAttr', { nodes: [this.h], name: K.str(name), value: value[0] });
+        this._node = undefined;
+        return this;
+      }
       if (name.startsWith('abs:')) return this.absUrl(name.slice(4));
       const attribs = this.node.attribs || {};
       return attribs[name] ?? attribs[name.toLowerCase()] ?? '';
@@ -1019,7 +1044,7 @@
     }
     /** Jsoup's `textNodes()`: the element's own text children. */
     textNodes() {
-      return dom('textNodes', { nodes: [this.h] }).map(textNode);
+      return dom('textNodes', { nodes: [this.h] }).map((found) => textNode(found, this.doc));
     }
     wholeText() {
       return dom('text', { nodes: [this.h] });
@@ -1132,6 +1157,17 @@
     }
     outerHtml() {
       return dom('html', { nodes: [this.h] }) ?? '';
+    }
+    /** Jsoup's `createElement(tag)`: an element of its own with this document's address, for
+     * `attr("href", …)` then `absUrl("href")`. */
+    createElement(tag) {
+      const name = K.str(tag).replace(/[^a-zA-Z0-9-]/g, '') || 'div';
+      const holder = new Document(
+        dom('load', { html: `<body><${name}></${name}></body>` }),
+        this.loc,
+      );
+      const element = holder.selectFirst(name);
+      return element ?? holder;
     }
   }
 

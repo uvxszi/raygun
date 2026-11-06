@@ -309,7 +309,7 @@ async fn mihon_convert_survey() {
                     || detail.as_deref() == Some("*")
                     || reason.contains("couldn't read its code")
                 {
-                    println!("  {}: {reason}", extension.pkg);
+                    println!("  {} [{theme}]: {reason}", extension.pkg);
                 }
                 // Reasons grouped by their first words, so lists of names don't split them, and
                 // without the function they were met in.
@@ -334,20 +334,19 @@ async fn mihon_convert_survey() {
         converted as f64 * 100.0 / total as f64,
         total - converted
     );
+    // `MIHON_SURVEY_TOP=<n>`: that many themes and reasons (20 and 25 by default).
+    let top: Option<usize> = std::env::var("MIHON_SURVEY_TOP")
+        .ok()
+        .and_then(|value| value.parse().ok());
     let mut themes: Vec<_> = by_theme.into_iter().collect();
     themes.sort_by_key(|(_, (all, _))| std::cmp::Reverse(*all));
-    for (theme, (all, done)) in themes.iter().take(20) {
+    for (theme, (all, done)) in themes.iter().take(top.unwrap_or(20)) {
         println!("  {theme:16} {done:4} of {all:4}");
     }
     let mut reasons: Vec<_> = reasons.into_iter().collect();
     reasons.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
     println!("top reasons:");
-    // `MIHON_SURVEY_TOP=<n>`: that many (25 by default).
-    let top = std::env::var("MIHON_SURVEY_TOP")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(25);
-    for (reason, count) in reasons.iter().take(top) {
+    for (reason, count) in reasons.iter().take(top.unwrap_or(25)) {
         println!("  {count:4}  {reason}");
     }
     assert!(converted > 0);

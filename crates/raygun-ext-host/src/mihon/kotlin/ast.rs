@@ -268,7 +268,8 @@ pub enum Member {
     Prop(PropDecl),
     Class(ClassDecl),
     Init(Block),
-    TypeAlias(String),
+    /// `typealias Name = Type`.
+    TypeAlias(String, Type),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -286,7 +287,7 @@ impl Member {
             Self::Prop(prop) => &prop.name,
             Self::Class(class) => &class.name,
             Self::Init(_) => "init",
-            Self::TypeAlias(name) => name,
+            Self::TypeAlias(name, _) => name,
         }
     }
 
@@ -295,7 +296,7 @@ impl Member {
             Self::Fun(fun) => &fun.modifiers,
             Self::Prop(prop) => &prop.modifiers,
             Self::Class(class) => &class.modifiers,
-            Self::Init(_) | Self::TypeAlias(_) => &[],
+            Self::Init(_) | Self::TypeAlias(..) => &[],
         }
     }
 
