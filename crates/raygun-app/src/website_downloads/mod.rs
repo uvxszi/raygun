@@ -467,6 +467,54 @@ impl WebsiteDownloadService {
         self.emit(id);
     }
 
+    /// The finished downloads as a backup keeps them: what was downloaded, where it was saved
+    /// (the files themselves stay where they are).
+    pub fn backup(&self) -> Vec<serde_json::Value> {
+        self.entries
+            .lock()
+            .expect("downloads poisoned")
+            .iter()
+            .filter(|entry| entry.stored.item.state == WebsiteDownloadState::Done)
+            .filter_map(|entry| serde_json::to_value(&entry.stored).ok())
+            .collect()
+    }
+
+    /// Finished downloads from a backup that aren't listed here, listed again as they were (their
+    /// files are still where they were saved on the device the backup came from); how many.
+    pub fn restore(&self, records: &[serde_json::Value]) -> u32 {
+        let mut added = 0;
+        {
+            let mut entries = self.entries.lock().expect("downloads poisoned");
+            for record in records {
+                let Ok(stored) = serde_json::from_value::<Stored>(record.clone()) else {
+                    continue;
+                };
+                let known = entries
+                    .iter()
+                    .any(|entry| entry.stored.item.id == stored.item.id);
+                if stored.item.state != WebsiteDownloadState::Done || known {
+                    continue;
+                }
+                entries.push(Entry {
+                    stored,
+                    cancel: None,
+                });
+                added += 1;
+            }
+            // Newest first, as the list keeps them.
+            entries.sort_by(|a, b| {
+                b.stored
+                    .item
+                    .created_at
+                    .total_cmp(&a.stored.item.created_at)
+            });
+        }
+        if added > 0 {
+            self.changed("");
+        }
+        added
+    }
+
     fn emit(&self, id: &str) {
         if let Err(error) = WebsiteDownloadsEvent(id.to_owned()).emit(&self.app) {
             tracing::debug!(%error, "file downloads event not sent");

@@ -1,8 +1,8 @@
 //! The app's own values in a backup (M46.51), beside the database's rows: recent searches, what
-//! music was played from, connected servers, AI models and translators, and (only when chosen)
-//! passwords, sign-ins and keys. Restoring them goes through their services, which also start
-//! installs and downloads again (a backup keeps what was downloaded, never the files) and add
-//! back Local Files' folders this device still has.
+//! music was played from, connected servers, AI models and translators, files saved from websites,
+//! and (only when chosen) passwords, sign-ins and keys. Restoring them goes through their
+//! services, which also start installs and downloads again (a backup keeps what was downloaded,
+//! never the files) and add back Local Files' folders this device still has.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -27,6 +27,7 @@ const TRANSLATORS: &str = "translators";
 const TRANSLATOR_KEYS: &str = "translatorKeys";
 const INSTALLS: &str = "local_extension_install";
 const FOLDERS: &str = "local_folder";
+const WEBSITE_FILES: &str = "websiteFiles";
 
 /// What collecting added: counts for the manifest, and whether a secret went in.
 #[derive(Default)]
@@ -139,6 +140,17 @@ pub async fn collect(
             serde_json::to_value(models).map_err(to_message)?,
         );
         data.values.insert(TRANSLATORS.into(), translators);
+    }
+    if categories.contains(&DataCategory::Downloads) {
+        // Files saved from websites: what was saved and where, as for the other downloads.
+        let files = app
+            .state::<Arc<crate::website_downloads::WebsiteDownloadService>>()
+            .backup();
+        collected
+            .counts
+            .push((DataCategory::Downloads, DataItem::Files, files.len() as u32));
+        data.values
+            .insert(WEBSITE_FILES.into(), Value::Array(files));
     }
     Ok(collected)
 }
@@ -462,6 +474,12 @@ async fn restore_downloads(
         {
             brought.queued += 1;
         }
+    }
+
+    if let Some(Value::Array(files)) = data.values.get(WEBSITE_FILES) {
+        // Listed again where they were saved: the files stay on their device.
+        app.state::<Arc<crate::website_downloads::WebsiteDownloadService>>()
+            .restore(files);
     }
 
     let videos = data.rows("local_video_download").count();

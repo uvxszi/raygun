@@ -693,6 +693,14 @@ impl SongDownloadService {
         .await?;
         // Removed meanwhile: nothing to play from.
         if kept {
+            // Lists show the length of what plays: the file.
+            if let (Some(ms), Some(durations)) = (
+                file_ms,
+                self.app
+                    .try_state::<Arc<crate::durations::DurationService>>(),
+            ) {
+                durations.learn_file(row.song.track_key.clone(), ms as i64);
+            }
             self.offline
                 .lock()
                 .expect("offline index poisoned")

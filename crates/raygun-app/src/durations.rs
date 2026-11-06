@@ -172,6 +172,18 @@ impl DurationService {
         });
     }
 
+    /// A song's downloaded file is `ms` long: what plays from now on is that file, so its length
+    /// replaces the one known.
+    pub fn learn_file(self: &Arc<Self>, key: String, ms: i64) {
+        if ms <= 0 {
+            return;
+        }
+        let service = self.clone();
+        tauri::async_runtime::spawn(async move {
+            service.store(vec![(key, ms)], "download", true).await;
+        });
+    }
+
     async fn store(&self, lengths: Vec<(String, i64)>, source: &str, replace: bool) {
         if let Err(error) = store::put_many(self.db(), &lengths, source, replace, now_ms()).await {
             tracing::warn!(%error, "couldn't keep song lengths");

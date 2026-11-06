@@ -37,6 +37,10 @@ const COPY_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
 /// The largest playlist read.
 const PLAYLIST_LIMIT: u64 = 2 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
+/// How much of a song at a web address is read for its tags: ID3v2 tags, FLAC's and Ogg's
+/// comments come first in the file (a large cover included).
+const TAG_BYTES: usize = 512 * 1024;
+const TAG_TIMEOUT: Duration = Duration::from_secs(8);
 const LOCAL_DENIED: &str = "Raygun may not reach devices on this network";
 
 /// What another app handed over: files and addresses, and shared text.
@@ -386,7 +390,10 @@ impl OpenWith {
             ..Entry::default()
         };
         match route::location(&item.uri).ok_or("not an address")? {
-            Location::Web(url) => Ok(web_song(url, entry)),
+            Location::Web(url) => {
+                let tags = self.web_tags(&url).await;
+                Ok(web_song(url, entry, tags))
+            }
             Location::File(path) => {
                 self.media_access().await;
                 if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
@@ -488,7 +495,7 @@ impl OpenWith {
             }
             match found {
                 // Radio streams' addresses often name no file: each is tried.
-                Location::Web(url) => songs.push(web_song(url, entry)),
+                Location::Web(url) => songs.push(web_song(url, entry, None)),
                 Location::File(path) if kind == Kind::Audio => {
                     if tokio::fs::try_exists(&path).await.unwrap_or(false) {
                         songs.push(self.file_song(path, entry).await);
@@ -506,6 +513,37 @@ impl OpenWith {
     }
 
     /// Android asks once for the device's songs and videos, read by path; desktop needs nothing.
+    /// The tags at the start of the song at `url`, read from its first bytes: nothing when the
+    /// server sends none, or they aren't there.
+    async fn web_tags(&self, url: &str) -> Option<Tags> {
+        self.app
+            .state::<crate::local_network::LocalNetwork>()
+            .check(url, LOCAL_DENIED)
+            .await
+            .ok()?;
+        let client = raygun_net::http_client().ok()?;
+        let mut response = raygun_net::with_user_agent(client.get(url), std::iter::empty())
+            .header(reqwest::header::RANGE, format!("bytes=0-{}", TAG_BYTES - 1))
+            .timeout(TAG_TIMEOUT)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .ok()?;
+        let mut head = Vec::new();
+        while head.len() < TAG_BYTES {
+            match response.chunk().await {
+                Ok(Some(chunk)) => head.extend_from_slice(&chunk),
+                Ok(None) => break,
+                Err(_) => return None,
+            }
+        }
+        head.truncate(TAG_BYTES);
+        tokio::task::spawn_blocking(move || read_tags(&head))
+            .await
+            .ok()
+            .flatten()
+    }
+
     async fn media_access(&self) {
         crate::commands::request_media_access(&self.app).await;
     }
@@ -595,16 +633,52 @@ fn open_document(app: &AppHandle, uri: &str) -> Result<std::fs::File, String> {
     Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }
 
-/// A song or stream at a web address, named by its playlist entry or its address.
-fn web_song(url: String, entry: Entry) -> QueueItemInput {
+/// What a song file's tags say of it.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Tags {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+}
+
+/// The tags in the first bytes of a song file (`head`), without its audio: lofty reads ID3v2,
+/// FLAC and Ogg comments from there.
+fn read_tags(head: &[u8]) -> Option<Tags> {
+    use lofty::prelude::*;
+    let tagged = lofty::probe::Probe::new(std::io::Cursor::new(head))
+        .options(lofty::config::ParseOptions::new().read_properties(false))
+        .guess_file_type()
+        .ok()?
+        .read()
+        .ok()?;
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
+    let text = |value: Option<std::borrow::Cow<'_, str>>| {
+        value
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+    };
+    let tags = Tags {
+        title: text(tag.title()),
+        artist: text(tag.artist()),
+        album: text(tag.album()),
+    };
+    (tags != Tags::default()).then_some(tags)
+}
+
+/// A song or stream at a web address, named by its playlist entry, else its tags (read from its
+/// first bytes when it's opened on its own), else its address.
+fn web_song(url: String, entry: Entry, tags: Option<Tags>) -> QueueItemInput {
+    let tags = tags.unwrap_or_default();
     QueueItemInput {
         explicit: false,
         title: entry
             .title
+            .filter(|_| tags.title.is_none())
+            .or(tags.title)
             .or_else(|| route::title_of(None, &url))
             .unwrap_or_else(|| url.clone()),
-        artist: entry.artist,
-        album: None,
+        artist: entry.artist.or(tags.artist),
+        album: tags.album,
         duration_ms: entry.duration_ms,
         artwork_url: None,
         media_kind: MediaKind::Audio,

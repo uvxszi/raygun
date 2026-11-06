@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::playlist::{self, Base, Entry};
 use super::route::{self, Kind, Location, StreamFormat, TextTarget};
-use super::{Handed, Handover, KEPT_COPIES, argument, copy_key, store_copy};
+use super::{Handed, Handover, KEPT_COPIES, Tags, argument, copy_key, read_tags, store_copy};
 
 const HLS: Kind = Kind::Streaming(StreamFormat::Hls);
 const DASH: Kind = Kind::Streaming(StreamFormat::Dash);
@@ -515,4 +515,36 @@ fn handed_items_name_themselves() {
     };
     assert_eq!(item.shown_name(), "Show Intro.mp4");
     assert_eq!(item.kind(), Kind::Video);
+}
+
+#[test]
+fn songs_at_web_addresses_are_named_by_the_tags_at_their_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("song.mp3");
+    raygun_library::fixtures::write_mp3(
+        &path,
+        30,
+        &raygun_library::fixtures::FixtureTags {
+            title: Some("I Can't Love You Anymore"),
+            artist: Some("Trudy Richards"),
+            album: Some("Restored 78s"),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let file = std::fs::read(&path).unwrap();
+    // Only the first bytes come over the network.
+    let head = &file[..file.len().min(4096)];
+    assert_eq!(
+        read_tags(head),
+        Some(Tags {
+            title: Some("I Can't Love You Anymore".into()),
+            artist: Some("Trudy Richards".into()),
+            album: Some("Restored 78s".into()),
+        })
+    );
+    let untagged = dir.path().join("plain.mp3");
+    raygun_library::fixtures::write_mp3(&untagged, 1, &Default::default()).unwrap();
+    assert_eq!(read_tags(&std::fs::read(&untagged).unwrap()), None);
+    assert_eq!(read_tags(b"not a song"), None);
 }
