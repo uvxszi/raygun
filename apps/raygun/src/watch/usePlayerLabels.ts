@@ -15,7 +15,6 @@ export const usePlayerLabels = () => {
       n: '{n}',
       seconds: '{n}',
       of: '{of}',
-      count: '{of}',
     }) as Record<string, string>;
     void commands.videoSetPlayerLabels({ ...words, video: t('watch.video'), locale });
   }, [t, locale]);

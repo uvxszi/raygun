@@ -2211,8 +2211,8 @@
     "needsTorrentApp": "Needs a torrent app",
     "noSourceWorked": "No source could play this. Pick another in Sources.",
     "tryingSource": "Trying source {{n}} of {{of}}",
-    "sourcesChecked_one": "{{n}} of {{count}} source checked",
-    "sourcesChecked_other": "{{n}} of {{count}} sources checked",
+    "sourcesChecked_one": "{{n}} of {{of}} source checked",
+    "sourcesChecked_other": "{{n}} of {{of}} sources checked",
     "loadingSource": "Loading {{n}}…",
     "loading": "Loading",
     "resolving": "finding links…",
@@ -2411,8 +2411,8 @@
     "translating": "Translating…",
     "translateAhead": "Translating… {{n}} ahead",
     "translateComplete": "Translated to the end",
-    "translateDone_one": "{{n}} of {{count}} line",
-    "translateDone_other": "{{n}} of {{count}} lines",
+    "translateDone_one": "{{n}} of {{of}} line",
+    "translateDone_other": "{{n}} of {{of}} lines",
     "translateStop": "Stop translating"
   },
   "export": {
