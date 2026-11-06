@@ -292,8 +292,33 @@ const LayerRow: FC<RowProps> = ({
         </div>
       )}
       {!translate && installed.length === 0 && fitting[0] && <GetModel model={fitting[0]} />}
+      {translate && !layer.model && layer.to && <DeviceTranslatorNeeded to={layer.to} />}
       {translate && medium === 'comic' && <TextReaderNeeded />}
     </li>
+  );
+};
+
+/** The models this device's translator needs for `to` and hasn't downloaded. */
+const DeviceTranslatorNeeded: FC<{ to: string }> = ({ to }) => {
+  const options = useQuery({
+    queryKey: ['readerAi', 'device', to],
+    queryFn: () => commands.videoSubtitlesTranslators(to),
+    staleTime: 60_000,
+  });
+  const models = useAiModels().data ?? [];
+  const device =
+    options.data?.status === 'ok'
+      ? options.data.data.find((option) => option.id === 'device')
+      : undefined;
+  const missing = (device?.models ?? [])
+    .map((id) => models.find((model) => model.id === id))
+    .filter((model): model is AiModel => model !== undefined && !model.installed);
+  return (
+    <>
+      {missing.map((model) => (
+        <GetModel key={model.id} model={model} />
+      ))}
+    </>
   );
 };
 

@@ -202,6 +202,11 @@ impl ReaderAi {
         to: &str,
         model: &str,
     ) -> Result<Vec<String>, String> {
+        // Text already in the language wanted stays as it is.
+        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+        if same_language(from, to) || (from.is_empty() && is_english(to) && looks_english(&refs)) {
+            return Ok(texts.to_vec());
+        }
         if let Some(provider) = model.strip_prefix(AI_PREFIX) {
             let from = Some(from).filter(|from| !from.is_empty());
             let (_, translated) = self
@@ -357,8 +362,41 @@ pub fn model_text(app: &AppHandle, id: &str) -> Result<String, String> {
     std::fs::read_to_string(dir.join(&file.name)).map_err(|error| error.to_string())
 }
 
+/// The primary subtag of a language tag (`pt-BR` → `pt`), lower-case.
+fn primary(tag: &str) -> String {
+    tag.split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+fn is_english(tag: &str) -> bool {
+    primary(tag) == "en"
+}
+
+/// Whether a layer translates from a language into the same one.
+fn same_language(from: &str, to: &str) -> bool {
+    !from.is_empty() && primary(from) == primary(to)
+}
+
+/// Whether texts read as English, as the on-device translators judge it.
+fn looks_english(texts: &[&str]) -> bool {
+    raygun_ai::marian::looks_english(texts)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn text_in_the_wanted_language_is_left_alone() {
+        assert!(super::same_language("pt-BR", "pt"));
+        assert!(!super::same_language("", "en"));
+        assert!(!super::same_language("ja", "en"));
+        assert!(super::is_english("en-GB"));
+        assert!(super::looks_english(&[
+            "It was a dreary night of November."
+        ]));
+    }
+
     use super::*;
 
     fn line(left: f32, top: f32, right: f32, bottom: f32, text: &str) -> ocr::TextBox {

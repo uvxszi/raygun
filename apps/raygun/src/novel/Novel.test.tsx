@@ -1,4 +1,4 @@
-import type { MangaTitleView, NovelChapter } from '@raygun/bindings';
+import type { AiModel, MangaTitleView, NovelChapter } from '@raygun/bindings';
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -11,6 +11,19 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 const SOURCE = 'dev.raygun.gutenberg/gutenberg';
+
+const AI_MODEL: AiModel = {
+  id: 'realcugan-up2x-conservative',
+  name: 'Real-CUGAN 2× (conservative)',
+  kind: 'upscale',
+  description: 'Doubles images.',
+  license: 'MIT',
+  licenseUrl: 'https://example.com/license',
+  sourceUrl: 'https://example.com',
+  sizeBytes: 2_578_409,
+  installed: false,
+  downloading: null,
+};
 
 /** Stands in for IntersectionObserver; tests decide what is on screen. */
 class FakeObserver {
@@ -295,6 +308,44 @@ describe('Novels', () => {
     // A layer turned off is skipped.
     await user.click(within(layers[0]!).getByRole('switch'));
     await within(reader).findByText('[en] ember. Rain fell on the panes.');
+  });
+
+  it('offers the models this device needs to translate a book', async () => {
+    const user = userEvent.setup();
+    commands.novelChapter.mockResolvedValue(
+      ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
+    );
+    commands.videoSubtitlesTranslators.mockResolvedValue(
+      ok([
+        {
+          id: 'device',
+          kind: null,
+          name: '',
+          models: ['opus-mt-en-de'],
+          downloadBytes: 3e8,
+          supported: true,
+        },
+      ]),
+    );
+    commands.aiModels.mockResolvedValue([
+      {
+        ...AI_MODEL,
+        id: 'opus-mt-en-de',
+        name: 'English → German',
+        installed: false,
+        sizeBytes: 3e8,
+      },
+    ]);
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await within(reader).findByText('It was a dreary night of Nov');
+    await user.click(within(reader).getByRole('button', { name: 'AI layers' }));
+    const sheet = await screen.findByRole('dialog', { name: 'AI layers' });
+    await user.click(within(sheet).getByRole('button', { name: 'Translate' }));
+    await user.selectOptions(within(sheet).getByRole('combobox', { name: 'Translate into' }), 'de');
+    expect(await within(sheet).findByText(/Needs English → German/)).toBeInTheDocument();
+    await user.click(within(sheet).getByRole('button', { name: 'Download' }));
+    expect(commands.aiModelDownload).toHaveBeenCalledWith('opus-mt-en-de');
   });
 
   it('keeps reading aloud in the chapter opened, from its start', async () => {
