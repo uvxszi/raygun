@@ -2021,7 +2021,11 @@ const useNoteText = () => {
     if (!note) return null;
     switch (note.kind) {
       case 'checked':
-        return t('videoPlayer.sourcesChecked', { n: note.answered, of: note.total });
+        return t('videoPlayer.sourcesChecked', {
+          n: note.answered,
+          count: note.total,
+          of: note.total,
+        });
       case 'trying':
         return `${t('videoPlayer.tryingSource', { n: note.number, of: note.of })} · ${note.source}`;
       default:

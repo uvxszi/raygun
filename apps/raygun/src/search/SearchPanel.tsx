@@ -22,6 +22,7 @@ import { VideoResults } from './VideoResults';
 import { SelectionScope } from '../select/Selectable';
 import { useSettings } from '../settings/useSettings';
 import { useDragScroll } from '../shell/useDragScroll';
+import { usePressedInView } from '../shell/usePressedInView';
 import { usePlayContext } from '../music/playContext';
 import { YouTubeLinkCard } from '../youtube/YouTubeLinkCard';
 
@@ -138,7 +139,9 @@ const VideoPillRow: FC<{
   onSite: (id: string) => void;
 }> = ({ view, site, sites, onView, onSite }) => {
   const { t } = useTranslation();
-  const row = useDragScroll<HTMLDivElement>();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const row = useDragScroll(rowRef);
+  usePressedInView(rowRef, site ?? view);
   return (
     <div
       ref={row}

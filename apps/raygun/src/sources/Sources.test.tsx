@@ -38,6 +38,7 @@ const extension = (
   compatibility: null,
   icon: null,
   website: null,
+  repository: null,
   ...overrides,
 });
 
@@ -184,6 +185,32 @@ describe('Sources', () => {
     await user.click(within(media).getByRole('button', { name: 'Comics' }));
     expect(sections(page)).toEqual(['Repositories', 'Extensions']);
     expect(within(page).getByRole('listitem', { name: 'Comic Shelf' })).toBeInTheDocument();
+  });
+
+  it('suggests Paraline while no repository is added', async () => {
+    const user = userEvent.setup();
+    commands.extensionRepos.mockResolvedValue(ok([]));
+    commands.extensionCatalog.mockResolvedValue(ok([]));
+    commands.extensionsList.mockResolvedValue(ok([]));
+    commands.serversList.mockResolvedValue(ok([]));
+    commands.extensionSuggestedRepos.mockResolvedValue(
+      ok([
+        {
+          url: 'https://example.org/paraline/index.json',
+          name: 'Paraline',
+          description: 'Public-domain and openly licensed sources.',
+          added: false,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/sources');
+    const page = await screen.findByTestId('sources-page');
+    const repos = await within(page).findByRole('region', { name: 'Repositories' });
+    const paraline = await within(repos).findByRole('listitem', { name: 'Paraline' });
+    await user.click(within(paraline).getByRole('button', { name: 'Add Paraline' }));
+    expect(commands.extensionRepoAdd).toHaveBeenCalledWith(
+      'https://example.org/paraline/index.json',
+    );
   });
 
   it('turns addons, servers and extensions off together', async () => {

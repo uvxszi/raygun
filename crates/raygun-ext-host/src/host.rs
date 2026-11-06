@@ -2006,6 +2006,7 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
             .collect(),
         compatibility: manifest.nuclear.as_ref().and_then(compat_report),
         icon: None,
+        repository: None,
         website: extension.website(),
         settings: settings_info(extension),
     }
@@ -2067,6 +2068,7 @@ fn failed_info(
         settings: Vec::new(),
         compatibility: None,
         icon: None,
+        repository: None,
         website: None,
     }
 }

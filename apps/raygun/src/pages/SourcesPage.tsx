@@ -29,6 +29,7 @@ import type { SourceMedia, SourceType } from '../sources/sourceMedia';
 import { AddonItem, AddonSuggestions } from '../watch/AddonRows';
 import { useSetAddonEnabled, useSetAddonOrder, useStremioAddons } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
+import { originLabel } from '../extensions/originLabel';
 
 /** Connections to servers are extensions too; they're listed as servers. */
 const isServer = (extension: ExtensionInfo) => extension.id.startsWith('server.');
@@ -36,7 +37,7 @@ const isServer = (extension: ExtensionInfo) => extension.id.startsWith('server.'
 const chip = (on: boolean) =>
   `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
 
-/** An installed (or built-in) extension: its page, what it is, and its switch. */
+/** An installed extension: its page, where it came from, and its switch. */
 const ExtensionRow: FC<{
   extension: ExtensionInfo;
   selection: BulkSelection;
@@ -61,11 +62,7 @@ const ExtensionRow: FC<{
             <span className="font-medium">{extension.name}</span>
             <span className="text-muted text-xs">{extension.version}</span>
             <span className="bg-surface text-muted rounded px-1.5 text-[10px] font-semibold tracking-wide uppercase">
-              {t(
-                extension.origin === 'builtIn'
-                  ? 'extensions.builtIn'
-                  : 'extensions.installedOrigin',
-              )}
+              {originLabel(extension, t)}
             </span>
             {extension.adult && <AdultMark />}
             <RatingHint mark={rating.markOf('extensions', extension.id)} />
@@ -197,6 +194,8 @@ export const SourcesPage: FC = () => {
     setOrder.mutate(ids);
   };
   const narrowed = query.trim() !== '' || media !== undefined;
+  // With no repository yet (a new install starts with none), All suggests one too.
+  const noRepos = !repos.isPending && allRepos.length === 0;
   const loading = repos.isPending || addons.isPending || servers.isPending || extensions.isPending;
   const nothing =
     !loading &&
@@ -296,18 +295,19 @@ export const SourcesPage: FC = () => {
           {t(narrowed ? 'sources.page.noMatches' : 'sources.page.empty')}
         </p>
       )}
-      {of('repositories') && (shownRepos.length > 0 || (type === 'repositories' && !narrowed)) && (
-        <Section title={t('sources.page.type.repositories')}>
-          {shownRepos.length > 0 && (
-            <ul className="flex flex-col gap-2">
-              {shownRepos.map(({ repo }) => (
-                <RepoRow key={repo.id} repo={repo} listing={listings.get(repo.id)} />
-              ))}
-            </ul>
-          )}
-          {!narrowed && <SuggestedRepos />}
-        </Section>
-      )}
+      {of('repositories') &&
+        (shownRepos.length > 0 || (!narrowed && (type === 'repositories' || noRepos))) && (
+          <Section title={t('sources.page.type.repositories')}>
+            {shownRepos.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {shownRepos.map(({ repo }) => (
+                  <RepoRow key={repo.id} repo={repo} listing={listings.get(repo.id)} />
+                ))}
+              </ul>
+            )}
+            {!narrowed && <SuggestedRepos />}
+          </Section>
+        )}
       {of('addons') && (shownAddons.length > 0 || (type === 'addons' && !narrowed)) && (
         <Section title={t('sources.page.type.addons')}>
           {shownAddons.length > 0 && (

@@ -30,7 +30,7 @@ const DownloadRow: FC<{ item: MangaDownloadItem; paused: boolean }> = ({ item, p
           <span className="text-muted truncate text-xs">
             {item.chapter} ·{' '}
             {state === 'downloading' && pagesTotal
-              ? t('manga.pagesProgress', { done: pagesDone, total: pagesTotal })
+              ? t('manga.pagesProgress', { done: pagesDone, count: pagesTotal })
               : state === 'queued' && paused
                 ? t('watch.paused')
                 : t(`manga.downloadState.${state}`)}

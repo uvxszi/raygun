@@ -27,6 +27,7 @@ const extension = (overrides: Partial<ExtensionInfo> = {}): ExtensionInfo => ({
   compatibility: null,
   icon: null,
   website: null,
+  repository: null,
   ...overrides,
 });
 

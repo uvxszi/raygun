@@ -85,7 +85,8 @@ impl CollectionsService {
                 title: row.song.title,
                 artist: row.song.artist,
                 album: row.song.album,
-                duration_ms: row.song.duration_ms,
+                // The length of what plays: the downloaded file, measured when it was saved.
+                duration_ms: row.file_ms.filter(|ms| *ms > 0).or(row.song.duration_ms),
                 artwork_url: row.song.artwork_url,
                 source: row.song.source,
             })

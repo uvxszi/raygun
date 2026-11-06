@@ -28,7 +28,7 @@ export const TranscriptionStatus: FC<{ transcription: Transcription; compact?: b
         ? t('lyricsEdit.hearPreparing')
         : percent !== null
           ? t('lyricsEdit.hearingPercent', { percent })
-          : t('lyricsEdit.hearing', { n: captions?.cues.length ?? 0 });
+          : t('lyricsEdit.hearing', { count: captions?.cues.length ?? 0 });
   return (
     <div
       role="status"

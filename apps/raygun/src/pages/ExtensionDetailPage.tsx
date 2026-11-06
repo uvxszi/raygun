@@ -12,6 +12,7 @@ import { AdultMark } from '../shell/AdultMark';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { PageHeader } from './PageHeader';
 import { SourceIssue } from '../shell/SourceIssue';
+import { originLabel } from '../extensions/originLabel';
 
 export const ExtensionDetailPage: FC = () => {
   const { t } = useTranslation();
@@ -38,7 +39,7 @@ export const ExtensionDetailPage: FC = () => {
     }
     uninstall.mutate(info.id, {
       onSuccess: (extensions) => {
-        // A built-in copy may take its place; otherwise go back to the list.
+        // Another copy with the same id may take its place; otherwise go back to the list.
         if (!extensions.some((other) => other.id === info.id)) {
           void navigate({ to: '/browse', search: { tab: 'extensions' }, replace: true });
         }
@@ -57,12 +58,7 @@ export const ExtensionDetailPage: FC = () => {
             {info.name}
             {info.adult && <AdultMark className="ml-2" />}
           </h1>
-          <p className="text-muted text-sm">
-            {[
-              info.version,
-              t(info.origin === 'builtIn' ? 'extensions.builtIn' : 'extensions.installedOrigin'),
-            ].join(' · ')}
-          </p>
+          <p className="text-muted text-sm">{[info.version, originLabel(info, t)].join(' · ')}</p>
         </div>
       </header>
       {info.description && <p className="text-sm leading-relaxed">{info.description}</p>}

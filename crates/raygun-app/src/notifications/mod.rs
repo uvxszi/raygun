@@ -68,6 +68,13 @@ pub const RELEASES: NoticeChannel = NoticeChannel {
     description: "Releases from artists you follow",
 };
 
+/// What waits for Raygun to be open: a song in YouTube's player paused, songs to record.
+pub const PLAYBACK: NoticeChannel = NoticeChannel {
+    id: "raygun.playback",
+    name: "Playback",
+    description: "Songs that wait for Raygun to be open",
+};
+
 /// A notification besides the downloads' own that opens a screen when tapped.
 pub struct Notice {
     /// Tells it from the others of its channel: the same id replaces the one shown.
@@ -112,6 +119,14 @@ pub async fn show_notice(app: &AppHandle, notice: Notice) {
     }
 }
 
+/// Takes away the notification [`show_notice`] showed with `id`: what it said is over (Android;
+/// desktop notifications go on their own).
+pub async fn cancel_notice(app: &AppHandle, id: i32) {
+    if let Err(error) = platform::cancel_notice(app, id).await {
+        tracing::debug!(%error, id, "couldn't take a notification away");
+    }
+}
+
 /// The route a click on a desktop notification opens: the one it carries, if it was a click on
 /// the notification itself.
 #[cfg_attr(target_os = "android", allow(dead_code))]
@@ -138,6 +153,8 @@ pub struct DownloadNotices {
     cancelled: Mutex<HashMap<String, Instant>>,
     /// The screen a tapped notification opens, until the UI takes it.
     route: Mutex<Option<String>>,
+    /// Something downloads or waits to (the last plan shown keeps Raygun in the foreground).
+    running: std::sync::atomic::AtomicBool,
 }
 
 impl DownloadNotices {
@@ -151,6 +168,7 @@ impl DownloadNotices {
             songs_changed: std::sync::atomic::AtomicBool::new(true),
             cancelled: Mutex::new(HashMap::new()),
             route: Mutex::new(None),
+            running: std::sync::atomic::AtomicBool::new(false),
         });
         app.manage(notices.clone());
         notices.listen();
@@ -246,6 +264,11 @@ impl DownloadNotices {
         self.route.lock().expect("route poisoned").take()
     }
 
+    /// Whether something downloads or waits to, as last shown.
+    pub fn running(&self) -> bool {
+        self.running.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     async fn run(self: Arc<Self>) {
         let mut tracker = Tracker::default();
         let mut lists: HashMap<Kind, Vec<Download>> = HashMap::new();
@@ -291,6 +314,8 @@ impl DownloadNotices {
                 .collect();
             let now = crate::catalog::now_ms() as f64;
             let update = tracker.update(now, &downloads);
+            self.running
+                .store(update.plan.foreground, std::sync::atomic::Ordering::SeqCst);
             if model::should_send(sent_at.map(|at| (at, &shown)), now, &update) {
                 platform::show(&self.app, &update.plan, update.finished.as_ref()).await;
                 shown = update.plan;
@@ -1103,6 +1128,16 @@ mod platform {
         .await
         .map_err(|error| error.to_string())?
     }
+
+    pub async fn cancel_notice(app: &AppHandle, id: i32) -> Result<(), String> {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .notice_cancel(id)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1169,6 +1204,11 @@ mod platform {
             .extra("route", &notice.route)
             .show()
             .map_err(|error| error.to_string())
+    }
+
+    /// The system keeps desktop notifications in its own list, which the person clears.
+    pub async fn cancel_notice(_app: &AppHandle, _id: i32) -> Result<(), String> {
+        Ok(())
     }
 }
 

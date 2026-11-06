@@ -53,7 +53,7 @@ export const Asking: FC<{ progress?: SearchProgressCount }> = ({ progress }) => 
     <p role="status" className="text-muted flex items-center gap-2 text-sm">
       <LoaderCircle aria-hidden size={14} className="animate-spin" />
       {progress
-        ? t('search.sourcesAnswered', { done: progress.answered, total: progress.total })
+        ? t('search.sourcesAnswered', { done: progress.answered, count: progress.total })
         : t('search.searching')}
     </p>
   );

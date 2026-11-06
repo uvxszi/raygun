@@ -22,6 +22,7 @@ import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
 import { useBulkSelection } from '../shell/useBulkSelection';
 import { useSourceSwitches } from '../search/useSourceSwitch';
 import { MenuButton } from '../shell/MenuButton';
+import { originLabel } from './originLabel';
 
 /** Installed extensions before the list gets a search field. */
 const SEARCHABLE_FROM = 8;
@@ -91,11 +92,7 @@ export const InstalledTab: FC = () => {
                   <span className="font-medium">{extension.name}</span>
                   <span className="text-muted text-xs">{extension.version}</span>
                   <span className="bg-surface text-muted rounded px-1.5 text-3xs font-semibold tracking-wide uppercase">
-                    {t(
-                      extension.origin === 'builtIn'
-                        ? 'extensions.builtIn'
-                        : 'extensions.installedOrigin',
-                    )}
+                    {originLabel(extension, t)}
                   </span>
                   {extension.adult && <AdultMark />}
                   <RatingHint mark={rating.markOf('extensions', extension.id)} />

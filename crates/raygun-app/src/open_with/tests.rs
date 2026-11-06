@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use super::playlist::{self, Base, Entry};
 use super::route::{self, Kind, Location, StreamFormat, TextTarget};
-use super::{Handed, Handover, KEPT_COPIES, argument, copy_key, store_copy};
+use super::{
+    Handed, Handover, KEPT_COPIES, Tags, argument, copy_key, credit, read_tags, store_copy,
+};
 
 const HLS: Kind = Kind::Streaming(StreamFormat::Hls);
 const DASH: Kind = Kind::Streaming(StreamFormat::Dash);
@@ -515,4 +517,80 @@ fn handed_items_name_themselves() {
     };
     assert_eq!(item.shown_name(), "Show Intro.mp4");
     assert_eq!(item.kind(), Kind::Video);
+}
+
+#[test]
+fn songs_at_web_addresses_are_named_by_the_tags_at_their_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("song.mp3");
+    raygun_library::fixtures::write_mp3(
+        &path,
+        30,
+        &raygun_library::fixtures::FixtureTags {
+            title: Some("I Can't Love You Anymore"),
+            artist: Some("Trudy Richards"),
+            album: Some("Restored 78s"),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let file = std::fs::read(&path).unwrap();
+    // Only the first bytes come over the network.
+    let head = &file[..file.len().min(4096)];
+    assert_eq!(
+        read_tags(head),
+        Some(Tags {
+            title: Some("I Can't Love You Anymore".into()),
+            artist: Some("Trudy Richards".into()),
+            album: Some("Restored 78s".into()),
+        })
+    );
+    let untagged = dir.path().join("plain.mp3");
+    raygun_library::fixtures::write_mp3(&untagged, 1, &Default::default()).unwrap();
+    assert_eq!(read_tags(&std::fs::read(&untagged).unwrap()), None);
+    assert_eq!(read_tags(b"not a song"), None);
+
+    // ID3v2.4 keeps several artists in one frame, apart: all of them are credited.
+    let duet = dir.path().join("duet.mp3");
+    raygun_library::fixtures::write_mp3(
+        &duet,
+        1,
+        &raygun_library::fixtures::FixtureTags {
+            title: Some("Get Lucky"),
+            artist: Some("Daft Punk Pharrell Williams"),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let tags = read_tags(&std::fs::read(&duet).unwrap()).unwrap();
+    assert_eq!(tags.artist.as_deref(), Some("Daft Punk, Pharrell Williams"));
+}
+
+#[test]
+fn artists_put_together_in_one_tag_are_credited_apart() {
+    let credited = |values: &[&str]| credit(values.iter().copied());
+    assert_eq!(
+        credited(&["Daft Punk; Pharrell Williams"]).as_deref(),
+        Some("Daft Punk, Pharrell Williams")
+    );
+    assert_eq!(
+        credited(&["Bob Marley / The Wailers"]).as_deref(),
+        Some("Bob Marley, The Wailers")
+    );
+    assert_eq!(
+        credited(&["Simon/Garfunkel", "simon"]).as_deref(),
+        Some("Simon, Garfunkel"),
+        "each name once"
+    );
+    assert_eq!(
+        credited(&["Daft Punk Pharrell Williams"]).as_deref(),
+        Some("Daft Punk, Pharrell Williams")
+    );
+    // A slash inside a name stays.
+    assert_eq!(credited(&["AC/DC"]).as_deref(), Some("AC/DC"));
+    assert_eq!(
+        credited(&["Au/Ra; Alan Walker"]).as_deref(),
+        Some("Au/Ra, Alan Walker")
+    );
+    assert_eq!(credited(&[" ; ", ""]), None);
 }

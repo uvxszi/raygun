@@ -26,6 +26,8 @@ static NOTIFICATION_ACTION_HANDLER: Later = Later::new();
 static OPEN_HANDLER: Later = Later::new();
 static OPEN_WITH_HANDLER: Later = Later::new();
 static DEVICE_STATE_HANDLER: Later = Later::new();
+static WINDOW_HANDLER: Later = Later::new();
+static WINDOW_CLOSING_HANDLER: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 
 /// A receiver for messages that can come before it's installed (a notification tapped to start
 /// the app): those wait for it.
@@ -120,6 +122,33 @@ pub fn set_device_state_handler(handler: impl Fn(String) + Send + Sync + 'static
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn deliver_device_state(json: String) {
     DEVICE_STATE_HANDLER.deliver(json);
+}
+
+/// Installs the receiver for new activities that need Raygun's main window: Android made one in a
+/// process that carried on after the last one went (music played with Raygun swiped away). Called
+/// on the Android main thread. Only the first call wins; one that came before it waits for it.
+pub fn set_window_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    WINDOW_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_window_wanted() {
+    WINDOW_HANDLER.deliver(String::new());
+}
+
+/// Installs what runs as Raygun's activity is destroyed for good, before wry lets go of it: Tauri
+/// must stop sending its webview scripts first (one arriving after would crash Raygun as it
+/// carries on). Called on the Android main thread, which waits for it to return. Only the first
+/// call wins.
+pub fn set_window_closing_handler(handler: impl Fn() + Send + Sync + 'static) {
+    let _ = WINDOW_CLOSING_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_window_closing() {
+    if let Some(handler) = WINDOW_CLOSING_HANDLER.get() {
+        handler();
+    }
 }
 
 /// Installs the receiver for the built-in browser's reports (`{"id", "url", "blockAds"}` JSON,
@@ -850,6 +879,14 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Takes away a notification [`Self::notice`] showed (its `id`): what it said is over.
+    #[cfg(target_os = "android")]
+    pub fn notice_cancel(&self, id: i32) -> Result<(), String> {
+        self.run::<serde_json::Value>("noticeCancel", serde_json::json!({ "id": id }))
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Every permission Raygun uses and its state: `{"permissions": [{"kind", "state", "count"}]}`.
     #[cfg(target_os = "android")]
     pub fn permission_states(&self) -> Result<serde_json::Value, String> {
@@ -1057,6 +1094,7 @@ mod tests {
             // Downloads, their files and notifications.
             "downloadsNotify",
             "notice",
+            "noticeCancel",
             "websiteDownloads",
             "captureStart",
             "captureStatus",

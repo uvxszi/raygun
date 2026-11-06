@@ -59,8 +59,10 @@ export const LyricsStorage: FC = () => {
         <p data-testid="lyrics-cache-usage" className="text-sm">
           {usage.data
             ? t('lyricsCache.usage', {
-                songs: usage.data.songs,
-                transcriptions: usage.data.transcriptions,
+                songs: t('lyricsCache.songs', { count: usage.data.songs }),
+                transcriptions: t('lyricsCache.transcriptions', {
+                  count: usage.data.transcriptions,
+                }),
                 translations: usage.data.translations ?? 0,
               })
             : ''}

@@ -31,4 +31,5 @@ export const sourceExtension = (
   compatibility: null,
   icon: null,
   website: null,
+  repository: null,
 });

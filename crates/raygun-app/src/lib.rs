@@ -5,6 +5,7 @@
 
 mod ai;
 mod aniskip;
+mod app_window;
 mod background;
 mod backup;
 mod browser_check;
@@ -623,6 +624,10 @@ pub fn export_bindings(path: &Path) -> Result<(), String> {
         )
         .map_err(|error| format!("failed to export bindings: {error}"))
 }
+
+/// Tauri's run events: on Android Raygun carries on when its window goes while music plays or
+/// downloads run (see `app_window`).
+pub use app_window::on_event;
 
 /// Returns a Tauri builder with all Raygun commands registered.
 pub fn builder() -> tauri::Builder<tauri::Wry> {

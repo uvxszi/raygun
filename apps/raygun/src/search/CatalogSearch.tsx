@@ -272,7 +272,7 @@ export const RankedResults: FC<{
       {answered < sources.length && (
         <p role="status" className="text-muted flex items-center gap-2 text-sm">
           <LoaderCircle aria-hidden size={14} className="animate-spin" />
-          {t('search.sourcesAnswered', { done: answered, total: sources.length })}
+          {t('search.sourcesAnswered', { done: answered, count: sources.length })}
         </p>
       )}
       {answered === sources.length && ranked.length === 0 && (

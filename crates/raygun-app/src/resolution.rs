@@ -371,6 +371,36 @@ impl Tracker {
             .filter(|attempt| attempt.load_id == load_id)
     }
 
+    /// The webview holding `load_id`'s stream went (Raygun's window, with YouTube's player in it):
+    /// what to search for another stream for it. The video's embed is out of the search, and the
+    /// stream found plays from where the song was.
+    pub fn without_webview(
+        &mut self,
+        load_id: u32,
+        youtube_streams: &str,
+    ) -> Option<(TrackQuery, Exclusions)> {
+        let attempt = self.attempt(load_id)?;
+        attempt.fell_back = true;
+        let embed = match attempt.playing.as_ref().map(|pick| &pick.source) {
+            Some(MediaSource::YouTube { video_id }) => Some(video_id.clone()),
+            _ => match &attempt.concrete {
+                Some(MediaSource::YouTube { video_id }) => Some(video_id.clone()),
+                _ => None,
+            },
+        };
+        let mut out = attempt.playing.as_ref().map(|pick| pick.key.clone());
+        let embed = embed.map(|video_id| CandidateKey {
+            provider_id: youtube_streams.to_owned(),
+            candidate_id: video_id,
+        });
+        for key in [out.take(), embed].into_iter().flatten() {
+            if !attempt.exclusions.tried.contains(&key) {
+                attempt.exclusions.tried.push(key);
+            }
+        }
+        Some((attempt.query.clone(), attempt.exclusions.clone()))
+    }
+
     /// What to resolve for `load_id`, unless a newer load replaced it.
     pub fn request(&mut self, load_id: u32) -> Option<(TrackQuery, Exclusions)> {
         self.attempt(load_id)
@@ -602,6 +632,49 @@ mod tests {
         assert!(!tracker.loaded(1), "nothing loaded while it's found");
         assert_eq!(tracker.resolved(1, pick("a"), &NONE, 0.0), Some(0.0));
         assert!(tracker.loaded(1));
+    }
+
+    #[test]
+    fn a_song_in_the_embed_finds_another_stream_without_the_webview() {
+        let youtube = |id: &str| MediaSource::YouTube {
+            video_id: id.into(),
+        };
+        let mut tracker = Tracker::default();
+        tracker.begin(1, &item(lookup()), 0.0, Cause::Chosen);
+        let embed = Pick {
+            key: CandidateKey {
+                provider_id: "dev.raygun.youtube/stream".into(),
+                candidate_id: "dQw4w9WgXcQ".into(),
+            },
+            source: youtube("dQw4w9WgXcQ"),
+            ..pick("embed")
+        };
+        tracker.resolved(1, embed.clone(), &NONE, 0.0);
+        let (query, exclusions) = tracker
+            .without_webview(1, "dev.raygun.youtube/stream")
+            .unwrap();
+        assert_eq!(query.title, "Song");
+        assert_eq!(exclusions.tried, vec![embed.key.clone()]);
+        // The stream found plays from where the song was.
+        assert_eq!(
+            tracker.resolved(1, pick("file"), &NONE, 42_000.0),
+            Some(42_000.0)
+        );
+
+        // A YouTube song of its own, played as it is: its embed is out too.
+        tracker.begin(2, &item(youtube("aqz-KE-bpKQ")), 0.0, Cause::Chosen);
+        tracker.set_video(true);
+        tracker.begin(3, &item(youtube("aqz-KE-bpKQ")), 0.0, Cause::Chosen);
+        let (_, exclusions) = tracker
+            .without_webview(3, "dev.raygun.youtube/stream")
+            .unwrap();
+        assert_eq!(exclusions.tried.len(), 1);
+        assert_eq!(exclusions.tried[0].candidate_id, "aqz-KE-bpKQ");
+        assert!(
+            tracker
+                .without_webview(2, "dev.raygun.youtube/stream")
+                .is_none()
+        );
     }
 
     #[test]

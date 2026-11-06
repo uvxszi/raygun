@@ -286,7 +286,12 @@ private fun soundConfig(sound: JSONObject): SoundConfig {
         Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "recordAudio"),
     ],
 )
-class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
+class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
+    /**
+     * Raygun's activity now: a later one replaces the first when Raygun is opened again in a
+     * process that carried on without one ([RaygunWindow]).
+     */
+    private var activity: Activity = firstActivity
     private val main = Handler(Looper.getMainLooper())
     private var controller: MediaController? = null
     private val pending = mutableListOf<(MediaController) -> Unit>()
@@ -865,8 +870,9 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
     private fun listenToWebsites() {
         if (websiteReports != null) return
         val receiver = WebsiteReports()
+        // The application's: the activity may go while the browser runs.
         androidx.core.content.ContextCompat.registerReceiver(
-            activity,
+            activity.applicationContext,
             receiver,
             android.content.IntentFilter(WebsiteActivity.ACTION_REPORT),
             androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
@@ -1586,6 +1592,14 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /** `{"id"}`: takes away the notice [notice] showed with it. */
+    @Command
+    fun noticeCancel(invoke: Invoke) {
+        val id = invoke.getArgs().optInt("id")
+        main.post { Notices.cancel(activity.applicationContext, id) }
+        invoke.resolve()
+    }
+
     /** A tapped notification: the screen it opens, and a button pressed on it. */
     private fun takeOpenExtras(intent: Intent?) {
         val extras = intent ?: return
@@ -1607,6 +1621,11 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
         val handover = OpenWith.take(intent) ?: return
         val context = activity.applicationContext
         thread(name = "raygun-open-with") { NativeBridge.openWith(handover.describe(context).toString()) }
+    }
+
+    /** Moves to [next], an activity made after the one this plugin started with went. */
+    internal fun attach(next: Activity) {
+        activity = next
     }
 
     override fun load(webView: WebView) {
