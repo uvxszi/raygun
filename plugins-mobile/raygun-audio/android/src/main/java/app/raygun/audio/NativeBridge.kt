@@ -68,6 +68,18 @@ object NativeBridge {
         }
     }
 
+    /** A new activity needs Raygun's main window again (see [RaygunWindow]). */
+    @JvmStatic
+    external fun onWindowWanted()
+
+    fun windowWanted() {
+        try {
+            onWindowWanted()
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     /** A tapped notification's screen (`player`, `/downloads?tab=music`). */
     @JvmStatic
     external fun onOpen(route: String)

@@ -68,6 +68,13 @@ pub const RELEASES: NoticeChannel = NoticeChannel {
     description: "Releases from artists you follow",
 };
 
+/// The player stopping on its own: a song YouTube's player plays needs Raygun open.
+pub const PLAYBACK: NoticeChannel = NoticeChannel {
+    id: "raygun.playback",
+    name: "Playback",
+    description: "Songs Raygun had to pause",
+};
+
 /// A notification besides the downloads' own that opens a screen when tapped.
 pub struct Notice {
     /// Tells it from the others of its channel: the same id replaces the one shown.
@@ -138,6 +145,8 @@ pub struct DownloadNotices {
     cancelled: Mutex<HashMap<String, Instant>>,
     /// The screen a tapped notification opens, until the UI takes it.
     route: Mutex<Option<String>>,
+    /// Something downloads or waits to (the last plan shown keeps Raygun in the foreground).
+    running: std::sync::atomic::AtomicBool,
 }
 
 impl DownloadNotices {
@@ -151,6 +160,7 @@ impl DownloadNotices {
             songs_changed: std::sync::atomic::AtomicBool::new(true),
             cancelled: Mutex::new(HashMap::new()),
             route: Mutex::new(None),
+            running: std::sync::atomic::AtomicBool::new(false),
         });
         app.manage(notices.clone());
         notices.listen();
@@ -246,6 +256,11 @@ impl DownloadNotices {
         self.route.lock().expect("route poisoned").take()
     }
 
+    /// Whether something downloads or waits to, as last shown.
+    pub fn running(&self) -> bool {
+        self.running.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     async fn run(self: Arc<Self>) {
         let mut tracker = Tracker::default();
         let mut lists: HashMap<Kind, Vec<Download>> = HashMap::new();
@@ -291,6 +306,8 @@ impl DownloadNotices {
                 .collect();
             let now = crate::catalog::now_ms() as f64;
             let update = tracker.update(now, &downloads);
+            self.running
+                .store(update.plan.foreground, std::sync::atomic::Ordering::SeqCst);
             if model::should_send(sent_at.map(|at| (at, &shown)), now, &update) {
                 platform::show(&self.app, &update.plan, update.finished.as_ref()).await;
                 shown = update.plan;

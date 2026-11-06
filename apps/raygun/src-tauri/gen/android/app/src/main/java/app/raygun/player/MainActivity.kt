@@ -5,10 +5,13 @@ import android.content.Intent
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import app.raygun.audio.OpenWith
+import app.raygun.audio.RaygunWindow
 import app.raygun.audio.WebAwake
 
 class MainActivity : TauriActivity() {
@@ -29,6 +32,21 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     resizeForKeyboard()
+    // Opened again in a process that carried on without an activity (music played on with
+    // Raygun swiped away): the main window is made again for this one.
+    RaygunWindow.created(this)
+  }
+
+  override fun onDestroy() {
+    val webView = if (isChangingConfigurations) null else wryWebView?.get(this) as? WebView
+    RaygunWindow.destroyed(this)
+    super.onDestroy()
+    // Raygun may carry on without this activity (music plays on): its webview goes with it, or
+    // YouTube's player in it (kept awake by WebAwake) would play on where nothing controls it.
+    webView?.let { view ->
+      (view.parent as? ViewGroup)?.removeView(view)
+      view.destroy()
+    }
   }
 
   /**

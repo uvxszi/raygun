@@ -14,7 +14,8 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::filter::FilterExt;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
-const MAIN_WINDOW: &str = "main";
+/// The main window's label.
+pub const MAIN_WINDOW: &str = "main";
 const LOG_FILES_KEPT: usize = 7;
 
 /// Resolved storage locations, available to commands as Tauri state.
@@ -314,7 +315,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     crate::background::BackgroundPlayback::start(app.handle());
     crate::notifications::DownloadNotices::start(app.handle());
 
-    create_main_window(app, &paths)?;
+    create_main_window(app.handle(), &paths)?;
+    crate::app_window::start(app.handle());
     // The miniplayer window (M46.13) shares the main window's webview profile.
     app.manage(crate::miniplayer::MiniplayerDir(paths.webview()));
 
@@ -504,7 +506,14 @@ fn init_logging(paths: &Paths) -> Result<WorkerGuard, Box<dyn Error>> {
     Ok(guard)
 }
 
-fn create_main_window(app: &App, paths: &Paths) -> Result<(), Box<dyn Error>> {
+/// Makes Raygun's main window again: on Android for an activity that came after the last one
+/// went, while Raygun carried on in the background (`app_window`).
+pub fn reopen_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn Error>> {
+    let paths = app.state::<AppPaths>().0.clone();
+    create_main_window(app, &paths)
+}
+
+fn create_main_window(app: &tauri::AppHandle, paths: &Paths) -> Result<(), Box<dyn Error>> {
     let config = app
         .config()
         .app
@@ -516,7 +525,7 @@ fn create_main_window(app: &App, paths: &Paths) -> Result<(), Box<dyn Error>> {
 
     // Honored by WebView2 (Windows) and WebKitGTK (Linux). Android keeps webview data in
     // the app sandbox anyway; macOS/iOS ignore it (documented limitation, ARCHITECTURE §3.3).
-    WebviewWindowBuilder::from_config(app.handle(), &config)?
+    WebviewWindowBuilder::from_config(app, &config)?
         .data_directory(paths.webview())
         .build()?;
     Ok(())

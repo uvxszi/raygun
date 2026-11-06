@@ -20,7 +20,7 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 # MainActivity sets wry's webview aside while the activity pauses, so YouTube's player in it keeps
-# playing (WebAwake): the field is found by its name.
+# playing (WebAwake), and destroys it with the activity: the field is found by its name.
 -keepclassmembers class app.raygun.player.WryActivity {
     private app.raygun.player.RustWebView mWebView;
 }

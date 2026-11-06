@@ -87,6 +87,9 @@ pub struct PlaybackService {
     armed: Mutex<Option<(PlayContext, Instant)>>,
     /// The clock looking for another source runs on.
     clock: Instant,
+    /// Raygun's webview is there, with YouTube's embedded player in it. On Android it goes with
+    /// Raygun's activity while music plays on without it ([`Self::webview_gone`]).
+    webview: std::sync::atomic::AtomicBool,
 }
 
 /// Everything to emit once the core lock is released.
@@ -117,6 +120,8 @@ struct Outbox {
     played: Option<QueueItem>,
     /// The current item when `state` changed, for followers like podcasts (M37).
     current: Option<QueueItem>,
+    /// This load plays in YouTube's player, and Raygun's webview is gone (Android): it pauses.
+    needs_webview: Option<(u32, QueueItem)>,
 }
 
 impl Outbox {
@@ -156,6 +161,7 @@ impl PlaybackService {
             sent: Mutex::new(None),
             armed: Mutex::new(None),
             clock: Instant::now(),
+            webview: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
@@ -259,6 +265,9 @@ impl PlaybackService {
     /// queue: something played since is kept.
     pub async fn restore_last(&self, app: &AppHandle) {
         if self.restored.swap(true, Ordering::SeqCst) {
+            // A later window's page asks (Android: Raygun's activity came back while the music
+            // played on): its engines listen now.
+            self.webview_back();
             return;
         }
         let db = app.state::<crate::startup::AppDb>().inner().0.clone();
@@ -294,6 +303,133 @@ impl PlaybackService {
             self.resolve(&mut inner, effects, Cause::Chosen)
         };
         self.send(effects_ran);
+    }
+
+    /// Whether anything is queued: Raygun carries on without its window then (Android).
+    pub fn holds_queue(&self) -> bool {
+        let inner = self.lock();
+        inner.core.current_item().is_some() || !inner.core.queue().items.is_empty()
+    }
+
+    /// Raygun's webview went (Android: its activity, while the music plays on). A song playing in
+    /// YouTube's embedded player there moves to a stream the native player plays, from where it
+    /// was, when a source has one; else it pauses, with a notification saying why.
+    pub fn webview_gone(&self) {
+        self.webview.store(false, Ordering::SeqCst);
+        self.move_off_webview();
+    }
+
+    /// A webview is back and its engines listen: a song left in YouTube's player loads there
+    /// again, as it was (paused).
+    pub fn webview_back(&self) {
+        if self.webview.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let mut outbox = Outbox::default();
+        {
+            let mut inner = self.lock();
+            if inner.active != Some(Engine::Webview) {
+                return;
+            }
+            let Some(item) = inner.core.current_item().cloned() else {
+                return;
+            };
+            let load_id = inner.core.load_id();
+            let source = match inner.tracker.playing(load_id) {
+                Some(source) => source.clone(),
+                None if matches!(item.source, MediaSource::YouTube { .. }) => item.source.clone(),
+                None => return,
+            };
+            let position_ms = inner.core.state().position_ms;
+            let autoplay = inner.core.plays_when_found();
+            self.load_into(
+                &mut inner,
+                &mut outbox,
+                load_id,
+                &item,
+                &source,
+                position_ms,
+                autoplay,
+                0.0,
+            );
+        }
+        self.send(outbox);
+    }
+
+    /// The song playing in the webview, now without one: another stream for it, or a pause.
+    fn move_off_webview(&self) {
+        let (load_id, item, request, outbox) = {
+            let mut inner = self.lock();
+            let playing = matches!(
+                inner.core.state().status,
+                raygun_model::PlaybackStatus::Playing
+                    | raygun_model::PlaybackStatus::Loading
+                    | raygun_model::PlaybackStatus::Buffering
+            );
+            // A paused one waits for the webview, where it loads again.
+            if inner.active != Some(Engine::Webview) || !playing {
+                return;
+            }
+            let Some(item) = inner.core.current_item().cloned() else {
+                return;
+            };
+            let load_id = inner.core.load_id();
+            let request = inner
+                .tracker
+                .without_webview(load_id, crate::resolver::YOUTUBE_STREAMS);
+            let effects = inner.core.set_looking(load_id, true);
+            let outbox = self.resolve(&mut inner, effects, Cause::Advance);
+            (load_id, item, request, outbox)
+        };
+        self.send(outbox);
+        tracing::info!(load_id, title = %item.title, "the webview went: looking for a stream the native player plays");
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let found = match request {
+                Some((query, exclusions)) => {
+                    let resolver = app.state::<Arc<ResolverService>>().inner().clone();
+                    Some(resolver.find(&query, &exclusions).await)
+                }
+                None => None,
+            };
+            let playback = app.state::<PlaybackService>();
+            let native = playback.native.is_some();
+            match found {
+                Some((Ok(pick), notes)) if engine_for(&pick.source, native) == Engine::Native => {
+                    playback.on_resolved(load_id, Ok(pick), notes, false);
+                }
+                _ => playback.hold_for_webview(load_id, &item).await,
+            }
+        });
+    }
+
+    /// The song `load_id` can only play in YouTube's player, which needs Raygun's window: it
+    /// pauses where it is, and a notification says why.
+    async fn hold_for_webview(&self, load_id: u32, item: &QueueItem) {
+        let outbox = {
+            let mut inner = self.lock();
+            if inner.core.load_id() != load_id {
+                return;
+            }
+            let mut effects = inner.core.set_looking(load_id, false);
+            effects.extend(inner.core.pause());
+            self.resolve(&mut inner, effects, Cause::Chosen)
+        };
+        self.send(outbox);
+        tracing::info!(load_id, title = %item.title, "paused: YouTube's player needs Raygun's window");
+        crate::notifications::show_notice(
+            &self.app,
+            crate::notifications::Notice {
+                id: crate::notifications::notice_id("playback.needsWindow"),
+                channel: &crate::notifications::PLAYBACK,
+                title: format!("{} is paused", item.title),
+                text:
+                    "It plays in YouTube's player, which needs Raygun open. Open Raygun to go on."
+                        .to_owned(),
+                route: "/".to_owned(),
+            },
+        )
+        .await;
     }
 
     /// Sends what would change this player to another device instead, or (`None`) back here.
@@ -469,6 +605,20 @@ impl PlaybackService {
     /// Controls this device's own player, even while it plays elsewhere.
     pub fn control_here(&self, control: PlaybackControl) {
         let resumes = matches!(control, PlaybackControl::Play | PlaybackControl::Toggle);
+        if resumes && !self.webview.load(Ordering::SeqCst) {
+            // Play from the lock screen for a song left in YouTube's player, with Raygun's window
+            // gone: a stream the native player plays, if a source has one now.
+            let in_embed = {
+                let inner = self.lock();
+                inner.active == Some(Engine::Webview)
+                    && inner.core.state().status == raygun_model::PlaybackStatus::Paused
+            };
+            if in_embed {
+                self.control_core(control);
+                self.move_off_webview();
+                return;
+            }
+        }
         self.control_core(control);
         if resumes {
             // Pressing play must start something (M46.16), or the next stream gets its turn.
@@ -1028,6 +1178,13 @@ impl PlaybackService {
         if let Some((load_id, wait)) = outbox.resolve {
             self.start_resolving(load_id, wait);
         }
+        if let Some((load_id, item)) = outbox.needs_webview {
+            let app = self.app.clone();
+            tauri::async_runtime::spawn(async move {
+                let playback = app.state::<PlaybackService>();
+                playback.hold_for_webview(load_id, &item).await;
+            });
+        }
     }
 
     /// Commands the right engine to load `source` for the current item.
@@ -1045,6 +1202,19 @@ impl PlaybackService {
     ) {
         let engine = engine_for(source, self.native.is_some());
         tracing::debug!(load_id, title = %item.title, ?engine, fade_ms, "loading");
+        if engine == Engine::Webview
+            && self.native.is_some()
+            && !self.webview.load(Ordering::SeqCst)
+        {
+            // YouTube's player lives in Raygun's webview, gone with its window: the song waits
+            // there, paused, for the window to come back.
+            if let Some(previous) = inner.active.filter(|previous| *previous != engine) {
+                outbox.engine.push((previous, EngineCommand::Stop));
+            }
+            inner.active = Some(engine);
+            outbox.needs_webview = Some((load_id, item.clone()));
+            return;
+        }
         if let Some(previous) = inner.active.filter(|previous| *previous != engine) {
             // In a crossfade the other engine fades its song out instead of cutting it (M46.12).
             let command = if fade_ms > 0.0 {

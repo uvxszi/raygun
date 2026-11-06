@@ -181,3 +181,13 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onDeviceState(
         crate::deliver_device_state(json.into());
     }
 }
+
+/// Called by `app.raygun.audio.NativeBridge.onWindowWanted` on the Android main thread: a new
+/// activity came after the last one went, while Raygun carried on.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWindowWanted(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    crate::deliver_window_wanted();
+}

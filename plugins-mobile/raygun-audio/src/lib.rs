@@ -26,6 +26,7 @@ static NOTIFICATION_ACTION_HANDLER: Later = Later::new();
 static OPEN_HANDLER: Later = Later::new();
 static OPEN_WITH_HANDLER: Later = Later::new();
 static DEVICE_STATE_HANDLER: Later = Later::new();
+static WINDOW_HANDLER: Later = Later::new();
 
 /// A receiver for messages that can come before it's installed (a notification tapped to start
 /// the app): those wait for it.
@@ -120,6 +121,18 @@ pub fn set_device_state_handler(handler: impl Fn(String) + Send + Sync + 'static
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn deliver_device_state(json: String) {
     DEVICE_STATE_HANDLER.deliver(json);
+}
+
+/// Installs the receiver for new activities that need Raygun's main window: Android made one in a
+/// process that carried on after the last one went (music played with Raygun swiped away). Called
+/// on the Android main thread. Only the first call wins; one that came before it waits for it.
+pub fn set_window_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    WINDOW_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_window_wanted() {
+    WINDOW_HANDLER.deliver(String::new());
 }
 
 /// Installs the receiver for the built-in browser's reports (`{"id", "url", "blockAds"}` JSON,
