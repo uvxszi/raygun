@@ -886,6 +886,8 @@ impl Parser {
                     nullable,
                 },
             );
+            // Its first argument is the receiver.
+            function.name = RECEIVER_FUNCTION.to_owned();
             return Ok(function);
         }
         Ok(Type {

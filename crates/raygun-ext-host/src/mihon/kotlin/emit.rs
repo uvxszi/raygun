@@ -162,7 +162,9 @@ pub const METHODS: &[&str] = &[
     "unescape", "escape", "forName", "defaultCharset", "tryParseZonedDateTime", "rating", "info",
     "description", "markdown", "field", "altTitles", "links", "toMarkdown", "escapeMarkdown",
     "printStackTrace", "ownerDocument", "createElement", "launch", "cancel", "join",
-    "getStringSet",
+    "getStringSet", "replaceWith", "prepend", "before", "after", "appendText", "prependText",
+    "empty", "setType", "addFormDataPart", "addPart", "Builder", "findAnyOf", "topPrivateDomain",
+    "encodedQuery", "removePathSegment", "containsAll", "removeRange", "evaluate",
     // Cookies
     "loadForRequest", "saveFromResponse", "getCookie", "setCookie", "flush", "parseAll",
     "hostOnlyDomain", "expiresAt", "secure", "httpOnly", "name", "domain", "path", "hasCookies",
@@ -230,6 +232,8 @@ pub struct Gen<'a> {
     vals: HashSet<String>,
     /// The imports of the file being written (name as used, full name).
     pub imports: Vec<(String, String)>,
+    /// Parameters that are functions with a receiver, by JavaScript name (`builder.params()`).
+    receiver_params: HashSet<String>,
 }
 
 /// Functions whose lambda has no parameter (`ifEmpty { … }`, `require(…) { "message" }`).
@@ -299,6 +303,7 @@ impl<'a> Gen<'a> {
             plain: HashSet::new(),
             vals: HashSet::new(),
             imports: Vec::new(),
+            receiver_params: HashSet::new(),
         }
     }
 
@@ -484,16 +489,6 @@ impl<'a> Gen<'a> {
         self.depth = 0;
         self.catches_return = false;
         let result = self.scoped(|writer| {
-            // A vararg is the last parameter in JavaScript.
-            if fun
-                .params
-                .iter()
-                .rev()
-                .skip(1)
-                .any(|param| param.vararg)
-            {
-                return Err(unsupported("a vararg before other parameters"));
-            }
             let mut params = Vec::new();
             // Defaults are worked out in the body, in order: they may await, which a parameter
             // list can't.
@@ -512,10 +507,15 @@ impl<'a> Gen<'a> {
             for param in &fun.params {
                 let name = writer.declare(&param.name);
                 writer.vals.remove(&name);
-                if !param.ty.name.is_empty() && param.ty.name != "()" {
+                if !param.ty.name.is_empty() && !param.ty.name.starts_with('(') {
                     writer.plain.insert(name.clone());
                 } else {
                     writer.plain.remove(&name);
+                }
+                if param.ty.name == RECEIVER_FUNCTION {
+                    writer.receiver_params.insert(name.clone());
+                } else {
+                    writer.receiver_params.remove(&name);
                 }
                 if let Some(default) = &param.default {
                     defaults.push(format!(
@@ -523,8 +523,13 @@ impl<'a> Gen<'a> {
                         writer.expr(default)?
                     ));
                 }
-                params.push(if param.vararg {
+                // A vararg is JavaScript's rest parameter when it's the last; before others it's
+                // a list the call makes (`transpile::param_names` marks it `*`).
+                let last = std::ptr::eq(param, fun.params.last().expect("a parameter"));
+                params.push(if param.vararg && last {
                     format!("...{name}")
+                } else if param.vararg {
+                    format!("{name} = []")
                 } else {
                     name
                 });
@@ -1436,7 +1441,7 @@ impl<'a> Gen<'a> {
             for (name, value) in named {
                 let index = params
                     .iter()
-                    .position(|param| param.trim_start_matches('*') == name)
+                    .position(|param| param.trim_start_matches(['*', '^']) == name)
                     .ok_or_else(|| unsupported(format!("a named argument {name}")))?;
                 placed[index] = Some(value);
             }
@@ -1456,7 +1461,7 @@ impl<'a> Gen<'a> {
             for (name, value) in named {
                 let index = params
                     .iter()
-                    .position(|param| *param == name)
+                    .position(|param| param.trim_start_matches('^') == name)
                     .ok_or_else(|| unsupported(format!("a named argument {name}")))?;
                 if placed.len() <= index {
                     placed.resize(index + 1, None);
@@ -1491,7 +1496,7 @@ impl<'a> Gen<'a> {
                     && named.iter().all(|name| {
                         params
                             .iter()
-                            .any(|param| param.trim_start_matches('*') == *name)
+                            .any(|param| param.trim_start_matches(['*', '^']) == *name)
                     })
             })
             .or_else(|| overloads.first())
@@ -1581,8 +1586,11 @@ impl<'a> Gen<'a> {
                     if let Some(lambda) = lambda {
                         args.push(self.lambda(lambda, name)?);
                     }
-                    // A local extension called on the implicit receiver.
-                    if self.local_extensions.contains(&js) {
+                    // A local extension (or a parameter that's a function with a receiver) called
+                    // on the implicit receiver.
+                    if self.local_extensions.contains(&js)
+                        || (self.receiver_params.contains(&js) && !self.receivers.is_empty())
+                    {
                         let receiver = self
                             .receivers
                             .last()
@@ -1609,7 +1617,15 @@ impl<'a> Gen<'a> {
                     ));
                 }
                 // An implicit receiver's member (`setUrlWithoutDomain(…)` in `apply`).
-                let lambda_code = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
+                // A lambda for one of the source's functions that takes a receiver is written
+                // with it (below).
+                let takes_receiver = self.own_params(name, args).is_some_and(|params| {
+                    params.last().is_some_and(|param| param.starts_with('^'))
+                });
+                let lambda_code = lambda
+                    .filter(|_| !takes_receiver)
+                    .map(|lambda| self.lambda(lambda, name))
+                    .transpose()?;
                 if !self.receivers.is_empty() && !self.cx.functions.contains_key(name) {
                     if !self.known(name) && !self.cx.extensions.contains(name) {
                         return self.global_call(name, args, lambda_code, &type_arg);
@@ -1626,7 +1642,19 @@ impl<'a> Gen<'a> {
                 }
                 if let Some(params) = self.own_params(name, args) {
                     let (mut args, _) = self.args(args, Some(&params))?;
-                    if let Some(lambda) = lambda_code {
+                    // A trailing lambda for a function with a receiver reads it implicitly
+                    // (`browse(page) { addQueryParameter(…) }`).
+                    let receiver_lambda = lambda
+                        .filter(|_| params.last().is_some_and(|param| param.starts_with('^')));
+                    // A trailing lambda is the last parameter's, past any defaults left out.
+                    if lambda.is_some() {
+                        while args.len() + 1 < params.len() {
+                            args.push("undefined".to_owned());
+                        }
+                    }
+                    if let Some(lambda) = receiver_lambda {
+                        args.push(self.receiver_lambda(lambda, name)?);
+                    } else if let Some(lambda) = lambda_code {
                         args.push(lambda);
                     }
                     return Ok(format!(
@@ -1743,6 +1771,15 @@ impl<'a> Gen<'a> {
                     ));
                 }
                 let object = self.expr(target)?;
+                // `builder.params()`: a parameter that's a function with a receiver.
+                if let Some(js) = self
+                    .resolve(name)
+                    .filter(|js| self.receiver_params.contains(js))
+                {
+                    let (mut args, _) = self.args(args, None)?;
+                    args.insert(0, object);
+                    return Ok(format!("(await {js}({}))", args.join(", ")));
+                }
                 // `builder.addParam(…)`: a local extension, the value passed first.
                 if let Some(js) = self
                     .resolve(name)
@@ -2029,6 +2066,19 @@ impl<'a> Gen<'a> {
         })
     }
 
+    /// A lambda for a function type with a receiver (`HttpUrl.Builder.() -> Unit`): called with
+    /// the receiver first, which its code reads implicitly.
+    fn receiver_lambda(&mut self, lambda: &Lambda, label: &str) -> Result<String, String> {
+        let receiver = self.temp();
+        self.push_receiver(&receiver, [Some(label), lambda.label.as_deref()]);
+        let function = self.lambda(&without_it(lambda), label);
+        self.pop_receiver();
+        Ok(format!(
+            "(async ({receiver}, ...rest) => {}(...rest))",
+            function?
+        ))
+    }
+
     /// A lambda called at once with no argument.
     fn lambda_call(&mut self, lambda: &Lambda, label: &str) -> Result<String, String> {
         let function = self.lambda(&without_it(lambda), label)?;
@@ -2126,7 +2176,7 @@ pub const GLOBALS: &[&str] = &[
     "longArrayOf", "doubleArrayOf", "floatArrayOf", "charArrayOf", "booleanArrayOf", "sequenceOf",
     "emptySequence", "min", "max", "synchronized", "CoroutineScope", "ratingStars", "aesCbc",
     "aesEcb", "aesGcm", "aesCtr", "newAesCipher", "IvParameterSpec", "SecretKeySpec",
-    "GCMParameterSpec", "PBEKeySpec",
+    "GCMParameterSpec", "PBEKeySpec", "TextNode", "XorInterceptor",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2139,5 +2189,6 @@ pub const OBJECTS: &[&str] = &[
     "URLEncoder", "URLDecoder", "Charsets", "Base64", "JsonNull", "Instant", "Clock", "AppInfo",
     "ChronoUnit", "ChronoField", "Log", "Regex", "Cookie", "CookieManager", "Random", "Build",
     "VERSION", "Normalizer", "Entities", "StandardCharsets", "Charset", "MarkdownDescription",
-    "Cipher", "MessageDigest", "Mac", "SecretKeyFactory", "UpdateStrategy",
+    "Cipher", "MessageDigest", "Mac", "SecretKeyFactory", "UpdateStrategy", "MultipartBody",
+    "QuickJs", "JSON_MEDIA_TYPE",
 ];

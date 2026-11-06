@@ -698,6 +698,18 @@
     decodeBase64: (s) => fromBase64(s),
     // Descriptions are shown as plain text: there's nothing to escape.
     escapeMarkdown: (s) => s,
+    // `findAnyOf(strings)`: the first of them found, as (index, string).
+    findAnyOf: (s, [strings, startIndex = 0, ignoreCase = false], _lambda, named_) => {
+      const fold = named_?.ignoreCase ?? ignoreCase;
+      const text = fold ? s.toLowerCase() : s;
+      let best = null;
+      for (const candidate of KT.iter(strings)) {
+        const needle = fold ? KT.str(candidate).toLowerCase() : KT.str(candidate);
+        const at = text.indexOf(needle, named_?.startIndex ?? startIndex);
+        if (at >= 0 && (best === null || at < best[0])) best = [at, KT.str(candidate)];
+      }
+      return best ? KT.pair(best[0], best[1]) : null;
+    },
     compareTo: (s, [other]) => KT.cmp(s, other),
     reversed: (s) => [...s].reverse().join(''),
     first: (s) => s.charAt(0),
@@ -883,6 +895,7 @@
     size: (l) => l.length,
     // A JSON array's `parseAs<List<T>>()`.
     parseAs: (l, _args, _lambda, _named, type) => decode(l, type),
+    containsAll: (l, [other]) => KT.iter(other).every((item) => l.some((own) => KT.eq(own, item))),
     // A `ByteArray`'s own calls, and Keiyoushi's byte helpers on it.
     decodeToString: (l) => utf8Decode(l),
     // A body of bytes (the text they spell: requests carry text).
@@ -1391,6 +1404,13 @@
       return hash;
     },
     use: async (value, _args, lambda) => lambda(value),
+    // `builder.apply(params)`, `value.run(block)` with a function passed (a lambda with a
+    // receiver takes it first).
+    apply: async (value, args, lambda) => {
+      await (lambda ?? args[0])(value);
+      return value;
+    },
+    run: async (value, args, lambda) => (lambda ?? args[0])(value),
     closeQuietly: () => KT.unit,
     printStackTrace: () => KT.unit,
     toJsonString: (value) => JSON.stringify(plain(value)),
@@ -1794,6 +1814,20 @@
     get encodedQuery() {
       return this.parts.query;
     }
+    /// OkHttp's `topPrivateDomain()`: the registrable domain (two labels, three under a
+    /// two-letter country's second level such as `co.jp`).
+    topPrivateDomain() {
+      const labels = this.parts.host.split('.');
+      if (labels.length <= 2) return this.parts.host;
+      const second = labels[labels.length - 2];
+      const country = labels[labels.length - 1].length === 2;
+      const take =
+        country &&
+        ['co', 'com', 'net', 'org', 'ne', 'or', 'ac', 'go', 'gov', 'edu'].includes(second)
+          ? 3
+          : 2;
+      return labels.slice(-take).join('.');
+    }
     get fragment() {
       return this.parts.fragment;
     }
@@ -1890,6 +1924,14 @@
     }
     setPathSegment(index, segment) {
       this.segments[index] = encodeSegment(segment);
+      return this;
+    }
+    removePathSegment(index) {
+      this.segments.splice(index, 1);
+      return this;
+    }
+    encodedQuery(query) {
+      this.query = query ? KT.str(query).split('&') : [];
       return this;
     }
     encodedPath(path) {
@@ -3227,6 +3269,30 @@
       iterations,
       keyLength,
     }),
+    // Jsoup's `TextNode("…")`, for `replaceWith`/`appendChild`.
+    TextNode: ([text]) => mihon.textNode(text),
+    // Keiyoushi's `XorInterceptor`: pictures XORed with a key the request gives
+    // (`XorInterceptor { it.url.fragment?.decodeHex() }`) or a fixed one (`XorInterceptor(KEY) {
+    // predicate }`). Raygun's image fetcher undoes it: the pages' addresses carry the key.
+    XorInterceptor: (args, _named, lambda) => {
+      const fixed = Array.isArray(args[0]) || typeof args[0] === 'number' ? args[0] : null;
+      const keyFor =
+        fixed !== null
+          ? async (request) =>
+              !lambda || KT.truthy(await lambda(request))
+                ? Array.isArray(fixed)
+                  ? fixed
+                  : [fixed & 255]
+                : null
+          : async (request) => (lambda ? lambda(request) : null);
+      return {
+        __class: 'XorInterceptor',
+        __classes: ['XorInterceptor', 'Interceptor'],
+        isXor: true,
+        keyFor,
+        intercept: async (chain) => chain.proceed(chain.request()),
+      };
+    },
     // Collections made by their constructors (`ArrayList()`, `ArrayList(other)`, `ArrayDeque()`).
     ArrayList: ([from]) => (from && typeof from === 'object' ? [...KT.iter(from)] : []),
     ArrayDeque: ([from]) => (from && typeof from === 'object' ? [...KT.iter(from)] : []),
@@ -3937,7 +4003,52 @@
     normalize: (text, form) => KT.str(text).normalize(KT.str(form ?? 'NFC')),
   };
 
+  /// OkHttp's `MultipartBody.Builder()…addFormDataPart(…)…build()`: a form of text parts.
+  const multipartBuilder = (given = null) => {
+    const boundary = given ? KT.str(given) : `raygun${Math.random().toString(16).slice(2)}`;
+    let type = 'multipart/form-data';
+    const parts = [];
+    const builder = {
+      setType: (value) => ((type = KT.str(value)), builder),
+      addFormDataPart: (name, ...rest) => {
+        const [filename, body] = rest.length >= 2 ? rest : [null, rest[0]];
+        const text = body && body.isBody ? body.text : KT.str(body);
+        const disposition = `form-data; name="${KT.str(name)}"${filename ? `; filename="${KT.str(filename)}"` : ''}`;
+        const contentType =
+          body && body.isBody && body.type ? `\r\nContent-Type: ${body.type}` : '';
+        parts.push(`Content-Disposition: ${disposition}${contentType}\r\n\r\n${text}`);
+        return builder;
+      },
+      addPart: (body) => {
+        parts.push(`\r\n${body && body.isBody ? body.text : KT.str(body)}`);
+        return builder;
+      },
+      build: () => ({
+        isBody: true,
+        text: `${parts.map((part) => `--${boundary}\r\n${part}\r\n`).join('')}--${boundary}--\r\n`,
+        type: `${type}; boundary=${boundary}`,
+      }),
+    };
+    return builder;
+  };
+
   const OBJECTS = {
+    // Keiyoushi's `JSON_MEDIA_TYPE`.
+    JSON_MEDIA_TYPE: 'application/json',
+    // Mihon's `QuickJs`: a site's script, run apart (`runtime.rs`'s `evaluate`).
+    QuickJs: {
+      create: () => ({
+        __class: 'QuickJs',
+        __classes: ['QuickJs'],
+        evaluate: (code) => K.evaluate(code),
+        close: () => KT.unit,
+      }),
+    },
+    MultipartBody: {
+      Builder: (boundary = null) => multipartBuilder(boundary),
+      FORM: 'multipart/form-data',
+      MIXED: 'multipart/mixed',
+    },
     // Mihon's `UpdateStrategy`: Raygun refreshes every title alike.
     UpdateStrategy: { ALWAYS_UPDATE: 0, ONLY_FETCH_ONCE: 1 },
     Random: random,
@@ -5002,14 +5113,25 @@
               );
             }
           }
+          // A source's `XorInterceptor`s: the key each picture's request gives, for Raygun's
+          // image fetcher (`#raygun-unscramble=xor:<hex>`).
+          const client = await self.get('client').catch(() => null);
+          const xors = (client?.interceptors ?? []).filter((interceptor) => interceptor?.isXor);
+          const xorKey = async (request) => {
+            for (const interceptor of xors) {
+              const key = await interceptor.keyFor(request);
+              if (key && key.length) return key;
+            }
+            return null;
+          };
           const out = [];
           for (const page of pages) {
             if (!page.imageUrl) continue;
             const request = await self.call('getImageRequest', [page]);
-            out.push({
-              url: unscrambled(request.url.toString(), config.imageRecipe),
-              headers: request.headers.object(),
-            });
+            let url = unscrambled(request.url.toString(), config.imageRecipe);
+            const key = xors.length ? await xorKey(request) : null;
+            if (key) url = `${url.split('#')[0]}#raygun-unscramble=xor:${hexOf(key)}`;
+            out.push({ url, headers: request.headers.object() });
           }
           return { pages: out };
         },

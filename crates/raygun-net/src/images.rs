@@ -65,7 +65,10 @@ pub async fn fetch_image(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default()
         .to_owned();
-    if !content_type.starts_with("image/") {
+    let recipe = Unscramble::from_url(url);
+    // A file that's a picture only once its bytes are put back (XORed) comes as anything.
+    let bytes_recipe = matches!(recipe, Some(Unscramble::Xor(_)));
+    if !content_type.starts_with("image/") && !bytes_recipe {
         return Err(ImageError::NotImage);
     }
     if response
@@ -81,8 +84,19 @@ pub async fn fetch_image(
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(ImageError::TooLarge);
     }
+    // A page whose file is XORed: the picture it hides, as itself.
+    if let Some(plain) = recipe
+        .as_ref()
+        .and_then(|recipe| recipe.decoded_bytes(&bytes))
+    {
+        let extension = extension_for(sniff_content_type(&plain), &content_type);
+        return Ok(Image {
+            bytes: plain,
+            extension,
+        });
+    }
     // A page whose picture comes in shuffled tiles says how to put it back together.
-    if let Some(recipe) = Unscramble::from_url(url) {
+    if let Some(recipe) = recipe {
         let jpeg = tokio::task::spawn_blocking({
             let bytes = bytes.to_vec();
             move || recipe.apply(&bytes)
@@ -127,6 +141,9 @@ pub enum Unscramble {
     Comici(Vec<usize>),
     /// A 4×4 grid of blocks whose sides are multiples of 8, transposed.
     Giga,
+    /// The file's bytes XORed with a repeating key (Keiyoushi's `XorInterceptor`, as MANGA Plus
+    /// serves its pages): `#raygun-unscramble=xor:<key in hex>`.
+    Xor(Vec<u8>),
 }
 
 const UNSCRAMBLE: &str = "raygun-unscramble=";
@@ -138,6 +155,16 @@ impl Unscramble {
         if recipe == "giga" {
             return Some(Self::Giga);
         }
+        if let Some(hex) = recipe.strip_prefix("xor:") {
+            if hex.is_empty() || !hex.len().is_multiple_of(2) {
+                return None;
+            }
+            let key: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|at| u8::from_str_radix(hex.get(at..at + 2)?, 16).ok())
+                .collect::<Option<_>>()?;
+            return Some(Self::Xor(key));
+        }
         let tiles: Vec<usize> = recipe
             .strip_prefix("comici:")?
             .split(',')
@@ -146,8 +173,26 @@ impl Unscramble {
         (tiles.len() == 16 && tiles.iter().all(|tile| *tile < 16)).then_some(Self::Comici(tiles))
     }
 
+    /// The bytes before they're a picture (a file XORed with a key), when the recipe works on
+    /// them rather than on the picture.
+    pub fn decoded_bytes(&self, bytes: &[u8]) -> Option<Vec<u8>> {
+        match self {
+            Self::Xor(key) => Some(
+                bytes
+                    .iter()
+                    .zip(key.iter().cycle())
+                    .map(|(byte, key)| byte ^ key)
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
     /// The picture put back together, as JPEG.
     pub fn apply(&self, bytes: &[u8]) -> Result<Vec<u8>, String> {
+        if let Some(plain) = self.decoded_bytes(bytes) {
+            return Ok(plain);
+        }
         let source = if is_jxl(bytes) {
             let png = jxl_to_png(bytes)?;
             image::load_from_memory(&png)
@@ -185,6 +230,8 @@ impl Unscramble {
                     );
                 }
             }
+            // Done above, on the bytes.
+            Self::Xor(_) => {}
             Self::Giga => {
                 let block_width = (width / 32) * 8;
                 let block_height = (height / 32) * 8;
@@ -481,6 +528,23 @@ mod tests {
     fn shade_at(jpeg: &[u8], x: u32, y: u32) -> u8 {
         let picture = image::load_from_memory(jpeg).unwrap().to_rgb8();
         picture.get_pixel(x, y)[0]
+    }
+
+    #[test]
+    fn xored_files_are_put_back() {
+        let recipe = Unscramble::from_url("https://x/1.jpg#raygun-unscramble=xor:0aff").unwrap();
+        assert_eq!(recipe, Unscramble::Xor(vec![0x0a, 0xff]));
+        let plain = [0x89, b'P', b'N', b'G', 1, 2];
+        let hidden: Vec<u8> = plain
+            .iter()
+            .zip([0x0a, 0xff].iter().cycle())
+            .map(|(byte, key)| byte ^ key)
+            .collect();
+        assert_eq!(recipe.apply(&hidden).unwrap(), plain);
+        assert_eq!(
+            Unscramble::from_url("https://x/1.jpg#raygun-unscramble=xor:0"),
+            None
+        );
     }
 
     #[test]

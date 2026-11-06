@@ -110,6 +110,10 @@ fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
         "crypto",
         Function::new(ctx.clone(), |args: String| envelope(crypto(&args)))?,
     )?;
+    native.set(
+        "evaluate",
+        Function::new(ctx.clone(), |code: String| envelope(evaluate(&code)))?,
+    )?;
     ctx.globals().set("__rgMihon", native)
 }
 
@@ -396,6 +400,41 @@ fn aes_run(
             }
         }
         other => return Err(format!("no AES mode {other}")),
+    })
+}
+
+/// `QuickJs.create().evaluate(script)` (a site's script a source runs for a key or a list):
+/// in a JavaScript engine of its own, with nothing of the extension's, at most 5 s and 64 MB.
+/// The script's value comes back as JSON (`null` when it has none).
+fn evaluate(code: &str) -> Result<serde_json::Value, String> {
+    let runtime = rquickjs::Runtime::new().map_err(|error| error.to_string())?;
+    runtime.set_memory_limit(64 * 1024 * 1024);
+    runtime.set_max_stack_size(1024 * 1024);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    runtime.set_interrupt_handler(Some(Box::new(move || std::time::Instant::now() > deadline)));
+    let context = rquickjs::Context::full(&runtime).map_err(|error| error.to_string())?;
+    context.with(|ctx| {
+        let value: rquickjs::Value = match ctx.eval(code) {
+            Ok(value) => value,
+            Err(rquickjs::Error::Exception) => {
+                let thrown = ctx.catch();
+                let message = thrown
+                    .as_exception()
+                    .and_then(|exception| exception.message())
+                    .unwrap_or_else(|| "the script failed".to_owned());
+                return Err(format!("the script failed: {message}"));
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        let text = ctx
+            .json_stringify(value)
+            .map_err(|error| error.to_string())?
+            .map(|text| text.to_string())
+            .transpose()
+            .map_err(|error| error.to_string())?;
+        Ok(text
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or(serde_json::Value::Null))
     })
 }
 

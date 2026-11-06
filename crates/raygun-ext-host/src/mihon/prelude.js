@@ -832,6 +832,8 @@
   K.decrypt = (options) => unwrap(native.decrypt(JSON.stringify(options)));
   /** AES, digests, HMAC and PBKDF2 in Rust, bytes as base64 (`runtime.rs`'s `CryptoArgs`). */
   K.crypto = (args) => unwrap(native.crypto(JSON.stringify(args)));
+  /** A site's script run in a JavaScript engine of its own (`QuickJs.create().evaluate`). */
+  K.evaluate = (code) => unwrap(native.evaluate(K.str(code)));
   /** The extension's cookie jar: what it sends to `url` (`[name, value]` pairs), and keeping
    * `Set-Cookie` lines for it. */
   K.cookies = (href) => unwrap(native.cookies(K.str(href)));
@@ -936,6 +938,13 @@
     }
   }
 
+  /** What an edit puts in the page: an element's or a text node's HTML, or HTML as given. */
+  const htmlOf = (node) => {
+    if (node && node.__class === 'TextNode') return node.outerHtml();
+    if (node && typeof node.outerHtml === 'function') return node.outerHtml();
+    return K.str(node);
+  };
+
   /** A Jsoup `TextNode`: `text()` with its whitespace runs made one space, `wholeText` as written,
    * and the elements beside it. */
   const textNode = (found, doc) => {
@@ -1008,6 +1017,37 @@
     }
     ownerDocument() {
       return this.doc ?? null;
+    }
+    // Jsoup's edits: HTML (or a node's) put beside, inside or in place of the element.
+    replaceWith(node) {
+      dom('replace', { nodes: [this.h], html: htmlOf(node) });
+      return this;
+    }
+    prepend(node) {
+      dom('insert', { nodes: [this.h], html: htmlOf(node), place: 'prepend' });
+      return this;
+    }
+    append(node) {
+      dom('insert', { nodes: [this.h], html: htmlOf(node), place: 'append' });
+      return this;
+    }
+    before(node) {
+      dom('insert', { nodes: [this.h], html: htmlOf(node), place: 'before' });
+      return this;
+    }
+    after(node) {
+      dom('insert', { nodes: [this.h], html: htmlOf(node), place: 'after' });
+      return this;
+    }
+    appendText(text) {
+      return this.append(textNode({ text: K.str(text) }));
+    }
+    prependText(text) {
+      return this.prepend(textNode({ text: K.str(text) }));
+    }
+    empty() {
+      dom('empty', { nodes: [this.h] });
+      return this;
     }
     attr(name, ...value) {
       // `attr(key, value)` sets it, as Jsoup's does, and gives the element.
@@ -1386,6 +1426,7 @@
     Elements,
     Element,
     Document,
+    textNode: (text) => textNode({ text: K.str(text) }),
     Http,
     HttpError,
     SManga,

@@ -300,7 +300,8 @@ fn source_class(files: &[(String, File)]) -> Option<&ClassDecl> {
 }
 
 /// A function's parameter names, as calls place their arguments; a vararg before other
-/// parameters is `*name`: the call's positional arguments go to it, as a list.
+/// parameters is `*name`: the call's positional arguments go to it, as a list. A function with a
+/// receiver (`params: HttpUrl.Builder.() -> Unit`) is `^name`: its lambda reads the receiver.
 fn param_names(params: &[Param]) -> Vec<String> {
     params
         .iter()
@@ -308,6 +309,8 @@ fn param_names(params: &[Param]) -> Vec<String> {
         .map(|(index, param)| {
             if param.vararg && index + 1 < params.len() {
                 format!("*{}", param.name)
+            } else if param.ty.name == super::kotlin::ast::RECEIVER_FUNCTION {
+                format!("^{}", param.name)
             } else {
                 param.name.clone()
             }

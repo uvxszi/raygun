@@ -138,8 +138,12 @@ class or lambda): each gets the chain's request, may change it (`newBuilder().he
 `addCookie(…)` adds cookies to the source's requests, and its `GraphQLErrorInterceptor`,
 `graphQLBody` and `parseGraphQLAs` are the runtime's. `client.cookieJar` is the extension's own
 jar (`loadForRequest`, `saveFromResponse`, OkHttp's `Cookie.parse` and `Cookie.Builder`), and so
-is Android's `CookieManager`. An interceptor that draws pictures (`BitmapFactory`) is refused, as
-there are none to draw.
+is Android's `CookieManager`. Keiyoushi's `XorInterceptor` (MANGA Plus-style XORed pages) is a
+recipe as well: each page's request gives its key when the pages are listed, and the address
+carries it (`#raygun-unscramble=xor:<hex>`) for Raygun's image fetcher. `QuickJs.create()
+.evaluate(script)` runs a site's script in a JavaScript engine of its own (5 s, 64 MB, nothing of
+the extension's). An interceptor that draws pictures (`BitmapFactory`) is refused, as there are
+none to draw.
 
 A `break` or `continue` out of a lambda (`?.let { continue }`, `forEach { … break }`) or in an
 expression (`?: continue`) is a `KT.Jump` that the loop's body catches.
@@ -206,38 +210,36 @@ Themes so far (ported from Keiyoushi's `lib-multisrc`, Apache-2.0):
 
 ## Coverage
 
-`mihon_convert_survey` converts every extension of Keiyoushi's store (1463, as of
-2026-11-05) and loads each conversion as installing does (one that doesn't load counts as
-refused):
+`mihon_convert_survey` converts every extension of Keiyoushi's store (1469 as of 2026-11-06, 6
+of them newer than the checkout surveyed) and loads each conversion as installing does (one that
+doesn't load counts as refused):
 
 | | Converted | Of |
 |---|---|---|
-| Madara | 202 | 240 |
-| MangaThemesia | 100 | 113 |
-| ZeistManga | 28 | 29 |
-| GigaViewer | 19 | 19 |
+| Madara | 225 | 240 |
+| MangaThemesia | 101 | 113 |
+| ComiciViewer, ZeistManga, GigaViewer | 77 | 77 |
 | Keyoapp | 15 | 16 |
-| MangaCatalog | 13 | 13 |
-| PizzaReader | 10 | 10 |
-| Iken | 8 | 9 |
-| Masonry, UzayManga, YiiMadara | 21 | 21 |
-| Other themes (56) | 31 | 222 |
-| No theme | 351 | 771 |
-| All | 798 (54.5%) | 1463 |
+| MangaCatalog, YiiManga, PizzaReader | 35 | 35 |
+| Iken, InitManga, FoolSlide, GalleryAdults | 33 | 35 |
+| Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 35 | 35 |
+| MangaHub, Grouple, MMRCMS | 5 | 23 |
+| Other themes | 67 | 124 |
+| No theme | 476 | 771 |
+| All | 1069 (72.8%) | 1469 |
 
-Madara and MangaThemesia extensions their ports refuse convert with the theme's code (50 and 24
-of them). The most common refusals now: Next.js page data (`extractNextJs()` 52, ComiciViewer
-among them), cookie jars read in code (`loadForRequest()` 29), `break`/`continue` out of a lambda
-(25), `textNodes()` (16), picture-drawing interceptors (15), Keiyoushi's libraries
-(`textinterceptor` 12, `unpacker` 9, `publus` 8, `speedbinb` 8).
+The most common refusals now: picture-drawing interceptors (`BitmapFactory` 18, with
+`lib:textinterceptor` 12, `lib:publus` 8, `lib:speedbinb` 8, `lib:clipstudioreader` 5 and
+`lib:imagedecoder` 3 drawing too) and binary answers read in code (okio's `source()` 10, `Buffer`
+4, `ByteBuffer` 4, `byteStream()` 4, protobuf's `parseAsProto` 7); `lib:unpacker` 9; then a long
+tail of a few extensions each.
 
-`mihon_popular_live` with a sample of 50 converted sources (2026-11-05): 29 listed their first
-popular page, among them sources on themes converted from code (ZeistManga, Liliana,
-MangaCatalog, YiiMadara). Of the others, eight asked for a browser check, three sites were down,
-gone or slow, and ten stopped on code the runtime doesn't run right yet (selectors Raygun's
-engine didn't read, now fixed for namespaced attributes and the `i` flag, and values missing
-where the Kotlin had them). GigaViewer sources convert but their series list (a GraphQL query)
-still fails at run time.
+`mihon_popular_live` with a sample of 60 converted sources (2026-11-06) follows each listing
+through a title's details, its chapters and a chapter's pages: about 40 of the 60 list their
+popular titles, and of those 95% give details and chapters and over 80% pages. The sources that
+don't list stop on what the runtime can't change: a browser check, a site that refuses access
+from outside its country (most ComiciViewer sites outside Japan), a site down, slow or rate
+limiting, or a site that changed.
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture

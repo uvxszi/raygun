@@ -1,9 +1,13 @@
 //! The syntax tree of the Kotlin the parser reads: declarations, statements and expressions.
 
+/// A function type with a receiver (`HttpUrl.Builder.() -> Unit`): its first argument is the
+/// receiver.
+pub const RECEIVER_FUNCTION: &str = "(.)";
+
 /// A type as written; arguments and nullability are kept, the rest (variance, annotations) isn't.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Type {
-    /// Dotted name (`Filter.Select`), or `()` for a function type.
+    /// Dotted name (`Filter.Select`), `()` for a function type, or [`RECEIVER_FUNCTION`].
     pub name: String,
     pub args: Vec<Type>,
     pub nullable: bool,
