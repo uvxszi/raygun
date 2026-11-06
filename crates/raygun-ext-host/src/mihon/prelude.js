@@ -773,8 +773,14 @@
   /** `href` resolved against `base`; '' when it doesn't resolve (Jsoup's `absUrl`). */
   K.resolve = (href, base) => {
     if (href == null || href === '') return '';
+    const text = K.str(href);
     try {
-      return url(href, base).href;
+      // Java's `URL` keeps spaces as they are: a `srcset` (`a.jpg 110w, b.jpg 175w`) read as
+      // `abs:srcset` stays a list the source splits.
+      const resolved = url(text.trim(), base).href;
+      return /\s/.test(text.trim()) && !text.includes('%20')
+        ? resolved.replace(/%20/g, ' ')
+        : resolved;
     } catch {
       return '';
     }

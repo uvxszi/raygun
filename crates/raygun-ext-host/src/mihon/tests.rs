@@ -1939,3 +1939,49 @@ class TitleDto(
     assert_eq!(titles, ["First-3-150", "Second"]);
     assert!(listing.has_next_page);
 }
+
+#[tokio::test]
+async fn a_srcset_read_as_an_address_keeps_its_list() {
+    // Jsoup resolves `abs:srcset` as Java's `URL` does, spaces kept: the source splits it.
+    let app = Router::new().route(
+        "/list/page/1",
+        get(|| async {
+            Html(
+                r#"<div class="listing"><div class="item"><a href="/manga/one"><img srcset="/c/one-110.jpg 110w, /c/one-175.jpg 175w"><h2>One</h2></a></div></div>"#,
+            )
+        }),
+    );
+    let source = STANDALONE_SOURCE.replace(
+        r#"thumbnail_url = element.selectFirst("img")?.absUrl("src")"#,
+        r#"thumbnail_url = element.selectFirst("img")?.attr("abs:srcset")?.split(" ")?.getOrNull(2)"#,
+    );
+    let address = serve(app);
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            STANDALONE_BUILD,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, address).await;
+    let popular = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Popular,
+            1,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some(format!("http://{address}/c/one-175.jpg").as_str())
+    );
+}
