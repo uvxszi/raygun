@@ -66,6 +66,36 @@ describe('Markdown', () => {
     expect(open).toHaveBeenCalledWith('https://github.com/uvxszi/raygun/pull/1');
   });
 
+  it('leaves out HTML comments, except in code', () => {
+    expect(
+      parseMarkdown(
+        [
+          '- one',
+          '<!-- - two: kept for later -->',
+          '- three <!-- note -->',
+          '<!-- a --> kept <!-- b -->',
+          '<!--',
+          'a longer note',
+          '-->',
+          '```html',
+          '<!-- code -->',
+          '```',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      {
+        kind: 'list',
+        ordered: false,
+        start: 1,
+        items: [
+          { checked: null, blocks: [{ kind: 'paragraph', text: 'one' }] },
+          { checked: null, blocks: [{ kind: 'paragraph', text: 'three\nkept' }] },
+        ],
+      },
+      { kind: 'code', text: '<!-- code -->' },
+    ]);
+  });
+
   it('links bare addresses without trailing punctuation', () => {
     expect(parseInline('by @someone in https://github.com/uvxszi/raygun/pull/2.')).toEqual([
       { kind: 'text', text: 'by @someone in ' },

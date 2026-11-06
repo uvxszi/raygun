@@ -2,7 +2,8 @@
  * A small GitHub-flavoured Markdown parser for release notes: headings, paragraphs, bold,
  * italics, strikethrough, inline and fenced code, lists (nested, ordered, task boxes), quotes,
  * rules, tables and links. `Markdown.tsx` builds React elements only, so nothing in the text becomes HTML:
- * tags show as text (`<br>` is a line break). Only https links are links; they open outside.
+ * tags show as text (`<br>` is a line break). HTML comments (`<!-- -->`, notes kept for whoever
+ * writes them) are left out, as GitHub does. Only https links are links; they open outside.
  */
 
 export type MarkdownBlock =
@@ -44,9 +45,54 @@ const tableCells = (line: string) =>
     .split(/(?<!\\)\|/)
     .map((cell) => cell.trim());
 
+/**
+ * A comment filling its lines (with the line break after it), then any other comment. The first
+ * never reaches past its own `-->`, so text between two comments stays.
+ */
+const COMMENT_LINES = /^[ \t]*<!--(?:(?!-->)[\s\S])*-->[ \t]*(?:\n|$)/gm;
+const COMMENT = /<!--[\s\S]*?-->/g;
+
+/** `lines` without HTML comments, except inside fenced code, where they're code. */
+const withoutComments = (lines: string[]): string[] => {
+  const kept: string[] = [];
+  let text: string[] = [];
+  const flush = () => {
+    if (text.length === 0) return;
+    const joined = text.join('\n');
+    const cleaned = joined.replace(COMMENT_LINES, '').replace(COMMENT, '');
+    // Comments that filled every line leave none.
+    if (cleaned !== '' || joined === '') kept.push(...cleaned.split('\n'));
+    text = [];
+  };
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index] ?? '';
+    const fence = FENCE.exec(line);
+    if (!fence) {
+      text.push(line);
+      index += 1;
+      continue;
+    }
+    flush();
+    const marker = fence[1] ?? '';
+    kept.push(line);
+    index += 1;
+    while (index < lines.length && !(lines[index] ?? '').trimStart().startsWith(marker)) {
+      kept.push(lines[index] ?? '');
+      index += 1;
+    }
+    if (index < lines.length) kept.push(lines[index] ?? '');
+    index += 1;
+  }
+  flush();
+  return kept;
+};
+
 /** The blocks of `source`. */
 export const parseMarkdown = (source: string): MarkdownBlock[] =>
-  parseLines(source.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n'));
+  parseLines(
+    withoutComments(source.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n')),
+  );
 
 const parseLines = (lines: string[]): MarkdownBlock[] => {
   const blocks: MarkdownBlock[] = [];
