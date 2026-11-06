@@ -1478,12 +1478,15 @@ class RaygunAudioPlugin(private val activity: Activity) : Plugin(activity) {
 
     /**
      * Starts Raygun again from its first screen (M46.51: after erasing everything). The WebView's
-     * storage and cookies go first; the app's other processes (the built-in browser, browser
-     * checks) end with this one.
+     * storage and cookies go first, and the notifications about what was erased (releases,
+     * downloads); the app's other processes (the built-in browser, browser checks) end with this one.
      */
     @Command
     fun restartApp(invoke: Invoke) {
         activity.runOnUiThread {
+            runCatching {
+                activity.getSystemService(android.app.NotificationManager::class.java)?.cancelAll()
+            }
             runCatching { android.webkit.WebStorage.getInstance().deleteAllData() }
             runCatching {
                 android.webkit.CookieManager.getInstance().removeAllCookies(null)
