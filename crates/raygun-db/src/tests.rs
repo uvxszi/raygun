@@ -101,10 +101,8 @@ async fn extension_repos_settings_and_installs_round_trip() {
     let temp = TempDir::new().unwrap();
     let db = open_in(temp.path()).await;
 
-    // Raygun's first repository is seeded (the app moves it to Paraline: `replace_repos`).
-    let seeded = extensions::repos(&db).await.unwrap();
-    assert_eq!(seeded.len(), 1);
-    assert!(seeded[0].url.ends_with("/repo/index.json"));
+    // A new install starts with no repository (migration 0041): Paraline is only suggested.
+    assert!(extensions::repos(&db).await.unwrap().is_empty());
 
     let added = extensions::add_repo(&db, "https://example.org/index.json", "Example")
         .await
@@ -114,15 +112,11 @@ async fn extension_repos_settings_and_installs_round_trip() {
         .await
         .unwrap();
     let repos = extensions::repos(&db).await.unwrap();
-    assert_eq!(repos.len(), 2);
-    assert_eq!(
-        repos[0].id, seeded[0].id,
-        "the official repository stays first"
-    );
-    assert_eq!(repos[1].name, "Renamed");
+    assert_eq!(repos.len(), 1);
+    assert_eq!(repos[0].name, "Renamed");
 
     extensions::remove_repo(&db, &added.id).await.unwrap();
-    assert_eq!(extensions::repos(&db).await.unwrap().len(), 1);
+    assert!(extensions::repos(&db).await.unwrap().is_empty());
     // Adding the same URL again revives the row instead of duplicating it.
     let revived = extensions::add_repo(&db, "https://example.org/index.json", "Example")
         .await
@@ -185,9 +179,12 @@ async fn replaced_repositories_fold_into_their_replacement() {
         installed_at: 1,
     };
 
-    // A new install: the seeded official repository becomes the replacement, which leads.
+    // A device listing the official repository: it becomes the replacement, which leads.
     let temp = TempDir::new().unwrap();
     let db = open_in(temp.path()).await;
+    extensions::add_repo(&db, OFFICIAL, "Raygun Extensions")
+        .await
+        .unwrap();
     let other = extensions::add_repo(&db, "https://example.org/other/index.json", "Other")
         .await
         .unwrap();
@@ -249,8 +246,10 @@ async fn replaced_repositories_fold_into_their_replacement() {
     // A device that had removed every retired repository doesn't get the replacement.
     let temp = TempDir::new().unwrap();
     let db = open_in(temp.path()).await;
-    let seeded = extensions::repos(&db).await.unwrap();
-    extensions::remove_repo(&db, &seeded[0].id).await.unwrap();
+    let official = extensions::add_repo(&db, OFFICIAL, "Raygun Extensions")
+        .await
+        .unwrap();
+    extensions::remove_repo(&db, &official.id).await.unwrap();
     assert!(
         !extensions::replace_repos(&db, &retired, &replacement)
             .await

@@ -14,7 +14,7 @@ import {
 
 /**
  * An installed extension's long-press and right-click menu: its page and settings, its website,
- * copying its name, clearing its data, marking it 18+ or not, uninstalling (asked first; built-in ones stay).
+ * copying its name, clearing its data, marking it 18+ or not, uninstalling (asked first).
  */
 export const useExtensionMenuItems = () => {
   const { t } = useTranslation();

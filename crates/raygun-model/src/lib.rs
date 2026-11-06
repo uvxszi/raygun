@@ -3440,6 +3440,9 @@ pub struct ExtensionInfo {
     /// The site its sources read (the manifest's `website` or a Shosetsu script's `baseURL`),
     /// opened in Raygun's browser from a source's menu (M46.11).
     pub website: Option<String>,
+    /// The name of the repository it was installed from (`Paraline`); none for one added on its
+    /// own or copied into the extensions folder.
+    pub repository: Option<String>,
 }
 
 /// How much of a Nuclear plugin runs in Raygun (M17).

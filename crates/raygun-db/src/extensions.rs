@@ -267,3 +267,104 @@ pub async fn remove_install(db: &Db, extension_id: &str) -> Result<(), DbError> 
         .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Opens a database migrated up to (not including) `before`, lets `fill` add rows, then opens
+    /// it with every migration.
+    async fn upgraded<F, Fut>(before: i64, fill: F) -> (tempfile::TempDir, Db)
+    where
+        F: FnOnce(sqlx::SqlitePool) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let temp = tempfile::TempDir::new().unwrap();
+        let path = temp.path().join("raygun.db");
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        let mut earlier = sqlx::migrate!("./migrations");
+        earlier.migrations = earlier
+            .migrations
+            .iter()
+            .filter(|migration| migration.version < before)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into();
+        earlier.run(&pool).await.unwrap();
+        fill(pool.clone()).await;
+        pool.close().await;
+        let db = Db::open(&path).await.unwrap();
+        (temp, db)
+    }
+
+    /// A new install starts with no repository and isn't marked for the former built-in sources.
+    #[tokio::test]
+    async fn a_new_install_starts_with_no_repository() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        assert!(repos(&db).await.unwrap().is_empty());
+        assert_eq!(
+            crate::local_value(&db, "extensions.formerBuiltIns")
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    /// A device that used Raygun before keeps its repositories and is marked so the sources the
+    /// app used to carry get installed.
+    #[tokio::test]
+    async fn an_upgraded_device_keeps_its_repositories_and_is_marked() {
+        let (_temp, db) = upgraded(41, |pool| async move {
+            sqlx::query(
+                "INSERT INTO extension_repo (id, url, name, updated_at_hlc, origin_device, deleted)
+                 VALUES ('p', 'https://example.org/index.json', 'Paraline', 5, 'device', 0)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        })
+        .await;
+        let urls: Vec<String> = repos(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|repo| repo.url)
+            .collect();
+        assert_eq!(urls, ["https://example.org/index.json"]);
+        assert_eq!(
+            crate::local_value(&db, "extensions.formerBuiltIns")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("pending")
+        );
+    }
+
+    /// A device that only ever had the untouched seed loses it, unless it installed something.
+    #[tokio::test]
+    async fn an_untouched_seed_goes_but_installs_still_mark_the_device() {
+        let (_temp, db) = upgraded(41, |pool| async move {
+            sqlx::query(
+                "INSERT INTO local_extension_install
+                     (extension_id, repo_url, version, sha256, installed_at)
+                 VALUES ('dev.example.a', 'https://example.org/index.json', '1.0.0', 'ab', 1)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        })
+        .await;
+        assert!(repos(&db).await.unwrap().is_empty());
+        assert_eq!(
+            crate::local_value(&db, "extensions.formerBuiltIns")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("pending")
+        );
+    }
+}
