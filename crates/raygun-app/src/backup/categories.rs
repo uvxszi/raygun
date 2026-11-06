@@ -331,6 +331,19 @@ pub async fn clear(
             let changed = raygun_db::data::clear(&db, part)
                 .await
                 .map_err(to_message)?;
+            if part == Part::Websites {
+                // The built-in browser's cookies, storage and cache (its tabs' sites) go too.
+                let browser = app.clone();
+                let cleared = tauri::async_runtime::spawn_blocking(move || {
+                    browser
+                        .state::<Arc<crate::websites::WebsiteService>>()
+                        .clear_data()
+                })
+                .await;
+                if let Ok(Err(error)) = cleared {
+                    tracing::warn!(%error, "the browser's data wasn't cleared");
+                }
+            }
             if part == Part::History {
                 raygun_db::set_local_value(&db, crate::collections::RECENT_CONTEXTS, "[]")
                     .await
