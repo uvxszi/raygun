@@ -1,5 +1,5 @@
 import type { LibraryTrack, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -23,6 +23,7 @@ import { playResults, useOnlineSearch } from './useOnlineSearch';
 import { AdultMark } from '../shell/AdultMark';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useDragScroll } from '../shell/useDragScroll';
+import { usePressedInView } from '../shell/usePressedInView';
 import { useSettings } from '../settings/useSettings';
 
 type ProviderResultsProps = { result: ProviderSearchResult; ambiguous: boolean; limit?: number };
@@ -165,7 +166,9 @@ export const MusicResults: FC<{
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
   const answered = search.data?.providers ?? [];
   useMusicHealth(answered);
-  const viewRow = useDragScroll<HTMLDivElement>();
+  const viewRowRef = useRef<HTMLDivElement>(null);
+  const viewRow = useDragScroll(viewRowRef);
+  usePressedInView(viewRowRef, view);
   // Sources with songs lead, then those that found none, then failures; and those that failed
   // lately go last among each, as they do in every source list (M46.9).
   const results = answeredFirst(

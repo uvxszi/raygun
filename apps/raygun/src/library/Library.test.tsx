@@ -153,7 +153,7 @@ describe('Library', () => {
     await AppShellWrapper.mount('/library?media=music');
 
     await userEvent.click(await screen.findByTestId('library-view-artists'));
-    expect(await screen.findByTestId('artist-list')).toHaveTextContent('1 albums · 2 tracks');
+    expect(await screen.findByTestId('artist-list')).toHaveTextContent('1 album · 2 tracks');
 
     await userEvent.click(screen.getByTestId('library-view-tracks'));
     expect(await screen.findAllByTestId('track-row')).toHaveLength(2);

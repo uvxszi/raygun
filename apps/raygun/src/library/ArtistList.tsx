@@ -21,8 +21,8 @@ export const ArtistList: FC<{ artists: LibraryArtist[] }> = ({ artists }) => {
               <span className="truncate font-medium">{artist.name}</span>
               <span className="text-muted truncate text-xs">
                 {t('library.artistCounts', {
-                  albums: artist.albumCount,
-                  tracks: artist.trackCount,
+                  albums: t('library.artistAlbums', { count: artist.albumCount }),
+                  tracks: t('library.artistTracks', { count: artist.trackCount }),
                 })}
               </span>
             </span>

@@ -63,7 +63,10 @@ export const translationStatus = (
         });
   }
   if (translation.complete) return t('desktopPlayer.translate.complete');
-  return t('desktopPlayer.translate.partly', { done: translation.done, total: translation.total });
+  return t('desktopPlayer.translate.partly', {
+    done: translation.done,
+    count: translation.total,
+  });
 };
 
 export const translationsKey = (videoKey: string) => ['videoSubtitles', videoKey];
