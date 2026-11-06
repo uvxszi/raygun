@@ -162,8 +162,10 @@ Anything else is refused with the reason, which the catalogue then shows for tha
 
 Before the package is installed it's loaded once in a host of its own (`convert::validate`):
 its script must run and register every source. Its `net` is the sources' hosts and their
-subdomains, plus the hosts its code names in full addresses (an API beside the site, an image
-server). The manifest keeps `mihon: { pkg, versionCode,
+subdomains, the hosts its code names in full addresses (an API beside the site, an image
+server) and, as Mihon lets an extension reach any address (a CDN its answers name, an API host
+put together at run time), any public host (`*`), as Nuclear and Shosetsu conversions may. The
+manifest keeps `mihon: { pkg, versionCode,
 converter, theme, source }`; when `CONVERTER_VERSION` grows, the catalogue offers the installed
 extensions again, as it does for Nuclear conversions.
 
@@ -181,7 +183,12 @@ the themes:
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
 
 Titles are known by their path (`/manga/one/`), chapters by theirs; covers and pages go through
-the image proxy with the source's Referer. A site's browser check fails the call the usual way,
+the image proxy with the source's Referer. Mihon's `memo`s (what a source keeps with a title or
+a chapter, such as Madara's `mangaPath`) are kept too: a chapter's in its id after a `U+001F`
+separator, as its path alone may not tell it from another title's; a title's by its path in the
+extension's storage (the newest 400 KB), with the name it was listed under, which details
+without a name keep, as Mihon does. Pages that are sub pages (`Page(i, url)`) get their
+pictures from the source's `getImageUrl`, four at a time. A site's browser check fails the call the usual way,
 so the experimental "check by hand" flow works for converted sources too. Raygun sends no view
 counts.
 

@@ -11,7 +11,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::convert::{Converted, sources_json};
 use super::index::StoreExtension;
-use super::kotlin::ast::{Body, ClassDecl, ClassKind, Expr, File, Member, Param, PropDecl};
+use super::kotlin::ast::{
+    Body, ClassDecl, ClassKind, Expr, File, FunDecl, Member, Param, PropDecl,
+};
 use super::kotlin::emit::{Context, Gen};
 
 /// What `KeiSource` (and `HttpSource` under it) gives a source, read through `self`.
@@ -310,13 +312,23 @@ fn property_value(prop: &PropDecl) -> Option<Body> {
         return Some(getter.clone());
     }
     match &prop.delegate {
+        // `by lazy { … }`: the lambda's value (its last expression), worked out once.
         Some(Expr::Call {
             callee,
             lambda: Some(lambda),
             args,
-            ..
+            type_args,
         }) if args.is_empty() && matches!(callee.as_ref(), Expr::Name(name) if name == "lazy") => {
-            Some(Body::Block(lambda.body.clone()))
+            let mut lambda = lambda.clone();
+            if lambda.label.is_none() {
+                lambda.label = Some("lazy".to_owned());
+            }
+            Some(Body::Expr(Expr::Call {
+                callee: Box::new(Expr::Name("run".to_owned())),
+                type_args: type_args.clone(),
+                args: Vec::new(),
+                lambda: Some(lambda),
+            }))
         }
         Some(other) => Some(Body::Expr(other.clone())),
         None => None,
@@ -410,6 +422,12 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                         .collect();
                     if !values.is_empty() {
                         cx.companions.insert(inner.name.clone(), values);
+                    }
+                    let functions: HashSet<String> = companion_functions(inner)
+                        .map(|fun| fun.name.clone())
+                        .collect();
+                    if !functions.is_empty() {
+                        cx.companion_functions.insert(inner.name.clone(), functions);
                     }
                 }
                 for nested in &inner.members {
@@ -581,10 +599,110 @@ fn companion_values(class: &ClassDecl) -> impl Iterator<Item = &PropDecl> {
         })
 }
 
+/// The functions a class's companion object has (`companion object { fun nextJsFilter(…) }`).
+fn companion_functions(class: &ClassDecl) -> impl Iterator<Item = &FunDecl> {
+    class
+        .members
+        .iter()
+        .filter_map(|member| match member {
+            Member::Class(inner) if inner.modifiers.iter().any(|m| m == "companion") => {
+                Some(inner.members.iter())
+            }
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|member| match member {
+            Member::Fun(fun) if fun.receiver.is_none() && fun.body.is_some() => Some(fun),
+            _ => None,
+        })
+}
+
 /// A class the source declares, with its companion's values on `C` (as `Class.name`): its code
-/// reads them by their plain names.
+/// reads them by their plain names. The classes declared inside it come after it.
 fn class_code(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, String> {
-    let outer = writer.class_scope.replace(class.name.clone());
+    class_code_in(writer, class, &[])
+}
+
+/// The classes a nested class is declared in, outermost first.
+type Enclosing<'a> = [&'a ClassDecl];
+
+fn is_companion(class: &ClassDecl) -> bool {
+    class.modifiers.iter().any(|m| m == "companion")
+}
+
+fn class_code_in(
+    writer: &mut Gen<'_>,
+    class: &ClassDecl,
+    outer: &Enclosing<'_>,
+) -> Result<String, String> {
+    let code = own_class_code(writer, class, outer)?;
+    let mut all = vec![code];
+    let mut scope = outer.to_vec();
+    scope.push(class);
+    for member in &class.members {
+        if let Member::Class(nested) = member
+            && !is_companion(nested)
+            && !writer.replaced.contains_key(&nested.name)
+        {
+            all.push(
+                class_code_in(writer, nested, &scope).unwrap_or_else(|reason| {
+                    format!(
+                        "D.{} = KT.unconverted({}, {});",
+                        nested.name,
+                        quote(&nested.name),
+                        quote(&reason)
+                    )
+                }),
+            );
+        }
+    }
+    Ok(all.join(" "))
+}
+
+/// A type's name as the runtime knows the class (`ChapterListDto.ChapterDto` for a `ChapterDto`
+/// declared in a class around it), with its arguments.
+fn qualified_type(ty: &super::kotlin::ast::Type, scope: &Enclosing<'_>) -> String {
+    let short = ty.name.rsplit('.').next().unwrap_or(&ty.name);
+    let name = if ty.name.contains('.') {
+        ty.name.clone()
+    } else {
+        (0..scope.len())
+            .rev()
+            .find(|at| {
+                scope[*at].members.iter().any(|member| {
+                    matches!(member, Member::Class(nested) if nested.name == short && !is_companion(nested))
+                })
+            })
+            .map_or_else(
+                || short.to_owned(),
+                |at| {
+                    let mut path: Vec<&str> =
+                        scope[..=at].iter().map(|class| class.name.as_str()).collect();
+                    path.push(short);
+                    path.join(".")
+                },
+            )
+    };
+    if ty.args.is_empty() {
+        name
+    } else {
+        format!(
+            "{name}<{}>",
+            ty.args
+                .iter()
+                .map(|arg| qualified_type(arg, scope))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+}
+
+fn own_class_code(
+    writer: &mut Gen<'_>,
+    class: &ClassDecl,
+    outer: &Enclosing<'_>,
+) -> Result<String, String> {
+    let outer_scope = writer.class_scope.replace(class.name.clone());
     let result = (|| {
         let mut code = Vec::new();
         for prop in companion_values(class) {
@@ -609,15 +727,26 @@ fn class_code(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, String>
                 quote(&super::kotlin::emit::companion_key(&class.name, &prop.name))
             ));
         }
-        code.push(class_definition(writer, class)?);
+        code.push(class_definition(writer, class, outer)?);
         Ok(code.join(" "))
     })();
-    writer.class_scope = outer;
+    writer.class_scope = outer_scope;
     result
 }
 
 /// A class the source declares (a filter, a DTO, an enum): `D.Name`, made by `KT.make`.
-fn class_definition(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, String> {
+fn class_definition(
+    writer: &mut Gen<'_>,
+    class: &ClassDecl,
+    outer: &Enclosing<'_>,
+) -> Result<String, String> {
+    let mut scope = outer.to_vec();
+    scope.push(class);
+    let qualified_name = scope
+        .iter()
+        .map(|class| class.name.as_str())
+        .collect::<Vec<_>>()
+        .join(".");
     let params: Vec<String> = class
         .params
         .iter()
@@ -633,22 +762,18 @@ fn class_definition(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, S
             ));
         }
     }
-    // Each field's type, for JSON decoded into the class (`List<ChapterDto>`).
-    fn type_text(ty: &super::kotlin::ast::Type) -> String {
-        let name = ty.name.rsplit('.').next().unwrap_or(&ty.name);
-        if ty.args.is_empty() {
-            name.to_owned()
-        } else {
-            format!(
-                "{name}<{}>",
-                ty.args.iter().map(type_text).collect::<Vec<_>>().join(",")
-            )
-        }
-    }
+    // Each field's type, for JSON decoded into the class (`List<ChapterDto>`), nested classes by
+    // the names that tell them apart.
     let types: Vec<String> = class
         .params
         .iter()
-        .map(|param| format!("{}: {}", quote(&param.name), quote(&type_text(&param.ty))))
+        .map(|param| {
+            format!(
+                "{}: {}",
+                quote(&param.name),
+                quote(&qualified_type(&param.ty, &scope))
+            )
+        })
         .collect();
     let supers: Vec<String> = class
         .supers
@@ -734,8 +859,32 @@ fn class_definition(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, S
         ClassKind::Interface => "interface",
         ClassKind::Class => "class",
     };
+    // Its companion's functions, called on the class (`ChapterDto.nextJsFilter(…)`).
+    let mut statics = Vec::new();
+    for fun in companion_functions(class) {
+        let function = writer.function(fun).unwrap_or_else(|reason| {
+            format!(
+                "async () => KT.raise({})",
+                quote(&format!(
+                    "Raygun couldn't convert {}.{}: {reason}",
+                    class.name, fun.name
+                ))
+            )
+        });
+        statics.push(format!("{}: {function}", quote(&fun.name)));
+    }
     Ok(format!(
-        "D.{name} = KT.defineClass({{ name: {quoted}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}} }});",
+        "D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}}, statics: {{{statics}}} }});",
+        qualified = quote(&qualified_name),
+        // The name a polymorphic answer gives it (`"type": "selfhosted"`).
+        serial = quote(
+            class
+                .annotations
+                .iter()
+                .find_map(|annotation| annotation.strip_prefix("SerialName="))
+                .unwrap_or(&class.name)
+        ),
+        statics = statics.join(", "),
         name = class.name,
         quoted = quote(&class.name),
         required = serde_json::to_string(&required_fields(class)).unwrap_or_else(|_| "[]".into()),
@@ -881,8 +1030,19 @@ pub fn convert(
                 .filter(|member| !in_chain(member))
                 .cloned()
                 .collect();
+            // A file's imports say which classes its names mean (Mihon's `Page` or its own).
+            writer.imports.clone_from(&file.imports);
             members(&mut writer, &others, &mut out, "C", true, &reached)?;
         }
+        writer.imports = all_files
+            .iter()
+            .find(|(_, file)| {
+                file.members.iter().any(
+                    |member| matches!(member, Member::Class(class) if std::ptr::eq(class, *layer)),
+                )
+            })
+            .map(|(_, file)| file.imports.clone())
+            .unwrap_or_default();
         members(
             &mut writer,
             &layer.members,

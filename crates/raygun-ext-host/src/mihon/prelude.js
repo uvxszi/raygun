@@ -775,18 +775,38 @@
       return '';
     }
   };
-  /** The address without scheme and host, as Mihon's `setUrlWithoutDomain` keeps it. */
+  /**
+   * The address without scheme and host, as Mihon's `setUrlWithoutDomain` keeps it: Java's
+   * `URI` path, query and fragment, which come decoded (`%2Fmanga%2Fone` is `/manga/one`).
+   */
   K.withoutDomain = (href) => {
-    try {
-      const parsed = url(href);
-      return (
-        parsed.path +
-        (parsed.query != null ? `?${parsed.query}` : '') +
-        (parsed.fragment != null ? `#${parsed.fragment}` : '')
-      );
-    } catch {
-      return href;
+    let rest = K.str(href).replace(/ /g, '%20');
+    const decode = (part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    };
+    const origin = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*/.exec(rest) ?? /^\/\/[^/?#]*/.exec(rest);
+    if (origin) rest = rest.slice(origin[0].length);
+    let fragment = null;
+    const hash = rest.indexOf('#');
+    if (hash >= 0) {
+      fragment = rest.slice(hash + 1);
+      rest = rest.slice(0, hash);
     }
+    let query = null;
+    const question = rest.indexOf('?');
+    if (question >= 0) {
+      query = rest.slice(question + 1);
+      rest = rest.slice(0, question);
+    }
+    return (
+      decode(rest) +
+      (query !== null ? `?${decode(query)}` : '') +
+      (fragment !== null ? `#${decode(fragment)}` : '')
+    );
   };
   K.encode = (text) => encodeURIComponent(K.str(text));
   /** A form body (`application/x-www-form-urlencoded`). */
@@ -842,6 +862,10 @@
     }
     isNotEmpty() {
       return this.length > 0;
+    }
+    textOrNull() {
+      const value = this.text();
+      return value === '' ? null : value;
     }
     text() {
       return this.map((element) => element.text())
@@ -916,6 +940,39 @@
     }
     selectFirst(css) {
       return this.select(css).first();
+    }
+    // Keiyoushi's Jsoup helpers (`keiyoushi.utils`).
+    selectLast(css) {
+      return this.select(css).last();
+    }
+    selectFirstOrNull(css) {
+      return this.selectFirst(css);
+    }
+    attrOrNull(name) {
+      const value = this.attr(name);
+      return value.trim() === '' ? null : value.trim();
+    }
+    textOrNull() {
+      const value = this.text();
+      return value === '' ? null : value;
+    }
+    ownTextOrNull() {
+      const value = this.ownText();
+      return value === '' ? null : value;
+    }
+    firstElementChild() {
+      return this.children().first();
+    }
+    lastElementChild() {
+      return this.children().last();
+    }
+    elementSiblingIndex() {
+      const parent = this.parent();
+      if (!parent) return 0;
+      return parent.children().findIndex((child) => child.h === this.h);
+    }
+    baseUri() {
+      return this.doc ? this.doc.location() : '';
     }
     attr(name) {
       if (name.startsWith('abs:')) return this.absUrl(name.slice(4));

@@ -746,9 +746,17 @@ pub fn package(
     )
 }
 
-/// The hosts a converted extension may reach: its sources' sites (and their subdomains), and the
-/// hosts its own code names in full addresses (an API beside the site, an image server).
+/// The hosts a converted extension may reach: its sources' sites (and their subdomains), the
+/// hosts its own code names in full addresses (an API beside the site, an image server), and,
+/// as Mihon lets its extensions reach any address (a CDN the site's answers name, an API host
+/// put together at run time), any public host (`*`), as Nuclear and Shosetsu conversions may.
 fn net_hosts(extension: &StoreExtension, code: &str) -> Vec<String> {
+    let mut hosts = named_hosts(extension, code);
+    hosts.push("*".to_owned());
+    hosts
+}
+
+fn named_hosts(extension: &StoreExtension, code: &str) -> Vec<String> {
     let mut hosts: std::collections::BTreeSet<String> =
         source_hosts(extension).into_iter().collect();
     for (at, _) in code.match_indices("://") {

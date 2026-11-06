@@ -27,6 +27,8 @@ pub struct Context {
     pub class_members: HashSet<String>,
     /// The values each of those classes' companion objects holds, read as `C["Class.name"]`.
     pub companions: HashMap<String, HashSet<String>>,
+    /// The functions each of those classes' companion objects has, called on `D.Class`.
+    pub companion_functions: HashMap<String, HashSet<String>>,
 }
 
 /// A companion value's key on `C`.
@@ -129,6 +131,10 @@ pub const METHODS: &[&str] = &[
     "parseGraphQLAs",
     // Next.js pages' data
     "extractNextJs", "extractNextJsRsc",
+    // Results
+    "onSuccess", "onFailure", "mapCatching", "recover", "recoverCatching",
+    // StringBuilder
+    "deleteCharAt", "deleteRange", "setCharAt", "reverse", "parseOrNull",
 ];
 
 fn quote(text: &str) -> String {
@@ -182,7 +188,50 @@ pub struct Gen<'a> {
     loops: Vec<usize>,
     /// Classes the converter writes itself instead (a theme's image interceptor), by name.
     pub replaced: HashMap<String, String>,
+    /// Parameters declared with a type that isn't a function's, by JavaScript name: a call by
+    /// their name is the function they shadow (`fetchChapters(…)` beside `fetchChapters: Boolean`).
+    plain: HashSet<String>,
+    /// Locals declared with `val`, by JavaScript name: `+=` on one adds to it in place.
+    vals: HashSet<String>,
+    /// The imports of the file being written (name as used, full name).
+    pub imports: Vec<(String, String)>,
 }
+
+/// Functions whose lambda has no parameter (`ifEmpty { … }`, `require(…) { "message" }`).
+const NO_PARAMETER_LAMBDAS: [&str; 16] = [
+    "ifEmpty",
+    "ifBlank",
+    "getOrPut",
+    "lazy",
+    "run",
+    "runCatching",
+    "synchronized",
+    "measureTimeMillis",
+    "withLock",
+    "withPermit",
+    "require",
+    "requireNotNull",
+    "check",
+    "checkNotNull",
+    "async",
+    "coroutineScope",
+];
+
+/// Packages whose classes a file's import means instead of a source's own class of the same name
+/// (`Page` from Mihon's models beside a DTO called `Page`).
+const LIBRARY_PACKAGES: [&str; 11] = [
+    "eu.kanade.tachiyomi.source.",
+    "eu.kanade.tachiyomi.network.",
+    "okhttp3.",
+    "org.jsoup.",
+    "kotlinx.",
+    "kotlin.",
+    "java.",
+    "keiyoushi.",
+    "android.",
+    "rx.",
+    "uy.kohesive.",
+];
 
 fn unsupported(what: impl std::fmt::Display) -> String {
     format!("its code uses {what}, which Raygun's converter doesn't read yet")
@@ -203,7 +252,26 @@ impl<'a> Gen<'a> {
             local_extensions: HashSet::new(),
             loops: Vec::new(),
             replaced: HashMap::new(),
+            plain: HashSet::new(),
+            vals: HashSet::new(),
+            imports: Vec::new(),
         }
+    }
+
+    /// Whether `name` here is a library's class the file imports rather than one of the source's
+    /// own classes of that name.
+    fn imported_from_library(&self, name: &str) -> bool {
+        self.imports.iter().any(|(alias, full)| {
+            alias == name
+                && LIBRARY_PACKAGES
+                    .iter()
+                    .any(|package| full.starts_with(package))
+        })
+    }
+
+    /// A class the source declares, as `name` means it here.
+    fn declared_class(&self, name: &str) -> bool {
+        self.cx.classes.contains(name) && !self.imported_from_library(name)
     }
 
     /// A value of the current class's companion, by name.
@@ -336,6 +404,12 @@ impl<'a> Gen<'a> {
             }
             for param in &fun.params {
                 let name = writer.declare(&param.name);
+                writer.vals.remove(&name);
+                if !param.ty.name.is_empty() && param.ty.name != "()" {
+                    writer.plain.insert(name.clone());
+                } else {
+                    writer.plain.remove(&name);
+                }
                 if let Some(default) = &param.default {
                     defaults.push(format!(
                         "if ({name} === undefined) {name} = {};",
@@ -410,7 +484,7 @@ impl<'a> Gen<'a> {
                             ..
                         }),
                     ) if matches!(callee.as_ref(), Expr::Name(name) if name == "lazy") => {
-                        self.lambda_call(lambda, "")?
+                        self.lambda_call(lambda, "lazy")?
                     }
                     (None, Some(_)) => return Err(unsupported("a delegated local")),
                     (None, None) => "undefined".to_owned(),
@@ -433,6 +507,12 @@ impl<'a> Gen<'a> {
                     }
                 } else {
                     let js = self.declare(&names[0]);
+                    self.plain.remove(&js);
+                    if *mutable {
+                        self.vals.remove(&js);
+                    } else {
+                        self.vals.insert(js.clone());
+                    }
                     format!("{keyword} {js} = {value};")
                 };
                 if returned {
@@ -454,6 +534,15 @@ impl<'a> Gen<'a> {
                     }
                 };
                 let code = match target {
+                    // `+=` on a `val` (a mutable list, a builder) adds to it in place.
+                    Expr::Name(name)
+                        if self.is_local(name)
+                            && matches!(*op, "+=" | "-=")
+                            && self.resolve(name).is_some_and(|js| self.vals.contains(&js)) =>
+                    {
+                        let name = self.resolve(name).unwrap_or_else(|| local(name));
+                        format!("{};", combined(name.clone()))
+                    }
                     Expr::Name(name) if self.is_local(name) => {
                         let name = self.resolve(name).unwrap_or_else(|| local(name));
                         format!("{name} = {};", combined(name.clone()))
@@ -1221,7 +1310,7 @@ impl<'a> Gen<'a> {
                         return self.call(&on_this, type_args, args, lambda);
                     }
                     ("run", Some(lambda)) if args.is_empty() => {
-                        return self.lambda_call(lambda, "");
+                        return self.lambda_call(lambda, "run");
                     }
                     ("with", Some(lambda)) if args.len() == 1 => {
                         let value = self.expr(&args[0].value)?;
@@ -1268,7 +1357,10 @@ impl<'a> Gen<'a> {
                     }
                     _ => {}
                 }
-                if let Some(js) = self.resolve(name) {
+                if let Some(js) = self
+                    .resolve(name)
+                    .filter(|js| !(self.plain.contains(js) && self.cx.functions.contains_key(name)))
+                {
                     let (args, _) = self.args(args, None)?;
                     let mut args = args;
                     if let Some(lambda) = lambda {
@@ -1286,7 +1378,7 @@ impl<'a> Gen<'a> {
                     return Ok(format!("(await {js}({}))", args.join(", ")));
                 }
                 // A class the source declares, made inside a scope too (`FeedUrl(…)` in `apply`).
-                if self.cx.classes.contains(name)
+                if self.declared_class(name)
                     && name.chars().next().is_some_and(char::is_uppercase)
                     && !self.cx.functions.contains_key(name)
                 {
@@ -1328,7 +1420,7 @@ impl<'a> Gen<'a> {
                         args.join(", ")
                     ));
                 }
-                if self.cx.classes.contains(name) {
+                if self.declared_class(name) {
                     let (args, named) = self.args(args, None)?;
                     return Ok(format!(
                         "(await KT.make(D.{name}, [{}], {}))",
@@ -1549,8 +1641,28 @@ impl<'a> Gen<'a> {
                 "(async (...args) => KT.make(D.{name}, args, null))"
             )),
             None => Err(unsupported(format!("::{name}"))),
-            // `String::isNotBlank`, `Element::text`: a member of whatever is passed.
-            Some(Expr::Name(owner)) if owner.chars().next().is_some_and(char::is_uppercase) => {
+            // `ChapterDto::nextJsFilter`: a function of the class's companion.
+            Some(Expr::Name(owner))
+                if self
+                    .cx
+                    .companion_functions
+                    .get(owner)
+                    .is_some_and(|functions| functions.contains(name)) =>
+            {
+                Ok(format!(
+                    "(async (...args) => KT.m(D.{owner}, {}, args))",
+                    quote(name)
+                ))
+            }
+            // `String::isNotBlank`, `Element::text`: a member of whatever is passed (but
+            // `PATTERN::find` is bound to the constant `PATTERN`).
+            Some(Expr::Name(owner))
+                if owner.chars().next().is_some_and(char::is_uppercase)
+                    && !self.is_local(owner)
+                    && !self.cx.constants.contains(owner)
+                    && !self.cx.properties.contains(owner)
+                    && self.companion_value(owner).is_none() =>
+            {
                 if name == "class" {
                     return Ok(quote(owner));
                 }
@@ -1633,6 +1745,10 @@ impl<'a> Gen<'a> {
     /// A lambda as an async function. `label` is the function it's passed to (`map`), which a
     /// `return@map` leaves.
     fn lambda(&mut self, lambda: &Lambda, label: &str) -> Result<String, String> {
+        // The functions whose lambda takes nothing: an `it` in one is an outer lambda's.
+        if lambda.implicit && NO_PARAMETER_LAMBDAS.contains(&label) {
+            return self.lambda(&without_it(lambda), label);
+        }
         let label = lambda.label.clone().unwrap_or_else(|| label.to_owned());
         self.scoped(|writer| {
             let mut params = Vec::new();
@@ -1682,7 +1798,7 @@ impl<'a> Gen<'a> {
 
     /// A lambda called at once with no argument.
     fn lambda_call(&mut self, lambda: &Lambda, label: &str) -> Result<String, String> {
-        let function = self.lambda(lambda, label)?;
+        let function = self.lambda(&without_it(lambda), label)?;
         Ok(format!("(await {function}())"))
     }
 
@@ -1701,7 +1817,7 @@ impl<'a> Gen<'a> {
     ) -> Result<String, String> {
         let receiver = self.temp();
         self.push_receiver(&receiver, [Some(label), lambda.label.as_deref()]);
-        let function = self.lambda(lambda, label);
+        let function = self.lambda(&without_it(lambda), label);
         self.pop_receiver();
         Ok(format!(
             "(await (async ({receiver}) => {}())({value}))",
@@ -1718,12 +1834,21 @@ impl<'a> Gen<'a> {
     ) -> Result<String, String> {
         let receiver = self.temp();
         self.push_receiver(&receiver, [Some(label), lambda.label.as_deref()]);
-        let function = self.lambda(lambda, label);
+        let function = self.lambda(&without_it(lambda), label);
         self.pop_receiver();
         Ok(format!(
             "(await (async ({receiver}) => {{ await {}(); return {receiver}; }})({value}))",
             function?
         ))
+    }
+}
+
+/// A lambda with a receiver (`apply { … }`, `buildString { … }`) has no `it` of its own: one in
+/// it is an outer lambda's.
+fn without_it(lambda: &Lambda) -> Lambda {
+    Lambda {
+        implicit: false,
+        ..lambda.clone()
     }
 }
 

@@ -177,12 +177,66 @@
     await then();
     return value;
   };
+  /// Kotlin's `Result`, as `runCatching` gives it.
+  class Result {
+    constructor(isSuccess, value, error = null) {
+      this.isSuccess = isSuccess;
+      this.value = isSuccess ? (value ?? null) : null;
+      this.error = error;
+      this.isResult = true;
+    }
+    get isFailure() {
+      return !this.isSuccess;
+    }
+    getOrNull() {
+      return this.value;
+    }
+    getOrThrow() {
+      if (this.isSuccess) return this.value;
+      throw this.error;
+    }
+    getOrDefault(fallback) {
+      return this.isSuccess ? this.value : fallback;
+    }
+    async getOrElse(onFailure) {
+      return this.isSuccess ? this.value : onFailure(this.error);
+    }
+    exceptionOrNull() {
+      return this.isSuccess ? null : this.error;
+    }
+    async onSuccess(action) {
+      if (this.isSuccess) await action(this.value);
+      return this;
+    }
+    async onFailure(action) {
+      if (!this.isSuccess) await action(this.error);
+      return this;
+    }
+    async map(transform) {
+      return this.isSuccess ? new Result(true, await transform(this.value)) : this;
+    }
+    async mapCatching(transform) {
+      return this.isSuccess ? KT.runCatching(() => transform(this.value)) : this;
+    }
+    async recover(transform) {
+      return this.isSuccess ? this : new Result(true, await transform(this.error));
+    }
+    async recoverCatching(transform) {
+      return this.isSuccess ? this : KT.runCatching(() => transform(this.error));
+    }
+    async fold(onSuccess, onFailure) {
+      return this.isSuccess ? onSuccess(this.value) : onFailure(this.error);
+    }
+    toString() {
+      return this.isSuccess ? `Success(${KT.str(this.value)})` : `Failure(${this.error})`;
+    }
+  }
   KT.runCatching = async (work) => {
     try {
-      return { isSuccess: true, value: await work(), isResult: true };
+      return new Result(true, await work());
     } catch (error) {
       if (error instanceof Return) throw error;
-      return { isSuccess: false, error, isResult: true };
+      return new Result(false, null, error);
     }
   };
   KT.repeat = async (times, work) => {
@@ -521,8 +575,20 @@
     for (const item of items) if (KT.truthy(await lambda(item))) out.push(item);
     return out;
   };
-  const keyOf = (value) =>
-    value !== null && typeof value === 'object' ? JSON.stringify(value) : value;
+  /// What a value is told apart by (`distinct()`, `toSet()`): an element by its node, data by its
+  /// contents, anything else by itself.
+  const identities = new WeakMap();
+  let identityCount = 0;
+  const keyOf = (value) => {
+    if (value === null || typeof value !== 'object') return value;
+    if (value.h !== undefined && typeof value.select === 'function') return `\u0000node:${value.h}`;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      if (!identities.has(value)) identities.set(value, ++identityCount);
+      return `\u0000object:${identities.get(value)}`;
+    }
+  };
   const sortBy = async (items, lambda, descending = false) => {
     const keyed = [];
     for (const item of items) keyed.push([await lambda(item), item]);
@@ -591,6 +657,8 @@
   };
   const LIST = {
     size: (l) => l.length,
+    // A JSON array's `parseAs<List<T>>()`.
+    parseAs: (l, _args, _lambda, _named, type) => decode(l, type),
     map: async (l, _args, lambda) => mapAll(l, lambda),
     mapNotNull: async (l, _args, lambda) =>
       (await mapAll(l, lambda)).filter((value) => value !== null && value !== undefined),
@@ -982,6 +1050,8 @@
 
   /// A JSON object, as kotlinx.serialization's `JsonObject` or a DTO.
   const OBJECT = {
+    // Keiyoushi's `JsonElement.parseAs<T>()`: the element decoded as the type.
+    parseAs: (o, _args, _lambda, _named, type) => decode(o, type),
     get: (o, [key]) => (Object.prototype.hasOwnProperty.call(o, key) ? o[key] : null),
     getOrDefault: (o, [key, fallback]) => o[key] ?? fallback,
     containsKey: (o, [key]) => Object.prototype.hasOwnProperty.call(o, key),
@@ -1192,6 +1262,8 @@
     if (kind === 'object') {
       if (value.isGetterHost && value.getters && value.getters[name])
         return value.getters[name](value);
+      if (value.isStringBuilder && (name === 'lastIndex' || name === 'indices'))
+        return KT.p(value.text, name);
       const own = field(value, name);
       if (own !== undefined) {
         if (own && own.isGetter) return own.function_(value);
@@ -1241,7 +1313,16 @@
     value[name] = item;
   };
 
-  KT.m = async (receiver, name, args = [], named = null, lambda = null, type = null) => {
+  /// A function passed in parentheses (`all(Char::isDigit)`, `fold(0, ::add)`): the lambda Kotlin
+  /// would take trailing, when it's the only function and the last argument.
+  const passedLambda = (args) => {
+    const functions = args.filter((arg) => typeof arg === 'function');
+    return functions.length === 1 && args[args.length - 1] === functions[0] ? functions[0] : null;
+  };
+  KT.m = async (receiver, name, args = [], named = null, written = null, type = null) => {
+    // The runtime's own tables read the lambda however it was passed; a value's own methods get
+    // the arguments as written.
+    const lambda = written ?? passedLambda(args);
     if (receiver === null || receiver === undefined) {
       if (NULLABLE[name]) return NULLABLE[name](receiver, args, lambda, named, type);
       throw new KotlinError(`${name}() was called on null`, 'NullPointerException');
@@ -1257,13 +1338,19 @@
       return receiver[name](...args);
     const table = { string: STRING, list: LIST, elements: LIST, map: MAP, number: NUMBER }[kind];
     if (table && table[name]) return table[name](receiver, args, lambda, named, type);
+    // A StringBuilder is a CharSequence too (`if (isNotEmpty()) append(", ")`).
+    if (receiver.isStringBuilder && typeof receiver[name] !== 'function' && STRING[name])
+      return STRING[name](receiver.text, args, lambda, named, type);
+    // A range is a list of its numbers (`(1..n).reversed()`, `(0 until size).map { … }`).
+    if (receiver.isRange && name !== 'contains' && LIST[name])
+      return LIST[name](KT.iter(receiver), args, lambda, named, type);
     if (kind === 'object') {
       if (receiver.isMatch && name === 'groupValues') return receiver.groupValues;
       const own = receiver[name];
       if (typeof own === 'function') {
         const all = [...args];
         if (named) all.push({ [NAMED]: true, ...named });
-        if (lambda) all.push(lambda);
+        if (written) all.push(written);
         return own.call(receiver, ...all);
       }
       if (own && own.isMethod) return own.function_(receiver, args, lambda, named, type);
@@ -1278,6 +1365,7 @@
     'first',
     'last',
     'text',
+    'textOrNull',
     'eachText',
     'attr',
     'hasAttr',
@@ -1318,6 +1406,26 @@
       setLength: (length) => {
         builder.text = builder.text.slice(0, length);
       },
+      clear: () => {
+        builder.text = '';
+        return builder;
+      },
+      deleteCharAt: (at) => {
+        builder.text = builder.text.slice(0, at) + builder.text.slice(at + 1);
+        return builder;
+      },
+      delete: (start, end) => {
+        builder.text = builder.text.slice(0, start) + builder.text.slice(end);
+        return builder;
+      },
+      deleteRange: (start, end) => builder.delete(start, end),
+      setCharAt: (at, char) => {
+        builder.text = builder.text.slice(0, at) + KT.str(char) + builder.text.slice(at + 1);
+      },
+      reverse: () => {
+        builder.text = [...builder.text].reverse().join('');
+        return builder;
+      },
       toString: () => builder.text,
       length: 0,
     };
@@ -1353,11 +1461,24 @@
     if (value === undefined) return null;
     if (value instanceof Map)
       return Object.fromEntries([...value].map(([key, item]) => [key, plain(item)]));
+    if (value instanceof Set) return [...value].map(plain);
     if (Array.isArray(value)) return value.map(plain);
     if (value && value.__fields)
       return Object.fromEntries(
         value.__fields.map((name) => [renames[name] ?? name, plain(value[name])]),
       );
+    // JSON objects (`buildJsonObject`, a request's fields) with maps or DTOs inside.
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      Object.getPrototypeOf(value) === Object.prototype &&
+      !value.__class
+    ) {
+      const out = {};
+      for (const [key, item] of Object.entries(value))
+        if (typeof item !== 'function') out[key] = plain(item);
+      return out;
+    }
     return value;
   };
 
@@ -1829,10 +1950,13 @@
           break;
         }
       }
-      return { name: name.trim().replace(/\?$/, '').split('.').pop(), args };
+      const qualified = name.trim().replace(/\?$/, '');
+      return { name: qualified.split('.').pop(), qualified, args };
     };
     return read();
   };
+  /// A declared class by the name a type gives it (`ReaderDto.ChapterDto`, `ChapterDto`).
+  const classOf = (type) => CLASSES[type.qualified] ?? CLASSES[type.name];
   const LISTS = new Set([
     'List',
     'MutableList',
@@ -1859,16 +1983,35 @@
         out[key] = await decodeAs(item, type.args[1] ?? { name: 'Any', args: [] });
       return out;
     }
-    const holder = CLASSES[type.name];
+    const holder = classOf(type);
     if (holder && value && typeof value === 'object' && !Array.isArray(value))
-      return holder.fromJson(value, type.args);
+      return polymorphic(holder, value).fromJson(value, type.args);
     return value;
+  };
+  /// A sealed or abstract class's subclass that an answer names in its `type` (kotlinx's class
+  /// discriminator), by its `@SerialName` or its name; else the class itself.
+  const polymorphic = (holder, value) => {
+    const named = value.type;
+    if (typeof named !== 'string') return holder;
+    for (const candidate of new Set(Object.values(CLASSES))) {
+      if (
+        candidate !== holder &&
+        candidate.supers?.includes(holder.name) &&
+        (candidate.serialName === named || candidate.name === named)
+      )
+        return candidate;
+    }
+    return holder;
   };
   /// A field's type with the class's type parameters put in (`T` of `ApiResponse<PageData>`).
   const substitute = (type, names, args) => {
     const at = names.indexOf(type.name);
     if (at >= 0 && args[at]) return args[at];
-    return { name: type.name, args: type.args.map((arg) => substitute(arg, names, args)) };
+    return {
+      name: type.name,
+      qualified: type.qualified,
+      args: type.args.map((arg) => substitute(arg, names, args)),
+    };
   };
   /// A JSON answer as the type asked for: declared DTOs with their methods, the rest plain, names
   /// read through `@SerialName`.
@@ -2109,7 +2252,7 @@
   /// A type's required JSON fields (each with its other names), as kotlinx.serialization's
   /// descriptor gives them: neither optional nor nullable.
   const requiredFields = (type) => {
-    const fields = CLASSES[type.name]?.required ?? [];
+    const fields = classOf(type)?.required ?? [];
     if (!fields.length)
       throw new KotlinError(
         `Cannot infer a predicate for ${type.name}: all fields are optional or nullable. Provide an explicit predicate instead.`,
@@ -2621,6 +2764,22 @@
         : KT.str(value),
   };
   const instant = (ms) => moment(ms, 'Instant');
+  /// An ISO 8601 instant (`1999-03-22T05:06:07.000Z`, `…+01:00`) in milliseconds, or null; one
+  /// without a zone is read as UTC.
+  const ISO_INSTANT =
+    /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?([Zz]|[+-]\d{2}(:?\d{2}(:?\d{2})?)?)?$/;
+  const isoInstant = (text) => {
+    if (text === null || text === undefined) return null;
+    let value = KT.str(text).trim();
+    const found = ISO_INSTANT.exec(value);
+    if (!found) return null;
+    value = value.replace(' ', 'T').replace(/\.(\d{3})\d+/, '.$1');
+    if (!found[3]) value += 'Z';
+    else if (/^[+-]\d{2}$/.test(found[3])) value += ':00';
+    else if (/^[+-]\d{4}$/.test(found[3])) value = `${value.slice(0, -2)}:${value.slice(-2)}`;
+    const ms = Date.parse(value);
+    return Number.isNaN(ms) ? null : ms;
+  };
   const jsonCodec = {
     decodeFromString: (text) => JSON.parse(KT.str(text)),
     parseToJsonElement: (text) => JSON.parse(KT.str(text)),
@@ -3296,7 +3455,17 @@
     },
     JsonNull: null,
     Instant: {
-      parse: (text) => instant(Date.parse(KT.str(text))),
+      parse: (text) => {
+        const ms = isoInstant(text);
+        if (ms === null) throw new KotlinError(`couldn't read ${KT.str(text)} as an instant`);
+        return instant(ms);
+      },
+      parseOrNull: (text) => {
+        const ms = isoInstant(text);
+        return ms === null ? null : instant(ms);
+      },
+      // Keiyoushi's `Instant.tryParse`: milliseconds, or 0.
+      tryParse: (text) => isoInstant(text) ?? 0,
       fromEpochMilliseconds: (ms) => instant(ms),
       ofEpochMilli: (ms) => instant(ms),
       ofEpochSecond: (seconds) => instant(seconds * 1000),
@@ -3496,8 +3665,14 @@
             get: () => member.function_(object),
             enumerable: false,
           });
-        else object[name] = (...rest) => member(object, ...rest);
+        else {
+          object[name] = (...rest) => member(object, ...rest);
+          object[name].arity = Math.max(0, member.length - 1);
+        }
       }
+      for (const [name, function_] of Object.entries(definition.statics ?? {}))
+        if (!Object.prototype.hasOwnProperty.call(object, name))
+          object[name] = (...rest) => function_(...rest);
       // A parent the source declares too (`class SortFilter : SelectFilter("Sort", sort)`): made
       // from the arguments passed to it, it lends what this class doesn't have itself.
       if (parentClass) {
@@ -3564,8 +3739,15 @@
       make,
       fromJson,
       required: definition.required ?? [],
+      serialName: definition.serialName ?? definition.name,
+      supers: definition.supers.map((name) => name.split('<')[0].split('.').pop()),
     };
+    // Its companion's functions, on the class and, as Kotlin lets its code call them, its
+    // instances.
+    for (const [name, function_] of Object.entries(definition.statics ?? {}))
+      holder[name] = (...rest) => function_(...rest);
     CLASSES[definition.name] = holder;
+    if (definition.qualified) CLASSES[definition.qualified] = holder;
     for (const entry of definition.entries)
       holder[entry] = {
         __class: definition.name,
@@ -3619,8 +3801,11 @@
       return Boolean(LIST[name]) || (kind === 'elements' && typeof receiver[name] === 'function');
     if (kind === 'string') return Boolean(STRING[name]);
     if (kind === 'map') return Boolean(MAP[name]);
+    if (kind === 'number' && NUMBER[name]) return true;
     if (typeof receiver[name] === 'function') return true;
-    return receiver.isStringBuilder && name in receiver;
+    if (kind === 'object' && receiver[name] && receiver[name].isMethod) return true;
+    if (kind === 'object' && receiver.__class === undefined && OBJECT[name]) return true;
+    return Boolean(receiver.isStringBuilder && (name in receiver || STRING[name]));
   };
   const hasField = (receiver, name) => {
     if (receiver === null || receiver === undefined) return false;
@@ -3675,6 +3860,9 @@
       const source = receivers[receivers.length - 1];
       if (source.isSource && source.hasExtension(name))
         return source.ext(name, receiver, lambda ? [...args, lambda] : args);
+      // What any value has (`toJsonElement()` in `fun Foo.toJson() = toJsonElement()`).
+      if (receiver !== null && receiver !== undefined && ANY[name])
+        return KT.m(receiver, name, args, named_, lambda, type);
     }
     return KT.call(name, args, named_, lambda, type);
   };
@@ -3830,6 +4018,11 @@
       ext: async (name, receiver, args) => {
         const function_ = extensions.get(name);
         if (!function_) return KT.m(receiver, name, args);
+        // A member wins over an extension of the same name, as in Kotlin, when it takes the
+        // arguments (`dto.toSManga(baseUrl)` beside the source's `Other.toSManga(manga)`).
+        const own = receiver && receiver.__class !== undefined ? receiver[name] : undefined;
+        if (typeof own === 'function' && (own.arity === undefined || args.length <= own.arity))
+          return own(...args);
         return function_(receiver, ...args);
       },
       base: {
@@ -3855,17 +4048,104 @@
     return self;
   };
 
-  const listing = (page) => ({
-    items: (page.mangas ?? [])
-      .map((item) => ({
-        id: item.url,
-        title: K.str(item.title).trim(),
-        coverUrl: item.thumbnail_url || undefined,
-        coverHeaders: undefined,
-      }))
-      .filter((item) => item.id && item.title),
-    hasNextPage: Boolean(page.hasNextPage),
-  });
+  // Mihon's `memo`s: what a source keeps with a title or a chapter between calls (Mihon stores
+  // them with its library). A chapter's travels in its id, after the separator, as its address
+  // alone may not tell it from another title's (`chapter-1` beside `{ mangaPath }`); a title's is
+  // kept by its address, in memory and in the extension's storage, the newest kept first.
+  const MEMO_SEPARATOR = '\u001f';
+  const MEMO_BUDGET = 400 * 1024;
+  const hasMemo = (memo) =>
+    memo !== null &&
+    typeof memo === 'object' &&
+    !Array.isArray(memo) &&
+    Object.keys(memo).length > 0;
+  const chapterIdOf = (item) =>
+    hasMemo(item.memo)
+      ? `${item.url}${MEMO_SEPARATOR}${JSON.stringify(plain(item.memo))}`
+      : item.url;
+  const chapterOf = (id) => {
+    const text = K.str(id);
+    const at = text.indexOf(MEMO_SEPARATOR);
+    if (at < 0) return chapter({ url: text });
+    let memo = {};
+    try {
+      memo = JSON.parse(text.slice(at + 1));
+    } catch {
+      // An id cut short keeps its address.
+    }
+    return chapter({ url: text.slice(0, at), memo });
+  };
+  /// What's kept of a source's titles by address: the memo, and the name it was listed under
+  /// (Mihon keeps a title's name when its details don't give one).
+  const titleMemos = (sourceId) => {
+    const key = `mihon.titles.${sourceId}`;
+    let kept = null;
+    let dirty = false;
+    const load = () => {
+      if (kept) return kept;
+      kept = new Map();
+      try {
+        const stored = raygun.storage.get(key);
+        if (stored && typeof stored === 'object')
+          for (const [url, entry] of Object.entries(stored)) kept.set(url, entry);
+      } catch {
+        // Without storage they're kept for this run only.
+      }
+      return kept;
+    };
+    const keep = (url, change) => {
+      const all = load();
+      const known = all.get(url) ?? {};
+      const entry = { ...known, ...change };
+      if (JSON.stringify(entry) === JSON.stringify(known)) return;
+      all.delete(url);
+      all.set(url, entry);
+      dirty = true;
+    };
+    return {
+      get: (url) => load().get(K.str(url))?.memo ?? {},
+      title: (url) => load().get(K.str(url))?.title ?? null,
+      keep: (url, memo, title) => {
+        const change = {};
+        if (hasMemo(memo)) change.memo = plain(memo);
+        if (title) change.title = K.str(title).trim();
+        if (Object.keys(change).length) keep(K.str(url), change);
+      },
+      save: () => {
+        if (!dirty || !kept) return;
+        dirty = false;
+        const entries = [...kept.entries()];
+        let size = JSON.stringify(Object.fromEntries(entries)).length;
+        while (size > MEMO_BUDGET && entries.length) {
+          const [url, entry] = entries.shift();
+          kept.delete(url);
+          size -= url.length + JSON.stringify(entry).length + 6;
+        }
+        try {
+          raygun.storage.set(key, Object.fromEntries(entries));
+        } catch {
+          // Kept for this run.
+        }
+      },
+    };
+  };
+
+  const listing = (page, memos) => {
+    for (const item of page.mangas ?? [])
+      if (item && item.url) memos.keep(item.url, item.memo, item.title);
+    memos.save();
+    return {
+      items: (page.mangas ?? [])
+        .map((item) => ({
+          id: item.url,
+          title: K.str(item.title).trim(),
+          coverUrl: item.thumbnail_url || undefined,
+          coverHeaders: undefined,
+        }))
+        .filter((item) => item.id && item.title),
+      hasNextPage: Boolean(page.hasNextPage),
+    };
+  };
 
   mihon.source = (config) => {
     renames = { ...renames, ...(config.renames ?? {}) };
@@ -3895,14 +4175,15 @@
         }
         return result;
       };
+      const memos = titleMemos(source.id);
+      const titleOf = (id) => manga({ url: id, memo: memos.get(id) });
       const update = async (id, details) => {
         await ready();
-        const answer = await self.call('fetchMangaUpdate', [
-          manga({ url: id }),
-          [],
-          details,
-          !details,
-        ]);
+        const answer = await self.call('fetchMangaUpdate', [titleOf(id), [], details, !details]);
+        if (answer && answer.manga) {
+          memos.keep(id, answer.manga.memo, answer.manga.title);
+          memos.save();
+        }
         return answer;
       };
       raygun.providers.register({
@@ -3911,13 +4192,13 @@
         name: source.name,
         popular: async ({ page = 1 }) => {
           await ready();
-          return covers(listing(await self.call('getPopularManga', [page])));
+          return covers(listing(await self.call('getPopularManga', [page]), memos));
         },
         latest: async ({ page = 1 }) => {
           await ready();
           if (!KT.truthy(await self.get('supportsLatest')))
             throw new Error('provider has no method latest');
-          return covers(listing(await self.call('getLatestUpdates', [page])));
+          return covers(listing(await self.call('getLatestUpdates', [page]), memos));
         },
         // The source's own filters (`getFilterList()`); none when they couldn't be converted.
         filters: async () => {
@@ -3927,21 +4208,24 @@
         search: async ({ query = '', page = 1, filters = {} }) => {
           await ready();
           const list = applyFilters(await filterList(), filters ?? {});
-          return covers(listing(await self.call('getSearchMangaList', [page, query, list])));
+          return covers(listing(await self.call('getSearchMangaList', [page, query, list]), memos));
         },
         details: async ({ id }) => {
           const answer = await update(id, true);
           const item = answer.manga;
+          // Details without a name keep the one the title was listed under, as Mihon does.
+          const title = K.str(item?.title ?? '').trim() || memos.title(id) || '';
           return toDetails(t, id, {
             ...item,
-            webUrl: await self.call('getMangaUrl', [manga({ url: id })]).catch(() => undefined),
+            title,
+            webUrl: await self.call('getMangaUrl', [titleOf(id)]).catch(() => undefined),
           });
         },
         chapters: async ({ id }) => {
           const answer = await update(id, false);
           return {
             chapters: (answer.chapters ?? []).map((item) => ({
-              id: item.url,
+              id: chapterIdOf(item),
               name: K.str(item.name).trim() || undefined,
               number: item.chapter_number >= 0 ? item.chapter_number : undefined,
               dateUpload: item.date_upload > 0 ? item.date_upload : undefined,
@@ -3951,7 +4235,23 @@
         },
         pages: async ({ chapterId }) => {
           await ready();
-          const pages = await self.call('getPageList', [chapter({ url: chapterId })]);
+          const pages = await self.call('getPageList', [chapterOf(chapterId)]);
+          // Pages that are sub pages (`Page(i, url)`): their pictures' addresses, as Mihon's
+          // reader asks `getImageUrl` for them, a few at a time.
+          const lazy = pages.filter((page) => !page.imageUrl && page.url);
+          if (lazy.length && self.hasFunction('getImageUrl')) {
+            for (let at = 0; at < lazy.length; at += 4) {
+              await Promise.all(
+                lazy.slice(at, at + 4).map(async (page) => {
+                  try {
+                    page.imageUrl = KT.str(await self.call('getImageUrl', [page]));
+                  } catch (error) {
+                    if (lazy.length === 1) throw error;
+                  }
+                }),
+              );
+            }
+          }
           const out = [];
           for (const page of pages) {
             if (!page.imageUrl) continue;
