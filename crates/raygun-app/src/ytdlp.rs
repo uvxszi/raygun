@@ -804,7 +804,12 @@ fn watch_url(video_id: &str) -> String {
 /// `live/`, `embed/`, YouTube Music's, `playlist?list=` and `channel/UC…`.
 pub fn parse_link(text: &str) -> Option<YouTubeLink> {
     let text = text.trim();
-    let with_scheme = if text.starts_with("http://") || text.starts_with("https://") {
+    // Phone keyboards capitalize a field's first letter: "Https://…" is still an address.
+    let has_scheme = |scheme: &str| {
+        text.get(..scheme.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(scheme))
+    };
+    let with_scheme = if has_scheme("http://") || has_scheme("https://") {
         text.to_owned()
     } else {
         format!("https://{text}")
@@ -918,6 +923,8 @@ mod tests {
             "https://m.youtube.com/shorts/dQw4w9WgXcQ",
             "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RDAMVM",
             "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+            "Https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "HTTPS://YouTu.be/dQw4w9WgXcQ",
         ] {
             let link = parse_link(text).unwrap_or_else(|| panic!("{text}"));
             assert_eq!(link.kind, YouTubeLinkKind::Video, "{text}");

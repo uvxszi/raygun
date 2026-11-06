@@ -181,6 +181,12 @@ impl ArtistFollows {
         if name.is_empty() {
             return Err("No artist named".into());
         }
+        // The picture's own address: a proxy link from the page lasts only as long as this run.
+        let image_url = image_url.map(|url| {
+            self.app
+                .try_state::<raygun_net::ImageLinks>()
+                .map_or(url.clone(), |images| images.original(&url))
+        });
         {
             let _turn = self.lock.lock().await;
             let mut follows = self.stored().await;
