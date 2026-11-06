@@ -90,9 +90,7 @@ const withoutComments = (lines: string[]): string[] => {
 
 /** The blocks of `source`. */
 export const parseMarkdown = (source: string): MarkdownBlock[] =>
-  parseLines(
-    withoutComments(source.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n')),
-  );
+  parseLines(withoutComments(source.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n')));
 
 const parseLines = (lines: string[]): MarkdownBlock[] => {
   const blocks: MarkdownBlock[] = [];

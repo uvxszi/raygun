@@ -60,6 +60,8 @@ enum Condition {
     Not(Box<Selector>),
     Contains(String),
     ContainsOwn(String),
+    /// Jsoup's `:containsData(…)`: a script's or a style's contents.
+    ContainsData(String),
     Matches(Regex),
     MatchesOwn(Regex),
     Eq(usize),
@@ -275,6 +277,7 @@ impl Condition {
             Self::Not(inner) => !inner.matches(node, scope),
             Self::Contains(text) => lower(&element_text(node)).contains(&lower(text)),
             Self::ContainsOwn(text) => lower(&own_text(node)).contains(&lower(text)),
+            Self::ContainsData(text) => lower(&data_text(node)).contains(&lower(text)),
             Self::Matches(pattern) => pattern.is_match(&element_text(node)),
             Self::MatchesOwn(pattern) => pattern.is_match(&own_text(node)),
             Self::Eq(index) => sibling_index(node) == *index,
@@ -420,6 +423,17 @@ pub fn own_text(node: NodeRef<'_, Node>) -> String {
         })
         .collect();
     normalize(&raw)
+}
+
+/// Jsoup's `data()`: the text in the element's scripts and styles (its own when it's one).
+pub fn data_text(node: NodeRef<'_, Node>) -> String {
+    node.descendants()
+        .filter(|descendant| is_data(*descendant))
+        .filter_map(|descendant| match descendant.value() {
+            Node::Text(text) => Some(text.to_string()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Collapses whitespace runs to one space and trims.
@@ -635,9 +649,18 @@ impl Parser {
             }
             return Ok(Condition::AttrPrefix(prefix));
         }
-        let name = self.identifier();
+        let mut name = self.identifier();
         if name.is_empty() {
             return Err("attribute selector without a name".into());
+        }
+        // Namespaced names (`[wire:key]`, `[xlink:href]`).
+        while self.peek() == Some(':') {
+            self.position += 1;
+            let rest = self.identifier();
+            if rest.is_empty() {
+                return Err("unexpected ':' in attribute selector".into());
+            }
+            name = format!("{name}:{rest}");
         }
         self.skip_whitespace();
         let op = match self.peek() {
@@ -671,13 +694,40 @@ impl Parser {
             }
             Some(op) => {
                 let value = self.quoted_or_bare(']');
-                match op {
-                    "=" => AttrOp::Equals(value),
-                    "^=" => AttrOp::Prefix(value),
-                    "$=" => AttrOp::Suffix(value),
-                    "*=" => AttrOp::Contains(value),
-                    "|=" => AttrOp::Dash(value),
-                    _ => AttrOp::NotEquals(value),
+                // CSS's case flag after the value (`[type="novel" i]`): `i` matches either case.
+                self.skip_whitespace();
+                let ignore_case = match self.peek() {
+                    Some('i' | 'I') => {
+                        self.position += 1;
+                        self.skip_whitespace();
+                        true
+                    }
+                    Some('s' | 'S') => {
+                        self.position += 1;
+                        self.skip_whitespace();
+                        false
+                    }
+                    _ => false,
+                };
+                if ignore_case && op != "!=" {
+                    let text = regex::escape(&value);
+                    let pattern = match op {
+                        "=" => format!("(?i)^{text}$"),
+                        "^=" => format!("(?i)^{text}"),
+                        "$=" => format!("(?i){text}$"),
+                        "|=" => format!("(?i)^{text}(-|$)"),
+                        _ => format!("(?i){text}"),
+                    };
+                    AttrOp::Matches(Regex::new(&pattern).map_err(|error| error.to_string())?)
+                } else {
+                    match op {
+                        "=" => AttrOp::Equals(value),
+                        "^=" => AttrOp::Prefix(value),
+                        "$=" => AttrOp::Suffix(value),
+                        "*=" => AttrOp::Contains(value),
+                        "|=" => AttrOp::Dash(value),
+                        _ => AttrOp::NotEquals(value),
+                    }
                 }
             }
         };
@@ -743,6 +793,7 @@ impl Parser {
             }
             "contains" => Condition::Contains(unquote(self.argument()?)),
             "containsown" => Condition::ContainsOwn(unquote(self.argument()?)),
+            "containsdata" => Condition::ContainsData(unquote(self.argument()?)),
             "matches" => Condition::Matches(regex(self.argument()?)?),
             "matchesown" => Condition::MatchesOwn(regex(self.argument()?)?),
             "eq" => Condition::Eq(index(self.argument()?)?),
@@ -851,6 +902,12 @@ mod tests {
         assert_eq!(texts(&html, "ul li:not(.x):lt(2)"), ["one"]);
         assert_eq!(texts(&html, "ul li:eq(2)"), ["three"]);
         assert_eq!(texts(&html, "body > span:empty").len(), 1);
+        // Namespaced attribute names, and CSS's case flag.
+        let html = Html::parse_document(
+            r#"<div wire:key="serie-1">A</div><span data-type="NOVEL">B</span><span data-type="manga">C</span>"#,
+        );
+        assert_eq!(texts(&html, "[wire:key*='serie']"), ["A"]);
+        assert_eq!(texts(&html, r#"[data-type="novel" i]"#), ["B"]);
     }
 
     #[test]

@@ -1257,6 +1257,18 @@
     "upToDate": "Installed",
     "newerInstalled": "Newer version installed",
     "cantInstall": "Can't install",
+    "apk": {
+      "download": "Download APK",
+      "saved": "APK saved and checked against its store ({{size}} KB).",
+      "notAvailable": "Running its own code isn’t available on this device yet.",
+      "setup": "Set up the runtime",
+      "settingUp": "Setting up the runtime…",
+      "tryIt": "Browse with its own code",
+      "ran": "Its own code answered with {{count}} titles.",
+      "noSources": "The extension registered no sources.",
+      "failed": "Couldn’t keep the APK",
+      "setupFailed": "Couldn’t set up the runtime"
+    },
     "noRepos": "No repositories. Add one under Repositories.",
     "noReposYet": "No repositories yet.",
     "repoFailed": "Couldn't load this repository: {{message}}",
@@ -3120,6 +3132,17 @@
         "responsible": "Raygun is a tool: you’re responsible for how you use it"
       },
       "confirm": "Turn on anyway"
+    },
+    "sourceCode": {
+      "title": "Allow running source code (experimental)",
+      "hint": "Mihon extensions Raygun can’t convert can be downloaded as their APK and checked against their store. Running them isn’t available on this device yet",
+      "confirmTitle": "Allow extensions’ own code?",
+      "notes": {
+        "code": "An extension’s own code does whatever its authors wrote, not what Raygun converted",
+        "checked": "Raygun keeps an APK only when its package, version and signing key match its store",
+        "unavailable": "Running it isn’t available on this device yet: APKs are downloaded, checked and kept"
+      },
+      "confirm": "Allow"
     },
     "page": {
       "summary": "Repositories, Stremio addons, servers and extensions, and adding any by its address",

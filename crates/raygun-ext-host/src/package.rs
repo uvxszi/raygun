@@ -201,6 +201,13 @@ pub fn from_converted(manifest_json: &str, bundle: &str) -> Result<VerifiedPacka
     Ok(VerifiedPackage { manifest, files })
 }
 
+impl VerifiedPackage {
+    /// Its files, the manifest first, as they'll be installed.
+    pub fn files(&self) -> &[(String, Vec<u8>)] {
+        &self.files
+    }
+}
+
 /// A package built at install from a generated manifest and its files (Shosetsu scripts, M32).
 pub fn from_files(
     manifest_json: &str,

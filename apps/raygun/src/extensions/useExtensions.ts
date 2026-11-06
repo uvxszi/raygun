@@ -71,6 +71,43 @@ export const useClearExtensionData = () => {
   });
 };
 
+/** Downloads a Mihon extension's APK and checks it against its store (Allow running source code). */
+export const useMihonApk = () =>
+  useMutation({
+    mutationFn: ({ repoId, id }: { repoId: string; id: string }) =>
+      unwrapResult(commands.extensionMihonApk(repoId, id)),
+  });
+
+const MIHON_RUNTIME = ['mihon-runtime'];
+
+/** Whether this device can run a Mihon extension's own code, kept fresh by `MihonRuntimeEvent`. */
+export const useMihonRuntime = () => {
+  const client = useQueryClient();
+  useEffect(() => {
+    const unlisten = events.mihonRuntimeEvent.listen((event) => {
+      client.setQueryData(MIHON_RUNTIME, event.payload);
+    });
+    return () => {
+      void unlisten.then((off) => off());
+    };
+  }, [client]);
+  return useQuery({
+    queryKey: MIHON_RUNTIME,
+    queryFn: () => unwrapResult(commands.mihonRuntimeState()),
+  });
+};
+
+/** Fetches the Mihon runtime's tools (desktop: a JRE and dex2jar). */
+export const useMihonRuntimeSetup = () =>
+  useMutation({ mutationFn: () => unwrapResult(commands.mihonRuntimeSetup()) });
+
+/** Runs one call on an installed, checked Mihon APK through the container; the result is JSON. */
+export const useMihonRun = () =>
+  useMutation({
+    mutationFn: ({ pkg, method, params }: { pkg: string; method: string; params: unknown }) =>
+      unwrapResult(commands.mihonRun(pkg, method, JSON.stringify(params ?? {}))),
+  });
+
 /** Opens the site an extension's source reads in Raygun's browser (M46.11). */
 export const useOpenExtensionWebsite = () =>
   useMutation({ mutationFn: (id: string) => unwrapResult(commands.extensionOpenWebsite(id)) });

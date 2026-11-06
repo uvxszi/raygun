@@ -20,6 +20,7 @@ import type {
   LibraryStatus,
   LyricsTranslationProgress,
   MangaUpdateStatus,
+  MihonRuntimeState,
   OpenWithProblem,
   PlaybackState,
   PlaylistSummary,
@@ -105,6 +106,7 @@ type EventPayloads = {
   appUpdateEvent: AppUpdate;
   ytDlpEvent: string;
   websiteDownloadsEvent: string;
+  mihonRuntimeEvent: MihonRuntimeState;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -474,6 +476,11 @@ export const bindingsMock = {
     extensionSuggestedRepos: vi.fn(),
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
+    extensionMihonApk: vi.fn(),
+    mihonRuntimeState: vi.fn(),
+    mihonRuntimeSetup: vi.fn(),
+    mihonRuntimeCancel: vi.fn(),
+    mihonRun: vi.fn(),
     extensionInstall: vi.fn(),
     extensionInstallsEnqueue: vi.fn(),
     extensionInstallsStatus: vi.fn(),
@@ -785,6 +792,7 @@ export const bindingsMock = {
     appUpdateEvent: makeEvent('appUpdateEvent'),
     ytDlpEvent: makeEvent('ytDlpEvent'),
     websiteDownloadsEvent: makeEvent('websiteDownloadsEvent'),
+    mihonRuntimeEvent: makeEvent('mihonRuntimeEvent'),
   },
 };
 

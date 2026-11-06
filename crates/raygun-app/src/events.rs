@@ -66,6 +66,11 @@ pub struct YtDlpEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct WebsiteDownloadsEvent(pub String);
 
+/// Setting up the Mihon run-source-code tools: the current runtime state (its `settingUp` says
+/// whether a fetch is still going).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct MihonRuntimeEvent(pub raygun_model::MihonRuntimeState);
+
 /// The song downloads changed; carries the download's id when one did (else empty) (M46.10).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadsEvent(pub String);

@@ -237,6 +237,10 @@ pub struct Settings {
     /// Sources that meet a browser check offer to open their site so it can be passed by hand
     /// (experimental, off by default; `raygun_ext_host::browser_check`).
     pub manual_browser_checks: bool,
+    /// Mihon extensions that can't be converted may be fetched as their APKs, checked against
+    /// their store, to run as their own code (off by default, explained first; this device only).
+    #[serde(default)]
+    pub run_source_code: bool,
     /// The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default.
     pub user_agent: String,
     /// The equalizer, effects, normalization and crossfade for every song (M46.12).
@@ -2473,6 +2477,7 @@ impl Default for Settings {
             search_filter: SearchFilterPrefs::default(),
             search_listings: SearchListingsPrefs::default(),
             manual_browser_checks: false,
+            run_source_code: false,
             user_agent: String::new(),
             sound: SoundPrefs::default(),
             keep_music_playing: false,
@@ -2534,6 +2539,7 @@ impl Settings {
             SettingChange::SearchFilter(prefs) => self.search_filter = prefs,
             SettingChange::SearchListings(prefs) => self.search_listings = prefs,
             SettingChange::ManualBrowserChecks(on) => self.manual_browser_checks = on,
+            SettingChange::RunSourceCode(on) => self.run_source_code = on,
             SettingChange::UserAgent(agent) => self.user_agent = agent.trim().to_owned(),
             SettingChange::Sound(prefs) => self.sound = prefs,
             SettingChange::KeepMusicPlaying(on) => self.keep_music_playing = on,
@@ -2627,6 +2633,7 @@ pub enum SettingChange {
     SearchFilter(SearchFilterPrefs),
     SearchListings(SearchListingsPrefs),
     ManualBrowserChecks(bool),
+    RunSourceCode(bool),
     UserAgent(String),
     Sound(SoundPrefs),
     KeepMusicPlaying(bool),
@@ -2692,6 +2699,7 @@ impl SettingChange {
             Self::SearchFilter(_) => "searchFilter",
             Self::SearchListings(_) => "searchListings",
             Self::ManualBrowserChecks(_) => "manualBrowserChecks",
+            Self::RunSourceCode(_) => "runSourceCode",
             Self::UserAgent(_) => "userAgent",
             Self::Sound(_) => "sound",
             Self::KeepMusicPlaying(_) => "keepMusicPlaying",
@@ -2728,6 +2736,7 @@ impl SettingChange {
             | Self::FailingSourcesLast(_)
             | Self::SearchFilter(_)
             | Self::ManualBrowserChecks(_)
+            | Self::RunSourceCode(_)
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
             | Self::DownloadsInBatterySaver(_)
@@ -3544,6 +3553,36 @@ pub enum CatalogState {
     UpdateAvailable,
     /// This device has a newer version than the repository (a built-in or development copy).
     NewerInstalled,
+}
+
+/// A Mihon extension's APK, downloaded and checked against its store: its package, version and
+/// signing key (`Settings::run_source_code`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MihonApk {
+    pub package: String,
+    pub version_code: u32,
+    /// The SHA-256 of its signing certificate, which matched the store's key.
+    pub signer: Option<String>,
+    pub size: u32,
+    /// Whether this device runs it now; `note` says what happens instead.
+    pub runnable: bool,
+    pub note: String,
+}
+
+/// Whether this device can run a Mihon extension's own code (tier 2), for a source's details and
+/// Settings (`Settings::run_source_code`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MihonRuntimeState {
+    /// The platform and build can run it at all (desktop with a JRE, or Android).
+    pub supported: bool,
+    /// Everything it needs is in place (desktop: the tools are fetched).
+    pub ready: bool,
+    /// Whether the tools are being fetched right now.
+    pub setting_up: bool,
+    /// A one-line reason it isn't ready, for the UI.
+    pub note: String,
 }
 
 /// An extension a repository offers.

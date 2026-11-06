@@ -82,8 +82,9 @@ pub struct RepoEntry {
 /// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
 /// Shosetsu Lua script installed with its libraries (M32), a Miru script (`crate::miru`), an
 /// LNReader plugin (`crate::lnreader`), a Kodi add-on, listed but not installable
-/// (`crate::kodi`), or a Mihon or Aniyomi extension, run by the `mihon` runtime where a build
-/// has one (`crate::mihon`). An index's own format is one of the same.
+/// (`crate::kodi`), or a Mihon extension whose source code is converted at install into the
+/// `mihon` runtime (`crate::mihon`; its package is the APK, which Raygun doesn't run). An
+/// index's own format is one of the same.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PackageFormat {

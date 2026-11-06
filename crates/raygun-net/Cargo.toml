@@ -23,7 +23,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 sha2 = "0.11"
 # JPEG XL pictures from sources (M46.38): webviews can't show them, so they're served as PNG.
 jxl-oxide = { version = "0.12", default-features = false, features = ["image"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 
 # Desktop checks certificates with the system (it fetches missing intermediates, as browsers do);
 # Android keeps the bundled roots (its verifier needs a Java component). This section comes last:

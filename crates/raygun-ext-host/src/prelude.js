@@ -40,6 +40,9 @@
       headers: raw.headers,
       text: async () => raw.body,
       json: async () => JSON.parse(raw.body),
+      // The answer's bytes (a `Uint8Array`) when `binary` asked for them and they aren't text;
+      // otherwise null, and the text is the answer.
+      bytes: async () => raw.bytes ?? null,
     });
 
   const select = (html, selector, fragment) =>
@@ -65,6 +68,9 @@
           headers: init.headers ?? {},
           body: init.body ?? null,
         };
+        // A body of bytes goes as base64; `binary` keeps an answer's bytes when they aren't text.
+        if (init.bodyBase64 != null) options.bodyBase64 = String(init.bodyBase64);
+        if (init.binary) options.binary = true;
         const raw = await native.fetch(String(url), JSON.stringify(options));
         if (raw.error !== undefined) {
           throw new Error(raw.error);

@@ -6,8 +6,11 @@
 //! is paused, so the next attempt fetches only what's missing.
 
 use std::collections::{BTreeMap, HashSet};
+use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use futures_util::{StreamExt, stream};
@@ -36,12 +39,80 @@ pub struct Image {
     pub extension: &'static str,
 }
 
+/// Marks a page whose picture its source fetches itself (a converted Mihon source whose client
+/// draws or decodes its pictures): `<address>#raygun-source=<provider id>`. The address before it
+/// keeps its own fragment, which the source's code may read.
+pub const SOURCE_MARK: &str = "#raygun-source=";
+
+/// What fetches a marked page's picture: the source's provider id, the page's address and its
+/// headers in; the picture's bytes out.
+pub type SourceImages = Arc<
+    dyn Fn(
+            String,
+            String,
+            BTreeMap<String, String>,
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, ImageError>> + Send>>
+        + Send
+        + Sync,
+>;
+
+static SOURCE_IMAGES: RwLock<Option<SourceImages>> = RwLock::new(None);
+
+/// Sets what fetches the pictures of pages marked with [`SOURCE_MARK`] (the extension host).
+pub fn set_source_images(fetch: SourceImages) {
+    *SOURCE_IMAGES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(fetch);
+}
+
+/// A marked page's address and its source's provider id.
+pub fn source_marked(url: &str) -> Option<(&str, &str)> {
+    let at = url.rfind(SOURCE_MARK)?;
+    let provider = &url[at + SOURCE_MARK.len()..];
+    (!provider.is_empty()).then_some((&url[..at], provider))
+}
+
+async fn fetch_through_source(
+    url: &str,
+    provider: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<Image, ImageError> {
+    let fetch = SOURCE_IMAGES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+        .ok_or_else(|| ImageError::Network("the page's source isn't loaded".into()))?;
+    let bytes = fetch(provider.to_owned(), url.to_owned(), headers.clone()).await?;
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(ImageError::TooLarge);
+    }
+    let sniffed = sniff_content_type(&bytes);
+    if is_jxl(&bytes) {
+        let png = tokio::task::spawn_blocking(move || jxl_to_png(&bytes))
+            .await
+            .map_err(|error| ImageError::Network(error.to_string()))?
+            .map_err(ImageError::Network)?;
+        return Ok(Image {
+            bytes: png,
+            extension: "png",
+        });
+    }
+    if !sniffed.starts_with("image/") {
+        return Err(ImageError::NotImage);
+    }
+    let extension = extension_for(sniffed, "");
+    Ok(Image { bytes, extension })
+}
+
 /// Fetches `url` with `headers`, accepting only a successful `image/*` answer of at most 30 MB.
 pub async fn fetch_image(
     client: &reqwest::Client,
     url: &str,
     headers: &BTreeMap<String, String>,
 ) -> Result<Image, ImageError> {
+    if let Some((address, provider)) = source_marked(url) {
+        return fetch_through_source(address, provider, headers).await;
+    }
     // Pages of a connected server's comics sign in (`server_auth`).
     let response = crate::server_auth::get(client, url, headers)
         .send()
@@ -65,7 +136,10 @@ pub async fn fetch_image(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default()
         .to_owned();
-    if !content_type.starts_with("image/") {
+    let recipe = Unscramble::from_url(url);
+    // A file that's a picture only once its bytes are put back (XORed) comes as anything.
+    let bytes_recipe = matches!(recipe, Some(Unscramble::Xor(_)));
+    if !content_type.starts_with("image/") && !bytes_recipe {
         return Err(ImageError::NotImage);
     }
     if response
@@ -80,6 +154,31 @@ pub async fn fetch_image(
         .map_err(|error| ImageError::Network(error.to_string()))?;
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(ImageError::TooLarge);
+    }
+    // A page whose file is XORed: the picture it hides, as itself.
+    if let Some(plain) = recipe
+        .as_ref()
+        .and_then(|recipe| recipe.decoded_bytes(&bytes))
+    {
+        let extension = extension_for(sniff_content_type(&plain), &content_type);
+        return Ok(Image {
+            bytes: plain,
+            extension,
+        });
+    }
+    // A page whose picture comes in shuffled tiles says how to put it back together.
+    if let Some(recipe) = recipe {
+        let jpeg = tokio::task::spawn_blocking({
+            let bytes = bytes.to_vec();
+            move || recipe.apply(&bytes)
+        })
+        .await
+        .map_err(|error| ImageError::Network(error.to_string()))?
+        .map_err(ImageError::Network)?;
+        return Ok(Image {
+            bytes: jpeg,
+            extension: "jpg",
+        });
     }
     // Webviews can't show JPEG XL (M46.38): such pictures are kept and served as PNG.
     if is_jxl(&bytes) {
@@ -100,6 +199,132 @@ pub async fn fetch_image(
         bytes: bytes.to_vec(),
         extension,
     })
+}
+
+/// How a page's picture is put back together when its site shuffles it in tiles, as the Mihon
+/// sources converted from Keiyoushi's ComiciViewer and GigaViewer themes mark their pages:
+/// `#raygun-unscramble=comici:<16 tile indices>` or `#raygun-unscramble=giga` on the address
+/// (the fragment never reaches the site).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unscramble {
+    /// A 4×4 grid: tile `n` of the result is tile `tiles[n]` of the picture, counted down each
+    /// column; the edges past the grid stay.
+    Comici(Vec<usize>),
+    /// A 4×4 grid of blocks whose sides are multiples of 8, transposed.
+    Giga,
+    /// The file's bytes XORed with a repeating key (Keiyoushi's `XorInterceptor`, as MANGA Plus
+    /// serves its pages): `#raygun-unscramble=xor:<key in hex>`.
+    Xor(Vec<u8>),
+}
+
+const UNSCRAMBLE: &str = "raygun-unscramble=";
+
+impl Unscramble {
+    pub fn from_url(url: &str) -> Option<Self> {
+        let fragment = url.split_once('#')?.1;
+        let recipe = fragment.strip_prefix(UNSCRAMBLE)?;
+        if recipe == "giga" {
+            return Some(Self::Giga);
+        }
+        if let Some(hex) = recipe.strip_prefix("xor:") {
+            if hex.is_empty() || !hex.len().is_multiple_of(2) {
+                return None;
+            }
+            let key: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|at| u8::from_str_radix(hex.get(at..at + 2)?, 16).ok())
+                .collect::<Option<_>>()?;
+            return Some(Self::Xor(key));
+        }
+        let tiles: Vec<usize> = recipe
+            .strip_prefix("comici:")?
+            .split(',')
+            .map(|tile| tile.trim().parse().ok())
+            .collect::<Option<_>>()?;
+        (tiles.len() == 16 && tiles.iter().all(|tile| *tile < 16)).then_some(Self::Comici(tiles))
+    }
+
+    /// The bytes before they're a picture (a file XORed with a key), when the recipe works on
+    /// them rather than on the picture.
+    pub fn decoded_bytes(&self, bytes: &[u8]) -> Option<Vec<u8>> {
+        match self {
+            Self::Xor(key) => Some(
+                bytes
+                    .iter()
+                    .zip(key.iter().cycle())
+                    .map(|(byte, key)| byte ^ key)
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
+    /// The picture put back together, as JPEG.
+    pub fn apply(&self, bytes: &[u8]) -> Result<Vec<u8>, String> {
+        if let Some(plain) = self.decoded_bytes(bytes) {
+            return Ok(plain);
+        }
+        let source = if is_jxl(bytes) {
+            let png = jxl_to_png(bytes)?;
+            image::load_from_memory(&png)
+        } else {
+            image::load_from_memory(bytes)
+        }
+        .map_err(|error| format!("couldn't read the page's picture: {error}"))?
+        .to_rgb8();
+        let (width, height) = source.dimensions();
+        let mut result = source.clone();
+        let mut copy = |from: (u32, u32), to: (u32, u32), size: (u32, u32)| {
+            if size.0 == 0 || size.1 == 0 {
+                return;
+            }
+            let tile =
+                image::imageops::crop_imm(&source, from.0, from.1, size.0, size.1).to_image();
+            image::imageops::replace(&mut result, &tile, i64::from(to.0), i64::from(to.1));
+        };
+        match self {
+            Self::Comici(tiles) => {
+                let (tile_width, tile_height) = (width / 4, height / 4);
+                for (destination, source_index) in tiles.iter().enumerate() {
+                    let destination = destination as u32;
+                    let source_index = *source_index as u32;
+                    copy(
+                        (
+                            (source_index / 4) * tile_width,
+                            (source_index % 4) * tile_height,
+                        ),
+                        (
+                            (destination / 4) * tile_width,
+                            (destination % 4) * tile_height,
+                        ),
+                        (tile_width, tile_height),
+                    );
+                }
+            }
+            // Done above, on the bytes.
+            Self::Xor(_) => {}
+            Self::Giga => {
+                let block_width = (width / 32) * 8;
+                let block_height = (height / 32) * 8;
+                for index in 0..16u32 {
+                    let destination = (index % 4) * 4 + index / 4;
+                    copy(
+                        ((index % 4) * block_width, (index / 4) * block_height),
+                        (
+                            (destination % 4) * block_width,
+                            (destination / 4) * block_height,
+                        ),
+                        (block_width, block_height),
+                    );
+                }
+            }
+        }
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90)
+            .encode_image(&result)
+            .map_err(|error| error.to_string())?;
+        Ok(jpeg)
+    }
 }
 
 /// Whether `bytes` are a JPEG XL picture: a bare codestream or the ISO BMFF container.
@@ -359,6 +584,72 @@ mod tests {
     use axum::routing::get;
 
     use super::*;
+
+    /// A 64×64 picture of 16 flat tiles, each its own shade, counted as the recipe counts them.
+    fn tiles(order: impl Fn(u32, u32) -> u8) -> Vec<u8> {
+        let picture = image::RgbImage::from_fn(64, 64, |x, y| {
+            let shade = order(x / 16, y / 16) * 15;
+            image::Rgb([shade, shade, shade])
+        });
+        let mut png = std::io::Cursor::new(Vec::new());
+        picture.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        png.into_inner()
+    }
+
+    fn shade_at(jpeg: &[u8], x: u32, y: u32) -> u8 {
+        let picture = image::load_from_memory(jpeg).unwrap().to_rgb8();
+        picture.get_pixel(x, y)[0]
+    }
+
+    #[test]
+    fn xored_files_are_put_back() {
+        let recipe = Unscramble::from_url("https://x/1.jpg#raygun-unscramble=xor:0aff").unwrap();
+        assert_eq!(recipe, Unscramble::Xor(vec![0x0a, 0xff]));
+        let plain = [0x89, b'P', b'N', b'G', 1, 2];
+        let hidden: Vec<u8> = plain
+            .iter()
+            .zip([0x0a, 0xff].iter().cycle())
+            .map(|(byte, key)| byte ^ key)
+            .collect();
+        assert_eq!(recipe.apply(&hidden).unwrap(), plain);
+        assert_eq!(
+            Unscramble::from_url("https://x/1.jpg#raygun-unscramble=xor:0"),
+            None
+        );
+    }
+
+    #[test]
+    fn shuffled_pages_are_put_back_together() {
+        assert_eq!(
+            Unscramble::from_url("https://x/1.jpg#raygun-unscramble=giga"),
+            Some(Unscramble::Giga)
+        );
+        assert_eq!(Unscramble::from_url("https://x/1.jpg#scramble"), None);
+        assert_eq!(
+            Unscramble::from_url("https://x/1.jpg#raygun-unscramble=comici:1,2"),
+            None
+        );
+        // Comici: result tile n (down each column) is source tile tiles[n]; the reverse order
+        // here, so the shades come out reversed.
+        let reversed: Vec<usize> = (0..16).rev().collect();
+        let source = tiles(|column, row| (column * 4 + row) as u8);
+        let fixed = Unscramble::Comici(reversed).apply(&source).unwrap();
+        assert!(
+            shade_at(&fixed, 8, 8).abs_diff(15 * 15) <= 3,
+            "the first tile is the last one"
+        );
+        assert!(
+            shade_at(&fixed, 56, 56).abs_diff(0) <= 3,
+            "the last tile is the first one"
+        );
+        // Giga: blocks are transposed (here 16×16 blocks: 64 / 32 * 8).
+        let source = tiles(|column, row| (row * 4 + column) as u8);
+        let fixed = Unscramble::Giga.apply(&source).unwrap();
+        assert!(
+            shade_at(&fixed, 8 + 16, 8).abs_diff(4 * 15) <= 3,
+            "column 1, row 0 was row 1, column 0"
+        );
+    }
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
     const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2];

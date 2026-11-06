@@ -106,6 +106,28 @@ enum Reading {
     Follow(Url),
     /// It's something Raygun knows and can't add (another app's repository), saying why.
     Refused(String),
+    /// A Mihon store (`index.min.json`, `repo.json`, `index.pb`), read with the files it names
+    /// ([`mihon_store`]).
+    Mihon(Box<Fetched>),
+}
+
+/// A Mihon store, followed to its extensions as adding it does (`raygun_ext_host::mihon::load`:
+/// a legacy list's `repo.json`, then its newer index). The repository is the address read.
+async fn mihon_store<F: Fetch>(fetch: &F, answer: &Fetched) -> Result<Found, String> {
+    let (_, store) = mihon::load(&answer.url, answer.body.clone(), |url: Url| async move {
+        let next = fetch.get(&url).await?;
+        if next.ok() && !next.truncated {
+            Ok(next.body)
+        } else {
+            Err(format!("{url} answered HTTP {}", next.status))
+        }
+    })
+    .await?;
+    Ok(Found::Repository {
+        url: answer.url.clone(),
+        format: PackageFormat::Mihon,
+        index: mihon::to_repo_index(&store)?,
+    })
 }
 
 /// A place to ask, and the address a server found there has.
@@ -190,6 +212,7 @@ async fn look_at<F: Fetch>(fetch: &F, asked: &Url, answer: Fetched) -> Result<Fo
                 }
             }
             Some(Reading::Refused(message)) => refused = Some(message),
+            Some(Reading::Mihon(store)) => return mihon_store(fetch, &store).await,
             None => {}
         }
     }
@@ -479,6 +502,7 @@ async fn first_found<F: Fetch>(fetch: &F, places: &[Place]) -> Option<Result<Fou
                 Some(Reading::Refused(message)) => {
                     refused.get_or_insert(message);
                 }
+                Some(Reading::Mihon(store)) => return Some(mihon_store(fetch, &store).await),
                 None => {}
             }
         }
@@ -492,6 +516,7 @@ async fn follow<F: Fetch>(fetch: &F, url: &Url) -> Option<Result<Found, String>>
     match read(&answer, url)? {
         Reading::Found(found) => Some(Ok(found)),
         Reading::Refused(message) => Some(Err(message)),
+        Reading::Mihon(store) => Some(mihon_store(fetch, &store).await),
         Reading::Follow(_) => None,
     }
 }
@@ -499,6 +524,11 @@ async fn follow<F: Fetch>(fetch: &F, url: &Url) -> Option<Result<Found, String>>
 /// What one answer holds; a server found here is at `base`.
 fn read(answer: &Fetched, base: &Url) -> Option<Reading> {
     let bytes = answer.body.as_slice();
+    // A Mihon store: its extensions may be in the newer index it names (Keiyoushi's list only
+    // says to update the app).
+    if !answer.truncated && mihon::detect(bytes) {
+        return Some(Reading::Mihon(Box::new(answer.clone())));
+    }
     if bytes.starts_with(b"PK") {
         if answer.truncated {
             return None;
@@ -1312,6 +1342,52 @@ mod tests {
         assert_eq!(kind, ServerKind::Opds);
         assert_eq!(url.as_str(), "https://comics.example/opds/v1.2/catalog");
         assert_eq!(name.as_deref(), Some("Komga"));
+    }
+
+    /// Keiyoushi's list only says to update the app; its `repo.json` names the store that lists
+    /// the extensions, which Raygun reads instead, as adding it does.
+    #[tokio::test]
+    async fn a_mihon_list_is_followed_to_its_newer_index() {
+        let placeholder = json!([{ "name": "Update to Mihon 0.20.1+", "pkg": "eu.kanade.tachiyomi.extension.all.mihon",
+            "apk": "tachiyomi-all.mihon-v1.4.1.apk", "lang": "all", "code": 1, "version": "1.4.1", "nsfw": 0,
+            "sources": [{ "name": "Update", "lang": "all", "id": "1", "baseUrl": "https://mihon.app" }] }]);
+        let repo = json!({ "index_v2": "https://store.example/index.json",
+            "meta": { "name": "Store", "website": "https://store.example", "signingKeyFingerprint": "ab" } });
+        let store = json!({ "name": "Store", "badgeLabel": "S", "signingKey": "ab",
+        "contact": { "website": "https://store.example" },
+        "extensionList": { "extensions": [
+            { "name": "One", "packageName": "eu.kanade.tachiyomi.extension.en.one",
+              "resources": { "apkUrl": "https://store.example/one.apk", "iconUrl": "https://store.example/one.png" },
+              "extensionLib": "1.6", "versionCode": 106_001, "versionName": "1.6.1", "contentWarning": 1,
+              "sources": [{ "id": 11, "name": "One", "language": "en", "homeUrl": "https://one.example" }] },
+            { "name": "Two", "packageName": "eu.kanade.tachiyomi.extension.en.two",
+              "resources": { "apkUrl": "https://store.example/two.apk", "iconUrl": "https://store.example/two.png" },
+              "extensionLib": "1.6", "versionCode": 106_002, "versionName": "1.6.2", "contentWarning": 3,
+              "sources": [{ "id": 12, "name": "Two", "language": "en", "homeUrl": "https://two.example" }] }
+        ]}});
+        let table = Table::default()
+            .with(
+                "https://store.example/repo/index.min.json",
+                placeholder.to_string(),
+            )
+            .with("https://store.example/repo/repo.json", repo.to_string())
+            .with("https://store.example/index.json", store.to_string());
+        let found = look(&table, "https://store.example/repo/index.min.json").await;
+        let (url, format, index) = repository(&found);
+        assert_eq!(format, PackageFormat::Mihon);
+        assert_eq!(
+            url.as_str(),
+            "https://store.example/repo/index.min.json",
+            "the address added"
+        );
+        assert_eq!(index.name, "Store");
+        let ids: Vec<&str> = index
+            .extensions
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect();
+        assert_eq!(ids, ["mihon.en.one", "mihon.en.two"]);
+        assert_eq!(index.extensions[1].content_rating, "nsfw");
     }
 
     #[tokio::test]

@@ -11,6 +11,7 @@ import type { BrowseSection } from '../../pages/BrowsePage';
 import { WebsiteSettings } from '../../websites/WebsiteSettings';
 import { ContentMarks } from '../ContentMarks';
 import { ManualBrowserChecks } from '../ManualBrowserChecks';
+import { RunSourceCode } from '../RunSourceCode';
 import { PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch, PrefText } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
@@ -236,6 +237,7 @@ export const BrowseSettings: FC = () => {
           onChange={(value) => update.mutate({ key: 'userAgent', value })}
         />
         <ManualBrowserChecks />
+        <RunSourceCode />
       </PrefGroup>
       <PrefGroup title={t('discover.charts')}>
         <PrefChoice<string>

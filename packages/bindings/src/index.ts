@@ -105,6 +105,30 @@ export const commands = {
 	/**  Forgets an extension's cookies and stored data (M46.11), then reloads it. */
 	extensionClearData: (id: string) => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extension_clear_data", { id })),
 	/**
+	 *  Downloads a Mihon extension's APK and checks it against its store, while
+	 *  `Settings::run_source_code` is on (`ExtensionService::download_mihon_apk`).
+	 */
+	extensionMihonApk: (repoId: string, id: string) => typedError<MihonApk, string>(__TAURI_INVOKE("extension_mihon_apk", { repoId, id })),
+	/**
+	 *  Whether this device can run a Mihon extension's own code, and whether its tools are in place
+	 *  (`MihonContainer`). Shown in a source's details and Settings.
+	 */
+	mihonRuntimeState: () => typedError<MihonRuntimeState, string>(__TAURI_INVOKE("mihon_runtime_state")),
+	/**
+	 *  Fetches the Mihon runtime's tools (desktop: a JRE and dex2jar) while
+	 *  `Settings::run_source_code` is on; progress comes as `MihonRuntimeEvent`.
+	 */
+	mihonRuntimeSetup: () => typedError<MihonRuntimeState, string>(__TAURI_INVOKE("mihon_runtime_setup")),
+	/**  Stops a Mihon runtime setup that's fetching tools. */
+	mihonRuntimeCancel: () => typedError<null, string>(__TAURI_INVOKE("mihon_runtime_cancel")),
+	/**
+	 *  Runs one `manga.source` call (`sources`, `popular`, `latest`, `search`, `details`, `chapters`,
+	 *  `pages`) on an installed, checked Mihon APK through the container, while
+	 *  `Settings::run_source_code` is on. A source's details page drives this to browse it; the
+	 *  result is the host's JSON for that call.
+	 */
+	mihonRun: (pkg: string, method: string, params: string) => typedError<string, string>(__TAURI_INVOKE("mihon_run", { pkg, method, params })),
+	/**
 	 *  Opens the miniplayer (M46.13): a small window on top with the song and its controls. Async:
 	 *  on Windows a window made in a synchronous command never loads its page (it stays blank).
 	 */
@@ -1270,6 +1294,11 @@ export const commands = {
 	 *  (experimental, off by default; `raygun_ext_host::browser_check`).
 	 */
 	manualBrowserChecks: boolean,
+	/**
+	 *  Mihon extensions that can't be converted may be fetched as their APKs, checked against
+	 *  their store, to run as their own code (off by default, explained first; this device only).
+	 */
+	runSourceCode?: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
 	userAgent: string,
 	/**  The equalizer, effects, normalization and crossfade for every song (M46.12). */
@@ -1599,6 +1628,7 @@ export const events = {
 	madeForYouEvent: makeEvent<MadeForYouEvent>("made-for-you-event"),
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
+	mihonRuntimeEvent: makeEvent<MihonRuntimeEvent>("mihon-runtime-event"),
 	openRouteEvent: makeEvent<OpenRouteEvent>("open-route-event"),
 	openWithEvent: makeEvent<OpenWithEvent>("open-with-event"),
 	permissionPromptEvent: makeEvent<PermissionPromptEvent>("permission-prompt-event"),
@@ -3932,6 +3962,21 @@ export type MediaSource =
 /**  No stream yet: the resolver finds one from `music.stream` providers when it plays (M14). */
 { kind: "lookup"; title: string; artist: string | null; album: string | null; durationMs: number | null };
 
+/**
+ *  A Mihon extension's APK, downloaded and checked against its store: its package, version and
+ *  signing key (`Settings::run_source_code`).
+ */
+export type MihonApk = {
+	package: string,
+	versionCode: number,
+	/**  The SHA-256 of its signing certificate, which matched the store's key. */
+	signer: string | null,
+	size: number,
+	/**  Whether this device runs it now; `note` says what happens instead. */
+	runnable: boolean,
+	note: string,
+};
+
 /**  What a Mihon backup import brought in. */
 export type MihonImport = {
 	titles: number,
@@ -3939,6 +3984,27 @@ export type MihonImport = {
 	chapters: number,
 	readChapters: number,
 	skipped: SkippedSource[],
+};
+
+/**
+ *  Setting up the Mihon run-source-code tools: the current runtime state (its `settingUp` says
+ *  whether a fetch is still going).
+ */
+export type MihonRuntimeEvent = MihonRuntimeState;
+
+/**
+ *  Whether this device can run a Mihon extension's own code (tier 2), for a source's details and
+ *  Settings (`Settings::run_source_code`).
+ */
+export type MihonRuntimeState = {
+	/**  The platform and build can run it at all (desktop with a JRE, or Android). */
+	supported: boolean,
+	/**  Everything it needs is in place (desktop: the tools are fetched). */
+	ready: boolean,
+	/**  Whether the tools are being fetched right now. */
+	settingUp: boolean,
+	/**  A one-line reason it isn't ready, for the UI. */
+	note: string,
 };
 
 /**  A mix with its songs. Its name is made by the UI from the kind, `seed` and `number`. */
@@ -5095,7 +5161,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5234,6 +5300,11 @@ export type Settings = {
 	 *  (experimental, off by default; `raygun_ext_host::browser_check`).
 	 */
 	manualBrowserChecks: boolean,
+	/**
+	 *  Mihon extensions that can't be converted may be fetched as their APKs, checked against
+	 *  their store, to run as their own code (off by default, explained first; this device only).
+	 */
+	runSourceCode?: boolean,
 	/**  The User-Agent sources send when they don't name one (M46.11); empty for Raygun's default. */
 	userAgent: string,
 	/**  The equalizer, effects, normalization and crossfade for every song (M46.12). */

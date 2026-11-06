@@ -223,6 +223,11 @@ impl JsExtension {
             Runtime::LnReader => Some(crate::lnreader::runtime::Prepared::new(&code)?),
             _ => None,
         };
+        // A converted Mihon extension runs after the Mihon prelude and its themes.
+        let mihon = match manifest.runtime {
+            Runtime::Mihon => Some(crate::mihon::runtime::Prepared::new(&code)?),
+            _ => None,
+        };
         let policy = Arc::new(manifest.net.clone());
         let client =
             extension_client(policy.clone(), cookies.clone()).map_err(|error| error.to_string())?;
@@ -269,6 +274,16 @@ impl JsExtension {
             .with(move |ctx| -> Result<(), String> {
                 install_natives(&ctx, natives).map_err(|error| error.to_string())?;
                 eval_script(&ctx, PRELUDE, "raygun:prelude", true)?;
+                if let Some(prepared) = &mihon {
+                    return crate::mihon::runtime::install(
+                        &ctx,
+                        prepared,
+                        crate::mihon::runtime::Hooks {
+                            cookies: cookies.clone(),
+                        },
+                        &filename,
+                    );
+                }
                 match (&miru, &lnreader) {
                     (Some(prepared), _) => crate::miru::runtime::install(
                         &ctx,
@@ -689,6 +704,12 @@ struct FetchOptions {
     headers: BTreeMap<String, String>,
     #[serde(default)]
     body: Option<String>,
+    /// A body of bytes (protobuf, a picture), in base64; it wins over `body`.
+    #[serde(default, rename = "bodyBase64")]
+    body_base64: Option<String>,
+    /// The answer's bytes are wanted when they aren't text (`bytes` beside `body`).
+    #[serde(default)]
+    binary: bool,
 }
 
 struct FetchResponse {
@@ -696,6 +717,8 @@ struct FetchResponse {
     url: String,
     headers: BTreeMap<String, String>,
     body: String,
+    /// The answer's bytes, when they were asked for and aren't UTF-8 text.
+    bytes: Option<Vec<u8>>,
 }
 
 /// What `raygun.http.fetch` hands the script: the answer as an object, its body a string of its
@@ -718,6 +741,12 @@ impl<'js> IntoJs<'js> for Fetched {
                 object.set("url", response.url)?;
                 object.set("headers", headers)?;
                 object.set("body", response.body)?;
+                if let Some(bytes) = response.bytes {
+                    object.set(
+                        "bytes",
+                        rquickjs::TypedArray::<u8>::new(ctx.clone(), bytes)?,
+                    )?;
+                }
             }
             Self::Failed(message) => object.set("error", message)?,
         }
@@ -878,7 +907,13 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     if own_agent.is_none() {
         request = request.header(reqwest::header::USER_AGENT, &agent);
     }
-    if let Some(body) = options.body.clone() {
+    if let Some(encoded) = &options.body_base64 {
+        use base64::Engine as _;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|error| format!("invalid request body: {error}"))?;
+        request = request.body(bytes);
+    } else if let Some(body) = options.body.clone() {
         request = request.body(body);
     }
     // The request as sent, kept when a browser check answers it: the check window opens it.
@@ -896,7 +931,7 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
             ))
         })
     };
-    let exchange = exchange(request, host, site);
+    let exchange = exchange(request, host, site, options.binary);
     let stopped = || "stopped: nothing waits for this request any more".to_owned();
     let exchanged = match network() {
         Some(network) => {
@@ -936,7 +971,12 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
 
 /// Sends a request and reads its answer, waiting for a turn with the site (`host:port`) first.
 /// Runs on the network runtime.
-async fn exchange(request: reqwest::RequestBuilder, host: String, site: String) -> Exchanged {
+async fn exchange(
+    request: reqwest::RequestBuilder,
+    host: String,
+    site: String,
+    binary: bool,
+) -> Exchanged {
     let gates = Gates::get();
     // A site that asked to be left alone gets the time it asked for: a short wait here, a longer
     // one fails at once (the caller tries later).
@@ -995,9 +1035,24 @@ async fn exchange(request: reqwest::RequestBuilder, host: String, site: String) 
         }
         body.extend_from_slice(&chunk);
     }
-    // Valid UTF-8 (nearly every page) becomes the string without a copy.
-    let body = String::from_utf8(body)
-        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+    // Valid UTF-8 (nearly every page) becomes the string without a copy. Bytes that aren't
+    // text are kept as they are when asked for, and spelled out only for a textual answer.
+    let (body, bytes) = match String::from_utf8(body) {
+        Ok(text) => (text, None),
+        Err(error) if binary => {
+            let textual = headers
+                .get("content-type")
+                .is_some_and(|kind| is_textual(kind));
+            let bytes = error.into_bytes();
+            let text = if textual {
+                String::from_utf8_lossy(&bytes).into_owned()
+            } else {
+                String::new()
+            };
+            (text, Some(bytes))
+        }
+        Err(error) => (String::from_utf8_lossy(error.as_bytes()).into_owned(), None),
+    };
     let mut check_end = body.len().min(CHECK_BYTES);
     while !body.is_char_boundary(check_end) {
         check_end -= 1;
@@ -1019,9 +1074,20 @@ async fn exchange(request: reqwest::RequestBuilder, host: String, site: String) 
             url: final_url,
             headers,
             body,
+            bytes,
         },
         trouble,
     ))
+}
+
+/// Whether a `Content-Type` names text (a page, JSON, a script), which is read as such even when
+/// its bytes aren't all UTF-8.
+fn is_textual(kind: &str) -> bool {
+    let kind = kind.to_ascii_lowercase();
+    kind.starts_with("text/")
+        || ["json", "xml", "javascript", "html", "x-www-form-urlencoded"]
+            .iter()
+            .any(|word| kind.contains(word))
 }
 
 /// What a failed request met. reqwest's own message repeats the whole URL; the innermost cause

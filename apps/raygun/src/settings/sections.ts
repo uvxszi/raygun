@@ -175,6 +175,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'searchListings',
       'browseStartTab',
       'manualBrowserChecks',
+      'runSourceCode',
       'autoLoad',
       'userAgent',
       'discovery',

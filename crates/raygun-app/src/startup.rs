@@ -272,6 +272,19 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.root(),
         raygun_net::http_client()?,
     ));
+    // Tier 2: running a Mihon extension's own code (`Settings::run_source_code`). The host jar
+    // ships beside the tools folder; the JRE and dex2jar are fetched on first use.
+    app.manage(crate::mihon_container::MihonContainer::new(
+        app.handle().clone(),
+        paths.root(),
+        paths
+            .root()
+            .join("tools")
+            .join("mihon")
+            .join("mihon-host.jar"),
+        raygun_net::http_client()?,
+        std::sync::Arc::new(raygun_net::user_agent),
+    ));
     // Files saved from sites in the built-in browser.
     let website_downloads = crate::website_downloads::WebsiteDownloadService::new(
         app.handle().clone(),

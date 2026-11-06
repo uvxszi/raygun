@@ -40,8 +40,22 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 quick-xml = "0.42"
 md-5 = "0.11"
 base64 = "0.22"
+# Mihon conversions (`mihon`): OpenSSL-style AES some themes' pages come in (Madara's chapter
+# protector).
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+# Keiyoushi's crypto helpers (`aesCbc`, `aesGcm`, `aesCtr`, digests, HMAC and PBKDF2) as
+# converted code calls them.
+aes-gcm = "0.10"
+ctr = "0.9"
+sha1 = "0.11"
+hmac = "0.13"
 uuid.workspace = true
 flate2 = "1"
+# Pictures converted sources draw (`mihon::pictures`, over `raygun_net::bitmap`), and the text
+# `lib:textinterceptor` draws on them in the system's own faces.
+image = { version = "0.25", default-features = false }
+ab_glyph = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
