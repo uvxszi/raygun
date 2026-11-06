@@ -127,6 +127,8 @@ pub const METHODS: &[&str] = &[
     "parseDefaulting", "toFormatter", "maxOfOrNull", "minOfOrNull", "maxBy", "minBy", "closeQuietly",
     "toByte", "toShort", "toByteArray", "toIntArray",
     "parseGraphQLAs",
+    // Next.js pages' data
+    "extractNextJs", "extractNextJsRsc",
 ];
 
 fn quote(text: &str) -> String {

@@ -1125,6 +1125,8 @@
   // ---- Reading values ----
 
   let renames = {};
+  /// A DTO property's other JSON names (`@JsonNames`), by property name.
+  let aliases = {};
   /// Keiyoushi's `assets/i18n/messages_<lang>.properties`, by `<lang>` (`pt_br`).
   let messages = {};
   /// Keiyoushi's `Intl` (lib:i18n): messages in the source's language, else the base one's.
@@ -1148,6 +1150,8 @@
     const serial = renames[name];
     if (serial !== undefined && Object.prototype.hasOwnProperty.call(object, serial))
       return object[serial];
+    for (const other of aliases[name] ?? [])
+      if (Object.prototype.hasOwnProperty.call(object, other)) return object[other];
     return undefined;
   };
 
@@ -1242,6 +1246,7 @@
       if (NULLABLE[name]) return NULLABLE[name](receiver, args, lambda, named, type);
       throw new KotlinError(`${name}() was called on null`, 'NullPointerException');
     }
+    if (hasNextJs(receiver, name)) return NEXT_JS[name](receiver, args, lambda, type);
     const kind = kindOf(receiver);
     if (receiver instanceof RegExp && REGEX[name]) return REGEX[name](receiver, args, lambda);
     // `response.parseAs<List<MangaDto>>()`, `json.decodeFromString<T>(text)`: as the type asked.
@@ -1874,6 +1879,330 @@
     'decodeFromJsonElement',
     'parseGraphQLAs',
   ]);
+
+  // ---- Next.js pages' data ----
+  // Keiyoushi's `extractNextJs` and `extractNextJsRsc` (core `keiyoushi.utils`, from
+  // keiyoushi/extensions-source, Apache-2.0): the data a Next.js page hydrates with, from the
+  // App Router's flight stream (`self.__next_f.push`) or the Pages Router's `__NEXT_DATA__`, and
+  // the first value in it the predicate (or the type's required fields) picks.
+
+  const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  const NEXT_F = /self\.__next_f\.push\(\s*(\[[\s\S]*])\s*\)\s*;?\s*$/;
+  const HEX = /^[0-9a-fA-F]+$/;
+  /// The flight stream a page's scripts push, joined: each push is a slice cut anywhere, `[1, text]`
+  /// as text and `[3, base64]` as bytes.
+  const flightStream = (document) => {
+    let stream = '';
+    for (const script of document.select('script:not([src])')) {
+      const data = script.data();
+      if (!data.includes('self.__next_f.push')) continue;
+      try {
+        const found = NEXT_F.exec(data);
+        if (!found) continue;
+        const push = JSON.parse(found[1]);
+        const content = push[1];
+        if (content === null || content === undefined || typeof content === 'object') continue;
+        if (push[0] === 1) stream += String(content);
+        else if (push[0] === 3) stream += K.base64Decode(String(content));
+      } catch {
+        // A push that isn't JSON is left out, as Keiyoushi's helper does.
+      }
+    }
+    return stream;
+  };
+  const isSpace = (char) => char === ' ' || char === '\n' || char === '\r' || char === '\t';
+  /// The JSON value starting at `start` and where it ends (`undefined` when it isn't one).
+  const jsonAt = (body, start) => {
+    if (start >= body.length) return [undefined, start];
+    const parse = (end) => {
+      try {
+        return JSON.parse(body.slice(start, end));
+      } catch {
+        return undefined;
+      }
+    };
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let at = start;
+    while (at < body.length) {
+      const char = body[at++];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (char === '\\' && inString) {
+        escape = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (char === '{' || char === '[') depth++;
+      else if (char === '}' || char === ']') {
+        if (--depth === 0) return [parse(at), at];
+      }
+      if (depth === 0 && isSpace(char)) return [parse(at - 1), at];
+    }
+    return [undefined, at];
+  };
+  /// A flight stream's rows (`<hex id>:<json>`, or `<hex id>:T<hex byte length>,<text>`): every
+  /// JSON value in it, in order, with the text chunks and the models kept by id.
+  const flightRows = (body, chunks, models) => {
+    const rows = [];
+    let at = 0;
+    while (at < body.length) {
+      const colon = body.indexOf(':', at);
+      if (colon === -1) break;
+      const id = body.slice(at, colon);
+      if (!HEX.test(id)) {
+        at++;
+        continue;
+      }
+      at = colon + 1;
+      if (at >= body.length) break;
+      if (body[at] === 'T') {
+        at++;
+        const comma = body.indexOf(',', at);
+        if (comma === -1) break;
+        const length = body.slice(at, comma);
+        if (!HEX.test(length)) break;
+        const bytes = parseInt(length, 16);
+        at = comma + 1;
+        const start = at;
+        // The length counts UTF-8 bytes.
+        let counted = 0;
+        while (at < body.length && counted < bytes) {
+          const code = body.charCodeAt(at);
+          if (code < 0x80) counted += 1;
+          else if (code < 0x800) counted += 2;
+          else if (code >= 0xd800 && code <= 0xdbff) {
+            counted += 4;
+            at++;
+          } else counted += 3;
+          at++;
+        }
+        const text = body.slice(start, at);
+        chunks.set(id, text);
+        try {
+          rows.push(JSON.parse(text));
+        } catch {
+          // A text chunk needn't be JSON.
+        }
+      } else {
+        const [value, end] = jsonAt(body, at);
+        if (value !== undefined) {
+          rows.push(value);
+          models.set(id, value);
+        }
+        at = end;
+      }
+    }
+    return rows;
+  };
+  /// A value with React Flight's markers read: `$$` (an escaped `$`), `$undefined`, `$D` dates,
+  /// `$n` big numbers, `$Infinity`…, `$Q` maps, `$W` sets, `$L` lazy and `$@` promised rows, and
+  /// `$<id>` / `$<id>:<path>` references to other rows.
+  const resolveFlight = (value, chunks, models, resolving) => {
+    if (Array.isArray(value))
+      return value.map((item) => resolveFlight(item, chunks, models, resolving));
+    if (value !== null && typeof value === 'object') {
+      const out = {};
+      for (const [key, item] of Object.entries(value))
+        out[key] = resolveFlight(item, chunks, models, resolving);
+      return out;
+    }
+    if (typeof value !== 'string' || value.length < 2 || value[0] !== '$') return value;
+    if (value === '$undefined') return null;
+    if (['$Infinity', '$-Infinity', '$NaN', '$-0'].includes(value)) return value.slice(1);
+    let found;
+    switch (value[1]) {
+      case '$':
+        return value.slice(1);
+      case 'D':
+      case 'n':
+        return value.slice(2);
+      case 'Q':
+        found = flightMap(value.slice(2), chunks, models, resolving);
+        break;
+      case 'W':
+        found = flightSet(value.slice(2), chunks, models, resolving);
+        break;
+      case 'L':
+      case '@':
+        found = flightModel(value.slice(2), chunks, models, resolving);
+        break;
+      default:
+        found = flightModel(value.slice(1), chunks, models, resolving);
+    }
+    return found === undefined ? value : found;
+  };
+  /// One step into a row: by key, by index, or a React element's (`["$", type, key, props]`) part.
+  const flightStep = (value, segment) => {
+    if (Array.isArray(value)) {
+      if (value.length >= 4 && value[0] === '$') {
+        const part = { type: 1, key: 2, props: 3 }[segment];
+        if (part !== undefined) return value[part];
+      }
+      if (!/^-?\d+$/.test(segment)) return undefined;
+      const index = Number(segment);
+      return index >= 0 && index < value.length ? value[index] : undefined;
+    }
+    if (value !== null && typeof value === 'object')
+      return has(value, segment) ? value[segment] : undefined;
+    return undefined;
+  };
+  const flightModel = (reference, chunks, models, resolving) => {
+    const segments = reference.split(':');
+    const id = segments[0];
+    if (segments.length === 1 && chunks.has(id)) return chunks.get(id);
+    if (resolving.has(id) || !models.has(id)) return undefined;
+    const guard = new Set(resolving).add(id);
+    let value = models.get(id);
+    for (const segment of segments.slice(1)) {
+      if (typeof value === 'string' && value.startsWith('$'))
+        value = resolveFlight(value, chunks, models, guard);
+      value = flightStep(value, segment);
+      if (value === undefined) return undefined;
+    }
+    return resolveFlight(value, chunks, models, guard);
+  };
+  const flightMap = (id, chunks, models, resolving) => {
+    if (resolving.has(id)) return undefined;
+    const entries = models.get(id);
+    if (!Array.isArray(entries)) return undefined;
+    const resolved = resolveFlight(entries, chunks, models, new Set(resolving).add(id));
+    const out = {};
+    for (const pair of resolved) {
+      if (!Array.isArray(pair) || pair.length !== 2) continue;
+      const [key, item] = pair;
+      const name =
+        key !== null && typeof key === 'object'
+          ? JSON.stringify(key)
+          : key === null
+            ? 'null'
+            : String(key);
+      out[name] = item;
+    }
+    return out;
+  };
+  const flightSet = (id, chunks, models, resolving) => {
+    if (resolving.has(id)) return undefined;
+    const values = models.get(id);
+    if (!Array.isArray(values)) return undefined;
+    return resolveFlight(values, chunks, models, new Set(resolving).add(id));
+  };
+  /// The Pages Router's data: `props.pageProps`, then the whole.
+  const pagesRouterData = (document) => {
+    const script = document.selectFirst('script#__NEXT_DATA__');
+    if (!script) return [];
+    try {
+      const root = JSON.parse(script.data());
+      const pageProps = root?.props?.pageProps;
+      return [pageProps, root].filter((value) => value !== null && value !== undefined);
+    } catch {
+      return [];
+    }
+  };
+  /// A type's required JSON fields (each with its other names), as kotlinx.serialization's
+  /// descriptor gives them: neither optional nor nullable.
+  const requiredFields = (type) => {
+    const fields = CLASSES[type.name]?.required ?? [];
+    if (!fields.length)
+      throw new KotlinError(
+        `Cannot infer a predicate for ${type.name}: all fields are optional or nullable. Provide an explicit predicate instead.`,
+        'IllegalArgumentException',
+      );
+    return fields;
+  };
+  const isJsonObject = (value) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+  /// The predicate a type gives: an object with its required fields, or for `List<T>` a list
+  /// whose first item is one.
+  const typePredicate = (typeText) => {
+    const type = parseType(typeText);
+    const list = type.name === 'List' || type.name === 'MutableList';
+    const fields = requiredFields(list ? (type.args[0] ?? { name: 'Any', args: [] }) : type);
+    const fits = (value) =>
+      isJsonObject(value) && fields.every((names) => names.some((name) => has(value, name)));
+    return async (value) =>
+      list ? Array.isArray(value) && value.length > 0 && fits(value[0]) : fits(value);
+  };
+  /// The first object or list, depth first, that the predicate picks.
+  const findNextJs = async (value, predicate) => {
+    if (value === null || typeof value !== 'object') return undefined;
+    if (KT.truthy(await predicate(value))) return value;
+    for (const child of Array.isArray(value) ? value : Object.values(value)) {
+      const found = await findNextJs(child, predicate);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  const extractNextJs = async (rows, chunks, models, predicate, type) => {
+    for (const row of rows) {
+      const found = await findNextJs(resolveFlight(row, chunks, models, new Set()), predicate);
+      if (found !== undefined) return decode(found, type);
+    }
+    return null;
+  };
+  const nextJsPredicate = (args, lambda, type) => {
+    const given = lambda ?? args.find((arg) => typeof arg === 'function');
+    if (given) return (value) => given(value);
+    if (!type) throw new KotlinError('extractNextJs() needs a type or a predicate');
+    return typePredicate(type);
+  };
+  const nextJsOfDocument = async (document, args, lambda, type) => {
+    const predicate = nextJsPredicate(args, lambda, type);
+    const chunks = new Map();
+    const models = new Map();
+    let rows = flightRows(flightStream(document), chunks, models);
+    if (!rows.length) rows = pagesRouterData(document);
+    return extractNextJs(rows, chunks, models, predicate, type);
+  };
+  const nextJsOfText = async (text, args, lambda, type) => {
+    const predicate = nextJsPredicate(args, lambda, type);
+    const chunks = new Map();
+    const models = new Map();
+    return extractNextJs(flightRows(KT.str(text), chunks, models), chunks, models, predicate, type);
+  };
+  const isDocument = (value) =>
+    value !== null &&
+    typeof value === 'object' &&
+    typeof value.location === 'function' &&
+    typeof value.select === 'function';
+  /// `document.extractNextJs<T>()`, `response.extractNextJs<T>()` (an RSC answer or a page, by
+  /// its type) and `text.extractNextJsRsc<T>()`.
+  const NEXT_JS = {
+    extractNextJs: async (receiver, args, lambda, type) => {
+      if (isDocument(receiver)) return nextJsOfDocument(receiver, args, lambda, type);
+      if (receiver instanceof Response) {
+        const contentType = KT.str(receiver.header('Content-Type') ?? '');
+        const text = await receiver.raw.text();
+        if (contentType.includes('text/x-component')) return nextJsOfText(text, args, lambda, type);
+        if (contentType.includes('text/html') || /^\s*</.test(text))
+          return nextJsOfDocument(
+            Jsoup.parse(text, receiver.request.url.toString()),
+            args,
+            lambda,
+            type,
+          );
+        return nextJsOfText(text, args, lambda, type);
+      }
+      if (typeof receiver === 'string')
+        return nextJsOfDocument(Jsoup.parse(receiver, ''), args, lambda, type);
+      throw new KotlinError('extractNextJs() reads a document or an answer');
+    },
+    extractNextJsRsc: async (receiver, args, lambda, type) =>
+      nextJsOfText(receiver, args, lambda, type),
+  };
+  const hasNextJs = (receiver, name) =>
+    Boolean(NEXT_JS[name]) &&
+    (name === 'extractNextJsRsc'
+      ? typeof receiver === 'string'
+      : isDocument(receiver) || receiver instanceof Response);
+
   KT.unconverted = (name, reason) => ({
     isClass: true,
     name,
@@ -3229,7 +3558,13 @@
       }
       return build(fields);
     };
-    const holder = { isClass: true, name: definition.name, make, fromJson };
+    const holder = {
+      isClass: true,
+      name: definition.name,
+      make,
+      fromJson,
+      required: definition.required ?? [],
+    };
     CLASSES[definition.name] = holder;
     for (const entry of definition.entries)
       holder[entry] = {
@@ -3278,6 +3613,7 @@
 
   const hasMember = (receiver, name) => {
     if (receiver === null || receiver === undefined) return false;
+    if (hasNextJs(receiver, name)) return true;
     const kind = kindOf(receiver);
     if (kind === 'list' || kind === 'elements')
       return Boolean(LIST[name]) || (kind === 'elements' && typeof receiver[name] === 'function');
@@ -3533,6 +3869,7 @@
 
   mihon.source = (config) => {
     renames = { ...renames, ...(config.renames ?? {}) };
+    aliases = { ...aliases, ...(config.aliases ?? {}) };
     messages = { ...messages, ...(config.messages ?? {}) };
     for (const source of config.sources) {
       const t = { id: source.id, name: source.name, lang: source.lang, baseUrl: source.baseUrl };

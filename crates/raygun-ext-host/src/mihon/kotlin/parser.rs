@@ -296,6 +296,20 @@ impl Parser {
             {
                 return Ok(format!("SerialName={text}"));
             }
+            // The other JSON names it's read by (`@JsonNames("results", "manga_list")`).
+            if name == "JsonNames" {
+                let names: Vec<&str> = args
+                    .iter()
+                    .filter_map(|arg| match &arg.value {
+                        Expr::Str(parts) => match parts.as_slice() {
+                            [StrPart::Text(text)] => Some(text.as_str()),
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect();
+                return Ok(format!("JsonNames={}", names.join("\u{1f}")));
+            }
         }
         Ok(name)
     }

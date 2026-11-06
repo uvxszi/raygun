@@ -1025,6 +1025,210 @@ async fn a_source_written_without_a_theme_is_converted_from_its_code() {
     assert_eq!(pages[0].headers["Referer"], format!("http://{address}/"));
 }
 
+const NEXT_BUILD: &str = "keiyoushi {\n    name = \"Fixture Next\"\n    versionCode = 1\n    libVersion = \"1.6\"\n    source {\n        lang = \"en\"\n        baseUrl = \"https://next.example\"\n    }\n}\n";
+
+const NEXT_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixturenext
+
+import eu.kanade.tachiyomi.source.model.FilterList
+import keiyoushi.source.KeiSource
+import keiyoushi.utils.extractNextJs
+import keiyoushi.utils.extractNextJsRsc
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
+import kotlinx.serialization.json.JsonObject
+
+@Source
+abstract class FixtureNext : KeiSource() {
+    override val supportsLatest = false
+
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        val series = client.get("$baseUrl/list", Fetch.DOCUMENT).asJsoup().extractNextJs<List<SeriesDto>>().orEmpty()
+        return MangasPage(series.map { it.toSManga() }, false)
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()
+
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
+        val document = client.get("$baseUrl/search?q=$query", Fetch.DOCUMENT).asJsoup()
+        val found = document.extractNextJs<SearchDto> { it is JsonObject && "results" in it }!!
+        return MangasPage(found.entries.map { it.toSManga() }, found.hasNext)
+    }
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate {
+        val data = client.get(getMangaUrl(manga), Fetch.XHR).extractNextJs<DetailsData>()!!
+        val path = manga.url
+        val updated = SManga.create().apply {
+            title = data.manga.title
+            description = data.manga.description
+            genre = data.manga.genres.joinToString()
+            url = path
+        }
+        val list = data.manga.chapters.map { chapter ->
+            SChapter.create().apply {
+                name = chapter.name
+                url = "/read/" + chapter.id
+            }
+        }
+        return SMangaUpdate(updated, list)
+    }
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val body = client.get(getChapterUrl(chapter), Fetch.XHR).body.string()
+        val dto = body.extractNextJsRsc<PagesDto>()!!
+        return dto.images.values.mapIndexed { index, image -> Page(index, imageUrl = baseUrl + image) }
+    }
+}
+
+@Serializable
+class SeriesDto(
+    val id: String,
+    val title: String,
+    val cover: String? = null,
+) {
+    fun toSManga(): SManga {
+        val path = "/series/$id"
+        val name = title
+        val image = cover
+        return SManga.create().apply {
+            url = path
+            title = name
+            thumbnail_url = image
+        }
+    }
+}
+
+@Serializable
+class SearchDto(
+    @JsonNames("results") val entries: List<SeriesDto> = emptyList(),
+    @SerialName("has_next") val hasNext: Boolean = false,
+)
+
+@Serializable
+class DetailsData(val manga: MangaDto)
+
+@Serializable
+class MangaDto(
+    val title: String,
+    val description: String? = null,
+    val genres: List<String> = emptyList(),
+    val chapters: List<ChapterDto> = emptyList(),
+)
+
+@Serializable
+class ChapterDto(val id: String, val name: String)
+
+@Serializable
+class PagesDto(val images: Map<String, String>, val count: Int)
+"##;
+
+/// A page's flight stream as the App Router pushes it: a row cut between two pushes, another
+/// row base64-encoded.
+fn next_flight_page() -> String {
+    use base64::Engine as _;
+    let root = base64::engine::general_purpose::STANDARD
+        .encode("0:[\"$\",\"$1\",null,{\"children\":\"$3\"}]\n");
+    format!(
+        r#"<html><body><script>(self.__next_f=self.__next_f||[]).push([0])</script>
+<script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[\"123\",[],\"default\"]\n3:[{{\"id\":\"one\",\"ti"])</script>
+<script>self.__next_f.push([1,"tle\":\"One\",\"cover\":\"/c/1.jpg\"}},{{\"id\":\"two\",\"title\":\"$$Two\"}}]\n"])</script>
+<script>self.__next_f.push([3,"{root}"])</script></body></html>"#
+    )
+}
+
+#[tokio::test]
+async fn next_js_pages_give_their_data() {
+    use axum::http::header::CONTENT_TYPE;
+    let app = Router::new()
+        .route("/list", get(|| async { Html(next_flight_page()) }))
+        .route(
+            "/search",
+            get(|| async {
+                Html(
+                    r#"<html><body><script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"data":{"results":[{"id":"x","title":"X Marks"}],"has_next":true}}},"page":"/search"}</script></body></html>"#,
+                )
+            }),
+        )
+        .route(
+            "/series/one",
+            get(|| async {
+                (
+                    [(CONTENT_TYPE, "text/x-component")],
+                    "0:{\"a\":\"$@1\"}\n1:{\"manga\":{\"title\":\"One\",\"description\":\"$2\",\"genres\":\"$W3\",\"chapters\":\"$4:list\"}}\n2:T5,Hello3:[\"Action\",\"Comedy\"]\n4:{\"list\":[{\"id\":\"c1\",\"name\":\"Chapter 1\"}]}\n",
+                )
+            }),
+        )
+        .route(
+            "/read/c1",
+            get(|| async {
+                (
+                    [(CONTENT_TYPE, "text/x-component")],
+                    "1:[[\"b\",\"/p/2.jpg\"],[\"a\",\"/p/1.jpg\"]]\n0:{\"images\":\"$Q1\",\"count\":2}\n",
+                )
+            }),
+        );
+    let address = serve(app);
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturenext",
+        "https://next.example",
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            NEXT_BUILD,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturenext/FixtureNext.kt",
+                NEXT_SOURCE,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, address).await;
+    let provider = "mihon.en.fixturenext/4242";
+
+    let popular = host
+        .manga_list(provider, crate::manga::MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let titles: Vec<&str> = popular
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(titles, ["One", "$Two"], "the flight stream's rows, joined");
+    assert_eq!(popular.items[0].id, "/series/one");
+
+    let found = host.manga_search(provider, "x", 1).await.unwrap();
+    assert_eq!(
+        found.items[0].title, "X Marks",
+        "`__NEXT_DATA__`, by another name"
+    );
+    assert!(found.has_next_page);
+
+    let details = host.manga_details(provider, "/series/one").await.unwrap();
+    assert_eq!(details.title, "One");
+    assert_eq!(details.description.as_deref(), Some("Hello"), "a text row");
+    assert_eq!(details.genres, ["Action", "Comedy"], "a set");
+    let chapters = host.manga_chapters(provider, "/series/one").await.unwrap();
+    assert_eq!(chapters[0].id, "/read/c1", "a path into another row");
+
+    let pages = host.manga_pages(provider, "/read/c1").await.unwrap();
+    let urls: Vec<&str> = pages.iter().map(|page| page.url.as_str()).collect();
+    assert_eq!(
+        urls,
+        [
+            format!("http://{address}/p/2.jpg").as_str(),
+            format!("http://{address}/p/1.jpg").as_str()
+        ],
+        "a map"
+    );
+}
+
 #[test]
 fn code_the_runtime_lacks_is_refused_by_name() {
     let extension = extension(

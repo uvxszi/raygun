@@ -4,7 +4,6 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use futures_util::StreamExt;
 use reqwest::Url;
@@ -264,6 +263,18 @@ async fn mihon_convert_survey() {
                     );
                 }
                 let package = convert::package(extension, &result, &store.name, None).unwrap();
+                // `MIHON_SURVEY_PACKAGES=<dir>` keeps each package as a folder the host's `call`
+                // example loads.
+                if let Some(dir) = std::env::var_os("MIHON_SURVEY_PACKAGES").map(PathBuf::from) {
+                    let folder = dir.join(&extension.pkg);
+                    for (name, bytes) in package.files() {
+                        let path = folder.join(name);
+                        if let Some(parent) = path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        let _ = std::fs::write(path, bytes);
+                    }
+                }
                 convert::validate(&package, extension.sources.len())
                     .await
                     .map_err(|error| {
@@ -287,14 +298,15 @@ async fn mihon_convert_survey() {
                 slot.1 += 1;
             }
             Err(reason) => {
-                // `MIHON_SURVEY_DETAIL=<theme>` lists that theme's refusals one by one; code
-                // Raygun couldn't parse is always listed.
+                // `MIHON_SURVEY_DETAIL=<theme>` (or `*`) lists that theme's refusals one by one;
+                // code Raygun couldn't parse is always listed.
                 let detail = std::env::var("MIHON_SURVEY_DETAIL").ok();
                 let theme = code
                     .build_file()
                     .and_then(|build| super::gradle::read(build).theme)
                     .unwrap_or_else(|| "(none)".to_owned());
                 if detail.as_deref() == Some(theme.as_str())
+                    || detail.as_deref() == Some("*")
                     || reason.contains("couldn't read its code")
                 {
                     println!("  {}: {reason}", extension.pkg);
@@ -407,8 +419,94 @@ async fn loaded(extension: &StoreExtension, converted: &Converted) -> Option<Ext
     Some(host)
 }
 
-/// The first popular page of a sample of converted sources (`MIHON_SAMPLE`, default 24): how many
-/// answer with titles.
+/// What one sampled source answers: its first popular page, then the first title's details,
+/// chapters and a chapter's pages (the oldest one first, as newer ones may be locked).
+async fn sample_one(
+    extension: StoreExtension,
+    converted: Converted,
+) -> Option<(String, [bool; 4])> {
+    let host = loaded(&extension, &converted).await?;
+    let id = index::extension_id(&extension.pkg)?;
+    let provider = format!("{id}/{}", extension.sources[0].id);
+    let theme = converted.theme.as_deref().unwrap_or("-").to_owned();
+    let wait = std::time::Duration::from_secs(40);
+    let first_line = |error: String| error.lines().next().unwrap_or_default().to_owned();
+    let mut stages = [false; 4];
+    let listing = match tokio::time::timeout(
+        wait,
+        host.manga_list(&provider, crate::manga::MangaList::Popular, 1),
+    )
+    .await
+    {
+        Ok(Ok(listing)) if !listing.items.is_empty() => listing,
+        Ok(Ok(_)) => return Some((format!("empty {} ({theme})", extension.name), stages)),
+        Ok(Err(error)) => {
+            return Some((
+                format!("fail  {}: {}", extension.name, first_line(error)),
+                stages,
+            ));
+        }
+        Err(_) => return Some((format!("slow  {}", extension.name), stages)),
+    };
+    stages[0] = true;
+    let title = &listing.items[0];
+    let mut line = format!(
+        "ok    {} ({theme}): {} titles, first {:?}",
+        extension.name,
+        listing.items.len(),
+        title.title
+    );
+    match tokio::time::timeout(wait, host.manga_details(&provider, &title.id)).await {
+        Ok(Ok(_)) => stages[1] = true,
+        Ok(Err(error)) => line.push_str(&format!("; details: {}", first_line(error))),
+        Err(_) => line.push_str("; details: slow"),
+    }
+    let chapters = match tokio::time::timeout(wait, host.manga_chapters(&provider, &title.id)).await
+    {
+        Ok(Ok(chapters)) if !chapters.is_empty() => chapters,
+        Ok(Ok(_)) => {
+            line.push_str("; no chapters");
+            return Some((line, stages));
+        }
+        Ok(Err(error)) => {
+            line.push_str(&format!("; chapters: {}", first_line(error)));
+            return Some((line, stages));
+        }
+        Err(_) => {
+            line.push_str("; chapters: slow");
+            return Some((line, stages));
+        }
+    };
+    stages[2] = true;
+    let mut tried = vec![&chapters[chapters.len() - 1]];
+    if chapters.len() > 1 {
+        tried.push(&chapters[0]);
+    }
+    let mut problem = String::new();
+    for chapter in tried {
+        match tokio::time::timeout(wait, host.manga_pages(&provider, &chapter.id)).await {
+            Ok(Ok(pages)) if !pages.is_empty() => {
+                stages[3] = true;
+                line.push_str(&format!(
+                    "; {} chapters, {} pages",
+                    chapters.len(),
+                    pages.len()
+                ));
+                break;
+            }
+            Ok(Ok(_)) => problem = "no pages".to_owned(),
+            Ok(Err(error)) => problem = format!("pages: {}", first_line(error)),
+            Err(_) => problem = "pages: slow".to_owned(),
+        }
+    }
+    if !stages[3] {
+        line.push_str(&format!("; {} chapters, {problem}", chapters.len()));
+    }
+    Some((line, stages))
+}
+
+/// A sample of converted sources (`MIHON_SAMPLE`, default 24), a few at a time: how many list
+/// their popular titles, and of those how many give details, chapters and pages.
 #[tokio::test]
 #[ignore = "network"]
 async fn mihon_popular_live() {
@@ -440,47 +538,21 @@ async fn mihon_popular_live() {
         .collect();
     let step = (candidates.len() / sample.max(1)).max(1);
     let picked: Vec<_> = candidates.into_iter().step_by(step).take(sample).collect();
-    let answered = Arc::new(std::sync::Mutex::new(Vec::new()));
-    for (extension, converted) in &picked {
-        let Some(host) = loaded(extension, converted).await else {
-            continue;
-        };
-        let Some(id) = index::extension_id(&extension.pkg) else {
-            continue;
-        };
-        let provider = format!("{id}/{}", extension.sources[0].id);
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(40),
-            host.manga_list(&provider, crate::manga::MangaList::Popular, 1),
-        )
+    let results: Vec<(String, [bool; 4])> = futures_util::stream::iter(picked)
+        .map(|(extension, converted)| sample_one(extension, converted))
+        .buffer_unordered(6)
+        .filter_map(|result| async move { result })
+        .inspect(|(line, _)| println!("{line}"))
+        .collect()
         .await;
-        let line = match result {
-            Ok(Ok(listing)) if !listing.items.is_empty() => {
-                format!(
-                    "ok    {} ({}): {} titles, first {:?}",
-                    extension.name,
-                    converted.theme.as_deref().unwrap_or("-"),
-                    listing.items.len(),
-                    listing.items[0].title
-                )
-            }
-            Ok(Ok(_)) => format!(
-                "empty {} ({})",
-                extension.name,
-                converted.theme.as_deref().unwrap_or("-")
-            ),
-            Ok(Err(error)) => format!(
-                "fail  {}: {}",
-                extension.name,
-                error.lines().next().unwrap_or_default()
-            ),
-            Err(_) => format!("slow  {}", extension.name),
-        };
-        println!("{line}");
-        answered.lock().unwrap().push(line);
-    }
-    let lines = answered.lock().unwrap();
-    let ok = lines.iter().filter(|line| line.starts_with("ok")).count();
-    println!("{ok} of {} sampled sources listed titles", lines.len());
+    let count = |stage: usize| results.iter().filter(|(_, stages)| stages[stage]).count();
+    let ok = count(0);
+    println!("{ok} of {} sampled sources listed titles", results.len());
+    println!(
+        "of those, {} gave details, {} chapters, {} pages",
+        count(1),
+        count(2),
+        count(3)
+    );
     assert!(ok > 0);
 }

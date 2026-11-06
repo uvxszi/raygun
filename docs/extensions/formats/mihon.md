@@ -100,8 +100,11 @@ mihon.source({
 Every call is awaited, as a `suspend` function's would be. Member calls go through
 `mihon/kotlin.js` (`KT`), which knows at run time what a value is: Kotlin's standard library on
 strings, lists, maps and numbers, Jsoup on documents, OkHttp's requests, URLs and responses,
-kotlinx.serialization (JSON decoded into the declared classes, `@SerialName` included),
-coroutines (`async`/`awaitAll`, `Mutex`, `Semaphore`), `Calendar`, `java.time` dates and zones.
+kotlinx.serialization (JSON decoded into the declared classes, `@SerialName` and `@JsonNames`
+included), Keiyoushi's Next.js helpers (`extractNextJs`, `extractNextJsRsc`: the App Router's
+flight stream with its references resolved, or `__NEXT_DATA__`, searched with the predicate or
+the type's required fields), coroutines (`async`/`awaitAll`, `Mutex`, `Semaphore`), `Calendar`,
+`java.time` dates and zones.
 A local shadowing a parameter (`val page = page + 1`) gets a name of its own, and default
 arguments are worked out in the body, in order.
 
@@ -151,8 +154,8 @@ Anything else is refused with the reason, which the catalogue then shows for tha
 - an interceptor drawing pictures (image descrambling other than the two recipes above);
 - one of Keiyoushi's libraries (`lib:speedbinb`, `lib:unpacker`, `lib:textinterceptor`…);
 - a call, object or name the runtime doesn't have (`emit::METHODS`, `GLOBALS` and `OBJECTS`,
-  which a test keeps equal to `kotlin.js`'s tables), such as Next.js page data
-  (`extractNextJs`), a cookie jar read in code (`loadForRequest`), `textNodes()` or WebViews;
+  which a test keeps equal to `kotlin.js`'s tables), such as a cookie jar read in code
+  (`loadForRequest`), `textNodes()` or WebViews;
 - what JavaScript can't say: `break` or `continue` out of a lambda, a vararg before other
   parameters;
 - code that runs when the source starts (`init`).

@@ -735,9 +735,10 @@ fn class_definition(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, S
         ClassKind::Class => "class",
     };
     Ok(format!(
-        "D.{name} = KT.defineClass({{ name: {quoted}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, defaults: {{{defaults}}}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}} }});",
+        "D.{name} = KT.defineClass({{ name: {quoted}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}} }});",
         name = class.name,
         quoted = quote(&class.name),
+        required = serde_json::to_string(&required_fields(class)).unwrap_or_else(|_| "[]".into()),
         type_params = class
             .type_params
             .iter()
@@ -897,12 +898,14 @@ pub fn convert(
     }
     // A value read as `json` decodes with names the DTOs spell (`@SerialName`).
     let renames = serial_names(&all_files);
+    let aliases = json_aliases(&all_files);
     let code = format!(
-        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  messages: {messages},\n  imageRecipe: {recipe},\n  layers: [\n{layers}\n  ],\n}});\n",
+        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  aliases: {aliases},\n  messages: {messages},\n  imageRecipe: {recipe},\n  layers: [\n{layers}\n  ],\n}});\n",
         name = extension.name.replace(['\n', '\r'], " "),
         pkg = extension.pkg,
         sources = sources_json(extension),
         renames = serde_json::to_string(&renames).unwrap_or_else(|_| "{}".into()),
+        aliases = serde_json::to_string(&aliases).unwrap_or_else(|_| "{}".into()),
         messages = serde_json::to_string(messages).unwrap_or_else(|_| "{}".into()),
         recipe = image_recipe.map_or_else(|| "null".to_owned(), quote),
         layers = layers.join("\n"),
@@ -978,18 +981,8 @@ fn member_mentions(
     found
 }
 
-/// The JSON names DTO properties are read by (`@SerialName("manga_id") val id`), by property name.
-fn serial_names(files: &[(String, File)]) -> HashMap<String, String> {
-    let mut names = HashMap::new();
-    let mut visit = |class: &ClassDecl| {
-        for param in &class.params {
-            for annotation in &param.annotations {
-                if let Some(serial) = annotation.strip_prefix("SerialName=") {
-                    names.insert(param.name.clone(), serial.to_owned());
-                }
-            }
-        }
-    };
+/// Every class the files declare, nested ones too.
+fn all_classes(files: &[(String, File)]) -> Vec<&ClassDecl> {
     fn walk<'a>(members: &'a [Member], found: &mut Vec<&'a ClassDecl>) {
         for member in members {
             if let Member::Class(class) = member {
@@ -1002,8 +995,67 @@ fn serial_names(files: &[(String, File)]) -> HashMap<String, String> {
     for (_, file) in files {
         walk(&file.members, &mut classes);
     }
-    for class in classes {
-        visit(class);
+    classes
+}
+
+/// The JSON names DTO properties are read by (`@SerialName("manga_id") val id`), by property name.
+fn serial_names(files: &[(String, File)]) -> HashMap<String, String> {
+    let mut names = HashMap::new();
+    for class in all_classes(files) {
+        for param in &class.params {
+            for annotation in &param.annotations {
+                if let Some(serial) = annotation.strip_prefix("SerialName=") {
+                    names.insert(param.name.clone(), serial.to_owned());
+                }
+            }
+        }
     }
     names
+}
+
+/// A property's other JSON names (`@JsonNames("results", "manga_list")`).
+fn other_names(param: &super::kotlin::ast::Param) -> impl Iterator<Item = &str> {
+    param
+        .annotations
+        .iter()
+        .filter_map(|annotation| annotation.strip_prefix("JsonNames="))
+        .flat_map(|names| names.split('\u{1f}'))
+        .filter(|name| !name.is_empty())
+}
+
+/// The other JSON names DTO properties are read by, by property name.
+fn json_aliases(files: &[(String, File)]) -> HashMap<String, Vec<String>> {
+    let mut names: HashMap<String, Vec<String>> = HashMap::new();
+    for class in all_classes(files) {
+        for param in &class.params {
+            for other in other_names(param) {
+                let known = names.entry(param.name.clone()).or_default();
+                if !known.iter().any(|name| name == other) {
+                    known.push(other.to_owned());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// A DTO's required JSON fields, each with its other names: those neither optional (with a
+/// default) nor nullable, as kotlinx.serialization's descriptor marks them.
+fn required_fields(class: &ClassDecl) -> Vec<Vec<String>> {
+    class
+        .params
+        .iter()
+        .filter(|param| param.default.is_none() && !param.ty.nullable && param.property)
+        .map(|param| {
+            let serial = param
+                .annotations
+                .iter()
+                .find_map(|annotation| annotation.strip_prefix("SerialName="))
+                .unwrap_or(&param.name);
+            std::iter::once(serial)
+                .chain(other_names(param))
+                .map(str::to_owned)
+                .collect()
+        })
+        .collect()
 }
