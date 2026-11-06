@@ -1592,6 +1592,14 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         invoke.resolve()
     }
 
+    /** `{"id"}`: takes away the notice [notice] showed with it. */
+    @Command
+    fun noticeCancel(invoke: Invoke) {
+        val id = invoke.getArgs().optInt("id")
+        main.post { Notices.cancel(activity.applicationContext, id) }
+        invoke.resolve()
+    }
+
     /** A tapped notification: the screen it opens, and a button pressed on it. */
     private fun takeOpenExtras(intent: Intent?) {
         val extras = intent ?: return

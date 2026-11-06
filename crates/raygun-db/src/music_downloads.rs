@@ -463,7 +463,23 @@ pub async fn requeue_recordings(db: &Db, now_ms: i64) -> Result<u64, DbError> {
     .rows_affected())
 }
 
-/// How many songs wait to be recorded (`queued`: also those queued or being recorded).
+/// Songs waiting to be recorded for one reason (the `error` they say) go back to the queue, at
+/// the back: what they waited for is there. Returns how many.
+pub async fn requeue_recordings_saying(db: &Db, error: &str, now_ms: i64) -> Result<u64, DbError> {
+    Ok(sqlx::query(
+        "UPDATE local_music_download
+            SET state = 'queued', error = NULL, error_detail = NULL, finished_at = NULL,
+                queued_at = ?2
+          WHERE state = 'failed' AND kind = 'recording' AND error = ?1",
+    )
+    .bind(error)
+    .bind(now_ms)
+    .execute(db.pool())
+    .await?
+    .rows_affected())
+}
+
+/// How many songs wait to be recorded (`queued`: those queued or being recorded instead).
 pub async fn recordings(db: &Db, queued: bool) -> Result<u32, DbError> {
     let states = if queued {
         "('queued', 'downloading')"
@@ -885,6 +901,44 @@ mod tests {
             0,
             "none waits now"
         );
+    }
+
+    #[tokio::test]
+    async fn songs_waiting_for_one_reason_go_back_to_the_queue() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let (window, _) = enqueue(&db, &song("a|window"), 1).await.unwrap();
+        let (consent, _) = enqueue(&db, &song("a|consent"), 2).await.unwrap();
+        let (other, _) = enqueue(&db, &song("a|other"), 3).await.unwrap();
+        for (id, error) in [
+            (&window, "Waits to be recorded until Raygun is open."),
+            (&consent, "Waits to be recorded as it plays."),
+        ] {
+            set_failed(&db, id, error, None, 4).await.unwrap();
+            set_kind(&db, id, Some(RECORDING)).await.unwrap();
+        }
+        set_failed(
+            &db,
+            &other,
+            "Waits to be recorded until Raygun is open.",
+            None,
+            4,
+        )
+        .await
+        .unwrap();
+
+        let queued =
+            requeue_recordings_saying(&db, "Waits to be recorded until Raygun is open.", 10)
+                .await
+                .unwrap();
+        assert_eq!(queued, 1, "only the recording that waited for that");
+        let row = get(&db, &window).await.unwrap().unwrap();
+        assert_eq!(
+            (row.state.as_str(), row.kind.as_deref(), row.error),
+            (QUEUED, Some(RECORDING), None)
+        );
+        assert_eq!(get(&db, &consent).await.unwrap().unwrap().state, FAILED);
+        assert_eq!(get(&db, &other).await.unwrap().unwrap().state, FAILED);
     }
 
     #[tokio::test]

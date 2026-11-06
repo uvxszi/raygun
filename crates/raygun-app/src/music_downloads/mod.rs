@@ -109,6 +109,13 @@ enum Stop {
     Removed,
 }
 
+/// What a song waiting for Raygun's window to record it says ([`RecordWait::Window`]); songs
+/// that say it when Raygun starts are queued again.
+const WAITS_FOR_WINDOW: &str = "Waits to be recorded until Raygun is open.";
+
+/// The notification saying songs wait for Raygun to be open to be recorded.
+const WINDOW_NOTICE: &str = "downloads.recordWhenOpen";
+
 /// Why a song that plays only in YouTube's player waits to be recorded as it plays (Android).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RecordWait {
@@ -118,6 +125,9 @@ enum RecordWait {
     Quiet,
     /// The person stopped its recording.
     Stopped,
+    /// Raygun's window is gone (Android: Raygun was swiped away while downloads carried on), and
+    /// with it the recording's player: recorded once Raygun is open again.
+    Window,
 }
 
 impl RecordWait {
@@ -136,6 +146,11 @@ impl RecordWait {
             Self::Stopped => (
                 "Recording stopped. Tap Retry to record it.",
                 "It's recorded as it plays, in real time.",
+            ),
+            Self::Window => (
+                WAITS_FOR_WINDOW,
+                "It's recorded as it plays in YouTube's player, which needs Raygun open, so it \
+                 waits until Raygun is open again.",
             ),
         };
         Message {
@@ -250,6 +265,8 @@ pub struct SongDownloadService {
     recording_declined: AtomicBool,
     /// Songs waiting until Raygun's player is quiet are watched for it.
     quiet_watch: AtomicBool,
+    /// Songs waiting until Raygun's window is back are watched for it.
+    window_watch: AtomicBool,
 }
 
 impl SongDownloadService {
@@ -273,6 +290,7 @@ impl SongDownloadService {
             auto_retries: Mutex::new(HashMap::new()),
             recording_declined: AtomicBool::new(false),
             quiet_watch: AtomicBool::new(false),
+            window_watch: AtomicBool::new(false),
         })
     }
 
@@ -292,6 +310,21 @@ impl SongDownloadService {
                     tracing::info!(count, "song downloads YouTube had are queued again")
                 }
                 Err(error) => tracing::warn!(%error, "could not queue YouTube's songs again"),
+            }
+            // Raygun is open again: songs that waited for it to be recorded are queued.
+            match store::requeue_recordings_saying(&db, WAITS_FOR_WINDOW, now_ms()).await {
+                Ok(0) => {}
+                Ok(count) => {
+                    tracing::info!(
+                        count,
+                        "songs waiting for Raygun's window to be recorded are queued"
+                    );
+                    let id = crate::notifications::notice_id(WINDOW_NOTICE);
+                    crate::notifications::cancel_notice(&service.app, id).await;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "could not queue the songs waiting to be recorded")
+                }
             }
             match store::done(&db).await {
                 Ok(rows) => {
@@ -528,7 +561,7 @@ impl SongDownloadService {
 
     /// A song only YouTube's player plays waits to be recorded as it plays (Android): failed,
     /// saying why, marked to be recorded; the person is asked to allow recording, or it's queued
-    /// again once Raygun's player is quiet.
+    /// again once Raygun's player is quiet or its window is back.
     async fn wait_to_record(
         &self,
         row: &SongDownloadRow,
@@ -540,6 +573,7 @@ impl SongDownloadService {
         match wait {
             RecordWait::Consent => self.ask_to_record().await,
             RecordWait::Quiet => self.record_when_quiet(),
+            RecordWait::Window => self.record_when_open().await,
             RecordWait::Stopped => {}
         }
         Ok(())
@@ -563,7 +597,8 @@ impl SongDownloadService {
     }
 
     /// Songs waiting until Raygun's player is quiet go back to the queue once it is (watched
-    /// every few seconds, by one watch at a time), while recording is allowed.
+    /// every few seconds, by one watch at a time). The consent to record is kept meanwhile; if
+    /// Android took it back, they ask for it again.
     fn record_when_quiet(&self) {
         if self.quiet_watch.swap(true, Ordering::SeqCst) {
             return;
@@ -577,9 +612,48 @@ impl SongDownloadService {
                 }
                 let service = app.state::<Arc<SongDownloadService>>().inner().clone();
                 service.quiet_watch.store(false, Ordering::SeqCst);
-                if capture::record::ready(&app).await {
-                    service.queue_recordings().await;
+                service.queue_recordings().await;
+                return;
+            }
+        });
+    }
+
+    /// Songs waiting until Raygun's window is back (Android: Raygun was swiped away while
+    /// downloads carried on) go back to the queue once its page listens again (watched every
+    /// few seconds, by one watch at a time); until then a notification says they wait. The
+    /// consent to record is kept meanwhile; if Android took it back, they ask for it again.
+    async fn record_when_open(&self) {
+        let songs = store::recordings(&self.db(), false)
+            .await
+            .unwrap_or(1)
+            .max(1);
+        let (title, text) = window_notice(songs);
+        crate::notifications::show_notice(
+            &self.app,
+            crate::notifications::Notice {
+                id: crate::notifications::notice_id(WINDOW_NOTICE),
+                channel: &crate::notifications::PLAYBACK,
+                title,
+                text,
+                route: "/downloads?tab=music".to_owned(),
+            },
+        )
+        .await;
+        if self.window_watch.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                if !capture::record::window_open(&app) {
+                    continue;
                 }
+                let service = app.state::<Arc<SongDownloadService>>().inner().clone();
+                service.window_watch.store(false, Ordering::SeqCst);
+                let id = crate::notifications::notice_id(WINDOW_NOTICE);
+                crate::notifications::cancel_notice(&app, id).await;
+                service.queue_recordings().await;
                 return;
             }
         });
@@ -598,10 +672,13 @@ impl SongDownloadService {
         }
     }
 
-    /// No song is queued or recorded anymore: the consent to record goes back (and Android's
-    /// notice that Raygun records).
+    /// No song is queued, recorded or waiting to be on its own (for Raygun's player to be quiet,
+    /// or its window to be back) anymore: the consent to record goes back (and Android's notice
+    /// that Raygun records).
     async fn end_recording_if_done(&self) {
         if !capture::record::available(&self.app)
+            || self.quiet_watch.load(Ordering::SeqCst)
+            || self.window_watch.load(Ordering::SeqCst)
             || store::recordings(&self.db(), true).await.unwrap_or(1) > 0
         {
             return;
@@ -1040,11 +1117,15 @@ impl SongDownloadService {
         }
 
         // 6. Android, when nothing else saved it: a song YouTube's player plays is recorded as it
-        // plays, in real time, once recording is allowed and Raygun's player is quiet.
+        // plays, in real time, in Raygun's window, once recording is allowed and Raygun's player
+        // is quiet.
         if let Some((video_id, origin)) = attempts.video_to_record()
             && capture::record::available(&self.app)
             && !self.stopped(&row.id)
         {
+            if !capture::record::window_open(&self.app) {
+                return Err(Failure::Recording(RecordWait::Window));
+            }
             if !capture::record::ready(&self.app).await {
                 return Err(Failure::Recording(RecordWait::Consent));
             }
@@ -1055,12 +1136,14 @@ impl SongDownloadService {
                     return Err(Failure::Error(device_message(&error)));
                 }
                 Err(CaptureFailure::Interrupted) => {
-                    let allowed = capture::record::ready(&self.app).await;
-                    return Err(Failure::Recording(if allowed {
+                    let wait = if !capture::record::window_open(&self.app) {
+                        RecordWait::Window
+                    } else if capture::record::ready(&self.app).await {
                         RecordWait::Quiet
                     } else {
                         RecordWait::Consent
-                    }));
+                    };
+                    return Err(Failure::Recording(wait));
                 }
                 Err(CaptureFailure::Failed(error)) => {
                     tracing::info!(song = %row.song.track_key, %error, "couldn't record a song");
@@ -2673,6 +2756,25 @@ fn unique<'a>(names: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
         }
     }
     seen
+}
+
+/// The notification's title and text while `songs` wait for Raygun's window to be recorded.
+fn window_notice(songs: u32) -> (String, String) {
+    if songs == 1 {
+        (
+            "1 song waits to be recorded".to_owned(),
+            "It's recorded as it plays in YouTube's player, which needs Raygun open. Open Raygun \
+             to record it."
+                .to_owned(),
+        )
+    } else {
+        (
+            format!("{songs} songs wait to be recorded"),
+            "They're recorded as they play in YouTube's player, which needs Raygun open. Open \
+             Raygun to record them."
+                .to_owned(),
+        )
+    }
 }
 
 /// What went wrong when the song couldn't be written on this device.

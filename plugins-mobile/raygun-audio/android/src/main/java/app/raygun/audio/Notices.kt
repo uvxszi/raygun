@@ -51,4 +51,9 @@ object Notices {
             Log.w("RaygunAudio", "notifications aren't allowed", error)
         }
     }
+
+    /** Takes away the notice shown with `id`: what it said is over. Main thread. */
+    fun cancel(context: Context, id: Int) {
+        NotificationManagerCompat.from(context).cancel(TAG, id)
+    }
 }

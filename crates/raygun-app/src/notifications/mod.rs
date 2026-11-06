@@ -68,11 +68,11 @@ pub const RELEASES: NoticeChannel = NoticeChannel {
     description: "Releases from artists you follow",
 };
 
-/// The player stopping on its own: a song YouTube's player plays needs Raygun open.
+/// What waits for Raygun to be open: a song in YouTube's player paused, songs to record.
 pub const PLAYBACK: NoticeChannel = NoticeChannel {
     id: "raygun.playback",
     name: "Playback",
-    description: "Songs Raygun had to pause",
+    description: "Songs that wait for Raygun to be open",
 };
 
 /// A notification besides the downloads' own that opens a screen when tapped.
@@ -116,6 +116,14 @@ pub fn notice_id(key: &str) -> i32 {
 pub async fn show_notice(app: &AppHandle, notice: Notice) {
     if let Err(error) = platform::notice(app, &notice).await {
         tracing::debug!(%error, title = %notice.title, "couldn't show a notification");
+    }
+}
+
+/// Takes away the notification [`show_notice`] showed with `id`: what it said is over (Android;
+/// desktop notifications go on their own).
+pub async fn cancel_notice(app: &AppHandle, id: i32) {
+    if let Err(error) = platform::cancel_notice(app, id).await {
+        tracing::debug!(%error, id, "couldn't take a notification away");
     }
 }
 
@@ -1120,6 +1128,16 @@ mod platform {
         .await
         .map_err(|error| error.to_string())?
     }
+
+    pub async fn cancel_notice(app: &AppHandle, id: i32) -> Result<(), String> {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .notice_cancel(id)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1186,6 +1204,11 @@ mod platform {
             .extra("route", &notice.route)
             .show()
             .map_err(|error| error.to_string())
+    }
+
+    /// The system keeps desktop notifications in its own list, which the person clears.
+    pub async fn cancel_notice(_app: &AppHandle, _id: i32) -> Result<(), String> {
+        Ok(())
     }
 }
 

@@ -108,9 +108,17 @@ pub(crate) fn player_busy(app: &AppHandle) -> bool {
     })
 }
 
-/// A recording starts only while Raygun's player is quiet; else it waits to be recorded again.
+/// Whether Raygun's window is open, its page listening: the recording's player plays in it
+/// (Android: the window goes with Raygun's activity, which can close while downloads carry on).
+pub(crate) fn window_open(app: &AppHandle) -> bool {
+    app.try_state::<PlaybackService>()
+        .is_none_or(|playback| playback.webview_present())
+}
+
+/// A recording starts only while Raygun's window is open and its player quiet; else it waits to
+/// be recorded again.
 pub(crate) async fn wait_until_quiet(app: &AppHandle, stop: &Notify) -> Result<(), CaptureError> {
-    if player_busy(app) {
+    if player_busy(app) || !window_open(app) {
         return Err(CaptureError::Interrupted);
     }
     // The consent can go away between songs (Android's own Stop on its notice).
@@ -264,7 +272,8 @@ impl Follow {
 }
 
 /// Follows a run: the player's reports and the recorder's pieces (four times a second), as the
-/// capture's [`Report`]s; stops when Raygun's own player plays.
+/// capture's [`Report`]s; stops when Raygun's own player plays, or Raygun's window (with the
+/// recording's player) goes.
 async fn follow_run(
     app: AppHandle,
     session: String,
@@ -314,7 +323,7 @@ async fn follow_run(
                     let _ = sender.send(error);
                     return;
                 }
-                if player_busy(&app) {
+                if player_busy(&app) || !window_open(&app) {
                     let _ = sender.send(Report::Interrupted);
                     return;
                 }

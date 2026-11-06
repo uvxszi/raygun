@@ -30,6 +30,9 @@ use crate::sound::{SoundService, Tuning};
 /// songs first (an audiobook's feed) take a while, a play that failed never comes.
 const ARMED_FOR: Duration = Duration::from_secs(60);
 
+/// The notification saying a song in YouTube's player paused until Raygun is open.
+const NEEDS_WINDOW_NOTICE: &str = "playback.needsWindow";
+
 /// Delivers one command to a native engine.
 pub type NativeEngineSink = Box<dyn Fn(&EngineCommand) -> Result<(), String> + Send + Sync>;
 
@@ -319,12 +322,23 @@ impl PlaybackService {
         self.move_off_webview();
     }
 
+    /// Whether Raygun's webview is there (Android: it goes with Raygun's activity).
+    pub fn webview_present(&self) -> bool {
+        self.webview.load(Ordering::SeqCst)
+    }
+
     /// A webview is back and its engines listen: a song left in YouTube's player loads there
     /// again, as it was (paused).
     pub fn webview_back(&self) {
         if self.webview.swap(true, Ordering::SeqCst) {
             return;
         }
+        // What the notification asked (open Raygun) is done.
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let id = crate::notifications::notice_id(NEEDS_WINDOW_NOTICE);
+            crate::notifications::cancel_notice(&app, id).await;
+        });
         let mut outbox = Outbox::default();
         {
             let mut inner = self.lock();
@@ -420,7 +434,7 @@ impl PlaybackService {
         crate::notifications::show_notice(
             &self.app,
             crate::notifications::Notice {
-                id: crate::notifications::notice_id("playback.needsWindow"),
+                id: crate::notifications::notice_id(NEEDS_WINDOW_NOTICE),
                 channel: &crate::notifications::PLAYBACK,
                 title: format!("{} is paused", item.title),
                 text:

@@ -879,6 +879,14 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Takes away a notification [`Self::notice`] showed (its `id`): what it said is over.
+    #[cfg(target_os = "android")]
+    pub fn notice_cancel(&self, id: i32) -> Result<(), String> {
+        self.run::<serde_json::Value>("noticeCancel", serde_json::json!({ "id": id }))
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Every permission Raygun uses and its state: `{"permissions": [{"kind", "state", "count"}]}`.
     #[cfg(target_os = "android")]
     pub fn permission_states(&self) -> Result<serde_json::Value, String> {
@@ -1086,6 +1094,7 @@ mod tests {
             // Downloads, their files and notifications.
             "downloadsNotify",
             "notice",
+            "noticeCancel",
             "websiteDownloads",
             "captureStart",
             "captureStatus",
