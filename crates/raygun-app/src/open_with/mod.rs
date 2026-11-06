@@ -659,10 +659,40 @@ fn read_tags(head: &[u8]) -> Option<Tags> {
     };
     let tags = Tags {
         title: text(tag.title()),
-        artist: text(tag.artist()),
+        artist: credit(tag.get_strings(lofty::tag::ItemKey::TrackArtist)),
         album: text(tag.album()),
     };
     (tags != Tags::default()).then_some(tags)
+}
+
+/// A song's artists as one credit, the way Raygun shows several ("Daft Punk, Pharrell
+/// Williams"): every artist value a tag holds (ID3v2.4 and Vorbis comments hold several), each
+/// split into the names taggers put together in one ([`artist_names`]), each name once.
+fn credit<'a>(values: impl Iterator<Item = &'a str>) -> Option<String> {
+    let mut names: Vec<&str> = Vec::new();
+    for name in values.flat_map(artist_names) {
+        if !names.iter().any(|seen| seen.eq_ignore_ascii_case(name)) {
+            names.push(name);
+        }
+    }
+    (!names.is_empty()).then(|| names.join(", "))
+}
+
+/// The names in one artist value: split at `;` and NUL (ID3v2.4's separator, where a reader left
+/// it in), and at `/` (ID3v2.3's) when the names on both sides are longer than two characters,
+/// so "AC/DC" and "Au/Ra" stay whole.
+fn artist_names(value: &str) -> Vec<&str> {
+    let mut names = Vec::new();
+    for part in value.split([';', '\0']) {
+        let pieces: Vec<&str> = part.split('/').map(str::trim).collect();
+        if pieces.len() > 1 && pieces.iter().all(|piece| piece.chars().count() > 2) {
+            names.extend(pieces);
+        } else {
+            names.push(part.trim());
+        }
+    }
+    names.retain(|name| !name.is_empty());
+    names
 }
 
 /// A song or stream at a web address, named by its playlist entry, else its tags (read from its
