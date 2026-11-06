@@ -194,6 +194,8 @@ export const SourcesPage: FC = () => {
     setOrder.mutate(ids);
   };
   const narrowed = query.trim() !== '' || media !== undefined;
+  // With no repository yet (a new install starts with none), All suggests one too.
+  const noRepos = !repos.isPending && allRepos.length === 0;
   const loading = repos.isPending || addons.isPending || servers.isPending || extensions.isPending;
   const nothing =
     !loading &&
@@ -293,18 +295,19 @@ export const SourcesPage: FC = () => {
           {t(narrowed ? 'sources.page.noMatches' : 'sources.page.empty')}
         </p>
       )}
-      {of('repositories') && (shownRepos.length > 0 || (type === 'repositories' && !narrowed)) && (
-        <Section title={t('sources.page.type.repositories')}>
-          {shownRepos.length > 0 && (
-            <ul className="flex flex-col gap-2">
-              {shownRepos.map(({ repo }) => (
-                <RepoRow key={repo.id} repo={repo} listing={listings.get(repo.id)} />
-              ))}
-            </ul>
-          )}
-          {!narrowed && <SuggestedRepos />}
-        </Section>
-      )}
+      {of('repositories') &&
+        (shownRepos.length > 0 || (!narrowed && (type === 'repositories' || noRepos))) && (
+          <Section title={t('sources.page.type.repositories')}>
+            {shownRepos.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {shownRepos.map(({ repo }) => (
+                  <RepoRow key={repo.id} repo={repo} listing={listings.get(repo.id)} />
+                ))}
+              </ul>
+            )}
+            {!narrowed && <SuggestedRepos />}
+          </Section>
+        )}
       {of('addons') && (shownAddons.length > 0 || (type === 'addons' && !narrowed)) && (
         <Section title={t('sources.page.type.addons')}>
           {shownAddons.length > 0 && (
