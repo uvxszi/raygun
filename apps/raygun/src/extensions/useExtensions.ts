@@ -71,6 +71,13 @@ export const useClearExtensionData = () => {
   });
 };
 
+/** Downloads a Mihon extension's APK and checks it against its store (Allow running source code). */
+export const useMihonApk = () =>
+  useMutation({
+    mutationFn: ({ repoId, id }: { repoId: string; id: string }) =>
+      unwrapResult(commands.extensionMihonApk(repoId, id)),
+  });
+
 /** Opens the site an extension's source reads in Raygun's browser (M46.11). */
 export const useOpenExtensionWebsite = () =>
   useMutation({ mutationFn: (id: string) => unwrapResult(commands.extensionOpenWebsite(id)) });

@@ -239,11 +239,23 @@ only those packages, and `MIHON_SURVEY_DUMP=<dir>` keeps the code of conversions
 (`MIHON_SAMPLE`, 24 by default; `MIHON_SAMPLE_ONLY=<pkg>,…` picks them) of the converted sources
 and asks each for its first popular page.
 
-## Running source code in a container (design)
+## Running source code in a container
 
 A second tier for extensions that can't be converted: their own compiled code, run apart from
-Raygun behind the same `manga.source` interface. It isn't built yet, and neither is its switch;
-this is what it would take.
+Raygun behind the same `manga.source` interface.
+
+**What's built.** Settings → Browse → "Allow running source code (experimental)"
+(`Settings::run_source_code`, off by default, this device only, turned on after its notes are
+read). While it's on, an extension the catalogue lists as unconvertible offers "Download APK"
+(`extension_mihon_apk`, `ExtensionService::download_mihon_apk`): the store's APK is downloaded
+and read without running it (`mihon::apk`: the binary manifest's package, version code,
+`tachiyomi.extension` feature and `tachiyomi.extension.class`; the APK Signature Scheme v2/v3
+block's certificates), and kept in the extensions folder (`.apk/<package>.apk`) only when its
+package, version code and signing certificate's SHA-256 match the store
+(`signingKeyFingerprint`). `mihon_apk_live` checks a few of Keiyoushi's APKs this way.
+
+**What isn't.** The container itself, on either platform: after the check the catalogue says
+"Not available on this device yet". The rest of this section is what it takes.
 
 **Size and download.** Desktop needs a Java runtime: a jlinked JRE 21 with `java.base`,
 `java.net.http`, `java.logging` and `jdk.crypto.ec` is about 45 MB (Adoptium's full JRE 21 is
@@ -283,7 +295,7 @@ desktop there's no `android.graphics`, so image unscramblers (`lib:speedbinb`, `
 ComiciViewer, GigaViewer) need stubs drawing with Java2D, and anything else touching Android
 classes (`Base64`, `Log`, `SharedPreferences`) needs a stub of its own.
 
-**Switch and APK.** The tier would sit behind "Allow running source code" (off by default,
-explained in a source's details). When conversion fails, a source's details offer "Download APK":
-the store's `apk` file, checked against its package, version code and signing key, then run in
-the container on Android or the sidecar on desktop.
+**Next steps.** The extensions-lib and Keiyoushi `core` stubs as a Kotlin library (built with
+the Android plugin, and as a jar for desktop), a JSON-RPC host loading a checked APK's
+`tachiyomi.extension.class`, the desktop JRE and dex2jar fetched with pinned SHA-256s into the
+tools folder, and the Android `:mihon` service; the kept APKs are what they'd load.

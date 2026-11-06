@@ -149,6 +149,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'failingSourcesLast',
       'browseStartTab',
       'manualBrowserChecks',
+      'runSourceCode',
       'autoLoad',
       'userAgent',
       'discovery',

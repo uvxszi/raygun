@@ -12,6 +12,7 @@ import { NO_FILTER, catalogFacets, filterCatalog } from './catalogFilters';
 import type { CatalogFilter, CatalogShow, ExtensionKind } from './catalogFilters';
 import { AdultMark } from '../shell/AdultMark';
 import { EntryInfo } from './EntryInfo';
+import { MihonApkAction } from './MihonApkAction';
 import { entryKey, useInstallQueue } from './installQueue';
 import type { InstallStatus } from './installQueue';
 import { useCatalog } from './useExtensions';
@@ -358,6 +359,8 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
                     {entry.unsupported && (
                       <span className="text-muted text-xs">{entry.unsupported}</span>
                     )}
+                    <MihonApkAction entry={entry} />
+
                     {status?.state === 'failed' && (
                       <SourceIssue compact title={t('extensions.installFailed')} className="mt-1">
                         {status.message}

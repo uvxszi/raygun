@@ -13,6 +13,9 @@ use raygun_db::extensions::{self as store, InstallRow};
 use raygun_ext_host::mihon;
 use raygun_ext_host::nuclear;
 use raygun_ext_host::package::{self, MAX_PACKAGE_BYTES};
+
+/// The largest Mihon APK Raygun downloads (Keiyoushi's are mostly under 1 MB).
+const MAX_APK_BYTES: u64 = 40 * 1024 * 1024;
 use raygun_ext_host::repo::{self, PackageFormat, RepoEntry, RepoIndex};
 use raygun_ext_host::shosetsu;
 use raygun_ext_host::{
@@ -1368,6 +1371,58 @@ impl ExtensionService {
             PackageFormat::Mihon => unreachable!("converted before downloading"),
         };
         self.finish_install(&repo, entry, verified, phase).await
+    }
+
+    /// Downloads a Mihon extension's APK from its store and checks it against the store's entry
+    /// (package, version code, signing key) before keeping it in the extensions folder
+    /// (`.apk/<package>.apk`). Running it needs a container for its own code, which this device
+    /// doesn't have yet: the answer says so.
+    pub async fn download_mihon_apk(
+        &self,
+        repo_id: &str,
+        entry_id: &str,
+    ) -> Result<raygun_model::MihonApk, String> {
+        let repo = self
+            .repos()
+            .await?
+            .into_iter()
+            .find(|repo| repo.id == repo_id)
+            .ok_or("The repository is no longer added")?;
+        let (store_url, store) = self
+            .mihon_stores
+            .lock()
+            .unwrap()
+            .get(&repo.url)
+            .cloned()
+            .ok_or("Open the store's list first, so Raygun reads it")?;
+        let extension = mihon::index::find(&store, entry_id)
+            .cloned()
+            .ok_or_else(|| format!("{} no longer lists {entry_id}", repo.name))?;
+        let url = store_url
+            .join(&extension.apk)
+            .map_err(|error| format!("the store's APK address is odd: {error}"))?;
+        let bytes = self.download_patiently(url.as_str(), MAX_APK_BYTES).await?;
+        let facts = mihon::apk::read(&bytes)?;
+        mihon::apk::check(&facts, &extension, store.signing_key.as_deref())
+            .map_err(|reason| format!("Raygun didn't keep the APK: {reason}"))?;
+        let size = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
+        let dir = self.extensions_dir.join(".apk");
+        let path = dir.join(format!("{}.apk", extension.pkg));
+        tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(&path, &bytes)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("Raygun couldn't save the APK: {error}"))?;
+        Ok(raygun_model::MihonApk {
+            package: facts.package,
+            version_code: u32::try_from(facts.version_code).unwrap_or(u32::MAX),
+            signer: facts.signers.first().cloned(),
+            size,
+            runnable: false,
+            note: mihon::CONTAINER_UNAVAILABLE.to_owned(),
+        })
     }
 
     /// Converts a Mihon extension from its source code (`raygun_ext_host::mihon`): reads its code

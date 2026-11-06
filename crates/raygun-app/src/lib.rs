@@ -125,6 +125,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::extensions_list,
             commands::extensions_reload,
             commands::extension_clear_data,
+            commands::extension_mihon_apk,
             commands::miniplayer_open,
             commands::music_artist_info,
             commands::music_song_credits,

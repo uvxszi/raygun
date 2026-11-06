@@ -366,6 +366,25 @@ pub async fn extension_clear_data(
     extensions.clear_data(&id).await
 }
 
+/// Downloads a Mihon extension's APK and checks it against its store, while
+/// `Settings::run_source_code` is on (`ExtensionService::download_mihon_apk`).
+#[tauri::command]
+#[specta::specta]
+pub async fn extension_mihon_apk(
+    db: tauri::State<'_, AppDb>,
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+    repo_id: String,
+    id: String,
+) -> Result<raygun_model::MihonApk, String> {
+    let settings = settings::load(&db.0)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !settings.run_source_code {
+        return Err("Turn on Allow running source code first (Settings → Browse)".into());
+    }
+    extensions.download_mihon_apk(&repo_id, &id).await
+}
+
 /// The source behind a failure's text whose browser check can be passed by hand, while
 /// `Settings::manual_browser_checks` is on (`browser_check.rs`).
 #[tauri::command]

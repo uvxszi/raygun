@@ -13,6 +13,7 @@
 //! An extension that can't be converted faithfully (image descrambling, custom crypto, a
 //! WebView) is refused at install with the reason, which the catalogue then shows.
 
+pub mod apk;
 pub mod convert;
 pub mod gradle;
 pub mod index;
@@ -37,6 +38,10 @@ pub use source::{SourceFolder, Sources, locate};
 /// build has it now: extensions are converted from source code, on every platform; one that
 /// can't be converted says why instead.
 pub const UNSUPPORTED: &str = "Mihon extensions aren't supported on this device yet";
+/// What a downloaded APK waits for: a container to run an extension's own code in, which Raygun
+/// doesn't have on this device yet (`docs/extensions/formats/mihon.md`, "Running source code").
+pub const CONTAINER_UNAVAILABLE: &str =
+    "Saved and checked. Running an extension's own code isn't available on this device yet.";
 
 /// Whether this build has the `mihon` runtime (it always does: conversions run everywhere).
 pub const fn runtime_present() -> bool {

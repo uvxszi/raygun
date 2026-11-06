@@ -440,6 +440,7 @@ export const bindingsMock = {
     extensionSuggestedRepos: vi.fn(),
     extensionRepoRemove: vi.fn(),
     extensionCatalog: vi.fn(),
+    extensionMihonApk: vi.fn(),
     extensionInstall: vi.fn(),
     extensionInstallsEnqueue: vi.fn(),
     extensionInstallsStatus: vi.fn(),

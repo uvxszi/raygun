@@ -336,6 +336,35 @@ async fn mihon_convert_survey() {
     assert!(converted > 0);
 }
 
+/// A few of the store's APKs, downloaded and checked against it: package, version and signing
+/// key (`MIHON_APKS`, default 3).
+#[tokio::test]
+#[ignore = "network"]
+async fn mihon_apk_live() {
+    let client = raygun_net::http_client().unwrap();
+    let (from, store) = keiyoushi(&client).await;
+    let count: usize = std::env::var("MIHON_APKS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(3);
+    let step = (store.extensions.len() / count.max(1)).max(1);
+    for extension in store.extensions.iter().step_by(step).take(count) {
+        let url = from.join(&extension.apk).unwrap();
+        let bytes = download(&client, url.clone()).await.unwrap();
+        let facts = super::apk::read(&bytes).unwrap();
+        println!(
+            "{}: {} bytes, version {}, class {:?}, signers {:?}",
+            extension.pkg,
+            bytes.len(),
+            facts.version_code,
+            facts.source_class,
+            facts.signers
+        );
+        super::apk::check(&facts, extension, store.signing_key.as_deref())
+            .unwrap_or_else(|reason| panic!("{url}: {reason}"));
+    }
+}
+
 /// A converted source with its real address, loaded in a host of its own.
 async fn loaded(extension: &StoreExtension, converted: &Converted) -> Option<ExtensionHost> {
     let package = convert::package(extension, converted, "Keiyoushi", None).ok()?;

@@ -32,7 +32,7 @@ pub struct TableSpec {
 }
 
 /// Setting keys kept to the device they were set on.
-pub const DEVICE_ONLY_SETTINGS: &[&str] = &["manualBrowserChecks"];
+pub const DEVICE_ONLY_SETTINGS: &[&str] = &["manualBrowserChecks", "runSourceCode"];
 
 const STAMP: [&str; 3] = ["updated_at_hlc", "origin_device", "deleted"];
 
