@@ -102,7 +102,13 @@ async fn all_sources(
             let read = source::locate(extension, from)
                 .ok_or_else(|| "no source folder".to_owned())
                 .and_then(|folder| {
-                    Sources::from_dir(&dir.join(&folder.path)).map_err(|error| error.to_string())
+                    let mut sources = Sources::from_dir(&dir.join(&folder.path))
+                        .map_err(|error| error.to_string())?;
+                    // A themed extension's theme code, read as installing reads it.
+                    if let Some(theme) = convert::theme_to_read(&sources) {
+                        let _ = sources.add_theme_dir(&dir.join("lib-multisrc").join(theme));
+                    }
+                    Ok(sources)
                 });
             found.insert(extension.pkg.clone(), read);
         }
@@ -116,6 +122,7 @@ async fn all_sources(
     let Some((_, first)) = folders.first() else {
         return found;
     };
+    let first = first.clone();
     let tree_url: Url = format!(
         "https://api.github.com/repos/{}/{}/git/trees/{}?recursive=1",
         first.owner, first.repo, first.git_ref
@@ -129,9 +136,18 @@ async fn all_sources(
         let path = entry["path"].as_str().unwrap_or_default();
         let wanted = path.ends_with("/build.gradle.kts")
             || path.ends_with("/build.gradle")
-            || (path.ends_with(".kt") && path.contains("/src/eu/"));
-        if wanted && path.starts_with("src/") {
-            let folder: String = path.split('/').take(3).collect::<Vec<_>>().join("/");
+            || (path.ends_with(".kt") && path.contains("/src/"))
+            || (path.contains("/assets/i18n/messages_") && path.ends_with(".properties"));
+        // Extensions' folders (`src/<lang>/<name>`) and themes' (`lib-multisrc/<theme>`).
+        let depth = if path.starts_with("src/") {
+            3
+        } else if path.starts_with("lib-multisrc/") {
+            2
+        } else {
+            continue;
+        };
+        if wanted {
+            let folder: String = path.split('/').take(depth).collect::<Vec<_>>().join("/");
             by_folder.entry(folder).or_default().push(path.to_owned());
         }
     }
@@ -160,6 +176,33 @@ async fn all_sources(
     .collect::<Vec<_>>()
     .await;
     found.extend(fetches);
+    // Themes' code, read once each.
+    let mut themes: HashMap<String, BTreeMap<String, String>> = HashMap::new();
+    for sources in found.values_mut().filter_map(|read| read.as_mut().ok()) {
+        let Some(theme) = convert::theme_to_read(sources) else {
+            continue;
+        };
+        if !themes.contains_key(&theme) {
+            let folder = source::SourceFolder {
+                path: format!("lib-multisrc/{theme}"),
+                ..first.clone()
+            };
+            let mut files = BTreeMap::new();
+            for path in by_folder.get(&folder.path).into_iter().flatten() {
+                let relative = &path[folder.path.len() + 1..];
+                if let Some(url) = folder.raw_url(relative)
+                    && let Ok(bytes) = download(client, url).await
+                {
+                    files.insert(
+                        relative.to_owned(),
+                        String::from_utf8_lossy(&bytes).into_owned(),
+                    );
+                }
+            }
+            themes.insert(theme.clone(), files);
+        }
+        sources.theme_files = themes[&theme].clone();
+    }
     found
 }
 
@@ -326,10 +369,20 @@ async fn mihon_popular_live() {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(24);
+    // `MIHON_SAMPLE_ONLY=<pkg>,…`: those packages (or names ending so) only.
+    let only: Vec<String> = std::env::var("MIHON_SAMPLE_ONLY")
+        .map(|list| list.split(',').map(str::to_owned).collect())
+        .unwrap_or_default();
     let candidates: Vec<(StoreExtension, Converted)> = store
         .extensions
         .iter()
         .filter(|extension| extension.content != index::ContentWarning::Nsfw)
+        .filter(|extension| {
+            only.is_empty()
+                || only
+                    .iter()
+                    .any(|name| extension.pkg.ends_with(name.as_str()))
+        })
         .filter_map(|extension| {
             let code = sources.get(&extension.pkg)?.as_ref().ok()?;
             Some((extension.clone(), convert::convert(extension, code).ok()?))

@@ -114,6 +114,19 @@ pub const METHODS: &[&str] = &[
     "plusYears", "minusHours", "plusHours", "minusMinutes", "plusMinutes", "minusSeconds",
     "plusSeconds", "getYear", "getMonthValue", "getDayOfMonth", "isBefore", "isAfter", "ofEpochDay",
     "unescapeEntities", "getProperty", "getValue",
+    // Interceptors, cookies, more Jsoup
+    "proceed", "intercept", "addInterceptor", "addNetworkInterceptor", "toResponseBody",
+    "peekBody", "followSslRedirects", "retryOnConnectionFailure", "cookieJar", "interceptors",
+    "message", "readTimeoutMillis", "connectTimeoutMillis", "writeTimeoutMillis", "addCookie",
+    "joinTo", "closest", "nextSibling", "previousSibling", "isCanceled", "call",
+    // Ordering, JSON bodies, date builders
+    "sortWith", "sortBy", "sortByDescending", "thenBy", "thenByDescending", "toJsonRequestBody",
+    "getStringOrNull", "getIntOrNull", "getLongOrNull", "getBooleanOrNull", "getVersionName",
+    "getVersionCode", "truncatedTo", "appendPattern", "appendLiteral", "parseCaseInsensitive",
+    "parseCaseSensitive", "parseLenient", "parseStrict", "optionalStart", "optionalEnd",
+    "parseDefaulting", "toFormatter", "maxOfOrNull", "minOfOrNull", "maxBy", "minBy", "closeQuietly",
+    "toByte", "toShort", "toByteArray", "toIntArray",
+    "parseGraphQLAs",
 ];
 
 fn quote(text: &str) -> String {
@@ -163,6 +176,10 @@ pub struct Gen<'a> {
     /// Local functions with a receiver (`fun Builder.addParam(…)` in a body), by JavaScript name:
     /// their receiver is passed first.
     local_extensions: HashSet<String>,
+    /// The lambda depth of each loop being written, innermost last.
+    loops: Vec<usize>,
+    /// Classes the converter writes itself instead (a theme's image interceptor), by name.
+    pub replaced: HashMap<String, String>,
 }
 
 fn unsupported(what: impl std::fmt::Display) -> String {
@@ -182,6 +199,8 @@ impl<'a> Gen<'a> {
             next: 0,
             class_scope: None,
             local_extensions: HashSet::new(),
+            loops: Vec::new(),
+            replaced: HashMap::new(),
         }
     }
 
@@ -284,9 +303,20 @@ impl<'a> Gen<'a> {
             std::mem::take(&mut self.labels),
             self.receivers.len(),
         );
+        let outer_loops = std::mem::take(&mut self.loops);
         self.depth = 0;
         self.catches_return = false;
         let result = self.scoped(|writer| {
+            // A vararg is the last parameter in JavaScript.
+            if fun
+                .params
+                .iter()
+                .rev()
+                .skip(1)
+                .any(|param| param.vararg)
+            {
+                return Err(unsupported("a vararg before other parameters"));
+            }
             let mut params = Vec::new();
             // Defaults are worked out in the body, in order: they may await, which a parameter
             // list can't.
@@ -336,6 +366,7 @@ impl<'a> Gen<'a> {
         self.depth = depth;
         self.catches_return = catches_return;
         self.labels = labels;
+        self.loops = outer_loops;
         self.receivers.truncate(receivers);
         self.receiver_labels.truncate(receivers);
         result
@@ -470,6 +501,7 @@ impl<'a> Gen<'a> {
                 body,
             } => {
                 let iterable = self.expr(iterable)?;
+                self.loops.push(self.depth);
                 let code = self.scoped(|writer| -> Result<String, String> {
                     let head = match vars {
                         LambdaParam::Name(name) => {
@@ -506,7 +538,9 @@ impl<'a> Gen<'a> {
                             .unwrap_or_default(),
                         writer.block(body, Tail::Discard)?
                     ))
-                })?;
+                });
+                self.loops.pop();
+                let code = code?;
                 if returned {
                     format!("{code} return KT.unit;")
                 } else {
@@ -520,7 +554,10 @@ impl<'a> Gen<'a> {
                 after,
             } => {
                 let condition = self.expr(condition)?;
-                let body = self.block(body, Tail::Discard)?;
+                self.loops.push(self.depth);
+                let body = self.block(body, Tail::Discard);
+                self.loops.pop();
+                let body = body?;
                 let label = label
                     .as_ref()
                     .map(|label| format!("{}: ", local(label)))
@@ -557,6 +594,11 @@ impl<'a> Gen<'a> {
                 self.return_statement(label.as_deref(), value.as_deref())
             }
             Expr::Throw(value) => Ok(format!("throw KT.error({});", self.expr(value)?)),
+            // A loop's own `break`: not one leaving a lambda (`run { break }`) for the loop
+            // around it, which JavaScript can't.
+            Expr::Break(_) | Expr::Continue(_) if self.loops.last() != Some(&self.depth) => {
+                Err(unsupported("break or continue inside a lambda"))
+            }
             Expr::Break(label) => Ok(match label {
                 Some(label) => format!("break {};", local(label)),
                 None => "break;".to_owned(),
@@ -620,8 +662,16 @@ impl<'a> Gen<'a> {
             Some(label) if self.labels.last().map(String::as_str) == Some(label) => {
                 Ok(format!("return {value};"))
             }
-            Some(_) => Err(unsupported("a return from an outer lambda")),
-            None if self.depth == 0 => Ok(format!("return {value};")),
+            // From a lambda around this one: it catches the return by its label.
+            Some(label) if self.labels.iter().any(|known| known == label) => {
+                Ok(format!("throw new KT.Return({value}, {});", quote(label)))
+            }
+            // `return@fetchChapters`: the function's own return.
+            Some(_) | None if self.depth == 0 => Ok(format!("return {value};")),
+            Some(_) => {
+                self.catches_return = true;
+                Ok(format!("throw new KT.Return({value});"))
+            }
             None => {
                 self.catches_return = true;
                 Ok(format!("throw new KT.Return({value});"))
@@ -911,14 +961,13 @@ impl<'a> Gen<'a> {
                     None => "KT.unit".to_owned(),
                 };
                 match label {
-                    Some(label)
-                        if self.labels.last().map(String::as_str) == Some(label.as_str()) =>
-                    {
-                        // A labelled return from the lambda in an expression position.
+                    // A labelled return in an expression position: the lambda with the label
+                    // catches it, this one or one around it.
+                    Some(label) if self.labels.iter().any(|known| known == label) => {
                         format!("KT.ret({value}, {})", quote(label))
                     }
-                    Some(_) => return Err(unsupported("a return from an outer lambda")),
-                    None => {
+                    // `return@fetchChapters`: the function's own return.
+                    Some(_) | None => {
                         self.catches_return = true;
                         format!("KT.ret({value})")
                     }
@@ -927,8 +976,54 @@ impl<'a> Gen<'a> {
             Expr::Break(_) | Expr::Continue(_) => {
                 return Err(unsupported("break or continue inside an expression"));
             }
-            Expr::Object(_) => return Err(unsupported("an anonymous object")),
+            Expr::Object(object) => self.anonymous_object(object)?,
         })
+    }
+
+    /// `object : Callback { override fun onResponse(…) }`: an object of its functions and values,
+    /// which see the code around them; `this` in them is the object.
+    fn anonymous_object(&mut self, object: &ClassDecl) -> Result<String, String> {
+        let temp = self.temp();
+        let supers: Vec<String> = object
+            .supers
+            .iter()
+            .map(|parent| quote(parent.ty.name.rsplit('.').next().unwrap_or(&parent.ty.name)))
+            .collect();
+        let mut parts = vec![
+            "__class: \"object\"".to_owned(),
+            format!("__classes: [\"object\", {}]", supers.join(", ")),
+        ];
+        let mut values = Vec::new();
+        for member in &object.members {
+            match member {
+                Member::Fun(fun) if fun.receiver.is_none() && fun.body.is_some() => {
+                    let mut method = fun.clone();
+                    // The object is the method's receiver, passed in by the wrapper below.
+                    method.receiver = Some(Type {
+                        name: "object".into(),
+                        ..Default::default()
+                    });
+                    let function = self.function(&method)?;
+                    parts.push(format!(
+                        "{}: (...args) => ({function})({temp}, ...args)",
+                        quote(&fun.name)
+                    ));
+                }
+                Member::Prop(prop) if prop.receiver.is_none() && prop.getter.is_none() => {
+                    let value = match &prop.value {
+                        Some(value) => self.expr(value)?,
+                        None => "null".to_owned(),
+                    };
+                    values.push(format!("{temp}[{}] = {value};", quote(&prop.name)));
+                }
+                _ => return Err(unsupported("that anonymous object")),
+            }
+        }
+        Ok(format!(
+            "(await (async () => {{ const {temp} = {{ {} }}; {} return {temp}; }})())",
+            parts.join(", "),
+            values.join(" ")
+        ))
     }
 
     fn name(&mut self, name: &str) -> Result<String, String> {
@@ -1188,6 +1283,22 @@ impl<'a> Gen<'a> {
                     }
                     return Ok(format!("(await {js}({}))", args.join(", ")));
                 }
+                // A class the source declares, made inside a scope too (`FeedUrl(…)` in `apply`).
+                if self.cx.classes.contains(name)
+                    && name.chars().next().is_some_and(char::is_uppercase)
+                    && !self.cx.functions.contains_key(name)
+                {
+                    let (args, named) = self.args(args, None)?;
+                    let mut args = args;
+                    if let Some(lambda) = lambda {
+                        args.push(self.lambda(lambda, name)?);
+                    }
+                    return Ok(format!(
+                        "(await KT.make(D.{name}, [{}], {}))",
+                        args.join(", "),
+                        named.unwrap_or_else(|| "null".to_owned())
+                    ));
+                }
                 // An implicit receiver's member (`setUrlWithoutDomain(…)` in `apply`).
                 let lambda_code = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
                 if !self.receivers.is_empty() && !self.cx.functions.contains_key(name) {
@@ -1231,7 +1342,14 @@ impl<'a> Gen<'a> {
                     && args.is_empty()
                     && matches!(
                         name.as_str(),
-                        "apply" | "also" | "let" | "run" | "takeIf" | "takeUnless" | "use"
+                        "apply"
+                            | "also"
+                            | "let"
+                            | "run"
+                            | "takeIf"
+                            | "takeUnless"
+                            | "use"
+                            | "runCatching"
                     )
                 {
                     let value = self.expr(target)?;
@@ -1239,6 +1357,11 @@ impl<'a> Gen<'a> {
                         match name.as_str() {
                             "apply" => writer.receiver_call_returning(lambda, value, name),
                             "run" => writer.receiver_call(lambda, value, name),
+                            // `value.runCatching { … }`: `run`, its failure kept as a result.
+                            "runCatching" => {
+                                let call = writer.receiver_call(lambda, value, name)?;
+                                Ok(format!("(await KT.runCatching(async () => {call}))"))
+                            }
                             "also" => {
                                 let call = writer.it_call(lambda, value, name)?;
                                 Ok(format!("(await KT.also({value}, async () => {call}))"))
@@ -1370,6 +1493,23 @@ impl<'a> Gen<'a> {
         if !GLOBALS.contains(&name) {
             return Err(unsupported(format!("{name}()")));
         }
+        // `Intl(…, classLoader = this::class.java.classLoader!!)`: the messages come with the
+        // converted code, so its class loader and file names aren't needed.
+        let kept: Vec<Arg>;
+        let args = if name == "Intl" {
+            kept = args
+                .iter()
+                .enumerate()
+                .filter(|(index, arg)| match arg.name.as_deref() {
+                    Some(name) => !matches!(name, "classLoader" | "createMessageFileName"),
+                    None => *index < 3,
+                })
+                .map(|(_, arg)| arg.clone())
+                .collect();
+            &kept[..]
+        } else {
+            args
+        };
         let (args, named) = self.args(args, None)?;
         Ok(format!(
             "(await KT.call({}, [{}], {}, {}, {type_arg}))",
@@ -1397,6 +1537,15 @@ impl<'a> Gen<'a> {
                 self.receiver_list(),
                 quote(name)
             )),
+            // `::listOf`, `::Pair`: one of the runtime's functions.
+            None if GLOBALS.contains(&name) => Ok(format!(
+                "(async (...args) => KT.call({}, args, null, null, null))",
+                quote(name)
+            )),
+            // `::MangaDto`: a class the source declares, made from the arguments.
+            None if self.cx.classes.contains(name) => Ok(format!(
+                "(async (...args) => KT.make(D.{name}, args, null))"
+            )),
             None => Err(unsupported(format!("::{name}"))),
             // `String::isNotBlank`, `Element::text`: a member of whatever is passed.
             Some(Expr::Name(owner)) if owner.chars().next().is_some_and(char::is_uppercase) => {
@@ -1413,7 +1562,7 @@ impl<'a> Gen<'a> {
                     return Err(unsupported(format!("{owner}::{name}")));
                 }
                 Ok(format!(
-                    "(async (receiver, ...args) => KT.m(receiver, {}, args))",
+                    "(async (receiver, ...args) => KT.member(receiver, {}, args))",
                     quote(name)
                 ))
             }
@@ -1425,7 +1574,7 @@ impl<'a> Gen<'a> {
                 }
                 let temp = self.temp();
                 Ok(format!(
-                    "(({temp}) => async (...args) => KT.m({temp}, {}, args))({object})",
+                    "(({temp}) => async (...args) => KT.member({temp}, {}, args))({object})",
                     quote(name)
                 ))
             }
@@ -1608,15 +1757,20 @@ pub const GLOBALS: &[&str] = &[
     "HttpException", "GET", "POST", "PUT", "DELETE", "MangasPage", "Page", "SMangaUpdate",
     "FilterList", "SimpleDateFormat", "StringBuilder", "Date", "JsonPrimitive", "JsonObject",
     "JsonArray", "Locale", "abs", "round", "floor", "ceil", "getPreferences", "getPreferencesLazy",
-    "Selection", "Json", "Mutex", "Semaphore", "awaitAll", "Char", "String",
+    "Selection", "Json", "Mutex", "Semaphore", "awaitAll", "Char", "String", "Intl", "Interceptor",
+    "Comparator", "compareBy", "compareByDescending", "naturalOrder", "reverseOrder", "List",
+    "MutableList", "Array", "arrayOfNulls", "HashMap", "LinkedHashMap", "ConcurrentHashMap", "HashSet",
+    "LinkedHashSet", "DateTimeFormatterBuilder", "GraphQLErrorInterceptor", "graphQLBody",
+    "persistedQueryExtension",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
 #[rustfmt::skip]
 pub const OBJECTS: &[&str] = &[
     "SManga", "SChapter", "Jsoup", "Fetch", "Locale", "TimeZone", "ZoneId", "ZoneOffset",
-    "Calendar", "TimeUnit", "CacheControl", "UUID", "Json", "MediaType", "String", "Character",
+    "Calendar", "TimeUnit", "CacheControl", "UUID", "Json", "MediaType", "ResponseBody", "String", "Character",
     "Unit", "LocalDate", "LocalDateTime", "ZonedDateTime", "Parser", "DateTimeFormatter", "System",
     "FormBody", "Headers", "Request", "RegexOption", "Filter", "Math", "Integer", "Long", "Int",
-    "URLEncoder", "URLDecoder", "Charsets", "Base64", "JsonNull", "Instant", "Clock",
+    "URLEncoder", "URLDecoder", "Charsets", "Base64", "JsonNull", "Instant", "Clock", "AppInfo",
+    "ChronoUnit", "ChronoField", "Log", "Regex",
 ];

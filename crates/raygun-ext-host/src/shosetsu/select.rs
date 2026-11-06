@@ -635,9 +635,18 @@ impl Parser {
             }
             return Ok(Condition::AttrPrefix(prefix));
         }
-        let name = self.identifier();
+        let mut name = self.identifier();
         if name.is_empty() {
             return Err("attribute selector without a name".into());
+        }
+        // Namespaced names (`[wire:key]`, `[xlink:href]`).
+        while self.peek() == Some(':') {
+            self.position += 1;
+            let rest = self.identifier();
+            if rest.is_empty() {
+                return Err("unexpected ':' in attribute selector".into());
+            }
+            name = format!("{name}:{rest}");
         }
         self.skip_whitespace();
         let op = match self.peek() {
@@ -671,13 +680,40 @@ impl Parser {
             }
             Some(op) => {
                 let value = self.quoted_or_bare(']');
-                match op {
-                    "=" => AttrOp::Equals(value),
-                    "^=" => AttrOp::Prefix(value),
-                    "$=" => AttrOp::Suffix(value),
-                    "*=" => AttrOp::Contains(value),
-                    "|=" => AttrOp::Dash(value),
-                    _ => AttrOp::NotEquals(value),
+                // CSS's case flag after the value (`[type="novel" i]`): `i` matches either case.
+                self.skip_whitespace();
+                let ignore_case = match self.peek() {
+                    Some('i' | 'I') => {
+                        self.position += 1;
+                        self.skip_whitespace();
+                        true
+                    }
+                    Some('s' | 'S') => {
+                        self.position += 1;
+                        self.skip_whitespace();
+                        false
+                    }
+                    _ => false,
+                };
+                if ignore_case && op != "!=" {
+                    let text = regex::escape(&value);
+                    let pattern = match op {
+                        "=" => format!("(?i)^{text}$"),
+                        "^=" => format!("(?i)^{text}"),
+                        "$=" => format!("(?i){text}$"),
+                        "|=" => format!("(?i)^{text}(-|$)"),
+                        _ => format!("(?i){text}"),
+                    };
+                    AttrOp::Matches(Regex::new(&pattern).map_err(|error| error.to_string())?)
+                } else {
+                    match op {
+                        "=" => AttrOp::Equals(value),
+                        "^=" => AttrOp::Prefix(value),
+                        "$=" => AttrOp::Suffix(value),
+                        "*=" => AttrOp::Contains(value),
+                        "|=" => AttrOp::Dash(value),
+                        _ => AttrOp::NotEquals(value),
+                    }
                 }
             }
         };
@@ -851,6 +887,12 @@ mod tests {
         assert_eq!(texts(&html, "ul li:not(.x):lt(2)"), ["one"]);
         assert_eq!(texts(&html, "ul li:eq(2)"), ["three"]);
         assert_eq!(texts(&html, "body > span:empty").len(), 1);
+        // Namespaced attribute names, and CSS's case flag.
+        let html = Html::parse_document(
+            r#"<div wire:key="serie-1">A</div><span data-type="NOVEL">B</span><span data-type="manga">C</span>"#,
+        );
+        assert_eq!(texts(&html, "[wire:key*='serie']"), ["A"]);
+        assert_eq!(texts(&html, r#"[data-type="novel" i]"#), ["B"]);
     }
 
     #[test]

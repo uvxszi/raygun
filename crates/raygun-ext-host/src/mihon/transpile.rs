@@ -37,10 +37,10 @@ const BASE_FUNCTIONS: [(&str, &[&str]); 6] = [
     ("getFilterList", &[]),
 ];
 
-/// Overrides that change nothing Raygun asks of a source: filters it doesn't show yet, related
-/// titles, settings screens, deep links.
-const SKIPPED: [&str; 10] = [
-    "getFilterList",
+/// Overrides that change nothing Raygun asks of a source: filters read from the site first,
+/// related titles, settings screens, deep links. (`getFilterList` is converted when it can be:
+/// Raygun shows its filters; else searches have none.)
+const SKIPPED: [&str; 9] = [
     "fetchFilterData",
     "setupPreferenceScreen",
     "fetchRelatedMangaList",
@@ -54,6 +54,10 @@ const SKIPPED: [&str; 10] = [
 
 /// The calls a source must have.
 const NEEDED: [&str; 3] = ["getPopularManga", "fetchMangaUpdate", "getPageList"];
+
+/// Themes whose `ImageInterceptor` reorders a page's tiles, and the recipe Raygun's image fetcher
+/// knows for it (`raygun_net::images::Unscramble`).
+const IMAGE_RECIPES: [(&str, &str); 2] = [("comiciviewer", "comici"), ("gigaviewer", "giga")];
 
 /// What Raygun calls of a source, and what the runtime calls for it: where reachability starts.
 const ENTRIES: [&str; 12] = [
@@ -319,8 +323,9 @@ fn property_value(prop: &PropDecl) -> Option<Body> {
     }
 }
 
-/// What the class and its files declare, for the generator.
-fn context(class: &ClassDecl, files: &[(String, File)]) -> Context {
+/// What the source's classes (its own and the theme's beneath) and the files declare, for the
+/// generator.
+fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
     let mut cx = Context::default();
     for name in BASE_PROPERTIES {
         cx.properties.insert(name.to_owned());
@@ -363,8 +368,10 @@ fn context(class: &ClassDecl, files: &[(String, File)]) -> Context {
     for (_, file) in files {
         add_members(&mut cx, &file.members, true);
     }
-    add_members(&mut cx, &class.members, false);
-    for member in &class.members {
+    for class in chain {
+        add_members(&mut cx, &class.members, false);
+    }
+    for member in chain.iter().flat_map(|class| &class.members) {
         if let Member::Class(inner) = member
             && inner.modifiers.iter().any(|m| m == "companion")
         {
@@ -389,10 +396,10 @@ fn context(class: &ClassDecl, files: &[(String, File)]) -> Context {
     }
     // Classes declared in the source's files (filters, DTOs), nested ones too, and what their
     // instances have.
-    fn classes(members: &[Member], skip: &ClassDecl, cx: &mut Context) {
+    fn classes(members: &[Member], skip: &[&ClassDecl], cx: &mut Context) {
         for member in members {
             if let Member::Class(inner) = member {
-                if std::ptr::eq(inner, skip) {
+                if skip.iter().any(|class| std::ptr::eq(inner, *class)) {
                     classes(&inner.members, skip, cx);
                     continue;
                 }
@@ -410,12 +417,16 @@ fn context(class: &ClassDecl, files: &[(String, File)]) -> Context {
                         cx.class_members.insert(nested.name().to_owned());
                     }
                 }
+                // Its constructor's properties too (`GenreRoute::name`).
+                for param in &inner.params {
+                    cx.class_members.insert(param.name.clone());
+                }
                 classes(&inner.members, skip, cx);
             }
         }
     }
     for (_, file) in files {
-        classes(&file.members, class, &mut cx);
+        classes(&file.members, chain, &mut cx);
     }
     cx
 }
@@ -450,6 +461,9 @@ fn members(
             Member::Class(inner) if inner.modifiers.iter().any(|m| m == "companion") => {
                 self::members(writer, &inner.members, out, "C", true, reached)?;
             }
+            Member::Class(inner) if writer.replaced.contains_key(&inner.name) => {
+                out.push(writer.replaced[&inner.name].clone());
+            }
             Member::Class(inner) => match class_code(writer, inner) {
                 Ok(code) => out.push(code),
                 Err(reason) if !reached.contains(&inner.name) => out.push(format!(
@@ -460,6 +474,9 @@ fn members(
                 )),
                 Err(reason) => return Err(reason),
             },
+            Member::Fun(fun) if writer.replaced.contains_key(&fun.name) => {
+                out.push(writer.replaced[&fun.name].clone());
+            }
             Member::Fun(fun) => {
                 if SKIPPED.contains(&fun.name.as_str()) || fun.body.is_none() {
                     continue;
@@ -736,61 +753,170 @@ fn class_definition(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, S
     ))
 }
 
-/// Converts a theme-less extension; the error says why it can't be.
-pub fn convert(extension: &StoreExtension, files: &[(String, File)]) -> Result<Converted, String> {
-    let class = source_class(files).ok_or("Raygun couldn't find its source class")?;
-    let base = class
-        .supers
-        .iter()
-        .find_map(|parent| parent.ty.name.rsplit('.').next().map(str::to_owned))
-        .unwrap_or_default();
-    if base != "KeiSource" {
-        return Err(format!(
-            "it's built on {base}, which Raygun's converter doesn't read yet"
-        ));
+/// The class named `name` among the files' top-level declarations.
+fn find_class<'a>(files: &'a [(String, File)], name: &str) -> Option<&'a ClassDecl> {
+    files.iter().find_map(|(_, file)| {
+        file.members.iter().find_map(|member| match member {
+            Member::Class(class) if class.name == name => Some(class),
+            _ => None,
+        })
+    })
+}
+
+/// Converts an extension written on `KeiSource`, or on a theme whose code is in `theme_files`
+/// (Keiyoushi's `lib-multisrc/<theme>`): the theme's classes become layers beneath the source's
+/// own, as Kotlin inherits them. `messages` are the `lib:i18n` message files by language. The
+/// error says why it can't be converted.
+pub fn convert(
+    extension: &StoreExtension,
+    files: &[(String, File)],
+    theme: Option<(&str, &[(String, File)])>,
+    messages: &BTreeMap<String, BTreeMap<String, String>>,
+) -> Result<Converted, String> {
+    let (theme_name, theme_files) = theme.unwrap_or(("", &[]));
+    let all_files: Vec<(String, File)> = files.iter().chain(theme_files).cloned().collect();
+    let (own_files, theme_part) = all_files.split_at(files.len());
+    let class = source_class(own_files).ok_or("Raygun couldn't find its source class")?;
+    // The classes it builds on, nearest first, down to `KeiSource`.
+    let mut chain = vec![class];
+    loop {
+        let current = chain[chain.len() - 1];
+        let parent = current
+            .supers
+            .iter()
+            .find_map(|parent| parent.ty.name.rsplit('.').next())
+            .unwrap_or_default();
+        if parent == "KeiSource" {
+            break;
+        }
+        let found = find_class(theme_part, parent).or_else(|| find_class(own_files, parent));
+        match found {
+            Some(next)
+                if chain.len() < 6 && !chain.iter().any(|known| std::ptr::eq(*known, next)) =>
+            {
+                chain.push(next);
+            }
+            _ => {
+                return Err(format!(
+                    "it's built on {parent}, which Raygun's converter doesn't read yet"
+                ));
+            }
+        }
     }
-    let defined: HashSet<&str> = class.members.iter().map(Member::name).collect();
+    let defined: HashSet<&str> = chain
+        .iter()
+        .flat_map(|class| class.members.iter().map(Member::name))
+        .collect();
     if let Some(missing) = NEEDED.iter().find(|name| !defined.contains(**name)) {
         return Err(format!("it has no {missing} of its own"));
     }
-    let cx = context(class, files);
-    let reached = reachable(&member_mentions(class, files));
-    let mut writer = Gen::new(&cx);
-    let mut out = Vec::new();
-    // Declarations of the source's other files and of the file around the class.
-    for (_, file) in files {
-        let others: Vec<Member> = file
-            .members
-            .iter()
-            .filter(|member| !matches!(member, Member::Class(inner) if std::ptr::eq(inner, class)))
-            .cloned()
-            .collect();
-        members(&mut writer, &others, &mut out, "C", true, &reached)?;
+    // The theme's other source classes (`MadaraNoAjax` beside `Madara`) aren't this source's: they
+    // are left out with the source's own.
+    let mut source_like: HashSet<&str> = HashSet::from(["KeiSource"]);
+    loop {
+        let before = source_like.len();
+        for (_, file) in &all_files {
+            for member in &file.members {
+                if let Member::Class(class) = member
+                    && class.supers.iter().any(|parent| {
+                        source_like.contains(parent.ty.name.rsplit('.').next().unwrap_or_default())
+                    })
+                {
+                    source_like.insert(&class.name);
+                }
+            }
+        }
+        if source_like.len() == before {
+            break;
+        }
     }
-    members(
-        &mut writer,
-        &class.members,
-        &mut out,
-        "self",
-        false,
-        &reached,
-    )?;
+    let left_out: Vec<&ClassDecl> = all_files
+        .iter()
+        .flat_map(|(_, file)| &file.members)
+        .filter_map(|member| match member {
+            Member::Class(class) if source_like.contains(class.name.as_str()) => Some(class),
+            _ => None,
+        })
+        .collect();
+    let cx = context(&chain, &all_files);
+    let reached = reachable(&member_mentions(&left_out, &chain, &all_files));
+    let mut writer = Gen::new(&cx);
+    // A theme whose interceptor puts shuffled pictures back together: Raygun's image fetcher
+    // does that instead, told by the pages' addresses (`raygun_net::images::Unscramble`).
+    let image_recipe = IMAGE_RECIPES
+        .iter()
+        .find(|(theme, _)| *theme == theme_name)
+        .map(|(_, recipe)| *recipe);
+    if image_recipe.is_some() {
+        writer.replaced.insert(
+            "ImageInterceptor".to_owned(),
+            "D.ImageInterceptor = KT.passThrough(\"ImageInterceptor\");".to_owned(),
+        );
+    }
+    // Madara's chapter protector: OpenSSL's key derivation and AES-CBC, which the runtime does in
+    // Rust.
+    if theme_name == "madara" {
+        writer.replaced.insert(
+            "decryptChapterData".to_owned(),
+            "self.define(\"decryptChapterData\", [[2, 2, async ($data, $password) => K.decrypt({ data: await KT.p($data, \"ciphertext\"), password: KT.str($password), salt: await KT.p($data, \"salt\") })]]);".to_owned(),
+        );
+    }
+    let in_chain = |member: &Member| matches!(member, Member::Class(inner) if left_out.iter().any(|class| std::ptr::eq(inner, *class)));
+    // The base-most layer first, with the theme's files; the source's own on top, with its files.
+    let mut layers = Vec::new();
+    for (index, layer) in chain.iter().rev().enumerate() {
+        let mut out = Vec::new();
+        let layer_files: &[(String, File)] = if index + 1 == chain.len() {
+            own_files
+        } else if index == 0 {
+            theme_part
+        } else {
+            &[]
+        };
+        for (_, file) in layer_files {
+            let others: Vec<Member> = file
+                .members
+                .iter()
+                .filter(|member| !in_chain(member))
+                .cloned()
+                .collect();
+            members(&mut writer, &others, &mut out, "C", true, &reached)?;
+        }
+        members(
+            &mut writer,
+            &layer.members,
+            &mut out,
+            "self",
+            false,
+            &reached,
+        )?;
+        layers.push(format!(
+            "    (self, C, D) => {{\n{}\n    }},",
+            out.join("\n")
+        ));
+    }
     // A value read as `json` decodes with names the DTOs spell (`@SerialName`).
-    let renames = serial_names(files);
+    let renames = serial_names(&all_files);
     let code = format!(
-        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  build: (self, C, D) => {{\n{body}\n  }},\n}});\n",
+        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  messages: {messages},\n  imageRecipe: {recipe},\n  layers: [\n{layers}\n  ],\n}});\n",
         name = extension.name.replace(['\n', '\r'], " "),
         pkg = extension.pkg,
         sources = sources_json(extension),
         renames = serde_json::to_string(&renames).unwrap_or_else(|_| "{}".into()),
-        body = out.join("\n"),
+        messages = serde_json::to_string(messages).unwrap_or_else(|_| "{}".into()),
+        recipe = image_recipe.map_or_else(|| "null".to_owned(), quote),
+        layers = layers.join("\n"),
     );
     Ok(Converted { theme: None, code })
 }
 
-/// Each member of the class, its companion, its files and their classes, with the names its code
-/// mentions; a class stands for all its members.
-fn member_mentions(class: &ClassDecl, files: &[(String, File)]) -> Vec<(String, HashSet<String>)> {
+/// Each member of the classes, their companions, the files and their classes (but the source
+/// classes `left_out`), with the names their code mentions; a class stands for all its members.
+fn member_mentions(
+    left_out: &[&ClassDecl],
+    chain: &[&ClassDecl],
+    files: &[(String, File)],
+) -> Vec<(String, HashSet<String>)> {
     let mut found = Vec::new();
     fn add(members: &[Member], owner: Option<&str>, found: &mut Vec<(String, HashSet<String>)>) {
         for member in members {
@@ -835,12 +961,16 @@ fn member_mentions(class: &ClassDecl, files: &[(String, File)]) -> Vec<(String, 
             found.push((member.name().to_owned(), mentioned));
         }
     }
-    add(&class.members, None, &mut found);
+    for class in chain {
+        add(&class.members, None, &mut found);
+    }
     for (_, file) in files {
         let others: Vec<Member> = file
             .members
             .iter()
-            .filter(|member| !matches!(member, Member::Class(inner) if std::ptr::eq(inner, class)))
+            .filter(|member| {
+                !matches!(member, Member::Class(inner) if left_out.iter().any(|class| std::ptr::eq(inner, *class)))
+            })
             .cloned()
             .collect();
         add(&others, None, &mut found);

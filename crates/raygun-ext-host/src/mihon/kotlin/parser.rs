@@ -886,10 +886,14 @@ impl Parser {
         self.with_nesting(true, |parser| {
             let mut args = Vec::new();
             loop {
+                // `List<@Serializable(X::class) Item,>`: annotations and a trailing comma.
+                while parser.is_op("@") {
+                    parser.annotation()?;
+                }
                 parser.eat_name("in");
                 parser.eat_name("out");
                 args.push(parser.ty()?);
-                if !parser.eat_op(",") {
+                if !parser.eat_op(",") || parser.is_op(">") {
                     break;
                 }
             }
@@ -1437,6 +1441,14 @@ impl Parser {
                 }
                 Some(Kind::Op("<")) if is_callable(&expr) => {
                     if let Some(type_args) = self.try_call_type_args() {
+                        // `IndexedValue<SManga>::index`: a reference on the type.
+                        if self
+                            .tokens
+                            .get(self.at)
+                            .is_some_and(|t| t.kind == Kind::Op("::"))
+                        {
+                            continue;
+                        }
                         let args = if self
                             .tokens
                             .get(self.at)

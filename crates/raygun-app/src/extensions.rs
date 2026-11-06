@@ -1393,13 +1393,34 @@ impl ExtensionService {
             .ok_or_else(|| format!("{} no longer lists {}", repo.name, entry.id))?;
         let folder = mihon::locate(&extension, &store_url)
             .ok_or("Raygun can't tell where this extension's source code is")?;
-        let sources = mihon::source::fetch(&folder, &extension, |url: reqwest::Url| async move {
-            self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES)
-                .await
-        })
-        .await?;
+        let mut sources =
+            mihon::source::fetch(&folder, &extension, |url: reqwest::Url| async move {
+                self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES)
+                    .await
+            })
+            .await?;
         phase(Phase::Converting);
-        let converted = match mihon::convert(&extension, &sources) {
+        let mut result = mihon::convert(&extension, &sources);
+        // A theme Raygun has no port of, or whose port refused it: converted with the theme's code.
+        if result.is_err()
+            && let Some(theme) = mihon::convert::theme_to_read(&sources)
+        {
+            let read = mihon::source::fetch_theme(
+                &folder,
+                &theme,
+                &mut sources,
+                |url: reqwest::Url| async move {
+                    self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES)
+                        .await
+                },
+            )
+            .await;
+            match read {
+                Ok(()) => result = mihon::convert(&extension, &sources),
+                Err(error) => tracing::info!(%error, theme, "couldn't read the theme's code"),
+            }
+        }
+        let converted = match result {
             Ok(converted) => converted,
             Err(reason) => {
                 self.remember_mihon_verdict(&extension, Some(&reason)).await;

@@ -107,21 +107,55 @@ arguments are worked out in the body, in order.
 
 Only what Raygun calls has to convert: the functions above and whatever they reach by name.
 Unreached code that can't be converted becomes a stub that fails with its reason if it's ever
-called. Filters (`getFilterList`) and settings screens aren't converted: searches run without
-filters, and preferences read their defaults.
+called. Settings screens aren't converted: preferences read their defaults.
+
+### Themes from their code
+
+A theme Raygun has no port of (and an extension Raygun's port of its theme refuses) converts
+with the theme's own code: installing reads `lib-multisrc/<theme>` beside the extension's folder
+(`source::fetch_theme`), and the theme's classes become layers beneath the source's, as Kotlin
+inherits them (`mihon.source({ layers: [theme, source] })`: a call finds the topmost layer that
+has it, `super` the layers beneath). The theme's other source classes (`MadaraNoAjax` beside
+`Madara`) are left out. A theme's build may name only `lib:i18n`, whose messages
+(`assets/i18n/messages_<lang>.properties`) come with the converted code for `Intl`.
+
+Two themes' pieces are written by Raygun instead of converted:
+
+- ComiciViewer's and GigaViewer's `ImageInterceptor`, which puts a page's shuffled tiles back
+  together: the pages' addresses carry the recipe (`#raygun-unscramble=comici:<tiles>`,
+  `#raygun-unscramble=giga`) and Raygun's image fetcher reorders the tiles
+  (`raygun_net::images::Unscramble`);
+- Madara's `decryptChapterData` (its chapter protector): the runtime's AES in Rust.
+
+### Requests, cookies and filters
+
+Interceptors run as OkHttp's do (`addInterceptor`, `addNetworkInterceptor`, an `Interceptor`
+class or lambda): each gets the chain's request, may change it (`newBuilder().header(…)`), calls
+`proceed` and may change the answer (`response.newBuilder()…`, `toResponseBody`). Keiyoushi's
+`addCookie(…)` adds cookies to the source's requests, and its `GraphQLErrorInterceptor`,
+`graphQLBody` and `parseGraphQLAs` are the runtime's. An interceptor that draws pictures
+(`BitmapFactory`) is refused, as there are none to draw.
+
+A source's `getFilterList()` is converted when it can be: its `Select`, `Sort`, `CheckBox`,
+`TriState` and `Group` filters become Raygun's select, toggle and tag filters (keys `f0`, `f1`…
+by place), and a search sets their states before `getSearchMangaList` runs. Text filters
+aren't shown. A filter list that can't be converted leaves the source without filters. Madara
+and MangaThemesia, run by hand, have their standard sets (status, order, type, genres read from
+the site).
 
 ### Refusals
 
 Anything else is refused with the reason, which the catalogue then shows for that version
 ("Raygun can't convert it: its code uses proceed(), which Raygun's converter doesn't read yet"):
 
-- an override with code of its own in a themed extension (a parser, a URL builder);
-- an interceptor (image descrambling, signed requests, cookies made in code);
+- an interceptor drawing pictures (image descrambling other than the two recipes above);
 - one of Keiyoushi's libraries (`lib:speedbinb`, `lib:unpacker`, `lib:textinterceptor`…);
-- a theme Raygun doesn't run yet;
 - a call, object or name the runtime doesn't have (`emit::METHODS`, `GLOBALS` and `OBJECTS`,
-  which a test keeps equal to `kotlin.js`'s tables);
-- values read from preferences in a themed extension, or code that runs when the source starts.
+  which a test keeps equal to `kotlin.js`'s tables), such as Next.js page data
+  (`extractNextJs`), a cookie jar read in code (`loadForRequest`), `textNodes()` or WebViews;
+- what JavaScript can't say: `break` or `continue` out of a lambda, a vararg before other
+  parameters;
+- code that runs when the source starts (`init`).
 
 Before the package is installed it's loaded once in a host of its own (`convert::validate`):
 its script must run and register every source. Its `net` is the sources' hosts and their
@@ -163,22 +197,32 @@ refused):
 
 | | Converted | Of |
 |---|---|---|
-| Madara | 152 | 240 |
-| MangaThemesia | 76 | 113 |
-| Other themes (65) | 0 | 339 |
-| No theme | 258 | 771 |
-| All | 486 (33.2%) | 1463 |
+| Madara | 202 | 240 |
+| MangaThemesia | 100 | 113 |
+| ZeistManga | 28 | 29 |
+| GigaViewer | 19 | 19 |
+| Keyoapp | 15 | 16 |
+| MangaCatalog | 13 | 13 |
+| PizzaReader | 10 | 10 |
+| Iken | 8 | 9 |
+| Masonry, UzayManga, YiiMadara | 21 | 21 |
+| Other themes (56) | 31 | 222 |
+| No theme | 351 | 771 |
+| All | 798 (54.5%) | 1463 |
 
-The most common refusals: interceptors (`chain.proceed()` 73, `addInterceptor()` 35, an
-`Interceptor` class 22), themes not ported yet (ZeistManga 29, ComiciViewer 29, GigaViewer 19,
-Keyoapp 16, MangaCatalog 13, YiiManga 12, MangaHub 11, PizzaReader 10), Keiyoushi's libraries
-(`textinterceptor` 12, `unpacker` 9, `publus` 8, `speedbinb` 8) and Next.js pages
-(`extractNextJs()` 14).
+Madara and MangaThemesia extensions their ports refuse convert with the theme's code (50 and 24
+of them). The most common refusals now: Next.js page data (`extractNextJs()` 52, ComiciViewer
+among them), cookie jars read in code (`loadForRequest()` 29), `break`/`continue` out of a lambda
+(25), `textNodes()` (16), picture-drawing interceptors (15), Keiyoushi's libraries
+(`textinterceptor` 12, `unpacker` 9, `publus` 8, `speedbinb` 8).
 
-`mihon_popular_live` with a sample of 40 converted sources (2026-11-05): 31 listed their first
-popular page (17 of them without a theme). Of the others, three asked for a browser check, three
-sites were down or gone, one listed nothing and two stopped on code the runtime doesn't run
-right yet.
+`mihon_popular_live` with a sample of 50 converted sources (2026-11-05): 29 listed their first
+popular page, among them sources on themes converted from code (ZeistManga, Liliana,
+MangaCatalog, YiiMadara). Of the others, eight asked for a browser check, three sites were down,
+gone or slow, and ten stopped on code the runtime doesn't run right yet (selectors Raygun's
+engine didn't read, now fixed for namespaced attributes and the `i` flag, and values missing
+where the Kotlin had them). GigaViewer sources convert but their series list (a GraphQL query)
+still fails at run time.
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture
@@ -192,8 +236,8 @@ reads the files from raw.githubusercontent.com. `MIHON_SURVEY_DETAIL=<theme>` li
 refusals one by one (`(none)` for sources without a theme), `MIHON_SURVEY_ONLY=<pkg>,…` surveys
 only those packages, and `MIHON_SURVEY_DUMP=<dir>` keeps the code of conversions that don't load
 (of all of them with `MIHON_SURVEY_DUMP_ALL=1`). `mihon_popular_live` loads a sample
-(`MIHON_SAMPLE`, 24 by default) of the converted sources and asks each for its first popular
-page.
+(`MIHON_SAMPLE`, 24 by default; `MIHON_SAMPLE_ONLY=<pkg>,…` picks them) of the converted sources
+and asks each for its first popular page.
 
 ## Running source code in a container (design)
 

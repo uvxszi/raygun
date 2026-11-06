@@ -171,10 +171,74 @@ struct TreeEntry {
     size: u64,
 }
 
-/// Whether conversion reads a file: the build file and Kotlin sources.
+/// Whether conversion reads a file: the build file, Kotlin sources and Keiyoushi's message files
+/// (`assets/i18n/messages_en.properties`).
 fn wanted(path: &str) -> bool {
     matches!(path, "build.gradle" | "build.gradle.kts")
         || (path.ends_with(".kt") && path.starts_with("src/"))
+        || (path.starts_with("assets/i18n/messages_")
+            && path.ends_with(".properties")
+            && !path["assets/i18n/".len()..].contains('/'))
+}
+
+/// A Java `.properties` file's entries: `key=value` or `key: value`, `#` and `!` comments,
+/// lines continued with `\`, and `\uXXXX` escapes.
+pub fn properties(text: &str) -> BTreeMap<String, String> {
+    let mut entries = BTreeMap::new();
+    let mut logical = String::new();
+    for line in text.lines() {
+        let line = line.trim_start();
+        if logical.is_empty() && (line.is_empty() || line.starts_with('#') || line.starts_with('!'))
+        {
+            continue;
+        }
+        let continued = line.ends_with('\\') && !line.ends_with("\\\\");
+        logical.push_str(if continued {
+            &line[..line.len() - 1]
+        } else {
+            line
+        });
+        if continued {
+            continue;
+        }
+        let entry = std::mem::take(&mut logical);
+        let split = entry
+            .char_indices()
+            .find(|(index, char)| matches!(char, '=' | ':') && !entry[..*index].ends_with('\\'))
+            .map(|(index, _)| index);
+        let (key, value) = match split {
+            Some(index) => (&entry[..index], &entry[index + 1..]),
+            None => (entry.as_str(), ""),
+        };
+        entries.insert(unescape(key.trim()), unescape(value.trim_start()));
+    }
+    entries
+}
+
+fn unescape(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    while let Some(char) = chars.next() {
+        if char != '\\' {
+            out.push(char);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('u') => {
+                let code: String = chars.by_ref().take(4).collect();
+                if let Some(decoded) = u32::from_str_radix(&code, 16).ok().and_then(char::from_u32)
+                {
+                    out.push(decoded);
+                }
+            }
+            Some(other) => out.push(other),
+            None => {}
+        }
+    }
+    out
 }
 
 /// The files of a folder listing conversion reads, with their sizes.
@@ -195,26 +259,75 @@ pub fn listing(json: &[u8]) -> Result<Vec<(String, u64)>, String> {
         .collect())
 }
 
-/// An extension's code: its folder and the files read, by path inside it.
+/// An extension's code: its folder and the files read, by path inside it; and its theme's
+/// (`lib-multisrc/<theme>`), when it's built on one Raygun converts from code.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Sources {
     pub files: BTreeMap<String, String>,
+    pub theme_files: BTreeMap<String, String>,
+}
+
+fn build_file_of(files: &BTreeMap<String, String>) -> Option<&str> {
+    files
+        .get("build.gradle.kts")
+        .or_else(|| files.get("build.gradle"))
+        .map(String::as_str)
 }
 
 impl Sources {
     pub fn build_file(&self) -> Option<&str> {
-        self.files
-            .get("build.gradle.kts")
-            .or_else(|| self.files.get("build.gradle"))
-            .map(String::as_str)
+        build_file_of(&self.files)
     }
 
     pub fn kotlin(&self) -> impl Iterator<Item = (&String, &String)> {
         self.files.iter().filter(|(path, _)| path.ends_with(".kt"))
     }
 
+    pub fn theme_build_file(&self) -> Option<&str> {
+        build_file_of(&self.theme_files)
+    }
+
+    pub fn theme_kotlin(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.theme_files
+            .iter()
+            .filter(|(path, _)| path.ends_with(".kt"))
+    }
+
+    /// Message files by language (`pt_br`), the theme's first and the extension's over them.
+    pub fn messages(&self) -> BTreeMap<String, BTreeMap<String, String>> {
+        let mut found: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+        for (path, text) in self.theme_files.iter().chain(&self.files) {
+            let Some(lang) = path
+                .strip_prefix("assets/i18n/messages_")
+                .and_then(|rest| rest.strip_suffix(".properties"))
+            else {
+                continue;
+            };
+            found
+                .entry(lang.to_ascii_lowercase())
+                .or_default()
+                .extend(properties(text));
+        }
+        found
+    }
+
     /// Reads a folder on disk (a checkout of the repository), for surveys and tests.
     pub fn from_dir(dir: &std::path::Path) -> std::io::Result<Self> {
+        Ok(Self {
+            files: read_dir(dir)?,
+            theme_files: BTreeMap::new(),
+        })
+    }
+
+    /// Adds a theme's folder on disk (`lib-multisrc/<theme>` of a checkout).
+    pub fn add_theme_dir(&mut self, dir: &std::path::Path) -> std::io::Result<()> {
+        self.theme_files = read_dir(dir)?;
+        Ok(())
+    }
+}
+
+fn read_dir(dir: &std::path::Path) -> std::io::Result<BTreeMap<String, String>> {
+    {
         let mut files = BTreeMap::new();
         let mut pending = vec![dir.to_path_buf()];
         while let Some(current) = pending.pop() {
@@ -234,7 +347,7 @@ impl Sources {
                 }
             }
         }
-        Ok(Self { files })
+        Ok(files)
     }
 }
 
@@ -336,6 +449,51 @@ where
             .insert(path, String::from_utf8_lossy(&bytes).into_owned());
     }
     Ok(sources)
+}
+
+/// Reads the code of the theme `theme` (`lib-multisrc/<theme>` in the extension's repository)
+/// into `sources`, for converting a themed extension from its theme's code.
+pub async fn fetch_theme<F, Fut>(
+    folder: &SourceFolder,
+    theme: &str,
+    sources: &mut Sources,
+    fetch: F,
+) -> Result<(), String>
+where
+    F: Fn(Url) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>, String>>,
+{
+    if !is_part(theme) {
+        return Err(format!("the theme's name is odd: {theme}"));
+    }
+    let theme_folder = SourceFolder {
+        path: format!("lib-multisrc/{theme}"),
+        ..folder.clone()
+    };
+    let url = theme_folder
+        .tree_url()
+        .ok_or("the theme's folder address is invalid")?;
+    let files = listing(&fetch(url).await?)
+        .map_err(|error| format!("Raygun couldn't list the {theme} theme's files\n{error}"))?;
+    let total: u64 = files.iter().map(|(_, size)| size).sum();
+    if files.len() > MAX_FILES
+        || total > MAX_TOTAL_BYTES
+        || files.iter().any(|(_, size)| *size > MAX_FILE_BYTES)
+    {
+        return Err(format!(
+            "the {theme} theme's code is larger than Raygun converts"
+        ));
+    }
+    for (path, _) in files {
+        let url = theme_folder
+            .raw_url(&path)
+            .ok_or_else(|| format!("the theme's folder lists an odd file name: {path}"))?;
+        let bytes = fetch(url).await?;
+        sources
+            .theme_files
+            .insert(path, String::from_utf8_lossy(&bytes).into_owned());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -396,7 +396,10 @@ fn sources(build: &str, files: &[(&str, &str)]) -> Sources {
     for (path, text) in files {
         map.insert((*path).to_owned(), (*text).to_owned());
     }
-    Sources { files: map }
+    Sources {
+        files: map,
+        theme_files: BTreeMap::new(),
+    }
 }
 
 const MADARA_BUILD: &str = "keiyoushi {\n    name = \"Fixture Comics\"\n    versionCode = 4\n    libVersion = \"1.6\"\n    theme = \"madara\"\n    source {\n        lang = \"en\"\n        baseUrl = \"https://fixture.example\"\n    }\n}\n";
@@ -1041,9 +1044,13 @@ fn code_the_runtime_lacks_is_refused_by_name() {
         )
         .unwrap_err()
     };
-    let interceptor = STANDALONE_SOURCE.replace("rateLimit(4)", "addInterceptor(::descramble)");
+    // An interceptor drawing pictures: the runtime has none.
+    let interceptor = STANDALONE_SOURCE.replace(
+        "rateLimit(4)",
+        "addInterceptor { chain -> val image = BitmapFactory.decodeStream(chain.proceed(chain.request()).body.byteStream())\n chain.proceed(chain.request()) }",
+    );
     assert!(
-        reason(&interceptor).contains("addInterceptor"),
+        reason(&interceptor).contains("BitmapFactory"),
         "{}",
         reason(&interceptor)
     );
@@ -1091,6 +1098,152 @@ async fn validation_loads_the_package_before_it_installs() {
             .unwrap_err()
             .contains("nothing")
     );
+}
+
+/// A converted source's own filters are shown, and searches set them.
+#[tokio::test]
+async fn a_converted_sources_filters_are_shown_and_used() {
+    let app = Router::new().route(
+        "/list/page/1",
+        get(|uri: Uri| async move {
+            let query = uri.query().unwrap_or_default().to_owned();
+            let title = if query.contains("sort=popular") && query.contains("genres=comedy") {
+                "Filtered"
+            } else {
+                "Plain"
+            };
+            Html(format!(
+                r#"<div class="listing"><div class="item"><a href="/manga/one"><h2>{title}</h2></a></div></div>"#
+            ))
+        }),
+    );
+    let source = STANDALONE_SOURCE
+        .replace(
+            "override suspend fun getPopularManga(page: Int) = getSearchMangaList(page, \"\", FilterList())",
+            "override suspend fun getPopularManga(page: Int) = getSearchMangaList(page, \"\", getFilterList())",
+        )
+        .replace(
+            ".addQueryParameter(\"s\", query)",
+            r#".addQueryParameter("s", query)
+            .addQueryParameter("sort", filters.firstInstance<SortFilter>().selected)
+            .addQueryParameter("genres", filters.firstInstance<GenreFilter>().state.filter { it.state }.joinToString(",") { it.value })"#,
+        )
+        .replace(
+            "    companion object {",
+            r#"    override fun getFilterList() = FilterList(
+        Filter.Header("Filters"),
+        SortFilter(),
+        GenreFilter(listOf(Genre("Action", "action"), Genre("Comedy", "comedy"))),
+    )
+
+    companion object {"#,
+        )
+        + r#"
+open class SelectFilter(name: String, private val options: List<Pair<String, String>>) :
+    Filter.Select<String>(name, options.map { it.first }.toTypedArray()) {
+    val selected get() = options[state].second
+}
+
+class SortFilter : SelectFilter("Sort", listOf("Latest" to "latest", "Popular" to "popular"))
+
+class Genre(name: String, val value: String) : Filter.CheckBox(name)
+
+class GenreFilter(genres: List<Genre>) : Filter.Group<Genre>("Genres", genres)
+"#;
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            STANDALONE_BUILD,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let provider = "mihon.en.fixturestand/4242";
+    let filters = host.manga_filters(provider).await.unwrap();
+    assert_eq!(filters.len(), 2, "{filters:?}");
+    assert!(
+        matches!(&filters[0], raygun_model::SourceFilter::Select { label, options, .. } if label == "Sort" && options.len() == 2)
+    );
+    assert!(
+        matches!(&filters[1], raygun_model::SourceFilter::Tags { label, options, .. } if label == "Genres" && options[1].label == "Comedy")
+    );
+    let plain = host
+        .manga_list(provider, crate::manga::MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_eq!(plain.items[0].title, "Plain");
+    let mut chosen = BTreeMap::new();
+    chosen.insert(
+        "f1".to_owned(),
+        raygun_model::FilterValue::Select("1".into()),
+    );
+    chosen.insert(
+        "f2".to_owned(),
+        raygun_model::FilterValue::Tags {
+            include: vec!["1".into()],
+            exclude: Vec::new(),
+        },
+    );
+    let filtered = host
+        .manga_search_filtered(provider, "", 1, &chosen)
+        .await
+        .unwrap();
+    assert_eq!(filtered.items[0].title, "Filtered");
+}
+
+/// Interceptors and Keiyoushi's `addCookie` change the requests a converted source sends.
+#[tokio::test]
+async fn interceptors_and_cookies_reach_the_site() {
+    let app = Router::new().route(
+        "/list/page/1",
+        get(|headers: axum::http::HeaderMap| async move {
+            assert_eq!(headers["x-token"], "t", "the interceptor's header");
+            assert_eq!(headers["cookie"], "lang=en", "the cookie added");
+            Html(r#"<div class="listing"><div class="item"><a href="/manga/one"><h2>One</h2></a></div></div>"#)
+        }),
+    );
+    let source = STANDALONE_SOURCE.replace(
+        "override fun OkHttpClient.Builder.configureClient() = rateLimit(4)",
+        r#"override fun OkHttpClient.Builder.configureClient() = addInterceptor { chain ->
+        val request = chain.request().newBuilder().header("X-Token", "t").build()
+        val response = chain.proceed(request)
+        if (response.code == 418) throw IOException("teapot")
+        response
+    }.addCookie("lang" to "en")"#,
+    );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            STANDALONE_BUILD,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let popular = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Popular,
+            1,
+        )
+        .await
+        .unwrap();
+    assert_eq!(popular.items[0].title, "One");
 }
 
 /// The names in one of `kotlin.js`'s tables (`const GLOBALS = { … }`): its top-level keys.

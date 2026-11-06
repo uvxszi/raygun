@@ -24,7 +24,7 @@ use crate::package::{PackageError, VerifiedPackage, from_files};
 
 /// Bumped when conversions change in a way installed sources should get: the catalogue then
 /// offers them again.
-pub const CONVERTER_VERSION: u32 = 2;
+pub const CONVERTER_VERSION: u32 = 3;
 /// The converted script in the extension folder.
 pub const ENTRY: &str = "index.js";
 
@@ -185,15 +185,62 @@ pub fn convert(extension: &StoreExtension, sources: &Sources) -> Result<Converte
     if files.is_empty() {
         return Err("its folder has no Kotlin code".into());
     }
-    match build.theme.as_deref() {
-        Some(name) => {
-            let theme = theme(name).ok_or_else(|| {
-                format!("it's built on the {name} theme, which Raygun doesn't convert yet")
-            })?;
-            convert_themed(extension, theme, &files)
-        }
-        None => super::transpile::convert(extension, &files),
+    let Some(name) = build.theme.as_deref() else {
+        return super::transpile::convert(extension, &files, None, &sources.messages());
+    };
+    // A theme Raygun runs by hand first; else the theme's own code, converted with the
+    // extension's, when it was read.
+    let by_hand = theme(name).map(|theme| convert_themed(extension, theme, &files));
+    if let Some(Ok(converted)) = by_hand {
+        return Ok(converted);
     }
+    if sources.theme_files.is_empty() {
+        return Err(match by_hand {
+            Some(Err(reason)) => reason,
+            _ => format!("it's built on the {name} theme, which Raygun doesn't convert yet"),
+        });
+    }
+    if let Some(library) = sources
+        .theme_build_file()
+        .map(gradle::read)
+        .and_then(|theme_build| {
+            theme_build
+                .libraries
+                .into_iter()
+                .find(|library| library.as_str() != "lib:i18n")
+        })
+    {
+        return Err(format!(
+            "its theme, {name}, builds on {library}, code Raygun doesn't convert"
+        ));
+    }
+    let mut theme_files = Vec::new();
+    for (path, text) in sources.theme_kotlin() {
+        let file = parse_file(text).map_err(|error| {
+            format!("Raygun couldn't read the {name} theme's code ({path}: {error})")
+        })?;
+        theme_files.push((path.clone(), file));
+    }
+    let converted = super::transpile::convert(
+        extension,
+        &files,
+        Some((name, &theme_files)),
+        &sources.messages(),
+    )?;
+    Ok(Converted {
+        theme: Some(name.to_owned()),
+        ..converted
+    })
+}
+
+/// The theme whose code converting `sources` would read, when it hasn't been read yet: a
+/// themed extension Raygun's own port of the theme refuses, or one on a theme it has no port of,
+/// may still convert with it.
+pub fn theme_to_read(sources: &Sources) -> Option<String> {
+    if !sources.theme_files.is_empty() {
+        return None;
+    }
+    sources.build_file().map(gradle::read)?.theme
 }
 
 /// The source class of a themed extension: the one marked `@Source`, else the one extending a

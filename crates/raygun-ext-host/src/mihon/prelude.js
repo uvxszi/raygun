@@ -1004,6 +1004,18 @@
       const found = dom('siblings', { nodes: [this.h], forward: false });
       return found.length ? new Element(found[0], this.doc) : null;
     }
+    // Text nodes aren't kept apart: the elements beside it stand for its siblings.
+    nextSibling() {
+      return this.nextElementSibling();
+    }
+    previousSibling() {
+      return this.previousElementSibling();
+    }
+    /** Jsoup's `closest(css)`: this element or the nearest parent matching. */
+    closest(css) {
+      for (let at = this; at; at = at.parent()) if (at.is(css)) return at;
+      return null;
+    }
     nextElementSiblings() {
       return Elements.of(dom('siblings', { nodes: [this.h], forward: true, all: true }), this.doc);
     }

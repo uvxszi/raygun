@@ -81,6 +81,20 @@ pub async fn fetch_image(
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(ImageError::TooLarge);
     }
+    // A page whose picture comes in shuffled tiles says how to put it back together.
+    if let Some(recipe) = Unscramble::from_url(url) {
+        let jpeg = tokio::task::spawn_blocking({
+            let bytes = bytes.to_vec();
+            move || recipe.apply(&bytes)
+        })
+        .await
+        .map_err(|error| ImageError::Network(error.to_string()))?
+        .map_err(ImageError::Network)?;
+        return Ok(Image {
+            bytes: jpeg,
+            extension: "jpg",
+        });
+    }
     // Webviews can't show JPEG XL (M46.38): such pictures are kept and served as PNG.
     if is_jxl(&bytes) {
         let png = tokio::task::spawn_blocking({
@@ -100,6 +114,99 @@ pub async fn fetch_image(
         bytes: bytes.to_vec(),
         extension,
     })
+}
+
+/// How a page's picture is put back together when its site shuffles it in tiles, as the Mihon
+/// sources converted from Keiyoushi's ComiciViewer and GigaViewer themes mark their pages:
+/// `#raygun-unscramble=comici:<16 tile indices>` or `#raygun-unscramble=giga` on the address
+/// (the fragment never reaches the site).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unscramble {
+    /// A 4×4 grid: tile `n` of the result is tile `tiles[n]` of the picture, counted down each
+    /// column; the edges past the grid stay.
+    Comici(Vec<usize>),
+    /// A 4×4 grid of blocks whose sides are multiples of 8, transposed.
+    Giga,
+}
+
+const UNSCRAMBLE: &str = "raygun-unscramble=";
+
+impl Unscramble {
+    pub fn from_url(url: &str) -> Option<Self> {
+        let fragment = url.split_once('#')?.1;
+        let recipe = fragment.strip_prefix(UNSCRAMBLE)?;
+        if recipe == "giga" {
+            return Some(Self::Giga);
+        }
+        let tiles: Vec<usize> = recipe
+            .strip_prefix("comici:")?
+            .split(',')
+            .map(|tile| tile.trim().parse().ok())
+            .collect::<Option<_>>()?;
+        (tiles.len() == 16 && tiles.iter().all(|tile| *tile < 16)).then_some(Self::Comici(tiles))
+    }
+
+    /// The picture put back together, as JPEG.
+    pub fn apply(&self, bytes: &[u8]) -> Result<Vec<u8>, String> {
+        let source = if is_jxl(bytes) {
+            let png = jxl_to_png(bytes)?;
+            image::load_from_memory(&png)
+        } else {
+            image::load_from_memory(bytes)
+        }
+        .map_err(|error| format!("couldn't read the page's picture: {error}"))?
+        .to_rgb8();
+        let (width, height) = source.dimensions();
+        let mut result = source.clone();
+        let mut copy = |from: (u32, u32), to: (u32, u32), size: (u32, u32)| {
+            if size.0 == 0 || size.1 == 0 {
+                return;
+            }
+            let tile =
+                image::imageops::crop_imm(&source, from.0, from.1, size.0, size.1).to_image();
+            image::imageops::replace(&mut result, &tile, i64::from(to.0), i64::from(to.1));
+        };
+        match self {
+            Self::Comici(tiles) => {
+                let (tile_width, tile_height) = (width / 4, height / 4);
+                for (destination, source_index) in tiles.iter().enumerate() {
+                    let destination = destination as u32;
+                    let source_index = *source_index as u32;
+                    copy(
+                        (
+                            (source_index / 4) * tile_width,
+                            (source_index % 4) * tile_height,
+                        ),
+                        (
+                            (destination / 4) * tile_width,
+                            (destination % 4) * tile_height,
+                        ),
+                        (tile_width, tile_height),
+                    );
+                }
+            }
+            Self::Giga => {
+                let block_width = (width / 32) * 8;
+                let block_height = (height / 32) * 8;
+                for index in 0..16u32 {
+                    let destination = (index % 4) * 4 + index / 4;
+                    copy(
+                        ((index % 4) * block_width, (index / 4) * block_height),
+                        (
+                            (destination % 4) * block_width,
+                            (destination / 4) * block_height,
+                        ),
+                        (block_width, block_height),
+                    );
+                }
+            }
+        }
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90)
+            .encode_image(&result)
+            .map_err(|error| error.to_string())?;
+        Ok(jpeg)
+    }
 }
 
 /// Whether `bytes` are a JPEG XL picture: a bare codestream or the ISO BMFF container.
@@ -359,6 +466,55 @@ mod tests {
     use axum::routing::get;
 
     use super::*;
+
+    /// A 64×64 picture of 16 flat tiles, each its own shade, counted as the recipe counts them.
+    fn tiles(order: impl Fn(u32, u32) -> u8) -> Vec<u8> {
+        let picture = image::RgbImage::from_fn(64, 64, |x, y| {
+            let shade = order(x / 16, y / 16) * 15;
+            image::Rgb([shade, shade, shade])
+        });
+        let mut png = std::io::Cursor::new(Vec::new());
+        picture.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        png.into_inner()
+    }
+
+    fn shade_at(jpeg: &[u8], x: u32, y: u32) -> u8 {
+        let picture = image::load_from_memory(jpeg).unwrap().to_rgb8();
+        picture.get_pixel(x, y)[0]
+    }
+
+    #[test]
+    fn shuffled_pages_are_put_back_together() {
+        assert_eq!(
+            Unscramble::from_url("https://x/1.jpg#raygun-unscramble=giga"),
+            Some(Unscramble::Giga)
+        );
+        assert_eq!(Unscramble::from_url("https://x/1.jpg#scramble"), None);
+        assert_eq!(
+            Unscramble::from_url("https://x/1.jpg#raygun-unscramble=comici:1,2"),
+            None
+        );
+        // Comici: result tile n (down each column) is source tile tiles[n]; the reverse order
+        // here, so the shades come out reversed.
+        let reversed: Vec<usize> = (0..16).rev().collect();
+        let source = tiles(|column, row| (column * 4 + row) as u8);
+        let fixed = Unscramble::Comici(reversed).apply(&source).unwrap();
+        assert!(
+            shade_at(&fixed, 8, 8).abs_diff(15 * 15) <= 3,
+            "the first tile is the last one"
+        );
+        assert!(
+            shade_at(&fixed, 56, 56).abs_diff(0) <= 3,
+            "the last tile is the first one"
+        );
+        // Giga: blocks are transposed (here 16×16 blocks: 64 / 32 * 8).
+        let source = tiles(|column, row| (row * 4 + column) as u8);
+        let fixed = Unscramble::Giga.apply(&source).unwrap();
+        assert!(
+            shade_at(&fixed, 8 + 16, 8).abs_diff(4 * 15) <= 3,
+            "column 1, row 0 was row 1, column 0"
+        );
+    }
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
     const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2];

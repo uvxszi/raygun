@@ -410,9 +410,17 @@
     isLowerCase: (s) => s === s.toLowerCase() && s !== s.toUpperCase(),
     digitToInt: (s) => parseInt(s, 10),
     toRequestBody: (s, [type = 'text/plain']) => ({ isBody: true, text: s, type: KT.str(type) }),
+    toJsonRequestBody: (s) => ({
+      isBody: true,
+      text: KT.str(s),
+      type: 'application/json; charset=utf-8',
+    }),
     toMediaType: (s) => s,
+    toResponseBody: (s, [type]) => KT.textBody(s, type ?? null),
     toMediaTypeOrNull: (s) => s,
     encodeToByteArray: (s) => s,
+    // Bytes are kept as the text they spell (`Base64.encodeToString(id.toByteArray(), …)`).
+    toByteArray: (s) => s,
     decodeToString: (s) => s,
     compareTo: (s, [other]) => KT.cmp(s, other),
     reversed: (s) => [...s].reverse().join(''),
@@ -523,6 +531,63 @@
   };
   const noSuch = (what) => {
     throw new KotlinError(what, 'NoSuchElementException');
+  };
+  /// A comparator (`compareBy { … }.thenByDescending { … }`): keys to sort by, in order.
+  const comparator = (keys) => ({
+    isComparator: true,
+    keys,
+    thenBy: (select) => comparator([...keys, { select, descending: false }]),
+    thenByDescending: (select) => comparator([...keys, { select, descending: true }]),
+    reversed: () => comparator(keys.map((key) => ({ ...key, descending: !key.descending }))),
+  });
+  /// Items in the order a comparator, or a `Comparator { a, b -> … }`, gives.
+  const sortWith = async (items, order) => {
+    if (typeof order === 'function') {
+      const out = [];
+      for (const item of items) {
+        let at = out.length;
+        while (at > 0 && (await order(out[at - 1], item)) > 0) at--;
+        out.splice(at, 0, item);
+      }
+      return out;
+    }
+    const keyed = [];
+    for (const item of items) {
+      const values = [];
+      for (const key of order.keys) values.push(key.select ? await key.select(item) : item);
+      keyed.push([values, item]);
+    }
+    keyed.sort((a, b) => {
+      for (let index = 0; index < order.keys.length; index++) {
+        const result = KT.cmp(a[0][index], b[0][index]);
+        if (result) return order.keys[index].descending ? -result : result;
+      }
+      return 0;
+    });
+    return keyed.map(([, item]) => item);
+  };
+  /// `List(size) { index -> … }`.
+  const listOfSize = async (size, init) => {
+    const out = [];
+    for (let index = 0; index < size; index++) out.push(init ? await init(index) : null);
+    return out;
+  };
+  /// `DateTimeFormatterBuilder()…toFormatter()`: its pattern pieces, as one date format.
+  const dateFormatterBuilder = () => {
+    let pattern = '';
+    const builder = {
+      appendPattern: (text) => ((pattern += KT.str(text)), builder),
+      appendLiteral: (text) => ((pattern += `'${KT.str(text).replace(/'/g, "''")}'`), builder),
+      parseCaseInsensitive: () => builder,
+      parseCaseSensitive: () => builder,
+      parseLenient: () => builder,
+      parseStrict: () => builder,
+      optionalStart: () => builder,
+      optionalEnd: () => builder,
+      parseDefaulting: () => builder,
+      toFormatter: (locale) => K.dateFormat(pattern, locale),
+    };
+    return builder;
   };
   const LIST = {
     size: (l) => l.length,
@@ -664,6 +729,12 @@
       for (const item of l) parts.push(KT.str(lambda ? await lambda(item) : item));
       return prefix + parts.join(KT.str(separator)) + postfix;
     },
+    /// `joinTo(builder, separator, …)`: the same text, appended to `builder`.
+    joinTo: async (l, [buffer, ...rest], lambda, named) => {
+      const text = await LIST.joinToString(l, rest, lambda, named);
+      buffer.append(text);
+      return buffer;
+    },
     take: (l, [count]) => l.slice(0, count),
     drop: (l, [count]) => l.slice(count),
     takeLast: (l, [count]) => l.slice(Math.max(0, l.length - count)),
@@ -704,6 +775,19 @@
     sortedDescending: (l) => [...l].sort((a, b) => KT.cmp(b, a)),
     sortedBy: async (l, _args, lambda) => sortBy(l, lambda),
     sortedByDescending: async (l, _args, lambda) => sortBy(l, lambda, true),
+    sortedWith: async (l, [order], lambda) => sortWith(l, order ?? lambda),
+    sortWith: async (l, [order], lambda) => {
+      const sorted = await sortWith(l, order ?? lambda);
+      l.splice(0, l.length, ...sorted);
+    },
+    sortBy: async (l, _args, lambda) => {
+      const sorted = await sortBy(l, lambda);
+      l.splice(0, l.length, ...sorted);
+    },
+    sortByDescending: async (l, _args, lambda) => {
+      const sorted = await sortBy(l, lambda, true);
+      l.splice(0, l.length, ...sorted);
+    },
     reversed: (l) => [...l].reverse(),
     asReversed: (l) => [...l].reverse(),
     flatten: (l) => l.flatMap((value) => KT.iter(value)),
@@ -732,6 +816,8 @@
     toList: (l) => [...l],
     toMutableList: (l) => [...l],
     toTypedArray: (l) => [...l],
+    toByteArray: (l) => [...l],
+    toIntArray: (l) => [...l],
     toSet: (l) => LIST.distinct(l),
     toMutableSet: (l) => LIST.distinct(l),
     asSequence: (l) => l,
@@ -749,6 +835,12 @@
     min: (l) => KT.nn(LIST.minOrNull(l)),
     maxByOrNull: async (l, _args, lambda) => (l.length ? (await sortBy(l, lambda, true))[0] : null),
     minByOrNull: async (l, _args, lambda) => (l.length ? (await sortBy(l, lambda))[0] : null),
+    maxBy: async (l, _args, lambda) =>
+      l.length ? (await sortBy(l, lambda, true))[0] : noSuch('an empty list'),
+    minBy: async (l, _args, lambda) =>
+      l.length ? (await sortBy(l, lambda))[0] : noSuch('an empty list'),
+    maxOfOrNull: async (l, _args, lambda) => LIST.maxOrNull(await mapAll(l, lambda)),
+    minOfOrNull: async (l, _args, lambda) => LIST.minOrNull(await mapAll(l, lambda)),
     average: (l) => (l.length ? l.reduce((total, value) => total + value, 0) / l.length : NaN),
     reduce: async (l, _args, lambda) => {
       let total = l[0];
@@ -911,6 +1003,12 @@
     getLong: (o, [key]) => (o[key] === null || o[key] === undefined ? null : toInt(o[key])),
     getBoolean: (o, [key]) =>
       o[key] === null || o[key] === undefined ? null : o[key] === true || o[key] === 'true',
+    getStringOrNull: (o, [key]) =>
+      o[key] === null || o[key] === undefined ? null : KT.str(o[key]),
+    getIntOrNull: (o, [key]) => (o[key] === null || o[key] === undefined ? null : toInt(o[key])),
+    getLongOrNull: (o, [key]) => (o[key] === null || o[key] === undefined ? null : toInt(o[key])),
+    getBooleanOrNull: (o, [key]) =>
+      o[key] === null || o[key] === undefined ? null : o[key] === true || o[key] === 'true',
     toMap: (o) => new Map(Object.entries(o)),
     toMutableMap: (o) => new Map(Object.entries(o)),
   };
@@ -922,6 +1020,8 @@
     toFloat: (n) => n,
     toDouble: (n) => n,
     toChar: (n) => String.fromCharCode(n),
+    toByte: (n) => (Math.trunc(n) << 24) >> 24,
+    toShort: (n) => (Math.trunc(n) << 16) >> 16,
     roundToInt: (n) => Math.round(n),
     roundToLong: (n) => Math.round(n),
     coerceAtLeast: (n, [min]) => Math.max(n, min),
@@ -949,7 +1049,13 @@
       return hash;
     },
     use: async (value, _args, lambda) => lambda(value),
+    closeQuietly: () => KT.unit,
     toJsonString: (value) => JSON.stringify(plain(value)),
+    toJsonRequestBody: (value) => ({
+      isBody: true,
+      text: JSON.stringify(plain(value)),
+      type: 'application/json; charset=utf-8',
+    }),
     toJsonElement: (value) => plain(value),
     isNullOrBlank: (value) => K.isBlank(value),
     isNullOrEmpty: (value) => value == null || value.length === 0,
@@ -1019,6 +1125,23 @@
   // ---- Reading values ----
 
   let renames = {};
+  /// Keiyoushi's `assets/i18n/messages_<lang>.properties`, by `<lang>` (`pt_br`).
+  let messages = {};
+  /// Keiyoushi's `Intl` (lib:i18n): messages in the source's language, else the base one's.
+  const intl = (language, availableLanguages, baseLanguage) => {
+    const snake = (lang) => KT.str(lang).replace(/-/g, '_').toLowerCase();
+    const available = [...(availableLanguages ?? [])].map(KT.str);
+    const chosen = available.includes(KT.str(language)) ? KT.str(language) : KT.str(baseLanguage);
+    const bundle = messages[snake(chosen)] ?? {};
+    const baseBundle = messages[snake(baseLanguage)] ?? {};
+    const get = (key) => bundle[key] ?? baseBundle[key] ?? `[${key}]`;
+    return {
+      chosenLanguage: chosen,
+      get,
+      format: (key, ...args) => K.format(get(key), ...args),
+      languageDisplayName: (code) => KT.str(code),
+    };
+  };
   /// A DTO's property by its Kotlin name, or the JSON name it's read by.
   const field = (object, name) => {
     if (Object.prototype.hasOwnProperty.call(object, name)) return object[name];
@@ -1090,6 +1213,22 @@
     throw new KotlinError(`a value has no ${name}`);
   };
   KT.ps = async (value, name) => (value === null || value === undefined ? null : KT.p(value, name));
+  /// A callable reference's call (`GenreRoute::name`, `Element::text`): a property read when the
+  /// value has one by that name, else the method.
+  KT.member = async (receiver, name, args) => {
+    if (
+      args.length === 0 &&
+      receiver !== null &&
+      typeof receiver === 'object' &&
+      !Array.isArray(receiver) &&
+      !(receiver instanceof mihon.Elements)
+    ) {
+      const own = field(receiver, name);
+      if ((own !== undefined && typeof own !== 'function') || classGetter(receiver, name))
+        return KT.p(receiver, name);
+    }
+    return KT.m(receiver, name, args);
+  };
   KT.setp = async (value, name, item) => {
     if (value === null || value === undefined)
       throw new KotlinError(`set ${name} of null`, 'NullPointerException');
@@ -1612,11 +1751,33 @@
         contentType: () => raw.header('content-type'),
       };
     }
+    /// An answer an interceptor made (`response.newBuilder()…build()`).
+    static made(state) {
+      const body = state.body ?? textBody('');
+      const response = Object.create(Response.prototype);
+      response.code = state.code;
+      response.message = state.message;
+      response.request = state.request;
+      response.headers = state.headers;
+      response.body = body;
+      response.raw = {
+        text: () => body.string(),
+        header: (name) => state.headers.get(name),
+        code: state.code,
+      };
+      return response;
+    }
     get isSuccessful() {
       return this.code >= 200 && this.code < 300;
     }
-    header(name) {
-      return this.headers.get(name);
+    header(name, fallback = null) {
+      return this.headers.get(name) ?? fallback;
+    }
+    newBuilder() {
+      return responseBuilder(this);
+    }
+    peekBody() {
+      return this.body;
     }
     async asJsoup() {
       return Jsoup.parse(await this.raw.text(), this.request.url.toString());
@@ -1624,6 +1785,17 @@
     /// Plain JSON; `KT.m` decodes it as the type the call asks for.
     async parseAs() {
       return JSON.parse(await this.raw.text());
+    }
+    /// Keiyoushi's `parseGraphQLAs<T>()`: the answer's `data`, or its errors as a failure.
+    async parseGraphQLAs() {
+      const answer = JSON.parse(await this.raw.text());
+      if (Array.isArray(answer.errors) && answer.errors.length && answer.data == null) {
+        throw new KotlinError(
+          answer.errors.map((error) => KT.str(error?.message ?? '')).join('\n'),
+          'GraphQLException',
+        );
+      }
+      return answer.data ?? null;
     }
     async use(lambda) {
       return lambda(this);
@@ -1696,7 +1868,12 @@
   /// A JSON answer as the type asked for: declared DTOs with their methods, the rest plain, names
   /// read through `@SerialName`.
   const decode = async (value, type) => (type ? decodeAs(value, parseType(type)) : value);
-  const DECODERS = new Set(['parseAs', 'decodeFromString', 'decodeFromJsonElement']);
+  const DECODERS = new Set([
+    'parseAs',
+    'decodeFromString',
+    'decodeFromJsonElement',
+    'parseGraphQLAs',
+  ]);
   KT.unconverted = (name, reason) => ({
     isClass: true,
     name,
@@ -1708,8 +1885,32 @@
   class Client {
     constructor(source) {
       this.source = source;
+      this.interceptors = [];
     }
+    /// A request through the source's interceptors (`addInterceptor`), in the order added, then
+    /// the network.
     async send(request, ensureSuccess) {
+      const run = async (index, current) => {
+        if (index >= this.interceptors.length) return this.transport(current);
+        const interceptor = this.interceptors[index];
+        const chain = {
+          request: () => current,
+          proceed: (next) => run(index + 1, next ?? current),
+          call: () => ({ request: () => current, isCanceled: () => false }),
+          connectTimeoutMillis: () => 30000,
+          readTimeoutMillis: () => 30000,
+          writeTimeoutMillis: () => 30000,
+        };
+        return typeof interceptor === 'function'
+          ? interceptor(chain)
+          : KT.m(interceptor, 'intercept', [chain]);
+      };
+      const response = await run(0, request);
+      if (ensureSuccess && !response.isSuccessful)
+        throw new HttpError(response.code, response.request.url.toString());
+      return response;
+    }
+    async transport(request) {
       const fetch = request.kind;
       const kind = fetch && fetch.kind ? fetch.kind : request.method === 'GET' ? 'document' : 'xhr';
       const headers = request.headers.object();
@@ -1726,10 +1927,7 @@
         from: fetch && fetch.page ? fetch.page : null,
         ensureSuccess: false,
       });
-      const response = new Response(raw, request);
-      if (ensureSuccess && !response.isSuccessful)
-        throw new HttpError(response.code, response.request.url.toString());
-      return response;
+      return new Response(raw, request);
     }
     newCall(request) {
       return {
@@ -1785,10 +1983,89 @@
       writeTimeout: () => builder,
       callTimeout: () => builder,
       followRedirects: () => builder,
+      followSslRedirects: () => builder,
+      retryOnConnectionFailure: () => builder,
+      // Interceptors over requests and answers (headers, tokens, retries, cookies); one decoding
+      // images can't convert, as the runtime has no pictures.
+      addInterceptor: (interceptor) => {
+        client.interceptors.push(interceptor);
+        return builder;
+      },
+      addNetworkInterceptor: (interceptor) => {
+        client.interceptors.push(interceptor);
+        return builder;
+      },
+      interceptors: () => client.interceptors,
+      // The extension's own cookie jar always keeps cookies.
+      cookieJar: () => builder,
+      /// Keiyoushi's `addCookie(…)`: cookies sent to the source's host (or one named first).
+      addCookie: (...args) => {
+        const domain = args.length >= 2 && typeof args[0] === 'function' ? args.shift() : null;
+        const cookies = args[0];
+        client.interceptors.push(async (chain) => {
+          const request = chain.request();
+          const host = domain ? KT.str(await domain()) : HttpUrl.parse(client.source.baseUrl).host;
+          const target = request.url.host;
+          if (target !== host && !target.endsWith(`.${host}`)) return chain.proceed(request);
+          let list = typeof cookies === 'function' ? await cookies() : cookies;
+          if (list && !Array.isArray(list)) list = [list];
+          const pairs = (list ?? []).map((pair) => `${KT.str(pair.first)}=${KT.str(pair.second)}`);
+          if (!pairs.length) return chain.proceed(request);
+          const value = [request.headers.get('Cookie'), ...pairs].filter(Boolean).join('; ');
+          return chain.proceed(request.newBuilder().header('Cookie', value).build());
+        });
+        return builder;
+      },
       build: () => client,
     };
     return builder;
   };
+  /// `response.newBuilder()…build()`: an answer an interceptor changes.
+  const responseBuilder = (from) => {
+    const state = {
+      code: from.code,
+      headers: from.headers,
+      body: from.body,
+      request: from.request,
+      message: from.message ?? '',
+    };
+    const builder = {
+      code: (code) => ((state.code = code), builder),
+      message: (message) => ((state.message = message), builder),
+      header: (name, value) => (
+        (state.headers = state.headers.newBuilder().set(name, value).build()),
+        builder
+      ),
+      addHeader: (name, value) => (
+        (state.headers = state.headers.newBuilder().add(name, value).build()),
+        builder
+      ),
+      removeHeader: (name) => (
+        (state.headers = state.headers.newBuilder().removeAll(name).build()),
+        builder
+      ),
+      headers: (headers) => ((state.headers = headers), builder),
+      body: (body) => ((state.body = body), builder),
+      request: (request) => ((state.request = request), builder),
+      protocol: () => builder,
+      build: () => Response.made(state),
+    };
+    return builder;
+  };
+  /// A body made in code (`"…".toResponseBody(mediaType)`).
+  const textBody = (text, type = null) => {
+    const value = KT.str(text);
+    return {
+      isResponseBody: true,
+      string: async () => value,
+      text: async () => value,
+      bytes: async () => value,
+      close: () => {},
+      contentType: () => type,
+      contentLength: () => value.length,
+    };
+  };
+  KT.textBody = textBody;
 
   // ---- Mihon's models ----
 
@@ -1956,6 +2233,56 @@
     Semaphore: ([permits]) => KT.semaphore(permits ?? 1),
     awaitAll: (args) => awaitEach(args),
     Char: ([code]) => String.fromCharCode(code),
+    // Keiyoushi's GraphQL helpers (`keiyoushi.utils`).
+    GraphQLErrorInterceptor: () => graphQLErrors,
+    graphQLBody: ([query, operationName, variables, extensions], named_) => ({
+      isBody: true,
+      text: JSON.stringify(
+        plain(
+          Object.fromEntries(
+            Object.entries({
+              operationName: named_?.operationName ?? operationName,
+              query: named_?.query ?? query,
+              variables: named_?.variables ?? variables,
+              extensions: named_?.extensions ?? extensions,
+            }).filter(([, value]) => value !== undefined && value !== null),
+          ),
+        ),
+      ),
+      type: 'application/json; charset=utf-8',
+    }),
+    persistedQueryExtension: ([hash, version = 1]) => ({
+      persistedQuery: { version, sha256Hash: hash },
+    }),
+    // `Interceptor { chain -> … }`: the function itself.
+    Interceptor: (args, _named, lambda) => lambda ?? args[0],
+    Comparator: (args, _named, lambda) => lambda ?? args[0],
+    compareBy: (args, _named, lambda) =>
+      comparator(
+        (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: false })),
+      ),
+    compareByDescending: (args, _named, lambda) =>
+      comparator(
+        (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: true })),
+      ),
+    naturalOrder: () => comparator([{ select: null, descending: false }]),
+    reverseOrder: () => comparator([{ select: null, descending: true }]),
+    List: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init),
+    MutableList: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init),
+    Array: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init),
+    arrayOfNulls: ([size]) => new Array(size).fill(null),
+    HashMap: ([from]) => new Map(from instanceof Map ? from : Object.entries(from ?? {})),
+    LinkedHashMap: ([from]) => new Map(from instanceof Map ? from : Object.entries(from ?? {})),
+    ConcurrentHashMap: ([from]) => new Map(from instanceof Map ? from : Object.entries(from ?? {})),
+    HashSet: ([from]) => LIST.distinct([...(from ?? [])]),
+    LinkedHashSet: ([from]) => LIST.distinct([...(from ?? [])]),
+    DateTimeFormatterBuilder: () => dateFormatterBuilder(),
+    Intl: ([language, availableLanguages, baseLanguage], named_) =>
+      intl(
+        named_?.language ?? language,
+        named_?.availableLanguages ?? availableLanguages,
+        named_?.baseLanguage ?? baseLanguage ?? 'en',
+      ),
     // `String(chars)`, `String(bytes)` (one byte a character).
     String: ([value]) =>
       Array.isArray(value)
@@ -2242,6 +2569,47 @@
       toEpochSecond: (where) =>
         Math.floor((local && where !== undefined ? ms - offsetOf(where) * 60000 : ms) / 1000),
       toEpochDay: () => Math.floor(ms / DAY_MS),
+      truncatedTo: (unit) => {
+        const size =
+          { MILLIS: 1, SECONDS: 1000, MINUTES: 60000, HOURS: 3600000, DAYS: DAY_MS }[
+            KT.str(unit)
+          ] ?? 1;
+        return moment(Math.floor(ms / size) * size, kind);
+      },
+      minus: (amount, unit) =>
+        shift((date) =>
+          date.setTime(
+            date.getTime() -
+              (amount && amount.isDuration ? amount.ms : amount) *
+                (amount && amount.isDuration
+                  ? 1
+                  : ({
+                      MILLIS: 1,
+                      SECONDS: 1000,
+                      MINUTES: 60000,
+                      HOURS: 3600000,
+                      DAYS: DAY_MS,
+                      WEEKS: 7 * DAY_MS,
+                    }[KT.str(unit)] ?? 1)),
+          ),
+        ),
+      plus: (amount, unit) =>
+        shift((date) =>
+          date.setTime(
+            date.getTime() +
+              (amount && amount.isDuration ? amount.ms : amount) *
+                (amount && amount.isDuration
+                  ? 1
+                  : ({
+                      MILLIS: 1,
+                      SECONDS: 1000,
+                      MINUTES: 60000,
+                      HOURS: 3600000,
+                      DAYS: DAY_MS,
+                      WEEKS: 7 * DAY_MS,
+                    }[KT.str(unit)] ?? 1)),
+          ),
+        ),
       getYear: () => new Date(ms).getUTCFullYear(),
       getMonthValue: () => new Date(ms).getUTCMonth() + 1,
       getDayOfMonth: () => new Date(ms).getUTCDate(),
@@ -2309,6 +2677,25 @@
           : parseInt(code.slice(1), 10);
       return Number.isFinite(point) && point <= 0x10ffff ? String.fromCodePoint(point) : whole;
     });
+
+  /// Keiyoushi's `GraphQLErrorInterceptor`: an answer naming GraphQL errors fails with them.
+  const graphQLErrors = async (chain) => {
+    const response = await chain.proceed(chain.request());
+    if (response.isSuccessful) return response;
+    let errors = null;
+    try {
+      errors = JSON.parse(await response.body.string()).errors;
+    } catch {
+      errors = null;
+    }
+    if (Array.isArray(errors) && errors.length) {
+      throw new KotlinError(
+        errors.map((error) => KT.str(error?.message ?? '')).join('\n'),
+        'GraphQLException',
+      );
+    }
+    return response;
+  };
 
   /// kotlinx.coroutines' `Mutex`: one `withLock` at a time, the others wait in turn.
   KT.mutex = () => {
@@ -2465,6 +2852,10 @@
     },
     Json: jsonCodec,
     MediaType: { parse: (text) => KT.str(text), get: (text) => KT.str(text) },
+    ResponseBody: {
+      create: (first, second) =>
+        typeof first === 'string' ? KT.textBody(first, second) : KT.textBody(second, first),
+    },
     String: {
       // `String.format(Locale.US, "%02d", n)` too: the locale changes nothing here.
       format: (...args) => {
@@ -2481,6 +2872,26 @@
       isWhitespace: (char) => /^\s$/.test(char),
     },
     Unit: undefined,
+    // The Mihon release a source may name in its User-Agent.
+    AppInfo: { getVersionName: () => '0.19.1', getVersionCode: () => 19 },
+    // Android's log: nothing kept.
+    Log: { e: () => 0, w: () => 0, i: () => 0, d: () => 0, v: () => 0 },
+    // `Regex.escape(text)`: the text matched as it is.
+    Regex: {
+      escape: (text) => KT.str(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+      fromLiteral: (text) => K.regex(KT.str(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    },
+    ChronoUnit: {
+      MILLIS: 'MILLIS',
+      SECONDS: 'SECONDS',
+      MINUTES: 'MINUTES',
+      HOURS: 'HOURS',
+      DAYS: 'DAYS',
+      WEEKS: 'WEEKS',
+      MONTHS: 'MONTHS',
+      YEARS: 'YEARS',
+    },
+    ChronoField: {},
     LocalDate: {
       now: () =>
         moment(Math.floor((Date.now() + localOffset() * 60000) / DAY_MS) * DAY_MS, 'LocalDate'),
@@ -2530,7 +2941,8 @@
     },
     Request: { Builder: () => new RequestBuilder() },
     RegexOption: { IGNORE_CASE: 'i', MULTILINE: 'm', DOT_MATCHES_ALL: 's' },
-    Filter: {},
+    // Set with the filters below.
+    Filter: null,
     Math: {
       max: Math.max,
       min: Math.min,
@@ -2582,6 +2994,130 @@
 
   // ---- Classes a source declares ----
 
+  // ---- Mihon's filters, as Raygun's ----
+
+  const FILTER_KINDS = new Set([
+    'Select',
+    'Sort',
+    'CheckBox',
+    'TriState',
+    'Group',
+    'Text',
+    'Header',
+    'Separator',
+  ]);
+  const FILTER_STATES = { CheckBox: false, TriState: 0, Text: '', Header: null, Separator: null };
+  /// The kind of Mihon filter a class builds on (`Filter.Select<String>` → `Select`).
+  const filterKindOf = (supers) => {
+    for (const parent of supers ?? []) {
+      const short = parent.split('<')[0].split('.').pop();
+      if (FILTER_KINDS.has(short)) return short;
+    }
+    return null;
+  };
+  const filterKind = (filter) =>
+    filter && Array.isArray(filter.__classes)
+      ? (filter.__classes.find((name) => FILTER_KINDS.has(name)) ?? null)
+      : null;
+  /// `Filter.Header("…")` and its kin, made directly.
+  const filterObject = (kind, fields) => ({
+    __class: `Filter.${kind}`,
+    __classes: [kind, 'Filter'],
+    ...fields,
+  });
+  const FILTER_CONSTRUCTORS = {
+    Header: (name) => filterObject('Header', { name, state: null }),
+    Separator: (name = '') => filterObject('Separator', { name, state: null }),
+    Text: (name, state = '') => filterObject('Text', { name, state }),
+    CheckBox: (name, state = false) => filterObject('CheckBox', { name, state }),
+    TriState: (name, state = 0) => filterObject('TriState', { name, state }),
+    Select: (name, values, state = 0) =>
+      filterObject('Select', { name, values: [...(values ?? [])], state }),
+    Group: (name, state) => filterObject('Group', { name, state: [...(state ?? [])] }),
+    Sort: (name, values, state = null) =>
+      filterObject('Sort', { name, values: [...(values ?? [])], state }),
+  };
+  OBJECTS.Filter = FILTER_CONSTRUCTORS;
+  /// A source's filters as Raygun shows them, keyed by place (`f0`, `f1`…): a select or a sort
+  /// picks one, a checkbox toggles, a group of checkboxes or three-state boxes is tags. Text
+  /// fields aren't shown.
+  const describeFilters = (list) => {
+    const out = [];
+    list.forEach((filter, index) => {
+      const kind = filterKind(filter);
+      const key = `f${index}`;
+      const label = KT.str(filter.name ?? '');
+      if (kind === 'Select') {
+        out.push({
+          kind: 'select',
+          key,
+          label,
+          options: (filter.values ?? []).map((value, at) => ({
+            value: String(at),
+            label: KT.str(value),
+          })),
+          default: String(filter.state ?? 0),
+        });
+      } else if (kind === 'Sort') {
+        const options = (filter.values ?? []).flatMap((value, at) => [
+          { value: `${at}:d`, label: `${KT.str(value)} ↓` },
+          { value: `${at}:a`, label: `${KT.str(value)} ↑` },
+        ]);
+        const state = filter.state;
+        out.push({
+          kind: 'select',
+          key,
+          label,
+          options,
+          default: state ? `${state.index ?? 0}:${state.ascending ? 'a' : 'd'}` : undefined,
+        });
+      } else if (kind === 'CheckBox') {
+        out.push({ kind: 'toggle', key, label, default: Boolean(filter.state) });
+      } else if (kind === 'TriState') {
+        out.push({ kind: 'tags', key, label, options: [{ value: '0', label }] });
+      } else if (kind === 'Group') {
+        const children = Array.isArray(filter.state) ? filter.state : [];
+        out.push({
+          kind: 'tags',
+          key,
+          label,
+          options: children.map((child, at) => ({
+            value: String(at),
+            label: KT.str(child?.name ?? ''),
+          })),
+        });
+      }
+    });
+    return out.filter((filter) => filter.kind !== 'select' || filter.options.length).slice(0, 20);
+  };
+  /// The source's filters set as Raygun's values ask.
+  const applyFilters = (list, values) => {
+    list.forEach((filter, index) => {
+      const value = values[`f${index}`];
+      if (value === undefined || value === null) return;
+      const kind = filterKind(filter);
+      if (kind === 'Select' && typeof value === 'string') {
+        filter.state = parseInt(value, 10) || 0;
+      } else if (kind === 'Sort' && typeof value === 'string') {
+        const [at, direction] = value.split(':');
+        filter.state = { index: parseInt(at, 10) || 0, ascending: direction === 'a' };
+      } else if (kind === 'CheckBox') {
+        filter.state = value === true;
+      } else if (kind === 'TriState' && typeof value === 'object') {
+        filter.state = value.include?.length ? 1 : value.exclude?.length ? 2 : 0;
+      } else if (kind === 'Group' && typeof value === 'object') {
+        const children = Array.isArray(filter.state) ? filter.state : [];
+        children.forEach((child, at) => {
+          const included = (value.include ?? []).includes(String(at));
+          const excluded = (value.exclude ?? []).includes(String(at));
+          if (filterKind(child) === 'TriState') child.state = included ? 1 : excluded ? 2 : 0;
+          else child.state = included;
+        });
+      }
+    });
+    return list;
+  };
+
   KT.defineClass = (definition) => {
     /// An instance with these fields (`undefined` ones take their defaults).
     const build = async (fields) => {
@@ -2606,12 +3142,23 @@
       if (definition.superArgs) {
         const parent = await definition.superArgs(...definition.params.map((name) => object[name]));
         object.__super = parent;
-        // Filters keep what Mihon's do: a name and a state.
+        // Filters keep what Mihon's do: a name and a state (and a select's or a sort's values).
         if (Array.isArray(parent) && !parentClass) {
+          const kind = filterKindOf(definition.supers);
           if (object.name === undefined) object.name = parent[0];
-          if (object.state === undefined)
-            object.state = Array.isArray(parent[1]) ? 0 : (parent[1] ?? null);
-          if (object.values === undefined && Array.isArray(parent[1])) object.values = parent[1];
+          if (kind === 'Select' || kind === 'Sort') {
+            if (object.values === undefined) object.values = parent[1] ?? [];
+            if (object.state === undefined)
+              object.state = parent[2] ?? (kind === 'Select' ? 0 : null);
+          } else if (kind === 'Group') {
+            if (object.state === undefined) object.state = parent[1] ?? [];
+          } else if (kind) {
+            if (object.state === undefined) object.state = parent[1] ?? FILTER_STATES[kind];
+          } else {
+            if (object.state === undefined)
+              object.state = Array.isArray(parent[1]) ? 0 : (parent[1] ?? null);
+            if (object.values === undefined && Array.isArray(parent[1])) object.values = parent[1];
+          }
         }
       }
       for (const [name, member] of Object.entries(definition.members)) {
@@ -2630,7 +3177,20 @@
         );
         for (const name of Object.getOwnPropertyNames(inherited)) {
           if (name.startsWith('__') || Object.prototype.hasOwnProperty.call(object, name)) continue;
-          Object.defineProperty(object, name, Object.getOwnPropertyDescriptor(inherited, name));
+          const descriptor = Object.getOwnPropertyDescriptor(inherited, name);
+          // Fields stay the parent's own, so its getters see what's set here (a filter's state).
+          if ('value' in descriptor && typeof descriptor.value !== 'function') {
+            Object.defineProperty(object, name, {
+              get: () => inherited[name],
+              set: (value) => {
+                inherited[name] = value;
+              },
+              enumerable: true,
+              configurable: true,
+            });
+          } else {
+            Object.defineProperty(object, name, descriptor);
+          }
         }
         for (const name of inherited.__classes)
           if (!object.__classes.includes(name)) object.__classes.push(name);
@@ -2688,6 +3248,31 @@
     return holder;
   };
   KT.make = async (holder, args, named_) => holder.make(args, named_);
+  /// An interceptor class the converter leaves out (a theme's image unscrambler, which Raygun's
+  /// image fetcher stands in for): it passes requests on.
+  KT.passThrough = (name) => ({
+    isClass: true,
+    name,
+    make: async () => ({
+      __class: name,
+      __classes: [name, 'Interceptor'],
+      intercept: async (chain) => chain.proceed(chain.request()),
+    }),
+    fromJson: async () => KT.raise(`${name} isn't data`),
+  });
+  /// A page's address marked for Raygun's image fetcher when its picture comes in shuffled
+  /// tiles (`#scramble=[…]` from ComiciViewer, `#scramble` from GigaViewer).
+  const unscrambled = (url, recipe) => {
+    const at = url.indexOf('#');
+    if (!recipe || at < 0) return url;
+    const fragment = url.slice(at + 1);
+    if (recipe === 'giga' && fragment === 'scramble')
+      return `${url.slice(0, at)}#raygun-unscramble=giga`;
+    if (recipe === 'comici' && fragment.startsWith('scramble=')) {
+      return `${url.slice(0, at)}#raygun-unscramble=comici:${fragment.slice('scramble='.length).replace(/[[\]\s]/g, '')}`;
+    }
+    return url;
+  };
 
   // ---- Receivers ----
 
@@ -2771,9 +3356,11 @@
   };
 
   /// What the source's own code answers, as Raygun's `manga.source` calls.
-  const makeSource = (t, build) => {
-    const functions = new Map();
-    const properties = new Map();
+  /// A source made of layers, as Kotlin's classes inherit: a theme's classes beneath, the
+  /// source's own on top. Calls and reads find the topmost layer that has the name; `super` in a
+  /// layer finds the layers beneath it, then KeiSource's own.
+  const makeSource = (t, builds) => {
+    const layers = builds.map(() => ({ functions: new Map(), properties: new Map() }));
     const values = new Map();
     const extensions = new Map();
     const constants = new Map();
@@ -2841,55 +3428,87 @@
         return editor;
       },
     };
-    const self = {
+    /// The function `name` taking `args`, from the layers beneath `below`, topmost first.
+    const findFunction = (name, args, below) => {
+      let fallback = null;
+      for (let index = below - 1; index >= 0; index--) {
+        const overloads = layers[index].functions.get(name);
+        if (!overloads) continue;
+        const fits = overloads.filter(
+          ([required, total]) => args.length >= required && args.length <= total,
+        );
+        const chosen = fits.find(([, total]) => total === args.length) ?? fits[0];
+        if (chosen) return chosen[2];
+        fallback ??= overloads[0][2];
+      }
+      return fallback;
+    };
+    /// The layer beneath `below` that has the property `name`, topmost first.
+    const findProperty = (name, below) => {
+      for (let index = below - 1; index >= 0; index--) {
+        if (layers[index].properties.has(name)) return index;
+      }
+      return -1;
+    };
+    const read = async (name, below) => {
+      const index = findProperty(name, below);
+      if (index >= 0) {
+        const { getter, once } = layers[index].properties.get(name);
+        if (!once) return getter();
+        const key = `${index}:${name}`;
+        if (!values.has(key)) values.set(key, getter());
+        return values.get(key);
+      }
+      if (base[name]) return base[name]();
+      throw new KotlinError(`the source has no ${name}`);
+    };
+    const invoke = async (name, args, below) => {
+      const function_ = findFunction(name, args, below);
+      if (function_) return function_(...args);
+      if (baseFunctions[name]) return baseFunctions[name](...args);
+      throw new KotlinError(`the source has no ${name}`);
+    };
+    const top = layers.length;
+    /// The source as layer `index`'s code sees it: its definitions go there, `super` is beneath.
+    const layerSelf = (index) => ({
       isSource: true,
       constants: C,
       classes: D,
-      define: (name, overloads) => functions.set(name, overloads),
-      prop: (name, getter, once = true) => properties.set(name, { getter, once }),
+      define: (name, overloads) => layers[index].functions.set(name, overloads),
+      prop: (name, getter, once = true) => layers[index].properties.set(name, { getter, once }),
       extension: (name, function_) => extensions.set(name, function_),
-      has: (name) => properties.has(name) || Object.prototype.hasOwnProperty.call(base, name),
+      has: (name) =>
+        findProperty(name, top) >= 0 || Object.prototype.hasOwnProperty.call(base, name),
       hasFunction: (name) =>
-        functions.has(name) || Object.prototype.hasOwnProperty.call(baseFunctions, name),
+        layers.some((layer) => layer.functions.has(name)) ||
+        Object.prototype.hasOwnProperty.call(baseFunctions, name),
       hasExtension: (name) => extensions.has(name),
-      get: async (name) => {
-        if (properties.has(name)) {
-          const { getter, once } = properties.get(name);
-          if (!once) return getter();
-          if (!values.has(name)) values.set(name, getter());
-          return values.get(name);
-        }
-        if (base[name]) return base[name]();
-        throw new KotlinError(`the source has no ${name}`);
-      },
+      get: (name) => read(name, top),
       set: async (name, value) => {
-        properties.set(name, { getter: async () => value, once: true });
-        values.set(name, value);
+        const at = findProperty(name, top);
+        const layer = at >= 0 ? at : top - 1;
+        layers[layer].properties.set(name, { getter: async () => value, once: true });
+        values.set(`${layer}:${name}`, value);
       },
-      call: async (name, args) => {
-        const overloads = functions.get(name);
-        if (overloads) {
-          const fits = overloads.filter(
-            ([required, total]) => args.length >= required && args.length <= total,
-          );
-          const chosen = fits.find(([, total]) => total === args.length) ?? fits[0] ?? overloads[0];
-          return chosen[2](...args);
-        }
-        if (baseFunctions[name]) return baseFunctions[name](...args);
-        throw new KotlinError(`the source has no ${name}`);
-      },
+      call: (name, args) => invoke(name, args, top),
       ext: async (name, receiver, args) => {
         const function_ = extensions.get(name);
         if (!function_) return KT.m(receiver, name, args);
         return function_(receiver, ...args);
       },
       base: {
-        get: async (name) => (base[name] ? base[name]() : KT.raise(`no ${name} to inherit`)),
+        get: async (name) =>
+          findProperty(name, index) >= 0 || base[name]
+            ? read(name, index)
+            : KT.raise(`no ${name} to inherit`),
         call: async (name, args) =>
-          baseFunctions[name] ? baseFunctions[name](...args) : KT.raise(`no ${name} to inherit`),
+          findFunction(name, args, index) || baseFunctions[name]
+            ? invoke(name, args, index)
+            : KT.raise(`no ${name} to inherit`),
       },
-    };
-    build(self, C, D);
+    });
+    const self = layerSelf(top - 1);
+    builds.forEach((build, index) => build(index === top - 1 ? self : layerSelf(index), C, D));
     client.defaultHeaders = () => self.get('headers');
     // The client's rate limit and timeouts, as `configureClient` sets them.
     if (extensions.has('configureClient')) {
@@ -2914,12 +3533,21 @@
 
   mihon.source = (config) => {
     renames = { ...renames, ...(config.renames ?? {}) };
+    messages = { ...messages, ...(config.messages ?? {}) };
     for (const source of config.sources) {
       const t = { id: source.id, name: source.name, lang: source.lang, baseUrl: source.baseUrl };
       t.http = new Http(t, {});
-      const self = makeSource(t, config.build);
+      const self = makeSource(t, config.layers ?? [config.build]);
       const ready = async () => {
         if (self.ready) await self.ready;
+      };
+      const filterList = async () => {
+        try {
+          const list = await self.call('getFilterList', []);
+          return Array.isArray(list) ? list : [];
+        } catch {
+          return [];
+        }
       };
       const covers = (result) => {
         for (const item of result.items) {
@@ -2954,9 +3582,15 @@
             throw new Error('provider has no method latest');
           return covers(listing(await self.call('getLatestUpdates', [page])));
         },
-        search: async ({ query = '', page = 1 }) => {
+        // The source's own filters (`getFilterList()`); none when they couldn't be converted.
+        filters: async () => {
           await ready();
-          return covers(listing(await self.call('getSearchMangaList', [page, query, []])));
+          return describeFilters(await filterList());
+        },
+        search: async ({ query = '', page = 1, filters = {} }) => {
+          await ready();
+          const list = applyFilters(await filterList(), filters ?? {});
+          return covers(listing(await self.call('getSearchMangaList', [page, query, list])));
         },
         details: async ({ id }) => {
           const answer = await update(id, true);
@@ -2985,7 +3619,10 @@
           for (const page of pages) {
             if (!page.imageUrl) continue;
             const request = await self.call('getImageRequest', [page]);
-            out.push({ url: request.url.toString(), headers: request.headers.object() });
+            out.push({
+              url: unscrambled(request.url.toString(), config.imageRecipe),
+              headers: request.headers.object(),
+            });
           }
           return { pages: out };
         },
