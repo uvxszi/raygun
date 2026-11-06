@@ -20,6 +20,18 @@
   KT.ret = (value, label) => {
     throw new Return(value, label);
   };
+  /// A `break` or `continue` (`kind`) out of a lambda or an expression, to the loop `loop`, whose
+  /// body catches it.
+  class Jump {
+    constructor(kind, loop) {
+      this.kind = kind;
+      this.loop = loop;
+    }
+  }
+  KT.Jump = Jump;
+  KT.jump = (kind, loop) => {
+    throw new Jump(kind, loop);
+  };
 
   class KotlinError extends Error {
     constructor(message, kind = 'Exception') {
@@ -32,7 +44,7 @@
     throw KT.error(value);
   };
   KT.caught = (error, type) => {
-    if (error instanceof Return) return false;
+    if (error instanceof Return || error instanceof Jump) return false;
     const name = K.str(type).split('.').pop();
     if (
       ['Exception', 'Throwable', 'Error', 'RuntimeException', 'IOException', 'Any'].includes(name)
@@ -235,7 +247,7 @@
     try {
       return new Result(true, await work());
     } catch (error) {
-      if (error instanceof Return) throw error;
+      if (error instanceof Return || error instanceof Jump) throw error;
       return new Result(false, null, error);
     }
   };
@@ -2354,10 +2366,145 @@
   });
 
   /// The source's client: requests over the source's `Http` (its Referer, rate limit, cookies).
+  // ---- Cookies ----
+
+  /// An OkHttp `Cookie`.
+  const makeCookie = (fields) => ({
+    __class: 'Cookie',
+    __classes: ['Cookie'],
+    name: '',
+    value: '',
+    domain: '',
+    path: '/',
+    expiresAt: 253402300799999,
+    secure: false,
+    httpOnly: false,
+    hostOnly: true,
+    persistent: false,
+    ...fields,
+    toString() {
+      return `${this.name}=${this.value}`;
+    },
+  });
+  /// `Cookie.parse(url, "name=value; Path=/; …")`.
+  const parseCookie = (url, line) => {
+    const parts = KT.str(line).split(';');
+    const [name, ...rest] = parts[0].split('=');
+    if (!name || !name.trim()) return null;
+    const host = url && url.host !== undefined ? url.host : HttpUrl.parse(KT.str(url)).host;
+    const cookie = makeCookie({ name: name.trim(), value: rest.join('=').trim(), domain: host });
+    for (const attribute of parts.slice(1)) {
+      const [key, ...value] = attribute.split('=');
+      const text = value.join('=').trim();
+      switch (key.trim().toLowerCase()) {
+        case 'domain':
+          cookie.domain = text.replace(/^\./, '');
+          cookie.hostOnly = false;
+          break;
+        case 'path':
+          cookie.path = text || '/';
+          break;
+        case 'expires': {
+          const ms = Date.parse(text);
+          if (!Number.isNaN(ms)) {
+            cookie.expiresAt = ms;
+            cookie.persistent = true;
+          }
+          break;
+        }
+        case 'max-age': {
+          const seconds = Number(text);
+          if (Number.isFinite(seconds)) {
+            cookie.expiresAt = Date.now() + seconds * 1000;
+            cookie.persistent = true;
+          }
+          break;
+        }
+        case 'secure':
+          cookie.secure = true;
+          break;
+        case 'httponly':
+          cookie.httpOnly = true;
+          break;
+        default:
+      }
+    }
+    return cookie;
+  };
+  /// A cookie as the `Set-Cookie` line that keeps it.
+  const cookieLine = (cookie) => {
+    const parts = [`${KT.str(cookie.name)}=${KT.str(cookie.value)}`];
+    if (cookie.domain && !cookie.hostOnly) parts.push(`Domain=${cookie.domain}`);
+    parts.push(`Path=${cookie.path || '/'}`);
+    if (cookie.persistent && Number.isFinite(cookie.expiresAt))
+      parts.push(`Expires=${new Date(cookie.expiresAt).toUTCString()}`);
+    if (cookie.secure) parts.push('Secure');
+    if (cookie.httpOnly) parts.push('HttpOnly');
+    return parts.join('; ');
+  };
+  const cookieBuilder = () => {
+    const fields = {};
+    const builder = {
+      name: (name) => ((fields.name = KT.str(name)), builder),
+      value: (value) => ((fields.value = KT.str(value)), builder),
+      domain: (domain) => ((fields.domain = KT.str(domain)), (fields.hostOnly = false), builder),
+      hostOnlyDomain: (domain) => (
+        (fields.domain = KT.str(domain)),
+        (fields.hostOnly = true),
+        builder
+      ),
+      path: (path) => ((fields.path = KT.str(path)), builder),
+      expiresAt: (ms) => ((fields.expiresAt = ms), (fields.persistent = true), builder),
+      secure: () => ((fields.secure = true), builder),
+      httpOnly: () => ((fields.httpOnly = true), builder),
+      build: () => makeCookie(fields),
+    };
+    return builder;
+  };
+  const urlText = (url) => (url && url.parts ? url.toString() : KT.str(url));
+  /// The source's `client.cookieJar`: the extension's own jar.
+  const cookieJar = {
+    __class: 'CookieJar',
+    __classes: ['CookieJar'],
+    loadForRequest: (url) => {
+      const href = urlText(url);
+      const host = HttpUrl.parse(href).host;
+      return K.cookies(href).map(([name, value]) => makeCookie({ name, value, domain: host }));
+    },
+    saveFromResponse: (url, cookies) => {
+      const list = Array.isArray(cookies) ? cookies : [cookies];
+      K.setCookies(urlText(url), list.filter(Boolean).map(cookieLine));
+    },
+  };
+  /// Android's `CookieManager`: the same jar, as `Cookie` headers.
+  const cookieManager = {
+    getCookie: (url) => {
+      const pairs = K.cookies(urlText(url));
+      return pairs.length ? pairs.map(([name, value]) => `${name}=${value}`).join('; ') : null;
+    },
+    setCookie: (url, line, callback = null) => {
+      K.setCookies(urlText(url), [KT.str(line)]);
+      if (typeof callback === 'function') callback(true);
+    },
+    hasCookies: () => true,
+    flush: () => KT.unit,
+    setAcceptCookie: () => KT.unit,
+    setAcceptThirdPartyCookies: () => KT.unit,
+    removeAllCookies: (callback = null) => {
+      if (typeof callback === 'function') callback(false);
+    },
+    removeSessionCookies: (callback = null) => {
+      if (typeof callback === 'function') callback(false);
+    },
+  };
+
   class Client {
     constructor(source) {
       this.source = source;
       this.interceptors = [];
+    }
+    get cookieJar() {
+      return cookieJar;
     }
     /// A request through the source's interceptors (`addInterceptor`), in the order added, then
     /// the network.
@@ -3279,6 +3426,16 @@
     return preferences;
   })();
   const OBJECTS = {
+    // OkHttp's `Cookie` and Android's `CookieManager`, over the extension's cookie jar.
+    Cookie: {
+      parse: (url, line) => parseCookie(url, line),
+      parseAll: (url, headers) =>
+        (headers?.values ? headers.values('Set-Cookie') : [])
+          .map((line) => parseCookie(url, line))
+          .filter(Boolean),
+      Builder: () => cookieBuilder(),
+    },
+    CookieManager: { getInstance: () => cookieManager },
     SManga: {
       create: () => manga(),
       UNKNOWN: 0,

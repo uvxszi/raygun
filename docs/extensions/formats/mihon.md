@@ -136,8 +136,13 @@ Interceptors run as OkHttp's do (`addInterceptor`, `addNetworkInterceptor`, an `
 class or lambda): each gets the chain's request, may change it (`newBuilder().header(…)`), calls
 `proceed` and may change the answer (`response.newBuilder()…`, `toResponseBody`). Keiyoushi's
 `addCookie(…)` adds cookies to the source's requests, and its `GraphQLErrorInterceptor`,
-`graphQLBody` and `parseGraphQLAs` are the runtime's. An interceptor that draws pictures
-(`BitmapFactory`) is refused, as there are none to draw.
+`graphQLBody` and `parseGraphQLAs` are the runtime's. `client.cookieJar` is the extension's own
+jar (`loadForRequest`, `saveFromResponse`, OkHttp's `Cookie.parse` and `Cookie.Builder`), and so
+is Android's `CookieManager`. An interceptor that draws pictures (`BitmapFactory`) is refused, as
+there are none to draw.
+
+A `break` or `continue` out of a lambda (`?.let { continue }`, `forEach { … break }`) or in an
+expression (`?: continue`) is a `KT.Jump` that the loop's body catches.
 
 A source's `getFilterList()` is converted when it can be: its `Select`, `Sort`, `CheckBox`,
 `TriState` and `Group` filters become Raygun's select, toggle and tag filters (keys `f0`, `f1`…
@@ -154,10 +159,8 @@ Anything else is refused with the reason, which the catalogue then shows for tha
 - an interceptor drawing pictures (image descrambling other than the two recipes above);
 - one of Keiyoushi's libraries (`lib:speedbinb`, `lib:unpacker`, `lib:textinterceptor`…);
 - a call, object or name the runtime doesn't have (`emit::METHODS`, `GLOBALS` and `OBJECTS`,
-  which a test keeps equal to `kotlin.js`'s tables), such as a cookie jar read in code
-  (`loadForRequest`), `textNodes()` or WebViews;
-- what JavaScript can't say: `break` or `continue` out of a lambda, a vararg before other
-  parameters;
+  which a test keeps equal to `kotlin.js`'s tables), such as WebViews or `MultipartBody`;
+- what JavaScript can't say: a vararg before other parameters;
 - code that runs when the source starts (`init`).
 
 Before the package is installed it's loaded once in a host of its own (`convert::validate`):

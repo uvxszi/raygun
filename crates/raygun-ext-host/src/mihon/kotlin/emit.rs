@@ -135,6 +135,12 @@ pub const METHODS: &[&str] = &[
     "onSuccess", "onFailure", "mapCatching", "recover", "recoverCatching",
     // StringBuilder
     "deleteCharAt", "deleteRange", "setCharAt", "reverse", "parseOrNull",
+    // Text nodes
+    "textNodes", "getWholeText",
+    // Cookies
+    "loadForRequest", "saveFromResponse", "getCookie", "setCookie", "flush", "parseAll",
+    "hostOnlyDomain", "expiresAt", "secure", "httpOnly", "name", "domain", "path", "hasCookies",
+    "setAcceptCookie", "setAcceptThirdPartyCookies", "removeAllCookies", "removeSessionCookies",
 ];
 
 fn quote(text: &str) -> String {
@@ -185,7 +191,10 @@ pub struct Gen<'a> {
     /// their receiver is passed first.
     local_extensions: HashSet<String>,
     /// The lambda depth of each loop being written, innermost last.
-    loops: Vec<usize>,
+    loops: Vec<Loop>,
+    /// The loops a `break` or `continue` leaves from a lambda or an expression (by id): their
+    /// bodies catch the jump (`KT.Jump`), as JavaScript can't break out of a function.
+    jumped: HashSet<u32>,
     /// Classes the converter writes itself instead (a theme's image interceptor), by name.
     pub replaced: HashMap<String, String>,
     /// Parameters declared with a type that isn't a function's, by JavaScript name: a call by
@@ -233,6 +242,14 @@ const LIBRARY_PACKAGES: [&str; 11] = [
     "uy.kohesive.",
 ];
 
+/// A loop being written: how deep in lambdas it is, its label, and an id jumps name it by.
+#[derive(Debug, Clone)]
+struct Loop {
+    depth: usize,
+    label: Option<String>,
+    id: u32,
+}
+
 fn unsupported(what: impl std::fmt::Display) -> String {
     format!("its code uses {what}, which Raygun's converter doesn't read yet")
 }
@@ -251,11 +268,70 @@ impl<'a> Gen<'a> {
             class_scope: None,
             local_extensions: HashSet::new(),
             loops: Vec::new(),
+            jumped: HashSet::new(),
             replaced: HashMap::new(),
             plain: HashSet::new(),
             vals: HashSet::new(),
             imports: Vec::new(),
         }
+    }
+
+    /// Starts a loop (with its Kotlin label) and gives its id.
+    fn enter_loop(&mut self, label: Option<&String>) -> u32 {
+        self.next += 1;
+        let id = self.next;
+        self.loops.push(Loop {
+            depth: self.depth,
+            label: label.cloned(),
+            id,
+        });
+        id
+    }
+
+    /// A loop's body, catching the jumps made out of lambdas or expressions inside it.
+    fn loop_body(&mut self, id: u32, body: String) -> String {
+        if self.jumped.remove(&id) {
+            format!(
+                "try {{ {body} }} catch (e) {{ if (e instanceof KT.Jump && e.loop === {id}) {{ if (e.kind === \"break\") break; continue; }} throw e; }}"
+            )
+        } else {
+            body
+        }
+    }
+
+    /// The loop a `break` or `continue` (with its label) leaves.
+    fn jump_target(&self, label: Option<&String>) -> Result<Loop, String> {
+        self.loops
+            .iter()
+            .rev()
+            .find(|found| label.is_none() || found.label.as_ref() == label)
+            .cloned()
+            .ok_or_else(|| unsupported("break or continue outside a loop"))
+    }
+
+    /// A `break` or `continue` as a statement: JavaScript's own when it's in the loop's function
+    /// and needs no label it can't see, else a `KT.Jump` the loop's body catches.
+    fn jump_statement(&mut self, kind: &str, label: Option<&String>) -> Result<String, String> {
+        let target = self.jump_target(label)?;
+        if target.depth == self.depth {
+            return Ok(match label {
+                Some(label) => format!("{kind} {};", local(label)),
+                None => format!("{kind};"),
+            });
+        }
+        self.jumped.insert(target.id);
+        Ok(format!(
+            "throw new KT.Jump({}, {});",
+            quote(kind),
+            target.id
+        ))
+    }
+
+    /// A `break` or `continue` where a value goes (`?: continue`): a jump thrown.
+    fn jump_expression(&mut self, kind: &str, label: Option<&String>) -> Result<String, String> {
+        let target = self.jump_target(label)?;
+        self.jumped.insert(target.id);
+        Ok(format!("KT.jump({}, {})", quote(kind), target.id))
     }
 
     /// Whether `name` here is a library's class the file imports rather than one of the source's
@@ -592,7 +668,7 @@ impl<'a> Gen<'a> {
                 body,
             } => {
                 let iterable = self.expr(iterable)?;
-                self.loops.push(self.depth);
+                let id = self.enter_loop(label.as_ref());
                 let code = self.scoped(|writer| -> Result<String, String> {
                     let head = match vars {
                         LambdaParam::Name(name) => {
@@ -610,24 +686,26 @@ impl<'a> Gen<'a> {
                                     ));
                                 }
                             }
+                            let inner = writer.block(body, Tail::Discard)?;
+                            let inner = writer.loop_body(id, inner);
                             return Ok(format!(
-                                "{}for (const {temp} of KT.iter({iterable})) {{ {} {} }}",
+                                "{}for (const {temp} of KT.iter({iterable})) {{ {} {inner} }}",
                                 label
                                     .as_ref()
                                     .map(|label| format!("{}: ", local(label)))
                                     .unwrap_or_default(),
                                 parts.join(" "),
-                                writer.block(body, Tail::Discard)?
                             ));
                         }
                     };
+                    let inner = writer.block(body, Tail::Discard)?;
+                    let inner = writer.loop_body(id, inner);
                     Ok(format!(
-                        "{}for ({head}) {{ {} }}",
+                        "{}for ({head}) {{ {inner} }}",
                         label
                             .as_ref()
                             .map(|label| format!("{}: ", local(label)))
                             .unwrap_or_default(),
-                        writer.block(body, Tail::Discard)?
                     ))
                 });
                 self.loops.pop();
@@ -645,10 +723,11 @@ impl<'a> Gen<'a> {
                 after,
             } => {
                 let condition = self.expr(condition)?;
-                self.loops.push(self.depth);
+                let id = self.enter_loop(label.as_ref());
                 let body = self.block(body, Tail::Discard);
                 self.loops.pop();
                 let body = body?;
+                let body = self.loop_body(id, body);
                 let label = label
                     .as_ref()
                     .map(|label| format!("{}: ", local(label)))
@@ -685,19 +764,10 @@ impl<'a> Gen<'a> {
                 self.return_statement(label.as_deref(), value.as_deref())
             }
             Expr::Throw(value) => Ok(format!("throw KT.error({});", self.expr(value)?)),
-            // A loop's own `break`: not one leaving a lambda (`run { break }`) for the loop
-            // around it, which JavaScript can't.
-            Expr::Break(_) | Expr::Continue(_) if self.loops.last() != Some(&self.depth) => {
-                Err(unsupported("break or continue inside a lambda"))
-            }
-            Expr::Break(label) => Ok(match label {
-                Some(label) => format!("break {};", local(label)),
-                None => "break;".to_owned(),
-            }),
-            Expr::Continue(label) => Ok(match label {
-                Some(label) => format!("continue {};", local(label)),
-                None => "continue;".to_owned(),
-            }),
+            // A loop's own `break`, or one leaving a lambda (`run { break }`) for the loop around
+            // it, which the loop's body catches.
+            Expr::Break(label) => self.jump_statement("break", label.as_ref()),
+            Expr::Continue(label) => self.jump_statement("continue", label.as_ref()),
             Expr::If {
                 condition,
                 then,
@@ -1064,9 +1134,9 @@ impl<'a> Gen<'a> {
                     }
                 }
             }
-            Expr::Break(_) | Expr::Continue(_) => {
-                return Err(unsupported("break or continue inside an expression"));
-            }
+            // `?: continue`, `if (…) x else break`: a jump the loop's body catches.
+            Expr::Break(label) => self.jump_expression("break", label.as_ref())?,
+            Expr::Continue(label) => self.jump_expression("continue", label.as_ref())?,
             Expr::Object(object) => self.anonymous_object(object)?,
         })
     }
@@ -1899,5 +1969,5 @@ pub const OBJECTS: &[&str] = &[
     "Unit", "LocalDate", "LocalDateTime", "ZonedDateTime", "Parser", "DateTimeFormatter", "System",
     "FormBody", "Headers", "Request", "RegexOption", "Filter", "Math", "Integer", "Long", "Int",
     "URLEncoder", "URLDecoder", "Charsets", "Base64", "JsonNull", "Instant", "Clock", "AppInfo",
-    "ChronoUnit", "ChronoField", "Log", "Regex",
+    "ChronoUnit", "ChronoField", "Log", "Regex", "Cookie", "CookieManager",
 ];

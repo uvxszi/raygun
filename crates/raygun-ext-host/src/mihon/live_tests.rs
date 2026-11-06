@@ -342,7 +342,12 @@ async fn mihon_convert_survey() {
     let mut reasons: Vec<_> = reasons.into_iter().collect();
     reasons.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
     println!("top reasons:");
-    for (reason, count) in reasons.iter().take(25) {
+    // `MIHON_SURVEY_TOP=<n>`: that many (25 by default).
+    let top = std::env::var("MIHON_SURVEY_TOP")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(25);
+    for (reason, count) in reasons.iter().take(top) {
         println!("  {count:4}  {reason}");
     }
     assert!(converted > 0);

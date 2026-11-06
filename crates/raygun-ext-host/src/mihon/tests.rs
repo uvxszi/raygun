@@ -1601,3 +1601,102 @@ class Entry(val name: String) : Named(name) {
     );
     assert!(listing.has_next_page);
 }
+
+const JUMPS_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixturejumps
+
+import eu.kanade.tachiyomi.source.model.FilterList
+import keiyoushi.source.KeiSource
+
+@Source
+abstract class FixtureJumps : KeiSource() {
+    override val supportsLatest = false
+
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        val document = client.get("$baseUrl/list", Fetch.DOCUMENT).asJsoup()
+        val mangas = mutableListOf<SManga>()
+        for (element in document.select(".item")) {
+            val name = element.selectFirst("h2")?.text() ?: continue
+            element.attr("data-skip").takeIf { it == "yes" }?.let { continue }
+            if (name == "Stop") break
+            mangas += SManga.create().apply {
+                title = name
+                url = element.attr("data-url")
+            }
+        }
+        val cookies = client.cookieJar.loadForRequest(baseUrl.toHttpUrl())
+        val token = cookies.firstOrNull { it.name == "token" }?.value ?: "none"
+        val note = document.selectFirst(".note")?.textNodes()?.firstOrNull()?.text()?.trim().orEmpty()
+        mangas += SManga.create().apply {
+            title = "token $token, note $note"
+            url = "/x"
+        }
+        return MangasPage(mangas, false)
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()
+
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage = getPopularManga(page)
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate = SMangaUpdate(manga, emptyList())
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> = emptyList()
+}
+"##;
+
+/// `break` and `continue` out of lambdas and expressions, the cookie jar read in code and Jsoup's
+/// text nodes.
+#[tokio::test]
+async fn loops_jump_from_lambdas_and_cookies_are_read() {
+    use axum::http::header::SET_COOKIE;
+    let app = Router::new().route(
+        "/list",
+        get(|| async {
+            (
+                [(SET_COOKIE, "token=abc; Path=/")],
+                Html(
+                    r#"<div class="item" data-url="/a"><h2>A</h2></div><div class="item"><p>no title</p></div>
+                    <div class="item" data-skip="yes" data-url="/s"><h2>Skipped</h2></div><div class="item" data-url="/b"><h2>B</h2></div>
+                    <div class="item" data-url="/c"><h2>Stop</h2></div><div class="item" data-url="/d"><h2>D</h2></div>
+                    <p class="note">  First words <b>bold</b> last words</p>"#,
+                ),
+            )
+        }),
+    );
+    let address = serve(app);
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturejumps",
+        "https://jumps.example",
+    );
+    let build = "keiyoushi {\n    name = \"Fixture Jumps\"\n    versionCode = 1\n    libVersion = \"1.6\"\n    source {\n        lang = \"en\"\n        baseUrl = \"https://jumps.example\"\n    }\n}\n";
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            build,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturejumps/FixtureJumps.kt",
+                JUMPS_SOURCE,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, address).await;
+    let popular = host
+        .manga_list(
+            "mihon.en.fixturejumps/4242",
+            crate::manga::MangaList::Popular,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<&str> = popular
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(titles, ["A", "B", "token abc, note First words"]);
+}

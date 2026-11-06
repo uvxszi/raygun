@@ -10,6 +10,7 @@ use md5::{Digest, Md5};
 use rquickjs::{Ctx, Function, Object};
 use serde_json::json;
 
+use crate::cookies::CookieJar;
 use crate::js::{err, eval_script, ok};
 use crate::lnreader::dom::Documents;
 
@@ -41,9 +42,19 @@ impl Prepared {
     }
 }
 
+/// What the runtime reaches of the extension's host: its cookie jar (`client.cookieJar`).
+pub(crate) struct Hooks {
+    pub cookies: std::sync::Arc<CookieJar>,
+}
+
 /// Installs the natives, evaluates the prelude and the themes, then the extension.
-pub(crate) fn install(ctx: &Ctx<'_>, prepared: &Prepared, filename: &str) -> Result<(), String> {
-    natives(ctx).map_err(|error| error.to_string())?;
+pub(crate) fn install(
+    ctx: &Ctx<'_>,
+    prepared: &Prepared,
+    hooks: Hooks,
+    filename: &str,
+) -> Result<(), String> {
+    natives(ctx, hooks).map_err(|error| error.to_string())?;
     eval_script(ctx, PRELUDE, "mihon:prelude", true)?;
     eval_script(ctx, KOTLIN, "mihon:kotlin", true)?;
     for (name, theme) in THEMES {
@@ -60,8 +71,24 @@ fn envelope<T: serde::Serialize>(result: Result<T, String>) -> String {
     }
 }
 
-fn natives(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
+fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
     let native = Object::new(ctx.clone())?;
+    // OkHttp's `cookieJar.loadForRequest(url)`: the cookies the jar sends there, as
+    // `name=value` pairs; `saveFromResponse(url, cookies)`: `Set-Cookie` lines kept for it.
+    let jar = hooks.cookies.clone();
+    native.set(
+        "cookies",
+        Function::new(ctx.clone(), move |url: String| {
+            envelope(cookies_for(&jar, &url))
+        })?,
+    )?;
+    let jar = hooks.cookies;
+    native.set(
+        "setCookies",
+        Function::new(ctx.clone(), move |url: String, lines: String| {
+            envelope(set_cookies(&jar, &url, &lines))
+        })?,
+    )?;
     let documents = std::rc::Rc::new(Documents::default());
     native.set(
         "dom",
@@ -80,6 +107,37 @@ fn natives(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
         Function::new(ctx.clone(), |args: String| envelope(decrypt(&args)))?,
     )?;
     ctx.globals().set("__rgMihon", native)
+}
+
+/// The cookies the jar sends to `url`, as `[name, value]` pairs.
+fn cookies_for(jar: &CookieJar, url: &str) -> Result<Vec<(String, String)>, String> {
+    use reqwest::cookie::CookieStore as _;
+    let url = reqwest::Url::parse(url).map_err(|error| format!("Invalid URL {url:?}: {error}"))?;
+    let header = jar
+        .cookies(&url)
+        .and_then(|value| value.to_str().ok().map(str::to_owned))
+        .unwrap_or_default();
+    Ok(header
+        .split(';')
+        .filter_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            Some((name.trim().to_owned(), value.trim().to_owned()))
+        })
+        .collect())
+}
+
+/// Keeps `Set-Cookie` lines (a JSON list) in the jar as if `url` had answered with them.
+fn set_cookies(jar: &CookieJar, url: &str, lines: &str) -> Result<(), String> {
+    use reqwest::cookie::CookieStore as _;
+    let url = reqwest::Url::parse(url).map_err(|error| format!("Invalid URL {url:?}: {error}"))?;
+    let lines: Vec<String> =
+        serde_json::from_str(lines).map_err(|error| format!("invalid cookies: {error}"))?;
+    let values: Vec<reqwest::header::HeaderValue> = lines
+        .iter()
+        .filter_map(|line| reqwest::header::HeaderValue::from_str(line).ok())
+        .collect();
+    jar.set_cookies(&mut values.iter(), &url);
+    Ok(())
 }
 
 /// An address and its parts, resolved against `base` when it's relative.

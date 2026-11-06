@@ -614,6 +614,18 @@ impl Documents {
                 Some(handle) => json!(self.read(*handle, jsoup_own_text)?),
                 None => json!(""),
             },
+            // Jsoup's `textNodes()`: the node's own text children, as written.
+            "textNodes" => match nodes.first() {
+                Some(handle) => json!(self.read(*handle, |node| {
+                    node.children()
+                        .filter_map(|child| match child.value() {
+                            Node::Text(text) => Some(text.to_string()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                })?),
+                None => json!([]),
+            },
             "data" => match nodes.first() {
                 Some(handle) => json!(self.read(*handle, jsoup_data)?),
                 None => json!(""),

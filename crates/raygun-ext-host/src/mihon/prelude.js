@@ -826,6 +826,10 @@
   };
 
   K.decrypt = (options) => unwrap(native.decrypt(JSON.stringify(options)));
+  /** The extension's cookie jar: what it sends to `url` (`[name, value]` pairs), and keeping
+   * `Set-Cookie` lines for it. */
+  K.cookies = (href) => unwrap(native.cookies(K.str(href)));
+  K.setCookies = (href, lines) => unwrap(native.setCookies(K.str(href), JSON.stringify(lines)));
   K.base64Decode = (text) => {
     const binary = atob(K.str(text).replace(/\s+/g, ''));
     // UTF-8 bytes to text.
@@ -926,6 +930,18 @@
     }
   }
 
+  /** A Jsoup `TextNode`: `text()` with its whitespace runs made one space, `wholeText` as written. */
+  const textNode = (raw) => ({
+    __class: 'TextNode',
+    __classes: ['TextNode', 'Node'],
+    wholeText: raw,
+    text: () => raw.replace(/\s+/g, ' '),
+    getWholeText: () => raw,
+    isBlank: () => raw.trim() === '',
+    outerHtml: () => raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+    toString: () => raw,
+  });
+
   class Element {
     constructor(handle, doc) {
       this.h = handle;
@@ -1000,6 +1016,10 @@
     }
     ownText() {
       return dom('ownText', { nodes: [this.h] });
+    }
+    /** Jsoup's `textNodes()`: the element's own text children. */
+    textNodes() {
+      return dom('textNodes', { nodes: [this.h] }).map(textNode);
     }
     wholeText() {
       return dom('text', { nodes: [this.h] });

@@ -275,7 +275,14 @@ impl JsExtension {
                 install_natives(&ctx, natives).map_err(|error| error.to_string())?;
                 eval_script(&ctx, PRELUDE, "raygun:prelude", true)?;
                 if let Some(prepared) = &mihon {
-                    return crate::mihon::runtime::install(&ctx, prepared, &filename);
+                    return crate::mihon::runtime::install(
+                        &ctx,
+                        prepared,
+                        crate::mihon::runtime::Hooks {
+                            cookies: cookies.clone(),
+                        },
+                        &filename,
+                    );
                 }
                 match (&miru, &lnreader) {
                     (Some(prepared), _) => crate::miru::runtime::install(
