@@ -250,7 +250,7 @@ doesn't load counts as refused):
 
 | | Converted | Of |
 |---|---|---|
-| Madara | 231 | 240 |
+| Madara | 232 | 240 |
 | MangaThemesia | 104 | 113 |
 | ComiciViewer, ZeistManga, GigaViewer | 77 | 77 |
 | Keyoapp | 15 | 16 |
@@ -259,11 +259,13 @@ doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 35 | 35 |
 | MangaHub, Grouple, MMRCMS | 5 | 23 |
 | Other themes | 71 | 118 |
-| No theme | 516 | 771 |
-| All | 1122 (76.4%) | 1469 |
+| No theme | 523 | 771 |
+| All | 1130 (76.9%) | 1469 |
 
-The refusals left are a long tail of a few extensions each: calls the runtime doesn't have yet (`searchQuery()` 11, `foldIndexed()` 8, `resolve()` 8,
-`IntRange()` 7), and the like.
+The refusals left are a long tail of a few extensions each (none above 11): calls the runtime
+doesn't have yet (`getLocalStorage()` and `poll()` need a web view; `resolve()`, `DecimalFormat()`,
+`Selection()`, `compare()`…), and filters that run code when they're made. Fixing one often shows
+the next an extension needs, so each step now gains well under 1%.
 
 `mihon_popular_live` with a sample of 60 converted sources (2026-11-06) follows each listing
 through a title's details, its chapters and a chapter's pages: about 40 of the 60 list their

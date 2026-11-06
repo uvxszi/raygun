@@ -1212,6 +1212,42 @@
       for (const item of l) total = await lambda(total, item);
       return total;
     },
+    foldIndexed: async (l, [initial], lambda) => {
+      let total = initial;
+      for (let index = 0; index < l.length; index++) total = await lambda(index, total, l[index]);
+      return total;
+    },
+    // Jsoup's `Elements.hasText()`: whether any of them has text.
+    hasText: (l) =>
+      l.some((element) => element && typeof element.hasText === 'function' && element.hasText()),
+    addLast: (l, [item]) => {
+      l.push(item);
+      return KT.unit;
+    },
+    addFirst: (l, [item]) => {
+      l.unshift(item);
+      return KT.unit;
+    },
+    // Keiyoushi's `ByteArray.readIntLittleEndian(offset)` and the like.
+    readIntLittleEndian: (l, [at]) =>
+      (l[at] & 255) |
+      ((l[at + 1] & 255) << 8) |
+      ((l[at + 2] & 255) << 16) |
+      ((l[at + 3] & 255) << 24),
+    readIntBigEndian: (l, [at]) =>
+      ((l[at] & 255) << 24) |
+      ((l[at + 1] & 255) << 16) |
+      ((l[at + 2] & 255) << 8) |
+      (l[at + 3] & 255),
+    writeIntLittleEndian: (l, [at, value]) => {
+      for (let index = 0; index < 4; index++) l[at + index] = ((value >> (8 * index)) << 24) >> 24;
+      return KT.unit;
+    },
+    writeIntBigEndian: (l, [at, value]) => {
+      for (let index = 0; index < 4; index++)
+        l[at + index] = ((value >> (8 * (3 - index))) << 24) >> 24;
+      return KT.unit;
+    },
     chunked: (l, [size]) => {
       const out = [];
       for (let index = 0; index < l.length; index += size) out.push(l.slice(index, index + size));
@@ -1376,6 +1412,14 @@
     getLongOrNull: (o, [key]) => (o[key] === null || o[key] === undefined ? null : toInt(o[key])),
     getBooleanOrNull: (o, [key]) =>
       o[key] === null || o[key] === undefined ? null : o[key] === true || o[key] === 'true',
+    getArray: (o, [key]) => (Array.isArray(o[key]) ? o[key] : noSuch(`${key} isn't a JSON array`)),
+    getArrayOrNull: (o, [key]) => (Array.isArray(o[key]) ? o[key] : null),
+    getObject: (o, [key]) =>
+      o[key] && typeof o[key] === 'object' && !Array.isArray(o[key])
+        ? o[key]
+        : noSuch(`${key} isn't a JSON object`),
+    getObjectOrNull: (o, [key]) =>
+      o[key] && typeof o[key] === 'object' && !Array.isArray(o[key]) ? o[key] : null,
     toMap: (o) => new Map(Object.entries(o)),
     toMutableMap: (o) => new Map(Object.entries(o)),
   };
@@ -4592,6 +4636,8 @@
     UnsupportedOperationException: ([message]) =>
       new KotlinError(message ?? 'This source can’t do that', 'UnsupportedOperationException'),
     NoSuchElementException: ([message]) => new KotlinError(message, 'NoSuchElementException'),
+    IndexOutOfBoundsException: ([message]) => new KotlinError(message, 'IndexOutOfBoundsException'),
+    IntRange: ([from, to]) => KT.range(from, to),
     IOException: ([message]) => new KotlinError(message, 'IOException'),
     Error: ([message]) => new KotlinError(message, 'Error'),
     HttpException: ([code]) => new KotlinError(`HTTP error ${code}`, 'HttpException'),

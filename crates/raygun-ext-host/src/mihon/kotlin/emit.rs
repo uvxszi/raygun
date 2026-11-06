@@ -186,6 +186,10 @@ pub const METHODS: &[&str] = &[
     // Protobuf: Keiyoushi's readers and writers over kotlinx.serialization's
     "parseAsProto", "decodeProto", "decodeProtoBase64", "toRequestBodyProto", "encodeProto",
     "encodeProtoBase64", "aesDecryptWithPrependedIv", "cipherSource",
+    // Lists and Keiyoushi's byte helpers
+    "foldIndexed", "addLast", "addFirst", "readIntLittleEndian", "readIntBigEndian",
+    "writeIntLittleEndian", "writeIntBigEndian", "getArray", "getArrayOrNull", "getObject",
+    "getObjectOrNull",
     // Bodies, streams, okio's `Buffer`, `ByteBuffer`
     "byteStream", "source", "byteString", "charStream", "contentLength", "asResponseBody",
     "write", "writeAll", "writeUtf8", "writeString", "writeByte", "writeShort", "writeShortLe",
@@ -1747,6 +1751,20 @@ impl<'a> Gen<'a> {
                         named.unwrap_or_else(|| "null".to_owned())
                     ));
                 }
+                // A value that's a function (`val searchQuery = { source: String, … -> … }`).
+                if !GLOBALS.contains(&name.as_str())
+                    && (self.cx.constants.contains(name) || self.cx.properties.contains(name))
+                {
+                    let function = self.expr(callee)?;
+                    let (mut args, _) = self.args(args, None)?;
+                    if let Some(lambda) = lambda_code {
+                        args.push(lambda);
+                    }
+                    return Ok(format!(
+                        "(await KT.invoke({function}, [{}]))",
+                        args.join(", ")
+                    ));
+                }
                 self.global_call(name, args, lambda_code, &type_arg)
             }
             Expr::Member { target, name, safe } => {
@@ -2018,6 +2036,10 @@ impl<'a> Gen<'a> {
                         quote(name)
                     ));
                 }
+                // `SChapter::chapter_number`: a field of Mihon's models.
+                if matches!(owner.as_str(), "SChapter" | "SManga" | "Page") {
+                    return Ok(format!("(async (value) => KT.p(value, {}))", quote(name)));
+                }
                 if !self.known(name) {
                     return Err(unsupported(format!("{owner}::{name}")));
                 }
@@ -2256,6 +2278,7 @@ pub const GLOBALS: &[&str] = &[
     "requireNotNull", "check", "checkNotNull", "TODO", "println", "print", "maxOf", "minOf",
     "Regex", "Exception", "RuntimeException", "IllegalStateException", "IllegalArgumentException",
     "UnsupportedOperationException", "NoSuchElementException", "IOException", "Error",
+    "IndexOutOfBoundsException", "IntRange",
     "HttpException", "GET", "POST", "PUT", "DELETE", "MangasPage", "Page", "SMangaUpdate",
     "FilterList", "SimpleDateFormat", "StringBuilder", "Date", "JsonPrimitive", "JsonObject",
     "JsonArray", "Locale", "abs", "round", "floor", "ceil", "getPreferences", "getPreferencesLazy",
