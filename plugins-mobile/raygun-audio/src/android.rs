@@ -191,3 +191,13 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWindowWanted(
 ) {
     crate::deliver_window_wanted();
 }
+
+/// Called by `app.raygun.audio.NativeBridge.onWindowClosing` on the Android main thread, which
+/// waits: the activity is about to be destroyed for good.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWindowClosing(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    crate::deliver_window_closing();
+}

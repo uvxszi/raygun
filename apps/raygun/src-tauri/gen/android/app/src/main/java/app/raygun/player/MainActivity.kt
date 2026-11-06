@@ -39,6 +39,8 @@ class MainActivity : TauriActivity() {
 
   override fun onDestroy() {
     val webView = if (isChangingConfigurations) null else wryWebView?.get(this) as? WebView
+    // Before wry hears of it: Tauri stops sending this webview scripts (see RaygunWindow).
+    RaygunWindow.closing(this)
     RaygunWindow.destroyed(this)
     super.onDestroy()
     // Raygun may carry on without this activity (music plays on): its webview goes with it, or

@@ -27,6 +27,7 @@ static OPEN_HANDLER: Later = Later::new();
 static OPEN_WITH_HANDLER: Later = Later::new();
 static DEVICE_STATE_HANDLER: Later = Later::new();
 static WINDOW_HANDLER: Later = Later::new();
+static WINDOW_CLOSING_HANDLER: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 
 /// A receiver for messages that can come before it's installed (a notification tapped to start
 /// the app): those wait for it.
@@ -133,6 +134,21 @@ pub fn set_window_handler(handler: impl Fn(String) + Send + Sync + 'static) {
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn deliver_window_wanted() {
     WINDOW_HANDLER.deliver(String::new());
+}
+
+/// Installs what runs as Raygun's activity is destroyed for good, before wry lets go of it: Tauri
+/// must stop sending its webview scripts first (one arriving after would crash Raygun as it
+/// carries on). Called on the Android main thread, which waits for it to return. Only the first
+/// call wins.
+pub fn set_window_closing_handler(handler: impl Fn() + Send + Sync + 'static) {
+    let _ = WINDOW_CLOSING_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_window_closing() {
+    if let Some(handler) = WINDOW_CLOSING_HANDLER.get() {
+        handler();
+    }
 }
 
 /// Installs the receiver for the built-in browser's reports (`{"id", "url", "blockAds"}` JSON,

@@ -17,6 +17,16 @@ object RaygunWindow {
     /** The last activity went for good while the process lived on. Main thread. */
     private var gone = false
 
+    /**
+     * From `onDestroy`, before the activity's own: for good (not a rotation, whose window wry
+     * keeps), Rust stops sending its webview scripts and returns. One that reached wry after wry
+     * let go of the activity would crash Raygun, which may carry on without it.
+     */
+    @JvmStatic
+    fun closing(activity: Activity) {
+        if (!activity.isChangingConfigurations) NativeBridge.windowClosing()
+    }
+
     /** From `onDestroy`: a rotation's activity comes back with its window (wry keeps it). */
     @JvmStatic
     fun destroyed(activity: Activity) {

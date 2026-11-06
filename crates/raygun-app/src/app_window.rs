@@ -58,11 +58,43 @@ fn carries_on(app: &AppHandle) -> bool {
     queued || downloading
 }
 
-/// Listens for the new activities that need the main window again (Android).
+/// Listens for Raygun's activity going and new ones that need the main window again (Android).
 pub fn start(app: &AppHandle) {
     if cfg!(target_os = "android") {
+        let closing = app.clone();
+        tauri_plugin_raygun_audio::set_window_closing_handler(move || let_go(&closing));
         let app = app.clone();
         tauri_plugin_raygun_audio::set_window_handler(move |_| reopen(&app));
+    }
+}
+
+/// How long the activity's last moments wait for Tauri to let go of its window.
+const LET_GO_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Raygun's activity is about to be destroyed for good, on Android's main thread, which waits:
+/// Tauri stops sending the window's webview scripts before wry lets go of the activity. wry
+/// panics on a script for an activity it no longer knows, which would end the process Raygun
+/// carries on in, and Tauri sends the scripts of anything emitted until its event loop takes the
+/// window's end in. A destroyed window's scripts go nowhere, so what's emitted meanwhile is
+/// dropped; the next window's page reads everything afresh.
+fn let_go(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(crate::startup::MAIN_WINDOW) else {
+        return;
+    };
+    if let Err(error) = window.destroy() {
+        tracing::warn!(%error, "couldn't let go of Raygun's window");
+        return;
+    }
+    // The event loop takes tasks in order: one queued after the destroy runs once it's done.
+    let (done, taken) = std::sync::mpsc::channel();
+    if app
+        .run_on_main_thread(move || {
+            let _ = done.send(());
+        })
+        .is_ok()
+        && taken.recv_timeout(LET_GO_WAIT).is_err()
+    {
+        tracing::warn!("Raygun's window wasn't let go of in time");
     }
 }
 
