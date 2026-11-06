@@ -22,7 +22,8 @@ pub const VERSION: u32 = 2;
 
 const STAMP: [&str; 3] = ["updated_at_hlc", "origin_device", "deleted"];
 
-/// The setting that holds the quick access pins: its own part.
+/// The setting that holds quick access (its pins and when its pages were last played from): its
+/// own part.
 pub const PINS_KEY: &str = "rail";
 
 /// One kind of data a backup holds, restores and a reset clears.
@@ -37,20 +38,22 @@ pub enum Part {
     Websites,
     /// Playlists and favorite songs.
     Playlists,
-    /// Quick access pins (the `rail` setting).
+    /// Quick access (the `rail` setting): its pins and when its pages were last played from.
     Pins,
     /// Songs played and videos watched.
     History,
-    /// Every setting but the pins.
+    /// Every setting but quick access's.
     Settings,
     /// Repositories, installed extensions, their settings and Stremio addons.
     Sources,
     /// What was downloaded (records; files stay on their device).
     Downloads,
+    /// Local Files' folders (records: what's in them is found again by a scan).
+    LocalFiles,
 }
 
 impl Part {
-    pub const ALL: [Part; 12] = [
+    pub const ALL: [Part; 13] = [
         Part::Comics,
         Part::Books,
         Part::Videos,
@@ -63,6 +66,7 @@ impl Part {
         Part::Settings,
         Part::Sources,
         Part::Downloads,
+        Part::LocalFiles,
     ];
 
     /// `title.kind` of a library part.
@@ -126,6 +130,8 @@ pub enum Item {
     PlaylistSongs,
     Favorites,
     Pins,
+    /// Pages quick access sorts by when they were last played from.
+    Played,
     Settings,
     Repositories,
     Extensions,
@@ -137,6 +143,8 @@ pub enum Item {
     Videos,
     /// Downloads waiting or failed: records without a file.
     Waiting,
+    /// Local Files' folders.
+    Folders,
 }
 
 /// Counts by part and item, in a stable order.
@@ -396,6 +404,13 @@ const RECORDS: &[Record] = &[
         order: "id",
         columns: &["id", "key", "title_id", "title", "subtitle", "state"],
     },
+    // How each folder is read (`access`, migration 0039) comes too: a picked tree comes back only
+    // while its grant is held, a path while it's a folder.
+    Record {
+        name: "local_folder",
+        order: "added_at",
+        columns: &["id", "location", "name", "path", "access", "added_at"],
+    },
 ];
 
 fn merged() -> impl Iterator<Item = &'static TableSpec> {
@@ -515,6 +530,7 @@ fn part_of(table: &str, row: &Value, owners: &Owners) -> Option<Part> {
         | "local_manga_download"
         | "local_podcast_download"
         | "local_video_download" => Some(Part::Downloads),
+        "local_folder" => Some(Part::LocalFiles),
         _ => None,
     }
 }
@@ -668,6 +684,7 @@ pub fn index(data: &BackupData) -> Counts {
     add_rows("extension_repo", Part::Sources, Item::Repositories);
     add_rows("stremio_addon", Part::Sources, Item::Addons);
     add_rows("local_extension_install", Part::Sources, Item::Extensions);
+    add_rows("local_folder", Part::LocalFiles, Item::Folders);
     let live_playlists: HashSet<String> = live("music_playlist")
         .filter_map(|row| text_field(row, "id"))
         .collect();
@@ -679,7 +696,11 @@ pub fn index(data: &BackupData) -> Counts {
     }
     for row in live("setting") {
         if text_field(row, "key").as_deref() == Some(PINS_KEY) {
-            add(Part::Pins, Item::Pins, pin_count(row.get("value")));
+            add(Part::Pins, Item::Pins, list_count(row.get("value"), "pins"));
+            let played = list_count(row.get("value"), "played");
+            if played > 0 {
+                add(Part::Pins, Item::Played, played);
+            }
         } else {
             add(Part::Settings, Item::Settings, 1);
         }
@@ -701,17 +722,18 @@ pub fn index(data: &BackupData) -> Counts {
     counts
 }
 
-/// The pins in the `rail` setting's JSON (a string in a row, an object once parsed).
-fn pin_count(value: Option<&Value>) -> u32 {
+/// How many entries a list of the `rail` setting's JSON holds (a string in a row, an object once
+/// parsed): its `pins`, or its `played` stamps.
+fn list_count(value: Option<&Value>, list: &str) -> u32 {
     let parsed = match value {
         Some(Value::String(text)) => serde_json::from_str(text).unwrap_or(Value::Null),
         Some(other) => other.clone(),
         None => Value::Null,
     };
     parsed
-        .get("pins")
+        .get(list)
         .and_then(Value::as_array)
-        .map_or(0, |pins| pins.len() as u32)
+        .map_or(0, |entries| entries.len() as u32)
 }
 
 pub(crate) fn units_item(part: Part) -> Item {

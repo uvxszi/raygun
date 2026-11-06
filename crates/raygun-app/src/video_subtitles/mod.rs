@@ -164,7 +164,7 @@ impl VideoSubtitles {
     pub fn new(app: AppHandle, downloads_dir: &Path) -> Arc<Self> {
         Arc::new(Self {
             app,
-            dir: downloads_dir.join("subtitles").join("ai"),
+            dir: folder(downloads_dir),
             state: Mutex::default(),
         })
     }
@@ -1227,6 +1227,17 @@ fn kept_file_name(key: &str, source: &str, language: &str) -> String {
 /// another video's files never start the same way.
 fn kept_prefix(key: &str) -> String {
     format!("{}.tr.", safe_name(key))
+}
+
+/// Where videos' AI subtitles (`captions` writes `<video>.vtt`) and their translations are kept:
+/// `downloads/subtitles/ai`. Settings → Data counts and clears it with the caches.
+pub fn folder(downloads_dir: &Path) -> PathBuf {
+    downloads_dir.join("subtitles").join("ai")
+}
+
+/// The name a video's files start with.
+pub fn file_name_of(key: &str) -> String {
+    safe_name(key)
 }
 
 /// A video key as a file name (as `captions` names AI subtitle files).

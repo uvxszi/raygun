@@ -23,6 +23,7 @@ export const CATEGORY_ORDER: DataCategory[] = [
   'searches',
   'aiModels',
   'downloads',
+  'localFiles',
   'caches',
 ];
 

@@ -299,6 +299,22 @@ fn stamp(
     true
 }
 
+/// Settings → Data clears quick access (M46.51): its pins, when its pages were last played from,
+/// or both. True when anything went.
+pub async fn forget(app: &AppHandle, pins: bool, played: bool) -> bool {
+    change(app, |_, rail| {
+        let before = (rail.pins.len(), rail.played.len());
+        if pins {
+            rail.pins.clear();
+        }
+        if played {
+            rail.played.clear();
+        }
+        before != (rail.pins.len(), rail.played.len())
+    })
+    .await
+}
+
 /// A quick access change from the UI keeps the stamps stored: Rust keeps when pages were played
 /// from, and the UI's copy may be older (or made while incognito). Other settings pass unchanged.
 pub async fn keep_stamps(db: &Db, change: SettingChange) -> SettingChange {

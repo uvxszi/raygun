@@ -2489,21 +2489,29 @@ export type DataCategory =
 "websites" | 
 /**  Playlists and favorite songs. */
 "playlists" | 
-/**  Quick access pins. */
+/**  Quick access: its pins and when its pages were last played from. */
 "pins" | 
 /**  Songs played, videos watched and what was played from. */
 "history" | 
-/**  Every setting but the pins. */
+/**  Every setting but quick access's. */
 "settings" | 
 /**  Extensions, repositories, Stremio addons and connected servers. */
 "sources" | 
 /**  What was downloaded: backups keep the list, never the files. */
 "downloads" | 
+/**
+ *  Local Files' folders: where Raygun looks for songs, comics, books and videos on this
+ *  device. Backups keep the list, and a restore adds back the folders this device has.
+ */
+"localFiles" | 
 /**  Recent searches. */
 "searches" | 
 /**  AI models and translators. */
 "aiModels" | 
-/**  Covers, reader pages and lyrics kept to show them quickly; never backed up. */
+/**
+ *  Covers, reader pages, lyrics, videos' AI subtitles and songs opened from other apps, kept
+ *  to show or play them quickly; never backed up.
+ */
 "caches";
 
 export type DataCount = {
@@ -2514,7 +2522,9 @@ export type DataCount = {
 };
 
 /**  What a count in Settings → Data or a backup's index counts. */
-export type DataItem = "titles" | "chapters" | "read" | "episodes" | "watched" | "categories" | "shows" | "books" | "sites" | "playlists" | "playlistSongs" | "favorites" | "pins" | "settings" | "repositories" | "extensions" | "addons" | "servers" | 
+export type DataItem = "titles" | "chapters" | "read" | "episodes" | "watched" | "categories" | "shows" | "books" | "sites" | "playlists" | "playlistSongs" | "favorites" | "pins" | 
+/**  Pages quick access sorts by when they were last played from. */
+"played" | "settings" | "repositories" | "extensions" | "addons" | "servers" | 
 /**  Passwords, sign-ins and API keys. */
 "secrets" | "plays" | 
 /**  Places music was played from (an album, a playlist…). */
@@ -2526,7 +2536,13 @@ export type DataItem = "titles" | "chapters" | "read" | "episodes" | "watched" |
 /**  Downloads waiting or failed: entries without a file. */
 "waiting" | 
 /**  Files saved from websites. */
-"files" | "searches" | "models" | "translators" | "covers" | "pages" | "lyrics";
+"files" | 
+/**  Local Files' folders. */
+"folders" | "searches" | "models" | "translators" | "covers" | "pages" | "lyrics" | 
+/**  Videos with AI subtitles or translated subtitles kept. */
+"subtitles" | 
+/**  Songs other apps opened with Raygun, copied to play them. */
+"opened";
 
 /**  Where clearing a category reaches. */
 export type DataScope = 

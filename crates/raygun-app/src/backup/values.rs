@@ -1,7 +1,8 @@
 //! The app's own values in a backup (M46.51), beside the database's rows: recent searches, what
 //! music was played from, connected servers, AI models and translators, and (only when chosen)
 //! passwords, sign-ins and keys. Restoring them goes through their services, which also start
-//! installs and downloads again: a backup keeps what was downloaded, never the files.
+//! installs and downloads again (a backup keeps what was downloaded, never the files) and add
+//! back Local Files' folders this device still has.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -25,6 +26,7 @@ const MODELS: &str = "aiModels";
 const TRANSLATORS: &str = "translators";
 const TRANSLATOR_KEYS: &str = "translatorKeys";
 const INSTALLS: &str = "local_extension_install";
+const FOLDERS: &str = "local_folder";
 
 /// What collecting added: counts for the manifest, and whether a secret went in.
 #[derive(Default)]
@@ -206,7 +208,56 @@ pub async fn restore(
     if categories.contains(&DataCategory::Downloads) {
         restore_downloads(app, data, restored, &mut brought).await;
     }
+    if categories.contains(&DataCategory::LocalFiles) {
+        restore_local_folders(app, data, &mut brought).await;
+    }
     brought
+}
+
+/// Local Files' folders come back where this device still has them, each scanned again.
+async fn restore_local_folders(app: &AppHandle, data: &BackupData, brought: &mut Brought) {
+    use raygun_db::local_folders::{FolderAccess, FolderRow};
+    let text = |row: &Value, field: &str| row.get(field).and_then(Value::as_str).map(str::to_owned);
+    let folders: Vec<FolderRow> = data
+        .rows(FOLDERS)
+        .filter_map(|row| {
+            let location = text(row, "location")?;
+            Some(FolderRow {
+                id: text(row, "id").unwrap_or_default(),
+                access: FolderAccess::parse(&text(row, "access").unwrap_or_default(), &location),
+                name: text(row, "name").unwrap_or_else(|| location.clone()),
+                path: text(row, "path"),
+                added_at: row
+                    .get("added_at")
+                    .and_then(Value::as_i64)
+                    .unwrap_or_default(),
+                scanned_at: None,
+                counts: String::new(),
+                location,
+            })
+        })
+        .collect();
+    if folders.is_empty() {
+        return;
+    }
+    match app
+        .state::<Arc<crate::local_files::LocalFilesService>>()
+        .inner()
+        .restore(folders)
+        .await
+    {
+        Ok((added, missing)) => {
+            brought.queued += added;
+            if missing > 0 {
+                brought.problems.push(format!(
+                    "{missing} Local Files {} aren't on this device; add {} again in Local Files",
+                    if missing == 1 { "folder" } else { "folders" },
+                    if missing == 1 { "it" } else { "them" },
+                ));
+            }
+        }
+        Err(error) => brought.problems.push(format!("Local Files: {error}")),
+    }
 }
 
 fn secrets_of(data: &BackupData, name: &str) -> BTreeMap<String, String> {

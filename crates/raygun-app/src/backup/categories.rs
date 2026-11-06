@@ -3,12 +3,13 @@
 //! synced parts are tombstones that device sync carries); files and what services hold
 //! (extensions, downloads, models, caches) go through their services.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use raygun_db::backup::Part;
 use raygun_model::{
     DataCategory, DataCount, DataItem, DataScope, DataUsage, DownloadsClear, ExtensionOrigin,
-    LyricsClearScope, SettingChange, StorageArea, WebsiteDownloadState,
+    LyricsClearScope, StorageArea, WebsiteDownloadState,
 };
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
@@ -155,6 +156,28 @@ pub async fn usage(app: &AppHandle) -> Result<Vec<DataUsage>, String> {
         lyrics,
         None,
     );
+    let (videos, subtitle_bytes) = subtitle_usage(app, &db).await;
+    put(
+        &mut usage,
+        DataCategory::Caches,
+        DataItem::Subtitles,
+        videos,
+        Some(subtitle_bytes),
+    );
+    let opened_dir = opened_dir(app);
+    let (opened, opened_bytes) = tauri::async_runtime::spawn_blocking(move || {
+        let (entries, bytes) = folder_usage(&opened_dir);
+        (entries.iter().filter(|(_, is_dir)| *is_dir).count(), bytes)
+    })
+    .await
+    .unwrap_or_default();
+    put(
+        &mut usage,
+        DataCategory::Caches,
+        DataItem::Opened,
+        opened as u32,
+        Some(opened_bytes),
+    );
     let files = app
         .state::<Arc<crate::website_downloads::WebsiteDownloadService>>()
         .list()
@@ -169,6 +192,85 @@ pub async fn usage(app: &AppHandle) -> Result<Vec<DataUsage>, String> {
         None,
     );
     Ok(usage)
+}
+
+/// Videos with AI subtitles or translated subtitles here, and what their files take: the files'
+/// video names (`<video>.vtt`, `<video>.tr.<source>.<language>.json`; video names have no dots)
+/// and the videos whose AI subtitles are stored, named as their files are.
+async fn subtitle_usage(app: &AppHandle, db: &raygun_db::Db) -> (u32, f64) {
+    let stored = raygun_db::captions::video_keys(db)
+        .await
+        .unwrap_or_default();
+    let dir = subtitles_dir(app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let (entries, bytes) = folder_usage(&dir);
+        (videos_with_subtitles(&entries, &stored), bytes)
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// How many videos the subtitle folder's files and the stored AI subtitles are about.
+fn videos_with_subtitles(entries: &[(String, bool)], stored: &[String]) -> u32 {
+    let mut videos: std::collections::HashSet<String> = entries
+        .iter()
+        .filter(|(_, is_dir)| !is_dir)
+        .filter_map(|(name, _)| name.split('.').next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect();
+    videos.extend(
+        stored
+            .iter()
+            .map(|key| crate::video_subtitles::file_name_of(key)),
+    );
+    videos.len() as u32
+}
+
+/// `downloads/subtitles/ai`: videos' AI subtitles and translations.
+fn subtitles_dir(app: &AppHandle) -> PathBuf {
+    crate::video_subtitles::folder(&app.state::<crate::startup::AppPaths>().0.downloads())
+}
+
+/// `opened/`: songs other apps opened with Raygun, copied to play them.
+fn opened_dir(app: &AppHandle) -> PathBuf {
+    crate::open_with::copies_dir(&app.state::<crate::startup::AppPaths>().0)
+}
+
+/// The entries of a folder (their names, and whether each is a folder) and what everything in it
+/// takes, all the way down. Blocking.
+fn folder_usage(dir: &Path) -> (Vec<(String, bool)>, f64) {
+    fn size_of(path: &Path) -> f64 {
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_dir() => std::fs::read_dir(path)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| size_of(&entry.path()))
+                .sum(),
+            Ok(metadata) => metadata.len() as f64,
+            Err(_) => 0.0,
+        }
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (Vec::new(), 0.0);
+    };
+    let mut names = Vec::new();
+    let mut bytes = 0.0;
+    for entry in entries.flatten() {
+        let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+        names.push((entry.file_name().to_string_lossy().into_owned(), is_dir));
+        bytes += size_of(&entry.path());
+    }
+    (names, bytes)
+}
+
+/// Removes a folder and everything in it; one that isn't there is cleared already.
+async fn remove_dir(dir: PathBuf) -> Result<(), String> {
+    match tokio::fs::remove_dir_all(&dir).await {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.to_string()),
+        _ => Ok(()),
+    }
 }
 
 fn entry(usage: &mut [DataUsage], category: DataCategory) -> &mut DataUsage {
@@ -233,6 +335,8 @@ pub async fn clear(
                 raygun_db::set_local_value(&db, crate::collections::RECENT_CONTEXTS, "[]")
                     .await
                     .map_err(to_message)?;
+                // Quick access forgets when its pages were played from too; its pins stay.
+                crate::quick_access::forget(app, false, true).await;
             }
             tracing::info!(?category, changed, "data cleared");
             // Cached lists in the UI are stale, as after a sync.
@@ -242,16 +346,24 @@ pub async fn clear(
             }
         }
         DataCategory::Pins => {
-            let mut rail = crate::settings::load(&db).await.map_err(to_message)?.rail;
-            rail.pins.clear();
-            crate::settings::update(&db, SettingChange::Rail(rail))
-                .await
-                .map_err(to_message)?;
+            // Quick access: its pins and when its pages were played from.
+            crate::quick_access::forget(app, true, true).await;
             let _ = SyncChangedEvent(1).emit(app);
         }
         DataCategory::Sources => clear_sources(app).await?,
         DataCategory::Downloads => {
             clear_downloads(app, downloads.unwrap_or(DownloadsClear::Files)).await?;
+        }
+        DataCategory::LocalFiles => {
+            // Through the service: songs leave the music library, videos the video library,
+            // Added files' copies go, and picked folders' grants are given up.
+            let local = app
+                .state::<Arc<crate::local_files::LocalFilesService>>()
+                .inner()
+                .clone();
+            for folder in local.folders().await? {
+                local.remove(&folder.id).await?;
+            }
         }
         DataCategory::Searches => crate::recent_searches::clear(&db).await?,
         DataCategory::AiModels => {
@@ -268,6 +380,17 @@ pub async fn clear(
             app.state::<Arc<crate::lyrics_store::LyricsStore>>()
                 .clear(LyricsClearScope::All, false)
                 .await?;
+            // Videos' AI subtitles (stored and as files) and translated subtitles.
+            for key in raygun_db::captions::video_keys(&db)
+                .await
+                .map_err(to_message)?
+            {
+                raygun_db::captions::clear(&db, &key)
+                    .await
+                    .map_err(to_message)?;
+            }
+            remove_dir(subtitles_dir(app)).await?;
+            remove_dir(opened_dir(app)).await?;
         }
     }
     Ok(())
@@ -352,4 +475,36 @@ async fn clear_downloads(app: &AppHandle, what: DownloadsClear) -> Result<(), St
 
 fn to_message(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subtitles_count_videos_and_their_files_all_the_way_down() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        for (name, bytes) in [
+            ("stremio_movie_tt1.vtt", 10),
+            ("stremio_movie_tt1.tr.ai.fr.json", 20),
+            ("stremio_movie_tt1.tr.ai.fr.vtt", 30),
+            ("source_dev_example_films_42.tr.file.de.json", 40),
+        ] {
+            std::fs::write(dir.join(name), vec![b'x'; bytes]).unwrap();
+        }
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("nested").join("part"), vec![b'x'; 5]).unwrap();
+
+        let (entries, bytes) = folder_usage(dir);
+        assert_eq!(bytes, 105.0);
+        assert_eq!(entries.iter().filter(|(_, is_dir)| *is_dir).count(), 1);
+        // Two videos have files; a third has only stored AI subtitles; the first is both.
+        let stored = [
+            "stremio:movie:tt1".to_owned(),
+            "stremio:series:tt2:1:1".to_owned(),
+        ];
+        assert_eq!(videos_with_subtitles(&entries, &stored), 3);
+        assert_eq!(folder_usage(&dir.join("missing")), (Vec::new(), 0.0));
+    }
 }

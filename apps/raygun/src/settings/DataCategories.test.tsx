@@ -9,7 +9,8 @@ vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).b
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-const GB = 1024 * 1024 * 1024;
+const MB = 1024 * 1024;
+const GB = 1024 * MB;
 
 const usage: DataUsage[] = [
   {
@@ -31,6 +32,30 @@ const usage: DataUsage[] = [
     scope: 'synced',
   },
   { category: 'searches', counts: [], bytes: 0, scope: 'device' },
+  {
+    category: 'pins',
+    counts: [
+      { item: 'pins', count: 3, bytes: null },
+      { item: 'played', count: 12, bytes: null },
+    ],
+    bytes: 0,
+    scope: 'synced',
+  },
+  {
+    category: 'localFiles',
+    counts: [{ item: 'folders', count: 2, bytes: null }],
+    bytes: 0,
+    scope: 'device',
+  },
+  {
+    category: 'caches',
+    counts: [
+      { item: 'subtitles', count: 2, bytes: 3 * MB },
+      { item: 'opened', count: 1, bytes: 5 * MB },
+    ],
+    bytes: 8 * MB,
+    scope: 'device',
+  },
 ];
 
 describe('Data categories', () => {
@@ -46,9 +71,21 @@ describe('Data categories', () => {
     const rows = await within(card).findAllByTestId('data-row');
     expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual([
       'Playlists and favorites',
+      'Quick access',
       'Search history',
       'Downloads',
+      'Local Files folders',
+      'Caches',
     ]);
+    expect(within(card).getByRole('listitem', { name: 'Quick access' })).toHaveTextContent(
+      '3 pins · 12 recently played',
+    );
+    expect(within(card).getByRole('listitem', { name: 'Local Files folders' })).toHaveTextContent(
+      '2 folders',
+    );
+    expect(within(card).getByRole('listitem', { name: 'Caches' })).toHaveTextContent(
+      'AI subtitles of 2 videos · 1 song opened from another app · 8.0 MB',
+    );
     const playlists = within(card).getByRole('listitem', { name: 'Playlists and favorites' });
     expect(playlists).toHaveTextContent('2 playlists · 10 favorites');
     expect(playlists).toHaveTextContent('Linked devices clear it too');

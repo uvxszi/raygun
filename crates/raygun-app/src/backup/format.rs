@@ -192,6 +192,7 @@ pub fn part_of(category: DataCategory) -> Option<Part> {
         DataCategory::Settings => Part::Settings,
         DataCategory::Sources => Part::Sources,
         DataCategory::Downloads => Part::Downloads,
+        DataCategory::LocalFiles => Part::LocalFiles,
         DataCategory::Searches | DataCategory::AiModels | DataCategory::Caches => return None,
     })
 }
@@ -210,6 +211,7 @@ pub fn category_of(part: Part) -> DataCategory {
         Part::Settings => DataCategory::Settings,
         Part::Sources => DataCategory::Sources,
         Part::Downloads => DataCategory::Downloads,
+        Part::LocalFiles => DataCategory::LocalFiles,
     }
 }
 
@@ -228,6 +230,7 @@ pub fn item_of(item: Item) -> DataItem {
         Item::PlaylistSongs => DataItem::PlaylistSongs,
         Item::Favorites => DataItem::Favorites,
         Item::Pins => DataItem::Pins,
+        Item::Played => DataItem::Played,
         Item::Settings => DataItem::Settings,
         Item::Repositories => DataItem::Repositories,
         Item::Extensions => DataItem::Extensions,
@@ -236,6 +239,7 @@ pub fn item_of(item: Item) -> DataItem {
         Item::Songs => DataItem::Songs,
         Item::Videos => DataItem::Videos,
         Item::Waiting => DataItem::Waiting,
+        Item::Folders => DataItem::Folders,
     }
 }
 

@@ -2589,11 +2589,12 @@
       "audiobooks": "Audiobooks",
       "websites": "Websites",
       "playlists": "Playlists and favorites",
-      "pins": "Quick access pins",
+      "pins": "Quick access",
       "history": "History and recently played",
       "settings": "Settings",
       "sources": "Extensions, repositories, addons and servers",
       "downloads": "Downloads",
+      "localFiles": "Local Files folders",
       "searches": "Search history",
       "aiModels": "AI models and translators",
       "caches": "Caches"
@@ -2625,6 +2626,8 @@
       "favorites_other": "{{count}} favorites",
       "pins_one": "{{count}} pin",
       "pins_other": "{{count}} pins",
+      "played_one": "{{count}} recently played",
+      "played_other": "{{count}} recently played",
       "settings_one": "{{count}} setting changed",
       "settings_other": "{{count}} settings changed",
       "repositories_one": "{{count}} repository",
@@ -2649,6 +2652,8 @@
       "waiting_other": "{{count}} waiting or failed",
       "files_one": "{{count}} file from websites",
       "files_other": "{{count}} files from websites",
+      "folders_one": "{{count}} folder",
+      "folders_other": "{{count}} folders",
       "searches_one": "{{count}} search",
       "searches_other": "{{count}} searches",
       "models_one": "{{count}} model",
@@ -2660,7 +2665,11 @@
       "pages_one": "{{count}} page",
       "pages_other": "{{count}} pages",
       "lyrics_one": "Lyrics of {{count}} song",
-      "lyrics_other": "Lyrics of {{count}} songs"
+      "lyrics_other": "Lyrics of {{count}} songs",
+      "subtitles_one": "AI subtitles of {{count}} video",
+      "subtitles_other": "AI subtitles of {{count}} videos",
+      "opened_one": "{{count}} song opened from another app",
+      "opened_other": "{{count}} songs opened from other apps"
     },
     "places": {
       "app": "Raygun's data folder"
@@ -2703,8 +2712,8 @@
       "merges": "Restoring merges: newer changes win, and nothing here is removed.",
       "restore": "Restore",
       "restoring": "Restoring…",
-      "queued_one": "{{count}} download or install started again.",
-      "queued_other": "{{count}} downloads and installs started again."
+      "queued_one": "{{count}} download, install or folder scan started again.",
+      "queued_other": "{{count}} downloads, installs and folder scans started again."
     },
     "usage": {
       "title": "On this device",

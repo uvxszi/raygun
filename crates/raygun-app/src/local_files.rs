@@ -180,6 +180,20 @@ fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// What a restore adds of a backup's folders: those not here already, once each by location.
+fn new_folders(folders: Vec<store::FolderRow>, have: &HashSet<String>) -> Vec<store::FolderRow> {
+    let mut seen = have.clone();
+    folders
+        .into_iter()
+        .filter(|folder| seen.insert(folder.location.clone()))
+        .collect()
+}
+
+/// Whether a folder read by its path (Added files too) is still a folder here. Blocking.
+fn path_is_here(folder: &store::FolderRow) -> bool {
+    Path::new(folder.path.as_deref().unwrap_or(&folder.location)).is_dir()
+}
+
 /// `path` as a folder inside `root` (or `root` itself), when it is one: absolute, without `.` or
 /// `..` steps, and under `root` component by component.
 fn inside(root: &Path, path: &Path) -> Option<PathBuf> {
@@ -1375,6 +1389,72 @@ impl LocalFilesService {
             .map_err(|error| error.to_string())
     }
 
+    /// Folders a backup listed (M46.51), added again where this device still has them: a path
+    /// that's a folder (Added files while Raygun's own folder is there), a picked tree while its
+    /// grant is held. Each is scanned again. Returns how many came back and how many aren't here.
+    pub async fn restore(
+        self: &Arc<Self>,
+        folders: Vec<store::FolderRow>,
+    ) -> Result<(u32, u32), String> {
+        let have: HashSet<String> = store::folders(self.db())
+            .await
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|folder| folder.location)
+            .collect();
+        let (mut added, mut missing) = (0, 0);
+        for folder in new_folders(folders, &have) {
+            if !self.still_here(&folder).await {
+                missing += 1;
+                continue;
+            }
+            let id = store::add(
+                self.db(),
+                NewFolder {
+                    id: &uuid::Uuid::now_v7().to_string(),
+                    location: &folder.location,
+                    name: &folder.name,
+                    path: folder.path.as_deref(),
+                    access: folder.access,
+                },
+                folder.added_at,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            self.scan_later(id, true);
+            added += 1;
+        }
+        Ok((added, missing))
+    }
+
+    async fn still_here(&self, folder: &store::FolderRow) -> bool {
+        if folder.access == FolderAccess::Tree {
+            return self.tree_granted(&folder.location).await;
+        }
+        let folder = folder.clone();
+        tauri::async_runtime::spawn_blocking(move || path_is_here(&folder))
+            .await
+            .unwrap_or(false)
+    }
+
+    /// Whether Raygun still holds the grant of a tree picked in Android's folder picker.
+    #[cfg(target_os = "android")]
+    async fn tree_granted(&self, location: &str) -> bool {
+        let (app, location) = (self.app.clone(), location.to_owned());
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .folder_state(&location)
+                .is_ok_and(|state| state.granted)
+        })
+        .await
+        .unwrap_or(false)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    async fn tree_granted(&self, _location: &str) -> bool {
+        false
+    }
+
     /// Gives up the picker's grant of a removed folder (Android), unless downloads are saved there.
     async fn release_grant(&self, location: &str) {
         #[cfg(target_os = "android")]
@@ -2166,6 +2246,45 @@ mod tests {
             modified: 1,
             open: Opener::Path(PathBuf::from(rel)),
         }
+    }
+
+    #[test]
+    fn a_restore_adds_folders_not_here_once_and_only_where_they_are() {
+        let temp = tempfile::tempdir().unwrap();
+        let music = temp.path().join("Music");
+        std::fs::create_dir_all(&music).unwrap();
+        let row = |location: &str, access: FolderAccess| store::FolderRow {
+            id: format!("id-{location}"),
+            location: location.into(),
+            name: "Folder".into(),
+            path: (access != FolderAccess::Tree).then(|| location.to_owned()),
+            access,
+            added_at: 1,
+            scanned_at: None,
+            counts: String::new(),
+        };
+        let here = path_string(&music);
+        let gone = path_string(&temp.path().join("Gone"));
+        let have: HashSet<String> = ["content://tree/kept".to_owned()].into();
+        let added = new_folders(
+            vec![
+                row(&here, FolderAccess::Path),
+                row(&here, FolderAccess::Path),
+                row(&gone, FolderAccess::Added),
+                row("content://tree/kept", FolderAccess::Tree),
+            ],
+            &have,
+        );
+        let locations: Vec<&str> = added
+            .iter()
+            .map(|folder| folder.location.as_str())
+            .collect();
+        assert_eq!(locations, [here.as_str(), gone.as_str()]);
+        assert!(path_is_here(&added[0]));
+        assert!(
+            !path_is_here(&added[1]),
+            "a folder that isn't here stays out"
+        );
     }
 
     #[test]

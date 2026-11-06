@@ -29,8 +29,7 @@ pub use route::file_path;
 use route::{Kind, Location, StreamFormat, TextTarget};
 
 /// Where copies of shared songs go, under the data root.
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
-const COPIES_DIR: &str = "opened";
+pub const COPIES_DIR: &str = "opened";
 /// Copies kept, the most recently opened; older ones are deleted.
 const KEPT_COPIES: usize = 20;
 /// The largest song copied (an audiobook in one file).
@@ -562,12 +561,7 @@ impl OpenWith {
     /// opened again uses its copy.
     #[cfg(target_os = "android")]
     async fn copy_document(&self, uri: &str, item: &Handed) -> Result<PathBuf, String> {
-        let root = self
-            .app
-            .state::<crate::startup::AppPaths>()
-            .0
-            .root()
-            .join(COPIES_DIR);
+        let root = copies_dir(&self.app.state::<crate::startup::AppPaths>().0);
         let name = route::copy_name(item.name.as_deref(), item.mime.as_deref());
         let key = copy_key(uri, item.size);
         let (app, uri, size) = (self.app.clone(), uri.to_owned(), item.size);
@@ -582,6 +576,12 @@ impl OpenWith {
     async fn copy_document(&self, _uri: &str, _item: &Handed) -> Result<PathBuf, String> {
         Err("documents open only on Android".into())
     }
+}
+
+/// The folder of copies of songs other apps handed over (Settings → Data clears it with the
+/// caches).
+pub fn copies_dir(paths: &raygun_paths::Paths) -> PathBuf {
+    paths.root().join(COPIES_DIR)
 }
 
 /// Opens a document for reading through the plugin. Blocking.

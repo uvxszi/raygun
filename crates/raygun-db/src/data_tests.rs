@@ -112,8 +112,11 @@ async fn parts_the_app_clears_change_nothing_here() {
     let temp = TempDir::new().unwrap();
     let db = open(&temp, "a.db").await;
     a_bit_of_everything(&db).await;
-    for part in [Part::Pins, Part::Sources, Part::Downloads] {
+    for part in [Part::Pins, Part::Sources, Part::Downloads, Part::LocalFiles] {
         assert_eq!(clear(&db, part).await.unwrap(), 0);
     }
-    assert_eq!(counts(&db).await.unwrap()[&Part::Pins][&Item::Pins], 2);
+    let counted = counts(&db).await.unwrap();
+    assert_eq!(counted[&Part::Pins][&Item::Pins], 2);
+    assert_eq!(counted[&Part::Pins][&Item::Played], 3);
+    assert_eq!(counted[&Part::LocalFiles][&Item::Folders], 1);
 }

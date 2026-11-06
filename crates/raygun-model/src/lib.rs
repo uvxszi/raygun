@@ -6448,26 +6448,30 @@ pub enum DataCategory {
     Websites,
     /// Playlists and favorite songs.
     Playlists,
-    /// Quick access pins.
+    /// Quick access: its pins and when its pages were last played from.
     Pins,
     /// Songs played, videos watched and what was played from.
     History,
-    /// Every setting but the pins.
+    /// Every setting but quick access's.
     Settings,
     /// Extensions, repositories, Stremio addons and connected servers.
     Sources,
     /// What was downloaded: backups keep the list, never the files.
     Downloads,
+    /// Local Files' folders: where Raygun looks for songs, comics, books and videos on this
+    /// device. Backups keep the list, and a restore adds back the folders this device has.
+    LocalFiles,
     /// Recent searches.
     Searches,
     /// AI models and translators.
     AiModels,
-    /// Covers, reader pages and lyrics kept to show them quickly; never backed up.
+    /// Covers, reader pages, lyrics, videos' AI subtitles and songs opened from other apps, kept
+    /// to show or play them quickly; never backed up.
     Caches,
 }
 
 impl DataCategory {
-    pub const ALL: [DataCategory; 15] = [
+    pub const ALL: [DataCategory; 16] = [
         DataCategory::Comics,
         DataCategory::Books,
         DataCategory::Videos,
@@ -6480,6 +6484,7 @@ impl DataCategory {
         DataCategory::Settings,
         DataCategory::Sources,
         DataCategory::Downloads,
+        DataCategory::LocalFiles,
         DataCategory::Searches,
         DataCategory::AiModels,
         DataCategory::Caches,
@@ -6508,6 +6513,8 @@ pub enum DataItem {
     PlaylistSongs,
     Favorites,
     Pins,
+    /// Pages quick access sorts by when they were last played from.
+    Played,
     Settings,
     Repositories,
     Extensions,
@@ -6526,12 +6533,18 @@ pub enum DataItem {
     Waiting,
     /// Files saved from websites.
     Files,
+    /// Local Files' folders.
+    Folders,
     Searches,
     Models,
     Translators,
     Covers,
     Pages,
     Lyrics,
+    /// Videos with AI subtitles or translated subtitles kept.
+    Subtitles,
+    /// Songs other apps opened with Raygun, copied to play them.
+    Opened,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

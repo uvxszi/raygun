@@ -274,7 +274,20 @@ pub(crate) async fn a_bit_of_everything(db: &Db) {
     crate::settings::put(
         db,
         PINS_KEY,
-        r#"{"pins":[{"kind":"playlist"},{"kind":"album"}]}"#,
+        r#"{"pins":[{"kind":"playlist"},{"kind":"album"}],"played":[{"to":"/a"},{"to":"/b"},{"to":"/c"}]}"#,
+    )
+    .await
+    .unwrap();
+    crate::local_folders::add(
+        db,
+        crate::local_folders::NewFolder {
+            id: "f1",
+            location: "/storage/emulated/0/Music",
+            name: "Music",
+            path: Some("/storage/emulated/0/Music"),
+            access: crate::local_folders::FolderAccess::Path,
+        },
+        8,
     )
     .await
     .unwrap();
@@ -334,6 +347,12 @@ async fn the_index_counts_a_backup_as_the_database_is_counted() {
     assert_eq!(counted[&Part::Playlists][&Item::Favorites], 1);
     assert_eq!(counted[&Part::Books][&Item::Titles], 1);
     assert_eq!(counted[&Part::Settings][&Item::Settings], 1);
+    assert_eq!(counted[&Part::Pins][&Item::Played], 3);
+    assert_eq!(counted[&Part::LocalFiles][&Item::Folders], 1);
+    // A folder keeps how it's read.
+    let folder = backup.rows("local_folder").next().expect("the folder");
+    assert_eq!(folder["access"], "path");
+    assert_eq!(folder["location"], "/storage/emulated/0/Music");
 }
 
 #[tokio::test]

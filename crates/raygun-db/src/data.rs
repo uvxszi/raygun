@@ -97,7 +97,7 @@ pub async fn counts(db: &Db) -> Result<Counts, DbError> {
                 .get::<i64, _>(0),
         )
     };
-    let rows: [(&'static str, Part, Item); 11] = [
+    let rows: [(&'static str, Part, Item); 13] = [
         (
             "SELECT COUNT(*) FROM website WHERE deleted = 0",
             Part::Websites,
@@ -124,6 +124,12 @@ pub async fn counts(db: &Db) -> Result<Counts, DbError> {
              WHERE key = 'rail' AND deleted = 0 AND json_valid(value)",
             Part::Pins,
             Item::Pins,
+        ),
+        (
+            "SELECT COALESCE(SUM(json_array_length(value, '$.played')), 0) FROM setting
+             WHERE key = 'rail' AND deleted = 0 AND json_valid(value)",
+            Part::Pins,
+            Item::Played,
         ),
         (
             "SELECT COUNT(*) FROM setting WHERE deleted = 0 AND key != 'rail'",
@@ -154,6 +160,11 @@ pub async fn counts(db: &Db) -> Result<Counts, DbError> {
             "SELECT COUNT(*) FROM local_extension_install",
             Part::Sources,
             Item::Extensions,
+        ),
+        (
+            "SELECT COUNT(*) FROM local_folder",
+            Part::LocalFiles,
+            Item::Folders,
         ),
     ];
     for (sql, part, item) in rows {
@@ -227,8 +238,8 @@ fn podcast_part(kind: &str) -> Part {
 
 /// Clears a part kept in the database; returns how many rows changed. Library parts leave the
 /// library (titles stay, with what was read, as after removing them one by one) and lose their
-/// categories; the rest become tombstones. Pins, sources and downloads are the app's to clear:
-/// nothing changes here for them.
+/// categories; the rest become tombstones. Quick access, sources, downloads and Local Files'
+/// folders are the app's to clear: nothing changes here for them.
 pub async fn clear(db: &Db, part: Part) -> Result<u64, DbError> {
     let statements: Vec<&'static str> = match part {
         Part::Comics | Part::Books | Part::Videos => vec![
@@ -265,7 +276,7 @@ pub async fn clear(db: &Db, part: Part) -> Result<u64, DbError> {
             "UPDATE setting SET deleted = 1, updated_at_hlc = ?1, origin_device = ?2
              WHERE deleted = 0 AND key != 'rail'",
         ],
-        Part::Pins | Part::Sources | Part::Downloads => return Ok(0),
+        Part::Pins | Part::Sources | Part::Downloads | Part::LocalFiles => return Ok(0),
     };
     let kind = part.title_kind().or(part.podcast_kind());
     let stamp = db.tick();

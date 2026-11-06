@@ -130,7 +130,7 @@ describe('Backup card', () => {
     await user.click(within(sheet).getByRole('button', { name: 'Restore' }));
     expect(commands.backupRestore).toHaveBeenCalledWith(ID, ['comics']);
     expect(await within(card).findByText('Restored. 3 items changed.')).toBeInTheDocument();
-    expect(within(card).getByText('2 downloads and installs started again.')).toBeInTheDocument();
+    expect(within(card).getByText('2 downloads, installs and folder scans started again.')).toBeInTheDocument();
     expect(within(card).getByText('1 video wasn’t downloaded again')).toBeInTheDocument();
   });
 

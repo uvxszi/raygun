@@ -34,6 +34,10 @@ const OWN: &[&str] = &[
     "web",
     "logs",
     "proxy-port",
+    // Songs other apps opened with Raygun (`open_with::COPIES_DIR`), and files picked for a
+    // link-or-file field (`picker`).
+    "opened",
+    "picked",
 ];
 
 /// Paths (from the data root, with `/`) an erase keeps: the backups, the installed-mode marker
@@ -188,11 +192,17 @@ mod tests {
             "extensions/dev.example/index.js",
             "models/whisper/model.bin",
             "downloads/manga/t1/c1/001.jpg",
+            "downloads/subtitles/ai/stremio_movie_tt1.tr.ai.fr.json",
+            "downloads/added/song.mp3",
+            "downloads/files/report.pdf",
             "cache/covers/abc",
             "webview/EBWebView/Local State",
             "web/blocklist.bin",
+            "web/desktop/EBWebView/Default/Cookies",
             "logs/raygun.2026-11-05.log",
             "proxy-port",
+            "opened/0123456789abcdef/song.mp3",
+            "picked/index.json",
             "backups/raygun-20261105-120000.raygunbk",
             "backups/folders.json",
             "installed-mode",
