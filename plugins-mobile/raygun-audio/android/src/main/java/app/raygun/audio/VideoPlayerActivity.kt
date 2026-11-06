@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
+import android.icu.text.PluralRules
 import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Build
@@ -1707,7 +1708,13 @@ class VideoPlayerActivity : AppCompatActivity() {
         if (total < 2) return null
         val answered = (0 until total).count { sources.optJSONObject(it)?.optString("state") != "resolving" }
         if (answered >= total) return null
-        return label("sourcesChecked", "{n} of {of} sources checked", answered.toString(), total.toString())
+        return countLabel(
+            "sourcesChecked",
+            "{n} of {of} source checked",
+            "{n} of {of} sources checked",
+            answered.toString(),
+            total,
+        )
     }
 
     /** "Trying source 2 of 5 · Vidstream" for the link loading in a session, or just its name. */
@@ -1805,6 +1812,28 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** A word with two numbers: `{n}` and `{of}`. */
     internal fun label(key: String, fallback: String, value: String, of: String): String =
         label(key, fallback, value).replace("{of}", of)
+
+    /**
+     * A word that counts something ("3 of 8 lines"): the plural form the app's language takes for
+     * `count` (i18next's `<key>_one`, `<key>_few`, `<key>_other`…, picked by Android's plural
+     * rules for the language the labels came in), `{n}` filled with `value` and `{of}` with
+     * `count`. English `one`/`other` when no label is there.
+     */
+    internal fun countLabel(key: String, one: String, other: String, value: String, count: Int): String {
+        val form = pluralForm(count)
+        val text = sequenceOf("${key}_$form", "${key}_other", key)
+            .map { labels.optString(it) }
+            .firstOrNull { it.isNotBlank() }
+            ?: if (count == 1) one else other
+        return text.replace("{n}", value).replace("{of}", count.toString())
+    }
+
+    /** The plural form (`one`, `few`, `other`…) of `count` in the labels' language. */
+    private fun pluralForm(count: Int): String {
+        val tag = labels.optString("locale")
+        val locale = if (tag.isBlank()) Locale.getDefault() else Locale.forLanguageTag(tag)
+        return runCatching { PluralRules.forLocale(locale).select(count.toDouble()) }.getOrDefault("other")
+    }
 
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)

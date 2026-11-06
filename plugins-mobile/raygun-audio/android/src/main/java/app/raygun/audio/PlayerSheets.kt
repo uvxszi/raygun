@@ -287,7 +287,13 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             status.running && ahead != null -> label("translateAhead", "Translating… {n} ahead", formatTime(ahead))
             status.running -> label("translating", "Translating…")
             status.complete -> label("translateComplete", "Translated to the end")
-            else -> host.label("translateDone", "{n} of {of} lines", status.done.toString(), status.total.toString())
+            else -> host.countLabel(
+                "translateDone",
+                "{n} of {of} line",
+                "{n} of {of} lines",
+                status.done.toString(),
+                status.total,
+            )
         }
     }
 

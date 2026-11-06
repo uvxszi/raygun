@@ -5,16 +5,20 @@ import { useTranslation } from 'react-i18next';
 /** The native video player's words, in the app's language; sent again when it changes (M44, M45). */
 export const usePlayerLabels = () => {
   const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? i18n.language;
   useEffect(() => {
     // Every `videoPlayer.*` word, with `{n}` (and `{of}`) where the player puts a number or name.
+    // Words that count keep each plural form (`_one`, `_other`…, the count as `{of}`): the player
+    // picks one by the plural rules of `locale`.
     const words = t('videoPlayer', {
       returnObjects: true,
       n: '{n}',
       seconds: '{n}',
       of: '{of}',
+      count: '{of}',
     }) as Record<string, string>;
-    void commands.videoSetPlayerLabels({ ...words, video: t('watch.video') });
-  }, [t, i18n.language]);
+    void commands.videoSetPlayerLabels({ ...words, video: t('watch.video'), locale });
+  }, [t, locale]);
   useEffect(() => {
     // The device's language: the subtitles downloads keep at first.
     if (typeof navigator !== 'undefined' && navigator.language) {

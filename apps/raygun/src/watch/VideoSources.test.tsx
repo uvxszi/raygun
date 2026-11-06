@@ -263,7 +263,15 @@ describe('Video sources in Watch', () => {
     expect(commands.settingsUpdate).toHaveBeenCalledWith({ key: 'nextPromptSeconds', value: 0 });
 
     expect(commands.videoSetPlayerLabels).toHaveBeenCalledWith(
-      expect.objectContaining({ episodes: 'Episodes', nextIn: 'Next episode in {n} s' }),
+      expect.objectContaining({
+        episodes: 'Episodes',
+        nextIn: 'Next episode in {n} s',
+        // Counted words keep their plural forms, and the language that picks one.
+        translateDone_one: '{n} of {of} line',
+        translateDone_other: '{n} of {of} lines',
+        sourcesChecked_other: '{n} of {of} sources checked',
+        locale: 'en',
+      }),
     );
   });
 

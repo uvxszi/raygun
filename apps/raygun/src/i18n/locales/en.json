@@ -2412,7 +2412,8 @@
     "translating": "Translating…",
     "translateAhead": "Translating… {{n}} ahead",
     "translateComplete": "Translated to the end",
-    "translateDone": "{{n}} of {{of}} lines",
+    "translateDone_one": "{{n}} of {{count}} line",
+    "translateDone_other": "{{n}} of {{count}} lines",
     "translateStop": "Stop translating"
   },
   "export": {
