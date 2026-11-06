@@ -77,30 +77,70 @@ regular expressions and `when (lang)`. `configureClient` may set a rate limit (a
 WebView's address, settings screens) are skipped. Older builds' constructor arguments
 (`Madara("Name", "https://…", "en", SimpleDateFormat(…))`) are read too.
 
-Anything else is refused with the reason, which the catalogue then shows for that version
-("Raygun can't convert it: it has its own code for chapterFromElement"):
+### Sources without a theme
 
-- an override with code of its own (a parser, a URL builder);
+Most of Keiyoushi's other extensions extend `KeiSource` directly, with `suspend` functions
+(`getPopularManga`, `getSearchMangaList`, `fetchMangaUpdate`, `getPageList`…) over
+`client.get(url, Fetch.DOCUMENT).asJsoup()` and `parseAs<T>()`. `mihon::transpile` turns the
+source class, and the classes its files declare (DTOs, filters, enums), into JavaScript
+(`mihon::kotlin::emit`):
+
+```js
+mihon.source({
+  sources: [{ id: "4242", name: "Fixture Stand", lang: "en", baseUrl: "https://stand.example" }],
+  renames: { thumbnail: "cover_url" },
+  build: (self, C, D) => {
+    self.define("getPageList", [[1, 1, async ($chapter) => { … }]]);
+    C.prop("DATE_FORMAT", async () => KT.call("SimpleDateFormat", ["yyyy-MM-dd", …]));
+    D.MangaDto = KT.defineClass({ name: "MangaDto", params: ["slug", "title"], … });
+  },
+});
+```
+
+Every call is awaited, as a `suspend` function's would be. Member calls go through
+`mihon/kotlin.js` (`KT`), which knows at run time what a value is: Kotlin's standard library on
+strings, lists, maps and numbers, Jsoup on documents, OkHttp's requests, URLs and responses,
+kotlinx.serialization (JSON decoded into the declared classes, `@SerialName` included),
+coroutines (`async`/`awaitAll`, `Mutex`, `Semaphore`), `Calendar`, `java.time` dates and zones.
+A local shadowing a parameter (`val page = page + 1`) gets a name of its own, and default
+arguments are worked out in the body, in order.
+
+Only what Raygun calls has to convert: the functions above and whatever they reach by name.
+Unreached code that can't be converted becomes a stub that fails with its reason if it's ever
+called. Filters (`getFilterList`) and settings screens aren't converted: searches run without
+filters, and preferences read their defaults.
+
+### Refusals
+
+Anything else is refused with the reason, which the catalogue then shows for that version
+("Raygun can't convert it: its code uses proceed(), which Raygun's converter doesn't read yet"):
+
+- an override with code of its own in a themed extension (a parser, a URL builder);
 - an interceptor (image descrambling, signed requests, cookies made in code);
 - one of Keiyoushi's libraries (`lib:speedbinb`, `lib:unpacker`, `lib:textinterceptor`…);
-- a theme Raygun doesn't run yet, or no theme at all;
-- values read from preferences, or code that runs when the source starts.
+- a theme Raygun doesn't run yet;
+- a call, object or name the runtime doesn't have (`emit::METHODS`, `GLOBALS` and `OBJECTS`,
+  which a test keeps equal to `kotlin.js`'s tables);
+- values read from preferences in a themed extension, or code that runs when the source starts.
 
 Before the package is installed it's loaded once in a host of its own (`convert::validate`):
-its script must run and register every source. The manifest keeps `mihon: { pkg, versionCode,
+its script must run and register every source. Its `net` is the sources' hosts and their
+subdomains, plus the hosts its code names in full addresses (an API beside the site, an image
+server). The manifest keeps `mihon: { pkg, versionCode,
 converter, theme, source }`; when `CONVERTER_VERSION` grows, the catalogue offers the installed
 extensions again, as it does for Nuclear conversions.
 
 ## The runtime
 
-`runtime = "mihon"` runs the converted script after `mihon/prelude.js` and the themes:
+`runtime = "mihon"` runs the converted script after `mihon/prelude.js`, `mihon/kotlin.js` and
+the themes:
 
 | Mihon leaned on | In Raygun |
 |---|---|
 | Jsoup | Documents parsed in Rust (the LNReader runtime's document store), Raygun's Jsoup-compatible selectors (`:contains`, `:has`, `:eq`…), Jsoup's `text()` and `ownText()` whitespace rules, `attr("abs:…")`, siblings and parents |
-| OkHttp, `KeiSource`'s client | `raygun.http` with the source's Referer, the accept headers of a page load or an XHR, form bodies, its rate limit; Raygun's own limits beneath (6 requests at once per site, 32 in all) and the extension's cookie jar |
-| Java's date formats | `SimpleDateFormat`/`DateTimeFormatter` patterns, month names in 20 languages, Thai Buddhist years |
-| Kotlin's helpers | `substringAfter`, `removePrefix`, `trimIndent`, `String.format`… (`K`) |
+| OkHttp, `KeiSource`'s client | `raygun.http` with the source's Referer and headers, the accept headers of a page load or an XHR, form bodies, its rate limit; Raygun's own limits beneath (6 requests at once per site, 32 in all) and the extension's cookie jar |
+| Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones, month names in 20 languages, Thai Buddhist years; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `Instant` as Unix milliseconds |
+| Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…) |
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
 
 Titles are known by their path (`/manga/one/`), chapters by theirs; covers and pages go through
@@ -118,19 +158,27 @@ Themes so far (ported from Keiyoushi's `lib-multisrc`, Apache-2.0):
 ## Coverage
 
 `mihon_convert_survey` converts every extension of Keiyoushi's store (1463, as of
-2026-11-05) and loads every tenth conversion:
+2026-11-05) and loads each conversion as installing does (one that doesn't load counts as
+refused):
 
 | | Converted | Of |
 |---|---|---|
 | Madara | 152 | 240 |
 | MangaThemesia | 76 | 113 |
 | Other themes (65) | 0 | 339 |
-| No theme | 0 | 771 |
-| All | 228 (15.6%) | 1463 |
+| No theme | 258 | 771 |
+| All | 486 (33.2%) | 1463 |
 
-Most refusals are extensions built on no theme (771), then themes not ported yet (ZeistManga 29,
-ComiciViewer 29, GigaViewer 19, Keyoapp 16, MangaCatalog 13, YiiManga 12, MangaHub 11), then
-interceptors (22) and Keiyoushi's libraries (about 60, mostly image unscramblers).
+The most common refusals: interceptors (`chain.proceed()` 73, `addInterceptor()` 35, an
+`Interceptor` class 22), themes not ported yet (ZeistManga 29, ComiciViewer 29, GigaViewer 19,
+Keyoapp 16, MangaCatalog 13, YiiManga 12, MangaHub 11, PizzaReader 10), Keiyoushi's libraries
+(`textinterceptor` 12, `unpacker` 9, `publus` 8, `speedbinb` 8) and Next.js pages
+(`extractNextJs()` 14).
+
+`mihon_popular_live` with a sample of 40 converted sources (2026-11-05): 31 listed their first
+popular page (17 of them without a theme). Of the others, three asked for a browser check, three
+sites were down or gone, one listed nothing and two stopped on code the runtime doesn't run
+right yet.
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture
@@ -141,13 +189,17 @@ cargo test -p raygun-ext-host --lib -- --ignored mihon_popular_live --nocapture
 
 Without `MIHON_SOURCE_DIR` the survey lists the source repository with one GitHub API call and
 reads the files from raw.githubusercontent.com. `MIHON_SURVEY_DETAIL=<theme>` lists that theme's
-refusals one by one. `mihon_popular_live` loads a sample (`MIHON_SAMPLE`, 24 by default) of the
-converted sources and asks each for its first popular page.
+refusals one by one (`(none)` for sources without a theme), `MIHON_SURVEY_ONLY=<pkg>,…` surveys
+only those packages, and `MIHON_SURVEY_DUMP=<dir>` keeps the code of conversions that don't load
+(of all of them with `MIHON_SURVEY_DUMP_ALL=1`). `mihon_popular_live` loads a sample
+(`MIHON_SAMPLE`, 24 by default) of the converted sources and asks each for its first popular
+page.
 
 ## Running source code in a container (design)
 
 A second tier for extensions that can't be converted: their own compiled code, run apart from
-Raygun behind the same `manga.source` interface. It isn't built yet; this is what it would take.
+Raygun behind the same `manga.source` interface. It isn't built yet, and neither is its switch;
+this is what it would take.
 
 **Size and download.** Desktop needs a Java runtime: a jlinked JRE 21 with `java.base`,
 `java.net.http`, `java.logging` and `jdk.crypto.ec` is about 45 MB (Adoptium's full JRE 21 is

@@ -2,6 +2,7 @@
 //! JavaScript made from it (`js`) for Raygun's Mihon runtime.
 
 pub mod ast;
+pub mod emit;
 pub mod js;
 pub mod lexer;
 pub mod parser;

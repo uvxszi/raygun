@@ -191,6 +191,8 @@ pub struct Param {
     pub vararg: bool,
     /// A constructor's `val`/`var` parameter, which is a property too.
     pub property: bool,
+    /// Its annotations' names; `SerialName=<json name>` for `@SerialName("…")`.
+    pub annotations: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -248,6 +250,8 @@ pub struct EnumEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
     pub name: String,
+    /// Its type parameters' names (`class ApiResponse<T>`).
+    pub type_params: Vec<String>,
     pub kind: ClassKind,
     pub modifiers: Vec<String>,
     pub annotations: Vec<String>,

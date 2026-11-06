@@ -7,10 +7,83 @@
 (() => {
   const { K, Jsoup, toDetails } = mihon;
 
-  const COMPLETED = ['completed', 'completo', 'completado', 'concluído', 'concluido', 'finalizado', 'achevé', 'terminé', 'hoàn thành', 'مكتملة', 'مكتمل', '已完结', 'tamamlandı', 'đã hoàn thành', 'завершено', 'tamamlanan', 'complété'];
-  const ONGOING = ['ongoing', 'on going', 'updating', 'продолжается', 'em lançamento', 'em andamento', 'en cours', 'ativo', 'lançando', 'đang tiến hành', 'còn nữa', 'devam ediyor', 'in corso', 'in arrivo', 'مستمرة', 'مستمر', 'en curso', 'emision', 'curso', 'en marcha', 'publicandose', 'publicándose', 'en emision', '连载中', 'đang làm', 'em postagem', 'devam eden', 'em progresso', 'atualizações semanais', 'виходить', 'đang ra'];
-  const HIATUS = ['on hold', 'hiatus', 'pausado', 'en espera', 'durduruldu', 'beklemede', 'đang chờ', 'متوقف', 'en pause', 'заморожено', 'en attente', 'tạm dừng'];
-  const CANCELLED = ['canceled', 'cancelled', 'cancelado', 'iptal edildi', 'đã hủy', 'ملغي', 'abandonné', 'заброшено', 'annulé'];
+  const COMPLETED = [
+    'completed',
+    'completo',
+    'completado',
+    'concluído',
+    'concluido',
+    'finalizado',
+    'achevé',
+    'terminé',
+    'hoàn thành',
+    'مكتملة',
+    'مكتمل',
+    '已完结',
+    'tamamlandı',
+    'đã hoàn thành',
+    'завершено',
+    'tamamlanan',
+    'complété',
+  ];
+  const ONGOING = [
+    'ongoing',
+    'on going',
+    'updating',
+    'продолжается',
+    'em lançamento',
+    'em andamento',
+    'en cours',
+    'ativo',
+    'lançando',
+    'đang tiến hành',
+    'còn nữa',
+    'devam ediyor',
+    'in corso',
+    'in arrivo',
+    'مستمرة',
+    'مستمر',
+    'en curso',
+    'emision',
+    'curso',
+    'en marcha',
+    'publicandose',
+    'publicándose',
+    'en emision',
+    '连载中',
+    'đang làm',
+    'em postagem',
+    'devam eden',
+    'em progresso',
+    'atualizações semanais',
+    'виходить',
+    'đang ra',
+  ];
+  const HIATUS = [
+    'on hold',
+    'hiatus',
+    'pausado',
+    'en espera',
+    'durduruldu',
+    'beklemede',
+    'đang chờ',
+    'متوقف',
+    'en pause',
+    'заморожено',
+    'en attente',
+    'tạm dừng',
+  ];
+  const CANCELLED = [
+    'canceled',
+    'cancelled',
+    'cancelado',
+    'iptal edildi',
+    'đã hủy',
+    'ملغي',
+    'abandonné',
+    'заброшено',
+    'annulé',
+  ];
 
   const defaults = {
     supportsPostId: () => true,
@@ -26,7 +99,8 @@
     mangaDetailsSelectorTitle: () => 'div.post-title h3, div.post-title h1, #manga-title > h1',
     mangaDetailsSelectorAuthor: () => 'div.author-content > a, div.manga-authors > a',
     mangaDetailsSelectorArtist: () => 'div.artist-content > a',
-    mangaDetailsSelectorStatus: () => 'div.summary-content, div.summary-heading:contains(Status) + div',
+    mangaDetailsSelectorStatus: () =>
+      'div.summary-content, div.summary-heading:contains(Status) + div',
     mangaDetailsSelectorDescription: () =>
       'div.description-summary div.summary__content, div.summary_content div.post-content_item > h5 + div, div.summary_content div.manga-excerpt',
     mangaDetailsSelectorThumbnail: () => 'div.summary_image img',
@@ -90,7 +164,11 @@
     ['سنتين', '2 سنوات'],
   ];
   // Keywords must not follow a letter, or "ay" would match inside "mayıs" and "days".
-  const word = (...words) => new RegExp(`(?<!\\p{L})(?:${words.map((one) => one.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'u');
+  const word = (...words) =>
+    new RegExp(
+      `(?<!\\p{L})(?:${words.map((one) => one.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+      'u',
+    );
   const UNITS = [
     [word('year', 'año', 'ano', 'năm', 'yıl', 'سنة', 'سنوات'), 365 * 86400000],
     [word('month', 'mes', 'tháng', 'ay', 'شهر', 'أشهر', 'شهور'), 30 * 86400000],
@@ -108,7 +186,9 @@
 
   /** A chapter number from its name ("Chapter 12.5"), when it says one. */
   const chapterNumber = (name) => {
-    const found = K.str(name).match(/(?:chapter|chap|ch\.?|cap[ií]tulo|cap\.?|episode|ep\.?|chương|bölüm|глава|الفصل|ตอนที่|第)\s*(\d+(?:[.,]\d+)?)/iu);
+    const found = K.str(name).match(
+      /(?:chapter|chap|ch\.?|cap[ií]tulo|cap\.?|episode|ep\.?|chương|bölüm|глава|الفصل|ตอนที่|第)\s*(\d+(?:[.,]\d+)?)/iu,
+    );
     return found ? parseFloat(found[1].replace(',', '.')) : undefined;
   };
 
@@ -135,14 +215,22 @@
         .map((part) => part.trim().split(/\s+/, 2))
         // Each candidate resolved against the page (Jsoup resolved the whole list as one).
         .map((candidate) => [K.resolve(candidate[0], base), candidate[1]])
-        .filter((candidate) => candidate.length && /^https?:\/\/[^\s/$.?#].[^\s]*$/.test(candidate[0]));
+        .filter(
+          (candidate) => candidate.length && /^https?:\/\/[^\s/$.?#].[^\s]*$/.test(candidate[0]),
+        );
       let best = null;
       for (const candidate of images) {
         const descriptor = candidate[1] && candidate[1].match(/^(\d+|\d+\.\d+)[wx]$/);
-        if (descriptor && (!best || parseFloat(descriptor[1]) > best[1])) best = [candidate[0], parseFloat(descriptor[1])];
+        if (descriptor && (!best || parseFloat(descriptor[1]) > best[1]))
+          best = [candidate[0], parseFloat(descriptor[1])];
       }
       if (best) return best[0];
-      return images.map((candidate) => candidate[0]).sort().pop() ?? null;
+      return (
+        images
+          .map((candidate) => candidate[0])
+          .sort()
+          .pop() ?? null
+      );
     };
 
     const imageFromElement = (element) => {
@@ -151,7 +239,8 @@
       if (element.hasAttr('data-lzl-src')) return element.attr('abs:data-lzl-src');
       if (element.hasAttr('data-cfsrc')) return element.attr('abs:data-cfsrc');
       if (element.hasAttr('data-manga-src')) return element.attr('abs:data-manga-src');
-      if (element.hasAttr('srcset')) return srcSetImage(element.attr('srcset'), element.doc?.location() ?? `${t.baseUrl}/`);
+      if (element.hasAttr('srcset'))
+        return srcSetImage(element.attr('srcset'), element.doc?.location() ?? `${t.baseUrl}/`);
       return element.attr('abs:src');
     };
 
@@ -163,7 +252,10 @@
       }
     };
 
-    const postId = (element) => element.attr('data-post-id') || element.selectFirst('[data-post-id]')?.attr('data-post-id') || '';
+    const postId = (element) =>
+      element.attr('data-post-id') ||
+      element.selectFirst('[data-post-id]')?.attr('data-post-id') ||
+      '';
 
     const archiveManga = (element) => {
       const link = element.selectFirst(o.archiveUrlSelector);
@@ -172,9 +264,15 @@
       const path = href ? pathOf(href) : null;
       if (!path) return null;
       const titleSelector = o.archiveTitleSelector;
-      const title = (titleSelector ? element.selectFirst(titleSelector)?.text() : null) ?? link.text();
+      const title =
+        (titleSelector ? element.selectFirst(titleSelector)?.text() : null) ?? link.text();
       const image = element.selectFirst('img');
-      return { id: path, title, coverUrl: image ? imageFromElement(image) || undefined : undefined, coverHeaders: { Referer: `${t.baseUrl}/` } };
+      return {
+        id: path,
+        title,
+        coverUrl: image ? imageFromElement(image) || undefined : undefined,
+        coverHeaders: { Referer: `${t.baseUrl}/` },
+      };
     };
 
     const parseArchive = (document) =>
@@ -197,7 +295,8 @@
       const normalized = value.toLowerCase();
       const today = startOfDayUtc(Date.now());
       if (['today', 'hoje', 'hoy'].some((start) => normalized.startsWith(start))) return today;
-      if (['yesterday', 'ontem', 'ayer', 'يوم واحد'].some((start) => normalized.startsWith(start))) return today - 86400000;
+      if (['yesterday', 'ontem', 'ayer', 'يوم واحد'].some((start) => normalized.startsWith(start)))
+        return today - 86400000;
       const amount = normalized.match(/\d+/);
       if (amount) {
         const unit = UNITS.find(([pattern]) => pattern.test(normalized));
@@ -215,7 +314,9 @@
       const slug = path ? path.replace(/\/+$/, '').split('/').pop() : '';
       if (!slug) return null;
       const nameSelector = o.chapterNameSelector;
-      const name = ((nameSelector ? element.selectFirst(nameSelector)?.text() : null) ?? link.text()).trim();
+      const name = (
+        (nameSelector ? element.selectFirst(nameSelector)?.text() : null) ?? link.text()
+      ).trim();
       const dateText =
         element.selectFirst('img:not(.thumb)')?.attr('alt') ||
         element.selectFirst('span a')?.attr('title') ||
@@ -241,7 +342,9 @@
       document.selectFirst('a[data-post]')?.attr('data-post') ||
       (() => {
         const shortlink = document.selectFirst('link[rel=shortlink]')?.attr('href') ?? '';
-        return shortlink.includes('?p=') ? K.substringBefore(K.substringAfter(shortlink, '?p='), '&') : '';
+        return shortlink.includes('?p=')
+          ? K.substringBefore(K.substringAfter(shortlink, '?p='), '&')
+          : '';
       })();
 
     const pageCache = new Map();
@@ -282,7 +385,13 @@
           const result = [];
           let last = null;
           for (let page = 1; page < 200; page++) {
-            const answer = await http.post(`${base}?t=${page}`, { kind: 'xhr', from, headers: xhr, form: [], ensureSuccess: false });
+            const answer = await http.post(`${base}?t=${page}`, {
+              kind: 'xhr',
+              from,
+              headers: xhr,
+              form: [],
+              ensureSuccess: false,
+            });
             if (answer.code === 404) return result;
             if (!answer.isSuccessful) throw new mihon.HttpError(answer.code, answer.url);
             const chapters = parseChapterList(await answer.document(), path);
@@ -313,7 +422,8 @@
 
     const parseDetails = (document, id) => {
       const titleElement = document.selectFirst(o.mangaDetailsSelectorTitle);
-      if (!titleElement) throw new Error("the title's page has no title the Madara theme reads (the site changed?)");
+      if (!titleElement)
+        throw new Error("the title's page has no title the Madara theme reads (the site changed?)");
       const texts = (selector) =>
         document
           .select(selector)
@@ -327,11 +437,15 @@
       const description = document.selectFirst(o.mangaDetailsSelectorDescription);
       if (description) {
         const paragraphs = description.select('p');
-        manga.description = paragraphs.length ? paragraphs.map((p) => p.text()).join('\n\n') : description.text();
+        manga.description = paragraphs.length
+          ? paragraphs.map((p) => p.text()).join('\n\n')
+          : description.text();
       }
       const alternative = document.selectFirst(o.altNameSelector)?.ownText();
       if (alternative && !isUpdating(alternative)) {
-        manga.description = [manga.description, `Alternative Names: ${alternative}`].filter(Boolean).join('\n\n');
+        manga.description = [manga.description, `Alternative Names: ${alternative}`]
+          .filter(Boolean)
+          .join('\n\n');
       }
       const thumbnail = document.selectFirst(o.mangaDetailsSelectorThumbnail);
       if (thumbnail) manga.thumbnail_url = imageFromElement(thumbnail);
@@ -365,9 +479,15 @@
           .map((address) => ({ url: address.trim(), headers }));
       }
       const src = protector.attr('src');
-      const script = src.startsWith('data:text/javascript;base64,') ? K.base64Decode(src.slice(src.indexOf(',') + 1)) : protector.data() || protector.html();
+      const script = src.startsWith('data:text/javascript;base64,')
+        ? K.base64Decode(src.slice(src.indexOf(',') + 1))
+        : protector.data() || protector.html();
       const password = K.substringBefore(K.substringAfter(script, "wpmangaprotectornonce='"), "';");
-      const encrypted = K.replace(K.substringBefore(K.substringAfter(script, "chapter_data='"), "';"), '\\/', '/');
+      const encrypted = K.replace(
+        K.substringBefore(K.substringAfter(script, "chapter_data='"), "';"),
+        '\\/',
+        '/',
+      );
       const data = JSON.parse(encrypted);
       const raw = K.decrypt({ data: data.ct, password, salt: data.s });
       const list = JSON.parse(JSON.parse(raw));
@@ -410,7 +530,8 @@
       return genres ?? [];
     };
 
-    const optionList = (pairs) => pairs.map(([label, value]) => ({ value: value === '' ? '_' : value, label }));
+    const optionList = (pairs) =>
+      pairs.map(([label, value]) => ({ value: value === '' ? '_' : value, label }));
     const chosen = (value) => (value === '_' ? '' : value);
 
     const listing = (items, hasNextPage) => ({ items, hasNextPage });
@@ -431,13 +552,23 @@
         latest: ({ page = 1 }) => archivePage(page, 'latest'),
         filters: async () => {
           const routes = await knownGenres();
-          const filters = [{ key: 'sort', label: 'Order By', kind: 'select', options: optionList(o.orderByFilterOptions) }];
+          const filters = [
+            {
+              key: 'sort',
+              label: 'Order By',
+              kind: 'select',
+              options: optionList(o.orderByFilterOptions),
+            },
+          ];
           if (routes.length) {
             filters.push({
               key: 'genre',
               label: 'Genres',
               kind: 'select',
-              options: [{ value: '_', label: 'All' }, ...routes.map((route) => ({ value: route.path, label: route.name }))],
+              options: [
+                { value: '_', label: 'All' },
+                ...routes.map((route) => ({ value: route.path, label: route.name })),
+              ],
             });
           }
           return filters;
@@ -449,7 +580,12 @@
           if (!query.trim()) return archivePage(page, sort);
           let address = `${t.baseUrl}/`;
           if (page > 1) address += `page/${page}/`;
-          const document = await http.document(K.query(address, [[o.searchQueryParameter, query], ['post_type', 'wp-manga']]));
+          const document = await http.document(
+            K.query(address, [
+              [o.searchQueryParameter, query],
+              ['post_type', 'wp-manga'],
+            ]),
+          );
           const next = document.selectFirst(o.nextPageSelector) !== null;
           const archive = parseArchive(document);
           return listing(archive.length ? archive : parseSearchCards(document), next);
@@ -469,9 +605,17 @@
           ['vars[manga_archives_item_layout]', 'big_thumbnail'],
         ];
         if (o.filterNonMangaItems) {
-          form.push(['vars[meta_query][0][key]', '_wp_manga_chapter_type'], ['vars[meta_query][0][value]', 'manga']);
+          form.push(
+            ['vars[meta_query][0][key]', '_wp_manga_chapter_type'],
+            ['vars[meta_query][0][value]', 'manga'],
+          );
         }
-        const sort = (key) => form.push(['vars[orderby]', 'meta_value_num'], ['vars[meta_key]', key], ['vars[order]', 'DESC']);
+        const sort = (key) =>
+          form.push(
+            ['vars[orderby]', 'meta_value_num'],
+            ['vars[meta_key]', key],
+            ['vars[order]', 'DESC'],
+          );
         if (mode === 'popular') sort('_wp_manga_views');
         else if (mode === 'latest') sort('_latest_update');
         else {
@@ -480,8 +624,13 @@
           let taxonomy = 0;
           const statuses = filters.status?.include ?? [];
           if (statuses.length) {
-            form.push([`vars[meta_query][${meta}][key]`, '_wp_manga_status'], [`vars[meta_query][${meta}][compare]`, 'IN']);
-            statuses.forEach((state, index) => form.push([`vars[meta_query][${meta}][value][${index}]`, state]));
+            form.push(
+              [`vars[meta_query][${meta}][key]`, '_wp_manga_status'],
+              [`vars[meta_query][${meta}][compare]`, 'IN'],
+            );
+            statuses.forEach((state, index) =>
+              form.push([`vars[meta_query][${meta}][value][${index}]`, state]),
+            );
             meta++;
           }
           switch (chosen(filters.sort ?? '')) {
@@ -514,18 +663,31 @@
           }
           const adult = chosen(filters.adult ?? '');
           if (adult) {
-            form.push([`vars[meta_query][${meta}][key]`, 'manga_adult_content'], [`vars[meta_query][${meta}][compare]`, adult === '0' ? 'not exists' : 'exists']);
+            form.push(
+              [`vars[meta_query][${meta}][key]`, 'manga_adult_content'],
+              [`vars[meta_query][${meta}][compare]`, adult === '0' ? 'not exists' : 'exists'],
+            );
             meta++;
           }
           const genreSlugs = filters.genres?.include ?? [];
           if (genreSlugs.length) {
-            if (chosen(filters.condition ?? '') === '1') form.push([`vars[tax_query][${taxonomy}][operation]`, 'AND']);
-            form.push([`vars[tax_query][${taxonomy}][taxonomy]`, 'wp-manga-genre'], [`vars[tax_query][${taxonomy}][field]`, 'slug']);
-            genreSlugs.forEach((slug, index) => form.push([`vars[tax_query][${taxonomy}][terms][${index}]`, slug]));
+            if (chosen(filters.condition ?? '') === '1')
+              form.push([`vars[tax_query][${taxonomy}][operation]`, 'AND']);
+            form.push(
+              [`vars[tax_query][${taxonomy}][taxonomy]`, 'wp-manga-genre'],
+              [`vars[tax_query][${taxonomy}][field]`, 'slug'],
+            );
+            genreSlugs.forEach((slug, index) =>
+              form.push([`vars[tax_query][${taxonomy}][terms][${index}]`, slug]),
+            );
             taxonomy++;
           }
         }
-        const answer = await http.post(`${t.baseUrl}/wp-admin/admin-ajax.php`, { kind: 'xhr', headers: xhr, form });
+        const answer = await http.post(`${t.baseUrl}/wp-admin/admin-ajax.php`, {
+          kind: 'xhr',
+          headers: xhr,
+          form,
+        });
         const mangas = parseArchive(await answer.document());
         return listing(mangas, mangas.length === o.pageSize);
       };
@@ -535,17 +697,43 @@
         filters: async () => {
           const routes = await knownGenres();
           const filters = [
-            { key: 'status', label: 'Status', kind: 'tags', options: optionList(o.statusFilterOptions) },
-            { key: 'sort', label: 'Order By', kind: 'select', options: optionList(o.orderByFilterOptions) },
-            { key: 'adult', label: 'Adult Content', kind: 'select', options: optionList(o.adultFilterOptions) },
+            {
+              key: 'status',
+              label: 'Status',
+              kind: 'tags',
+              options: optionList(o.statusFilterOptions),
+            },
+            {
+              key: 'sort',
+              label: 'Order By',
+              kind: 'select',
+              options: optionList(o.orderByFilterOptions),
+            },
+            {
+              key: 'adult',
+              label: 'Adult Content',
+              kind: 'select',
+              options: optionList(o.adultFilterOptions),
+            },
           ];
           if (routes.length) {
-            filters.push({ key: 'condition', label: 'Genre condition', kind: 'select', options: optionList(o.genreConditionFilterOptions) });
-            filters.push({ key: 'genres', label: 'Genres', kind: 'tags', options: routes.map((route) => ({ value: route.slug, label: route.name })) });
+            filters.push({
+              key: 'condition',
+              label: 'Genre condition',
+              kind: 'select',
+              options: optionList(o.genreConditionFilterOptions),
+            });
+            filters.push({
+              key: 'genres',
+              label: 'Genres',
+              kind: 'tags',
+              options: routes.map((route) => ({ value: route.slug, label: route.name })),
+            });
           }
           return filters;
         },
-        search: ({ query = '', page = 1, filters = {} }) => ajaxList(page, 'search', query, filters),
+        search: ({ query = '', page = 1, filters = {} }) =>
+          ajaxList(page, 'search', query, filters),
       };
     }
 

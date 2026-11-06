@@ -172,11 +172,22 @@ async fn mihon_convert_survey() {
     let mut converted = 0usize;
     let mut by_theme: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
-    let mut checked = 0usize;
+    // `MIHON_SURVEY_DUMP=<dir>` keeps the code of each conversion that doesn't load;
+    // `MIHON_SURVEY_ONLY=<pkg>,…` surveys only those packages (or names ending so).
+    let dump = std::env::var_os("MIHON_SURVEY_DUMP").map(PathBuf::from);
+    let only: Vec<String> = std::env::var("MIHON_SURVEY_ONLY")
+        .map(|list| list.split(',').map(str::to_owned).collect())
+        .unwrap_or_default();
     let comics: Vec<&StoreExtension> = store
         .extensions
         .iter()
         .filter(|extension| !extension.pkg.contains(".animeextension."))
+        .filter(|extension| {
+            only.is_empty()
+                || only
+                    .iter()
+                    .any(|name| extension.pkg.ends_with(name.as_str()))
+        })
         .collect();
     for extension in &comics {
         let code = match sources.get(&extension.pkg) {
@@ -196,16 +207,39 @@ async fn mihon_convert_survey() {
             .unwrap_or_else(|| "(none)".to_owned());
         let slot = by_theme.entry(theme).or_default();
         slot.0 += 1;
-        match convert::convert(extension, code) {
+        // Each conversion is loaded, as installing does: one that doesn't load isn't converted.
+        let converted_one = match convert::convert(extension, code) {
             Ok(result) => {
-                let package = convert::package(extension, &result, &store.name, None).unwrap();
-                // Every tenth one is loaded, as installing does.
-                if checked.is_multiple_of(10) {
-                    convert::validate(&package, extension.sources.len())
-                        .await
-                        .unwrap_or_else(|error| panic!("{}: {error}", extension.pkg));
+                if let Some(dir) = dump
+                    .as_ref()
+                    .filter(|_| std::env::var_os("MIHON_SURVEY_DUMP_ALL").is_some())
+                {
+                    let _ = std::fs::create_dir_all(dir.join("all"));
+                    let _ = std::fs::write(
+                        dir.join("all").join(format!("{}.js", extension.pkg)),
+                        &result.code,
+                    );
                 }
-                checked += 1;
+                let package = convert::package(extension, &result, &store.name, None).unwrap();
+                convert::validate(&package, extension.sources.len())
+                    .await
+                    .map_err(|error| {
+                        let line = error.lines().nth(1).unwrap_or(&error).to_owned();
+                        println!("  {}: doesn't load: {line}", extension.pkg);
+                        if let Some(dir) = &dump {
+                            let _ = std::fs::create_dir_all(dir);
+                            let _ = std::fs::write(
+                                dir.join(format!("{}.js", extension.pkg)),
+                                &result.code,
+                            );
+                        }
+                        format!("its conversion doesn't load: {line}")
+                    })
+            }
+            Err(reason) => Err(reason),
+        };
+        match converted_one {
+            Ok(()) => {
                 converted += 1;
                 slot.1 += 1;
             }
@@ -222,7 +256,12 @@ async fn mihon_convert_survey() {
                 {
                     println!("  {}: {reason}", extension.pkg);
                 }
-                // Reasons grouped by their first words, so lists of names don't split them.
+                // Reasons grouped by their first words, so lists of names don't split them, and
+                // without the function they were met in.
+                let reason = match reason.find("its code uses") {
+                    Some(at) => reason[at..].to_owned(),
+                    None => reason,
+                };
                 let key = reason
                     .split(" which ")
                     .next()

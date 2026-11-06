@@ -29,7 +29,8 @@
 
   K.plus = (left, right) => {
     if (typeof left === 'string') return left + K.str(right);
-    if (Array.isArray(left)) return Array.isArray(right) ? left.concat(right) : left.concat([right]);
+    if (Array.isArray(left))
+      return Array.isArray(right) ? left.concat(right) : left.concat([right]);
     return left + right;
   };
 
@@ -111,17 +112,31 @@
     });
   };
 
-  K.joinToString = (items, separator = ', ', prefix = '', postfix = '', limit = -1, truncated = '...', transform = null) => {
+  K.joinToString = (
+    items,
+    separator = ', ',
+    prefix = '',
+    postfix = '',
+    limit = -1,
+    truncated = '...',
+    transform = null,
+  ) => {
     let list = [...items];
     let tail = '';
     if (limit >= 0 && list.length > limit) {
       list = list.slice(0, limit);
       tail = separator + truncated;
     }
-    return prefix + list.map((item) => K.str(transform ? transform(item) : item)).join(separator) + tail + postfix;
+    return (
+      prefix +
+      list.map((item) => K.str(transform ? transform(item) : item)).join(separator) +
+      tail +
+      postfix
+    );
   };
 
-  K.mapOf = (pairs) => new Map(pairs.map((pair) => (Array.isArray(pair) ? pair : [pair.first, pair.second])));
+  K.mapOf = (pairs) =>
+    new Map(pairs.map((pair) => (Array.isArray(pair) ? pair : [pair.first, pair.second])));
 
   // ---- Regular expressions: Java's syntax, as far as JavaScript takes it ----
 
@@ -153,32 +168,307 @@
   K.locale = (language = 'en', country = '') => {
     const tag = K.str(language).replace('_', '-');
     const [lang, region] = tag.split('-');
-    return { language: (lang || 'en').toLowerCase(), country: (country || region || '').toUpperCase() };
+    return {
+      language: (lang || 'en').toLowerCase(),
+      country: (country || region || '').toUpperCase(),
+    };
   };
 
   const MONTHS = {
-    en: ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'],
-    es: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],
-    pt: ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
-    fr: ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
-    de: ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'],
-    it: ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'],
-    nl: ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'],
-    tr: ['ocak', 'şubat', 'mart', 'nisan', 'mayıs', 'haziran', 'temmuz', 'ağustos', 'eylül', 'ekim', 'kasım', 'aralık'],
-    id: ['januari', 'februari', 'maret', 'april', 'mei', 'juni', 'juli', 'agustus', 'september', 'oktober', 'november', 'desember'],
-    ms: ['januari', 'februari', 'mac', 'april', 'mei', 'jun', 'julai', 'ogos', 'september', 'oktober', 'november', 'disember'],
-    ru: ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'],
-    ruStandalone: ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'],
-    uk: ['січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'],
-    pl: ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'],
-    plStandalone: ['styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec', 'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień'],
-    ar: ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'],
-    th: ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'],
-    thShort: ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'],
-    vi: ['tháng 1', 'tháng 2', 'tháng 3', 'tháng 4', 'tháng 5', 'tháng 6', 'tháng 7', 'tháng 8', 'tháng 9', 'tháng 10', 'tháng 11', 'tháng 12'],
-    ca: ['gener', 'febrer', 'març', 'abril', 'maig', 'juny', 'juliol', 'agost', 'setembre', 'octubre', 'novembre', 'desembre'],
+    en: [
+      'january',
+      'february',
+      'march',
+      'april',
+      'may',
+      'june',
+      'july',
+      'august',
+      'september',
+      'october',
+      'november',
+      'december',
+    ],
+    es: [
+      'enero',
+      'febrero',
+      'marzo',
+      'abril',
+      'mayo',
+      'junio',
+      'julio',
+      'agosto',
+      'septiembre',
+      'octubre',
+      'noviembre',
+      'diciembre',
+    ],
+    pt: [
+      'janeiro',
+      'fevereiro',
+      'março',
+      'abril',
+      'maio',
+      'junho',
+      'julho',
+      'agosto',
+      'setembro',
+      'outubro',
+      'novembro',
+      'dezembro',
+    ],
+    fr: [
+      'janvier',
+      'février',
+      'mars',
+      'avril',
+      'mai',
+      'juin',
+      'juillet',
+      'août',
+      'septembre',
+      'octobre',
+      'novembre',
+      'décembre',
+    ],
+    de: [
+      'januar',
+      'februar',
+      'märz',
+      'april',
+      'mai',
+      'juni',
+      'juli',
+      'august',
+      'september',
+      'oktober',
+      'november',
+      'dezember',
+    ],
+    it: [
+      'gennaio',
+      'febbraio',
+      'marzo',
+      'aprile',
+      'maggio',
+      'giugno',
+      'luglio',
+      'agosto',
+      'settembre',
+      'ottobre',
+      'novembre',
+      'dicembre',
+    ],
+    nl: [
+      'januari',
+      'februari',
+      'maart',
+      'april',
+      'mei',
+      'juni',
+      'juli',
+      'augustus',
+      'september',
+      'oktober',
+      'november',
+      'december',
+    ],
+    tr: [
+      'ocak',
+      'şubat',
+      'mart',
+      'nisan',
+      'mayıs',
+      'haziran',
+      'temmuz',
+      'ağustos',
+      'eylül',
+      'ekim',
+      'kasım',
+      'aralık',
+    ],
+    id: [
+      'januari',
+      'februari',
+      'maret',
+      'april',
+      'mei',
+      'juni',
+      'juli',
+      'agustus',
+      'september',
+      'oktober',
+      'november',
+      'desember',
+    ],
+    ms: [
+      'januari',
+      'februari',
+      'mac',
+      'april',
+      'mei',
+      'jun',
+      'julai',
+      'ogos',
+      'september',
+      'oktober',
+      'november',
+      'disember',
+    ],
+    ru: [
+      'января',
+      'февраля',
+      'марта',
+      'апреля',
+      'мая',
+      'июня',
+      'июля',
+      'августа',
+      'сентября',
+      'октября',
+      'ноября',
+      'декабря',
+    ],
+    ruStandalone: [
+      'январь',
+      'февраль',
+      'март',
+      'апрель',
+      'май',
+      'июнь',
+      'июль',
+      'август',
+      'сентябрь',
+      'октябрь',
+      'ноябрь',
+      'декабрь',
+    ],
+    uk: [
+      'січня',
+      'лютого',
+      'березня',
+      'квітня',
+      'травня',
+      'червня',
+      'липня',
+      'серпня',
+      'вересня',
+      'жовтня',
+      'листопада',
+      'грудня',
+    ],
+    pl: [
+      'stycznia',
+      'lutego',
+      'marca',
+      'kwietnia',
+      'maja',
+      'czerwca',
+      'lipca',
+      'sierpnia',
+      'września',
+      'października',
+      'listopada',
+      'grudnia',
+    ],
+    plStandalone: [
+      'styczeń',
+      'luty',
+      'marzec',
+      'kwiecień',
+      'maj',
+      'czerwiec',
+      'lipiec',
+      'sierpień',
+      'wrzesień',
+      'październik',
+      'listopad',
+      'grudzień',
+    ],
+    ar: [
+      'يناير',
+      'فبراير',
+      'مارس',
+      'أبريل',
+      'مايو',
+      'يونيو',
+      'يوليو',
+      'أغسطس',
+      'سبتمبر',
+      'أكتوبر',
+      'نوفمبر',
+      'ديسمبر',
+    ],
+    th: [
+      'มกราคม',
+      'กุมภาพันธ์',
+      'มีนาคม',
+      'เมษายน',
+      'พฤษภาคม',
+      'มิถุนายน',
+      'กรกฎาคม',
+      'สิงหาคม',
+      'กันยายน',
+      'ตุลาคม',
+      'พฤศจิกายน',
+      'ธันวาคม',
+    ],
+    thShort: [
+      'ม.ค.',
+      'ก.พ.',
+      'มี.ค.',
+      'เม.ย.',
+      'พ.ค.',
+      'มิ.ย.',
+      'ก.ค.',
+      'ส.ค.',
+      'ก.ย.',
+      'ต.ค.',
+      'พ.ย.',
+      'ธ.ค.',
+    ],
+    vi: [
+      'tháng 1',
+      'tháng 2',
+      'tháng 3',
+      'tháng 4',
+      'tháng 5',
+      'tháng 6',
+      'tháng 7',
+      'tháng 8',
+      'tháng 9',
+      'tháng 10',
+      'tháng 11',
+      'tháng 12',
+    ],
+    ca: [
+      'gener',
+      'febrer',
+      'març',
+      'abril',
+      'maig',
+      'juny',
+      'juliol',
+      'agost',
+      'setembre',
+      'octubre',
+      'novembre',
+      'desembre',
+    ],
   };
-  const SHORT_FIXES = { sept: 8, set: 8, ago: 7, agu: 7, agt: 7, okt: 9, ott: 9, out: 9, dic: 11, dez: 11, des: 11 };
+  const SHORT_FIXES = {
+    sept: 8,
+    set: 8,
+    ago: 7,
+    agu: 7,
+    agt: 7,
+    okt: 9,
+    ott: 9,
+    out: 9,
+    dic: 11,
+    dez: 11,
+    des: 11,
+  };
 
   const fold = (text) => text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\.$/, '');
 
@@ -186,7 +476,12 @@
   const monthOf = (name, locale) => {
     const wanted = fold(name);
     if (!wanted) return -1;
-    const languages = [locale.language, `${locale.language}Standalone`, `${locale.language}Short`, ...Object.keys(MONTHS)];
+    const languages = [
+      locale.language,
+      `${locale.language}Standalone`,
+      `${locale.language}Short`,
+      ...Object.keys(MONTHS),
+    ];
     for (const language of languages) {
       const names = MONTHS[language];
       if (!names) continue;
@@ -209,6 +504,14 @@
       this.pattern = K.str(pattern);
       this.locale = locale && locale.language ? locale : K.locale(K.str(locale));
       this.offsetMinutes = 0;
+      // `timeZone = TimeZone.getTimeZone("UTC")`: an own property, as Kotlin receivers find one.
+      Object.defineProperty(this, 'timeZone', {
+        get: () => ({ offset: this.offsetMinutes, isZone: true }),
+        set: (zone) => {
+          this.offsetMinutes = zone && typeof zone.offset === 'number' ? zone.offset : 0;
+        },
+        enumerable: false,
+      });
       const fields = [];
       let source = '';
       const tokens = this.pattern.match(/'[^']*'|''|([a-zA-Z])\1*|[^a-zA-Z']+/g) || [];
@@ -254,7 +557,13 @@
             fields.push('ampm');
           } else if (letter === 'E') {
             source += '[\\p{L}.]+';
-          } else if (letter === 'z' || letter === 'Z' || letter === 'X' || letter === 'x' || letter === 'O') {
+          } else if (
+            letter === 'z' ||
+            letter === 'Z' ||
+            letter === 'X' ||
+            letter === 'x' ||
+            letter === 'O'
+          ) {
             source += '(Z|[+-]\\d{2}:?\\d{2}|[A-Za-z]{2,5}(?:[+-]\\d{1,2})?)?';
             fields.push('zone');
           } else {
@@ -272,7 +581,17 @@
       if (text == null) return null;
       const found = K.str(text).trim().match(this.matcher);
       if (!found) return null;
-      const parts = { year: 1970, month: 0, day: 1, hour: 0, minute: 0, second: 0, ms: 0, pm: null, zone: null };
+      const parts = {
+        year: 1970,
+        month: 0,
+        day: 1,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        ms: 0,
+        pm: null,
+        zone: null,
+      };
       this.fields.forEach((field, index) => {
         const value = found[index + 1];
         if (value === undefined) return;
@@ -323,12 +642,22 @@
       if (parts.pm === true) parts.hour += 12;
       // Thai dates count years from the Buddha's birth.
       if (this.locale.language === 'th' && parts.year > 2400) parts.year -= 543;
-      let ms = Date.UTC(parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second, parts.ms);
+      let ms = Date.UTC(
+        parts.year,
+        parts.month,
+        parts.day,
+        parts.hour,
+        parts.minute,
+        parts.second,
+        parts.ms,
+      );
       if (Number.isNaN(ms)) return null;
       let offset = this.offsetMinutes;
       if (parts.zone && parts.zone !== 'Z') {
         const zone = parts.zone.match(/([+-])(\d{2}):?(\d{2})/);
-        if (zone) offset = (zone[1] === '-' ? -1 : 1) * (parseInt(zone[2], 10) * 60 + parseInt(zone[3], 10));
+        if (zone)
+          offset =
+            (zone[1] === '-' ? -1 : 1) * (parseInt(zone[2], 10) * 60 + parseInt(zone[3], 10));
       } else if (parts.zone === 'Z') {
         offset = 0;
       }
@@ -336,13 +665,44 @@
       return ms;
     }
 
-    /** Parses, or gives 0 (Mihon's "no date"). */
+    /** Parses, or gives 0 (Mihon's "no date"); Keiyoushi's `tryParse`, `tryParseDate` and
+     * `tryParseDateTime` alike. */
     tryParse(text) {
       return this.parse(text) ?? 0;
     }
 
+    tryParseDate(text) {
+      return this.tryParse(text);
+    }
+
+    tryParseDateTime(text) {
+      return this.tryParse(text);
+    }
+
+    setTimeZone(zone) {
+      this.timeZone = zone;
+    }
+
+    /** `DateTimeFormatter.withZone(…)`: a copy reading times in that zone. */
+    withZone(zone) {
+      return K.withZone(this, zone && typeof zone.offset === 'number' ? zone.offset : 0);
+    }
+
+    withLocale(locale) {
+      return new DateFormat(this.pattern, locale).withOffset(this.offsetMinutes);
+    }
+
+    withOffset(offset) {
+      this.offsetMinutes = offset;
+      return this;
+    }
+
     format(ms) {
-      const date = new Date(ms + this.offsetMinutes * 60000);
+      // A java.time value (`{ ms }`) too; a local one is already its wall clock.
+      const local = ms && (ms.__class === 'LocalDate' || ms.__class === 'LocalDateTime');
+      const value =
+        typeof ms === 'number' ? ms : ms && typeof ms.ms === 'number' ? ms.ms : Number(ms);
+      const date = new Date(value + (local ? 0 : this.offsetMinutes * 60000));
       const names = MONTHS[this.locale.language] || MONTHS.en;
       const pad = (value, width) => String(value).padStart(width, '0');
       return this.pattern.replace(/'[^']*'|([a-zA-Z])\1*/g, (token) => {
@@ -350,7 +710,9 @@
         const width = token.length;
         switch (token[0]) {
           case 'y':
-            return width === 2 ? pad(date.getUTCFullYear() % 100, 2) : String(date.getUTCFullYear());
+            return width === 2
+              ? pad(date.getUTCFullYear() % 100, 2)
+              : String(date.getUTCFullYear());
           case 'M': {
             const month = date.getUTCMonth();
             if (width >= 4) return names[month];
@@ -377,8 +739,21 @@
   K.zone = (name) => {
     const text = K.str(name);
     const offset = text.match(/([+-])(\d{1,2})(?::?(\d{2}))?$/);
-    if (offset) return (offset[1] === '-' ? -1 : 1) * (parseInt(offset[2], 10) * 60 + parseInt(offset[3] || '0', 10));
-    const known = { 'Asia/Jakarta': 420, 'Asia/Bangkok': 420, 'Asia/Ho_Chi_Minh': 420, 'Asia/Tokyo': 540, 'Asia/Seoul': 540, 'Asia/Shanghai': 480, 'Europe/Istanbul': 180, 'Asia/Riyadh': 180 };
+    if (offset)
+      return (
+        (offset[1] === '-' ? -1 : 1) *
+        (parseInt(offset[2], 10) * 60 + parseInt(offset[3] || '0', 10))
+      );
+    const known = {
+      'Asia/Jakarta': 420,
+      'Asia/Bangkok': 420,
+      'Asia/Ho_Chi_Minh': 420,
+      'Asia/Tokyo': 540,
+      'Asia/Seoul': 540,
+      'Asia/Shanghai': 480,
+      'Europe/Istanbul': 180,
+      'Asia/Riyadh': 180,
+    };
     return known[text] ?? 0;
   };
   K.withZone = (format, offset) => {
@@ -404,7 +779,11 @@
   K.withoutDomain = (href) => {
     try {
       const parsed = url(href);
-      return parsed.path + (parsed.query != null ? `?${parsed.query}` : '') + (parsed.fragment != null ? `#${parsed.fragment}` : '');
+      return (
+        parsed.path +
+        (parsed.query != null ? `?${parsed.query}` : '') +
+        (parsed.fragment != null ? `#${parsed.fragment}` : '')
+      );
     } catch {
       return href;
     }
@@ -412,7 +791,11 @@
   K.encode = (text) => encodeURIComponent(K.str(text));
   /** A form body (`application/x-www-form-urlencoded`). */
   K.form = (pairs) =>
-    pairs.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(K.str(value))}`.replace(/%20/g, '+')).join('&');
+    pairs
+      .map(([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(K.str(value))}`.replace(/%20/g, '+'),
+      )
+      .join('&');
   K.query = (base, pairs) => {
     const query = pairs
       .filter(([, value]) => value !== null && value !== undefined)
@@ -461,7 +844,9 @@
       return this.length > 0;
     }
     text() {
-      return this.map((element) => element.text()).filter((text) => text !== '').join(' ');
+      return this.map((element) => element.text())
+        .filter((text) => text !== '')
+        .join(' ');
     }
     eachText() {
       return this.map((element) => element.text()).filter((text) => text !== '');
@@ -485,17 +870,28 @@
     select(css) {
       if (this.length === 0) return new Elements();
       const doc = this[0].doc;
-      return Elements.of(dom('select', { nodes: this.map((element) => element.h), selector: css }), doc);
+      return Elements.of(
+        dom('select', { nodes: this.map((element) => element.h), selector: css }),
+        doc,
+      );
     }
     selectFirst(css) {
       return this.select(css).first();
     }
     not(css) {
-      const kept = new Set(dom('filter', { nodes: this.map((element) => element.h), selector: css }));
-      return Elements.of(this.filter((element) => !kept.has(element.h)).map((element) => element.h), this[0]?.doc);
+      const kept = new Set(
+        dom('filter', { nodes: this.map((element) => element.h), selector: css }),
+      );
+      return Elements.of(
+        this.filter((element) => !kept.has(element.h)).map((element) => element.h),
+        this[0]?.doc,
+      );
     }
     is(css) {
-      return this.length > 0 && dom('filter', { nodes: this.map((element) => element.h), selector: css }).length > 0;
+      return (
+        this.length > 0 &&
+        dom('filter', { nodes: this.map((element) => element.h), selector: css }).length > 0
+      );
     }
     remove() {
       if (this.length > 0) dom('remove', { nodes: this.map((element) => element.h) });
@@ -529,7 +925,10 @@
     hasAttr(name) {
       if (name.startsWith('abs:')) return this.absUrl(name.slice(4)) !== '';
       const attribs = this.node.attribs || {};
-      return Object.prototype.hasOwnProperty.call(attribs, name) || Object.prototype.hasOwnProperty.call(attribs, name.toLowerCase());
+      return (
+        Object.prototype.hasOwnProperty.call(attribs, name) ||
+        Object.prototype.hasOwnProperty.call(attribs, name.toLowerCase())
+      );
     }
     attributes() {
       return { ...(this.node.attribs || {}) };
@@ -659,7 +1058,8 @@
   // ---- Requests ----
 
   const ACCEPT = {
-    document: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    document:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     xhr: '*/*',
     script: '*/*',
     image: 'image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8',
@@ -738,7 +1138,18 @@
      * accept, `from` the page it comes from. An answer that isn't 2xx throws unless `ensureSuccess`
      * is false.
      */
-    async request(address, { method = 'GET', headers = {}, body = null, kind = 'document', from = null, ensureSuccess = true, form = null } = {}) {
+    async request(
+      address,
+      {
+        method = 'GET',
+        headers = {},
+        body = null,
+        kind = 'document',
+        from = null,
+        ensureSuccess = true,
+        form = null,
+      } = {},
+    ) {
       await this.pace();
       const merged = { ...this.headers(kind, from), ...headers };
       let payload = body;
@@ -751,7 +1162,8 @@
       }
       const raw = await raygun.http.fetch(address, { method, headers: merged, body: payload });
       const response = new Response(raw, address);
-      if (ensureSuccess && !response.isSuccessful) throw new HttpError(response.code, response.url || address);
+      if (ensureSuccess && !response.isSuccessful)
+        throw new HttpError(response.code, response.url || address);
       return response;
     }
 
@@ -770,8 +1182,24 @@
 
   // ---- Statuses and results, as Raygun's `manga.source` takes them ----
 
-  const STATUS = { 0: 'unknown', 1: 'ongoing', 2: 'completed', 3: 'unknown', 4: 'publishingFinished', 5: 'cancelled', 6: 'hiatus' };
-  const SManga = { UNKNOWN: 0, ONGOING: 1, COMPLETED: 2, LICENSED: 3, PUBLISHING_FINISHED: 4, CANCELLED: 5, ON_HIATUS: 6 };
+  const STATUS = {
+    0: 'unknown',
+    1: 'ongoing',
+    2: 'completed',
+    3: 'unknown',
+    4: 'publishingFinished',
+    5: 'cancelled',
+    6: 'hiatus',
+  };
+  const SManga = {
+    UNKNOWN: 0,
+    ONGOING: 1,
+    COMPLETED: 2,
+    LICENSED: 3,
+    PUBLISHING_FINISHED: 4,
+    CANCELLED: 5,
+    ON_HIATUS: 6,
+  };
 
   const splitList = (text) =>
     text == null
@@ -785,7 +1213,9 @@
   const toDetails = (source, id, manga) => ({
     id,
     title: (manga.title ?? '').trim(),
-    coverUrl: manga.thumbnail_url ? K.resolve(manga.thumbnail_url, `${source.baseUrl}/`) : undefined,
+    coverUrl: manga.thumbnail_url
+      ? K.resolve(manga.thumbnail_url, `${source.baseUrl}/`)
+      : undefined,
     coverHeaders: { Referer: `${source.baseUrl}/` },
     authors: splitList(manga.author),
     artists: splitList(manga.artist),
@@ -812,7 +1242,9 @@
         enumerable: true,
         get: () => {
           if (!cache.has(key)) {
-            const value = Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key](instance) : defaults[key](instance);
+            const value = Object.prototype.hasOwnProperty.call(overrides, key)
+              ? overrides[key](instance)
+              : defaults[key](instance);
             cache.set(key, value);
           }
           return cache.get(key);
@@ -822,9 +1254,13 @@
     return { base, own };
   };
 
-  const mihon = Object.freeze({
+  // Left open: the runtime of converted Kotlin (`kotlin.js`) adds `mihon.source`.
+  const mihon = {
     K,
     Jsoup,
+    Elements,
+    Element,
+    Document,
     Http,
     HttpError,
     SManga,
@@ -863,7 +1299,7 @@
         });
       }
     },
-  });
+  };
 
   globalThis.mihon = mihon;
   globalThis.K = K;

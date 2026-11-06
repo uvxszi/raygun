@@ -14,6 +14,8 @@ use crate::js::{err, eval_script, ok};
 use crate::lnreader::dom::Documents;
 
 const PRELUDE: &str = include_str!("prelude.js");
+/// The runtime of sources converted from Kotlin (`crate::mihon::transpile`).
+const KOTLIN: &str = include_str!("kotlin.js");
 /// The themes, each registering itself with the prelude's `mihon.defineTheme`.
 const THEMES: [(&str, &str); 2] = [
     ("mihon:madara", include_str!("themes/madara.js")),
@@ -43,6 +45,7 @@ impl Prepared {
 pub(crate) fn install(ctx: &Ctx<'_>, prepared: &Prepared, filename: &str) -> Result<(), String> {
     natives(ctx).map_err(|error| error.to_string())?;
     eval_script(ctx, PRELUDE, "mihon:prelude", true)?;
+    eval_script(ctx, KOTLIN, "mihon:kotlin", true)?;
     for (name, theme) in THEMES {
         eval_script(ctx, theme, name, true)?;
     }

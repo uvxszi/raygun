@@ -6,12 +6,88 @@
 (() => {
   const { K, toDetails } = mihon;
 
-  const selector = (pattern, words) => words.map((word) => pattern.split('%s').join(word)).join(', ');
+  const selector = (pattern, words) =>
+    words.map((word) => pattern.split('%s').join(word)).join(', ');
 
-  const ONGOING = ['مستمرة', 'en curso', 'ongoing', 'on going', 'new season', 'mass released', 'ativo', 'en cours', 'en cours de publication', 'đang tiến hành', 'em lançamento', 'онгоінг', 'publishing', 'devam ediyor', 'em andamento', 'in corso', 'güncel', 'berjalan', 'продолжается', 'updating', 'lançando', 'in arrivo', 'emision', 'en emision', 'مستمر', 'curso', 'en marcha', 'publicandose', 'publicando', '连载中', 'devam etmekte', '連載中'];
-  const COMPLETED = ['completed', 'completo', 'complété', 'fini', 'achevé', 'terminé', 'tamamlandı', 'đã hoàn thành', 'hoàn thành', 'مكتملة', 'завершено', 'finished', 'finalizad', 'completata', 'one-shot', 'bitti', 'tamat', 'completado', 'concluído', '完結', 'concluido', '已完结', 'bitmiş'];
-  const CANCELLED = ['canceled', 'cancelled', 'cancelado', 'cancellato', 'cancelados', 'dropped', 'discontinued', 'abandonné'];
-  const HIATUS = ['hiatus', 'on hold', 'season end', 'pausado', 'en espera', 'en pause', 'en attente', 'hiato'];
+  const ONGOING = [
+    'مستمرة',
+    'en curso',
+    'ongoing',
+    'on going',
+    'new season',
+    'mass released',
+    'ativo',
+    'en cours',
+    'en cours de publication',
+    'đang tiến hành',
+    'em lançamento',
+    'онгоінг',
+    'publishing',
+    'devam ediyor',
+    'em andamento',
+    'in corso',
+    'güncel',
+    'berjalan',
+    'продолжается',
+    'updating',
+    'lançando',
+    'in arrivo',
+    'emision',
+    'en emision',
+    'مستمر',
+    'curso',
+    'en marcha',
+    'publicandose',
+    'publicando',
+    '连载中',
+    'devam etmekte',
+    '連載中',
+  ];
+  const COMPLETED = [
+    'completed',
+    'completo',
+    'complété',
+    'fini',
+    'achevé',
+    'terminé',
+    'tamamlandı',
+    'đã hoàn thành',
+    'hoàn thành',
+    'مكتملة',
+    'завершено',
+    'finished',
+    'finalizad',
+    'completata',
+    'one-shot',
+    'bitti',
+    'tamat',
+    'completado',
+    'concluído',
+    '完結',
+    'concluido',
+    '已完结',
+    'bitmiş',
+  ];
+  const CANCELLED = [
+    'canceled',
+    'cancelled',
+    'cancelado',
+    'cancellato',
+    'cancelados',
+    'dropped',
+    'discontinued',
+    'abandonné',
+  ];
+  const HIATUS = [
+    'hiatus',
+    'on hold',
+    'season end',
+    'pausado',
+    'en espera',
+    'en pause',
+    'en attente',
+    'hiato',
+  ];
 
   const defaults = {
     mangaUrlDirectory: () => '/manga',
@@ -23,29 +99,72 @@
     seriesDetailsSelector: () => 'div.bigcontent, div.animefull, div.main-info, div.postbody',
     seriesTitleSelector: () => '.entry-title, .ts-breadcrumb li:last-child span',
     seriesArtistSelector: () =>
-      selector('.infotable tr:contains(%s) td:last-child, .tsinfo .imptdt:contains(%s) i, .fmed b:contains(%s)+span, span:contains(%s)', [
-        'artist', 'Artiste', 'Artista', 'الرسام', 'الناشر', 'İllüstratör', 'Çizer', 'Sanatçı', 'นักวาด',
-      ]),
+      selector(
+        '.infotable tr:contains(%s) td:last-child, .tsinfo .imptdt:contains(%s) i, .fmed b:contains(%s)+span, span:contains(%s)',
+        [
+          'artist',
+          'Artiste',
+          'Artista',
+          'الرسام',
+          'الناشر',
+          'İllüstratör',
+          'Çizer',
+          'Sanatçı',
+          'นักวาด',
+        ],
+      ),
     seriesAuthorSelector: () =>
-      selector('.infotable tr:contains(%s) td:last-child, .tsinfo .imptdt:contains(%s) i, .fmed b:contains(%s)+span, span:contains(%s)', [
-        'Author', 'Auteur', 'autor', 'المؤلف', 'Mangaka', 'seniman', 'Pengarang', 'Yazar', 'ผู้แต่ง', 'นักเขียน',
-      ]),
+      selector(
+        '.infotable tr:contains(%s) td:last-child, .tsinfo .imptdt:contains(%s) i, .fmed b:contains(%s)+span, span:contains(%s)',
+        [
+          'Author',
+          'Auteur',
+          'autor',
+          'المؤلف',
+          'Mangaka',
+          'seniman',
+          'Pengarang',
+          'Yazar',
+          'ผู้แต่ง',
+          'นักเขียน',
+        ],
+      ),
     seriesDescriptionSelector: () => '.desc, .entry-content[itemprop=description]',
     seriesAltNameSelector: () =>
       '.alternative, .wd-full:contains(alt) span, .alter, .seriestualt, ' +
-      selector('.infotable tr:contains(%s) td:last-child', ['Alternative', 'Alternatif', 'الأسماء الثانوية']),
-    seriesGenreSelector: () => 'div.gnr a, .mgen a, .seriestugenre a, ' + selector('span:contains(%s)', ['genre', 'التصنيف']),
-    seriesTypeSelector: () =>
-      selector('.infotable tr:contains(%s) td:last-child, .tsinfo .imptdt:contains(%s) i, .tsinfo .imptdt:contains(%s) a, .fmed b:contains(%s)+span, span:contains(%s) a', [
-        'type', 'ประเภท', 'النوع', 'tipe', 'Türü',
-      ]) + ', a[href*=type\\=]',
-    seriesStatusSelector: () =>
-      selector('.infotable tr:contains(%s) td:last-child, .tsinfo .imptdt:contains(%s) i, .fmed b:contains(%s)+span span:contains(%s)', [
-        'status', 'Statut', 'Durum', '連載状況', 'Estado', 'الحالة', 'حالة العمل', 'สถานะ', 'stato', 'Statüsü',
+      selector('.infotable tr:contains(%s) td:last-child', [
+        'Alternative',
+        'Alternatif',
+        'الأسماء الثانوية',
       ]),
+    seriesGenreSelector: () =>
+      'div.gnr a, .mgen a, .seriestugenre a, ' +
+      selector('span:contains(%s)', ['genre', 'التصنيف']),
+    seriesTypeSelector: () =>
+      selector(
+        '.infotable tr:contains(%s) td:last-child, .tsinfo .imptdt:contains(%s) i, .tsinfo .imptdt:contains(%s) a, .fmed b:contains(%s)+span, span:contains(%s) a',
+        ['type', 'ประเภท', 'النوع', 'tipe', 'Türü'],
+      ) + ', a[href*=type\\=]',
+    seriesStatusSelector: () =>
+      selector(
+        '.infotable tr:contains(%s) td:last-child, .tsinfo .imptdt:contains(%s) i, .fmed b:contains(%s)+span span:contains(%s)',
+        [
+          'status',
+          'Statut',
+          'Durum',
+          '連載状況',
+          'Estado',
+          'الحالة',
+          'حالة العمل',
+          'สถานะ',
+          'stato',
+          'Statüsü',
+        ],
+      ),
     seriesThumbnailSelector: () => '.infomanga > div[itemprop=image] img, .thumb img',
     altNamePrefix: () => 'Alternative Names: ',
-    chapterListSelector: () => 'div.bxcl li, div.cl li, #chapterlist li, ul li:has(div.chbox):has(div.eph-num)',
+    chapterListSelector: () =>
+      'div.bxcl li, div.cl li, #chapterlist li, ul li:has(div.chbox):has(div.eph-num)',
     pageSelector: () => 'div#readerarea img',
     sendViewCount: () => true,
     statusOptions: () => [
@@ -122,7 +241,9 @@
     const imgsAttr = (elements) => imgAttr(elements.first());
 
     const placeholder = (value) =>
-      value == null || K.isBlank(value) || ['-', 'N/A', 'n/a', 'Unknown'].includes(value) ? null : value;
+      value == null || K.isBlank(value) || ['-', 'N/A', 'n/a', 'Unknown'].includes(value)
+        ? null
+        : value;
 
     const parseStatus = (text) => {
       if (text == null) return 0;
@@ -139,7 +260,8 @@
     // known by the slug without it, looked up again in the site's list when they're read.
     const alt = t.variant === 'alt';
     const slugOf = (path) => path.replace(/\/+$/, '').split('/').pop() ?? '';
-    const permanent = (path) => (alt ? `${o.mangaUrlDirectory}/${slugOf(path).replace(o.slugRegex, '')}/` : path);
+    const permanent = (path) =>
+      alt ? `${o.mangaUrlDirectory}/${slugOf(path).replace(o.slugRegex, '')}/` : path;
     let slugs = null;
     let slugsAt = 0;
     const currentSlugs = async () => {
@@ -195,46 +317,66 @@
       return K.query(`${t.baseUrl}/${path}/`, params);
     };
 
-    const search = async (page, query, filters) => searchMangaParse(await http.document(searchUrl(page, query, filters)));
+    const search = async (page, query, filters) =>
+      searchMangaParse(await http.document(searchUrl(page, query, filters)));
 
     const parseChapterDate = (text) => {
       if (text == null) return 0;
-      const parsed = o.dateFormat.parse(text) ?? K.dateFormat(o.datePattern, K.locale('en')).parse(text);
+      const parsed =
+        o.dateFormat.parse(text) ?? K.dateFormat(o.datePattern, K.locale('en')).parse(text);
       return parsed ?? 0;
     };
 
     const chapterListParse = (document) => {
-      const chapters = document.select(o.chapterListSelector).map((element) => {
-        const links = element.select('a');
-        const href = links.attr('href');
-        const name = element.select('.lch a, .chapternum').text() || links.first()?.text() || '';
-        const date = parseChapterDate(element.selectFirst('.chapterdate')?.text() ?? null);
-        return {
-          id: K.withoutDomain(K.resolve(href, document.location() || `${t.baseUrl}/`)),
-          name: name.trim() || undefined,
-          number: (() => {
-            const found = (element.selectFirst('[data-num]')?.attr('data-num') || name).match(/(\d+(?:\.\d+)?)/);
-            return found ? parseFloat(found[1]) : undefined;
-          })(),
-          dateUpload: date > 0 ? date : undefined,
-        };
-      }).filter((chapter) => chapter.id && chapter.id !== '/');
+      const chapters = document
+        .select(o.chapterListSelector)
+        .map((element) => {
+          const links = element.select('a');
+          const href = links.attr('href');
+          const name = element.select('.lch a, .chapternum').text() || links.first()?.text() || '';
+          const date = parseChapterDate(element.selectFirst('.chapterdate')?.text() ?? null);
+          return {
+            id: K.withoutDomain(K.resolve(href, document.location() || `${t.baseUrl}/`)),
+            name: name.trim() || undefined,
+            number: (() => {
+              const found = (element.selectFirst('[data-num]')?.attr('data-num') || name).match(
+                /(\d+(?:\.\d+)?)/,
+              );
+              return found ? parseFloat(found[1]) : undefined;
+            })(),
+            dateUpload: date > 0 ? date : undefined,
+          };
+        })
+        .filter((chapter) => chapter.id && chapter.id !== '/');
       // The newest chapter takes the "Updated on" date when none has its own.
       if (chapters.length && chapters[0].dateUpload === undefined) {
         const updated = document
-          .select('.listinfo time[itemprop=dateModified], .fmed:contains(update) time, span:contains(update) time')
+          .select(
+            '.listinfo time[itemprop=dateModified], .fmed:contains(update) time, span:contains(update) time',
+          )
           .attr('datetime');
         const day = updated.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (day) chapters[0].dateUpload = Date.UTC(parseInt(day[1], 10), parseInt(day[2], 10) - 1, parseInt(day[3], 10));
+        if (day)
+          chapters[0].dateUpload = Date.UTC(
+            parseInt(day[1], 10),
+            parseInt(day[2], 10) - 1,
+            parseInt(day[3], 10),
+          );
       }
       return chapters;
     };
 
     const mangaDetailsParse = (document, id) => {
       const details = document.selectFirst(o.seriesDetailsSelector);
-      if (!details) throw new Error("the title's page has no details the MangaThemesia theme reads (the site changed?)");
+      if (!details)
+        throw new Error(
+          "the title's page has no details the MangaThemesia theme reads (the site changed?)",
+        );
       const title = details.selectFirst(o.seriesTitleSelector);
-      if (!title) throw new Error("the title's page has no title the MangaThemesia theme reads (the site changed?)");
+      if (!title)
+        throw new Error(
+          "the title's page has no title the MangaThemesia theme reads (the site changed?)",
+        );
       const manga = {
         title: title.text(),
         artist: placeholder(details.selectFirst(o.seriesArtistSelector)?.ownText() ?? null),
@@ -247,7 +389,9 @@
           .split(ALT_NAME_SEPARATOR)
           .map((name) => `- ${name.trim()}`)
           .join('\n');
-        manga.description = (manga.description ? `${manga.description}\n\n` : '') + `${o.altNamePrefix}\n${names}`.trim();
+        manga.description =
+          (manga.description ? `${manga.description}\n\n` : '') +
+          `${o.altNamePrefix}\n${names}`.trim();
       }
       const genres = details.select(o.seriesGenreSelector).map((element) => element.text());
       const type = details.selectFirst(o.seriesTypeSelector)?.ownText();
@@ -271,8 +415,12 @@
         .filter((address) => address !== '');
       if (pages.length) return pages.map((address) => ({ url: address, headers: pageHeaders }));
       // Some sites load their pages with a script.
-      const script = document.selectFirst('script[src^=data:text/javascript;base64,dHNfcmVhZGVyLnJ1bih7]');
-      const text = script ? K.base64Decode(K.substringAfter(script.attr('src'), 'base64,')) : document.outerHtml();
+      const script = document.selectFirst(
+        'script[src^=data:text/javascript;base64,dHNfcmVhZGVyLnJ1bih7]',
+      );
+      const text = script
+        ? K.base64Decode(K.substringAfter(script.attr('src'), 'base64,'))
+        : document.outerHtml();
       const found = text.match(IMAGE_LIST);
       let list = [];
       try {
@@ -300,12 +448,18 @@
     const knownGenres = async () => {
       if (genres === null && o.supportsFilterFetching) {
         try {
-          const document = await http.document(`${t.baseUrl}/${o.mangaUrlDirectory.replace(/^\//, '')}`);
-          genres = document
-            .selectFirst('ul.genrez')
-            ?.select('li')
-            .map((item) => ({ label: item.selectFirst('label')?.text() ?? '', value: item.selectFirst('input[type=checkbox]')?.attr('value') ?? '' }))
-            .filter((genre) => genre.label && genre.value) ?? [];
+          const document = await http.document(
+            `${t.baseUrl}/${o.mangaUrlDirectory.replace(/^\//, '')}`,
+          );
+          genres =
+            document
+              .selectFirst('ul.genrez')
+              ?.select('li')
+              .map((item) => ({
+                label: item.selectFirst('label')?.text() ?? '',
+                value: item.selectFirst('input[type=checkbox]')?.attr('value') ?? '',
+              }))
+              .filter((genre) => genre.label && genre.value) ?? [];
         } catch {
           return [];
         }
@@ -313,7 +467,8 @@
       return genres ?? [];
     };
 
-    const optionList = (pairs) => pairs.map(([label, value]) => ({ value: value === '' ? '_' : value, label }));
+    const optionList = (pairs) =>
+      pairs.map(([label, value]) => ({ value: value === '' ? '_' : value, label }));
     const chosen = (value) => (value === '_' ? '' : value);
 
     const calls = {
@@ -323,11 +478,23 @@
         const filters = [
           { key: 'status', label: 'Status', kind: 'select', options: optionList(o.statusOptions) },
           { key: 'type', label: 'Type', kind: 'select', options: optionList(o.typeFilterOptions) },
-          { key: 'order', label: 'Sort By', kind: 'select', options: optionList(o.orderByFilterOptions) },
+          {
+            key: 'order',
+            label: 'Sort By',
+            kind: 'select',
+            options: optionList(o.orderByFilterOptions),
+          },
         ];
         const known = await knownGenres();
-        if (known.length) filters.push({ key: 'genres', label: 'Genre', kind: 'tags', options: known });
-        if (o.hasProjectPage) filters.push({ key: 'project', label: 'Filter Project', kind: 'select', options: optionList(o.projectFilterOptions) });
+        if (known.length)
+          filters.push({ key: 'genres', label: 'Genre', kind: 'tags', options: known });
+        if (o.hasProjectPage)
+          filters.push({
+            key: 'project',
+            label: 'Filter Project',
+            kind: 'select',
+            options: optionList(o.projectFilterOptions),
+          });
         return filters;
       },
       search: ({ query = '', page = 1, filters = {} }) =>
@@ -341,7 +508,9 @@
         }),
       details: async ({ id }) => mangaDetailsParse(await mangaPage(id), id),
       chapters: async ({ id }) => ({ chapters: chapterListParse(await mangaPage(id)) }),
-      pages: async ({ chapterId }) => ({ pages: pageListParse(await http.document(K.resolve(chapterId, `${t.baseUrl}/`))) }),
+      pages: async ({ chapterId }) => ({
+        pages: pageListParse(await http.document(K.resolve(chapterId, `${t.baseUrl}/`))),
+      }),
     };
     if (!o.supportsLatest) delete calls.latest;
     return calls;

@@ -24,7 +24,7 @@ use crate::package::{PackageError, VerifiedPackage, from_files};
 
 /// Bumped when conversions change in a way installed sources should get: the catalogue then
 /// offers them again.
-pub const CONVERTER_VERSION: u32 = 1;
+pub const CONVERTER_VERSION: u32 = 2;
 /// The converted script in the extension folder.
 pub const ENTRY: &str = "index.js";
 
@@ -676,7 +676,7 @@ pub fn package(
         "runtime": "mihon",
         "entry": ENTRY,
         "provides": [MANGA_SOURCE],
-        "permissions": { "net": source_hosts(extension) },
+        "permissions": { "net": net_hosts(extension, &converted.code) },
         "contentRating": match extension.content {
             ContentWarning::Safe => "safe",
             ContentWarning::Mixed => "suggestive",
@@ -697,4 +697,34 @@ pub fn package(
         &manifest.to_string(),
         vec![(ENTRY.to_owned(), converted.code.clone().into_bytes())],
     )
+}
+
+/// The hosts a converted extension may reach: its sources' sites (and their subdomains), and the
+/// hosts its own code names in full addresses (an API beside the site, an image server).
+fn net_hosts(extension: &StoreExtension, code: &str) -> Vec<String> {
+    let mut hosts: std::collections::BTreeSet<String> =
+        source_hosts(extension).into_iter().collect();
+    for (at, _) in code.match_indices("://") {
+        let scheme = code[..at]
+            .rfind(|char: char| !char.is_ascii_alphabetic())
+            .map_or(&code[..at], |index| &code[index + 1..at]);
+        if scheme != "http" && scheme != "https" {
+            continue;
+        }
+        let rest = &code[at + 3..];
+        let end = rest
+            .find(|char: char| !(char.is_ascii_alphanumeric() || char == '.' || char == '-'))
+            .unwrap_or(rest.len());
+        let host = rest[..end].trim_end_matches('.').to_ascii_lowercase();
+        let covered = hosts.iter().any(|known| {
+            known
+                .strip_prefix("*.")
+                .is_some_and(|parent| host.ends_with(&format!(".{parent}")))
+        });
+        if host.contains('.') && !covered && crate::permissions::HostPattern::parse(&host).is_some()
+        {
+            hosts.insert(host);
+        }
+    }
+    hosts.into_iter().collect()
 }

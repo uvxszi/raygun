@@ -285,7 +285,17 @@ impl Parser {
                 .get(self.at)
                 .is_some_and(|t| t.kind == Kind::Op("("))
         {
-            self.call_args()?;
+            let args = self.call_args()?;
+            // The JSON name a DTO's property is read by.
+            if name == "SerialName"
+                && let Some(Arg {
+                    value: Expr::Str(parts),
+                    ..
+                }) = args.first()
+                && let [StrPart::Text(text)] = parts.as_slice()
+            {
+                return Ok(format!("SerialName={text}"));
+            }
         }
         Ok(name)
     }
@@ -559,9 +569,11 @@ impl Parser {
             Some(Kind::Name(_)) => self.name()?,
             _ => String::new(),
         };
-        if self.is_op("<") {
-            self.type_params()?;
-        }
+        let type_params = if self.is_op("<") {
+            self.type_params()?
+        } else {
+            Vec::new()
+        };
         // A primary constructor, perhaps with modifiers (`private constructor(...)`).
         let save = self.at;
         let (ctor_modifiers, _) = self.modifiers()?;
@@ -589,6 +601,7 @@ impl Parser {
         };
         Ok(ClassDecl {
             name,
+            type_params,
             kind,
             modifiers,
             annotations,
@@ -677,14 +690,16 @@ impl Parser {
         })
     }
 
-    fn type_params(&mut self) -> Result<(), String> {
+    /// `<T, out R : Any>`: the names.
+    fn type_params(&mut self) -> Result<Vec<String>, String> {
         self.expect_op("<")?;
         self.with_nesting(true, |parser| {
+            let mut names = Vec::new();
             loop {
                 let _ = parser.modifiers()?;
                 parser.eat_name("in");
                 parser.eat_name("out");
-                parser.name()?;
+                names.push(parser.name()?);
                 if parser.eat_op(":") {
                     parser.ty()?;
                 }
@@ -692,7 +707,8 @@ impl Parser {
                     break;
                 }
             }
-            parser.expect_op(">")
+            parser.expect_op(">")?;
+            Ok(names)
         })
     }
 
@@ -701,7 +717,7 @@ impl Parser {
         self.with_nesting(true, |parser| {
             let mut params = Vec::new();
             while !parser.eat_op(")") {
-                let (_, _) = parser.modifiers()?;
+                let (_, annotations) = parser.modifiers()?;
                 // `private vararg val words: String`, in any order.
                 let (mut property, mut vararg) = (false, false);
                 while let Some(Kind::Name(word)) = parser.peek().cloned()
@@ -735,6 +751,7 @@ impl Parser {
                     default,
                     vararg,
                     property,
+                    annotations,
                 });
                 if !parser.eat_op(",") {
                     parser.expect_op(")")?;

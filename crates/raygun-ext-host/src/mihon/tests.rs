@@ -255,7 +255,10 @@ async fn legacy_lists_without_a_newer_index_are_stores_of_their_own() {
     })
     .await
     .unwrap();
-    assert_eq!(store.name, "someone", "a generic project is named by its owner");
+    assert_eq!(
+        store.name, "someone",
+        "a generic project is named by its owner"
+    );
     let example = &store.extensions[0];
     assert_eq!(
         example.apk,
@@ -839,6 +842,223 @@ async fn a_converted_mangathemesia_source_reads_its_site() {
     );
 }
 
+const STANDALONE_BUILD: &str = "keiyoushi {\n    name = \"Fixture Stand\"\n    versionCode = 3\n    libVersion = \"1.6\"\n    source {\n        lang = \"en\"\n        baseUrl = \"https://stand.example\"\n    }\n}\n";
+
+const STANDALONE_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
+
+import eu.kanade.tachiyomi.source.model.FilterList
+import keiyoushi.source.KeiSource
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+@Source
+abstract class FixtureStand : KeiSource() {
+    override val supportsLatest = false
+
+    override fun Headers.Builder.configureHeaders() = add("X-Fixture", "1")
+
+    override fun OkHttpClient.Builder.configureClient() = rateLimit(4)
+
+    override suspend fun getPopularManga(page: Int) = getSearchMangaList(page, "", FilterList())
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()
+
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
+        val url = "$baseUrl/list/page/$page".toHttpUrl().newBuilder()
+            .addQueryParameter("s", query)
+            .build()
+        val document = client.get(url, Fetch.DOCUMENT).asJsoup()
+        val mangas = document.select(".listing .item a").map { element ->
+            SManga.create().apply {
+                title = element.selectFirst("h2")!!.text()
+                thumbnail_url = element.selectFirst("img")?.absUrl("src")
+                setUrlWithoutDomain(element.absUrl("href"))
+            }
+        }
+        return MangasPage(mangas, hasNextPage = document.selectFirst(".next.page-numbers") != null)
+    }
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate {
+        val document = client.get(getMangaUrl(manga), Fetch.DOCUMENT).asJsoup()
+        val updatedManga = SManga.create().apply {
+            title = document.selectFirst("h1")!!.text()
+                .substringAfter("Read").substringBeforeLast("Online")
+                .trim()
+            thumbnail_url = document.selectFirst(".cover img")?.absUrl("src")
+            description = document.select(".text p").joinToString("\n") { it.text() }
+            genre = document.select(".infos a").joinToString { it.text() }
+            status = when (document.selectFirst(".status")?.text()?.lowercase()) {
+                "ongoing" -> SManga.ONGOING
+                "completed" -> SManga.COMPLETED
+                else -> SManga.UNKNOWN
+            }
+            setUrlWithoutDomain(document.location())
+        }
+        val updatedChapters = document.select(".chapters a").mapIndexed { index, element ->
+            SChapter.create().apply {
+                name = element.text()
+                chapter_number = (index + 1).toFloat()
+                date_upload = DATE_FORMAT.tryParse(element.attr("data-date"))
+                setUrlWithoutDomain(element.absUrl("href"))
+            }
+        }.reversed()
+        return SMangaUpdate(updatedManga, updatedChapters)
+    }
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> = client.get(getChapterUrl(chapter), Fetch.DOCUMENT).asJsoup()
+        .select("#images img")
+        .filterNot { it.attr("src").isBlank() }
+        .mapIndexed { index, element -> Page(index, imageUrl = element.absUrl("src")) }
+
+    companion object {
+        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
+    }
+}
+"##;
+
+#[tokio::test]
+async fn a_source_written_without_a_theme_is_converted_from_its_code() {
+    let app = Router::new()
+        .route(
+            "/list/page/1",
+            get(|uri: Uri, headers: axum::http::HeaderMap| async move {
+                assert_eq!(headers["x-fixture"], "1", "its own headers");
+                assert_eq!(uri.query(), Some("s="));
+                Html(
+                    r#"<div class="listing"><div class="item"><a href="/manga/one"><img src="/c/one.jpg"><h2>One Piece of Code</h2></a></div>
+                    <div class="item"><a href="/manga/two"><h2>Two</h2></a></div></div><a class="next page-numbers" href="/list/page/2">Next</a>"#,
+                )
+            }),
+        )
+        .route(
+            "/manga/one",
+            get(|| async {
+                Html(
+                    r#"<html><body><h1>Read One Piece of Code Online</h1><div class="cover"><img src="/c/one-big.jpg"></div>
+                    <div class="text"><p>First.</p><p>Second.</p></div><div class="infos"><a>Action</a><a>Comedy</a></div>
+                    <span class="status">Ongoing</span>
+                    <div class="chapters"><a href="/manga/one/2" data-date="2024-01-05">Chapter 2</a><a href="/manga/one/1" data-date="2023-12-31">Chapter 1</a></div>
+                    </body></html>"#,
+                )
+            }),
+        )
+        .route(
+            "/manga/one/2",
+            get(|| async {
+                Html(r#"<div id="images"><img src="/p/1.jpg"><img src=""><img src="https://cdn.example/p/2.jpg"></div>"#)
+            }),
+        );
+    let address = serve(app);
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            STANDALONE_BUILD,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                STANDALONE_SOURCE,
+            )],
+        ),
+    )
+    .unwrap();
+    assert_eq!(converted.theme, None);
+    let host = load_converted(&converted, &extension, address).await;
+    let provider = "mihon.en.fixturestand/4242";
+
+    let popular = host
+        .manga_list(provider, crate::manga::MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let titles: Vec<&str> = popular
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(titles, ["One Piece of Code", "Two"]);
+    assert_eq!(popular.items[0].id, "/manga/one");
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some(format!("http://{address}/c/one.jpg").as_str())
+    );
+    assert!(popular.has_next_page);
+    let latest = host
+        .manga_list(provider, crate::manga::MangaList::Latest, 1)
+        .await;
+    assert!(latest.is_err(), "it has no latest titles");
+
+    let details = host.manga_details(provider, "/manga/one").await.unwrap();
+    assert_eq!(details.title, "One Piece of Code");
+    assert_eq!(details.description.as_deref(), Some("First.\nSecond."));
+    assert_eq!(details.genres, ["Action", "Comedy"]);
+    assert_eq!(details.status, "ongoing");
+
+    let chapters = host.manga_chapters(provider, "/manga/one").await.unwrap();
+    let ids: Vec<&str> = chapters.iter().map(|chapter| chapter.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["/manga/one/1", "/manga/one/2"],
+        "reversed as the source does"
+    );
+    assert_eq!(chapters[1].number, Some(1.0));
+    assert_eq!(chapters[1].date_upload, Some(1_704_412_800_000));
+
+    let pages = host.manga_pages(provider, "/manga/one/2").await.unwrap();
+    let urls: Vec<&str> = pages.iter().map(|page| page.url.as_str()).collect();
+    assert_eq!(
+        urls,
+        [
+            format!("http://{address}/p/1.jpg").as_str(),
+            "https://cdn.example/p/2.jpg"
+        ]
+    );
+    assert_eq!(pages[0].headers["Referer"], format!("http://{address}/"));
+}
+
+#[test]
+fn code_the_runtime_lacks_is_refused_by_name() {
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let reason = |source: &str| {
+        convert::convert(
+            &extension,
+            &sources(
+                STANDALONE_BUILD,
+                &[(
+                    "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                    source,
+                )],
+            ),
+        )
+        .unwrap_err()
+    };
+    let interceptor = STANDALONE_SOURCE.replace("rateLimit(4)", "addInterceptor(::descramble)");
+    assert!(
+        reason(&interceptor).contains("addInterceptor"),
+        "{}",
+        reason(&interceptor)
+    );
+    let webview = STANDALONE_SOURCE.replace(
+        "val document = client.get(url, Fetch.DOCUMENT).asJsoup()",
+        "val document = webView.evaluateJavascript(url)",
+    );
+    assert!(
+        reason(&webview).contains("webView") || reason(&webview).contains("evaluateJavascript")
+    );
+    let starts =
+        STANDALONE_SOURCE.replace("override val supportsLatest = false", "init { setup() }");
+    assert!(reason(&starts).contains("starts"));
+}
+
 #[tokio::test]
 async fn validation_loads_the_package_before_it_installs() {
     let extension = extension(
@@ -871,4 +1091,156 @@ async fn validation_loads_the_package_before_it_installs() {
             .unwrap_err()
             .contains("nothing")
     );
+}
+
+/// The names in one of `kotlin.js`'s tables (`const GLOBALS = { … }`): its top-level keys.
+fn runtime_table(name: &str) -> std::collections::HashSet<String> {
+    let runtime = include_str!("kotlin.js");
+    let start = runtime
+        .find(&format!("const {name} = {{"))
+        .unwrap_or_else(|| panic!("kotlin.js has {name}"));
+    let body = &runtime[start..];
+    let mut depth = 0usize;
+    let mut end = body.len();
+    for (index, char) in body.char_indices() {
+        match char {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = index;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let key = regex::Regex::new(r"(?m)^ {4}([A-Za-z_][A-Za-z0-9_]*)\s*[:,(]").unwrap();
+    key.captures_iter(&body[..end])
+        .map(|found| found[1].to_owned())
+        .collect()
+}
+
+/// The converter refuses code that needs what the runtime lacks, so its lists of the runtime's
+/// functions and objects are the runtime's own.
+#[test]
+fn converter_knows_what_the_runtime_has() {
+    use super::kotlin::emit::{GLOBALS, OBJECTS};
+    let globals = runtime_table("GLOBALS");
+    let objects = runtime_table("OBJECTS");
+    for name in GLOBALS {
+        assert!(globals.contains(*name), "kotlin.js's GLOBALS has {name}");
+    }
+    for name in OBJECTS {
+        assert!(objects.contains(*name), "kotlin.js's OBJECTS has {name}");
+    }
+    for name in &globals {
+        assert!(
+            GLOBALS.contains(&name.as_str()),
+            "the converter's GLOBALS has {name}"
+        );
+    }
+    for name in &objects {
+        assert!(
+            OBJECTS.contains(&name.as_str()),
+            "the converter's OBJECTS has {name}"
+        );
+    }
+}
+
+/// Calendars, zones, `awaitAll` and a `Mutex`, local extensions and `this@Class`, as converted
+/// code uses them.
+#[tokio::test]
+async fn converted_code_reads_dates_and_waits_together() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+        "override val supportsLatest = false",
+        r#"override val supportsLatest = true
+
+    private val lock = Mutex()
+
+    private val zoned = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("GMT+7")
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage = coroutineScope {
+        val names = listOf("one", "two").map { name ->
+            async { lock.withLock { name } }
+        }.awaitAll()
+        val day = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            timeInMillis = 0L
+            add(Calendar.DAY_OF_MONTH, 2)
+            set(Calendar.HOUR_OF_DAY, 5)
+        }.timeInMillis
+        val local = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC)
+        val third = LocalDate.parse("1970-01-03").atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        fun StringBuilder.tag(value: String) = append("[").append(value).append("]")
+        val tags = buildString {
+            tag("a")
+            this.tag("b")
+        }
+        val mangas = names.map { name ->
+            Entry(name).toManga().apply {
+                url = "/${day}/${zoned.parse("1970-01-01 07:00")?.time}/${local.parse("1970-01-02")}/$third/" +
+                    Parser.unescapeEntities("&lt;&#233;&gt;", false) + tags +
+                    "https://stand.example/comics/b".toHttpUrl().pathSegments[1] +
+                    json.decodeFromString<Wrapper<Entry>>("""{"data":{"name":"c"}}""").data!!.shout
+            }
+        }
+        MangasPage(mangas, String.format(Locale.US, "%d", page) == "2")
+    }"#,
+    ) + r#"
+abstract class Named(private val label: String) {
+    val shout get() = label.uppercase()
+}
+
+@Serializable
+class Wrapper<T>(val data: T? = null)
+
+@Serializable
+class Entry(val name: String) : Named(name) {
+    fun toManga(): SManga = SManga.create().apply {
+        title = this@Entry.shout
+    }
+}
+"#;
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            STANDALONE_BUILD,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            2,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(titles, ["ONE", "TWO"]);
+    assert_eq!(
+        listing.items[0].id,
+        "/190800000/0/86400000/172800000/<\u{e9}>[a][b]bC"
+    );
+    assert!(listing.has_next_page);
 }
