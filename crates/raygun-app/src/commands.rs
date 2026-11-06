@@ -1079,9 +1079,8 @@ pub fn audio_output_set(app: tauri::AppHandle, id: Option<String>) -> Result<(),
     #[cfg(target_os = "android")]
     {
         use tauri::Manager;
-        return app
-            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
-            .set_audio_output(id);
+        app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .set_audio_output(id)
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -1098,9 +1097,8 @@ pub fn reader_system_bars(app: tauri::AppHandle, hidden: bool) -> Result<(), Str
     #[cfg(target_os = "android")]
     {
         use tauri::Manager;
-        return app
-            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
-            .system_bars(hidden);
+        app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .system_bars(hidden)
     }
     #[cfg(not(target_os = "android"))]
     {

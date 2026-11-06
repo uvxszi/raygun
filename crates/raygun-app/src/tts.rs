@@ -124,11 +124,11 @@ pub async fn available(app: &AppHandle) -> bool {
     #[cfg(target_os = "android")]
     {
         let app = app.clone();
-        return tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::spawn_blocking(move || {
             engine(&app).is_some_and(|engine| engine.tts_available())
         })
         .await
-        .unwrap_or(false);
+        .unwrap_or(false)
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -177,12 +177,12 @@ pub async fn stop(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
         let app = app.clone();
-        return tauri::async_runtime::spawn_blocking(move || match engine(&app) {
+        tauri::async_runtime::spawn_blocking(move || match engine(&app) {
             Some(engine) => engine.tts_stop(),
             None => Ok(()),
         })
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
     }
     #[cfg(not(target_os = "android"))]
     {
