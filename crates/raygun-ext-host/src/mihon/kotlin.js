@@ -266,6 +266,8 @@
   };
   KT.invoke = async (function_, args) => function_(...args);
   KT.getter = (function_) => ({ isGetter: true, function_ });
+  /// A class's `var` with a value: a field set when an instance is made.
+  KT.field = (function_) => ({ isField: true, function_ });
 
   // ---- What a value is ----
 
@@ -310,6 +312,9 @@
     Document: (value) => value && typeof value.location === 'function',
     Response: (value) => value instanceof Response,
     HttpUrl: (value) => value instanceof HttpUrl,
+    OkHttpClient: (value) => value instanceof Client,
+    HttpSource: (value) => Boolean(value && value.isSource),
+    KeiSource: (value) => Boolean(value && value.isSource),
     TextNode: (value) => Boolean(value && value.__class === 'TextNode'),
     Node: (value) =>
       Boolean(value && (typeof value.select === 'function' || value.__class === 'TextNode')),
@@ -898,12 +903,16 @@
     containsAll: (l, [other]) => KT.iter(other).every((item) => l.some((own) => KT.eq(own, item))),
     // A `ByteArray`'s own calls, and Keiyoushi's byte helpers on it.
     decodeToString: (l) => utf8Decode(l),
-    // A body of bytes (the text they spell: requests carry text).
+    // A body of bytes (sent as they are; `text` for a multipart form's part).
     toRequestBody: (l, [type = 'application/octet-stream']) => ({
       isBody: true,
+      bytes: u8Of(l),
       text: textOf(l),
       type: KT.str(type),
     }),
+    toResponseBody: (l, [type]) => bytesBody(async () => u8Of(l), type ?? null),
+    inputStream: (l) => inputStream(u8Of(l)),
+    byteInputStream: (l) => inputStream(u8Of(l)),
     // `bytes.toString(Charsets.UTF_8)` is the text they spell; a list's own is Kotlin's.
     toString: (l, [charset]) =>
       charset !== undefined && l.every((item) => typeof item === 'number')
@@ -1274,6 +1283,7 @@
 
   const MAP = {
     get: (m, [key]) => (m.has(key) ? m.get(key) : null),
+    toSortedMap: (m) => new Map([...m.entries()].sort(([left], [right]) => KT.cmp(left, right))),
     getOrDefault: (m, [key, fallback]) => (m.has(key) ? m.get(key) : fallback),
     getOrElse: async (m, [key], lambda) => (m.has(key) ? m.get(key) : lambda()),
     getOrPut: async (m, [key], lambda) => {
@@ -1339,6 +1349,7 @@
       htmlText(o, named_?.keepNewlines ?? keepNewlines),
     get: (o, [key]) => (Object.prototype.hasOwnProperty.call(o, key) ? o[key] : null),
     getOrDefault: (o, [key, fallback]) => o[key] ?? fallback,
+    toSortedMap: (o) => new Map(Object.entries(o).sort(([left], [right]) => KT.cmp(left, right))),
     containsKey: (o, [key]) => Object.prototype.hasOwnProperty.call(o, key),
     keys: (o) => Object.keys(o),
     values: (o) => Object.values(o),
@@ -1468,6 +1479,8 @@
     content: (value) => (value === null ? 'null' : KT.str(value)),
     contentOrNull: (value) => (value === null ? null : KT.str(value)),
     string: (value) => (value === null ? null : KT.str(value)),
+    // Keiyoushi's `stringOrNull`: a primitive's text; null for null and for objects and arrays.
+    stringOrNull: (value) => (value === null || typeof value === 'object' ? null : KT.str(value)),
     int: (value) => KT.nn(toInt(value)),
     intOrNull: (value) => (value === null ? null : toInt(value)),
     long: (value) => KT.nn(toInt(value)),
@@ -1542,6 +1555,8 @@
       if (JSON_PROPS[name]) return JSON_PROPS[name](value);
       if (kind === 'number' && NUMBER[name]) return NUMBER[name](value, []);
       if (kind === 'string' && name === 'lastIndex') return value.length - 1;
+      // A `Char`'s code (a one-letter string here).
+      if (kind === 'string' && name === 'code') return value.length ? value.charCodeAt(0) : 0;
       if (kind === 'string' && name === 'indices') return KT.range(0, value.length - 1);
       throw new KotlinError(`a value has no ${name}`);
     }
@@ -1553,6 +1568,8 @@
       if (['size', 'keys', 'values', 'entries'].includes(name)) return MAP[name](value);
     }
     if (kind === 'object') {
+      // The source itself (a context parameter's `source.headers`).
+      if (value.isSource) return value.get(name);
       if (value.isGetterHost && value.getters && value.getters[name])
         return value.getters[name](value);
       if (value.isStringBuilder && (name === 'lastIndex' || name === 'indices'))
@@ -1580,6 +1597,13 @@
       return null;
     }
     throw new KotlinError(`a value has no ${name}`);
+  };
+  /// `Owner::name` on one of the runtime's objects: its own function when it has one, else a
+  /// member of the first argument (`String::isNotBlank`).
+  KT.ref = async (object, name, args) => {
+    if (object && typeof object[name] === 'function') return KT.m(object, name, args);
+    const [receiver, ...rest] = args;
+    return KT.member(receiver, name, rest);
   };
   KT.ps = async (value, name) => (value === null || value === undefined ? null : KT.p(value, name));
   /// A callable reference's call (`GenreRoute::name`, `Element::text`): a property read when the
@@ -1637,7 +1661,13 @@
     // A range is a list of its numbers (`(1..n).reversed()`, `(0 until size).map { … }`).
     if (receiver.isRange && name !== 'contains' && LIST[name])
       return LIST[name](KT.iter(receiver), args, lambda, named, type);
+    // OkHttp's `response.headers("Content-Type")`: that header's values.
+    if (receiver instanceof Response && name === 'headers' && args.length)
+      return receiver.headers.values(args[0]);
     if (kind === 'object') {
+      // The source itself: its functions, then its extensions on nothing.
+      if (receiver.isSource && receiver.hasFunction(name))
+        return receiver.call(name, lambda && !args.includes(lambda) ? [...args, lambda] : args);
       if (receiver.isMatch && name === 'groupValues') return receiver.groupValues;
       const own = receiver[name];
       if (typeof own === 'function') {
@@ -2184,13 +2214,12 @@
         headers: request.headers,
       };
       this.headers = new Headers(Object.entries(raw.headers || {}));
-      const text = () => raw.text();
-      this.body = {
-        string: text,
-        text,
-        close: () => {},
-        contentType: () => raw.header('content-type'),
-      };
+      // The answer's text as Raygun decoded it; its bytes as they came.
+      this.body = bytesBody(
+        () => raw.bytes(),
+        raw.header('content-type'),
+        () => raw.text(),
+      );
     }
     /// An answer an interceptor made (`response.newBuilder()…build()`).
     static made(state) {
@@ -2803,7 +2832,7 @@
 
   class Client {
     constructor(source) {
-      this.source = source;
+      this.owner = source;
       this.interceptors = [];
     }
     get cookieJar() {
@@ -2838,10 +2867,10 @@
       const headers = request.headers.object();
       let body = null;
       if (request.body) {
-        body = request.body.text;
+        body = request.body.bytes instanceof Uint8Array ? request.body.bytes : request.body.text;
         if (request.body.type) headers['Content-Type'] = request.body.type;
       }
-      const raw = await this.source.http.request(request.url.toString(), {
+      const raw = await this.owner.http.request(request.url.toString(), {
         method: request.method,
         headers,
         body,
@@ -2870,6 +2899,11 @@
       return this.request('POST', url, rest);
     }
     async request(method, url, rest) {
+      // Every argument named (`client.post(url = …, body = …)`).
+      if (url && url[NAMED]) {
+        rest = [url, ...rest];
+        url = url.url;
+      }
       const options = named(rest);
       // The source's own headers (`headersBuilder()`, its `configureHeaders`) unless given.
       let headers =
@@ -2895,7 +2929,7 @@
         const unitMs = unit && unit.unitMs ? unit.unitMs : 1000;
         const periodMs =
           typeof period === 'number' ? period * unitMs : period && period.ms ? period.ms : 1000;
-        client.source.http.limit = { permits, periodMs };
+        client.owner.http.limit = { permits, periodMs };
         return builder;
       },
       rateLimitHost: (_host, permits, period = 1, unit = null) =>
@@ -2926,7 +2960,7 @@
         const cookies = args[0];
         client.interceptors.push(async (chain) => {
           const request = chain.request();
-          const host = domain ? KT.str(await domain()) : HttpUrl.parse(client.source.baseUrl).host;
+          const host = domain ? KT.str(await domain()) : HttpUrl.parse(client.owner.baseUrl).host;
           const target = request.url.host;
           if (target !== host && !target.endsWith(`.${host}`)) return chain.proceed(request);
           let list = typeof cookies === 'function' ? await cookies() : cookies;
@@ -2977,15 +3011,13 @@
   /// A body made in code (`"…".toResponseBody(mediaType)`).
   const textBody = (text, type = null) => {
     const value = KT.str(text);
-    return {
-      isResponseBody: true,
-      string: async () => value,
-      text: async () => value,
-      bytes: async () => value,
-      close: () => {},
-      contentType: () => type,
-      contentLength: () => value.length,
-    };
+    const body = bytesBody(
+      async () => K.bin.utf8(value),
+      type,
+      async () => value,
+    );
+    body.contentLength = () => K.bin.utf8(value).length;
+    return body;
   };
   KT.textBody = textBody;
 
@@ -3048,8 +3080,1147 @@
   ])
     durations[unit] = ms;
 
+  // ---- Streams: okio's `Buffer`, Java's byte streams and `ByteBuffer` ----
+  // A `ByteArray` stays a list of numbers 0–255; streams and buffers hold `Uint8Array`s, so a
+  // picture's bytes reach Rust without a list of every byte.
+
+  /// The bytes of a value as a `Uint8Array`: a `ByteArray`, a buffer or stream, text's UTF-8.
+  const u8Of = (value) => {
+    if (value instanceof Uint8Array) return value;
+    if (Array.isArray(value)) return Uint8Array.from(value, (byte) => byte & 255);
+    if (value && typeof value.u8Now === 'function') return value.u8Now();
+    if (value === null || value === undefined) return new Uint8Array(0);
+    return K.bin.utf8(KT.str(value));
+  };
+  const listOfBytes = (bytes) => Array.from(bytes);
+  /// A whole number from bytes, signed as Java reads it (big-endian unless `little`).
+  const signedOf = (bytes, little) => {
+    const ordered = little ? [...bytes].reverse() : [...bytes];
+    let value = 0;
+    for (const byte of ordered) value = value * 256 + byte;
+    return ordered[0] >= 128 ? value - 2 ** (8 * ordered.length) : value;
+  };
+  /// The `size` bytes of a whole number (two's complement), big-endian unless `little`.
+  const bytesOfNumber = (value, size, little) => {
+    let rest = BigInt.asUintN(size * 8, BigInt(Math.trunc(Number(value))));
+    const out = new Uint8Array(size);
+    for (let index = size - 1; index >= 0; index--) {
+      out[index] = Number(rest & 255n);
+      rest >>= 8n;
+    }
+    return little ? out.reverse() : out;
+  };
+  const eof = (size, wanted) => new KotlinError(`size=${size} byteCount=${wanted}`, 'EOFException');
+
+  /// Text read line by line (`bufferedReader()`, `reader()`).
+  const textReader = (text) => {
+    const lines = KT.str(text).split(/\r?\n/);
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    let at = 0;
+    const reader = {
+      __class: 'Reader',
+      __classes: ['Reader', 'BufferedReader'],
+      readText: () => KT.str(text),
+      readLine: () => (at < lines.length ? lines[at++] : null),
+      readLines: () => lines.slice(at),
+      lineSequence: () => lines.slice(at),
+      lines: () => lines.slice(at),
+      close: () => KT.unit,
+      use: async (lambda) => lambda(reader),
+    };
+    return reader;
+  };
+
+  /// okio's `Buffer` (and a body's `source()`): bytes written at the end, read from the front.
+  const okioBuffer = (initial = null) => {
+    let data = new Uint8Array(Math.max(64, initial ? initial.length : 0));
+    let head = 0;
+    let tail = 0;
+    if (initial) {
+      data.set(initial);
+      tail = initial.length;
+    }
+    const room = (extra) => {
+      if (tail + extra <= data.length) return;
+      const kept = data.subarray(head, tail);
+      const grown = new Uint8Array(Math.max(64, (kept.length + extra) * 2));
+      grown.set(kept);
+      data = grown;
+      tail = kept.length;
+      head = 0;
+    };
+    const append = (bytes) => {
+      room(bytes.length);
+      data.set(bytes, tail);
+      tail += bytes.length;
+    };
+    const take = (count) => {
+      const size = tail - head;
+      const wanted = count === undefined || count === null ? size : Number(count);
+      if (wanted > size) throw eof(size, wanted);
+      const out = data.slice(head, head + wanted);
+      head += wanted;
+      return out;
+    };
+    const writer = (size, little) => (value) => (
+      append(bytesOfNumber(value, size, little)),
+      buffer
+    );
+    const reader = (size, little) => () => signedOf(take(size), little);
+    const buffer = {
+      __class: 'Buffer',
+      __classes: ['Buffer', 'BufferedSource', 'BufferedSink', 'Source', 'Sink'],
+      u8Now: () => data.slice(head, tail),
+      get size() {
+        return tail - head;
+      },
+      write: (value, offset = 0, count = undefined) => {
+        if (typeof value === 'number') return (append([value & 255]), buffer);
+        const bytes = u8Of(value);
+        append(bytes.subarray(offset, count === undefined ? bytes.length : offset + count));
+        return buffer;
+      },
+      writeAll: async (source) => {
+        const bytes = source && source.u8Now ? source.u8Now() : await bodyU8(source);
+        append(bytes);
+        if (source && typeof source.clear === 'function') source.clear();
+        return bytes.length;
+      },
+      writeUtf8: (text) => (append(K.bin.utf8(text)), buffer),
+      writeString: (text) => (append(K.bin.utf8(text)), buffer),
+      writeByte: (value) => (append([value & 255]), buffer),
+      writeShort: writer(2, false),
+      writeShortLe: writer(2, true),
+      writeInt: writer(4, false),
+      writeIntLe: writer(4, true),
+      writeLong: writer(8, false),
+      writeLongLe: writer(8, true),
+      readByteArray: (count) => listOfBytes(take(count)),
+      readByteString: (count) => byteString(take(count)),
+      readUtf8: (count) => K.bin.text(take(count)),
+      readString: (first, second) => K.bin.text(take(typeof first === 'number' ? first : second)),
+      readUtf8Line: () => {
+        const at = data.subarray(head, tail).indexOf(10);
+        if (at < 0) return head < tail ? K.bin.text(take()) : null;
+        const line = K.bin.text(take(at));
+        take(1);
+        return line.replace(/\r$/, '');
+      },
+      readByte: () => signedOf(take(1), false),
+      readShort: reader(2, false),
+      readShortLe: reader(2, true),
+      readInt: reader(4, false),
+      readIntLe: reader(4, true),
+      readLong: reader(8, false),
+      readLongLe: reader(8, true),
+      readFully: (target) => {
+        const bytes = take(target.length);
+        for (let index = 0; index < bytes.length; index++) target[index] = bytes[index];
+      },
+      read: (target, offset = 0, count = undefined) => {
+        if (!Array.isArray(target)) return buffer.write(take());
+        const wanted = Math.min(count ?? target.length - offset, tail - head);
+        if (wanted <= 0) return -1;
+        const bytes = take(wanted);
+        for (let index = 0; index < bytes.length; index++) target[offset + index] = bytes[index];
+        return wanted;
+      },
+      skip: (count) => (take(count), KT.unit),
+      exhausted: () => head >= tail,
+      require: (count) => {
+        if (tail - head < count) throw eof(tail - head, count);
+        return KT.unit;
+      },
+      request: (count) => tail - head >= count,
+      indexOf: (byte, from = 0) => {
+        const at = data.subarray(head + from, tail).indexOf(byte & 255);
+        return at < 0 ? -1 : at + from;
+      },
+      peek: () => okioBuffer(data.slice(head, tail)),
+      copy: () => okioBuffer(data.slice(head, tail)),
+      clone: () => okioBuffer(data.slice(head, tail)),
+      clear: () => {
+        head = 0;
+        tail = 0;
+        return KT.unit;
+      },
+      snapshot: () => byteString(data.slice(head, tail)),
+      outputStream: () => outputStreamTo(buffer),
+      inputStream: () => inputStream(take()),
+      asResponseBody: (type = null) => bytesBody(async () => data.slice(head, tail), type),
+      buffer: () => buffer,
+      emit: () => buffer,
+      flush: () => KT.unit,
+      close: () => KT.unit,
+      use: async (lambda) => lambda(buffer),
+    };
+    return buffer;
+  };
+  /// okio's `ByteString`: bytes kept whole.
+  const byteString = (bytes) => ({
+    __class: 'ByteString',
+    __classes: ['ByteString'],
+    u8Now: () => bytes,
+    get size() {
+      return bytes.length;
+    },
+    toByteArray: () => listOfBytes(bytes),
+    utf8: () => K.bin.text(bytes),
+    base64: () => K.bin.toBase64(bytes),
+    hex: () => hexOf(listOfBytes(bytes)),
+    string: () => K.bin.text(bytes),
+  });
+
+  /// Java's `InputStream` over bytes (`ByteArrayInputStream`, a body's `byteStream()`).
+  const inputStream = (bytes) => {
+    let at = 0;
+    const stream = {
+      __class: 'InputStream',
+      __classes: ['InputStream', 'ByteArrayInputStream'],
+      u8Now: () => bytes.subarray(at),
+      read: (target, offset = 0, count = undefined) => {
+        if (target === undefined) return at < bytes.length ? bytes[at++] : -1;
+        const wanted = count === undefined ? target.length - offset : count;
+        const length = Math.min(wanted, bytes.length - at);
+        if (length <= 0) return wanted === 0 ? 0 : -1;
+        for (let index = 0; index < length; index++) target[offset + index] = bytes[at + index];
+        at += length;
+        return length;
+      },
+      readBytes: () => {
+        const rest = bytes.subarray(at);
+        at = bytes.length;
+        return listOfBytes(rest);
+      },
+      readAllBytes: () => stream.readBytes(),
+      readNBytes: (count) => {
+        const part = bytes.subarray(at, at + count);
+        at += part.length;
+        return listOfBytes(part);
+      },
+      available: () => bytes.length - at,
+      skip: (count) => {
+        const length = Math.max(0, Math.min(Number(count), bytes.length - at));
+        at += length;
+        return length;
+      },
+      copyTo: async (out) => {
+        const rest = bytes.subarray(at);
+        at = bytes.length;
+        await KT.m(out, 'write', [rest]);
+        return rest.length;
+      },
+      source: () => okioBuffer(bytes.subarray(at)),
+      buffered: () => stream,
+      reader: () => textReader(K.bin.text(bytes.subarray(at))),
+      bufferedReader: () => textReader(K.bin.text(bytes.subarray(at))),
+      close: () => KT.unit,
+      use: async (lambda) => lambda(stream),
+    };
+    return stream;
+  };
+
+  /// Java's `OutputStream` into a buffer (`ByteArrayOutputStream`, okio's `outputStream()`).
+  const outputStreamTo = (buffer) => {
+    const stream = {
+      __class: 'OutputStream',
+      __classes: ['OutputStream', 'ByteArrayOutputStream'],
+      u8Now: () => buffer.u8Now(),
+      write: (value, offset = 0, count = undefined) => (
+        buffer.write(value, offset, count),
+        KT.unit
+      ),
+      toByteArray: () => listOfBytes(buffer.u8Now()),
+      size: () => buffer.size,
+      reset: () => buffer.clear(),
+      writeTo: async (out) => KT.m(out, 'write', [buffer.u8Now()]),
+      toString: () => K.bin.text(buffer.u8Now()),
+      flush: () => KT.unit,
+      close: () => KT.unit,
+      use: async (lambda) => lambda(stream),
+    };
+    return stream;
+  };
+
+  /// Java's `ByteBuffer` over a `ByteArray` (shared, as `wrap` shares it).
+  const byteBuffer = (array, offset = 0, length = undefined) => {
+    let order = 'BIG_ENDIAN';
+    let position = offset;
+    let limit = length === undefined ? array.length : offset + length;
+    const little = () => order === 'LITTLE_ENDIAN';
+    const read = (index, size) => {
+      if (index + size > limit) throw new KotlinError('BufferUnderflowException');
+      const bytes = [];
+      for (let at = 0; at < size; at++) bytes.push(array[index + at] & 255);
+      return bytes;
+    };
+    const write = (index, bytes) => {
+      for (let at = 0; at < bytes.length; at++) array[index + at] = bytes[at];
+    };
+    const getter = (size) => (index) => {
+      const at = index === undefined ? position : offset + index;
+      const value = signedOf(read(at, size), little());
+      if (index === undefined) position += size;
+      return value;
+    };
+    const putter = (size) => (first, second) => {
+      const relative = second === undefined;
+      const at = relative ? position : offset + first;
+      write(at, bytesOfNumber(relative ? first : second, size, little()));
+      if (relative) position += size;
+      return buffer;
+    };
+    const view = (bytes) => new DataView(Uint8Array.from(bytes).buffer);
+    const buffer = {
+      __class: 'ByteBuffer',
+      __classes: ['ByteBuffer'],
+      order: (next) => {
+        if (next === undefined) return order;
+        order = KT.str(next);
+        return buffer;
+      },
+      get: (first, second, third) => {
+        if (Array.isArray(first)) {
+          const from = second ?? 0;
+          const count = third ?? first.length - from;
+          const bytes = read(position, count);
+          for (let at = 0; at < count; at++) first[from + at] = bytes[at];
+          position += count;
+          return buffer;
+        }
+        return getter(1)(first);
+      },
+      getShort: getter(2),
+      getInt: getter(4),
+      getLong: getter(8),
+      getFloat: (index) => {
+        const at = index === undefined ? position : offset + index;
+        const value = view(read(at, 4)).getFloat32(0, little());
+        if (index === undefined) position += 4;
+        return value;
+      },
+      getDouble: (index) => {
+        const at = index === undefined ? position : offset + index;
+        const value = view(read(at, 8)).getFloat64(0, little());
+        if (index === undefined) position += 8;
+        return value;
+      },
+      put: (first, second) => {
+        if (Array.isArray(first) || first instanceof Uint8Array) {
+          const bytes = listOfBytes(u8Of(first));
+          write(position, bytes);
+          position += bytes.length;
+          return buffer;
+        }
+        return putter(1)(first, second);
+      },
+      putShort: putter(2),
+      putInt: putter(4),
+      putLong: putter(8),
+      array: () => array,
+      arrayOffset: () => offset,
+      position: (next) => {
+        if (next === undefined) return position - offset;
+        position = offset + next;
+        return buffer;
+      },
+      limit: (next) => {
+        if (next === undefined) return limit - offset;
+        limit = offset + next;
+        return buffer;
+      },
+      capacity: () => array.length - offset,
+      remaining: () => limit - position,
+      hasRemaining: () => position < limit,
+      rewind: () => ((position = offset), buffer),
+      flip: () => ((limit = position), (position = offset), buffer),
+      clear: () => ((position = offset), (limit = array.length), buffer),
+    };
+    return buffer;
+  };
+
+  /// A body's bytes: as they came, a made body's, or its text's UTF-8.
+  const bodyU8 = async (body) => {
+    if (body === null || body === undefined) return new Uint8Array(0);
+    if (typeof body.u8 === 'function') return body.u8();
+    if (typeof body.u8Now === 'function') return body.u8Now();
+    return K.bin.utf8(KT.str(await body.string()));
+  };
+  /// A response body of bytes: `load` gives them when first asked, and `text` the text when it's
+  /// read another way (a page's, decoded by Raygun).
+  const bytesBody = (load, type = null, text = null) => {
+    let cached = null;
+    const u8 = async () => (cached ??= await load());
+    const string = text ?? (async () => K.bin.text(await u8()));
+    const body = {
+      __class: 'ResponseBody',
+      __classes: ['ResponseBody'],
+      isResponseBody: true,
+      u8,
+      string,
+      text: string,
+      bytes: async () => listOfBytes(await u8()),
+      byteStream: async () => inputStream(await u8()),
+      source: async () => okioBuffer(await u8()),
+      byteString: async () => byteString(await u8()),
+      charStream: async () => textReader(await string()),
+      close: () => KT.unit,
+      contentType: () => type,
+      contentLength: async () => (await u8()).length,
+      use: async (lambda) => lambda(body),
+    };
+    return body;
+  };
+  KT.bytesBody = bytesBody;
+
+  // ---- Pictures: Android's `Bitmap`, `BitmapFactory`, `Canvas`, held in Rust ----
+
+  /// An `ARGB` colour int (Kotlin's are signed) as Rust takes it.
+  const argbOf = (color) => Number(color ?? 0) >>> 0;
+  const IDENTITY = [1, 0, 0, 1, 0, 0];
+  /// `m` after `n`, both `[a, b, c, d, e, f]` (`x' = a·x + c·y + e`, `y' = b·x + d·y + f`).
+  const mul = (m, n) => [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+  const translation = (dx, dy) => [1, 0, 0, 1, Number(dx) || 0, Number(dy) || 0];
+  const about = (matrix, px, py) =>
+    px === undefined ? matrix : mul(translation(px, py), mul(matrix, translation(-px, -py)));
+  const scaling = (sx, sy, px, py) => about([sx, 0, 0, sy ?? sx, 0, 0], px, py);
+  /// A clockwise turn in degrees, exact for quarter turns.
+  const rotation = (degrees, px, py) => {
+    const radians = (Number(degrees) * Math.PI) / 180;
+    const exact = (value) =>
+      Math.abs(value - Math.round(value)) < 1e-12 ? Math.round(value) : value;
+    const cos = exact(Math.cos(radians));
+    const sin = exact(Math.sin(radians));
+    return about([cos, sin, -sin, cos, 0, 0], px, py);
+  };
+
+  class Bitmap {
+    constructor(picture) {
+      this.__class = 'Bitmap';
+      this.__classes = ['Bitmap'];
+      this.id = picture.id;
+      this.width = picture.width;
+      this.height = picture.height;
+      this.isRecycled = false;
+      this.isMutable = true;
+      this.config = 'ARGB_8888';
+      this.density = 160;
+    }
+    getWidth() {
+      return this.width;
+    }
+    getHeight() {
+      return this.height;
+    }
+    getConfig() {
+      return this.config;
+    }
+    getByteCount() {
+      return this.width * this.height * 4;
+    }
+    getRowBytes() {
+      return this.width * 4;
+    }
+    hasAlpha() {
+      return true;
+    }
+    setHasAlpha() {
+      return KT.unit;
+    }
+    setDensity() {
+      return KT.unit;
+    }
+    recycle() {
+      if (!this.isRecycled) {
+        K.bitmap.run('free', { id: this.id });
+        this.isRecycled = true;
+      }
+      return KT.unit;
+    }
+    compress(format, quality, stream) {
+      stream.write(K.bitmap.encode(this.id, KT.str(format), Number(quality)));
+      return true;
+    }
+    copy() {
+      return new Bitmap(K.bitmap.run('copy', { id: this.id }));
+    }
+    getPixel(x, y) {
+      return K.bitmap.run('pixels', { id: this.id, x, y, width: 1, height: 1 })[0];
+    }
+    setPixel(x, y, color) {
+      K.bitmap.run('setPixels', { id: this.id, x, y, width: 1, height: 1, colors: [color] });
+      return KT.unit;
+    }
+    getPixels(pixels, offset, stride, x, y, width, height) {
+      const colors = K.bitmap.run('pixels', { id: this.id, x, y, width, height });
+      for (let row = 0; row < height; row++)
+        for (let column = 0; column < width; column++)
+          pixels[offset + row * stride + column] = colors[row * width + column];
+      return KT.unit;
+    }
+    setPixels(pixels, offset, stride, x, y, width, height) {
+      const colors = [];
+      for (let row = 0; row < height; row++)
+        for (let column = 0; column < width; column++)
+          colors.push(pixels[offset + row * stride + column] ?? 0);
+      K.bitmap.run('setPixels', { id: this.id, x, y, width, height, colors });
+      return KT.unit;
+    }
+    eraseColor(color) {
+      K.bitmap.run('fill', { id: this.id, color: argbOf(color), replace: true });
+      return KT.unit;
+    }
+  }
+
+  /// A picture read from its file's bytes; null when it can't be read, as Android answers.
+  const decodeBitmap = (bytes, options = null) => {
+    let picture;
+    try {
+      picture = K.bitmap.decode(u8Of(bytes));
+    } catch (error) {
+      raygun.log.warn(`a picture couldn't be read: ${error.message}`);
+      return null;
+    }
+    let bitmap = new Bitmap(picture);
+    if (options && typeof options === 'object') {
+      options.outWidth = bitmap.width;
+      options.outHeight = bitmap.height;
+      if (KT.truthy(options.inJustDecodeBounds)) {
+        bitmap.recycle();
+        return null;
+      }
+      const sample = Number(options.inSampleSize ?? 1);
+      if (sample > 1) {
+        const scaled = K.bitmap.run('scaled', {
+          id: bitmap.id,
+          width: Math.max(1, Math.floor(bitmap.width / sample)),
+          height: Math.max(1, Math.floor(bitmap.height / sample)),
+          filter: true,
+        });
+        bitmap.recycle();
+        bitmap = new Bitmap(scaled);
+      }
+    }
+    return bitmap;
+  };
+  const streamBytes = async (stream) => {
+    if (stream === null || stream === undefined) return null;
+    if (typeof stream.u8Now === 'function') return stream.u8Now();
+    return bodyU8(stream);
+  };
+  const bitmapFactory = {
+    decodeStream: async (stream, _padding = null, options = null) => {
+      const bytes = await streamBytes(stream);
+      return bytes === null ? null : decodeBitmap(bytes, options ?? _padding);
+    },
+    decodeByteArray: (bytes, offset = 0, length = undefined, options = null) => {
+      const all = u8Of(bytes);
+      return decodeBitmap(
+        all.subarray(offset, length === undefined ? all.length : offset + length),
+        options,
+      );
+    },
+    Options: () => ({
+      __class: 'Options',
+      inJustDecodeBounds: false,
+      inMutable: false,
+      inSampleSize: 1,
+      inPreferredConfig: null,
+      outWidth: -1,
+      outHeight: -1,
+      outMimeType: null,
+    }),
+  };
+  /// Keiyoushi's `lib:imagedecoder` (`ImageDecoder.decode(bytes)`): Raygun's own decoder.
+  const imageDecoder = {
+    decode: (bytes) => {
+      const bitmap = decodeBitmap(bytes);
+      if (!bitmap) throw new KotlinError('No decoder could read the image', 'IOException');
+      return bitmap;
+    },
+  };
+  const bitmapStatics = {
+    Config: {
+      ARGB_8888: 'ARGB_8888',
+      RGB_565: 'RGB_565',
+      ALPHA_8: 'ALPHA_8',
+      ARGB_4444: 'ARGB_4444',
+      RGBA_F16: 'RGBA_F16',
+      HARDWARE: 'HARDWARE',
+    },
+    CompressFormat: {
+      JPEG: 'JPEG',
+      PNG: 'PNG',
+      WEBP: 'WEBP',
+      WEBP_LOSSY: 'WEBP_LOSSY',
+      WEBP_LOSSLESS: 'WEBP_LOSSLESS',
+    },
+    createBitmap: (...args) => {
+      // A display's metrics first changes nothing.
+      if (
+        args[0] &&
+        typeof args[0] === 'object' &&
+        args[0].density !== undefined &&
+        !(args[0] instanceof Bitmap)
+      )
+        args.shift();
+      const [first] = args;
+      if (typeof first === 'number')
+        return new Bitmap(K.bitmap.run('create', { width: args[0], height: args[1], color: 0 }));
+      if (Array.isArray(first)) {
+        // (colors, [offset, stride,] width, height, config)
+        const [colors, ...rest] = args;
+        const [offset, stride, width, height] =
+          typeof rest[2] === 'number' ? rest : [0, rest[0], rest[0], rest[1]];
+        const bitmap = new Bitmap(K.bitmap.run('create', { width, height, color: 0 }));
+        bitmap.setPixels(colors, offset, stride, 0, 0, width, height);
+        return bitmap;
+      }
+      if (first instanceof Bitmap) {
+        if (args.length === 1) return first.copy();
+        const [source, x, y, width, height, matrix] = args;
+        if (matrix && matrix.isMatrix && !matrix.isIdentity()) {
+          // The part through the matrix, in a picture as large as its bounds.
+          const corners = [
+            [0, 0],
+            [width, 0],
+            [0, height],
+            [width, height],
+          ].map(([px, py]) => {
+            const [a, b, c, d, e, f] = matrix.values;
+            return [a * px + c * py + e, b * px + d * py + f];
+          });
+          const left = Math.min(...corners.map((corner) => corner[0]));
+          const top = Math.min(...corners.map((corner) => corner[1]));
+          const right = Math.max(...corners.map((corner) => corner[0]));
+          const bottom = Math.max(...corners.map((corner) => corner[1]));
+          const target = new Bitmap(
+            K.bitmap.run('create', {
+              width: Math.max(1, Math.round(right - left)),
+              height: Math.max(1, Math.round(bottom - top)),
+              color: 0,
+            }),
+          );
+          K.bitmap.run('draw', {
+            target: target.id,
+            source: source.id,
+            part: [x, y, x + width, y + height],
+            matrix: mul(translation(-left, -top), mul(matrix.values, translation(-x, -y))),
+          });
+          return target;
+        }
+        return new Bitmap(K.bitmap.run('crop', { id: source.id, x, y, width, height }));
+      }
+      throw new KotlinError("Bitmap.createBitmap wasn't given a size or a picture");
+    },
+    createScaledBitmap: (source, width, height, filter = true) =>
+      new Bitmap(
+        K.bitmap.run('scaled', { id: source.id, width, height, filter: KT.truthy(filter) }),
+      ),
+  };
+
+  /// Android's `Matrix`: an affine map, built by `pre…` (applied first) and `post…` (after).
+  class Matrix {
+    constructor(other = null) {
+      this.__class = 'Matrix';
+      this.__classes = ['Matrix'];
+      this.isMatrix = true;
+      this.values = other && other.values ? [...other.values] : [...IDENTITY];
+    }
+    isIdentity() {
+      return this.values.every((value, index) => value === IDENTITY[index]);
+    }
+    reset() {
+      this.values = [...IDENTITY];
+      return KT.unit;
+    }
+    set(other) {
+      this.values = other ? [...other.values] : [...IDENTITY];
+      return KT.unit;
+    }
+    setTranslate(dx, dy) {
+      this.values = translation(dx, dy);
+      return KT.unit;
+    }
+    setScale(sx, sy, px, py) {
+      this.values = scaling(sx, sy, px, py);
+      return KT.unit;
+    }
+    setRotate(degrees, px, py) {
+      this.values = rotation(degrees, px, py);
+      return KT.unit;
+    }
+    preTranslate(dx, dy) {
+      this.values = mul(this.values, translation(dx, dy));
+      return true;
+    }
+    preScale(sx, sy, px, py) {
+      this.values = mul(this.values, scaling(sx, sy, px, py));
+      return true;
+    }
+    preRotate(degrees, px, py) {
+      this.values = mul(this.values, rotation(degrees, px, py));
+      return true;
+    }
+    preConcat(other) {
+      this.values = mul(this.values, other.values);
+      return true;
+    }
+    postTranslate(dx, dy) {
+      this.values = mul(translation(dx, dy), this.values);
+      return true;
+    }
+    postScale(sx, sy, px, py) {
+      this.values = mul(scaling(sx, sy, px, py), this.values);
+      return true;
+    }
+    postRotate(degrees, px, py) {
+      this.values = mul(rotation(degrees, px, py), this.values);
+      return true;
+    }
+    postConcat(other) {
+      this.values = mul(other.values, this.values);
+      return true;
+    }
+  }
+
+  /// Android's `Rect` and `RectF`.
+  class Rect {
+    constructor(...args) {
+      this.__class = 'Rect';
+      this.__classes = ['Rect', 'RectF'];
+      this.set(...args);
+    }
+    set(...args) {
+      const [first] = args;
+      if (first && typeof first === 'object')
+        [this.left, this.top, this.right, this.bottom] = [
+          first.left,
+          first.top,
+          first.right,
+          first.bottom,
+        ];
+      else if (args.length >= 4) [this.left, this.top, this.right, this.bottom] = args.map(Number);
+      else [this.left, this.top, this.right, this.bottom] = [0, 0, 0, 0];
+      return KT.unit;
+    }
+    width() {
+      return this.right - this.left;
+    }
+    height() {
+      return this.bottom - this.top;
+    }
+    centerX() {
+      return (this.left + this.right) / 2;
+    }
+    centerY() {
+      return (this.top + this.bottom) / 2;
+    }
+    exactCenterX() {
+      return (this.left + this.right) / 2;
+    }
+    exactCenterY() {
+      return (this.top + this.bottom) / 2;
+    }
+    isEmpty() {
+      return this.left >= this.right || this.top >= this.bottom;
+    }
+    setEmpty() {
+      return this.set();
+    }
+    offset(dx, dy) {
+      this.left += dx;
+      this.right += dx;
+      this.top += dy;
+      this.bottom += dy;
+      return KT.unit;
+    }
+    offsetTo(x, y) {
+      return this.offset(x - this.left, y - this.top);
+    }
+    inset(dx, dy) {
+      this.left += dx;
+      this.right -= dx;
+      this.top += dy;
+      this.bottom -= dy;
+      return KT.unit;
+    }
+    contains(x, y) {
+      return x >= this.left && x < this.right && y >= this.top && y < this.bottom;
+    }
+    intersect(...args) {
+      const other = new Rect(...args);
+      if (
+        other.left >= this.right ||
+        this.left >= other.right ||
+        other.top >= this.bottom ||
+        this.top >= other.bottom
+      )
+        return false;
+      this.set(
+        Math.max(this.left, other.left),
+        Math.max(this.top, other.top),
+        Math.min(this.right, other.right),
+        Math.min(this.bottom, other.bottom),
+      );
+      return true;
+    }
+    union(...args) {
+      const other = new Rect(...args);
+      this.set(
+        Math.min(this.left, other.left),
+        Math.min(this.top, other.top),
+        Math.max(this.right, other.right),
+        Math.max(this.bottom, other.bottom),
+      );
+      return KT.unit;
+    }
+  }
+  const rectFrom = (args) =>
+    args.length >= 4 ? new Rect(...args.slice(0, 4)) : args[0] ? new Rect(args[0]) : null;
+
+  /// Android's `Paint` (and `TextPaint`): what a fill or text is drawn with.
+  const makePaint = (from = null) => {
+    const paint = {
+      __class: 'Paint',
+      __classes: ['Paint', 'TextPaint'],
+      color: from && typeof from === 'object' ? from.color : -16777216,
+      alpha: 255,
+      style: 'FILL',
+      textSize: from && typeof from === 'object' ? from.textSize : 12,
+      typeface: from && typeof from === 'object' ? from.typeface : null,
+      isAntiAlias: false,
+      isFilterBitmap: false,
+      isDither: false,
+      setColor: (color) => ((paint.color = color), KT.unit),
+      setAlpha: (alpha) => ((paint.alpha = alpha), KT.unit),
+      setStyle: (style) => ((paint.style = style), KT.unit),
+      setTextSize: (size) => ((paint.textSize = size), KT.unit),
+      setTypeface: (typeface) => ((paint.typeface = typeface), typeface),
+      setAntiAlias: (on) => ((paint.isAntiAlias = on), KT.unit),
+      setFilterBitmap: (on) => ((paint.isFilterBitmap = on), KT.unit),
+      setDither: (on) => ((paint.isDither = on), KT.unit),
+      setXfermode: (mode) => ((paint.xfermode = mode), mode),
+      setColorFilter: (filter) => ((paint.colorFilter = filter), filter),
+    };
+    return paint;
+  };
+  const paintStatics = {
+    Style: { FILL: 'FILL', STROKE: 'STROKE', FILL_AND_STROKE: 'FILL_AND_STROKE' },
+    Align: { LEFT: 'LEFT', CENTER: 'CENTER', RIGHT: 'RIGHT' },
+    Join: { MITER: 'MITER', ROUND: 'ROUND', BEVEL: 'BEVEL' },
+    Cap: { BUTT: 'BUTT', ROUND: 'ROUND', SQUARE: 'SQUARE' },
+    ANTI_ALIAS_FLAG: 1,
+    FILTER_BITMAP_FLAG: 2,
+    DITHER_FLAG: 4,
+  };
+  const colorStatics = {
+    BLACK: -16777216,
+    DKGRAY: -12303292,
+    GRAY: -7829368,
+    LTGRAY: -3355444,
+    WHITE: -1,
+    RED: -65536,
+    GREEN: -16711936,
+    BLUE: -16776961,
+    YELLOW: -256,
+    CYAN: -16711681,
+    MAGENTA: -65281,
+    TRANSPARENT: 0,
+    rgb: (red, green, blue) => 0xff000000 | (red << 16) | (green << 8) | blue | 0,
+    argb: (alpha, red, green, blue) => (alpha << 24) | (red << 16) | (green << 8) | blue | 0,
+    alpha: (color) => (color >>> 24) & 255,
+    red: (color) => (color >> 16) & 255,
+    green: (color) => (color >> 8) & 255,
+    blue: (color) => color & 255,
+    parseColor: (text) => {
+      const value = KT.str(text).trim();
+      const named = {
+        black: -16777216,
+        white: -1,
+        red: -65536,
+        green: -16711936,
+        blue: -16776961,
+        gray: -7829368,
+        grey: -7829368,
+        yellow: -256,
+        cyan: -16711681,
+        magenta: -65281,
+        transparent: 0,
+      }[value.toLowerCase()];
+      if (named !== undefined) return named;
+      const hex = value.startsWith('#') ? value.slice(1) : null;
+      if (hex && /^[0-9a-fA-F]+$/.test(hex) && (hex.length === 6 || hex.length === 8))
+        return parseInt(hex.length === 6 ? `ff${hex}` : hex, 16) | 0;
+      throw new KotlinError(`Unknown color ${value}`, 'IllegalArgumentException');
+    },
+  };
+  const typefaceStatics = {
+    DEFAULT: { __class: 'Typeface', bold: false },
+    DEFAULT_BOLD: { __class: 'Typeface', bold: true },
+    SANS_SERIF: { __class: 'Typeface', bold: false },
+    SERIF: { __class: 'Typeface', bold: false },
+    MONOSPACE: { __class: 'Typeface', bold: false },
+    NORMAL: 0,
+    BOLD: 1,
+    ITALIC: 2,
+    BOLD_ITALIC: 3,
+    create: (_family, style) => ({ __class: 'Typeface', bold: style === 1 || style === 3 }),
+    defaultFromStyle: (style) => ({ __class: 'Typeface', bold: style === 1 || style === 3 }),
+  };
+
+  /// Android's `Canvas` over a picture: draws through its matrix, inside its clip.
+  class Canvas {
+    constructor(bitmap = null) {
+      this.__class = 'Canvas';
+      this.__classes = ['Canvas'];
+      this.bitmap = bitmap;
+      this.matrix = [...IDENTITY];
+      this.clip = null;
+      this.saved = [];
+    }
+    get width() {
+      return this.bitmap ? this.bitmap.width : 0;
+    }
+    get height() {
+      return this.bitmap ? this.bitmap.height : 0;
+    }
+    getWidth() {
+      return this.width;
+    }
+    getHeight() {
+      return this.height;
+    }
+    target() {
+      if (!this.bitmap) throw new KotlinError('the canvas has no picture to draw on');
+      return this.bitmap.id;
+    }
+    setBitmap(bitmap) {
+      this.bitmap = bitmap;
+      return KT.unit;
+    }
+    save() {
+      this.saved.push([this.matrix, this.clip]);
+      return this.saved.length;
+    }
+    getSaveCount() {
+      return this.saved.length + 1;
+    }
+    restore() {
+      const [matrix, clip] = this.saved.pop() ?? [[...IDENTITY], null];
+      this.matrix = matrix;
+      this.clip = clip;
+      return KT.unit;
+    }
+    restoreToCount(count) {
+      while (this.saved.length >= Math.max(1, count)) this.restore();
+      return KT.unit;
+    }
+    translate(dx, dy) {
+      this.matrix = mul(this.matrix, translation(dx, dy));
+      return KT.unit;
+    }
+    scale(sx, sy, px, py) {
+      this.matrix = mul(this.matrix, scaling(sx, sy, px, py));
+      return KT.unit;
+    }
+    rotate(degrees, px, py) {
+      this.matrix = mul(this.matrix, rotation(degrees, px, py));
+      return KT.unit;
+    }
+    concat(matrix) {
+      if (matrix) this.matrix = mul(this.matrix, matrix.values);
+      return KT.unit;
+    }
+    setMatrix(matrix) {
+      this.matrix = matrix ? [...matrix.values] : [...IDENTITY];
+      return KT.unit;
+    }
+    /// A clip of a rectangle, kept as its bounds on the picture.
+    clipRect(...args) {
+      const rect = rectFrom(args);
+      if (!rect) return true;
+      const [a, b, c, d, e, f] = this.matrix;
+      const xs = [rect.left, rect.right].flatMap((x) =>
+        [rect.top, rect.bottom].map((y) => a * x + c * y + e),
+      );
+      const ys = [rect.left, rect.right].flatMap((x) =>
+        [rect.top, rect.bottom].map((y) => b * x + d * y + f),
+      );
+      const next = [
+        Math.floor(Math.min(...xs)),
+        Math.floor(Math.min(...ys)),
+        Math.ceil(Math.max(...xs)),
+        Math.ceil(Math.max(...ys)),
+      ];
+      this.clip = this.clip
+        ? [
+            Math.max(this.clip[0], next[0]),
+            Math.max(this.clip[1], next[1]),
+            Math.min(this.clip[2], next[2]),
+            Math.min(this.clip[3], next[3]),
+          ]
+        : next;
+      return this.clip[0] < this.clip[2] && this.clip[1] < this.clip[3];
+    }
+    /// `drawBitmap(bitmap, left, top, paint)`, `(bitmap, src, dst, paint)`, `(bitmap, matrix, paint)`.
+    drawBitmap(bitmap, second, third) {
+      let part = [0, 0, bitmap.width, bitmap.height];
+      let local;
+      if (typeof second === 'number') local = translation(second, third);
+      else if (second && second.isMatrix) local = second.values;
+      else {
+        if (second) part = [second.left, second.top, second.right, second.bottom];
+        const destination = third;
+        const sx = (destination.right - destination.left) / (part[2] - part[0]);
+        const sy = (destination.bottom - destination.top) / (part[3] - part[1]);
+        local = [sx, 0, 0, sy, destination.left - part[0] * sx, destination.top - part[1] * sy];
+      }
+      if (!(part[2] > part[0]) || !(part[3] > part[1])) return KT.unit;
+      K.bitmap.run('draw', {
+        target: this.target(),
+        source: bitmap.id,
+        part: part.map((value) => Math.round(value)),
+        matrix: mul(this.matrix, local),
+        clip: this.clip,
+      });
+      return KT.unit;
+    }
+    drawColor(color, mode = null) {
+      const replace = ['CLEAR', 'SRC'].includes(KT.str(mode ?? ''));
+      K.bitmap.run('fill', {
+        id: this.target(),
+        color: KT.str(mode ?? '') === 'CLEAR' ? 0 : argbOf(color),
+        replace,
+      });
+      return KT.unit;
+    }
+    drawARGB(alpha, red, green, blue) {
+      return this.drawColor(colorStatics.argb(alpha, red, green, blue));
+    }
+    drawRGB(red, green, blue) {
+      return this.drawColor(colorStatics.rgb(red, green, blue));
+    }
+    drawPaint(paint) {
+      return this.drawColor(paint ? paint.color : colorStatics.BLACK);
+    }
+    drawRect(...args) {
+      const paint = args.pop();
+      const rect = rectFrom(args);
+      if (!rect) return KT.unit;
+      K.bitmap.run('fill', {
+        id: this.target(),
+        rect: [rect.left, rect.top, rect.right, rect.bottom],
+        matrix: this.matrix,
+        color: argbOf(paint ? paint.color : colorStatics.BLACK),
+      });
+      return KT.unit;
+    }
+  }
+
+  /// Text a web comic's notes become, as `lib:textinterceptor` draws them: a white page 1000
+  /// pixels wide, the heading in bold above the text.
+  const TEXT_HOST = 'tachiyomi-lib-textinterceptor';
+  /// Android's `Html.fromHtml(…).toString()`: lines kept, tags dropped, entities read.
+  const fromHtml = (html) =>
+    unescapeEntities(
+      KT.str(html)
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p\s*>/gi, '\n\n')
+        .replace(/<[^>]*>/g, ''),
+    ).trim();
+  const textPage = async (request) => {
+    const segments = request.url.pathSegments;
+    const width = 1000;
+    const padX = 50;
+    const padY = 25;
+    const parts = [
+      { text: segments[0] ? fromHtml(segments[0]) : '', size: 36, bold: true },
+      { text: segments[1] ? fromHtml(segments[1]) : '', size: 30, bold: false },
+    ].map((part) => ({
+      ...part,
+      width: width - 2 * padX,
+      spacing: 1.1,
+      extra: 2,
+      height: part.text
+        ? K.bitmap.run('measureText', { ...part, width: width - 2 * padX, spacing: 1.1, extra: 2 })
+            .height
+        : 0,
+    }));
+    const picture = K.bitmap.run('create', {
+      width,
+      height: Math.max(1, Math.trunc(parts[0].height + parts[1].height + 2 * padY)),
+      color: 0xffffffff,
+    });
+    try {
+      let top = padY;
+      for (const part of parts) {
+        if (part.text)
+          K.bitmap.run('drawText', {
+            id: picture.id,
+            text: part.text,
+            size: part.size,
+            width: part.width,
+            spacing: part.spacing,
+            extra: part.extra,
+            bold: part.bold,
+            x: padX,
+            y: top,
+            color: 0xff000000,
+          });
+        top += part.height;
+      }
+      const png = K.bitmap.encode(picture.id, 'PNG', 100);
+      return Response.made({
+        code: 200,
+        message: 'OK',
+        request,
+        headers: new Headers([['Content-Type', 'image/png']]),
+        body: bytesBody(async () => png, 'image/png'),
+      });
+    } finally {
+      K.bitmap.run('free', { id: picture.id });
+    }
+  };
+  const textInterceptor = () => ({
+    __class: 'TextInterceptor',
+    __classes: ['TextInterceptor', 'Interceptor'],
+    intercept: async (chain) => {
+      const request = chain.request();
+      if (request.url.host !== TEXT_HOST) return chain.proceed(request);
+      return textPage(request);
+    },
+  });
+  const textInterceptorHelper = {
+    HOST: TEXT_HOST,
+    createUrl: (title, text) =>
+      `http://${TEXT_HOST}/${encodeURIComponent(KT.str(title))}/${encodeURIComponent(KT.str(text))}`,
+  };
+
   const GLOBALS = {
     listOf: (args) => [...args],
+    // Android's graphics, okio's `Buffer` and Java's byte streams (above).
+    Canvas: ([bitmap]) => new Canvas(bitmap ?? null),
+    Rect: (args) => new Rect(...args),
+    RectF: (args) => new Rect(...args),
+    Matrix: ([other]) => new Matrix(other ?? null),
+    Paint: ([from]) => makePaint(from ?? null),
+    TextPaint: ([from]) => makePaint(from ?? null),
+    Buffer: () => okioBuffer(),
+    ByteArrayOutputStream: () => outputStreamTo(okioBuffer()),
+    ByteArrayInputStream: ([bytes, offset = 0, length]) => {
+      const all = u8Of(bytes);
+      return inputStream(all.subarray(offset, length === undefined ? all.length : offset + length));
+    },
+    // Keiyoushi's `lib:textinterceptor`: pages of text drawn as pictures.
+    TextInterceptor: () => textInterceptor(),
     mutableListOf: (args) => [...args],
     arrayListOf: (args) => [...args],
     arrayOf: (args) => [...args],
@@ -4033,6 +5204,25 @@
   };
 
   const OBJECTS = {
+    // Android's graphics and Java's `ByteBuffer` (above); `lib:imagedecoder`'s `ImageDecoder`
+    // and `lib:textinterceptor`'s helper.
+    Bitmap: bitmapStatics,
+    BitmapFactory: bitmapFactory,
+    Color: colorStatics,
+    Paint: paintStatics,
+    Typeface: typefaceStatics,
+    ByteBuffer: {
+      wrap: (array, offset = 0, length = undefined) => byteBuffer(array, offset, length),
+      allocate: (size) => byteBuffer(new Array(size).fill(0)),
+      allocateDirect: (size) => byteBuffer(new Array(size).fill(0)),
+    },
+    ByteOrder: {
+      LITTLE_ENDIAN: 'LITTLE_ENDIAN',
+      BIG_ENDIAN: 'BIG_ENDIAN',
+      nativeOrder: () => 'LITTLE_ENDIAN',
+    },
+    ImageDecoder: imageDecoder,
+    TextInterceptorHelper: textInterceptorHelper,
     // Keiyoushi's `JSON_MEDIA_TYPE`.
     JSON_MEDIA_TYPE: 'application/json',
     // Mihon's `QuickJs`: a site's script, run apart (`runtime.rs`'s `evaluate`).
@@ -4139,8 +5329,17 @@
     Json: jsonCodec,
     MediaType: { parse: (text) => KT.str(text), get: (text) => KT.str(text) },
     ResponseBody: {
-      create: (first, second) =>
-        typeof first === 'string' ? KT.textBody(first, second) : KT.textBody(second, first),
+      // `create(type, content)` or `create(content, type)`: text, or bytes. A media type is
+      // text here too, so the one that reads as a type is the type.
+      create: (first, second) => {
+        const typeLike = (value) =>
+          typeof value === 'string' && /^[\w.+-]+\/[\w.+-]+(\s*;.*)?$/.test(value.trim());
+        let [content, type] = [first, second];
+        if ((typeLike(first) && !typeLike(second)) || first === null || first === undefined)
+          [content, type] = [second, first];
+        if (typeof content === 'string') return KT.textBody(content, type ?? null);
+        return bytesBody(async () => u8Of(content), type ?? null);
+      },
     },
     String: {
       // `String.format(Locale.US, "%02d", n)` too: the locale changes nothing here.
@@ -4456,6 +5655,30 @@
     return list;
   };
 
+  /// A class's function with overloads (`[required, total, [types], code]` each): the first
+  /// that takes as many arguments and, where several do, arguments of its parameters' types.
+  KT.overloaded = (overloads) => {
+    const pick = (args) => {
+      const counted = overloads.filter(
+        ([least, most]) => args.length >= least && args.length <= most,
+      );
+      const typed = counted.find(([, , types]) =>
+        types.every(
+          (type, at) =>
+            at >= args.length ||
+            type === null ||
+            args[at] === null ||
+            args[at] === undefined ||
+            KT.is(args[at], type),
+        ),
+      );
+      return (typed ?? counted[0] ?? overloads[0])[3];
+    };
+    const most = Math.max(...overloads.map(([, total]) => Math.min(total, 64)));
+    const dispatch = async (self_, ...args) => pick(args)(self_, ...args);
+    Object.defineProperty(dispatch, 'length', { value: most + 1 });
+    return dispatch;
+  };
   KT.defineClass = (definition) => {
     /// An instance with these fields (`undefined` ones take their defaults).
     const build = async (fields) => {
@@ -4502,8 +5725,10 @@
           }
         }
       }
+      const fieldsToSet = [];
       for (const [name, member] of Object.entries(definition.members)) {
-        if (member && member.isGetter)
+        if (member && member.isField) fieldsToSet.push([name, member]);
+        else if (member && member.isGetter)
           Object.defineProperty(object, name, {
             get: () => member.function_(object),
             enumerable: false,
@@ -4512,6 +5737,15 @@
           object[name] = (...rest) => member(object, ...rest);
           object[name].arity = Math.max(0, member.length - 1);
         }
+      }
+      // Fields in the order they're declared, once the instance has its functions.
+      for (const [name, member] of fieldsToSet) {
+        Object.defineProperty(object, name, {
+          value: await member.function_(object),
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        });
       }
       for (const [name, function_] of Object.entries(definition.statics ?? {}))
         if (!Object.prototype.hasOwnProperty.call(object, name))
@@ -4602,8 +5836,28 @@
     holder.values = () => definition.entries.map((entry) => holder[entry]);
     holder.entries = definition.entries.map((entry) => holder[entry]);
     if (definition.kind === 'object') {
-      for (const [name, member] of Object.entries(definition.members))
-        holder[name] = (...rest) => member(holder, ...rest);
+      for (const [name, member] of Object.entries(definition.members)) {
+        // A property (`val wordRegex by lazy { … }`) is worked out once, when first read; a
+        // field may be set.
+        if (member && (member.isGetter || member.isField)) {
+          let value;
+          let read = false;
+          Object.defineProperty(holder, name, {
+            get: () => {
+              if (!read) {
+                value = member.function_(holder);
+                read = true;
+              }
+              return value;
+            },
+            set: (next) => {
+              value = next;
+              read = true;
+            },
+            enumerable: false,
+          });
+        } else holder[name] = (...rest) => member(holder, ...rest);
+      }
     }
     return holder;
   };
@@ -4846,19 +6100,35 @@
       prop: (name, getter, once = true) => layers[index].properties.set(name, { getter, once }),
       // Extensions of one name on different receivers are told apart by the receiver's type
       // (the latest of those that fit, else the latest).
-      extension: (name, function_, type = null) => {
+      /// An extension function; overloads are told apart by their receiver's type, then by
+      /// `shape` (`[required, total, [types]]`): how many arguments they take, and of what types.
+      extension: (name, function_, type = null, shape = null) => {
         const list = extensionOverloads.get(name) ?? [];
-        list.push({ type, function_ });
+        list.push({ type, function_, shape });
         extensionOverloads.set(name, list);
+        const fits = (entry, args) =>
+          !entry.shape || (args.length >= entry.shape[0] && args.length <= entry.shape[1]);
+        const typed = (entry, args) =>
+          !entry.shape ||
+          entry.shape[2].every(
+            (kind, at) =>
+              at >= args.length || kind === null || args[at] == null || KT.is(args[at], kind),
+          );
         extensions.set(
           name,
           list.length === 1
             ? function_
             : (receiver, ...args) => {
-                const fitting = [...list]
-                  .reverse()
-                  .find((entry) => entry.type && KT.is(receiver, entry.type));
-                return (fitting ?? list[list.length - 1]).function_(receiver, ...args);
+                const ordered = [...list].reverse();
+                const byReceiver = ordered.filter(
+                  (entry) => entry.type && KT.is(receiver, entry.type),
+                );
+                const pool = byReceiver.length ? byReceiver : ordered;
+                const fitting =
+                  pool.find((entry) => fits(entry, args) && typed(entry, args)) ??
+                  pool.find((entry) => fits(entry, args)) ??
+                  pool[0];
+                return fitting.function_(receiver, ...args);
               },
         );
       },
@@ -5131,9 +6401,26 @@
             let url = unscrambled(request.url.toString(), config.imageRecipe);
             const key = xors.length ? await xorKey(request) : null;
             if (key) url = `${url.split('#')[0]}#raygun-unscramble=xor:${hexOf(key)}`;
+            // A source whose client draws or decodes its pictures fetches them itself (`image`
+            // below); Raygun puts the provider's id after the mark.
+            else if (config.imagesFromSource) url = `${url}#raygun-source`;
             out.push({ url, headers: request.headers.object() });
           }
           return { pages: out };
+        },
+        // A page's picture through the source's client and its interceptors, as Mihon's
+        // `getImage` fetches it: the bytes they answer with, in base64.
+        image: async ({ url, headers = {} }) => {
+          await ready();
+          const client = await self.get('client');
+          const request = new Request({
+            url,
+            headers: new Headers(Object.entries(headers ?? {})),
+            kind: { isFetch: true, kind: 'image' },
+          });
+          const response = await client.newCall(request).awaitSuccess();
+          const bytes = await bodyU8(response.body);
+          return { base64: K.bin.toBase64(bytes) };
         },
       });
     }

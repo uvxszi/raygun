@@ -119,8 +119,20 @@ with the theme's own code: installing reads `lib-multisrc/<theme>` beside the ex
 (`source::fetch_theme`), and the theme's classes become layers beneath the source's, as Kotlin
 inherits them (`mihon.source({ layers: [theme, source] })`: a call finds the topmost layer that
 has it, `super` the layers beneath). The theme's other source classes (`MadaraNoAjax` beside
-`Madara`) are left out. A theme's build may name only `lib:i18n`, whose messages
-(`assets/i18n/messages_<lang>.properties`) come with the converted code for `Intl`.
+`Madara`) are left out.
+
+### Keiyoushi's libraries
+
+An extension (or its theme) may build on Keiyoushi's libraries (`lib/<name>` beside the
+extensions):
+
+- `lib:i18n`: its messages (`assets/i18n/messages_<lang>.properties`) come with the converted code
+  for `Intl`;
+- `lib:textinterceptor` and `lib:imagedecoder` are the runtime's own: text drawn as a page (a web
+  comic's notes, in the system's sans-serif face) and pictures decoded;
+- any other library (`lib:unpacker`, `lib:speedbinb`, `lib:publus`, `lib:clipstudioreader`…) is
+  read when installing (`source::fetch_library`, after `convert::libraries_to_read`) and its code
+  converts with the extension's, as it's compiled into it.
 
 Two themes' pieces are written by Raygun instead of converted:
 
@@ -142,8 +154,26 @@ is Android's `CookieManager`. Keiyoushi's `XorInterceptor` (MANGA Plus-style XOR
 recipe as well: each page's request gives its key when the pages are listed, and the address
 carries it (`#raygun-unscramble=xor:<hex>`) for Raygun's image fetcher. `QuickJs.create()
 .evaluate(script)` runs a site's script in a JavaScript engine of its own (5 s, 64 MB, nothing of
-the extension's). An interceptor that draws pictures (`BitmapFactory`) is refused, as there are
-none to draw.
+the extension's).
+
+### Pictures the source draws
+
+A source whose client draws, decodes or rewrites its pictures (Android's `BitmapFactory`,
+`Bitmap` and `Canvas`, `lib:textinterceptor`, `lib:imagedecoder`, or an answer's bytes read and
+made into a new body) gets its pages' pictures through its own client, as Mihon does:
+
+- its pages' addresses end with `#raygun-source=<provider id>` (the converted code marks them,
+  `ExtensionHost::manga_pages` adds the id; the address before it keeps its own fragment, which
+  the source's code may read);
+- Raygun's image fetcher (`raygun_net::images::fetch_image`, for the reader and chapter
+  downloads alike) asks the source (`ExtensionHost::manga_image`, the provider's `image` call),
+  which sends the request through its interceptors and answers the bytes they give;
+- answers keep their bytes when they aren't text (`raygun.http.fetch`'s `binary`), as
+  `Uint8Array`s that bodies, `byteStream()`, `source()`, okio's `Buffer`, Java's byte streams and
+  `ByteBuffer` read;
+- pictures are held in Rust (`raygun_net::bitmap`, `mihon/pictures.rs`): `BitmapFactory` decodes
+  PNG, JPEG, WebP, GIF and JPEG XL; a `Canvas` draws through its matrix (translations, scales,
+  rotations, mirrors) inside its clip; `compress` writes JPEG or PNG.
 
 A `break` or `continue` out of a lambda (`?.let { continue }`, `forEach { … break }`) or in an
 expression (`?: continue`) is a `KT.Jump` that the loop's body catches.
@@ -160,8 +190,7 @@ the site).
 Anything else is refused with the reason, which the catalogue then shows for that version
 ("Raygun can't convert it: its code uses proceed(), which Raygun's converter doesn't read yet"):
 
-- an interceptor drawing pictures (image descrambling other than the two recipes above);
-- one of Keiyoushi's libraries (`lib:speedbinb`, `lib:unpacker`, `lib:textinterceptor`…);
+- one of Keiyoushi's libraries whose code couldn't be read;
 - a call, object or name the runtime doesn't have (`emit::METHODS`, `GLOBALS` and `OBJECTS`,
   which a test keeps equal to `kotlin.js`'s tables), such as WebViews or `MultipartBody`;
 - what JavaScript can't say: a vararg before other parameters;
@@ -190,6 +219,8 @@ the themes:
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
 | Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256` in Rust (`runtime.rs`'s `crypto`) |
 | Keiyoushi's other helpers | `MarkdownDescription.Builder`, `toMarkdown` and `ratingStars` as plain text (Raygun shows descriptions as text), `tryParseZonedDateTime`, `Instant.tryParse`, Jsoup's `attrOrNull`, `selectLast`, `textNodes`, `createElement`, `:containsData` |
+| Android's graphics | `Bitmap`, `BitmapFactory`, `Canvas`, `Matrix`, `Rect`, `Paint`, `Color` over pictures held in Rust (`raygun_net::bitmap`) |
+| Bytes | Answers' bytes as `Uint8Array`s; okio's `Buffer` and `ByteString`, Java's byte streams, `ByteBuffer` |
 
 Titles are known by their path (`/manga/one/`), chapters by theirs; covers and pages go through
 the image proxy with the source's Referer. Mihon's `memo`s (what a source keeps with a title or
@@ -216,23 +247,21 @@ doesn't load counts as refused):
 
 | | Converted | Of |
 |---|---|---|
-| Madara | 225 | 240 |
-| MangaThemesia | 101 | 113 |
+| Madara | 231 | 240 |
+| MangaThemesia | 104 | 113 |
 | ComiciViewer, ZeistManga, GigaViewer | 77 | 77 |
 | Keyoapp | 15 | 16 |
 | MangaCatalog, YiiManga, PizzaReader | 35 | 35 |
 | Iken, InitManga, FoolSlide, GalleryAdults | 33 | 35 |
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 35 | 35 |
 | MangaHub, Grouple, MMRCMS | 5 | 23 |
-| Other themes | 67 | 124 |
-| No theme | 476 | 771 |
-| All | 1069 (72.8%) | 1469 |
+| Other themes | 71 | 118 |
+| No theme | 507 | 771 |
+| All | 1113 (75.8%) | 1469 |
 
-The most common refusals now: picture-drawing interceptors (`BitmapFactory` 18, with
-`lib:textinterceptor` 12, `lib:publus` 8, `lib:speedbinb` 8, `lib:clipstudioreader` 5 and
-`lib:imagedecoder` 3 drawing too) and binary answers read in code (okio's `source()` 10, `Buffer`
-4, `ByteBuffer` 4, `byteStream()` 4, protobuf's `parseAsProto` 7); `lib:unpacker` 9; then a long
-tail of a few extensions each.
+The refusals left are a long tail of a few extensions each: protobuf answers (`parseAsProto` 7),
+calls the runtime doesn't have yet (`searchQuery()` 11, `foldIndexed()` 8, `resolve()` 8,
+`IntRange()` 7), and the like.
 
 `mihon_popular_live` with a sample of 60 converted sources (2026-11-06) follows each listing
 through a title's details, its chapters and a chapter's pages: about 40 of the 60 list their
@@ -254,7 +283,8 @@ refusals one by one (`(none)` for sources without a theme), `MIHON_SURVEY_ONLY=<
 only those packages, and `MIHON_SURVEY_DUMP=<dir>` keeps the code of conversions that don't load
 (of all of them with `MIHON_SURVEY_DUMP_ALL=1`). `mihon_popular_live` loads a sample
 (`MIHON_SAMPLE`, 24 by default; `MIHON_SAMPLE_ONLY=<pkg>,…` picks them) of the converted sources
-and asks each for its first popular page.
+and follows each from its first popular page to the first page's picture (drawn by the source
+when it draws them).
 
 ## Running source code in a container
 

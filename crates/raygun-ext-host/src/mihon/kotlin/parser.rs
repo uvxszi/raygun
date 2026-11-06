@@ -326,7 +326,8 @@ impl Parser {
             let Some(Kind::Name(name)) = self.peek().cloned() else {
                 break;
             };
-            // Context parameters (`context(source: Dilar) fun …`) change nothing read here.
+            // Context parameters (`context(source: HttpSource) fun …`): the source the code
+            // runs in, kept as `context:<name>` among the modifiers.
             if name == "context"
                 && self
                     .tokens
@@ -334,7 +335,11 @@ impl Parser {
                     .is_some_and(|t| t.kind == Kind::Op("("))
             {
                 self.at += 1;
-                self.params()?;
+                for param in self.params()? {
+                    if param.name != "_" {
+                        modifiers.push(format!("context:{}", param.name));
+                    }
+                }
                 continue;
             }
             // `enum class`, `data class`, `open val`: a modifier is followed by a name (another

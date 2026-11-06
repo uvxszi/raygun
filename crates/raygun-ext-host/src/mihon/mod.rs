@@ -8,19 +8,22 @@
 //! - `kotlin` parses Kotlin; `convert` turns a themed extension (Madara, MangaThemesia…) into the
 //!   values its theme takes, `transpile` turns a theme-less one into JavaScript.
 //! - `runtime` and `prelude.js` are the runtime `mihon`: Raygun's JavaScript host with a
-//!   Jsoup-compatible document model, Kotlin's helpers and the themes (`themes/*.js`).
+//!   Jsoup-compatible document model, Kotlin's helpers and the themes (`themes/*.js`);
+//!   `pictures` and `text` draw the pictures sources' interceptors put back together.
 //!
-//! An extension that can't be converted faithfully (image descrambling, custom crypto, a
-//! WebView) is refused at install with the reason, which the catalogue then shows.
+//! An extension that can't be converted faithfully (a WebView, code the converter doesn't read)
+//! is refused at install with the reason, which the catalogue then shows.
 
 pub mod apk;
 pub mod convert;
 pub mod gradle;
 pub mod index;
 pub mod kotlin;
+mod pictures;
 mod proto;
 pub(crate) mod runtime;
 pub mod source;
+mod text;
 pub mod transpile;
 
 #[cfg(test)]

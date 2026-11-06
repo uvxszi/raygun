@@ -259,12 +259,14 @@ pub fn listing(json: &[u8]) -> Result<Vec<(String, u64)>, String> {
         .collect())
 }
 
-/// An extension's code: its folder and the files read, by path inside it; and its theme's
-/// (`lib-multisrc/<theme>`), when it's built on one Raygun converts from code.
+/// An extension's code: its folder and the files read, by path inside it; its theme's
+/// (`lib-multisrc/<theme>`), when it's built on one Raygun converts from code; and the code of
+/// Keiyoushi's libraries it builds on (`lib/<name>`), by the library's name (`lib:unpacker`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Sources {
     pub files: BTreeMap<String, String>,
     pub theme_files: BTreeMap<String, String>,
+    pub library_files: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 fn build_file_of(files: &BTreeMap<String, String>) -> Option<&str> {
@@ -293,6 +295,18 @@ impl Sources {
             .filter(|(path, _)| path.ends_with(".kt"))
     }
 
+    /// The Kotlin files of the libraries read, each path under its library's folder
+    /// (`lib/unpacker/src/…`).
+    pub fn library_kotlin(&self) -> impl Iterator<Item = (String, &String)> {
+        self.library_files.iter().flat_map(|(library, files)| {
+            let folder = library.trim_start_matches("lib:").to_owned();
+            files
+                .iter()
+                .filter(|(path, _)| path.ends_with(".kt"))
+                .map(move |(path, text)| (format!("lib/{folder}/{path}"), text))
+        })
+    }
+
     /// Message files by language (`pt_br`), the theme's first and the extension's over them.
     pub fn messages(&self) -> BTreeMap<String, BTreeMap<String, String>> {
         let mut found: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
@@ -315,13 +329,20 @@ impl Sources {
     pub fn from_dir(dir: &std::path::Path) -> std::io::Result<Self> {
         Ok(Self {
             files: read_dir(dir)?,
-            theme_files: BTreeMap::new(),
+            ..Self::default()
         })
     }
 
     /// Adds a theme's folder on disk (`lib-multisrc/<theme>` of a checkout).
     pub fn add_theme_dir(&mut self, dir: &std::path::Path) -> std::io::Result<()> {
         self.theme_files = read_dir(dir)?;
+        Ok(())
+    }
+
+    /// Adds a library's folder on disk (`lib/<name>` of a checkout) as `library` (`lib:<name>`).
+    pub fn add_library_dir(&mut self, library: &str, dir: &std::path::Path) -> std::io::Result<()> {
+        self.library_files
+            .insert(library.to_owned(), read_dir(dir)?);
         Ok(())
     }
 }
@@ -493,6 +514,50 @@ where
             .theme_files
             .insert(path, String::from_utf8_lossy(&bytes).into_owned());
     }
+    Ok(())
+}
+
+/// Reads the code of Keiyoushi's library `library` (`lib:unpacker` → `lib/unpacker` in the
+/// extension's repository) into `sources`, for converting an extension that builds on it.
+pub async fn fetch_library<F, Fut>(
+    folder: &SourceFolder,
+    library: &str,
+    sources: &mut Sources,
+    fetch: F,
+) -> Result<(), String>
+where
+    F: Fn(Url) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>, String>>,
+{
+    let name = library.trim_start_matches("lib:");
+    if !is_part(name) {
+        return Err(format!("the library's name is odd: {library}"));
+    }
+    let library_folder = SourceFolder {
+        path: format!("lib/{name}"),
+        ..folder.clone()
+    };
+    let url = library_folder
+        .tree_url()
+        .ok_or("the library's folder address is invalid")?;
+    let files = listing(&fetch(url).await?)
+        .map_err(|error| format!("Raygun couldn't list {library}'s files\n{error}"))?;
+    let total: u64 = files.iter().map(|(_, size)| size).sum();
+    if files.len() > MAX_FILES
+        || total > MAX_TOTAL_BYTES
+        || files.iter().any(|(_, size)| *size > MAX_FILE_BYTES)
+    {
+        return Err(format!("{library}'s code is larger than Raygun converts"));
+    }
+    let mut read = BTreeMap::new();
+    for (path, _) in files {
+        let url = library_folder
+            .raw_url(&path)
+            .ok_or_else(|| format!("the library's folder lists an odd file name: {path}"))?;
+        let bytes = fetch(url).await?;
+        read.insert(path, String::from_utf8_lossy(&bytes).into_owned());
+    }
+    sources.library_files.insert(library.to_owned(), read);
     Ok(())
 }
 

@@ -256,6 +256,23 @@ impl ExtensionService {
             mihon_stores: Mutex::new(HashMap::new()),
             info_cache: Mutex::new(InfoCache::default()),
         });
+        // Pages whose pictures their source draws (converted Mihon sources) are fetched
+        // through it.
+        let pictures = Arc::downgrade(&service);
+        raygun_net::images::set_source_images(Arc::new(move |provider, url, headers| {
+            let pictures = pictures.clone();
+            Box::pin(async move {
+                let Some(service) = pictures.upgrade() else {
+                    return Err(raygun_net::images::ImageError::Network(
+                        "extensions have stopped".into(),
+                    ));
+                };
+                let (_ready, host) = service.ready().await;
+                host.manga_image(&provider, &url, &headers)
+                    .await
+                    .map_err(raygun_net::images::ImageError::Network)
+            })
+        }));
         // Before anything lists repositories: one quick query when there's nothing to move.
         tauri::async_runtime::block_on(service.replace_retired_repos());
         // Take the lock now, before any command can run, and load in the background.
@@ -1607,6 +1624,46 @@ impl ExtensionService {
             match read {
                 Ok(()) => result = mihon::convert(&extension, &sources),
                 Err(error) => tracing::info!(%error, theme, "couldn't read the theme's code"),
+            }
+        }
+        // Keiyoushi's libraries it (or its theme) builds on: their code converts with its own.
+        for _ in 0..3 {
+            let wanted = mihon::convert::libraries_to_read(&sources);
+            if result.is_ok() || wanted.is_empty() {
+                break;
+            }
+            for library in wanted {
+                let read = mihon::source::fetch_library(
+                    &folder,
+                    &library,
+                    &mut sources,
+                    |url: reqwest::Url| async move {
+                        self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES)
+                            .await
+                    },
+                )
+                .await;
+                if let Err(error) = read {
+                    tracing::info!(%error, library, "couldn't read the library's code");
+                }
+            }
+            result = mihon::convert(&extension, &sources);
+            // A theme whose port refused it may still convert with its own code.
+            if result.is_err()
+                && let Some(theme) = mihon::convert::theme_to_read(&sources)
+                && mihon::source::fetch_theme(
+                    &folder,
+                    &theme,
+                    &mut sources,
+                    |url: reqwest::Url| async move {
+                        self.download_patiently(url.as_str(), MAX_PACKAGE_BYTES)
+                            .await
+                    },
+                )
+                .await
+                .is_ok()
+            {
+                result = mihon::convert(&extension, &sources);
             }
         }
         let converted = match result {

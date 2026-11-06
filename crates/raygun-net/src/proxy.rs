@@ -647,6 +647,13 @@ async fn serve_image(
             let cache = state.pages.as_ref().expect("checked above");
             cached_image(cache, &state.client, &token, &url, &headers).await
         }
+        // A picture its source fetches can't be forwarded as it is.
+        Some((url, headers)) if crate::images::source_marked(&url).is_some() => {
+            match fetch_image(&state.client, &url, &headers).await {
+                Ok(image) => image_response(image.bytes),
+                Err(error) => (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
+            }
+        }
         Some((url, headers)) => {
             let mut response = forward(&state.client, &url, &headers, request.headers()).await;
             if response.status().is_success() {

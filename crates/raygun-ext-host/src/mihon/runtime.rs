@@ -73,6 +73,7 @@ fn envelope<T: serde::Serialize>(result: Result<T, String>) -> String {
 
 fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
     let native = Object::new(ctx.clone())?;
+    super::pictures::install(ctx, &native)?;
     // OkHttp's `cookieJar.loadForRequest(url)`: the cookies the jar sends there, as
     // `name=value` pairs; `saveFromResponse(url, cookies)`: `Set-Cookie` lines kept for it.
     let jar = hooks.cookies.clone();

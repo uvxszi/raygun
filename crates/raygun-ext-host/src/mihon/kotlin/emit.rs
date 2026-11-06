@@ -169,6 +169,33 @@ pub const METHODS: &[&str] = &[
     "loadForRequest", "saveFromResponse", "getCookie", "setCookie", "flush", "parseAll",
     "hostOnlyDomain", "expiresAt", "secure", "httpOnly", "name", "domain", "path", "hasCookies",
     "setAcceptCookie", "setAcceptThirdPartyCookies", "removeAllCookies", "removeSessionCookies",
+    // Pictures: `Bitmap`, `BitmapFactory`, `Canvas`, `Matrix`, `Rect`, `Paint`, `Color`
+    "createBitmap", "createScaledBitmap", "decodeStream", "decodeByteArray", "Options",
+    "compress", "recycle", "getPixels", "setPixels", "getPixel", "setPixel", "eraseColor",
+    "getWidth", "getHeight", "getConfig", "getByteCount", "getRowBytes", "hasAlpha",
+    "setHasAlpha", "setDensity", "drawBitmap", "drawColor", "drawARGB", "drawRGB", "drawPaint",
+    "drawRect", "save", "restore", "restoreToCount", "getSaveCount", "translate", "scale",
+    "rotate", "concat", "setMatrix", "clipRect", "setBitmap", "isIdentity", "setTranslate",
+    "setScale", "setRotate", "preTranslate", "preScale", "preRotate", "preConcat",
+    "postTranslate", "postScale", "postRotate", "postConcat", "width", "height", "centerX",
+    "centerY", "exactCenterX", "exactCenterY", "setEmpty", "offset", "offsetTo", "inset",
+    "intersect", "union", "setColor", "setAlpha", "setStyle", "setTextSize", "setTypeface",
+    "setAntiAlias", "setFilterBitmap", "setDither", "setXfermode", "setColorFilter", "rgb",
+    "argb", "alpha", "red", "green", "blue", "parseColor", "defaultFromStyle", "decode",
+    "createUrl",
+    // Bodies, streams, okio's `Buffer`, `ByteBuffer`
+    "byteStream", "source", "byteString", "charStream", "contentLength", "asResponseBody",
+    "write", "writeAll", "writeUtf8", "writeString", "writeByte", "writeShort", "writeShortLe",
+    "writeInt", "writeIntLe", "writeLong", "writeLongLe", "readByteArray", "readByteString",
+    "readUtf8", "readString", "readUtf8Line", "readByte", "readShort", "readShortLe", "readInt",
+    "readIntLe", "readLong", "readLongLe", "readFully", "read", "skip", "exhausted", "require",
+    "request", "peek", "snapshot", "outputStream", "inputStream", "byteInputStream", "buffer",
+    "emit", "flush", "readBytes", "readAllBytes", "readNBytes", "available", "copyTo",
+    "buffered", "reader", "bufferedReader", "readText", "readLine", "readLines",
+    "lineSequence", "writeTo", "utf8", "base64", "hex", "wrap", "allocate", "allocateDirect",
+    "order", "getShort", "getInt", "getFloat", "getDouble", "putShort", "putInt", "putLong",
+    "array", "arrayOffset", "position", "limit", "capacity", "remaining", "hasRemaining",
+    "rewind", "flip", "nativeOrder",
 ];
 
 fn quote(text: &str) -> String {
@@ -375,6 +402,8 @@ impl<'a> Gen<'a> {
     fn imported_from_library(&self, name: &str) -> bool {
         self.imports.iter().any(|(alias, full)| {
             alias == name
+                // Keiyoushi's libraries' code converts with the extension's (`lib:unpacker`).
+                && !full.starts_with("keiyoushi.lib.")
                 && LIBRARY_PACKAGES
                     .iter()
                     .any(|package| full.starts_with(package))
@@ -503,6 +532,13 @@ impl<'a> Gen<'a> {
                 let class = receiver.name.rsplit('.').next().unwrap_or(&receiver.name);
                 params.push(name.clone());
                 writer.push_receiver(&name, [Some(fun.name.as_str()), Some(class)]);
+            }
+            // Context parameters (`context(source: HttpSource)`) are the source running.
+            for modifier in &fun.modifiers {
+                if let Some(context) = modifier.strip_prefix("context:") {
+                    let name = writer.declare(context);
+                    defaults.push(format!("const {name} = self;"));
+                }
             }
             for param in &fun.params {
                 let name = writer.declare(&param.name);
@@ -666,7 +702,12 @@ impl<'a> Gen<'a> {
                 value,
                 delegate,
             } => {
-                let keyword = if *mutable { "let" } else { "const" };
+                // A `val` without a value (`val x: Int` then set in each branch) is set later.
+                let keyword = if *mutable || (value.is_none() && delegate.is_none()) {
+                    "let"
+                } else {
+                    "const"
+                };
                 let value = self.local_value(value.as_ref(), delegate.as_ref())?;
                 // Declared after the value is worked out: an initializer reads what the name
                 // meant before.
@@ -1945,6 +1986,22 @@ impl<'a> Gen<'a> {
                 if !self.known(name) {
                     return Err(unsupported(format!("{owner}::{name}")));
                 }
+                // `Instant::parseOrNull`, `BitmapFactory::decodeStream`: one of the runtime's
+                // objects' functions when it has one by that name, else a member of what's passed.
+                if OBJECTS.contains(&owner.as_str()) && !self.declared_class(owner) {
+                    return Ok(format!(
+                        "(async (...args) => KT.ref(KT.global({}), {}, args))",
+                        quote(owner),
+                        quote(name)
+                    ));
+                }
+                // `Unpacker::unpack`: an object the code declares, when it has that function.
+                if self.declared_class(owner) {
+                    return Ok(format!(
+                        "(async (...args) => KT.ref(D.{owner}, {}, args))",
+                        quote(name)
+                    ));
+                }
                 Ok(format!(
                     "(async (receiver, ...args) => KT.member(receiver, {}, args))",
                     quote(name)
@@ -2176,7 +2233,9 @@ pub const GLOBALS: &[&str] = &[
     "longArrayOf", "doubleArrayOf", "floatArrayOf", "charArrayOf", "booleanArrayOf", "sequenceOf",
     "emptySequence", "min", "max", "synchronized", "CoroutineScope", "ratingStars", "aesCbc",
     "aesEcb", "aesGcm", "aesCtr", "newAesCipher", "IvParameterSpec", "SecretKeySpec",
-    "GCMParameterSpec", "PBEKeySpec", "TextNode", "XorInterceptor",
+    "GCMParameterSpec", "PBEKeySpec", "TextNode", "XorInterceptor", "Canvas", "Rect", "RectF",
+    "Matrix", "Paint", "TextPaint", "Buffer", "ByteArrayOutputStream", "ByteArrayInputStream",
+    "TextInterceptor",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2190,5 +2249,6 @@ pub const OBJECTS: &[&str] = &[
     "ChronoUnit", "ChronoField", "Log", "Regex", "Cookie", "CookieManager", "Random", "Build",
     "VERSION", "Normalizer", "Entities", "StandardCharsets", "Charset", "MarkdownDescription",
     "Cipher", "MessageDigest", "Mac", "SecretKeyFactory", "UpdateStrategy", "MultipartBody",
-    "QuickJs", "JSON_MEDIA_TYPE",
+    "QuickJs", "JSON_MEDIA_TYPE", "Bitmap", "BitmapFactory", "Color", "Paint", "Typeface",
+    "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper",
 ];

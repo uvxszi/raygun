@@ -398,7 +398,7 @@ fn sources(build: &str, files: &[(&str, &str)]) -> Sources {
     }
     Sources {
         files: map,
-        theme_files: BTreeMap::new(),
+        ..Sources::default()
     }
 }
 
@@ -1248,13 +1248,13 @@ fn code_the_runtime_lacks_is_refused_by_name() {
         )
         .unwrap_err()
     };
-    // An interceptor drawing pictures: the runtime has none.
+    // An interceptor reading pictures through an API the runtime doesn't have.
     let interceptor = STANDALONE_SOURCE.replace(
         "rateLimit(4)",
-        "addInterceptor { chain -> val image = BitmapFactory.decodeStream(chain.proceed(chain.request()).body.byteStream())\n chain.proceed(chain.request()) }",
+        "addInterceptor { chain -> val image = PdfRenderer(chain.proceed(chain.request()).body.byteStream())\n chain.proceed(chain.request()) }",
     );
     assert!(
-        reason(&interceptor).contains("BitmapFactory"),
+        reason(&interceptor).contains("PdfRenderer"),
         "{}",
         reason(&interceptor)
     );
@@ -1699,4 +1699,124 @@ async fn loops_jump_from_lambdas_and_cookies_are_read() {
         .map(|item| item.title.as_str())
         .collect();
     assert_eq!(titles, ["A", "B", "token abc, note First words"]);
+}
+
+/// A source whose client puts its pictures back together (`BitmapFactory`, `Canvas`, okio's
+/// `Buffer`) and draws its notes as pages (`lib:textinterceptor`): its pages are fetched through
+/// it, and the pictures come back drawn.
+#[tokio::test]
+async fn pictures_a_source_draws_are_fetched_through_it() {
+    // A 2×4 picture: red above, blue below; the site serves it the other way up.
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_fn(2, 4, |_, y| {
+        if y < 2 {
+            image::Rgba([255, 0, 0, 255])
+        } else {
+            image::Rgba([0, 0, 255, 255])
+        }
+    })
+    .write_to(&mut png, image::ImageFormat::Png)
+    .unwrap();
+    let png = png.into_inner();
+    let app = Router::new()
+        .route(
+            "/manga/one/1",
+            get(|| async { Html(r#"<div id="images"><img src="/pic.png#flip"></div>"#) }),
+        )
+        .route(
+            "/pic.png",
+            get(move || {
+                let png = png.clone();
+                async move { ([("content-type", "image/png")], png) }
+            }),
+        );
+    let source = STANDALONE_SOURCE
+        .replace(
+            "override fun OkHttpClient.Builder.configureClient() = rateLimit(4)",
+            "override fun OkHttpClient.Builder.configureClient() = addInterceptor(FlipInterceptor()).addInterceptor(TextInterceptor())",
+        )
+        .replace(
+            r#"        .mapIndexed { index, element -> Page(index, imageUrl = element.absUrl("src")) }"#,
+            r#"        .mapIndexed { index, element -> Page(index, imageUrl = element.absUrl("src")) } +
+        Page(1, imageUrl = TextInterceptorHelper.createUrl("Note", "Hello <b>there</b>"))"#,
+        )
+        + r#"
+class FlipInterceptor : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val response = chain.proceed(chain.request())
+        if (chain.request().url.fragment != "flip") return response
+        val image = response.body.use { BitmapFactory.decodeStream(it.byteStream()) }
+        val width = image.width
+        val height = image.height
+        val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        val half = height / 2
+        canvas.drawBitmap(image, Rect(0, half, width, height), Rect(0, 0, width, half), null)
+        canvas.save()
+        canvas.translate(0f, half.toFloat())
+        canvas.drawBitmap(image, Rect(0, 0, width, half), Rect(0, 0, width, half), null)
+        canvas.restore()
+        val buffer = Buffer()
+        result.compress(Bitmap.CompressFormat.PNG, 100, buffer.outputStream())
+        image.recycle()
+        result.recycle()
+        return response.newBuilder().body(buffer.asResponseBody("image/png".toMediaType(), buffer.size)).build()
+    }
+}
+"#;
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let build = format!(
+        "{STANDALONE_BUILD}dependencies {{\n    implementation(project(\":lib:textinterceptor\"))\n}}\n"
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            &build,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            )],
+        ),
+    )
+    .unwrap();
+    assert!(converted.code.contains("imagesFromSource: true"));
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let provider = "mihon.en.fixturestand/4242";
+    let pages = host.manga_pages(provider, "/manga/one/1").await.unwrap();
+    assert_eq!(pages.len(), 2);
+    let (address, by) = raygun_net::images::source_marked(&pages[0].url).unwrap();
+    assert_eq!(by, provider);
+    assert!(address.ends_with("/pic.png#flip"), "{address}");
+
+    let bytes = host
+        .manga_image(provider, address, &pages[0].headers)
+        .await
+        .unwrap();
+    let picture = image::load_from_memory(&bytes).unwrap().to_rgba8();
+    assert_eq!(picture.dimensions(), (2, 4));
+    assert_eq!(
+        picture.get_pixel(0, 0),
+        &image::Rgba([0, 0, 255, 255]),
+        "blue on top"
+    );
+    assert_eq!(
+        picture.get_pixel(1, 3),
+        &image::Rgba([255, 0, 0, 255]),
+        "red below"
+    );
+
+    // The note, drawn as a page 1000 pixels wide (where the system has a font).
+    let (address, _) = raygun_net::images::source_marked(&pages[1].url).unwrap();
+    assert!(address.starts_with("http://tachiyomi-lib-textinterceptor/Note/"));
+    match host.manga_image(provider, address, &pages[1].headers).await {
+        Ok(bytes) => {
+            let note = image::load_from_memory(&bytes).unwrap().to_rgba8();
+            assert_eq!(note.width(), 1000);
+            assert!(note.pixels().any(|pixel| pixel.0[0] < 128), "some ink");
+        }
+        Err(error) => assert!(error.contains("no font"), "{error}"),
+    }
 }

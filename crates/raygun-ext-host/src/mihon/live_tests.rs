@@ -107,6 +107,15 @@ async fn all_sources(
                     if let Some(theme) = convert::theme_to_read(&sources) {
                         let _ = sources.add_theme_dir(&dir.join("lib-multisrc").join(theme));
                     }
+                    // Keiyoushi's libraries it builds on, and theirs.
+                    for _ in 0..3 {
+                        for library in convert::libraries_to_read(&sources) {
+                            let folder = dir.join("lib").join(library.trim_start_matches("lib:"));
+                            if sources.add_library_dir(&library, &folder).is_err() {
+                                sources.library_files.insert(library, BTreeMap::new());
+                            }
+                        }
+                    }
                     Ok(sources)
                 });
             found.insert(extension.pkg.clone(), read);
@@ -137,10 +146,11 @@ async fn all_sources(
             || path.ends_with("/build.gradle")
             || (path.ends_with(".kt") && path.contains("/src/"))
             || (path.contains("/assets/i18n/messages_") && path.ends_with(".properties"));
-        // Extensions' folders (`src/<lang>/<name>`) and themes' (`lib-multisrc/<theme>`).
+        // Extensions' folders (`src/<lang>/<name>`), themes' (`lib-multisrc/<theme>`) and
+        // libraries' (`lib/<name>`).
         let depth = if path.starts_with("src/") {
             3
-        } else if path.starts_with("lib-multisrc/") {
+        } else if path.starts_with("lib-multisrc/") || path.starts_with("lib/") {
             2
         } else {
             continue;
@@ -201,6 +211,36 @@ async fn all_sources(
             themes.insert(theme.clone(), files);
         }
         sources.theme_files = themes[&theme].clone();
+    }
+    // Libraries' code, read once each.
+    let mut libraries: HashMap<String, BTreeMap<String, String>> = HashMap::new();
+    for sources in found.values_mut().filter_map(|read| read.as_mut().ok()) {
+        for _ in 0..3 {
+            for library in convert::libraries_to_read(sources) {
+                if !libraries.contains_key(&library) {
+                    let folder = source::SourceFolder {
+                        path: format!("lib/{}", library.trim_start_matches("lib:")),
+                        ..first.clone()
+                    };
+                    let mut files = BTreeMap::new();
+                    for path in by_folder.get(&folder.path).into_iter().flatten() {
+                        let relative = &path[folder.path.len() + 1..];
+                        if let Some(url) = folder.raw_url(relative)
+                            && let Ok(bytes) = download(client, url).await
+                        {
+                            files.insert(
+                                relative.to_owned(),
+                                String::from_utf8_lossy(&bytes).into_owned(),
+                            );
+                        }
+                    }
+                    libraries.insert(library.clone(), files);
+                }
+                sources
+                    .library_files
+                    .insert(library.clone(), libraries[&library].clone());
+            }
+        }
     }
     found
 }
@@ -496,6 +536,35 @@ async fn sample_one(
                     chapters.len(),
                     pages.len()
                 ));
+                // The first page's picture, as the reader gets it: through the source when it
+                // draws its pictures, else fetched (and put back together) by Raygun.
+                let page = &pages[0];
+                let picture = match raygun_net::images::source_marked(&page.url) {
+                    Some((address, by)) => {
+                        tokio::time::timeout(wait, host.manga_image(by, address, &page.headers))
+                            .await
+                            .unwrap_or_else(|_| Err("slow".into()))
+                            .and_then(|bytes| {
+                                raygun_net::bitmap::decode(&bytes).map(|image| image.dimensions())
+                            })
+                            .map(|size| format!("drawn by the source {}×{}", size.0, size.1))
+                    }
+                    None => raygun_net::images::fetch_image(
+                        &raygun_net::http_client().unwrap(),
+                        &page.url,
+                        &page.headers,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|image| {
+                        raygun_net::bitmap::decode(&image.bytes).map(|image| image.dimensions())
+                    })
+                    .map(|size| format!("{}×{}", size.0, size.1)),
+                };
+                match picture {
+                    Ok(size) => line.push_str(&format!(", picture {size}")),
+                    Err(error) => line.push_str(&format!(", picture: {}", first_line(error))),
+                }
                 break;
             }
             Ok(Ok(_)) => problem = "no pages".to_owned(),

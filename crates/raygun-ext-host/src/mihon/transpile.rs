@@ -546,11 +546,12 @@ fn members(
                 };
                 if let Some(receiver) = &fun.receiver {
                     // Overloads by receiver (`Elements.imgAttr()` beside `Element.imgAttr()`) are
-                    // told apart by the receiver's type when called.
+                    // told apart by the receiver's type when called, then by their arguments.
                     out.push(format!(
-                        "self.extension({}, {function}, {});",
+                        "self.extension({}, {function}, {}, {});",
                         quote(&fun.name),
-                        quote(receiver.name.rsplit('.').next().unwrap_or(&receiver.name))
+                        quote(receiver.name.rsplit('.').next().unwrap_or(&receiver.name)),
+                        shape(fun, &[])
                     ));
                 } else {
                     let required = fun
@@ -621,6 +622,39 @@ fn members(
         ));
     }
     Ok(())
+}
+
+/// What tells a function's overloads apart: `[required, total, [types]]`, the arguments it needs,
+/// how many it takes, and each parameter's type (`null` for a type parameter, which takes
+/// anything).
+fn shape(fun: &super::kotlin::ast::FunDecl, type_params: &[String]) -> String {
+    let required = fun
+        .params
+        .iter()
+        .filter(|param| param.default.is_none() && !param.vararg)
+        .count();
+    let total = if fun.params.iter().any(|param| param.vararg) {
+        usize::MAX / 2
+    } else {
+        fun.params.len()
+    };
+    let types: Vec<String> = fun
+        .params
+        .iter()
+        .map(|param| {
+            let name = param.ty.name.rsplit('.').next().unwrap_or(&param.ty.name);
+            let known = type_params.iter().all(|own| own != name)
+                && !(name.len() == 1 && name.chars().all(|c| c.is_ascii_uppercase()))
+                && !name.is_empty()
+                && !name.starts_with('(');
+            if known {
+                quote(name)
+            } else {
+                "null".to_owned()
+            }
+        })
+        .collect();
+    format!("[{required}, {total}, [{}]]", types.join(", "))
 }
 
 /// The values a class's companion object holds (`companion object { val OPTIONS = … }`).
@@ -870,6 +904,8 @@ fn class_definition(
         .map(|entry| quote(&entry.name))
         .collect();
     let mut methods = Vec::new();
+    // Its functions by name: each overload as `[required, total, [types], code]`, and its code.
+    let mut overloaded: Vec<(String, Vec<(String, String)>)> = Vec::new();
     // Extensions the class declares for its own code (`private fun Float.formatNumber()`): the
     // source's, as they read nothing of the instance but their receiver.
     let mut extensions = Vec::new();
@@ -885,9 +921,10 @@ fn class_definition(
                     .function(fun)
                     .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?;
                 extensions.push(format!(
-                    "self.extension({}, {function}, {});",
+                    "self.extension({}, {function}, {}, {});",
                     quote(&fun.name),
-                    quote(receiver.rsplit('.').next().unwrap_or(receiver))
+                    quote(receiver.rsplit('.').next().unwrap_or(receiver)),
+                    shape(fun, &class.type_params)
                 ));
             }
             Member::Fun(fun) if fun.body.is_some() => {
@@ -897,13 +934,15 @@ fn class_definition(
                     name: class.name.clone(),
                     ..Default::default()
                 });
-                methods.push(format!(
-                    "{}: {}",
-                    quote(&fun.name),
-                    writer
-                        .function(&method)
-                        .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?
-                ));
+                let code = writer
+                    .function(&method)
+                    .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?;
+                let shape = shape(fun, &class.type_params);
+                let overload = format!("[{}, {code}]", &shape[1..shape.len() - 1]);
+                match overloaded.iter_mut().find(|(name, _)| *name == fun.name) {
+                    Some((_, list)) => list.push((overload, code)),
+                    None => overloaded.push((fun.name.clone(), vec![(overload, code)])),
+                }
             }
             Member::Prop(prop) => {
                 if let Some(body) = property_value(prop) {
@@ -920,8 +959,15 @@ fn class_definition(
                         body: Some(body),
                         line: prop.line,
                     };
+                    // A `var` with a value is a field, set when the instance is made; other
+                    // properties are worked out when read.
+                    let wrapper = if prop.mutable && prop.value.is_some() && prop.getter.is_none() {
+                        "KT.field"
+                    } else {
+                        "KT.getter"
+                    };
                     methods.push(format!(
-                        "{}: KT.getter({})",
+                        "{}: {wrapper}({})",
                         quote(&prop.name),
                         writer
                             .function(&getter)
@@ -932,6 +978,18 @@ fn class_definition(
             Member::Init(_) => return Err(format!("{} runs code when it's made", class.name)),
             _ => {}
         }
+    }
+    for (name, list) in overloaded {
+        methods.push(if let [(_, code)] = list.as_slice() {
+            format!("{}: {code}", quote(&name))
+        } else {
+            let overloads: Vec<&str> = list.iter().map(|(overload, _)| overload.as_str()).collect();
+            format!(
+                "{}: KT.overloaded([{}])",
+                quote(&name),
+                overloads.join(", ")
+            )
+        });
     }
     let kind = match class.kind {
         ClassKind::Enum => "enum",
@@ -1143,8 +1201,10 @@ pub fn convert(
     // A value read as `json` decodes with names the DTOs spell (`@SerialName`).
     let renames = serial_names(&all_files);
     let aliases = json_aliases(&all_files);
+    let layers = layers.join("\n");
+    let from_source = images_from_source(&layers);
     let code = format!(
-        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  aliases: {aliases},\n  messages: {messages},\n  imageRecipe: {recipe},\n  layers: [\n{layers}\n  ],\n}});\n",
+        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  aliases: {aliases},\n  messages: {messages},\n  imageRecipe: {recipe},\n  imagesFromSource: {from_source},\n  layers: [\n{layers}\n  ],\n}});\n",
         name = extension.name.replace(['\n', '\r'], " "),
         pkg = extension.pkg,
         sources = sources_json(extension),
@@ -1152,9 +1212,26 @@ pub fn convert(
         aliases = serde_json::to_string(&aliases).unwrap_or_else(|_| "{}".into()),
         messages = serde_json::to_string(messages).unwrap_or_else(|_| "{}".into()),
         recipe = image_recipe.map_or_else(|| "null".to_owned(), quote),
-        layers = layers.join("\n"),
     );
     Ok(Converted { theme: None, code })
+}
+
+/// Calls in converted code that mean its client draws, decodes or rewrites pictures: Android's
+/// graphics, `lib:textinterceptor` and `lib:imagedecoder`, or an answer's bytes read and made
+/// into a new body. Such a source's pages are fetched through it (`image`), as Mihon fetches
+/// them through the source's client.
+const PICTURE_CALLS: [&str; 7] = [
+    "KT.global(\"BitmapFactory\")",
+    "KT.global(\"Bitmap\")",
+    "KT.call(\"Canvas\"",
+    "KT.call(\"TextInterceptor\"",
+    "KT.global(\"ImageDecoder\")",
+    "\"asResponseBody\"",
+    "\"byteStream\"",
+];
+
+fn images_from_source(code: &str) -> bool {
+    PICTURE_CALLS.iter().any(|call| code.contains(call))
 }
 
 /// Each member of the classes, their companions, the files and their classes (but the source

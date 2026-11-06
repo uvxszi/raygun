@@ -834,6 +834,23 @@
   K.crypto = (args) => unwrap(native.crypto(JSON.stringify(args)));
   /** A site's script run in a JavaScript engine of its own (`QuickJs.create().evaluate`). */
   K.evaluate = (code) => unwrap(native.evaluate(K.str(code)));
+  /** Bytes as `Uint8Array`s, converted in Rust: base64 both ways, UTF-8 both ways. */
+  const failedOr = (value) => {
+    if (typeof value === 'string') throw new Error(value);
+    return value;
+  };
+  K.bin = Object.freeze({
+    toBase64: (bytes) => native.base64Encode(bytes),
+    fromBase64: (text) => failedOr(native.base64Decode(K.str(text))),
+    utf8: (text) => native.utf8Encode(K.str(text)),
+    text: (bytes) => native.utf8Decode(bytes),
+  });
+  /** The pictures a source draws (`raygun_net::bitmap`), by number: see `mihon/pictures.rs`. */
+  K.bitmap = Object.freeze({
+    run: (op, args) => unwrap(native.bitmap(JSON.stringify({ op, ...args }))),
+    decode: (bytes) => unwrap(native.bitmapDecode(bytes)),
+    encode: (id, format, quality) => failedOr(native.bitmapEncode(id, String(format), quality)),
+  });
   /** The extension's cookie jar: what it sends to `url` (`[name, value]` pairs), and keeping
    * `Set-Cookie` lines for it. */
   K.cookies = (href) => unwrap(native.cookies(K.str(href)));
@@ -1259,6 +1276,11 @@
     async text() {
       return this.raw.text();
     }
+    /** The answer's bytes (a `Uint8Array`): as they came, or the text's UTF-8. */
+    async bytes() {
+      const bytes = this.raw.bytes ? await this.raw.bytes() : null;
+      return bytes ?? K.bin.utf8(await this.raw.text());
+    }
     async json() {
       return JSON.parse(await this.raw.text());
     }
@@ -1318,14 +1340,26 @@
       await this.pace();
       const merged = { ...this.headers(kind, from), ...headers };
       let payload = body;
+      let bodyBase64 = null;
       if (form) {
         payload = K.form(form);
         merged['Content-Type'] = 'application/x-www-form-urlencoded';
+      } else if (payload instanceof Uint8Array) {
+        // A body of bytes (protobuf, a file).
+        bodyBase64 = K.bin.toBase64(payload);
+        payload = null;
       } else if (payload !== null && typeof payload === 'object') {
         payload = JSON.stringify(payload);
         merged['Content-Type'] = merged['Content-Type'] || 'application/json';
       }
-      const raw = await raygun.http.fetch(address, { method, headers: merged, body: payload });
+      // Answers that aren't text keep their bytes (pictures, protobuf).
+      const raw = await raygun.http.fetch(address, {
+        method,
+        headers: merged,
+        body: payload,
+        bodyBase64,
+        binary: true,
+      });
       const response = new Response(raw, address);
       if (ensureSuccess && !response.isSuccessful)
         throw new HttpError(response.code, response.url || address);

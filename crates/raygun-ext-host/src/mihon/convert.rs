@@ -24,7 +24,7 @@ use crate::package::{PackageError, VerifiedPackage, from_files};
 
 /// Bumped when conversions change in a way installed sources should get: the catalogue then
 /// offers them again.
-pub const CONVERTER_VERSION: u32 = 4;
+pub const CONVERTER_VERSION: u32 = 5;
 /// The converted script in the extension folder.
 pub const ENTRY: &str = "index.js";
 
@@ -149,6 +149,11 @@ pub const THEMES: [Theme; 2] = [
     },
 ];
 
+/// Keiyoushi's libraries the runtime has itself: `lib:i18n`'s messages come with the converted
+/// code; `lib:textinterceptor` (text drawn as a page) and `lib:imagedecoder` (pictures decoded) are
+/// the runtime's own (`mihon/kotlin.js`).
+const PROVIDED_LIBRARIES: [&str; 3] = ["lib:i18n", "lib:textinterceptor", "lib:imagedecoder"];
+
 /// The theme called `name`, when Raygun runs it.
 pub fn theme(name: &str) -> Option<&'static Theme> {
     THEMES.iter().find(|theme| theme.name == name)
@@ -167,11 +172,10 @@ pub fn convert(extension: &StoreExtension, sources: &Sources) -> Result<Converte
         .build_file()
         .map(gradle::read)
         .ok_or("its folder has no build file")?;
-    if let Some(library) = build
-        .libraries
-        .iter()
-        .find(|library| library.as_str() != "lib:i18n")
-    {
+    if let Some(library) = build.libraries.iter().find(|library| {
+        !PROVIDED_LIBRARIES.contains(&library.as_str())
+            && !sources.library_files.contains_key(library.as_str())
+    }) {
         return Err(format!(
             "it builds on {library}, code Raygun doesn't convert"
         ));
@@ -181,6 +185,12 @@ pub fn convert(extension: &StoreExtension, sources: &Sources) -> Result<Converte
         let file = parse_file(text)
             .map_err(|error| format!("Raygun couldn't read its code ({path}: {error})"))?;
         files.push((path.clone(), file));
+    }
+    // The libraries' code is the extension's own, as it's compiled into it.
+    for (path, text) in sources.library_kotlin() {
+        let file = parse_file(text)
+            .map_err(|error| format!("Raygun couldn't read its code ({path}: {error})"))?;
+        files.push((path, file));
     }
     if files.is_empty() {
         return Err("its folder has no Kotlin code".into());
@@ -204,10 +214,10 @@ pub fn convert(extension: &StoreExtension, sources: &Sources) -> Result<Converte
         .theme_build_file()
         .map(gradle::read)
         .and_then(|theme_build| {
-            theme_build
-                .libraries
-                .into_iter()
-                .find(|library| library.as_str() != "lib:i18n")
+            theme_build.libraries.into_iter().find(|library| {
+                !PROVIDED_LIBRARIES.contains(&library.as_str())
+                    && !sources.library_files.contains_key(library.as_str())
+            })
         })
     {
         return Err(format!(
@@ -231,6 +241,35 @@ pub fn convert(extension: &StoreExtension, sources: &Sources) -> Result<Converte
         theme: Some(name.to_owned()),
         ..converted
     })
+}
+
+/// Keiyoushi's libraries converting `sources` would read, when they haven't been read yet: those
+/// the extension's build, its theme's and the libraries read so far name, which the runtime
+/// doesn't have itself.
+pub fn libraries_to_read(sources: &Sources) -> Vec<String> {
+    let builds = sources
+        .build_file()
+        .into_iter()
+        .chain(sources.theme_build_file())
+        .chain(sources.library_files.values().filter_map(|files| {
+            files
+                .get("build.gradle.kts")
+                .or_else(|| files.get("build.gradle"))
+                .map(String::as_str)
+        }));
+    let mut wanted: Vec<String> = Vec::new();
+    for build in builds {
+        for library in gradle::read(build).libraries {
+            if library.starts_with("lib:")
+                && !PROVIDED_LIBRARIES.contains(&library.as_str())
+                && !sources.library_files.contains_key(&library)
+                && !wanted.contains(&library)
+            {
+                wanted.push(library);
+            }
+        }
+    }
+    wanted
 }
 
 /// The theme whose code converting `sources` would read, when it hasn't been read yet: a

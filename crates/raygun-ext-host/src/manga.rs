@@ -224,14 +224,54 @@ impl ExtensionHost {
             )
             .await
             .map_err(|error| error.to_string())?;
-        let pages = parse_pages(&value);
+        let mut pages = parse_pages(&value);
         if pages.is_empty() {
             return Err(format!(
                 "{} has no pages for this chapter",
                 self.provider_name(provider)
             ));
         }
+        // Pages whose pictures the source fetches itself carry its id after the mark
+        // (`raygun_net::images::SOURCE_MARK`), for Raygun's image fetcher to ask it.
+        let bare_mark = raygun_net::images::SOURCE_MARK.trim_end_matches('=');
+        for page in &mut pages {
+            if page.url.ends_with(bare_mark) {
+                page.url.push('=');
+                page.url.push_str(provider);
+            }
+        }
         Ok(pages)
+    }
+
+    /// A page's picture fetched by its source (a page marked by `manga_pages`): the source's
+    /// `image` call with the page's address and headers, answering the bytes in base64.
+    pub async fn manga_image(
+        &self,
+        provider: &str,
+        url: &str,
+        headers: &BTreeMap<String, String>,
+    ) -> Result<Vec<u8>, String> {
+        use base64::Engine as _;
+        let value = self
+            .call(
+                provider,
+                "image",
+                serde_json::json!({ "url": url, "headers": headers }),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        let encoded = value
+            .get("base64")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{} sent no picture", self.provider_name(provider)))?;
+        base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|error| {
+                format!(
+                    "{} sent a picture that isn't base64: {error}",
+                    self.provider_name(provider)
+                )
+            })
     }
 }
 

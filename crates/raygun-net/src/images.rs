@@ -6,8 +6,11 @@
 //! is paused, so the next attempt fetches only what's missing.
 
 use std::collections::{BTreeMap, HashSet};
+use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use futures_util::{StreamExt, stream};
@@ -36,12 +39,80 @@ pub struct Image {
     pub extension: &'static str,
 }
 
+/// Marks a page whose picture its source fetches itself (a converted Mihon source whose client
+/// draws or decodes its pictures): `<address>#raygun-source=<provider id>`. The address before it
+/// keeps its own fragment, which the source's code may read.
+pub const SOURCE_MARK: &str = "#raygun-source=";
+
+/// What fetches a marked page's picture: the source's provider id, the page's address and its
+/// headers in; the picture's bytes out.
+pub type SourceImages = Arc<
+    dyn Fn(
+            String,
+            String,
+            BTreeMap<String, String>,
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, ImageError>> + Send>>
+        + Send
+        + Sync,
+>;
+
+static SOURCE_IMAGES: RwLock<Option<SourceImages>> = RwLock::new(None);
+
+/// Sets what fetches the pictures of pages marked with [`SOURCE_MARK`] (the extension host).
+pub fn set_source_images(fetch: SourceImages) {
+    *SOURCE_IMAGES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(fetch);
+}
+
+/// A marked page's address and its source's provider id.
+pub fn source_marked(url: &str) -> Option<(&str, &str)> {
+    let at = url.rfind(SOURCE_MARK)?;
+    let provider = &url[at + SOURCE_MARK.len()..];
+    (!provider.is_empty()).then_some((&url[..at], provider))
+}
+
+async fn fetch_through_source(
+    url: &str,
+    provider: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<Image, ImageError> {
+    let fetch = SOURCE_IMAGES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+        .ok_or_else(|| ImageError::Network("the page's source isn't loaded".into()))?;
+    let bytes = fetch(provider.to_owned(), url.to_owned(), headers.clone()).await?;
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(ImageError::TooLarge);
+    }
+    let sniffed = sniff_content_type(&bytes);
+    if is_jxl(&bytes) {
+        let png = tokio::task::spawn_blocking(move || jxl_to_png(&bytes))
+            .await
+            .map_err(|error| ImageError::Network(error.to_string()))?
+            .map_err(ImageError::Network)?;
+        return Ok(Image {
+            bytes: png,
+            extension: "png",
+        });
+    }
+    if !sniffed.starts_with("image/") {
+        return Err(ImageError::NotImage);
+    }
+    let extension = extension_for(sniffed, "");
+    Ok(Image { bytes, extension })
+}
+
 /// Fetches `url` with `headers`, accepting only a successful `image/*` answer of at most 30 MB.
 pub async fn fetch_image(
     client: &reqwest::Client,
     url: &str,
     headers: &BTreeMap<String, String>,
 ) -> Result<Image, ImageError> {
+    if let Some((address, provider)) = source_marked(url) {
+        return fetch_through_source(address, provider, headers).await;
+    }
     // Pages of a connected server's comics sign in (`server_auth`).
     let response = crate::server_auth::get(client, url, headers)
         .send()
