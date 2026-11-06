@@ -46,6 +46,11 @@ describe('desktop video player', () => {
 
     const player = await screen.findByRole('dialog', { name: 'Video player' });
     expect(within(player).getByRole('heading', { name: 'The Movie' })).toBeInTheDocument();
+    // Its top bar moves the window, as the app bar it covers does.
+    expect(within(player).getByTestId('player-top-bar')).toHaveAttribute(
+      'data-tauri-drag-region',
+      'deep',
+    );
     const video = await within(player).findByTestId('desktop-video');
     await vi.waitFor(() => expect(video).toHaveAttribute('src', MOVIE.url));
 
@@ -155,12 +160,16 @@ describe('desktop video player', () => {
       await within(player).findByText('Trying source 2 of 2 · Alpha · 720p'),
     ).toBeInTheDocument();
 
+    // A list opens at the chosen one, wherever it is.
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
     await user.click(within(player).getByRole('button', { name: 'Episodes' }));
     const episodes = screen.getByRole('region', { name: 'Episodes' });
-    expect(within(episodes).getByRole('menuitemradio', { name: /S1E1/ })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
+    const chosen = within(episodes).getByRole('menuitemradio', { name: /S1E1/ });
+    expect(chosen).toHaveAttribute('aria-checked', 'true');
+    expect(scrolled).toContain(chosen);
     await user.click(within(episodes).getByRole('menuitemradio', { name: /S1E2/ }));
     expect(reports()).toContainEqual(
       expect.objectContaining({ id: 'stremio:series:tt2:1:1', action: 'episode', index: 1 }),

@@ -37,6 +37,8 @@ import { useSystemBars } from '../manga/reader/useSystemBars';
 import { useWakeLock } from '../manga/reader/useWakeLock';
 import { useReaderDisplay } from '../manga/readerDisplay';
 import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
+import { ReaderAiButton } from '../readerAi/ReaderAi';
+import { useNovelAi } from '../readerAi/useReaderAi';
 import {
   DEFAULT_PREFS,
   INDENT,
@@ -93,6 +95,9 @@ const ownKeys = (event: globalThis.KeyboardEvent) => {
   );
 };
 
+/** A chapter not loaded yet has no blocks to translate. */
+const NO_BLOCKS: TextBlock[] = [];
+
 const Block: FC<{
   block: TextBlock;
   index: number;
@@ -102,7 +107,9 @@ const Block: FC<{
   /** Lines run to both edges, words hyphenated. */
   justify: boolean;
   register: (index: number, element: HTMLElement | null) => void;
-}> = ({ block, index, active, indent, justify, register }) => {
+  /** The block's text as the AI layers translated it. */
+  translated?: string;
+}> = ({ block, index, active, indent, justify, register, translated }) => {
   const ref = (element: HTMLElement | null) => register(index, element);
   // The paragraph being read aloud.
   const highlight = active ? 'bg-primary/15 -mx-1 rounded px-1' : '';
@@ -115,7 +122,7 @@ const Block: FC<{
           aria-current={active || undefined}
           className={`mt-[1.2em] mb-[0.8em] text-[1.3em] font-bold ${highlight}`}
         >
-          {block.text}
+          {translated ?? block.text}
         </h2>
       );
     case 'separator':
@@ -143,7 +150,7 @@ const Block: FC<{
           }}
           className={`mb-[0.9em] ${highlight}`}
         >
-          {block.text}
+          {translated ?? block.text}
         </p>
       );
   }
@@ -312,6 +319,8 @@ const ChapterView: FC<{
   speaking: number | null;
   /** Reads aloud from a block (a long press, or a tap while reading). */
   onSpeakFrom?: (index: number) => void;
+  /** Blocks' texts as the AI layers translated them, by index. */
+  translated: Map<number, string>;
 }> = ({
   data,
   prefs,
@@ -323,6 +332,7 @@ const ChapterView: FC<{
   onBlock,
   speaking,
   onSpeakFrom,
+  translated,
 }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -729,6 +739,7 @@ const ChapterView: FC<{
       indent={prefs.indent ?? 0}
       justify={prefs.justify ?? false}
       register={register}
+      translated={translated.get(index)}
     />
   ));
 
@@ -852,6 +863,15 @@ export const NovelReaderPage: FC = () => {
   const [reading, setReading] = useState(false);
   const [speaking, setSpeaking] = useState<number | null>(null);
   const position = useRef(0);
+  // The AI layers' translation, from where the chapter was left.
+  const resumeBlock = useMemo(
+    () =>
+      data && !data.chapter.read
+        ? blockAt(textOffsets(data.blocks).starts, data.chapter.lastPage ?? 0)
+        : 0,
+    [data],
+  );
+  const novelAi = useNovelAi(data?.chapter.id ?? '', data?.blocks ?? NO_BLOCKS, resumeBlock);
   const readingRef = useRef(false);
   const dataRef = useRef(data);
   const rate = prefs.ttsRate ?? 10;
@@ -1078,114 +1098,126 @@ export const NovelReaderPage: FC = () => {
           onBlock={onBlock}
           speaking={speaking}
           onSpeakFrom={speechAvailable.data ? readFrom : undefined}
+          translated={novelAi.texts}
         />
       )}
-      {data && reading && (
-        <div
-          role="toolbar"
-          aria-label={t('novel.speechControls')}
-          className={`bg-surface/95 fixed inset-x-0 z-30 mx-auto flex w-fit flex-wrap items-center justify-center gap-1 rounded-3xl px-2 py-1 shadow-lg backdrop-blur ${chrome ? 'bottom-24' : 'bottom-4'}`}
-        >
-          <button
-            type="button"
-            aria-label={t('novel.previousParagraph')}
-            onClick={() => stepTo(-1)}
-            className="grid size-10 place-items-center rounded-full"
-          >
-            <SkipBack aria-hidden size={18} />
-          </button>
-          <button
-            type="button"
-            aria-label={t('novel.replayParagraph')}
-            onClick={() => stepTo(0)}
-            className="grid size-10 place-items-center rounded-full"
-          >
-            <RotateCcw aria-hidden size={18} />
-          </button>
-          <button
-            type="button"
-            aria-label={t('novel.nextParagraph')}
-            onClick={() => stepTo(1)}
-            className="grid size-10 place-items-center rounded-full"
-          >
-            <SkipForward aria-hidden size={18} />
-          </button>
-          <button
-            type="button"
-            aria-label={`${t('novel.speed')}: ${(rate / 10).toFixed(1)}×`}
-            onClick={() =>
-              updateSetting.mutate({
-                key: 'novelReader',
-                value: { ...prefs, ttsRate: SPEEDS.find((speed) => speed > rate) ?? SPEEDS[0] },
-              })
-            }
-            className="min-w-12 rounded-full px-2 text-sm font-semibold tabular-nums"
-          >
-            {(rate / 10).toFixed(1)}×
-          </button>
-          <button
-            type="button"
-            aria-label={t('novel.stopReading')}
-            onClick={stopReading}
-            className="bg-primary text-background grid size-10 place-items-center rounded-full"
-          >
-            <Square aria-hidden size={16} />
-          </button>
-        </div>
-      )}
-      {speechNotice && !reading && (
-        <p
-          role="status"
-          className={`bg-surface/95 text-foreground fixed inset-x-0 z-30 mx-auto w-fit max-w-[90vw] rounded-full px-4 py-2 text-sm shadow-lg ${chrome ? 'bottom-24' : 'bottom-4'}`}
-        >
-          {speechNotice}
-        </p>
-      )}
-      {chrome && data && (
-        <footer className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-          <button
-            type="button"
-            aria-label={t('manga.goPreviousChapter')}
-            disabled={!data.previousChapterId}
-            onClick={() => go(data.previousChapterId)}
-            className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur disabled:opacity-40"
-          >
-            <ChevronLeft aria-hidden size={22} />
-          </button>
-          <div className="bg-surface/95 flex min-w-0 flex-1 items-center gap-2 rounded-full px-4 py-2.5 shadow-md backdrop-blur">
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <div className="bg-surface h-1 overflow-hidden rounded-full">
-                <div
-                  className="bg-primary h-full"
-                  style={{ width: `${Math.round(progress.fraction * 100)}%` }}
-                />
-              </div>
-              <span data-testid="novel-progress" className="text-muted text-center text-xs">
-                {progress.label}
-              </span>
+      {data && (chrome || reading || speechNotice) && (
+        // The reader's bottom controls, one above another so none covers another: the AI
+        // button (bottom right), reading aloud's controls, then the chapter bar.
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          {chrome && (
+            <div className="pointer-events-auto flex w-full justify-end">
+              <ReaderAiButton medium="novel" busy={novelAi.busy} error={novelAi.error} />
             </div>
-            {speechAvailable.data && (
+          )}
+          {reading && (
+            <div
+              role="toolbar"
+              aria-label={t('novel.speechControls')}
+              className="bg-surface/95 pointer-events-auto flex max-w-full shrink-0 items-center justify-center gap-1 rounded-full px-2 py-1 shadow-lg backdrop-blur"
+            >
               <button
                 type="button"
-                aria-label={t(reading ? 'novel.stopReading' : 'novel.readAloud')}
-                aria-pressed={reading}
-                onClick={toggleReading}
-                className={`grid size-10 shrink-0 place-items-center rounded-full ${reading ? 'bg-primary text-background' : 'hover:bg-background'}`}
+                aria-label={t('novel.previousParagraph')}
+                onClick={() => stepTo(-1)}
+                className="grid size-10 place-items-center rounded-full"
               >
-                {reading ? <Square aria-hidden size={18} /> : <Volume2 aria-hidden size={20} />}
+                <SkipBack aria-hidden size={18} />
               </button>
-            )}
-          </div>
-          <button
-            type="button"
-            aria-label={t('manga.goNextChapter')}
-            disabled={!data.nextChapterId}
-            onClick={() => go(data.nextChapterId)}
-            className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur disabled:opacity-40"
-          >
-            <ChevronRight aria-hidden size={22} />
-          </button>
-        </footer>
+              <button
+                type="button"
+                aria-label={t('novel.replayParagraph')}
+                onClick={() => stepTo(0)}
+                className="grid size-10 place-items-center rounded-full"
+              >
+                <RotateCcw aria-hidden size={18} />
+              </button>
+              <button
+                type="button"
+                aria-label={t('novel.nextParagraph')}
+                onClick={() => stepTo(1)}
+                className="grid size-10 place-items-center rounded-full"
+              >
+                <SkipForward aria-hidden size={18} />
+              </button>
+              <button
+                type="button"
+                aria-label={`${t('novel.speed')}: ${(rate / 10).toFixed(1)}×`}
+                onClick={() =>
+                  updateSetting.mutate({
+                    key: 'novelReader',
+                    value: { ...prefs, ttsRate: SPEEDS.find((speed) => speed > rate) ?? SPEEDS[0] },
+                  })
+                }
+                className="min-w-12 rounded-full px-2 text-sm font-semibold tabular-nums"
+              >
+                {(rate / 10).toFixed(1)}×
+              </button>
+              <button
+                type="button"
+                aria-label={t('novel.stopReading')}
+                onClick={stopReading}
+                className="bg-primary text-background grid size-10 place-items-center rounded-full"
+              >
+                <Square aria-hidden size={16} />
+              </button>
+            </div>
+          )}
+          {speechNotice && !reading && (
+            <p
+              role="status"
+              className="bg-surface/95 text-foreground pointer-events-auto w-fit max-w-[90vw] rounded-full px-4 py-2 text-sm shadow-lg"
+            >
+              {speechNotice}
+            </p>
+          )}
+          {chrome && (
+            <footer className="pointer-events-auto flex w-full items-center gap-2">
+              <button
+                type="button"
+                aria-label={t('manga.goPreviousChapter')}
+                disabled={!data.previousChapterId}
+                onClick={() => go(data.previousChapterId)}
+                className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur disabled:opacity-40"
+              >
+                <ChevronLeft aria-hidden size={22} />
+              </button>
+              <div className="bg-surface/95 flex min-w-0 flex-1 items-center gap-2 rounded-full px-4 py-2.5 shadow-md backdrop-blur">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <div className="bg-surface h-1 overflow-hidden rounded-full">
+                    <div
+                      className="bg-primary h-full"
+                      style={{ width: `${Math.round(progress.fraction * 100)}%` }}
+                    />
+                  </div>
+                  <span data-testid="novel-progress" className="text-muted text-center text-xs">
+                    {progress.label}
+                  </span>
+                </div>
+                {speechAvailable.data && (
+                  <button
+                    type="button"
+                    aria-label={t(reading ? 'novel.stopReading' : 'novel.readAloud')}
+                    aria-pressed={reading}
+                    onClick={toggleReading}
+                    className={`grid size-10 shrink-0 place-items-center rounded-full ${reading ? 'bg-primary text-background' : 'hover:bg-background'}`}
+                  >
+                    {reading ? <Square aria-hidden size={18} /> : <Volume2 aria-hidden size={20} />}
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                aria-label={t('manga.goNextChapter')}
+                disabled={!data.nextChapterId}
+                onClick={() => go(data.nextChapterId)}
+                className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur disabled:opacity-40"
+              >
+                <ChevronRight aria-hidden size={22} />
+              </button>
+            </footer>
+          )}
+        </div>
       )}
       {data && chapterList && (
         <ChapterListSheet

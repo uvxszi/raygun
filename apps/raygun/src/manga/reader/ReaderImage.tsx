@@ -1,14 +1,17 @@
 import { ImageOff, LoaderCircle, RotateCw } from 'lucide-react';
 import { memo, useState } from 'react';
-import type { CSSProperties, FC, Ref } from 'react';
+import type { CSSProperties, FC } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import { PageTextOverlay } from '../../readerAi/PageTextOverlay';
+import { usePageAi } from '../../readerAi/useReaderAi';
 
 type ReaderImageProps = {
   url: string;
   index: number;
   className?: string;
   style?: CSSProperties;
-  imageRef?: Ref<HTMLImageElement>;
+  imageRef?: (element: HTMLImageElement | null) => void;
   /** The page's width over its height, once it's loaded. */
   onRatio?: (index: number, ratio: number) => void;
   /** A long press or right click: the page's actions. */
@@ -22,7 +25,8 @@ const withAttempt = (url: string, attempt: number) =>
 /**
  * One reader page: a spinner while it loads, and when it fails a note and a retry instead of a
  * broken picture. Decoding happens off the main thread. The parent is `relative`, so the status
- * sits over the page's place.
+ * sits over the page's place. With the reader's AI layers on, the page shows as it came until
+ * the layers drew it again, and a translation's words lie over it.
  */
 const ReaderImageView: FC<ReaderImageProps> = ({
   url,
@@ -36,12 +40,17 @@ const ReaderImageView: FC<ReaderImageProps> = ({
   const { t } = useTranslation();
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<'loading' | 'loaded' | 'failed'>('loading');
-  const src = withAttempt(url, attempt);
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const ai = usePageAi(url);
+  const src = ai.src ?? withAttempt(url, attempt);
   return (
     <>
       <img
         key={src}
-        ref={imageRef}
+        ref={(element) => {
+          setImage(element);
+          imageRef?.(element);
+        }}
         data-testid="manga-page"
         data-index={index}
         src={src}
@@ -61,6 +70,7 @@ const ReaderImageView: FC<ReaderImageProps> = ({
         className={`${className} ${state === 'failed' ? 'invisible' : ''}`}
         style={style}
       />
+      {ai.blocks && state === 'loaded' && <PageTextOverlay image={image} blocks={ai.blocks} />}
       {state === 'loading' && (
         <span
           aria-hidden

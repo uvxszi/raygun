@@ -598,6 +598,10 @@ export const bindingsMock = {
     aiModels: vi.fn(),
     aiModelDownload: vi.fn(),
     aiModelDelete: vi.fn(),
+    aiModelText: vi.fn(),
+    readerAiSupport: vi.fn(),
+    readerAiPageText: vi.fn(),
+    readerAiTranslate: vi.fn(),
     podcastSubscriptions: vi.fn(),
     podcastLatest: vi.fn(),
     podcastOpenFeed: vi.fn(),
@@ -1381,6 +1385,12 @@ export const seedBindings = () => {
   commands.aiModels.mockResolvedValue([]);
   commands.aiModelDownload.mockResolvedValue(ok(null));
   commands.aiModelDelete.mockResolvedValue(ok(null));
+  commands.aiModelText.mockResolvedValue(ok(''));
+  commands.readerAiSupport.mockResolvedValue({ textReaderBuiltIn: true });
+  commands.readerAiPageText.mockResolvedValue(ok([]));
+  commands.readerAiTranslate.mockImplementation(async (request: { texts: string[]; to?: string }) =>
+    ok(request.texts.map((text) => `[${request.to ?? ''}] ${text}`)),
+  );
   commands.podcastSubscriptions.mockResolvedValue(ok([]));
   commands.podcastLatest.mockResolvedValue(ok([]));
   commands.podcastSearch.mockResolvedValue(ok([]));

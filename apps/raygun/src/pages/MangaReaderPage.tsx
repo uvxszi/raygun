@@ -37,6 +37,8 @@ import { READER_MODES, sizedFrom, useReaderDisplay, ZOOM_STEP } from '../manga/r
 import { ReaderDisplaySettings } from '../manga/ReaderDisplaySettings';
 import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
 import { MANGA, saveProgress, useMangaChapter } from '../manga/useManga';
+import { ReaderAiButton } from '../readerAi/ReaderAi';
+import { usePageAi } from '../readerAi/useReaderAi';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useIsDesktop } from '../shell/useIsDesktop';
@@ -140,6 +142,8 @@ export const MangaReaderPage: FC = () => {
   const mode: ReaderMode =
     own ?? (ready ? display.defaultMode : (data?.readerMode ?? display.defaultMode));
   const page = Math.min(current, Math.max(total - 1, 0));
+  // The AI layers' work on the page in view, for their button.
+  const pageAi = usePageAi(data?.pages[page] ?? '');
   useWakeLock(display.keepScreenOn && data !== undefined);
   // Android's bars go with the reader's own: hidden while reading, back with the menu.
   useSystemBars(display.fullScreen && !chrome && data !== undefined);
@@ -483,7 +487,11 @@ export const MangaReaderPage: FC = () => {
           </span>
         )}
       {data && chrome && total > 0 && (
-        <footer className="fixed inset-x-0 bottom-0 z-30 flex justify-center pt-2 pr-[calc(0.75rem+env(safe-area-inset-right))] pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))]">
+        <footer className="fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+env(safe-area-inset-right))] pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))]">
+          {/* AI layers: bottom right, above the bar's own buttons. */}
+          <div className="flex w-full justify-end">
+            <ReaderAiButton medium="comic" busy={pageAi.busy} error={pageAi.error} />
+          </div>
           <div
             data-testid="reader-bar"
             // The bar: the screen's width on phones and 70 % on wide windows, made bigger or

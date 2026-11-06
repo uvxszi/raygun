@@ -484,8 +484,21 @@ impl LyricsTranslations {
         lines: &[String],
         progress: impl Fn(u32, u32) + Send + 'static,
     ) -> Result<Vec<String>, String> {
-        let catalog = raygun_ai::models::catalog();
         let preferred = self.preferred_model().await;
+        self.translate_on_device_with(language, lines, preferred, progress)
+            .await
+    }
+
+    /// [`Self::translate_on_device`] with the model to prefer (a reader's translation layer
+    /// names one); `None` picks one by language.
+    pub async fn translate_on_device_with(
+        &self,
+        language: &str,
+        lines: &[String],
+        preferred: Option<String>,
+        progress: impl Fn(u32, u32) + Send + 'static,
+    ) -> Result<Vec<String>, String> {
+        let catalog = raygun_ai::models::catalog();
         let plan = marian::plan(&catalog, language, preferred.as_deref())
             .ok_or_else(|| "No model on this device translates into this language".to_owned())?;
         let refs: Vec<&str> = lines.iter().map(String::as_str).collect();

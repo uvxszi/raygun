@@ -97,6 +97,9 @@ pub enum PackageFormat {
     LnReader,
     Kodi,
     Mihon,
+    /// A Stremio addon a repository lists (v1.3.0): `package` is its manifest's address, and
+    /// installing it adds the addon.
+    Stremio,
 }
 
 /// Shosetsu's repository index (`index.json` with `scripts` and `libraries`). Entries are read one
@@ -603,12 +606,17 @@ pub fn read_index(json: &str) -> Result<(RepoIndex, PackageFormat), RepoError> {
         return Err(RepoError::Format(index.format_version));
     }
     index.name = index.name.trim().to_owned();
+    // Stremio addons the repository lists (v1.3.0), kept apart from `extensions` so versions
+    // that don't know them still read the rest.
+    index.extensions.extend(listed_addons(json));
     index.extensions.retain(|entry| {
+        // A Stremio addon has no package to check: its manifest is read when it's added.
+        let checked = entry.format == PackageFormat::Stremio
+            || (entry.sha256.len() == 64 && entry.sha256.bytes().all(|b| b.is_ascii_hexdigit()));
         let usable = is_extension_id(&entry.id)
             && entry.api_version == API_VERSION
             && semver::Version::parse(&entry.version).is_ok()
-            && entry.sha256.len() == 64
-            && entry.sha256.bytes().all(|b| b.is_ascii_hexdigit());
+            && checked;
         if !usable {
             tracing::warn!(extension = %entry.id, "skipping unusable repository entry");
         }
@@ -626,6 +634,30 @@ pub fn read_index(json: &str) -> Result<(RepoIndex, PackageFormat), RepoError> {
         }
     }
     Ok((index, PackageFormat::Raygun))
+}
+
+/// The `addons` of a Raygun index: Stremio addons by their manifest's address (`package`), as
+/// entries of their own format. One that doesn't read is left out.
+fn listed_addons(json: &str) -> Vec<RepoEntry> {
+    #[derive(Deserialize)]
+    struct Addons {
+        #[serde(default)]
+        addons: Vec<serde_json::Value>,
+    }
+    let Ok(listed) = serde_json::from_str::<Addons>(json) else {
+        return Vec::new();
+    };
+    listed
+        .addons
+        .into_iter()
+        .filter_map(|value| {
+            let mut entry: RepoEntry = serde_json::from_value(value).ok()?;
+            entry.format = PackageFormat::Stremio;
+            let address = Url::parse(&entry.package).ok()?;
+            (address.scheme() == "https" && address.path().ends_with("/manifest.json"))
+                .then_some(entry)
+        })
+        .collect()
 }
 
 /// What another app's repository is, by the shape of its index (M46.38), with what Raygun can do

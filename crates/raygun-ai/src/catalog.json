@@ -3,6 +3,7 @@
     "id": "realcugan-up2x-conservative",
     "name": "Real-CUGAN 2× (conservative)",
     "kind": "upscale",
+    "engine": "ncnn",
     "description": "Doubles manga and anime images while keeping the original texture; the safest choice.",
     "license": "MIT",
     "licenseUrl": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
@@ -26,6 +27,7 @@
     "id": "realcugan-up2x-denoise3x",
     "name": "Real-CUGAN 2× (strong denoise)",
     "kind": "upscale",
+    "engine": "ncnn",
     "description": "Doubles images and removes heavy JPEG noise; good for low-quality scans.",
     "license": "MIT",
     "licenseUrl": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
@@ -49,6 +51,7 @@
     "id": "realcugan-up4x-conservative",
     "name": "Real-CUGAN 4× (conservative)",
     "kind": "upscale",
+    "engine": "ncnn",
     "description": "Quadruples small images; slower, for low-resolution pages.",
     "license": "MIT",
     "licenseUrl": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
@@ -72,6 +75,7 @@
     "id": "waifu2x-cunet-noise1-scale2",
     "name": "waifu2x CUnet 2× (light denoise)",
     "kind": "upscale",
+    "engine": "ncnn",
     "description": "The classic anime-art upscaler, doubling images with light noise reduction.",
     "license": "MIT",
     "licenseUrl": "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE",
@@ -88,6 +92,132 @@
         "url": "https://raw.githubusercontent.com/nihui/waifu2x-ncnn-vulkan/64914665c45893135c9e50c1c296170a121b9f77/models/models-cunet/noise1_scale2.0x_model.bin",
         "sha256": "862c0e40f3df956ff57bd4d168c85dea5d375b614077fdddd3ac8cfdb9a686da",
         "size": 2776400
+      }
+    ]
+  },
+  {
+    "id": "anime4k-upscale-cnn-x2-s",
+    "name": "Anime4K 2× (small)",
+    "kind": "upscale",
+    "engine": "anime4k",
+    "description": "Doubles comic pages on the graphics card; the quickest, for phones.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/bloc97/Anime4K/blob/7684e9586f8dcc738af08a1cdceb024cc184f426/LICENSE",
+    "sourceUrl": "https://github.com/bloc97/Anime4K",
+    "files": [
+      {
+        "name": "Anime4K_Upscale_CNN_x2_S.glsl",
+        "url": "https://raw.githubusercontent.com/bloc97/Anime4K/7684e9586f8dcc738af08a1cdceb024cc184f426/glsl/Upscale/Anime4K_Upscale_CNN_x2_S.glsl",
+        "sha256": "4c53ec2e287908f7ee7bcb266b0170421626d663576468b7d7dafc62962649a4",
+        "size": 18638
+      }
+    ]
+  },
+  {
+    "id": "anime4k-upscale-cnn-x2-m",
+    "name": "Anime4K 2× (medium)",
+    "kind": "upscale",
+    "engine": "anime4k",
+    "description": "Doubles comic pages on the graphics card, sharper than the small one.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/bloc97/Anime4K/blob/7684e9586f8dcc738af08a1cdceb024cc184f426/LICENSE",
+    "sourceUrl": "https://github.com/bloc97/Anime4K",
+    "files": [
+      {
+        "name": "Anime4K_Upscale_CNN_x2_M.glsl",
+        "url": "https://raw.githubusercontent.com/bloc97/Anime4K/7684e9586f8dcc738af08a1cdceb024cc184f426/glsl/Upscale/Anime4K_Upscale_CNN_x2_M.glsl",
+        "sha256": "716e02098a68f0d648761f2b96b4dd139e1cb09b174bb369fca3aa34328fff7e",
+        "size": 37685
+      }
+    ]
+  },
+  {
+    "id": "anime4k-upscale-cnn-x2-l",
+    "name": "Anime4K 2× (large)",
+    "kind": "upscale",
+    "engine": "anime4k",
+    "description": "Doubles comic pages on the graphics card; for computers.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/bloc97/Anime4K/blob/7684e9586f8dcc738af08a1cdceb024cc184f426/LICENSE",
+    "sourceUrl": "https://github.com/bloc97/Anime4K",
+    "files": [
+      {
+        "name": "Anime4K_Upscale_CNN_x2_L.glsl",
+        "url": "https://raw.githubusercontent.com/bloc97/Anime4K/7684e9586f8dcc738af08a1cdceb024cc184f426/glsl/Upscale/Anime4K_Upscale_CNN_x2_L.glsl",
+        "sha256": "db1fedf7be82f6fd9034e6bf39b64daf2b7576988bb584ec38f24f5236b1cd97",
+        "size": 73443
+      }
+    ]
+  },
+  {
+    "id": "anime4k-upscale-cnn-x2-vl",
+    "name": "Anime4K 2× (very large)",
+    "kind": "upscale",
+    "engine": "anime4k",
+    "description": "Doubles comic pages on the graphics card, the finest; for fast graphics cards.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/bloc97/Anime4K/blob/7684e9586f8dcc738af08a1cdceb024cc184f426/LICENSE",
+    "sourceUrl": "https://github.com/bloc97/Anime4K",
+    "files": [
+      {
+        "name": "Anime4K_Upscale_CNN_x2_VL.glsl",
+        "url": "https://raw.githubusercontent.com/bloc97/Anime4K/7684e9586f8dcc738af08a1cdceb024cc184f426/glsl/Upscale/Anime4K_Upscale_CNN_x2_VL.glsl",
+        "sha256": "5638fe31c37c151a3443fea3451a3ef91af073f4dbb9615f6c0d1e29db11493d",
+        "size": 146743
+      }
+    ]
+  },
+  {
+    "id": "anime4k-restore-cnn-s",
+    "name": "Anime4K line restore (small)",
+    "kind": "restore",
+    "engine": "anime4k",
+    "description": "Cleans up blurred lines and compression artefacts at the page's own size.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/bloc97/Anime4K/blob/7684e9586f8dcc738af08a1cdceb024cc184f426/LICENSE",
+    "sourceUrl": "https://github.com/bloc97/Anime4K",
+    "files": [
+      {
+        "name": "Anime4K_Restore_CNN_S.glsl",
+        "url": "https://raw.githubusercontent.com/bloc97/Anime4K/7684e9586f8dcc738af08a1cdceb024cc184f426/glsl/Restore/Anime4K_Restore_CNN_S.glsl",
+        "sha256": "97c24dc370ab300c108bfaa09db7f175aeff343674842c299cf3940a3d330427",
+        "size": 17136
+      }
+    ]
+  },
+  {
+    "id": "anime4k-restore-cnn-m",
+    "name": "Anime4K line restore (medium)",
+    "kind": "restore",
+    "engine": "anime4k",
+    "description": "Cleans up blurred lines and compression artefacts, more thoroughly.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/bloc97/Anime4K/blob/7684e9586f8dcc738af08a1cdceb024cc184f426/LICENSE",
+    "sourceUrl": "https://github.com/bloc97/Anime4K",
+    "files": [
+      {
+        "name": "Anime4K_Restore_CNN_M.glsl",
+        "url": "https://raw.githubusercontent.com/bloc97/Anime4K/7684e9586f8dcc738af08a1cdceb024cc184f426/glsl/Restore/Anime4K_Restore_CNN_M.glsl",
+        "sha256": "67ea3ed26539e8de3b7d307688535d2ff17e8d147e11dda0247da7770dbecf41",
+        "size": 35916
+      }
+    ]
+  },
+  {
+    "id": "anime4k-restore-cnn-soft-m",
+    "name": "Anime4K soft restore (medium)",
+    "kind": "restore",
+    "engine": "anime4k",
+    "description": "Smooths compression artefacts gently, keeping the drawing's softness.",
+    "license": "MIT",
+    "licenseUrl": "https://github.com/bloc97/Anime4K/blob/7684e9586f8dcc738af08a1cdceb024cc184f426/LICENSE",
+    "sourceUrl": "https://github.com/bloc97/Anime4K",
+    "files": [
+      {
+        "name": "Anime4K_Restore_CNN_Soft_M.glsl",
+        "url": "https://raw.githubusercontent.com/bloc97/Anime4K/7684e9586f8dcc738af08a1cdceb024cc184f426/glsl/Restore/Anime4K_Restore_CNN_Soft_M.glsl",
+        "sha256": "a78a2c76898e08e09e442a9628c64208c26e8e15789649b8755223f009794c02",
+        "size": 36016
       }
     ]
   },

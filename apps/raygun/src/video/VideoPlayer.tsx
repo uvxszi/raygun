@@ -281,7 +281,7 @@ const WaitingScreen: FC<WaitingProps> = ({
       aria-label={label}
       className="fixed inset-0 z-[70] bg-black text-white select-none"
     >
-      <TopBar onClose={onClose} setPanel={setPanel} positionMs={0} />
+      <TopBar onClose={onClose} setPanel={setPanel} positionMs={0} fullscreen={fullscreen} />
       <Middle>
         {notice ? (
           <NoticeBox onSources={() => setPanel('sources')} />
@@ -1175,6 +1175,7 @@ const VideoStage: FC<StageProps> = ({
           setPanel={setPanel}
           positionMs={timeMs}
           onElsewhere={() => setPanel(panel === 'players' ? null : 'players')}
+          fullscreen={fullscreen}
         />
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-5 pt-12 pb-3">
           <TimeBar
@@ -1625,15 +1626,22 @@ type TopBarProps = {
   setPanel: (panel: PanelKind | null) => void;
   positionMs: number;
   onElsewhere?: () => void;
+  /** Full screen: the bar no longer moves the window. */
+  fullscreen?: boolean;
 };
 
-const TopBar: FC<TopBarProps> = ({ onClose, setPanel, onElsewhere }) => {
+/** The player's top bar; as the app bar it covers, it moves the window (but not its buttons). */
+const TopBar: FC<TopBarProps> = ({ onClose, setPanel, onElsewhere, fullscreen = false }) => {
   const { t } = useTranslation();
   const session = useVideoPlayerStore((state) => state.session);
   const title = useVideoPlayerStore((state) => state.title);
   const subtitle = useVideoPlayerStore((state) => state.subtitle);
   return (
-    <div className="absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/80 to-transparent px-3 pt-3 pb-10">
+    <div
+      data-tauri-drag-region={fullscreen ? undefined : 'deep'}
+      data-testid="player-top-bar"
+      className="absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/80 to-transparent px-3 pt-3 pb-10"
+    >
       <IconButton label={t('desktopPlayer.close')} onClick={onClose}>
         <ArrowLeft aria-hidden size={22} />
       </IconButton>
@@ -1867,6 +1875,7 @@ const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
         <PanelOption
           label={autoplay ? t('videoPlayer.autoplayOn') : t('videoPlayer.autoplayOff')}
           selected={autoplay}
+          toggle
           onSelect={() => {
             useVideoPlayerStore.setState({ autoplay: !autoplay });
             sendRequest(id, 'autoplay', positionMs, { on: !autoplay });

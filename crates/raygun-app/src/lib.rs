@@ -61,6 +61,7 @@ mod podcast_feed;
 mod podcasts;
 mod privacy;
 mod quick_access;
+mod reader_ai;
 mod recent_searches;
 mod remote;
 mod resolution;
@@ -253,6 +254,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::video_subtitles_translations,
             commands::video_subtitles_stop,
             commands::video_subtitles_translators,
+            commands::reader_ai_support,
+            commands::reader_ai_page_text,
+            commands::reader_ai_translate,
+            commands::ai_model_text,
             commands::spoken_item,
             commands::music_track_tags,
             commands::music_tags_for,

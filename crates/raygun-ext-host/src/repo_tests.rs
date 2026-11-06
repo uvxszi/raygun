@@ -260,7 +260,8 @@ async fn paraline_live() {
             }
             repo::PackageFormat::Nuclear
             | repo::PackageFormat::Kodi
-            | repo::PackageFormat::Mihon => continue,
+            | repo::PackageFormat::Mihon
+            | repo::PackageFormat::Stremio => continue,
         };
         assert_eq!(verified.manifest.id, entry.id);
         assert_eq!(verified.manifest.version.to_string(), entry.version);
@@ -642,4 +643,36 @@ fn local_repositories_are_files_on_desktop() {
         ..entry
     };
     assert!(repo::package_url(&web, &local_file).is_err());
+}
+
+#[test]
+fn an_index_lists_stremio_addons_apart() {
+    let json = json!({
+        "formatVersion": 1,
+        "name": "Paraline",
+        "extensions": [],
+        "addons": [
+            {"id": "org.stremio.opensubtitlesv3", "name": "OpenSubtitles v3", "version": "1.0.0",
+             "apiVersion": 1, "provides": ["stremio.subtitles"],
+             "package": "https://opensubtitles-v3.strem.io/manifest.json", "sha256": "", "size": 0},
+            // Not a manifest's address.
+            {"id": "org.example.bad", "name": "Bad", "version": "1.0.0", "apiVersion": 1,
+             "package": "https://example.org/page", "sha256": "", "size": 0},
+            {"broken": true}
+        ]
+    })
+    .to_string();
+    let index = repo::parse_index(&json).unwrap();
+    assert_eq!(index.extensions.len(), 1);
+    let addon = &index.extensions[0];
+    assert_eq!(addon.id, "org.stremio.opensubtitlesv3");
+    assert_eq!(addon.format, PackageFormat::Stremio);
+    // An extension entry without a package hash is still refused.
+    let json = json!({
+        "formatVersion": 1, "name": "R",
+        "extensions": [{"id": "dev.example.x", "name": "X", "version": "1.0.0", "apiVersion": 1,
+                        "package": "x.zip", "sha256": "", "size": 0}]
+    })
+    .to_string();
+    assert!(repo::parse_index(&json).unwrap().extensions.is_empty());
 }

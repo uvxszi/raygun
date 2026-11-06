@@ -255,6 +255,48 @@ describe('Novels', () => {
     );
   });
 
+  it('translates a chapter through AI layers, bottom first, from the place being read', async () => {
+    const user = userEvent.setup();
+    commands.novelChapter.mockResolvedValue(
+      ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await within(reader).findByText('It was a dreary night of Nov');
+
+    await user.click(within(reader).getByRole('button', { name: 'AI layers' }));
+    const sheet = await screen.findByRole('dialog', { name: 'AI layers' });
+    // Books only translate; comics also upscale and restore.
+    expect(within(sheet).queryByRole('button', { name: 'Upscale' })).not.toBeInTheDocument();
+    await user.click(within(sheet).getByRole('button', { name: 'Translate' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Translate' }));
+    const layers = within(sheet).getAllByRole('listitem');
+    expect(layers).toHaveLength(2);
+    // The new layer is on top: it translates what the one under it made.
+    await user.selectOptions(
+      within(layers[0]!).getByRole('combobox', { name: 'Translate into' }),
+      'de',
+    );
+
+    await within(reader).findByText('[de] [en] ember. Rain fell on the panes.');
+    expect(commands.readerAiTranslate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'en',
+        texts: expect.arrayContaining(['It was a dreary night of Nov']),
+      }),
+    );
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'readerAi',
+      value: expect.objectContaining({
+        novel: [expect.objectContaining({ to: 'en' }), expect.objectContaining({ to: 'de' })],
+      }),
+    });
+
+    // A layer turned off is skipped.
+    await user.click(within(layers[0]!).getByRole('switch'));
+    await within(reader).findByText('[en] ember. Rain fell on the panes.');
+  });
+
   it('keeps reading aloud in the chapter opened, from its start', async () => {
     const user = userEvent.setup();
     commands.ttsAvailable.mockResolvedValue(ok(true));

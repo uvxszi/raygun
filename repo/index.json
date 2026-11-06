@@ -114,6 +114,27 @@
       "size": 3151
     },
     {
+      "id": "dev.raygun.listenbrainz",
+      "name": "ListenBrainz charts",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Charts under CC0: the songs most listened to on ListenBrainz, the open listening-history project of the MetaBrainz Foundation, this week, this month, this year and of all time. Cover art from the Cover Art Archive.",
+      "author": "Raygun",
+      "provides": [
+        "music.charts"
+      ],
+      "permissions": {
+        "net": [
+          "api.listenbrainz.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.listenbrainz-1.0.0.zip",
+      "sha256": "3b06ee5f81e1819b1aab4c12f3e46f3d1a21633d91cb3bb20b8b89a035db8f32",
+      "size": 1512
+    },
+    {
       "id": "dev.raygun.loyalbooks",
       "name": "Loyal Books",
       "version": "1.0.1",

@@ -234,6 +234,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(crate::lyrics_translation::LyricsTranslations::new(
         app.handle().clone(),
     ));
+    // The readers' AI layers: words read on comic pages, translations.
+    app.manage(crate::reader_ai::ReaderAi::new(
+        app.handle().clone(),
+        raygun_net::client_builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()?,
+    ));
     // AI subtitles and translated subtitles in the video player.
     let video_subtitles =
         crate::video_subtitles::VideoSubtitles::new(app.handle().clone(), &paths.downloads());

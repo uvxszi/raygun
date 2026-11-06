@@ -79,6 +79,26 @@ An index may also name packages in other repositories by their absolute address,
 packages of the [other formats](other-formats.md) Raygun runs (a `format` field of `nuclear`,
 `shosetsu` or `miru`); Paraline does both.
 
+Stremio addons go in a list of their own, `addons`, so versions of Raygun before 1.3.0 skip them.
+Each is an entry as above whose `package` is the addon's `https` manifest address (ending in
+`/manifest.json`), with `sha256` empty and `size` 0. Installing one adds the addon, and
+uninstalling it removes the addon:
+
+```json
+"addons": [
+  {
+    "id": "org.stremio.opensubtitlesv3",
+    "name": "OpenSubtitles v3",
+    "version": "1.0.0",
+    "apiVersion": 1,
+    "provides": ["stremio.subtitles"],
+    "package": "https://opensubtitles-v3.strem.io/manifest.json",
+    "sha256": "",
+    "size": 0
+  }
+]
+```
+
 ## Host it
 
 Any `https` server works. On GitHub, push the repository folder to a public repository; its raw

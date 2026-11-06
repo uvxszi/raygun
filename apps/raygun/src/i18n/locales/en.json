@@ -3164,6 +3164,7 @@
       "video": "Videos",
       "manga": "Comics",
       "novel": "Books",
+      "data": "Data",
       "other": "Other"
     },
     "add": {
@@ -4619,5 +4620,37 @@
     "choose": "Choose a file or folder",
     "file": "Choose file",
     "folder": "Choose folder"
+  },
+  "readerAi": {
+    "button": "AI layers",
+    "title": "AI layers",
+    "order": "Layers work from the bottom up: the bottom one goes first, and each one above works on what the one under it made.",
+    "none": "No layers yet. Add one below.",
+    "layers": "Layers",
+    "add": {
+      "upscale": "Upscale",
+      "restore": "Restore lines",
+      "translate": "Translate"
+    },
+    "kind": {
+      "upscale": "Upscale",
+      "restore": "Restore lines",
+      "translate": "Translate"
+    },
+    "turnOn": "{{name}} on",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "remove": "Remove {{name}}",
+    "model": "Model",
+    "modelOf": "{{name}}'s model",
+    "device": "On this device (automatic)",
+    "firstInstalled": "The first one installed",
+    "languages": "Languages",
+    "from": "Translate from",
+    "to": "Translate into",
+    "detect": "Detect",
+    "needsModel": "Needs {{name}} ({{size}})",
+    "download": "Download",
+    "moreModels": "More models in Settings → AI"
   }
 }

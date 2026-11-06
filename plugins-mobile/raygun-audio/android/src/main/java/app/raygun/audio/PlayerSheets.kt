@@ -136,10 +136,12 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                     entry.optBoolean("worked") -> label("workedLastTime", "worked last time")
                     else -> null
                 }
-                sheet.row(entry.optString("label"), note, current) {
+                val row = sheet.row(entry.optString("label"), note, current) {
                     sheet.dismiss()
                     if (!current) host.chooseSource(group, link)
                 }
+                // The list opens at the source playing, wherever it is.
+                if (current) sheet.reveal(row)
                 shown += 1
             }
         }

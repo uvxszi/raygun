@@ -49,24 +49,73 @@ fn prepare(bytes: &[u8]) -> Result<image::GrayImage, String> {
     Ok(grey)
 }
 
+/// A line the engine read: where its first word starts, its tallest word, the box around all its
+/// words (left, top, right, bottom), in the read picture's pixels.
+struct ReadLine {
+    x: f32,
+    y: f32,
+    height: f32,
+    bounds: [f32; 4],
+    text: String,
+}
+
 /// The text lines of an image (PNG, JPEG, WebP or GIF bytes), in reading order. `models` is the
 /// installed `ocrs-latin` folder where Windows' engine isn't used.
 pub fn read(bytes: &[u8], models: Option<&Path>) -> Result<Vec<TextLine>, String> {
     let picture = prepare(bytes)?;
+    Ok(read_lines(&picture, models)?
+        .into_iter()
+        .map(|line| TextLine {
+            x: line.x,
+            y: line.y,
+            height: line.height,
+            text: line.text,
+        })
+        .collect())
+}
+
+/// A line of text on a picture, its box in fractions of the picture's width and height.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextBox {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub text: String,
+}
+
+/// The text lines of an image with the boxes around them (the readers' translation layers), in
+/// reading order.
+pub fn read_boxes(bytes: &[u8], models: Option<&Path>) -> Result<Vec<TextBox>, String> {
+    let picture = prepare(bytes)?;
+    let (width, height) = (picture.width() as f32, picture.height() as f32);
+    Ok(read_lines(&picture, models)?
+        .into_iter()
+        .map(|line| TextBox {
+            left: (line.bounds[0] / width).clamp(0.0, 1.0),
+            top: (line.bounds[1] / height).clamp(0.0, 1.0),
+            right: (line.bounds[2] / width).clamp(0.0, 1.0),
+            bottom: (line.bounds[3] / height).clamp(0.0, 1.0),
+            text: line.text,
+        })
+        .collect())
+}
+
+fn read_lines(picture: &image::GrayImage, models: Option<&Path>) -> Result<Vec<ReadLine>, String> {
     #[cfg(windows)]
     {
         let _ = models;
-        windows_ocr(&picture)
+        windows_ocr(picture)
     }
     #[cfg(not(windows))]
     {
         let models = models.ok_or("The text reader isn't downloaded yet")?;
-        ocrs_read(&picture, models)
+        ocrs_read(picture, models)
     }
 }
 
 #[cfg(windows)]
-fn windows_ocr(picture: &image::GrayImage) -> Result<Vec<TextLine>, String> {
+fn windows_ocr(picture: &image::GrayImage) -> Result<Vec<ReadLine>, String> {
     use windows::Graphics::Imaging::BitmapDecoder;
     use windows::Media::Ocr::OcrEngine;
     use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
@@ -118,10 +167,19 @@ fn windows_ocr(picture: &image::GrayImage) -> Result<Vec<TextLine>, String> {
             continue;
         };
         let rect = first.BoundingRect().map_err(failed)?;
-        lines.push(TextLine {
+        let mut bounds = [rect.X, rect.Y, rect.X + rect.Width, rect.Y + rect.Height];
+        for word in &words {
+            let each = word.BoundingRect().map_err(failed)?;
+            bounds[0] = bounds[0].min(each.X);
+            bounds[1] = bounds[1].min(each.Y);
+            bounds[2] = bounds[2].max(each.X + each.Width);
+            bounds[3] = bounds[3].max(each.Y + each.Height);
+        }
+        lines.push(ReadLine {
             x: rect.X,
             y: rect.Y,
             height: rect.Height,
+            bounds,
             text: line.Text().map_err(failed)?.to_string(),
         });
     }
@@ -130,7 +188,7 @@ fn windows_ocr(picture: &image::GrayImage) -> Result<Vec<TextLine>, String> {
 }
 
 #[cfg(not(windows))]
-fn ocrs_read(picture: &image::GrayImage, models: &Path) -> Result<Vec<TextLine>, String> {
+fn ocrs_read(picture: &image::GrayImage, models: &Path) -> Result<Vec<ReadLine>, String> {
     use ocrs::{ImageSource, OcrEngine, OcrEngineParams};
     use rten::Model;
     use rten_imageproc::BoundingRect;
@@ -158,7 +216,7 @@ fn ocrs_read(picture: &image::GrayImage, models: &Path) -> Result<Vec<TextLine>,
     let texts = engine
         .recognize_text(&input, &rects)
         .map_err(|error| error.to_string())?;
-    let mut lines: Vec<TextLine> = rects
+    let mut lines: Vec<ReadLine> = rects
         .iter()
         .zip(texts)
         .filter_map(|(rect, text)| {
@@ -168,10 +226,19 @@ fn ocrs_read(picture: &image::GrayImage, models: &Path) -> Result<Vec<TextLine>,
                 .iter()
                 .map(|word| word.bounding_rect().height())
                 .fold(0.0_f32, f32::max);
-            Some(TextLine {
+            let mut bounds = [first.left(), first.top(), first.right(), first.bottom()];
+            for word in rect {
+                let each = word.bounding_rect();
+                bounds[0] = bounds[0].min(each.left());
+                bounds[1] = bounds[1].min(each.top());
+                bounds[2] = bounds[2].max(each.right());
+                bounds[3] = bounds[3].max(each.bottom());
+            }
+            Some(ReadLine {
                 x: first.left(),
                 y: first.top(),
                 height,
+                bounds,
                 text,
             })
         })

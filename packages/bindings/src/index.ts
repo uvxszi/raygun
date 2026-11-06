@@ -587,6 +587,17 @@ export const commands = {
 	 *  from Settings → AI.
 	 */
 	videoSubtitlesTranslators: (language: string) => typedError<LyricsTranslatorOption[], string>(__TAURI_INVOKE("video_subtitles_translators", { language })),
+	/**  What the readers' AI layers can do on this device. */
+	readerAiSupport: () => __TAURI_INVOKE<ReaderAiSupport>("reader_ai_support"),
+	/**
+	 *  The words on a comic page (one of the reader's page links), in blocks, for a translation
+	 *  layer.
+	 */
+	readerAiPageText: (url: string) => typedError<PageTextBlock[], string>(__TAURI_INVOKE("reader_ai_page_text", { url })),
+	/**  Texts translated for a reader's translation layer, in order. */
+	readerAiTranslate: (request: ReaderAiTranslateRequest) => typedError<string[], string>(__TAURI_INVOKE("reader_ai_translate", { request })),
+	/**  A file of an installed model the readers run themselves (Anime4K's shaders). */
+	aiModelText: (id: string) => typedError<string, string>(__TAURI_INVOKE("ai_model_text", { id })),
 	/**  Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32). */
 	spokenItem: (source: MediaSource) => typedError<{
 	kind: SpokenKind,
@@ -1275,6 +1286,8 @@ export const commands = {
 	lyricsCache: LyricsCachePrefs,
 	/**  Translations under lyrics (M46.48). */
 	lyricsTranslation: LyricsTranslationPrefs,
+	/**  The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0). */
+	readerAi?: ReaderAiPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**
@@ -1690,6 +1703,11 @@ export type AiModel = {
 	installed: boolean,
 	/**  Bytes received while a download is running. */
 	downloading: number | null,
+	/**
+	 *  What runs it, for models Raygun runs in more than one way: `anime4k` (the readers' upscale
+	 *  and restore layers run these on the graphics card), `ncnn` (no runner in this build yet).
+	 */
+	engine?: string | null,
 };
 
 /**  A model download's progress (M34). */
@@ -4332,6 +4350,18 @@ export type PageRef = {
 	url: string,
 };
 
+/**
+ *  Words on a comic's page, read for a translation layer: a block of lines (a speech bubble, a
+ *  caption) and where it is, in fractions of the page's width and height.
+ */
+export type PageTextBlock = {
+	left: number | null,
+	top: number | null,
+	right: number | null,
+	bottom: number | null,
+	text: string,
+};
+
 /**  How a page fits the screen in the paged reader modes (M46.7). */
 export type PagedScale = 
 /**  All of the page on screen. */
@@ -4880,6 +4910,66 @@ export type RailPrefs = {
 	version?: number,
 };
 
+/**  What an AI layer in a reader does. */
+export type ReaderAiKind = 
+/**  A comic's pages made bigger and sharper by an upscaling model. */
+"upscale" | 
+/**  A comic's lines cleaned up at the same size (blur and artefacts taken out). */
+"restore" | 
+/**  The text translated: a novel's paragraphs, or the words a comic's pages show. */
+"translate";
+
+/**
+ *  One AI layer of a reader. Layers run from the bottom up: the first in the list works on the
+ *  page as it came, each next one on what the one before made (a translation of a translation).
+ */
+export type ReaderAiLayer = {
+	/**  Tells layers apart while they're moved about. */
+	id: string,
+	kind: ReaderAiKind,
+	/**  Off, the layer stays in its place and does nothing. */
+	enabled: boolean,
+	/**
+	 *  The model it runs: an AI catalogue model's id, or `ai:<provider id>` for a translator from
+	 *  Settings → AI; empty picks one (a translation on this device by language).
+	 */
+	model?: string,
+	/**  A translation's language from, a BCP 47 tag; empty works it out. */
+	from?: string,
+	/**  A translation's language into, a BCP 47 tag. */
+	to?: string,
+};
+
+/**  The readers' AI layers, bottom first: comics and novels have their own. */
+export type ReaderAiPrefs = {
+	comic?: ReaderAiLayer[],
+	novel?: ReaderAiLayer[],
+};
+
+/**  What the readers' AI layers can do on this device. */
+export type ReaderAiSupport = {
+	/**
+	 *  The system reads text on pictures itself (Windows); elsewhere `text_reader_model` does,
+	 *  once downloaded.
+	 */
+	textReaderBuiltIn: boolean,
+	/**  The AI catalogue model that reads the words on comic pages. */
+	textReaderModel: string,
+};
+
+/**  Texts for a reader's translation layer to translate. */
+export type ReaderAiTranslateRequest = {
+	texts: string[],
+	/**  The texts' language, a BCP 47 tag; empty works it out. */
+	from: string,
+	to: string,
+	/**
+	 *  The layer's model: an AI catalogue translation model (on this device), `ai:<provider id>`,
+	 *  or empty for this device's choice.
+	 */
+	model: string,
+};
+
 /**  How a title is read (M27). */
 export type ReaderMode = 
 /**  One continuous vertical strip. */
@@ -5161,7 +5251,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5281,6 +5371,8 @@ export type Settings = {
 	lyricsCache: LyricsCachePrefs,
 	/**  Translations under lyrics (M46.48). */
 	lyricsTranslation: LyricsTranslationPrefs,
+	/**  The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0). */
+	readerAi?: ReaderAiPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**
@@ -5624,7 +5716,9 @@ export type SourceFilter =
 { kind: "tags"; key: string; label: string; options: FilterOption[] } | { kind: "toggle"; key: string; label: string; default: boolean };
 
 /**  Which app's format a repository or an extension is in. */
-export type SourceFormat = "raygun" | "nuclear" | "shosetsu" | "miru" | "lnreader" | "kodi" | "mihon";
+export type SourceFormat = "raygun" | "nuclear" | "shosetsu" | "miru" | "lnreader" | "kodi" | "mihon" | 
+/**  A Stremio addon listed in a repository. */
+"stremio";
 
 /**  A source in play order, with how it did. */
 export type SourceRank = {

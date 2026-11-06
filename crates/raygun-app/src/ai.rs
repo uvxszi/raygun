@@ -197,6 +197,19 @@ impl AiService {
         to: &str,
         content: translate::Content,
     ) -> Result<(String, Vec<String>), String> {
+        self.translate_texts_from(id, lines, None, to, content)
+            .await
+    }
+
+    /// [`Self::translate_texts`] from a known language (a reader's translation layer says which).
+    pub async fn translate_texts_from(
+        &self,
+        id: &str,
+        lines: &[String],
+        from: Option<&str>,
+        to: &str,
+        content: translate::Content,
+    ) -> Result<(String, Vec<String>), String> {
         let provider = self
             .stored_providers()
             .await?
@@ -210,7 +223,7 @@ impl AiService {
                 &provider,
                 key.as_deref(),
                 lines,
-                None,
+                from,
                 to,
                 content,
             )
@@ -369,6 +382,7 @@ impl AiService {
                 id: model.id,
                 name: model.name,
                 kind: model.kind,
+                engine: model.engine,
                 description: model.description,
                 license: model.license,
                 license_url: model.license_url,

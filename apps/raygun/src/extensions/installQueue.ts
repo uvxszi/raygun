@@ -83,6 +83,8 @@ const receive = (queue: ExtensionInstallStatus) => {
   if (before.queue.running && !queue.running) {
     void follower?.client.invalidateQueries({ queryKey: CATALOG });
     void follower?.client.invalidateQueries({ queryKey: EXTENSIONS });
+    // A repository's Stremio addon installs as an addon.
+    void follower?.client.invalidateQueries({ queryKey: ['stremio'] });
   }
 };
 

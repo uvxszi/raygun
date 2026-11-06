@@ -755,6 +755,7 @@ fn source_format(format: PackageFormat) -> SourceFormat {
         PackageFormat::LnReader => SourceFormat::LnReader,
         PackageFormat::Kodi => SourceFormat::Kodi,
         PackageFormat::Mihon => SourceFormat::Mihon,
+        PackageFormat::Stremio => SourceFormat::Stremio,
     }
 }
 

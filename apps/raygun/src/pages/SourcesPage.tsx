@@ -24,7 +24,7 @@ import type { BulkSelection } from '../shell/useBulkSelection';
 import { matchesSearch } from '../shell/useListSearch';
 import { useSearchMode } from '../shell/useSearchMode';
 import { AddSourceSheet } from '../sources/AddSourceSheet';
-import { SOURCE_MEDIA, SOURCE_TYPES, mediaOf } from '../sources/sourceMedia';
+import { SOURCE_MEDIA, SOURCE_TYPES, addonMedia, mediaOf } from '../sources/sourceMedia';
 import type { SourceMedia, SourceType } from '../sources/sourceMedia';
 import { AddonItem, AddonSuggestions } from '../watch/AddonRows';
 import { useSetAddonEnabled, useSetAddonOrder, useStremioAddons } from '../watch/useStremio';
@@ -141,7 +141,9 @@ export const SourcesPage: FC = () => {
     (row) => forMedia(row.media) && matchesSearch(query, [row.repo.name, row.repo.url]),
   );
   const shownAddons = allAddons.filter(
-    (addon) => forMedia(['video']) && matchesSearch(query, [addon.name, addon.description]),
+    (addon) =>
+      forMedia(addonMedia(addon.resources)) &&
+      matchesSearch(query, [addon.name, addon.description]),
   );
   const shownServers = allServers.filter(
     (row) =>
@@ -156,7 +158,7 @@ export const SourcesPage: FC = () => {
   // What the pills offer: the media the rows of the chosen kind are for.
   const present = new Set<SourceMedia>([
     ...(of('repositories') ? allRepos.flatMap((row) => row.media) : []),
-    ...(of('addons') && allAddons.length > 0 ? (['video'] as const) : []),
+    ...(of('addons') ? allAddons.flatMap((addon) => addonMedia(addon.resources)) : []),
     ...(of('servers') ? allServers.flatMap((row) => row.media) : []),
     ...(of('extensions') ? allExtensions.flatMap((row) => row.media) : []),
   ]);

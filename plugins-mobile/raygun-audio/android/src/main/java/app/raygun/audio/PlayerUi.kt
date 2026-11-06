@@ -210,6 +210,17 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         set(value) {
             scroll.post { scroll.scrollTo(0, value) }
         }
+
+    /** Opens scrolled so `row` (the chosen one) sits in the middle, not at the top. */
+    fun reveal(row: View) {
+        scroll.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                if (row.height == 0) return
+                scroll.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                scroll.scrollTo(0, maxOf(0, row.top - (scroll.height - row.height) / 2))
+            }
+        })
+    }
     val root = FrameLayout(context).apply {
         setBackgroundColor(SCRIM)
         isClickable = true

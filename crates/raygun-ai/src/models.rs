@@ -15,6 +15,10 @@ pub struct ModelInfo {
     pub id: String,
     pub name: String,
     pub kind: String,
+    /// What runs it, where the kind has more than one runner: `anime4k` (shaders the readers run
+    /// on the graphics card), `ncnn` (no runner in this build yet).
+    #[serde(default)]
+    pub engine: Option<String>,
     pub description: String,
     pub license: String,
     pub license_url: String,
@@ -239,6 +243,7 @@ mod tests {
             id: "test-model".into(),
             name: "Test".into(),
             kind: "upscale".into(),
+            engine: None,
             description: String::new(),
             license: "MIT".into(),
             license_url: "https://example.com".into(),

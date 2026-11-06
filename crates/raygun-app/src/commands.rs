@@ -1996,6 +1996,41 @@ pub async fn video_subtitles_translators(
     subtitles.translators(&language).await
 }
 
+/// What the readers' AI layers can do on this device.
+#[tauri::command]
+#[specta::specta]
+pub fn reader_ai_support() -> raygun_model::ReaderAiSupport {
+    crate::reader_ai::ReaderAi::support()
+}
+
+/// The words on a comic page (one of the reader's page links), in blocks, for a translation
+/// layer.
+#[tauri::command]
+#[specta::specta]
+pub async fn reader_ai_page_text(
+    reader_ai: tauri::State<'_, Arc<crate::reader_ai::ReaderAi>>,
+    url: String,
+) -> Result<Vec<raygun_model::PageTextBlock>, String> {
+    reader_ai.page_text(&url).await
+}
+
+/// Texts translated for a reader's translation layer, in order.
+#[tauri::command]
+#[specta::specta]
+pub async fn reader_ai_translate(
+    reader_ai: tauri::State<'_, Arc<crate::reader_ai::ReaderAi>>,
+    request: raygun_model::ReaderAiTranslateRequest,
+) -> Result<Vec<String>, String> {
+    reader_ai.translate(request).await
+}
+
+/// A file of an installed model the readers run themselves (Anime4K's shaders).
+#[tauri::command]
+#[specta::specta]
+pub fn ai_model_text(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    crate::reader_ai::model_text(&app, &id)
+}
+
 /// Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32).
 #[tauri::command]
 #[specta::specta]

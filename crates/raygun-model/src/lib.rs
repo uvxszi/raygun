@@ -223,6 +223,9 @@ pub struct Settings {
     pub lyrics_cache: LyricsCachePrefs,
     /// Translations under lyrics (M46.48).
     pub lyrics_translation: LyricsTranslationPrefs,
+    /// The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0).
+    #[serde(default)]
+    pub reader_ai: ReaderAiPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
@@ -534,6 +537,118 @@ pub struct LyricsCacheUsage {
     /// Songs with translations made on this device or by AI (M46.48).
     #[serde(default)]
     pub translations: u32,
+}
+
+/// What an AI layer in a reader does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ReaderAiKind {
+    /// A comic's pages made bigger and sharper by an upscaling model.
+    Upscale,
+    /// A comic's lines cleaned up at the same size (blur and artefacts taken out).
+    Restore,
+    /// The text translated: a novel's paragraphs, or the words a comic's pages show.
+    Translate,
+}
+
+/// One AI layer of a reader. Layers run from the bottom up: the first in the list works on the
+/// page as it came, each next one on what the one before made (a translation of a translation).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderAiLayer {
+    /// Tells layers apart while they're moved about.
+    pub id: String,
+    pub kind: ReaderAiKind,
+    /// Off, the layer stays in its place and does nothing.
+    pub enabled: bool,
+    /// The model it runs: an AI catalogue model's id, or `ai:<provider id>` for a translator from
+    /// Settings → AI; empty picks one (a translation on this device by language).
+    #[serde(default)]
+    pub model: String,
+    /// A translation's language from, a BCP 47 tag; empty works it out.
+    #[serde(default)]
+    pub from: String,
+    /// A translation's language into, a BCP 47 tag.
+    #[serde(default)]
+    pub to: String,
+}
+
+/// The readers' AI layers, bottom first: comics and novels have their own.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReaderAiPrefs {
+    pub comic: Vec<ReaderAiLayer>,
+    pub novel: Vec<ReaderAiLayer>,
+}
+
+/// How many layers a reader can have.
+pub const READER_AI_LAYERS: usize = 8;
+
+impl ReaderAiPrefs {
+    fn validate(&self) -> Result<(), String> {
+        for (layers, novel) in [(&self.comic, false), (&self.novel, true)] {
+            if layers.len() > READER_AI_LAYERS {
+                return Err(format!("a reader has at most {READER_AI_LAYERS} AI layers"));
+            }
+            let mut ids = std::collections::HashSet::new();
+            for layer in layers {
+                if layer.id.is_empty() || layer.id.len() > 64 || !ids.insert(layer.id.as_str()) {
+                    return Err("each AI layer needs an id of its own".to_owned());
+                }
+                if novel && layer.kind != ReaderAiKind::Translate {
+                    return Err("a novel's AI layers translate".to_owned());
+                }
+                if layer.model.len() > 200 {
+                    return Err("a model id is at most 200 characters".to_owned());
+                }
+                for language in [&layer.from, &layer.to] {
+                    if !language.is_empty() {
+                        language_tag(language)?;
+                    }
+                }
+                if layer.kind == ReaderAiKind::Translate && layer.to.is_empty() {
+                    return Err("a translation needs a language to translate into".to_owned());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Words on a comic's page, read for a translation layer: a block of lines (a speech bubble, a
+/// caption) and where it is, in fractions of the page's width and height.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PageTextBlock {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    pub text: String,
+}
+
+/// What the readers' AI layers can do on this device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderAiSupport {
+    /// The system reads text on pictures itself (Windows); elsewhere `text_reader_model` does,
+    /// once downloaded.
+    pub text_reader_built_in: bool,
+    /// The AI catalogue model that reads the words on comic pages.
+    pub text_reader_model: String,
+}
+
+/// Texts for a reader's translation layer to translate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderAiTranslateRequest {
+    pub texts: Vec<String>,
+    /// The texts' language, a BCP 47 tag; empty works it out.
+    pub from: String,
+    pub to: String,
+    /// The layer's model: an AI catalogue translation model (on this device), `ai:<provider id>`,
+    /// or empty for this device's choice.
+    pub model: String,
 }
 
 /// Translations under lyrics (M46.48).
@@ -2472,6 +2587,7 @@ impl Default for Settings {
             hidden: HiddenPrefs::default(),
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
+            reader_ai: ReaderAiPrefs::default(),
             failing_sources_last: true,
             browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
@@ -2550,6 +2666,7 @@ impl Settings {
             SettingChange::Privacy(prefs) => self.privacy = prefs,
             SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
+            SettingChange::ReaderAi(prefs) => self.reader_ai = prefs,
             SettingChange::LyricsTranslation(prefs) => {
                 self.lyrics_translation = LyricsTranslationPrefs {
                     language: prefs.language.trim().to_owned(),
@@ -2646,6 +2763,7 @@ pub enum SettingChange {
     Hidden(HiddenPrefs),
     LyricsCache(LyricsCachePrefs),
     LyricsTranslation(LyricsTranslationPrefs),
+    ReaderAi(ReaderAiPrefs),
 }
 
 impl SettingChange {
@@ -2712,6 +2830,7 @@ impl SettingChange {
             Self::Hidden(_) => "hidden",
             Self::LyricsCache(_) => "lyricsCache",
             Self::LyricsTranslation(_) => "lyricsTranslation",
+            Self::ReaderAi(_) => "readerAi",
         }
     }
 
@@ -2759,6 +2878,7 @@ impl SettingChange {
                 Ok(())
             }
             Self::Hidden(prefs) => prefs.validate(),
+            Self::ReaderAi(prefs) => prefs.validate(),
             Self::SearchListings(prefs) => prefs.validate(),
             Self::ContentOverrides(overrides) => overrides.validate(),
             Self::Rail(prefs) => prefs.validate(),
@@ -3698,6 +3818,8 @@ pub enum SourceFormat {
     LnReader,
     Kodi,
     Mihon,
+    /// A Stremio addon listed in a repository.
+    Stremio,
 }
 
 /// An address read before it's added (Sources → Add), and what adding it brought.
@@ -6903,6 +7025,11 @@ pub struct AiModel {
     pub installed: bool,
     /// Bytes received while a download is running.
     pub downloading: Option<f64>,
+    /// What runs it, for models Raygun runs in more than one way: `anime4k` (the readers' upscale
+    /// and restore layers run these on the graphics card), `ncnn` (no runner in this build yet).
+    #[serde(default)]
+    #[specta(optional)]
+    pub engine: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]

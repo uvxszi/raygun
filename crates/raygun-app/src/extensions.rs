@@ -4,7 +4,7 @@
 //! Debug builds also watch that folder and reload when it changes (M12), so `raygun-ext dev`
 //! reaches the running app without a restart.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -1026,7 +1026,8 @@ impl ExtensionService {
             url: url.to_string(),
             name: repo_name(index, url.as_str()),
         };
-        let entries = self.entries_of(&repo, index, &local, &verdicts);
+        let addons = self.added_addons().await;
+        let entries = self.entries_of(&repo, index, &local, &verdicts, &addons);
         RepoCatalog {
             repo,
             entries,
@@ -1152,6 +1153,39 @@ impl ExtensionService {
         installed
     }
 
+    /// The addresses of the Stremio addons added, as repositories list them.
+    async fn added_addons(&self) -> HashSet<String> {
+        match self
+            .app
+            .state::<Arc<crate::stremio::StremioService>>()
+            .addons()
+            .await
+        {
+            Ok(addons) => addons.into_iter().map(|addon| addon.url).collect(),
+            Err(_) => HashSet::new(),
+        }
+    }
+
+    /// The address a repository lists the Stremio addon `id` at, as added addons keep it.
+    async fn listed_addon_url(&self, id: &str) -> Option<String> {
+        for repo in self.repos().await.ok()? {
+            let Ok(index) = self.fetch_index(&repo.url, false).await else {
+                continue;
+            };
+            let Some(entry) = index
+                .extensions
+                .iter()
+                .find(|entry| entry.id == id && entry.format == PackageFormat::Stremio)
+            else {
+                continue;
+            };
+            let base: reqwest::Url = repo.url.parse().ok()?;
+            let url = repo::package_url(&base, entry).ok()?;
+            return crate::stremio::protocol::normalize_addon_url(url.as_str()).ok();
+        }
+        None
+    }
+
     /// The converter an installed Mihon extension was made by.
     async fn mihon_converter(&self, id: &str) -> Option<u64> {
         let path = self
@@ -1172,6 +1206,7 @@ impl ExtensionService {
         index: &RepoIndex,
         local: &HashMap<String, Installed>,
         verdicts: &HashMap<String, MihonVerdict>,
+        addons: &HashSet<String>,
     ) -> Vec<CatalogEntry> {
         let content = self.host.content();
         let show_nsfw = content.show_nsfw();
@@ -1185,7 +1220,23 @@ impl ExtensionService {
                 (show_nsfw || !adult).then_some((entry, adult))
             })
             .map(|(entry, adult)| {
-                let base = catalog_entry(&repo.id, entry, local.get(&entry.id));
+                // A Stremio addon is installed when an addon at its address is added.
+                let added = (entry.format == PackageFormat::Stremio)
+                    .then(|| {
+                        let url = repo::package_url(index_url.as_ref()?, entry).ok()?;
+                        let url =
+                            crate::stremio::protocol::normalize_addon_url(url.as_str()).ok()?;
+                        addons.contains(&url).then(|| Installed {
+                            version: entry.version.clone(),
+                            stale_conversion: false,
+                        })
+                    })
+                    .flatten();
+                let base = catalog_entry(
+                    &repo.id,
+                    entry,
+                    added.as_ref().or_else(|| local.get(&entry.id)),
+                );
                 CatalogEntry {
                     icon: index_url
                         .as_ref()
@@ -1208,8 +1259,9 @@ impl ExtensionService {
         let repos = self.repos().await?;
         let local = self.installed_versions().await;
         let verdicts = self.mihon_verdicts().await;
+        let addons = self.added_addons().await;
         let listings = repos.into_iter().map(|repo| {
-            let (local, verdicts) = (&local, &verdicts);
+            let (local, verdicts, addons) = (&local, &verdicts, &addons);
             async move {
                 match self.fetch_index(&repo.url, refresh).await {
                     Ok(index) => {
@@ -1218,7 +1270,7 @@ impl ExtensionService {
                             let _ = store::rename_repo(self.db(), &repo.id, &name).await;
                         }
                         let repo = ExtensionRepo { name, ..repo };
-                        let entries = self.entries_of(&repo, &index, local, verdicts);
+                        let entries = self.entries_of(&repo, &index, local, verdicts, addons);
                         RepoCatalog {
                             repo,
                             entries,
@@ -1414,6 +1466,19 @@ impl ExtensionService {
         if entry.format == PackageFormat::Kodi {
             return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned());
         }
+        // A Stremio addon a repository lists: installing it adds the addon by its address.
+        if entry.format == PackageFormat::Stremio {
+            let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
+            let manifest =
+                repo::package_url(&index_url, entry).map_err(|error| error.to_string())?;
+            phase(Phase::Installing);
+            self.app
+                .state::<Arc<crate::stremio::StremioService>>()
+                .add(manifest.as_str())
+                .await?;
+            tracing::info!(addon = %entry.id, url = %manifest, "Stremio addon added from a repository");
+            return Ok(());
+        }
         // Mihon's extensions are converted from their source code; their APKs aren't run.
         if entry.format == PackageFormat::Mihon {
             let verified = self.convert_mihon(&repo, entry, phase).await?;
@@ -1504,6 +1569,7 @@ impl ExtensionService {
             }
             PackageFormat::Kodi => return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
             PackageFormat::Mihon => unreachable!("converted before downloading"),
+            PackageFormat::Stremio => unreachable!("added before downloading"),
         };
         self.finish_install(&repo, entry, verified, phase).await
     }
@@ -1820,6 +1886,19 @@ impl ExtensionService {
             .into_iter()
             .any(|info| info.id == extension_id && info.origin == ExtensionOrigin::Installed);
         if !installed {
+            // A repository's Stremio addon: removing it removes the addon.
+            if let Some(url) = self.listed_addon_url(extension_id).await {
+                let stremio = self.app.state::<Arc<crate::stremio::StremioService>>();
+                if let Some(addon) = stremio
+                    .addons()
+                    .await?
+                    .into_iter()
+                    .find(|addon| addon.url == url)
+                {
+                    stremio.remove(&addon.id).await?;
+                    return Ok(self.list().await);
+                }
+            }
             return Err(format!("{extension_id} is not an installed extension"));
         }
         let (extensions_dir, storage_dir, id) = (
@@ -2427,6 +2506,17 @@ mod tests {
                 manifest.id
             );
         }
+    }
+
+    /// First-party sources added since the built-ins moved out load too.
+    #[test]
+    fn newer_first_party_extensions_parse() {
+        let manifest = raygun_ext_host::Manifest::parse(include_str!(
+            "../../../extensions/listenbrainz/raygun-extension.json"
+        ))
+        .unwrap();
+        assert_eq!(manifest.provides, ["music.charts"]);
+        assert!(include_str!("../../../extensions/listenbrainz/dist/index.js").contains("charts"));
     }
 
     /// Every source earlier versions carried is moved to an install, and nothing else is.

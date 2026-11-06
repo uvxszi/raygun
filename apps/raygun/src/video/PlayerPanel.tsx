@@ -1,4 +1,5 @@
 import { Check, X } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,10 +14,18 @@ type Props = {
 /**
  * A popup over the picture (M46.33): episodes, sources, speed, tracks, quality, aspect, players
  * and keys. It sits by the buttons that open it, as tall as its content up to about 60 % of the
- * player, and scrolls.
+ * player, and scrolls. It opens scrolled to the chosen option (the source playing, the episode),
+ * not to the top.
  */
 export const PlayerPanel: FC<Props> = ({ title, onClose, children, at = 'bottom' }) => {
   const { t } = useTranslation();
+  const list = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const chosen = list.current?.querySelector<HTMLElement>(
+      '[role="menuitemradio"][aria-checked="true"]',
+    );
+    chosen?.scrollIntoView?.({ block: 'center' });
+  }, []);
   return (
     <section
       aria-label={title}
@@ -37,7 +46,9 @@ export const PlayerPanel: FC<Props> = ({ title, onClose, children, at = 'bottom'
           <X aria-hidden size={18} />
         </button>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">{children}</div>
+      <div ref={list} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+        {children}
+      </div>
     </section>
   );
 };
