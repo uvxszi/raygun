@@ -106,6 +106,47 @@ impl RawConfig {
     }
 }
 
+/// Typographic quotes, apostrophes and ellipses with their plain forms, for models that don't
+/// know them.
+const PLAIN_PUNCTUATION: &[(char, &str)] = &[
+    ('\u{201c}', "\""),
+    ('\u{201d}', "\""),
+    ('\u{201e}', "\""),
+    ('\u{201f}', "\""),
+    ('\u{00ab}', "\""),
+    ('\u{00bb}', "\""),
+    ('\u{2033}', "\""),
+    ('\u{2018}', "'"),
+    ('\u{2019}', "'"),
+    ('\u{201a}', "'"),
+    ('\u{201b}', "'"),
+    ('\u{2032}', "'"),
+    ('\u{2026}', "..."),
+];
+
+/// A line with the typographic punctuation the model's vocabulary lacks (`knows` tells) written
+/// plainly. OPUS-MT learned from text whose quotes were mostly made plain, so many of its
+/// vocabularies have no curly quotes or apostrophes: unchanged, each one reads as unknown and
+/// comes out as stray commas and full stops, and "don’t" loses its sense.
+fn plain_punctuation(text: &str, knows: impl Fn(&str) -> bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        let plain = PLAIN_PUNCTUATION
+            .iter()
+            .find(|(typographic, _)| *typographic == c)
+            .map(|(_, plain)| *plain)
+            .filter(|_| {
+                let alone = c.to_string();
+                !knows(&alone) && !knows(&format!("\u{2581}{alone}"))
+            });
+        match plain {
+            Some(plain) => out.push_str(plain),
+            None => out.push(c),
+        }
+    }
+    out
+}
+
 pub struct Marian {
     model: MTModel,
     config: marian::Config,
@@ -187,7 +228,8 @@ impl Marian {
         text: &str,
         target_token: Option<&str>,
     ) -> Result<String, MarianError> {
-        let pieces = self.source.pieces(text)?;
+        let text = plain_punctuation(text, |piece| self.vocab.contains_key(piece));
+        let pieces = self.source.pieces(&text)?;
         if pieces.is_empty() {
             return Ok(String::new());
         }
@@ -264,6 +306,24 @@ fn stuck(output: &[u32]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_typographic_punctuation_is_written_plainly() {
+        // opus-mt-en-de knows ‘ and „ but not “, ”, ’ or ….
+        let known = ["\u{2018}", "\u{2581}\u{2018}", "\u{201e}", "\"", "'"];
+        let knows = |piece: &str| known.contains(&piece);
+        assert_eq!(
+            plain_punctuation(
+                "\u{201c}Oh dear! I don\u{2019}t know\u{2026}\u{201d} \u{2018}x\u{2019} \u{201e}y",
+                knows
+            ),
+            "\"Oh dear! I don't know...\" \u{2018}x' \u{201e}y"
+        );
+        assert_eq!(
+            plain_punctuation("Plain \"text\".", knows),
+            "Plain \"text\"."
+        );
+    }
 
     #[test]
     fn older_configs_get_defaults() {
