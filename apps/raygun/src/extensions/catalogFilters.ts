@@ -1,6 +1,6 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
 
-import { isDataKind } from '../sources/sourceMedia';
+import { isDataSource } from '../sources/sourceMedia';
 
 /**
  * What an extension is for, as the Browse filters group it. Data gathers details, tags, charts,
@@ -35,7 +35,7 @@ const kindOf = (capability: string): ExtensionKind => {
 /** The kinds an extension (installed, or listed by a repository) provides. */
 export const kindsOf = (entry: { provides: string[] }): ExtensionKind[] => {
   const kinds = new Set(entry.provides.map(kindOf));
-  if (entry.provides.some(isDataKind)) kinds.add('data');
+  if (isDataSource(entry.provides)) kinds.add('data');
   return kinds.size ? EXTENSION_KINDS.filter((kind) => kinds.has(kind)) : ['other'];
 };
 

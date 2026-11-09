@@ -31,6 +31,16 @@ const DATA_KINDS = new Set([
 /** Whether a provider kind is data (as well as being for what `mediaOfKind` says). */
 export const isDataKind = (kind: string) => DATA_KINDS.has(kind);
 
+/**
+ * Whether something providing these kinds is a source of data. Sources that play music find
+ * their songs through `music.metadata` too, so that kind alone makes one a data source only when
+ * it plays nothing (`music.stream`).
+ */
+export const isDataSource = (provides: string[]) =>
+  provides.some(
+    (kind) => isDataKind(kind) && !(kind === 'music.metadata' && provides.includes('music.stream')),
+  );
+
 export const isSourceMedia = (value: unknown): value is SourceMedia =>
   typeof value === 'string' && (SOURCE_MEDIA as string[]).includes(value);
 
@@ -53,7 +63,13 @@ export const mediaOfKind = (kind: string): SourceMedia => {
 /** What something providing these kinds is for, in the pills' order. */
 export const mediaOf = (provides: string[]): SourceMedia[] => {
   const found = new Set(provides.map(mediaOfKind));
-  if (provides.some(isDataKind)) found.add('data');
+  if (isDataSource(provides)) found.add('data');
+  return found.size ? SOURCE_MEDIA.filter((media) => found.has(media)) : ['other'];
+};
+
+/** What a repository's sources (each one's `provides`) are for, in the pills' order. */
+export const mediaOfAll = (sources: string[][]): SourceMedia[] => {
+  const found = new Set(sources.flatMap(mediaOf));
   return found.size ? SOURCE_MEDIA.filter((media) => found.has(media)) : ['other'];
 };
 

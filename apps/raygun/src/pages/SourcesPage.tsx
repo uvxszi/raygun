@@ -24,7 +24,13 @@ import type { BulkSelection } from '../shell/useBulkSelection';
 import { matchesSearch } from '../shell/useListSearch';
 import { useSearchMode } from '../shell/useSearchMode';
 import { AddSourceSheet } from '../sources/AddSourceSheet';
-import { SOURCE_MEDIA, SOURCE_TYPES, addonMedia, mediaOf } from '../sources/sourceMedia';
+import {
+  SOURCE_MEDIA,
+  SOURCE_TYPES,
+  addonMedia,
+  mediaOf,
+  mediaOfAll,
+} from '../sources/sourceMedia';
 import type { SourceMedia, SourceType } from '../sources/sourceMedia';
 import { AddonItem, AddonSuggestions } from '../watch/AddonRows';
 import { useSetAddonEnabled, useSetAddonOrder, useStremioAddons } from '../watch/useStremio';
@@ -122,7 +128,7 @@ export const SourcesPage: FC = () => {
     catalog.data?.map((listing) => [listing.repo.id, listing]),
   );
   const repoMedia = (id: string) =>
-    mediaOf(listings.get(id)?.entries.flatMap((entry) => entry.provides) ?? []);
+    mediaOfAll(listings.get(id)?.entries.map((entry) => entry.provides) ?? []);
 
   // Every row with what it's for; the pills narrow them.
   const allRepos = (repos.data ?? []).map((repo) => ({ repo, media: repoMedia(repo.id) }));

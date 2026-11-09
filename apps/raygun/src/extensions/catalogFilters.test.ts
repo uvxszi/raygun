@@ -9,6 +9,10 @@ describe('kindsOf', () => {
   it('leaves sources of content out of Data', () => {
     expect(kindsOf({ provides: ['manga.source'] })).toEqual(['manga']);
     expect(kindsOf({ provides: ['music.stream'] })).toEqual(['music']);
+    expect(kindsOf({ provides: ['music.metadata', 'music.stream', 'video.source'] })).toEqual([
+      'music',
+      'video',
+    ]);
   });
 
   it('calls an extension that provides nothing known Other', () => {
