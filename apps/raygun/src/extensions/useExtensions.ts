@@ -183,6 +183,8 @@ export const useAddRepo = () => {
       queryClient.setQueryData(REPOS, repos);
       void queryClient.invalidateQueries({ queryKey: CATALOG });
       void queryClient.invalidateQueries({ queryKey: SUGGESTED });
+      // Installed extensions name the repository they came from.
+      void queryClient.invalidateQueries({ queryKey: EXTENSIONS });
     },
   });
 };
@@ -195,6 +197,8 @@ export const useRemoveRepo = () => {
       queryClient.setQueryData(REPOS, repos);
       void queryClient.invalidateQueries({ queryKey: CATALOG });
       void queryClient.invalidateQueries({ queryKey: SUGGESTED });
+      // Its extensions stay, now added by you.
+      void queryClient.invalidateQueries({ queryKey: EXTENSIONS });
     },
   });
 };

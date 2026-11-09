@@ -19,11 +19,17 @@ export const useAddSource = () => {
   return useMutation({
     mutationFn: (address: string) => unwrapResult(commands.sourcesAdd(address)),
     onSuccess: (added: DetectedSource) => {
+      // Installed extensions name the repository they came from, so they follow a new one.
       const keys: string[][] =
         added.kind === 'addon'
           ? [['stremio']]
           : added.kind === 'repository'
-            ? [['extensionRepos'], ['extensionCatalog'], ['extensionSuggestedRepos']]
+            ? [
+                ['extensionRepos'],
+                ['extensionCatalog'],
+                ['extensionSuggestedRepos'],
+                ['extensions'],
+              ]
             : [['extensions'], ['extensionCatalog']];
       for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey });
     },
