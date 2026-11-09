@@ -59,6 +59,24 @@ export const pictureModel = (layer: Layer, models: AiModel[]): AiModel | null =>
   return fitting.find((model) => model.id === layer.model) ?? fitting[0] ?? null;
 };
 
+/**
+ * The models this device has, read while any of a reader's layers is on, and their ids as one
+ * key: work that failed for want of a model runs again once one is downloaded.
+ */
+const useInstalledModels = (on: boolean) => {
+  const query = useQuery({
+    queryKey: ['ai', 'models'],
+    queryFn: () => commands.aiModels(),
+    enabled: on,
+  });
+  const models = query.data ?? [];
+  const installed = models
+    .filter((model) => model.installed)
+    .map((model) => model.id)
+    .join(',');
+  return { models, installed, ready: query.isFetched };
+};
+
 /** A new layer of `kind`, with a fresh id. */
 export const newLayer = (kind: ReaderAiKind, language: string): Layer => ({
   id: `${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
@@ -143,13 +161,8 @@ export const usePageAi = (url: string) => {
   const client = useQueryClient();
   const { layers } = useReaderAiLayers('comic');
   const on = layers.filter((layer) => layer.enabled);
-  // The same list Settings → AI shows, read only while a picture layer is on.
-  const models =
-    useQuery({
-      queryKey: ['ai', 'models'],
-      queryFn: () => commands.aiModels(),
-      enabled: on.some((layer) => layer.kind !== 'translate'),
-    }).data ?? [];
+  // The same list Settings → AI shows, read only while a layer is on.
+  const { models, installed, ready } = useInstalledModels(on.length > 0);
   const pictureIds = on
     .filter((layer) => layer.kind !== 'translate')
     .map((layer) => pictureModel(layer, models)?.id)
@@ -165,17 +178,19 @@ export const usePageAi = (url: string) => {
     gcTime: 10 * 60_000,
     retry: false,
   });
+  // With the installed models in the keys, a page that failed for want of the text reader or a
+  // translator is read again once it's downloaded (Rust keeps what it read and translated).
   const text = useQuery({
-    queryKey: ['readerAi', 'pageText', url],
+    queryKey: ['readerAi', 'pageText', url, installed],
     queryFn: () => unwrapResult(commands.readerAiPageText(url)),
-    enabled: page && translations.length > 0,
+    enabled: page && translations.length > 0 && ready,
     staleTime: Infinity,
     gcTime: 10 * 60_000,
     retry: false,
   });
   const steps = translations.map(({ model, from, to }) => ({ model, from, to }));
   const translated = useQuery({
-    queryKey: ['readerAi', 'pageTranslation', url, steps],
+    queryKey: ['readerAi', 'pageTranslation', url, steps, installed],
     queryFn: async (): Promise<PageTextBlock[]> => {
       const blocks = text.data ?? [];
       let texts = blocks.map((block) => block.text);
@@ -219,13 +234,16 @@ export const useNovelAi = (chapterKey: string, blocks: TextBlock[], from: number
     [layers],
   );
   const stepsKey = JSON.stringify(steps);
+  // A translation that failed for want of a model runs again once one is downloaded.
+  const { installed, ready } = useInstalledModels(steps.length > 0);
   const [state, setState] = useState<{
     key: string;
     texts: Map<number, string>;
     busy: boolean;
     error: string | null;
   }>({ key: '', texts: new Map(), busy: false, error: null });
-  const runKey = `${chapterKey}\u001f${stepsKey}`;
+  const textKey = `${chapterKey}\u001f${stepsKey}`;
+  const runKey = `${textKey}\u001f${installed}`;
   // Where the reader is when a translation starts.
   const start = useRef(from);
   useEffect(() => {
@@ -233,7 +251,7 @@ export const useNovelAi = (chapterKey: string, blocks: TextBlock[], from: number
   }, [from]);
 
   useEffect(() => {
-    if (steps.length === 0 || !chapterKey) return;
+    if (steps.length === 0 || !chapterKey || !ready) return;
     let stopped = false;
     const indexes = blocks.flatMap((block, index) => (translatable(block) ? [index] : []));
     // From where the reader is, then what's before it.
@@ -243,7 +261,13 @@ export const useNovelAi = (chapterKey: string, blocks: TextBlock[], from: number
       ...indexes.filter((index) => index < at),
     ];
     const run = async () => {
-      setState({ key: runKey, texts: new Map(), busy: true, error: null });
+      // Paragraphs already translated stay while a new model has the rest done again.
+      setState((current) => ({
+        key: runKey,
+        texts: current.key.startsWith(`${textKey}\u001f`) ? current.texts : new Map(),
+        busy: true,
+        error: null,
+      }));
       for (let at = 0; at < order.length && !stopped; at += BATCH) {
         const batch = order.slice(at, at + BATCH);
         let texts = batch.map((index) => (blocks[index] as { text: string }).text);
@@ -276,7 +300,7 @@ export const useNovelAi = (chapterKey: string, blocks: TextBlock[], from: number
     };
     // `steps` follows `stepsKey`; blocks follow the chapter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runKey]);
+  }, [runKey, ready]);
 
   const current = state.key === runKey && steps.length > 0;
   return {
