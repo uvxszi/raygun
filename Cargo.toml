@@ -109,6 +109,35 @@ opt-level = 3
 [profile.dev.package.symphonia-format-isomp4]
 opt-level = 3
 
+# Reading the words on comic pages and screenshots (ocrs over rten): unoptimized, one page kept
+# every core of the emulator busy for minutes in a debug build.
+[profile.dev.package.ocrs]
+opt-level = 3
+
+[profile.dev.package.rten]
+opt-level = 3
+
+[profile.dev.package.rten-base]
+opt-level = 3
+
+[profile.dev.package.rten-gemm]
+opt-level = 3
+
+[profile.dev.package.rten-imageproc]
+opt-level = 3
+
+[profile.dev.package.rten-parallel]
+opt-level = 3
+
+[profile.dev.package.rten-simd]
+opt-level = 3
+
+[profile.dev.package.rten-tensor]
+opt-level = 3
+
+[profile.dev.package.rten-vecmath]
+opt-level = 3
+
 # Panics unwind, never abort (M46.7): on Windows, Lua's errors (Shosetsu scripts, mlua) travel as
 # SEH unwinds through Rust frames, and with `panic = "abort"` any script error ended the whole app.
 # Unwinding also lets a panic stop one worker thread instead of the process.
