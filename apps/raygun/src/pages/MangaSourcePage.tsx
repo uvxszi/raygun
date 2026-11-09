@@ -150,18 +150,7 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
         )}
       </nav>
       {showingFilters && filters.data && (
-        <div className="flex flex-col gap-2">
-          <SourceFiltersPanel filters={filters.data} values={values} onChange={setValues} />
-          {filtered && (
-            <button
-              type="button"
-              onClick={() => setValues({})}
-              className="text-primary self-start text-sm font-medium"
-            >
-              {t('search.filters.reset')}
-            </button>
-          )}
-        </div>
+        <SourceFiltersPanel filters={filters.data} values={values} onChange={setValues} />
       )}
       {website.error && (
         <SourceIssue compact source={source?.name}>
