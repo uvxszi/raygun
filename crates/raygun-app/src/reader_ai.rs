@@ -229,7 +229,7 @@ impl ReaderAi {
         let translated = self
             .app
             .state::<Arc<LyricsTranslations>>()
-            .translate_on_device_with(to, &sentences, preferred, |_, _| {})
+            .translate_on_device_with(to, &sentences, preferred, is_english(from), |_, _| {})
             .await?;
         let mut rest = translated.into_iter();
         Ok(parts

@@ -485,24 +485,27 @@ impl LyricsTranslations {
         progress: impl Fn(u32, u32) + Send + 'static,
     ) -> Result<Vec<String>, String> {
         let preferred = self.preferred_model().await;
-        self.translate_on_device_with(language, lines, preferred, progress)
+        self.translate_on_device_with(language, lines, preferred, false, progress)
             .await
     }
 
     /// [`Self::translate_on_device`] with the model to prefer (a reader's translation layer
-    /// names one); `None` picks one by language.
+    /// names one); `None` picks one by language. `from_english` says the lines are English (a
+    /// layer translating from English), so they go straight to the model from English even when
+    /// they don't read as English (words read off a comic page, in capitals and broken up).
     pub async fn translate_on_device_with(
         &self,
         language: &str,
         lines: &[String],
         preferred: Option<String>,
+        from_english: bool,
         progress: impl Fn(u32, u32) + Send + 'static,
     ) -> Result<Vec<String>, String> {
         let catalog = raygun_ai::models::catalog();
         let plan = marian::plan(&catalog, language, preferred.as_deref())
             .ok_or_else(|| "No model on this device translates into this language".to_owned())?;
         let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
-        let english = marian::looks_english(&refs);
+        let english = from_english || marian::looks_english(&refs);
         let routes: Vec<Vec<Step>> = lines
             .iter()
             .map(|line| route(&plan, english, line).to_vec())
