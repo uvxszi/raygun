@@ -1,8 +1,13 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
 
-/** What an extension is for, as the Browse filters group it. */
+import { isDataKind } from '../sources/sourceMedia';
+
+/**
+ * What an extension is for, as the Browse filters group it. Data gathers details, tags, charts,
+ * lyrics, subtitles and ratings, beside what they're for.
+ */
 export type ExtensionKind =
-  'music' | 'manga' | 'novel' | 'video' | 'podcast' | 'audiobook' | 'lyrics' | 'other';
+  'music' | 'manga' | 'novel' | 'video' | 'podcast' | 'audiobook' | 'lyrics' | 'data' | 'other';
 
 export const EXTENSION_KINDS: ExtensionKind[] = [
   'music',
@@ -12,6 +17,7 @@ export const EXTENSION_KINDS: ExtensionKind[] = [
   'podcast',
   'audiobook',
   'lyrics',
+  'data',
   'other',
 ];
 
@@ -29,6 +35,7 @@ const kindOf = (capability: string): ExtensionKind => {
 /** The kinds an extension (installed, or listed by a repository) provides. */
 export const kindsOf = (entry: { provides: string[] }): ExtensionKind[] => {
   const kinds = new Set(entry.provides.map(kindOf));
+  if (entry.provides.some(isDataKind)) kinds.add('data');
   return kinds.size ? EXTENSION_KINDS.filter((kind) => kinds.has(kind)) : ['other'];
 };
 

@@ -678,6 +678,7 @@ describe('Extensions', () => {
       'Comics sources · 2',
       'Book sources · 1',
       'Video sources · 1',
+      'Data sources · 1',
       'Shosetsu scripts · 1',
       'Miru extensions · 1',
     ]);

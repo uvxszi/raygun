@@ -1293,6 +1293,7 @@
       "podcast": "Podcast directories",
       "audiobook": "Audiobook sources",
       "lyrics": "Lyrics sources",
+      "data": "Data sources",
       "other": "Other extensions"
     },
     "format": {
@@ -1331,6 +1332,7 @@
       "podcast": "Podcasts",
       "audiobook": "Audiobooks",
       "lyrics": "Lyrics",
+      "data": "Data",
       "other": "Other"
     },
     "languageFilter": "Language",
