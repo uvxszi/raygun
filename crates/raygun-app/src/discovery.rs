@@ -49,6 +49,23 @@ fn keyed(query: &TrackQuery) -> String {
     raygun_resolver::track_key(query)
 }
 
+/// A chart's songs with repeats left out, each at its first place: a source can list one song
+/// twice (ListenBrainz counts some listens under a second entry for the same recording).
+fn without_repeats(songs: Vec<OnlineTrack>) -> Vec<OnlineTrack> {
+    let mut seen = HashSet::new();
+    songs
+        .into_iter()
+        .filter(|song| {
+            seen.insert(keyed(&TrackQuery {
+                title: song.title.clone(),
+                artist: song.artist.clone(),
+                album: None,
+                duration_ms: None,
+            }))
+        })
+        .collect()
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -146,10 +163,11 @@ impl DiscoveryService {
         {
             return Ok(songs.clone());
         }
-        let songs = self
-            .extensions()
-            .music_chart(provider_id, chart_id, region.as_deref(), CHART_LIMIT)
-            .await?;
+        let songs = without_repeats(
+            self.extensions()
+                .music_chart(provider_id, chart_id, region.as_deref(), CHART_LIMIT)
+                .await?,
+        );
         self.songs
             .lock()
             .unwrap()
@@ -412,5 +430,32 @@ mod tests {
             ]
         );
         assert!(file_genres(None).is_empty());
+    }
+
+    #[test]
+    fn charts_list_each_song_once() {
+        let song = |title: &str, artist: &str| OnlineTrack {
+            external_id: None,
+            title: title.to_owned(),
+            artist: Some(artist.to_owned()),
+            album: None,
+            duration_ms: None,
+            artwork_url: None,
+            source: None,
+            explicit: false,
+        };
+        let titles: Vec<String> = without_repeats(vec![
+            song("SWIM", "BTS"),
+            song("NORMAL", "BTS"),
+            song("Swim", "BTS"),
+            song("SWIM", "Another Band"),
+        ])
+        .into_iter()
+        .map(|song| format!("{} / {}", song.title, song.artist.unwrap_or_default()))
+        .collect();
+        assert_eq!(
+            titles,
+            ["SWIM / BTS", "NORMAL / BTS", "SWIM / Another Band"]
+        );
     }
 }
