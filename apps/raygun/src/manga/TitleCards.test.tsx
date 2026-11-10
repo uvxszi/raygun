@@ -220,7 +220,7 @@ describe('Video cards', () => {
     );
     await user.click(within(row).getByRole('button', { name: 'Options for Breaking Bad' }));
     expect(menuItems()).toEqual(
-      expect.arrayContaining(['Resume', 'Open page', 'Remove Breaking Bad from Continue watching']),
+      expect.arrayContaining(['Resume', 'Open page', 'Remove from Continue watching']),
     );
   });
 });

@@ -146,11 +146,20 @@ struct PlayerReport {
 /// Plays `request` in the video player, resuming where it was left (from the start once watched).
 /// A session that was playing ends.
 pub async fn play(app: &AppHandle, request: VideoRequest) -> Result<(), String> {
+    play_from(app, request, None).await
+}
+
+/// [`play`] from `start_at` (ms) instead of where it was left, when given.
+async fn play_from(
+    app: &AppHandle,
+    request: VideoRequest,
+    start_at: Option<i64>,
+) -> Result<(), String> {
     app.state::<VideoSessions>().end();
     if let Some(video_id) = request.url.strip_prefix(YOUTUBE_LINK) {
         return play_youtube(app, video_id, &request.title, request.subtitle.clone()).await;
     }
-    let mut payload = prepare(app, &request, None, None).await?;
+    let mut payload = prepare(app, &request, None, start_at).await?;
     payload["labels"] = app.state::<VideoSessions>().labels();
     open_player(app, &payload)
 }
@@ -852,37 +861,110 @@ pub async fn history(app: &AppHandle) -> Result<Vec<ContinueWatching>, String> {
     Ok(to_view(app, rows).await)
 }
 
-/// The title an entry's page shows (`(source_id, remote_id)`): a video source's stored title, or
-/// a Stremio movie or series.
-async fn title_page(db: &raygun_db::Db, entry: &VideoEntry) -> Option<(String, String)> {
-    match Origin::from_group(&title_of(entry))? {
-        Origin::Source { title_id } => raygun_db::titles::title(db, &title_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|row| (row.fields.source_id, row.fields.remote_id)),
-        Origin::Stremio { kind, id } => Some((
-            crate::video_library::STREMIO_SOURCE.to_owned(),
-            format!("{kind}:{id}"),
-        )),
+/// The title an entry belongs to, and the movie's or episode's id there: a session's episode
+/// reference says both, a request played without a session names its title (`group`) and its key
+/// the episode. A link played on its own belongs to none.
+fn entry_episode(entry: &VideoEntry) -> Option<(Origin, Option<String>)> {
+    let origin = Origin::from_group(&title_of(entry))?;
+    let episode = serde_json::from_str::<EpisodeRef>(&entry.request)
+        .ok()
+        .map(|reference| reference.episode)
+        .or_else(|| crate::video_library::key_unit(&entry.key).map(|(_, id)| id.to_owned()));
+    Some((origin, episode))
+}
+
+/// Whether a Stremio title's entry is one of its episodes: a movie (or a channel's own video)
+/// plays by the title's id.
+fn stremio_episode(kind: &str, id: &str, episode: &str) -> bool {
+    kind != "movie" && episode != id
+}
+
+/// What an entry's card and menu need of its title: its page (`source_id`, `remote_id`), its
+/// player group, the episode there, and whether it's a series. A video source's episodes are read
+/// once per title (`units`).
+async fn entry_view(
+    db: &raygun_db::Db,
+    entry: &VideoEntry,
+    units: &mut std::collections::HashMap<String, Vec<raygun_db::titles::UnitRow>>,
+) -> EntryView {
+    let Some((origin, episode_id)) = entry_episode(entry) else {
+        return EntryView::default();
+    };
+    let group = Some(origin.group_key());
+    match origin {
+        Origin::Source { title_id } => {
+            let Ok(Some(row)) = raygun_db::titles::title(db, &title_id).await else {
+                // Its title is no longer stored: no page, nothing to pick a source from.
+                return EntryView::default();
+            };
+            if !units.contains_key(&title_id) {
+                let listed = raygun_db::titles::units(db, &title_id)
+                    .await
+                    .unwrap_or_default();
+                units.insert(title_id.clone(), listed);
+            }
+            let listed = units.get(&title_id).map(Vec::as_slice).unwrap_or_default();
+            EntryView {
+                page: Some((row.fields.source_id, row.fields.remote_id)),
+                group,
+                unit_id: episode_id.as_deref().and_then(|episode| {
+                    listed
+                        .iter()
+                        .find(|unit| unit.fields.remote_id == episode)
+                        .map(|unit| unit.id.clone())
+                }),
+                series: listed.len() > 1,
+                episode_id,
+            }
+        }
+        Origin::Stremio { kind, id } => EntryView {
+            series: episode_id
+                .as_deref()
+                .is_some_and(|episode| stremio_episode(&kind, &id, episode)),
+            page: Some((
+                crate::video_library::STREMIO_SOURCE.to_owned(),
+                format!("{kind}:{id}"),
+            )),
+            group,
+            unit_id: None,
+            episode_id,
+        },
     }
+}
+
+#[derive(Default)]
+struct EntryView {
+    page: Option<(String, String)>,
+    group: Option<String>,
+    episode_id: Option<String>,
+    unit_id: Option<String>,
+    series: bool,
 }
 
 async fn to_view(app: &AppHandle, rows: Vec<store::VideoProgress>) -> Vec<ContinueWatching> {
     let db = app.state::<AppDb>().0.clone();
-    let mut pages = Vec::with_capacity(rows.len());
+    let mut units = std::collections::HashMap::new();
+    let mut views = Vec::with_capacity(rows.len());
     for row in &rows {
-        pages.push(title_page(&db, &row.entry).await);
+        views.push(entry_view(&db, &row.entry, &mut units).await);
     }
     let images = app.state::<raygun_net::ImageLinks>();
     rows.into_iter()
-        .zip(pages)
-        .map(|(row, page)| ContinueWatching {
-            source_id: page.as_ref().map(|(source, _)| source.clone()),
-            remote_id: page.map(|(_, remote)| remote),
+        .zip(views)
+        .map(|(row, view)| ContinueWatching {
+            source_id: view.page.as_ref().map(|(source, _)| source.clone()),
+            remote_id: view.page.map(|(_, remote)| remote),
+            group: view.group,
+            episode_id: view.episode_id,
+            unit_id: view.unit_id,
+            series: view.series,
             key: row.entry.key,
             title: row.entry.title,
-            subtitle: row.entry.subtitle,
+            // A movie's line is its release years, saved as an addon wrote them ("2024–").
+            subtitle: row
+                .entry
+                .subtitle
+                .map(|subtitle| crate::stremio::release_label(&subtitle)),
             // Posters seen again and again: through the lasting cache (M46.2).
             poster: row.entry.poster.map(|poster| {
                 if images.is_remote(&poster) {
@@ -902,26 +984,73 @@ async fn to_view(app: &AppHandle, rows: Vec<store::VideoProgress>) -> Vec<Contin
 /// Plays a "continue watching" entry again: an episode reference through a session (fresh links,
 /// the last source first), else the request it was first played with.
 pub async fn resume(app: &AppHandle, key: &str) -> Result<(), String> {
-    let db = app.state::<AppDb>().0.clone();
-    let saved = store::progress(&db, key)
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "This was removed".to_owned())?;
+    resume_from(app, key, None).await
+}
+
+/// Plays a "continue watching" entry from its start; its saved place stays until the player
+/// reports a new one.
+pub async fn play_from_start(app: &AppHandle, key: &str) -> Result<(), String> {
+    resume_from(app, key, Some(0)).await
+}
+
+async fn resume_from(app: &AppHandle, key: &str, start_at: Option<i64>) -> Result<(), String> {
+    let saved = saved_entry(app, key).await?;
     if let Ok(episode) = serde_json::from_str::<EpisodeRef>(&saved.entry.request) {
         return app
             .state::<VideoSessions>()
-            .start(episode.origin, Some(episode.episode))
+            .start_at(episode.origin, Some(episode.episode), start_at)
             .await;
     }
     let request: VideoRequest = serde_json::from_str(&saved.entry.request)
         .map_err(|_| "Open this from its page to choose a stream".to_owned())?;
-    play(app, request).await
+    play_from(app, request, start_at).await
+}
+
+async fn saved_entry(app: &AppHandle, key: &str) -> Result<store::VideoProgress, String> {
+    let db = app.state::<AppDb>().0.clone();
+    store::progress(&db, key)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "This was removed".to_owned())
+}
+
+/// Plays the episode after a "continue watching" entry's: its series' next one that is out.
+/// False when there's none (the last episode, or not a series).
+pub async fn play_next(app: &AppHandle, key: &str) -> Result<bool, String> {
+    let saved = saved_entry(app, key).await?;
+    let Some((origin, _)) = entry_episode(&saved.entry) else {
+        return Ok(false);
+    };
+    app.state::<VideoSessions>().start_next(origin, key).await
+}
+
+/// Marks a "continue watching" entry watched without moving on to the next episode, as marking it
+/// on its title's page does: it leaves Continue watching (its title too, until something of it
+/// plays again) and its stored episode counts as watched. Its place in the history stays.
+pub async fn mark_watched(app: &AppHandle, key: &str) -> Result<(), String> {
+    let db = app.state::<AppDb>().0.clone();
+    let now = now_ms();
+    store::set_watched(&db, key, Some(now))
+        .await
+        .map_err(|error| error.to_string())?;
+    crate::video_library::mirror_mark(&db, key, true, now).await?;
+    let _ = WatchChangedEvent(key.to_owned()).emit(app);
+    Ok(())
 }
 
 pub async fn remove(app: &AppHandle, key: &str) -> Result<(), String> {
     let db = app.state::<AppDb>().0.clone();
     store::remove(&db, key)
         .await
+        .map_err(|error| error.to_string())
+}
+
+/// Takes entries out of Continue watching and the history at once; returns how many there were.
+pub async fn remove_many(app: &AppHandle, keys: &[String]) -> Result<u32, String> {
+    let db = app.state::<AppDb>().0.clone();
+    store::remove_many(&db, keys)
+        .await
+        .map(|count| u32::try_from(count).unwrap_or(u32::MAX))
         .map_err(|error| error.to_string())
 }
 
@@ -1038,6 +1167,60 @@ mod tests {
 
     fn keys(rows: Vec<store::VideoProgress>) -> Vec<String> {
         rows.into_iter().map(|row| row.entry.key).collect()
+    }
+
+    #[test]
+    fn entries_know_their_title_and_episode() {
+        let entry = |key: &str, request: String| VideoEntry {
+            key: key.into(),
+            title: "Show".into(),
+            subtitle: None,
+            poster: None,
+            request,
+        };
+        // An episode played through a session.
+        let session = entry(
+            "stremio:series:tt1:1:2",
+            r#"{"origin":"stremio","kind":"series","id":"tt1","episode":"tt1:1:2"}"#.into(),
+        );
+        assert_eq!(
+            entry_episode(&session),
+            Some((
+                Origin::Stremio {
+                    kind: "series".into(),
+                    id: "tt1".into()
+                },
+                Some("tt1:1:2".into())
+            ))
+        );
+        assert!(stremio_episode("series", "tt1", "tt1:1:2"));
+        // A source's episode played from a link picked by hand: its request names the title and
+        // its key the episode.
+        let mut picked = link_request("https://cdn.example/serial-2.mp4", Some("Serial"), None);
+        picked.group = Some("title:t1".into());
+        picked.key = "source:films:serial/2".into();
+        let picked = entry(&picked.key.clone(), serde_json::to_string(&picked).unwrap());
+        assert_eq!(
+            entry_episode(&picked),
+            Some((
+                Origin::Source {
+                    title_id: "t1".into()
+                },
+                Some("serial/2".into())
+            ))
+        );
+        // A movie plays by its own id (IMDb's when TMDB's found it): no next episode.
+        assert!(!stremio_episode("movie", "tmdb:3", "tt3"));
+        assert!(!stremio_episode("channel", "yt:c1", "yt:c1"));
+        // A link played on its own belongs to no title.
+        let link = link_request("https://cdn.example/film.mp4", None, None);
+        assert_eq!(
+            entry_episode(&entry(
+                &link.key.clone(),
+                serde_json::to_string(&link).unwrap()
+            )),
+            None
+        );
     }
 
     #[test]

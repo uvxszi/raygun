@@ -1,14 +1,20 @@
 import type { ContinueWatching } from '@raygun/bindings';
-import { Check, Clapperboard, Search, X } from 'lucide-react';
+import { Check, Clapperboard, Search } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { groupByDay, useDayLabel } from '../manga/groupByDay';
-import { ConfirmButton } from '../shell/ConfirmButton';
+import type { MenuItem } from '../shell/contextMenuStore';
 import { EmptyState, Loading } from '../shell/EmptyState';
+import { MenuButton } from '../shell/MenuButton';
 import { SourceIssue } from '../shell/SourceIssue';
-import { useRemoveContinue, useResumeVideo, useWatchHistory } from '../watch/useWatch';
+import { useContinueMenu } from '../watch/continueMenu';
+import { ContinueSelectionBar, PickCircle } from '../watch/ContinueSelection';
+import { ContinueSourcePicker } from '../watch/ContinueSourcePicker';
+import { useContinueSelection, usePickGestures } from '../watch/useContinueSelection';
+import type { ContinueSelection } from '../watch/useContinueSelection';
+import { useResumeVideo, useWatchHistory } from '../watch/useWatch';
 import { PageHeader } from './PageHeader';
 
 /** The poster, or a plain frame when there's none or it can't load (offline). */
@@ -32,18 +38,29 @@ const Poster: FC<{ url: string | null }> = ({ url }) => {
   );
 };
 
+/** A row: a tap resumes it, ⋮ has the rest; a long press, its circle or Ctrl/Shift-click picks it. */
 const HistoryRow: FC<{
   item: ContinueWatching;
+  selection: ContinueSelection;
+  menu: (item: ContinueWatching) => MenuItem[];
   onResume: (key: string) => void;
-  onRemove: (key: string) => void;
-  busy: boolean;
-}> = ({ item, onResume, onRemove, busy }) => {
+}> = ({ item, selection, menu, onResume }) => {
   const { t } = useTranslation();
+  const selected = selection.isSelected(item.key);
+  const pick = (range: boolean) => selection.pick(item.key, range);
+  const gestures = usePickGestures(selection.selecting, pick);
   const duration = item.durationMs ?? 0;
   const position = item.positionMs ?? 0;
   const name = [item.title, item.subtitle].filter(Boolean).join(' · ');
   return (
-    <li aria-label={name} className="flex items-center gap-3 px-4 py-3">
+    <li
+      aria-label={name}
+      data-selected={selected || undefined}
+      {...gestures}
+      className={`group/pick relative flex items-center gap-3 px-4 py-3 [-webkit-touch-callout:none] ${
+        selected ? 'bg-primary/15' : ''
+      }`}
+    >
       <button
         type="button"
         onClick={() => onResume(item.key)}
@@ -73,13 +90,16 @@ const HistoryRow: FC<{
           )}
         </span>
       </button>
-      <ConfirmButton
-        label={t('library.videos.remove', { title: name })}
-        confirm={t('library.videos.removeConfirm')}
-        icon={X}
-        disabled={busy}
-        onConfirm={() => onRemove(item.key)}
+      <PickCircle
+        checked={selected}
+        shown={selection.selecting}
+        name={name}
+        onPick={pick}
+        className="absolute top-1/2 left-5 -translate-y-1/2"
       />
+      {!selection.selecting && (
+        <MenuButton label={t('menu.options', { name })} items={() => menu(item)} />
+      )}
     </li>
   );
 };
@@ -89,23 +109,23 @@ export const WatchHistoryPage: FC = () => {
   const { t } = useTranslation();
   const history = useWatchHistory();
   const resume = useResumeVideo();
-  const remove = useRemoveContinue();
   const dayLabel = useDayLabel();
+  const items = history.data ?? [];
+  const selection = useContinueSelection(items.map((item) => item.key));
+  const [choosing, setChoosing] = useState<ContinueWatching | null>(null);
+  const menu = useContinueMenu('history', setChoosing);
 
   return (
-    <section data-testid="watch-history-page" className="flex flex-col gap-4">
+    <section data-testid="watch-history-page" className="flex min-h-full flex-col gap-4">
       <PageHeader back fallback="/library" title={t('library.videos.history')} />
       {history.error && (
         <SourceIssue compact title={t('library.videos.historyUnreadable')}>
           {history.error.message}
         </SourceIssue>
       )}
-      {(resume.error ?? remove.error) && (
-        <SourceIssue
-          compact
-          title={t(resume.error ? 'watch.playFailed' : 'library.videos.removeFailed')}
-        >
-          {(resume.error ?? remove.error)?.message}
+      {resume.error && (
+        <SourceIssue compact title={t('watch.playFailed')}>
+          {resume.error.message}
         </SourceIssue>
       )}
       {history.isPending && <Loading label={t('manga.loading')} />}
@@ -121,23 +141,30 @@ export const WatchHistoryPage: FC = () => {
           }}
         />
       )}
-      {history.data &&
-        groupByDay(history.data, (item) => item.updatedAt ?? 0).map((group) => (
-          <section key={group.day} className="flex flex-col gap-1">
-            <h2 className="text-muted text-sm font-medium">{dayLabel(group.day)}</h2>
-            <ul className="bg-surface flex flex-col rounded-xl">
-              {group.items.map((item) => (
-                <HistoryRow
-                  key={item.key}
-                  item={item}
-                  busy={remove.isPending}
-                  onResume={(key) => resume.mutate(key)}
-                  onRemove={(key) => remove.mutate(key)}
-                />
-              ))}
-            </ul>
-          </section>
-        ))}
+      {groupByDay(items, (item) => item.updatedAt ?? 0).map((group) => (
+        <section key={group.day} className="flex flex-col gap-1">
+          <h2 className="text-muted text-sm font-medium">{dayLabel(group.day)}</h2>
+          <ul className="bg-surface flex flex-col overflow-hidden rounded-xl">
+            {group.items.map((item) => (
+              <HistoryRow
+                key={item.key}
+                item={item}
+                selection={selection}
+                menu={menu}
+                onResume={(key) => resume.mutate(key)}
+              />
+            ))}
+          </ul>
+        </section>
+      ))}
+      {selection.selecting && (
+        <ContinueSelectionBar
+          selection={selection}
+          history
+          className="sticky bottom-2 z-30 mt-auto"
+        />
+      )}
+      {choosing && <ContinueSourcePicker item={choosing} onClose={() => setChoosing(null)} />}
     </section>
   );
 };

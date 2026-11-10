@@ -1076,7 +1076,7 @@ impl StremioService {
             logo: meta.logo.map(|url| self.image(url)),
             description: meta.description,
             genres: meta.genres,
-            release_info: meta.preview.release_info,
+            release_info: meta.preview.release_info.as_deref().map(release_label),
             runtime: meta.runtime,
             rating: meta.preview.rating,
             ratings: meta.ratings,
@@ -2144,6 +2144,22 @@ fn release_status(kind: &str, release_info: Option<&str>) -> &'static str {
     }
 }
 
+/// A release range as titles show it: a year with nothing after its dash (a show still running:
+/// "2024–", "2024-", "2024 - ") is the year alone, and anything else ("2019–2023", "1999") stays as
+/// it is. Addons write the open dash; [`release_status`] reads it before it goes.
+pub(crate) fn release_label(text: &str) -> String {
+    let text = text.trim();
+    let open = text.trim_end_matches(|character: char| {
+        character.is_whitespace() || matches!(character, '-' | '–' | '—')
+    });
+    if open.len() < text.len() && open.len() == 4 && open.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        open.to_owned()
+    } else {
+        text.to_owned()
+    }
+}
+
 /// The first four-digit year in a release range.
 fn release_year(text: &str) -> Option<i32> {
     let characters: Vec<char> = text.chars().collect();
@@ -2174,7 +2190,7 @@ fn item(preview: MetaPreview) -> StremioItem {
         name: preview.name,
         poster: preview.poster,
         poster_shape: preview.poster_shape,
-        release_info: preview.release_info,
+        release_info: preview.release_info.as_deref().map(release_label),
         rating: preview.rating,
     }
 }
@@ -2505,5 +2521,42 @@ mod tests {
         assert_eq!(release_ms("1970-01-02T00:00:00.000Z"), Some(86_400_000));
         assert_eq!(release_ms("1970-01-02"), Some(86_400_000));
         assert_eq!(release_ms("soon"), None);
+    }
+
+    #[test]
+    fn a_running_show_shows_its_first_year_alone() {
+        for open in ["2024-", "2024–", "2024 - ", " 2024 – ", "2024—"] {
+            assert_eq!(release_label(open), "2024", "{open:?}");
+        }
+        assert_eq!(release_label("2019–2023"), "2019–2023");
+        assert_eq!(release_label("1998-1999"), "1998-1999");
+        assert_eq!(release_label("1999"), "1999");
+        // Only a year: other lines (an episode's) stay as they are.
+        assert_eq!(release_label("S1 E2 · Pilot"), "S1 E2 · Pilot");
+        assert_eq!(release_label("Part 2 -"), "Part 2 -");
+        // The status still comes from the range as the addon wrote it.
+        assert_eq!(release_status("series", Some("2024–")), "ongoing");
+    }
+
+    #[test]
+    fn listed_and_detailed_titles_show_years_without_an_open_dash() {
+        let preview = |release: &str| MetaPreview {
+            kind: "series".into(),
+            id: "tt1".into(),
+            name: "Show".into(),
+            poster: None,
+            poster_shape: "poster".into(),
+            release_info: Some(release.into()),
+            rating: None,
+        };
+        assert_eq!(
+            item(preview("2024 - ")).release_info.as_deref(),
+            Some("2024")
+        );
+        assert_eq!(item(preview("2024–")).release_info.as_deref(), Some("2024"));
+        assert_eq!(
+            item(preview("2019–2023")).release_info.as_deref(),
+            Some("2019–2023")
+        );
     }
 }

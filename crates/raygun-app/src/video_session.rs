@@ -261,14 +261,7 @@ impl Session {
 
     /// The next episode that is out, after `index`; from a regular episode, never a special.
     fn next_after(&self, index: usize, now: i64) -> Option<usize> {
-        let special = self
-            .episodes
-            .get(index)
-            .is_some_and(|episode| episode.special);
-        (index + 1..self.episodes.len()).find(|&next| {
-            let episode = &self.episodes[next];
-            released(episode, now) && (special || !episode.special)
-        })
+        next_episode(&self.episodes, index, now)
     }
 
     fn previous_before(&self, index: usize, now: i64) -> Option<usize> {
@@ -320,6 +313,15 @@ impl Session {
         });
         (!(patient && better_pending)).then_some((best.0, best.1))
     }
+}
+
+/// The next episode that is out, after `index`; from a regular episode, never a special.
+fn next_episode(episodes: &[Episode], index: usize, now: i64) -> Option<usize> {
+    let special = episodes.get(index).is_some_and(|episode| episode.special);
+    (index + 1..episodes.len()).find(|&next| {
+        let episode = &episodes[next];
+        released(episode, now) && (special || !episode.special)
+    })
 }
 
 /// The player's loading line: the title, and the episode's label when it adds something.
@@ -414,6 +416,32 @@ impl VideoSessions {
     /// Opens the player on an episode (or where watching continues: the episode watched last, or
     /// the next one once it was finished) and starts finding its links.
     pub async fn start(&self, origin: Origin, episode: Option<String>) -> Result<(), String> {
+        self.start_at(origin, episode, None).await
+    }
+
+    /// Opens the player on the episode after `key` (Continue watching's Next episode): the next
+    /// one that is out, never from a regular episode into the specials. False when there's none.
+    pub async fn start_next(&self, origin: Origin, key: &str) -> Result<bool, String> {
+        let (_, _, episodes, _) = self.episodes(&origin).await?;
+        let Some(index) = episodes.iter().position(|episode| episode.key == key) else {
+            return Err("This episode is no longer listed".into());
+        };
+        let Some(next) = next_episode(&episodes, index, now_ms()) else {
+            return Ok(false);
+        };
+        let episode = episodes[next].remote_id.clone();
+        self.start(origin, Some(episode)).await?;
+        Ok(true)
+    }
+
+    /// [`Self::start`], the first link playing from `start_at` (ms) instead of the episode's saved
+    /// place when given (Play from the start).
+    pub async fn start_at(
+        &self,
+        origin: Origin,
+        episode: Option<String>,
+        start_at: Option<i64>,
+    ) -> Result<(), String> {
         let (title, poster, episodes, scope) = self.episodes(&origin).await?;
         if episodes.is_empty() {
             return Err("This title has no episodes".into());
@@ -450,7 +478,7 @@ impl VideoSessions {
             groups: Vec::new(),
             current: None,
             tried: HashSet::new(),
-            start_at: None,
+            start_at,
             memory,
             show_memory,
             health,

@@ -241,20 +241,34 @@ pub async fn continue_candidates(
 
 /// Forgets an entry (a tombstone, so sync can carry the removal later).
 pub async fn remove(db: &Db, key: &str) -> Result<(), DbError> {
+    remove_many(db, std::slice::from_ref(&key.to_owned()))
+        .await
+        .map(|_| ())
+}
+
+/// Forgets several entries in one write (tombstones); returns how many there were.
+pub async fn remove_many(db: &Db, keys: &[String]) -> Result<u64, DbError> {
+    if keys.is_empty() {
+        return Ok(0);
+    }
     let stamp = db.tick();
     let mut transaction = db.pool().begin().await?;
-    sqlx::query(
-        "UPDATE video_progress SET deleted = 1, updated_at_hlc = ?2, origin_device = ?3
-         WHERE key = ?1 AND deleted = 0",
-    )
-    .bind(key)
-    .bind(stamp as i64)
-    .bind(db.device_id().to_string())
-    .execute(&mut *transaction)
-    .await?;
+    let mut removed = 0;
+    for key in keys {
+        removed += sqlx::query(
+            "UPDATE video_progress SET deleted = 1, updated_at_hlc = ?2, origin_device = ?3
+             WHERE key = ?1 AND deleted = 0",
+        )
+        .bind(key)
+        .bind(stamp as i64)
+        .bind(db.device_id().to_string())
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+    }
     persist_hlc(&mut *transaction, stamp).await?;
     transaction.commit().await?;
-    Ok(())
+    Ok(removed)
 }
 
 #[cfg(test)]
@@ -368,6 +382,32 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((again.updated_at, again.position_ms), (40, 0));
+    }
+
+    #[tokio::test]
+    async fn several_entries_go_at_once() {
+        let temp = TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        for (at, key) in ["url:a", "url:b", "url:c"].into_iter().enumerate() {
+            started(&db, &entry(key), at as i64).await.unwrap();
+            set_progress(&db, key, 60_000, Some(600_000), false, at as i64)
+                .await
+                .unwrap();
+        }
+        let keys: Vec<String> = ["url:a", "url:c", "url:missing"].map(str::to_owned).into();
+        assert_eq!(remove_many(&db, &keys).await.unwrap(), 2);
+        let left: Vec<String> = continue_watching(&db, 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.entry.key)
+            .collect();
+        assert_eq!(left, ["url:b"]);
+        // Removed ones keep their place among the candidates, as one removed alone does.
+        let candidates = continue_candidates(&db, 10).await.unwrap();
+        assert_eq!(candidates.iter().filter(|(_, removed)| *removed).count(), 2);
+        assert_eq!(remove_many(&db, &keys).await.unwrap(), 0, "already gone");
+        assert_eq!(remove_many(&db, &[]).await.unwrap(), 0);
     }
 
     #[tokio::test]

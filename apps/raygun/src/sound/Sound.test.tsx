@@ -39,6 +39,8 @@ describe('Sound settings', () => {
     await AppShellWrapper.mount('/settings/music');
     const equalizer = await screen.findByTestId('equalizer');
 
+    await user.click(within(equalizer).getByRole('switch', { name: 'Equalizer on' }));
+    await waitFor(() => expect(lastSound()).toMatchObject({ eqEnabled: true }));
     await user.click(within(equalizer).getByRole('button', { name: 'Rock' }));
     await waitFor(() =>
       expect(lastSound()).toMatchObject({
@@ -67,6 +69,64 @@ describe('Sound settings', () => {
     await waitFor(() => expect(lastSound()).toMatchObject({ mono: true }));
     await user.click(screen.getByRole('switch', { name: /Even out loudness/ }));
     await waitFor(() => expect(lastSound()).toMatchObject({ normalize: true, mono: true }));
+  });
+
+  it('changes nothing in the equalizer while it is off; only its switch turns it on', async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/settings/music');
+    const equalizer = await screen.findByTestId('equalizer');
+    const band = () => within(equalizer).getByRole('slider', { name: '1kHz band' });
+    const preamp = () => within(equalizer).getByRole('slider', { name: 'Preamp' });
+    const rock = () => within(equalizer).getByRole('button', { name: 'Rock' });
+
+    // Off: dimmed, and nothing in it can be changed.
+    expect(within(equalizer).getByTestId('equalizer-controls')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    // "Flat" is a preset and the reset button.
+    for (const control of [
+      band(),
+      preamp(),
+      rock(),
+      ...within(equalizer).getAllByRole('button', { name: 'Flat' }),
+    ]) {
+      expect(control).toBeDisabled();
+    }
+    // A drag that reaches the slider anyway (or a double click) neither moves it nor turns the
+    // equalizer on.
+    fireEvent.change(band(), { target: { value: '-60' } });
+    fireEvent.doubleClick(band());
+    fireEvent.change(preamp(), { target: { value: '30' } });
+    fireEvent.click(rock());
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lastSound()).toBeUndefined();
+    expect(within(equalizer).getByRole('switch', { name: 'Equalizer on' })).not.toBeChecked();
+
+    // The switch turns it on; then a band changes, and only the band.
+    await user.click(within(equalizer).getByRole('switch', { name: 'Equalizer on' }));
+    await waitFor(() => expect(band()).toBeEnabled());
+    expect(rock()).toBeEnabled();
+    fireEvent.change(band(), { target: { value: '-60' } });
+    await waitFor(() =>
+      expect(lastSound()).toMatchObject({
+        eqEnabled: true,
+        eqPreset: 'custom',
+        eqBands: [0, 0, 0, 0, 0, -60, 0, 0, 0, 0],
+      }),
+    );
+
+    // Off again: the curve stays as it was, and can't be changed until it's back on.
+    await user.click(within(equalizer).getByRole('switch', { name: 'Equalizer on' }));
+    await waitFor(() => expect(lastSound()).toMatchObject({ eqEnabled: false }));
+    expect(band()).toBeDisabled();
+    expect(band()).toHaveValue('-60');
+    fireEvent.change(band(), { target: { value: '20' } });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lastSound()).toMatchObject({
+      eqEnabled: false,
+      eqBands: [0, 0, 0, 0, 0, -60, 0, 0, 0, 0],
+    });
   });
 
   it('sets the crossfade in seconds', async () => {
