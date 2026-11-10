@@ -23,10 +23,13 @@ export const useBundledNotes = () =>
     staleTime: Infinity,
   });
 
+/** Never saved with the other answers (shell/queryPersist): it's about this start only. */
+export const PENDING_NOTES_KEY = ['appWhatsNew'];
+
 /** This version's notes when this is its first start after an update (once per version). */
 export const usePendingNotes = () =>
   useQuery({
-    queryKey: ['appWhatsNew'],
+    queryKey: PENDING_NOTES_KEY,
     queryFn: () => unwrapResult(commands.appWhatsNew()),
     staleTime: Infinity,
     retry: false,

@@ -1,14 +1,28 @@
 //! Lyrics kept on this device (M46.46): what a source gave for a song, by its track key, with when
-//! it was fetched and last shown; and translations of them (M46.48). Device-local.
+//! it was fetched and last shown; and translations of them (M46.48). Device-local. Long lyrics
+//! and translations are kept compressed ([`crate::packed`]).
 
 use sqlx::Row;
+use sqlx::sqlite::SqliteRow;
 
-use crate::{Db, DbError};
+use crate::{Db, DbError, packed};
 
 /// A song's kept row: its lyrics (JSON, or none found) and when they were fetched.
 pub struct CachedLyrics {
     pub lyrics: Option<String>,
     pub fetched_at: i64,
+}
+
+/// A kept row as stored; one whose lyrics don't unpack counts as not kept (fetched again).
+fn cached(row: &SqliteRow) -> Option<CachedLyrics> {
+    let lyrics = match row.get::<Option<String>, _>("lyrics") {
+        Some(stored) => Some(packed::unpack(&stored)?.into_owned()),
+        None => None,
+    };
+    Some(CachedLyrics {
+        lyrics,
+        fetched_at: row.get("fetched_at"),
+    })
 }
 
 /// The song's kept row, if any; reading it marks the song's lyrics as shown now.
@@ -21,10 +35,7 @@ pub async fn get(db: &Db, track_key: &str, now_ms: i64) -> Result<Option<CachedL
     .bind(now_ms)
     .fetch_optional(db.pool())
     .await?;
-    Ok(row.map(|row| CachedLyrics {
-        lyrics: row.get("lyrics"),
-        fetched_at: row.get("fetched_at"),
-    }))
+    Ok(row.as_ref().and_then(cached))
 }
 
 /// The song's kept row, if any, without marking its lyrics as shown (incognito, M47).
@@ -33,10 +44,7 @@ pub async fn peek(db: &Db, track_key: &str) -> Result<Option<CachedLyrics>, DbEr
         .bind(track_key)
         .fetch_optional(db.pool())
         .await?;
-    Ok(row.map(|row| CachedLyrics {
-        lyrics: row.get("lyrics"),
-        fetched_at: row.get("fetched_at"),
-    }))
+    Ok(row.as_ref().and_then(cached))
 }
 
 /// Keeps what a source gave (or that none had any), shown now.
@@ -53,7 +61,7 @@ pub async fn put(
              fetched_at = excluded.fetched_at, used_at = excluded.used_at",
     )
     .bind(track_key)
-    .bind(lyrics)
+    .bind(lyrics.map(packed::pack))
     .bind(now_ms)
     .execute(db.pool())
     .await?;
@@ -143,15 +151,19 @@ pub async fn translations(db: &Db, track_key: &str) -> Result<Vec<TranslationRow
     .bind(track_key)
     .fetch_all(db.pool())
     .await?;
+    // One whose lines don't unpack is left out (made again when asked).
     Ok(rows
         .iter()
-        .map(|row| TranslationRow {
-            translator: row.get("translator"),
-            language: row.get("language"),
-            kind: row.get("kind"),
-            by_name: row.get("by_name"),
-            lines: row.get("lines"),
-            made_at: row.get("made_at"),
+        .filter_map(|row| {
+            let lines: String = row.get("lines");
+            Some(TranslationRow {
+                translator: row.get("translator"),
+                language: row.get("language"),
+                kind: row.get("kind"),
+                by_name: row.get("by_name"),
+                lines: packed::unpack(&lines)?.into_owned(),
+                made_at: row.get("made_at"),
+            })
         })
         .collect())
 }
@@ -173,7 +185,7 @@ async fn insert_translation(
     .bind(&row.language)
     .bind(&row.kind)
     .bind(&row.by_name)
-    .bind(&row.lines)
+    .bind(packed::pack(&row.lines))
     .bind(row.made_at)
     .execute(executor)
     .await?;
@@ -375,6 +387,102 @@ mod tests {
             .unwrap();
         assert!(translations(&db, "a|one").await.unwrap().is_empty());
         assert!(translated_keys(&db).await.unwrap().is_empty());
+    }
+
+    /// Lyrics as `LyricsStore` keeps them: synced lines and the plain text (John Newton's 1779
+    /// hymn, in the public domain).
+    fn hymn() -> String {
+        let verses = [
+            "Amazing grace! How sweet the sound",
+            "That saved a wretch like me!",
+            "I once was lost, but now am found;",
+            "Was blind, but now I see.",
+            "'Twas grace that taught my heart to fear,",
+            "And grace my fears relieved;",
+            "How precious did that grace appear",
+            "The hour I first believed.",
+            "Through many dangers, toils and snares,",
+            "I have already come;",
+            "'Tis grace hath brought me safe thus far,",
+            "And grace will lead me home.",
+            "The Lord has promised good to me,",
+            "His Word my hope secures;",
+            "He will my Shield and Portion be,",
+            "As long as life endures.",
+        ];
+        let lines: Vec<&str> = verses
+            .iter()
+            .chain(verses.iter().take(8))
+            .copied()
+            .collect();
+        let synced: Vec<String> = lines
+            .iter()
+            .enumerate()
+            .map(|(index, text)| {
+                format!(r#"{{"timeMs":{},"text":"{text}"}}"#, 12_480 + index * 4_350)
+            })
+            .collect();
+        format!(
+            r#"{{"providerName":"LRCLIB","synced":[{}],"plain":"{}","offsetMs":0,"edited":false,"translations":[]}}"#,
+            synced.join(","),
+            lines.join("\\n")
+        )
+    }
+
+    async fn stored(db: &Db, sql: &'static str) -> String {
+        sqlx::query_scalar(sql).fetch_one(db.pool()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn long_lyrics_and_translations_are_kept_compressed() {
+        let temp = TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let lyrics = hymn();
+        put(&db, "a|one", Some(&lyrics), 10).await.unwrap();
+        let kept = stored(&db, "SELECT lyrics FROM local_lyrics_cache").await;
+        assert!(
+            kept.len() * 2 < lyrics.len(),
+            "{} of {}",
+            kept.len(),
+            lyrics.len()
+        );
+        let read = get(&db, "a|one", 20).await.unwrap().unwrap();
+        assert_eq!(read.lyrics, Some(lyrics.clone()));
+        assert_eq!(
+            peek(&db, "a|one").await.unwrap().unwrap().lyrics,
+            Some(lyrics.clone())
+        );
+
+        let translation = TranslationRow {
+            lines: lyrics.clone(),
+            ..row("device", "de", 30)
+        };
+        put_translation(&db, "a|one", &translation).await.unwrap();
+        let kept = stored(&db, "SELECT lines FROM local_lyrics_translation").await;
+        assert!(kept.len() < lyrics.len());
+        assert_eq!(translations(&db, "a|one").await.unwrap(), [translation]);
+    }
+
+    #[tokio::test]
+    async fn rows_kept_before_read_and_damaged_ones_are_fetched_again() {
+        let temp = TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        // As earlier versions wrote it: plain text.
+        let lyrics = hymn();
+        sqlx::query(
+            "INSERT INTO local_lyrics_cache (track_key, lyrics, fetched_at, used_at)
+             VALUES ('a|one', ?1, 10, 10), ('a|two', ?2, 10, 10)",
+        )
+        .bind(&lyrics)
+        .bind("\u{1}z1:broken")
+        .execute(db.pool())
+        .await
+        .unwrap();
+        assert_eq!(
+            get(&db, "a|one", 20).await.unwrap().unwrap().lyrics,
+            Some(lyrics)
+        );
+        assert!(get(&db, "a|two", 20).await.unwrap().is_none());
     }
 
     #[tokio::test]

@@ -16,6 +16,7 @@ use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::Subscribe
 
 /// The main window's label.
 pub const MAIN_WINDOW: &str = "main";
+/// Days of logs kept (crate::logs gzips all but the newest).
 const LOG_FILES_KEPT: usize = 7;
 
 /// Resolved storage locations, available to commands as Tauri state.
@@ -33,6 +34,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let erased = crate::backup::erase::finish_pending(paths.root(), paths.mode());
     paths.ensure_base_dirs()?;
     let guard = init_logging(&paths)?;
+    // Days that ended are gzipped, and the oldest go.
+    crate::logs::keep_tidy(paths.logs(), LOG_FILES_KEPT);
     tracing::info!(
         mode = ?paths.mode(),
         root = %paths.root().display(),

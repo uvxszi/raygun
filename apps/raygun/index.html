@@ -9,8 +9,42 @@
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <title>Raygun</title>
+    <!-- The start screen (shell/splash.ts): Raygun's mark on the dark background from the first
+         paint, before any script runs, until the shell has drawn its first screen. The mark is
+         public/icon.svg, put in by vite.config.ts. The background is the dark theme's own
+         (styles.css `--color-background`; tauri.conf.json and Android's theme use it too). -->
+    <style>
+      #raygun-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0a0d16;
+        background: oklch(0.16 0.02 270);
+        transition: opacity 160ms ease-out;
+      }
+      #raygun-splash svg {
+        width: min(40vmin, 176px);
+        height: min(40vmin, 176px);
+      }
+      #raygun-splash[data-leaving] {
+        opacity: 0;
+        pointer-events: none;
+      }
+      :root:is([data-motion='reduced'], [data-motion='off']) #raygun-splash {
+        transition: none;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #raygun-splash {
+          transition: none;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="raygun-splash" role="presentation"><!-- raygun:splash-mark --></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

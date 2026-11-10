@@ -87,6 +87,30 @@ pub struct Notice {
 }
 
 impl Notice {
+    /// This notice with both lines saying something (Android shows a notification without a
+    /// title or text as an empty one): a blank title is its channel's name, a blank text its
+    /// channel's description. `None` when it says nothing at all: it isn't shown.
+    fn filled(self) -> Option<Notice> {
+        let title = self.title.trim();
+        let text = self.text.trim();
+        if title.is_empty() && text.is_empty() {
+            return None;
+        }
+        Some(Notice {
+            title: if title.is_empty() {
+                self.channel.name.to_owned()
+            } else {
+                title.to_owned()
+            },
+            text: if text.is_empty() {
+                self.channel.description.to_owned()
+            } else {
+                text.to_owned()
+            },
+            ..self
+        })
+    }
+
     /// What the `raygun-audio` plugin shows on Android.
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     fn to_json(&self) -> serde_json::Value {
@@ -114,6 +138,11 @@ pub fn notice_id(key: &str) -> i32 {
 /// through [`DownloadNotices::open`]; elsewhere as a system notification carrying the route,
 /// which a click opens while it's on screen.
 pub async fn show_notice(app: &AppHandle, notice: Notice) {
+    let id = notice.id;
+    let Some(notice) = notice.filled() else {
+        tracing::debug!(id, "a notification with nothing to say isn't shown");
+        return;
+    };
     if let Err(error) = platform::notice(app, &notice).await {
         tracing::debug!(%error, title = %notice.title, "couldn't show a notification");
     }

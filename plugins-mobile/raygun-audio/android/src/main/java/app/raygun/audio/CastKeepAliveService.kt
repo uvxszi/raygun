@@ -30,8 +30,9 @@ class CastKeepAliveService : Service() {
         }
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.media3_notification_small_icon)
-            .setContentTitle(intent?.getStringExtra(EXTRA_TITLE).orEmpty())
-            .setContentText(intent?.getStringExtra(EXTRA_TEXT).orEmpty())
+            // A TV without a name or a video without a title still says what runs.
+            .setContentTitle(firstText(intent?.getStringExtra(EXTRA_TITLE)) ?: "Playing on a TV")
+            .setContentText(firstText(intent?.getStringExtra(EXTRA_TEXT)) ?: "Raygun keeps the video going")
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(launch)
@@ -56,7 +57,8 @@ class CastKeepAliveService : Service() {
 
     companion object {
         private const val CHANNEL = "raygun-cast"
-        private const val NOTIFICATION_ID = 7_301
+        /** Its own: the recording service's is 7_301, and one would replace the other. */
+        private const val NOTIFICATION_ID = 7_302
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_TEXT = "text"
 

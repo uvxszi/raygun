@@ -40,6 +40,7 @@ mod library;
 mod library_actions;
 mod local_files;
 mod local_network;
+mod logs;
 mod lyrics_store;
 mod lyrics_translation;
 mod made_for_you;

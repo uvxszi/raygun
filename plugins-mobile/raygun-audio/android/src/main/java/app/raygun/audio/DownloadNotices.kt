@@ -125,6 +125,9 @@ object DownloadNotices {
             val last = posted[id]
             if (last != null && last.first == fingerprint && now - last.second < RENEW_MS) continue
             if (!mayPost()) {
+                // The service stands with the summary as it is now even before it's posted,
+                // never with its placeholder.
+                if (id == SUMMARY_ID) summary = make()
                 deferred = true
                 continue
             }
@@ -233,11 +236,13 @@ object DownloadNotices {
     }
 
     private fun postFinished(context: Context, finished: JSONObject) {
+        val title = firstText(finished.optString("title")) ?: "Downloads finished"
+        val text = firstText(finished.optString("text")) ?: "See them in Downloads"
         val builder = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_raygun)
-            .setContentTitle(finished.optString("title"))
-            .setContentText(finished.optString("text"))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(finished.optString("text")))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setCategory(if (finished.optBoolean("failed")) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_STATUS)
@@ -266,11 +271,12 @@ object DownloadNotices {
 
     private fun build(context: Context, shown: JSONObject, grouped: Boolean, summary: Boolean, expires: Boolean): Notification {
         val route = shown.optString("route", "/downloads")
+        val ongoing = shown.optBoolean("ongoing", true)
         val builder = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_raygun)
-            .setContentTitle(shown.optString("title"))
-            .setContentText(shown.optString("text"))
-            .setOngoing(shown.optBoolean("ongoing", true))
+            .setContentTitle(firstText(shown.optString("title")) ?: "Downloads")
+            .setContentText(firstText(shown.optString("text")) ?: if (ongoing) "Downloading" else "In Downloads")
+            .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setShowWhen(false)
@@ -278,8 +284,8 @@ object DownloadNotices {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         if (expires) builder.setTimeoutAfter(TIMEOUT_MS)
-        if (!shown.isNull("info")) builder.setSubText(shown.optString("info"))
-        if (shown.optBoolean("ongoing", true)) {
+        firstText(if (shown.isNull("info")) null else shown.optString("info"))?.let(builder::setSubText)
+        if (ongoing) {
             if (shown.isNull("progress")) {
                 builder.setProgress(0, 0, true)
             } else {
@@ -390,10 +396,16 @@ class RaygunDownloadService : Service() {
         DownloadNotices.serviceEnded(applicationContext)
     }
 
+    /**
+     * What the service stands with when no summary is known: Android wants a notification at
+     * once. It only stands while there's nothing to download (it finishes right after), so it's
+     * seldom seen, but it says what's going on.
+     */
     private fun placeholder(): Notification =
         NotificationCompat.Builder(this, DownloadNotices.CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_raygun)
-            .setContentTitle("Downloading")
+            .setContentTitle("Downloads")
+            .setContentText("Checking what's left to download")
             .setOngoing(true)
             .setSilent(true)
             .setProgress(0, 0, true)

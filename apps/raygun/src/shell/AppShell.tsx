@@ -59,6 +59,7 @@ import { useLiveInvalidation } from './useLiveInvalidation';
 import { useOpenWithProblems } from './useOpenWithProblems';
 import { useScrollMemory } from './scrollMemory';
 import { movesFreely, useDeviceStateSync } from './deviceState';
+import { useHideSplash } from './splash';
 
 const READER_PATHS = ['/manga/read', '/novel/read'];
 const isReaderPath = (pathname: string) => READER_PATHS.includes(pathname);
@@ -81,19 +82,27 @@ const useSkipAnimations = (skip: boolean) => {
 /** Engines start listening right after the shell mounts; the last queue comes back then. */
 const RESTORE_DELAY_MS = 600;
 
-/** Opens the start screen chosen in Settings (any tab, M46.5), once, when the app starts on Home. */
+/**
+ * Opens the start screen chosen in Settings (any tab, M46.5), once, when the app starts on Home.
+ * Says when the screen to start on is open (the start screen waits for it, shell/splash).
+ */
 const useStartScreen = (screen: StartScreen | undefined) => {
   const navigate = useNavigate();
   const done = useRef(false);
+  const [tried, setTried] = useState(false);
   const path = useRouterState({ select: (state) => state.location.pathname });
   useEffect(() => {
     if (done.current || !screen) return;
     done.current = true;
     if (screen !== 'home' && path === '/') {
       const tab = NAV_TABS[screen];
-      void navigate({ to: tab.to, search: tab.search, replace: true });
+      void navigate({ to: tab.to, search: tab.search, replace: true }).finally(() =>
+        setTried(true),
+      );
     }
   }, [screen, path, navigate]);
+  // Home is open from the start; another start screen once the app went there (or tried to).
+  return screen !== undefined && (screen === 'home' || path !== '/' || tried);
 };
 
 /** F11 turns the window's full screen on and off, everywhere (M46.7). */
@@ -123,7 +132,7 @@ export const AppShell: FC = () => {
   const motion = useApplyFeel(settings.data?.scrollbars, settings.data?.motion);
   useSkipAnimations(motion === 'off');
   useApplyColors(settings.data?.colors);
-  useStartScreen(settings.data?.startScreen);
+  const startOpen = useStartScreen(settings.data?.startScreen);
   useSettingsEvents();
   useSyncLanguage(settings.data?.language);
   const desktop = useIsDesktop();
@@ -169,6 +178,9 @@ export const AppShell: FC = () => {
   useScrollMemory(mainRef, isReaderPath);
   // Playback keys everywhere but the readers, whose keys turn pages (M46.8).
   usePlaybackKeys(openShortcuts, !immersive);
+  // The start screen goes once Settings (theme, sizes, fonts) apply and the screen to start on is
+  // open; settings that can't be read don't keep it up.
+  useHideSplash((settings.data !== undefined && startOpen) || settings.isError);
 
   return (
     <MotionConfig reducedMotion={movesFreely(motion) ? 'never' : 'always'}>

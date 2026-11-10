@@ -33,10 +33,13 @@ object Notices {
                 .setDescription(notice.optString("channelDescription"))
                 .build(),
         )
-        val text = notice.optString("text")
+        // Both lines say something (Rust fills them too); one that says nothing isn't shown.
+        val said = firstText(notice.optString("title"), notice.optString("text")) ?: return
+        val title = firstText(notice.optString("title"), notice.optString("channelName")) ?: said
+        val text = firstText(notice.optString("text"), notice.optString("channelDescription")) ?: said
         val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_raygun)
-            .setContentTitle(notice.optString("title"))
+            .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)

@@ -17,6 +17,7 @@ pub mod local_music;
 pub mod lyrics_cache;
 pub mod manga_downloads;
 pub mod music_downloads;
+pub mod packed;
 pub mod podcasts;
 pub mod settings;
 pub mod song_edits;
@@ -52,6 +53,9 @@ pub enum DbError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("stored {key} is corrupt: {value}")]
     CorruptMeta { key: &'static str, value: String },
+    /// A value kept compressed ([`packed`]) that doesn't unpack.
+    #[error("stored {key} is damaged")]
+    Damaged { key: String },
 }
 
 pub struct Db {
@@ -160,8 +164,18 @@ async fn load_or_create_device_id(pool: &SqlitePool) -> Result<Uuid, DbError> {
 }
 
 /// A device-local value (`local_meta`): never synced, for secrets and per-device switches.
+/// Long ones are kept compressed ([`packed`]) and come back as they were stored.
 pub async fn local_value(db: &Db, key: &str) -> Result<Option<String>, DbError> {
-    read_meta(db.pool(), key).await
+    let Some(stored) = read_meta(db.pool(), key).await? else {
+        return Ok(None);
+    };
+    match packed::unpack(&stored) {
+        Some(std::borrow::Cow::Borrowed(_)) => Ok(Some(stored)),
+        Some(std::borrow::Cow::Owned(value)) => Ok(Some(value)),
+        None => Err(DbError::Damaged {
+            key: key.to_owned(),
+        }),
+    }
 }
 
 /// Stores a device-local value, replacing any earlier one.
@@ -171,7 +185,7 @@ pub async fn set_local_value(db: &Db, key: &str, value: &str) -> Result<(), DbEr
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",
     )
     .bind(key)
-    .bind(value)
+    .bind(packed::pack(value).as_ref())
     .execute(db.pool())
     .await?;
     Ok(())

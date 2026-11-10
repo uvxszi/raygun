@@ -8,6 +8,7 @@ import './i18n';
 import { MiniplayerApp } from './miniplayer/MiniplayerApp';
 import { createAppRouter } from './router';
 import { persistQueryCache, restoreQueryCache } from './shell/queryPersist';
+import { SPLASH_LIMIT_MS, hideSplash } from './shell/splash';
 import './styles.css';
 
 // Queries are IPC calls into the local core, not network requests: they must run offline too
@@ -48,10 +49,13 @@ const render = () =>
   );
 
 // The main window starts from last time's answers and saves them as they change (M46.47); the
-// miniplayer follows playback only.
+// miniplayer follows playback only. The start screen (index.html) stays over the main window
+// until the shell has drawn (shell/splash.ts), or for a moment at most if it never does.
 if (miniplayer) {
+  hideSplash({ fade: false });
   render();
 } else {
+  setTimeout(() => hideSplash(), SPLASH_LIMIT_MS);
   void restoreQueryCache(queryClient).finally(() => {
     persistQueryCache(queryClient);
     render();

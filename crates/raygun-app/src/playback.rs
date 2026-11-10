@@ -436,7 +436,10 @@ impl PlaybackService {
             crate::notifications::Notice {
                 id: crate::notifications::notice_id(NEEDS_WINDOW_NOTICE),
                 channel: &crate::notifications::PLAYBACK,
-                title: format!("{} is paused", item.title),
+                title: match item.title.trim() {
+                    "" => "A song is paused".to_owned(),
+                    title => format!("{title} is paused"),
+                },
                 text:
                     "It plays in YouTube's player, which needs Raygun open. Open Raygun to go on."
                         .to_owned(),
