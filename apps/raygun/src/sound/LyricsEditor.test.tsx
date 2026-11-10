@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { currentLine } from '../player/lyricsQuery';
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { IDLE_STATE, bindingsMock } from '../test/bindingsMock';
+import { formatOffset, parseOffset } from './format';
 import { useSongEditStore } from './songEditStore';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -93,7 +94,9 @@ describe('The lyrics editor', () => {
     await waitFor(() => expect(lastEdit()?.lyricsOffsetMs).toBe(100));
     await user.click(within(editor).getByRole('button', { name: 'Show the lines later' }));
     await waitFor(() =>
-      expect(within(editor).getByTestId('lyrics-offset')).toHaveTextContent('+0.2 s'),
+      expect(within(editor).getByRole('textbox', { name: 'Timing in seconds' })).toHaveValue(
+        '+0.2',
+      ),
     );
 
     // "Water falling…" is sung now, at 15.5 s: its line (14 s) moves 1.5 s later.
@@ -101,6 +104,52 @@ describe('The lyrics editor', () => {
       within(editor).getByRole('button', { name: 'Sync to “Water falling off your skin” now' }),
     );
     await waitFor(() => expect(lastEdit()?.lyricsOffsetMs).toBe(1_500));
+  });
+
+  it('reads typed offsets in seconds or milliseconds', () => {
+    expect(parseOffset('1.25')).toBe(1_250);
+    expect(parseOffset('-0.4 s')).toBe(-400);
+    expect(parseOffset('−1,5')).toBe(-1_500);
+    expect(parseOffset('+2')).toBe(2_000);
+    expect(parseOffset('.5')).toBe(500);
+    expect(parseOffset('250 ms')).toBe(250);
+    expect(parseOffset('9999')).toBe(600_000);
+    expect(parseOffset('')).toBeNull();
+    expect(parseOffset('-')).toBeNull();
+    expect(parseOffset('soon')).toBeNull();
+    expect([0, 200, -1_250, 1_000].map(formatOffset)).toEqual(['0.0', '+0.2', '-1.25', '+1.0']);
+  });
+
+  it('takes a typed offset on Enter or when the field is left, keeping − and +', async () => {
+    const user = userEvent.setup();
+    withSong(SOURCE);
+    const editor = await openLyrics();
+    const field = await within(editor).findByRole('textbox', { name: 'Timing in seconds' });
+    expect(field).toHaveValue('0.0');
+
+    await user.clear(field);
+    await user.type(field, '1.25{Enter}');
+    await waitFor(() => expect(lastEdit()?.lyricsOffsetMs).toBe(1_250));
+    await waitFor(() => expect(field).toHaveValue('+1.25'));
+
+    // Left without Enter: taken too.
+    await user.clear(field);
+    await user.type(field, '-0.5');
+    await user.tab();
+    await waitFor(() => expect(lastEdit()?.lyricsOffsetMs).toBe(-500));
+
+    // Not a time: nothing changes, and the field shows the offset again.
+    const saves = commands.songEditSet.mock.calls.length;
+    await user.clear(field);
+    await user.type(field, 'soon');
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    await user.keyboard('{Enter}');
+    expect(field).toHaveValue('-0.5');
+    expect(commands.songEditSet).toHaveBeenCalledTimes(saves);
+
+    // The buttons stay, and step from the typed offset.
+    await user.click(within(editor).getByRole('button', { name: 'Show the lines later' }));
+    await waitFor(() => expect(lastEdit()?.lyricsOffsetMs).toBe(-400));
   });
 
   it('edits lines and their times, stamping the next line while the song plays', async () => {

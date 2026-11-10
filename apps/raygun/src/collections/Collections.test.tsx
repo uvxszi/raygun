@@ -232,10 +232,72 @@ describe('Favorites and playlists', () => {
     expect(within(page).getByRole('button', { name: 'Move One up' })).toBeDisabled();
     await userEvent.click(within(page).getByRole('button', { name: 'Move One down' }));
     expect(commands.playlistMoveItem).toHaveBeenCalledWith('i1', 'i3');
-    await userEvent.click(within(page).getByRole('button', { name: 'Move Three up' }));
-    expect(commands.playlistMoveItem).toHaveBeenLastCalledWith('i3', 'i2');
     await userEvent.click(within(page).getByRole('button', { name: 'Remove Two' }));
     expect(commands.playlistRemoveItem).toHaveBeenCalledWith('i2');
+  });
+
+  it('moves a song one place on a tap, and to the top or the bottom while its arrow is held', async () => {
+    // The playlist as Rust keeps it: moves change what it sends back.
+    let items: PlaylistItem[] = [...ITEMS, { id: 'i4', track: saved('Four') }];
+    commands.playlistGet.mockImplementation(async () =>
+      ok({
+        playlist: { id: 'p1', name: 'Road trip', itemCount: items.length, artworkUrls: [] },
+        items,
+      }),
+    );
+    commands.playlistMoveItem.mockImplementation(async (itemId: string, before: string | null) => {
+      const moved = items.find((item) => item.id === itemId) as PlaylistItem;
+      const rest = items.filter((item) => item.id !== itemId);
+      const at = before === null ? rest.length : rest.findIndex((item) => item.id === before);
+      items = [...rest.slice(0, at), moved, ...rest.slice(at)];
+      return ok(null);
+    });
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/library/playlist?id=p1');
+    const page = await screen.findByTestId('playlist-page');
+    // Each row's title: its first button with words (the grip has none).
+    const order = () =>
+      within(page)
+        .getAllByTestId('track-table-row')
+        .map((row) =>
+          within(row)
+            .getAllByRole('button')
+            .map((button) => button.textContent ?? '')
+            .find((text) => text.trim() !== ''),
+        );
+    await user.click(await within(page).findByRole('button', { name: 'Edit the order' }));
+
+    // A tap: one place.
+    await user.click(within(page).getByRole('button', { name: 'Move Three up' }));
+    expect(commands.playlistMoveItem).toHaveBeenLastCalledWith('i3', 'i2');
+    await vi.waitFor(() => expect(order()).toEqual(['One', 'Three', 'Two', 'Four']));
+
+    // Held: all the way to the bottom, and letting go moves it no further.
+    const calls = commands.playlistMoveItem.mock.calls.length;
+    const down = within(page).getByRole('button', { name: 'Move Three down' });
+    expect(down).toHaveAccessibleDescription('Hold to move to the bottom');
+    await user.pointer({ keys: '[MouseLeft>]', target: down });
+    await vi.waitFor(() => expect(commands.playlistMoveItem).toHaveBeenLastCalledWith('i3', null), {
+      timeout: 3000,
+    });
+    await user.pointer({ keys: '[/MouseLeft]', target: down });
+    await vi.waitFor(() => expect(order()).toEqual(['One', 'Two', 'Four', 'Three']));
+    expect(commands.playlistMoveItem).toHaveBeenCalledTimes(calls + 1);
+
+    // Held up: to the top.
+    const up = within(page).getByRole('button', { name: 'Move Four up' });
+    await user.pointer({ keys: '[MouseLeft>]', target: up });
+    await vi.waitFor(() => expect(commands.playlistMoveItem).toHaveBeenLastCalledWith('i4', 'i1'), {
+      timeout: 3000,
+    });
+    await user.pointer({ keys: '[/MouseLeft]', target: up });
+    await vi.waitFor(() => expect(order()).toEqual(['Four', 'One', 'Two', 'Three']));
+    expect(commands.playlistMoveItem).toHaveBeenCalledTimes(calls + 2);
+
+    // From the keyboard, End does what holding down does.
+    within(page).getByRole('button', { name: 'Move One down' }).focus();
+    await user.keyboard('{End}');
+    expect(commands.playlistMoveItem).toHaveBeenLastCalledWith('i1', null);
   });
 
   it('favorites a selection in one call, or takes it out when all are favorites', async () => {

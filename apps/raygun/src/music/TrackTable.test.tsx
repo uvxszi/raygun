@@ -306,6 +306,34 @@ describe('Song tables', () => {
     );
   });
 
+  it('keeps the selection bar one row under the top bar, its notes as toasts', async () => {
+    // A phone: a finger, and a narrow window.
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('coarse'),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    commands.lyricsTranscribeMany.mockResolvedValue(ok(null));
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/library?view=favorites');
+    await screen.findAllByTestId('track-table-row');
+    await user.click(screen.getByRole('checkbox', { name: 'Select Bravo' }));
+
+    const bar = screen.getByRole('toolbar', { name: 'Selected songs' });
+    // Held below the screen's top bar (3.5rem) as the list scrolls, never under it.
+    expect(bar).toHaveClass('sticky', 'top-14');
+    expect(bar).not.toHaveClass('flex-wrap');
+    // A phone shows the actions' icons, named for screen readers and on hover.
+    const transcribe = within(bar).getByRole('button', { name: 'Transcribe lyrics' });
+    expect(transcribe).toHaveTextContent('');
+    expect(transcribe).toHaveAttribute('title', 'Transcribe lyrics');
+
+    await user.click(transcribe);
+    expect(await screen.findByTestId('toast')).toHaveTextContent('1 song is being transcribed.');
+    expect(within(bar).queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('plays on a tap on a touch screen, even with songs picked, and covers pick', async () => {
     // A phone: a finger, and a narrow window.
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({

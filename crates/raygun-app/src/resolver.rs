@@ -200,6 +200,24 @@ impl ResolverService {
             }
         }
 
+        // 1b. The source that played the song before keeps it: once its stream expired or stopped
+        // working, that source is asked for a new one before any search. Only when it fails (or
+        // can't answer now) are the sources searched again.
+        if !exclusions.fresh_only && !exclusions.deep {
+            let extensions = self.extensions();
+            let providers = extensions.stream_provider_ids().await;
+            if let Some(row) = remembered(&rows, exclusions, &providers, target, now)
+                && !extensions.resting(&row.provider_id)
+            {
+                match self.ask_again(&key, row, exclusions, using, notes).await {
+                    Some(pick) => return Ok(pick),
+                    None => {
+                        tracing::info!(track = %key, provider = %row.provider_id, "the source that played the song before had no stream now; searching")
+                    }
+                }
+            }
+        }
+
         // 2. Rank fresh candidates against what earlier plays taught us.
         let mut history = History::default();
         for row in &rows {
@@ -283,6 +301,10 @@ impl ResolverService {
                         score = scored.score,
                         "stream picked"
                     );
+                    // A song that came without a length has the one its source gives (M46.26).
+                    if query.duration_ms.is_none() {
+                        self.learn_length(&key, candidate.duration_ms);
+                    }
                     return Ok(Pick {
                         key: candidate_key,
                         track_key: key,
@@ -326,6 +348,87 @@ impl ResolverService {
             "No playable source found for \u{201c}{}\u{201d}",
             query.title
         ))
+    }
+
+    /// Asks the source of a pick that played `key` before for a new stream (see [`remembered`]).
+    /// A stream that failed in this load, or none, counts against the pick as a search's would;
+    /// a source that can't answer now is left for a later look. `None`: search instead.
+    async fn ask_again(
+        &self,
+        key: &str,
+        row: &CandidateRow,
+        exclusions: &Exclusions,
+        using: StreamUse,
+        notes: &mut Notes,
+    ) -> Option<Pick> {
+        let candidate_key = CandidateKey {
+            provider_id: row.provider_id.clone(),
+            candidate_id: row.candidate_id.clone(),
+        };
+        let answer = self
+            .extensions()
+            .resolve_stream_call(&row.provider_id, &row.candidate_id, using)
+            .await;
+        match answer {
+            Ok(stream) if exclusions.failed_sources.contains(&stream.source) => {
+                notes.failed.push(candidate_key);
+                None
+            }
+            Ok(stream) => {
+                tracing::info!(track = %key, provider = %row.provider_id, candidate = %row.candidate_id, "the source that played the song before gave a new stream");
+                Some(Pick {
+                    key: candidate_key,
+                    track_key: key.to_owned(),
+                    title: row.title.clone(),
+                    // Kept with the pick when it played (and kept when unknown now).
+                    artist: None,
+                    provider_name: self.provider_name(&row.provider_id).await,
+                    source: stream.source,
+                    expires_at: stream.expires_at,
+                    // A new stream: if it fails, the pick is skipped for a while and the
+                    // sources are searched (a remembered one would be asked again).
+                    from_cache: false,
+                    bitrate_kbps: row.bitrate_kbps.and_then(|kbps| u32::try_from(kbps).ok()),
+                })
+            }
+            Err(error) if passing(&error) => {
+                tracing::info!(provider = %row.provider_id, %error, "a source couldn't answer now");
+                if error.kind() == Some(IssueKind::RateLimited) {
+                    notes.limited = true;
+                    notes.retry_after = notes.retry_after.max(raygun_ext_host::asked_wait(&error));
+                }
+                notes.unanswered.push(candidate_key);
+                None
+            }
+            Err(error) => {
+                tracing::warn!(provider = %row.provider_id, %error, "the source that played the song before has no stream for it now");
+                let _ = streams::mark_failed(
+                    self.db(),
+                    key,
+                    &row.provider_id,
+                    &row.candidate_id,
+                    &row.title,
+                    &error.to_string(),
+                    unix_ms(),
+                )
+                .await;
+                notes.failed.push(candidate_key);
+                None
+            }
+        }
+    }
+
+    /// Keeps a length a song's stream source gave, where none is known (M46.26).
+    fn learn_length(&self, key: &str, ms: Option<u32>) {
+        let Some(ms) = ms.filter(|ms| *ms > 0) else {
+            return;
+        };
+        if let Some(durations) = self
+            .app
+            .try_state::<Arc<crate::durations::DurationService>>()
+        {
+            durations.learn_stream(key.to_owned(), i64::from(ms));
+        }
     }
 
     /// The other sources' answers for a song (a deeper search): each source's best answer that
@@ -577,7 +680,8 @@ impl ResolverService {
         candidates
     }
 
-    async fn provider_name(&self, provider_id: &str) -> String {
+    /// A stream source's name for people ("via …").
+    pub(crate) async fn provider_name(&self, provider_id: &str) -> String {
         self.extensions()
             .list()
             .await
@@ -602,6 +706,7 @@ impl ResolverService {
                 provider_id: &pick.key.provider_id,
                 candidate_id: &pick.key.candidate_id,
                 title: &pick.title,
+                artist: pick.artist.as_deref(),
                 source_json: &source,
                 expires_at: pick.expires_at,
                 bitrate_kbps: pick.bitrate_kbps.map(i64::from),
@@ -664,6 +769,34 @@ fn unix_ms() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis() as i64)
+}
+
+/// The pick whose source is asked for a new stream before any search: the newest one that played
+/// the song, hasn't failed lately and that this load hasn't tried, from a stream source that's
+/// on now, at a quality that still fits. Picks with a stream that works are played from the cache
+/// before this; ones that played in YouTube's embed are found again instead (M46.51).
+fn remembered<'a>(
+    rows: &'a [CandidateRow],
+    exclusions: &Exclusions,
+    providers: &HashSet<String>,
+    target: QualityTarget,
+    now: i64,
+) -> Option<&'a CandidateRow> {
+    rows.iter()
+        .filter(|row| row.verified_at.is_some() && !plays_in_embed(row))
+        .find(|row| {
+            let key = CandidateKey {
+                provider_id: row.provider_id.clone(),
+                candidate_id: row.candidate_id.clone(),
+            };
+            providers.contains(&row.provider_id)
+                && row
+                    .failed_at
+                    .is_none_or(|at| now - at >= FAILURE_COOLDOWN_MS)
+                && !exclusions.tried.contains(&key)
+                && !exclusions.unanswered.contains(&key)
+                && target.fits(row.bitrate_kbps.and_then(|kbps| u32::try_from(kbps).ok()))
+        })
 }
 
 /// Whether a failed resolve is the source's trouble now (it timed out, limited requests, had
@@ -784,6 +917,97 @@ mod tests {
             r#"{"kind":"url","url":"https://rr1---sn-x.googlevideo.com/videoplayback","headers":{}}"#
         ))));
         assert!(!plays_in_embed(&row(None)));
+    }
+
+    #[test]
+    fn the_source_that_played_a_song_is_asked_again_before_a_search() {
+        let row = |provider: &str, id: &str, verified_at: Option<i64>| CandidateRow {
+            provider_id: provider.into(),
+            candidate_id: id.into(),
+            title: "Song".into(),
+            source: None,
+            expires_at: None,
+            verified_at,
+            failed_at: None,
+            bitrate_kbps: None,
+        };
+        let providers: HashSet<String> = ["dev.a/stream".to_owned(), "dev.b/stream".to_owned()]
+            .into_iter()
+            .collect();
+        let now = 10 * FAILURE_COOLDOWN_MS;
+        let none = Exclusions::default();
+        let id = |found: Option<&CandidateRow>| found.map(|row| row.candidate_id.clone());
+        // Newest played first; candidates that never played aren't remembered.
+        let rows = vec![
+            row("dev.a/stream", "1", Some(now - 10)),
+            row("dev.b/stream", "2", Some(now - 20)),
+            row("dev.b/stream", "3", None),
+        ];
+        assert_eq!(
+            id(remembered(
+                &rows,
+                &none,
+                &providers,
+                QualityTarget::Any,
+                now
+            )),
+            Some("1".into())
+        );
+        // Failed lately, or tried in this load: the one before it.
+        let mut failed = rows.clone();
+        failed[0].failed_at = Some(now - 1);
+        assert_eq!(
+            id(remembered(
+                &failed,
+                &none,
+                &providers,
+                QualityTarget::Any,
+                now
+            )),
+            Some("2".into())
+        );
+        let tried = Exclusions {
+            tried: vec![CandidateKey {
+                provider_id: "dev.a/stream".into(),
+                candidate_id: "1".into(),
+            }],
+            ..Exclusions::default()
+        };
+        assert_eq!(
+            id(remembered(
+                &rows,
+                &tried,
+                &providers,
+                QualityTarget::Any,
+                now
+            )),
+            Some("2".into())
+        );
+        // A failure long ago doesn't count.
+        failed[0].failed_at = Some(now - FAILURE_COOLDOWN_MS - 1);
+        assert_eq!(
+            id(remembered(
+                &failed,
+                &none,
+                &providers,
+                QualityTarget::Any,
+                now
+            )),
+            Some("1".into())
+        );
+        // A source turned off since, or a pick the user made (kept under a source's name), and
+        // one that played in YouTube's embed: nothing to ask.
+        let only_c: HashSet<String> = ["dev.c/stream".to_owned()].into_iter().collect();
+        assert!(remembered(&rows, &none, &only_c, QualityTarget::Any, now).is_none());
+        let picked = vec![row("Audius", "https://a.example/1", Some(now))];
+        assert!(remembered(&picked, &none, &providers, QualityTarget::Any, now).is_none());
+        let mut embed = row("dev.a/stream", "4", Some(now));
+        embed.source = Some(r#"{"kind":"youTube","videoId":"abc"}"#.into());
+        assert!(remembered(&[embed], &none, &providers, QualityTarget::Any, now).is_none());
+        // A stream poorer than the quality wanted now is searched for instead.
+        let mut low = row("dev.a/stream", "5", Some(now));
+        low.bitrate_kbps = Some(96);
+        assert!(remembered(&[low], &none, &providers, QualityTarget::Best, now).is_none());
     }
 
     #[test]

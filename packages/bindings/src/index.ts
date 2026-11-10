@@ -525,6 +525,17 @@ export const commands = {
 	 */
 	trackUseSource: (song: TrackInput, chosen: OnlineTrack, choice: SourceChoice) => typedError<null, string>(__TAURI_INVOKE("track_use_source", { song, chosen, choice })),
 	/**
+	 *  The source Raygun found for a song by itself and plays it from, with what that source has for
+	 *  it (names, album, cover), for "Use details from…"; `null` until one played it.
+	 */
+	trackFoundSource: (song: TrackInput) => typedError<{
+	providerId: string,
+	providerName: string,
+	track: OnlineTrack,
+	/**  The resolver's score; higher is a closer match. */
+	points: number,
+} | null, string>(__TAURI_INVOKE("track_found_source", { song })),
+	/**
 	 *  Whether a saved song came in through Import songs, and whether no source had it then
 	 *  (M46.48: picking a source offers its details by default for those).
 	 */

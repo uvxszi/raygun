@@ -14,7 +14,9 @@ export type LengthRow = Pick<TableTrack, 'rowKey' | 'title' | 'artist' | 'album'
 
 /**
  * Fills the lengths songs lack (M46.26): Rust answers with what it knows and looks the rest up in
- * the background, sending `TrackDurationsEvent`s as lengths arrive. Rows keep a length they have.
+ * the background, sending `TrackDurationsEvent`s as lengths arrive. Rows keep a length they have;
+ * saved songs (favorites, playlists) come with the lengths Rust learned already, so only songs
+ * no source, lookup or play has given one are asked about.
  */
 export const useTrackLengths = <Row extends LengthRow>(tracks: Row[]): Row[] => {
   const missing = useMemo(() => tracks.filter((track) => !track.durationMs), [tracks]);

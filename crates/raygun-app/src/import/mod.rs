@@ -584,7 +584,16 @@ pub(crate) async fn find_songs(
     limit: usize,
 ) -> Vec<raygun_model::SongCandidate> {
     let terms = [query.artist.as_deref().unwrap_or_default(), &query.title].join(" ");
-    let results = extensions.search(terms.trim()).await;
+    best_answers(query, extensions.search(terms.trim()).await, limit)
+}
+
+/// [`find_songs`] over answers already in: each source's best answer for `query` that names its
+/// artist and scores at least the import minimum, best first, at most `limit`.
+pub(crate) fn best_answers(
+    query: &TrackQuery,
+    results: Vec<raygun_model::ProviderSearchResult>,
+    limit: usize,
+) -> Vec<raygun_model::SongCandidate> {
     let mut best: Vec<raygun_model::SongCandidate> = Vec::new();
     for result in results {
         let mut top: Option<raygun_model::SongCandidate> = None;

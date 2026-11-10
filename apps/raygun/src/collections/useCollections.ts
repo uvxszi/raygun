@@ -92,12 +92,6 @@ export const useAddToPlaylist = () =>
 export const useRemovePlaylistItem = () =>
   useCollectionMutation((itemId: string) => unwrapResult(commands.playlistRemoveItem(itemId)));
 
-export const useMovePlaylistItem = () =>
-  useCollectionMutation(
-    ({ itemId, beforeItemId }: { itemId: string; beforeItemId: string | null }) =>
-      unwrapResult(commands.playlistMoveItem(itemId, beforeItemId)),
-  );
-
 /**
  * Keeps a dragged order (M46.44): shown at once in the cached list, then saved as one move, or
  * as the whole order when the table was sorted.

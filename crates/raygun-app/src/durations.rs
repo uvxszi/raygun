@@ -1,8 +1,10 @@
 //! Song lengths (M46.26). Several sources send no length (Apple's charts, ListenBrainz, some tag
 //! lists and plugins), and lists built from them kept the gap. Raygun now learns lengths from
-//! playback, from every list a source returns with lengths, and from lookups for the rest, and
-//! keeps them by track key in `local_track_duration`. Song lists ask with `lookup` and get what's
-//! known at once; the rest arrive as `TrackDurationsEvent`s.
+//! playback, from every list a source returns with lengths, from the stream sources it picks,
+//! and from lookups for the rest, and keeps them by track key in `local_track_duration`. Saved
+//! songs (favorites, playlists, history) read lengths they lack from there when they're listed
+//! (`CollectionsService::saved`); other lists ask with `lookup` and get what's known at once, the
+//! rest arriving as `TrackDurationsEvent`s.
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -133,6 +135,18 @@ impl DurationService {
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
             service.store(lengths, "source", false).await;
+        });
+    }
+
+    /// Keeps the length the stream source Raygun picked for a song gave, where none is known
+    /// (playback corrects it once the song plays).
+    pub fn learn_stream(self: &Arc<Self>, key: String, ms: i64) {
+        if ms <= 0 {
+            return;
+        }
+        let service = self.clone();
+        tauri::async_runtime::spawn(async move {
+            service.store(vec![(key, ms)], "stream", false).await;
         });
     }
 

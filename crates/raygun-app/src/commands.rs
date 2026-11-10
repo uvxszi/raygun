@@ -2351,6 +2351,17 @@ pub async fn track_use_source(
     Ok(())
 }
 
+/// The source Raygun found for a song by itself and plays it from, with what that source has for
+/// it (names, album, cover), for "Use details from…"; `null` until one played it.
+#[tauri::command]
+#[specta::specta]
+pub async fn track_found_source(
+    collections: tauri::State<'_, CollectionsService>,
+    song: TrackInput,
+) -> Result<Option<raygun_model::SongCandidate>, String> {
+    collections.found_source(&song).await
+}
+
 /// Checks a song's download in the background once its source changed (M46.49).
 fn check_download_later(songs: Arc<SongDownloadService>, song: TrackInput) {
     tauri::async_runtime::spawn(async move { songs.check_song(&song).await });
@@ -2418,9 +2429,11 @@ pub async fn made_for_you(
 pub async fn made_for_you_mix(
     service: tauri::State<'_, Arc<crate::made_for_you::MadeForYouService>>,
     details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     id: String,
 ) -> Result<raygun_model::Mix, String> {
     let mut mix = service.mix(&id).await?;
+    durations.learn_tracks(&mix.tracks);
     details.apply_online(&mut mix.tracks);
     Ok(mix)
 }
@@ -2566,6 +2579,7 @@ pub async fn music_artist(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     library: tauri::State<'_, LibraryService>,
     details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     name: String,
 ) -> Result<raygun_model::ArtistOverview, String> {
     // A renamed artist is found by the name sources know (M46.30).
@@ -2588,6 +2602,8 @@ pub async fn music_artist(
         })
         .collect();
     let mut popular = crate::search::artist_tracks(&providers, &name, ARTIST_POPULAR_LIMIT);
+    // Lengths the sources sent are kept for lists that lack them (M46.26).
+    durations.learn_tracks(&popular);
     details.apply_online(&mut popular);
     Ok(raygun_model::ArtistOverview {
         popular,

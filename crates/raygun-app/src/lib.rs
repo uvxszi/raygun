@@ -235,6 +235,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::import_save,
             commands::track_assign_source,
             commands::track_use_source,
+            commands::track_found_source,
             commands::track_import_status,
             commands::tracks_unavailable,
             commands::audiobooks,

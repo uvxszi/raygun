@@ -385,12 +385,17 @@ pub async fn set_favorites_order(db: &Db, track_keys: &[String]) -> Result<(), D
 
 // ---- Playlists ----
 
+// Lengths the items lack come from the ones Raygun learned (`local_track_duration`, M46.26).
 const PLAYLIST_COLUMNS: &str = "p.id, p.name, p.created_at,
      (SELECT COUNT(*) FROM music_playlist_item i
       WHERE i.playlist_id = p.id AND i.deleted = 0) AS item_count,
-     (SELECT COALESCE(SUM(i.duration_ms), 0) FROM music_playlist_item i
+     (SELECT COALESCE(SUM(COALESCE(i.duration_ms, d.duration_ms)), 0)
+      FROM music_playlist_item i
+      LEFT JOIN local_track_duration d ON d.track_key = i.track_key AND d.duration_ms > 0
       WHERE i.playlist_id = p.id AND i.deleted = 0) AS known_ms,
-     (SELECT COUNT(i.duration_ms) FROM music_playlist_item i
+     (SELECT COUNT(COALESCE(i.duration_ms, d.duration_ms))
+      FROM music_playlist_item i
+      LEFT JOIN local_track_duration d ON d.track_key = i.track_key AND d.duration_ms > 0
       WHERE i.playlist_id = p.id AND i.deleted = 0) AS known_count";
 
 /// Live playlists, alphabetically. Their cover items come in one query for all of them.

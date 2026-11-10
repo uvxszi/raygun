@@ -259,6 +259,96 @@ async fn replaced_repositories_fold_into_their_replacement() {
 }
 
 #[tokio::test]
+async fn the_found_pick_is_the_newest_stream_that_played_a_song() {
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let shown = "nina simone|feeling good";
+    let saved = "nina simone|feeling good remastered";
+    let played = |track_key, provider_id, candidate_id, title, artist| streams::Played {
+        track_key,
+        provider_id,
+        candidate_id,
+        title,
+        artist,
+        source_json: r#"{"kind":"url"}"#,
+        expires_at: Some(99),
+        bitrate_kbps: None,
+    };
+    assert_eq!(
+        streams::found_pick(&db, &[shown.into()]).await.unwrap(),
+        None
+    );
+    streams::mark_verified(
+        &db,
+        played(
+            saved,
+            "dev.a/stream",
+            "1",
+            "Feeling Good (Remastered)",
+            Some("Nina Simone"),
+        ),
+        10,
+    )
+    .await
+    .unwrap();
+    streams::mark_verified(
+        &db,
+        played(
+            shown,
+            "dev.b/stream",
+            "2",
+            "Feeling Good",
+            Some("Nina Simone"),
+        ),
+        20,
+    )
+    .await
+    .unwrap();
+    // Played again without the artist (a remembered pick): the artist stays.
+    streams::mark_verified(
+        &db,
+        played(shown, "dev.b/stream", "2", "Feeling Good", None),
+        30,
+    )
+    .await
+    .unwrap();
+    // A pick the user made, kept under a source's name, isn't one Raygun found.
+    streams::remember_pick(&db, played(shown, "Audius", "x", "Feeling Good", None), 40)
+        .await
+        .unwrap();
+
+    let found = streams::found_pick(&db, &[saved.into(), shown.into()])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (found.provider_id.as_str(), found.candidate_id.as_str()),
+        ("dev.b/stream", "2")
+    );
+    assert_eq!(found.artist.as_deref(), Some("Nina Simone"));
+    assert_eq!(found.verified_at, 30);
+
+    // Failed since: the one before it is the found pick.
+    streams::mark_failed(&db, shown, "dev.b/stream", "2", "Feeling Good", "404", 50)
+        .await
+        .unwrap();
+    let found = streams::found_pick(&db, &[saved.into(), shown.into()])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.title, "Feeling Good (Remastered)");
+
+    // Copied to new names, the artist goes along.
+    let renamed = "nina simone|feeling good live";
+    streams::copy_picks(&db, saved, renamed, 60).await.unwrap();
+    let copied = streams::found_pick(&db, &[renamed.into()])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(copied.artist.as_deref(), Some("Nina Simone"));
+}
+
+#[tokio::test]
 async fn stream_candidates_and_provider_stats_round_trip() {
     let temp = TempDir::new().unwrap();
     let db = open_in(temp.path()).await;
@@ -274,6 +364,7 @@ async fn stream_candidates_and_provider_stats_round_trip() {
             provider_id: "dev.b/stream",
             candidate_id: "2",
             title: "Studio",
+            artist: None,
             source_json: r#"{"kind":"url"}"#,
             expires_at: Some(99),
             bitrate_kbps: Some(128),
@@ -290,6 +381,7 @@ async fn stream_candidates_and_provider_stats_round_trip() {
             provider_id: "dev.a/stream",
             candidate_id: "1",
             title: "Live",
+            artist: None,
             source_json: r#"{"kind":"url"}"#,
             expires_at: None,
             bitrate_kbps: None,
@@ -348,6 +440,7 @@ async fn a_picked_stream_is_remembered_and_failures_forgotten() {
             provider_id: "dev.b/stream",
             candidate_id: "2",
             title: "Song",
+            artist: None,
             source_json: r#"{"kind":"url","url":"https://b.example/2","headers":{}}"#,
             expires_at: None,
             bitrate_kbps: Some(128),
@@ -375,6 +468,7 @@ async fn a_picked_stream_is_remembered_and_failures_forgotten() {
             provider_id: "Audius",
             candidate_id: "https://c.example/3",
             title: "Song",
+            artist: None,
             source_json: r#"{"kind":"url","url":"https://c.example/3","headers":{}}"#,
             expires_at: None,
             bitrate_kbps: None,
@@ -404,6 +498,7 @@ async fn a_stream_that_stopped_working_is_forgotten_but_not_held_against_its_sou
         provider_id,
         candidate_id,
         title: "Song",
+        artist: None,
         source_json,
         expires_at: Some(99),
         bitrate_kbps: None,

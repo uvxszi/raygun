@@ -194,6 +194,11 @@ impl CollectionsService {
         let details = SourceDetails::of(&chosen, &choice);
         if !details.is_empty() {
             self.use_details(&song, &copies, &details).await?;
+            // Without a stream of its own the song is looked up by the names it shows: what
+            // played it under the old names plays it under the new ones.
+            if picked.is_none() {
+                carry_picks(self.db(), &song, &copies, &details).await;
+            }
         }
         if picked.is_none() && details.is_empty() {
             return Ok(());
@@ -217,6 +222,50 @@ impl CollectionsService {
             true
         });
         Ok(())
+    }
+
+    /// The source Raygun found for a song by itself and played it from: the names that stream
+    /// source gave it, with the album, cover and length its catalogue has for the same song when
+    /// it has one, for "Use details from…". `None` until a stream source played the song.
+    pub async fn found_source(
+        &self,
+        song: &TrackInput,
+    ) -> Result<Option<raygun_model::SongCandidate>, String> {
+        let keys = self.mark_keys(song).await;
+        let Some(pick) = raygun_db::streams::found_pick(self.db(), &keys)
+            .await
+            .map_err(to_message)?
+        else {
+            return Ok(None);
+        };
+        let provider_name = self
+            .app
+            .state::<Arc<crate::resolver::ResolverService>>()
+            .provider_name(&pick.provider_id)
+            .await;
+        let query = TrackQuery {
+            title: pick.title.clone(),
+            artist: pick.artist.clone().or_else(|| song.artist.clone()),
+            album: None,
+            duration_ms: None,
+        };
+        let terms = [query.artist.as_deref().unwrap_or_default(), &query.title].join(" ");
+        let extension_id = pick.provider_id.split('/').next().unwrap_or_default();
+        let answers = self
+            .app
+            .state::<Arc<crate::extensions::ExtensionService>>()
+            .search_of(extension_id, &terms)
+            .await;
+        let catalogue = crate::import::best_answers(&query, answers, 1)
+            .into_iter()
+            .next()
+            .map(|answer| answer.track);
+        Ok(Some(raygun_model::SongCandidate {
+            provider_id: pick.provider_id,
+            provider_name,
+            track: found_track(pick.title, pick.artist, catalogue),
+            points: 0,
+        }))
     }
 
     /// The keys a song's marks go under: its saved copies' and the names it shows.
@@ -929,6 +978,7 @@ impl CollectionsService {
                 track
             })
             .collect();
+        self.fill_lengths(&mut tracks).await;
         let explicit = self.explicit_keys().await;
         for track in &mut tracks {
             track.explicit = explicit.contains(&track.track_key);
@@ -953,6 +1003,35 @@ impl CollectionsService {
             track.play_count = (own + renamed) as u32;
         }
         Ok(tracks)
+    }
+
+    /// Lengths saved copies lack, from the ones Raygun learned from sources, lookups and playback
+    /// (M46.26), under the song's key or the names it shows: lists show them without asking.
+    async fn fill_lengths(&self, tracks: &mut [SavedTrack]) {
+        let wanted: Vec<String> = tracks
+            .iter()
+            .filter(|track| track.duration_ms.is_none())
+            .flat_map(|track| [track.track_key.clone(), shown_key(track)])
+            .collect();
+        if wanted.is_empty() {
+            return;
+        }
+        let known = match raygun_db::track_durations::lengths(self.db(), &wanted).await {
+            Ok(known) => known,
+            Err(error) => {
+                tracing::debug!(%error, "couldn't read the songs' lengths");
+                return;
+            }
+        };
+        for track in tracks
+            .iter_mut()
+            .filter(|track| track.duration_ms.is_none())
+        {
+            track.duration_ms = known
+                .get(&track.track_key)
+                .or_else(|| known.get(&shown_key(track)))
+                .and_then(|ms| u32::try_from(*ms).ok());
+        }
     }
 
     async fn summary(&self, row: collections::PlaylistRow) -> Result<PlaylistSummary, String> {
@@ -1088,6 +1167,7 @@ pub(crate) async fn assign_stream(
                         provider_id: source_name.unwrap_or(PICKED),
                         candidate_id: chosen.external_id.as_deref().unwrap_or(&json),
                         title: &chosen.title,
+                        artist: chosen.artist.as_deref(),
                         source_json: &json,
                         expires_at: None,
                         bitrate_kbps: None,
@@ -1217,6 +1297,59 @@ fn media_kind(source: &MediaSource) -> MediaKind {
     match source {
         MediaSource::YouTube { .. } => MediaKind::Video,
         _ => MediaKind::Audio,
+    }
+}
+
+/// The streams that played a song under the names it showed go on with the names `details` give
+/// it, so taking a source's names doesn't send the song searching again.
+async fn carry_picks(
+    db: &raygun_db::Db,
+    song: &TrackInput,
+    copies: &[SavedRef],
+    details: &SourceDetails,
+) {
+    let title = details.title.as_deref().unwrap_or(&song.title);
+    let artist = details.artist.as_deref().or(song.artist.as_deref());
+    let to = shown_key_of(title, artist);
+    let mut from: Vec<String> = copies.iter().map(|row| row.track_key.clone()).collect();
+    from.push(shown_key_of(&song.title, song.artist.as_deref()));
+    from.sort_unstable();
+    from.dedup();
+    let now = now_ms();
+    for key in from.iter().filter(|key| **key != to) {
+        if let Err(error) = raygun_db::streams::copy_picks(db, key, &to, now).await {
+            tracing::warn!(%error, "couldn't carry a song's streams over to its new names");
+        }
+    }
+}
+
+/// A song as the stream source Raygun found for it names it, with what that source's catalogue
+/// has for the same song (album, cover, length), if anything. The stream source's own names win;
+/// its stream isn't kept (it's the resolver's, and expires).
+fn found_track(
+    title: String,
+    artist: Option<String>,
+    catalogue: Option<OnlineTrack>,
+) -> OnlineTrack {
+    let catalogue = catalogue.unwrap_or_else(|| OnlineTrack {
+        external_id: None,
+        title: String::new(),
+        artist: None,
+        album: None,
+        duration_ms: None,
+        artwork_url: None,
+        source: None,
+        explicit: false,
+    });
+    OnlineTrack {
+        external_id: catalogue.external_id,
+        artist: artist.or(catalogue.artist),
+        title,
+        album: catalogue.album,
+        duration_ms: catalogue.duration_ms,
+        artwork_url: catalogue.artwork_url,
+        source: None,
+        explicit: catalogue.explicit,
     }
 }
 
@@ -1649,6 +1782,7 @@ mod tests {
                 provider_id: "dev.b/stream",
                 candidate_id: "2",
                 title: "Song",
+                artist: None,
                 source_json: previewed,
                 expires_at: None,
                 bitrate_kbps: None,
@@ -1720,6 +1854,115 @@ mod tests {
         assert!(remembered.iter().any(|row| {
             row.provider_id == "Indie Tracks" && row.verified_at == remembered[0].verified_at
         }));
+    }
+
+    #[tokio::test]
+    async fn taking_a_found_sources_names_keeps_its_stream() {
+        use raygun_db::streams;
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let song = TrackInput {
+            explicit: false,
+            title: "Feelin Good".into(),
+            artist: Some("Nina".into()),
+            album: None,
+            duration_ms: None,
+            artwork_url: None,
+            source: None,
+        };
+        let id = collections::create_playlist(&db, "Mix", 1).await.unwrap();
+        collections::add_to_playlist(&db, &id, &[fields(song.clone())], 2)
+            .await
+            .unwrap();
+        // Raygun found the song on a stream source by itself.
+        streams::mark_verified(
+            &db,
+            streams::Played {
+                track_key: "nina|feelin good",
+                provider_id: "dev.a/stream",
+                candidate_id: "7",
+                title: "Feeling Good",
+                artist: Some("Nina Simone"),
+                source_json: r#"{"kind":"url","url":"https://a.example/7.mp3","headers":{}}"#,
+                expires_at: Some(99),
+                bitrate_kbps: None,
+            },
+            3,
+        )
+        .await
+        .unwrap();
+        let copies = collections::saved_refs(&db).await.unwrap();
+        // The song takes the source's title and artist: it's looked up by them from now on,
+        // and what played it plays it under them.
+        let details = SourceDetails {
+            title: Some("Feeling Good".into()),
+            artist: Some("Nina Simone".into()),
+            ..SourceDetails::default()
+        };
+        carry_picks(&db, &song, &copies, &details).await;
+        let found = streams::found_pick(&db, &["nina simone|feeling good".to_owned()])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (found.provider_id.as_str(), found.candidate_id.as_str()),
+            ("dev.a/stream", "7")
+        );
+        // Only the album or cover: the names, and so the picks, stay where they were.
+        let before = streams::candidates(&db, "nina|feelin good").await.unwrap();
+        carry_picks(
+            &db,
+            &song,
+            &copies,
+            &SourceDetails {
+                album: Some("Pastel Blues".into()),
+                ..SourceDetails::default()
+            },
+        )
+        .await;
+        assert_eq!(
+            streams::candidates(&db, "nina|feelin good").await.unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn a_found_source_names_the_song_and_its_catalogue_adds_the_rest() {
+        let catalogue = OnlineTrack {
+            external_id: Some("ia:42".into()),
+            title: "Feeling Good - 2006 Remaster".into(),
+            artist: Some("Nina Simone & Orchestra".into()),
+            album: Some("I Put a Spell on You".into()),
+            duration_ms: Some(177_000),
+            artwork_url: Some("https://archive.org/cover.jpg".into()),
+            source: Some(url("https://archive.org/1.mp3")),
+            explicit: false,
+        };
+        // The stream source's names win; album, cover and length come from its catalogue, and
+        // its stream isn't taken (the resolver keeps that).
+        let found = found_track(
+            "Feeling Good".into(),
+            Some("Nina Simone".into()),
+            Some(catalogue.clone()),
+        );
+        assert_eq!(found.title, "Feeling Good");
+        assert_eq!(found.artist.as_deref(), Some("Nina Simone"));
+        assert_eq!(found.album.as_deref(), Some("I Put a Spell on You"));
+        assert_eq!(found.duration_ms, Some(177_000));
+        assert_eq!(found.artwork_url, catalogue.artwork_url);
+        assert_eq!(found.source, None);
+        // A stream source that named no artist: the catalogue's; no catalogue answer: names only.
+        assert_eq!(
+            found_track("Feeling Good".into(), None, Some(catalogue))
+                .artist
+                .as_deref(),
+            Some("Nina Simone & Orchestra")
+        );
+        let bare = found_track("Feeling Good".into(), Some("Nina Simone".into()), None);
+        assert_eq!((bare.album, bare.artwork_url), (None, None));
     }
 
     #[test]

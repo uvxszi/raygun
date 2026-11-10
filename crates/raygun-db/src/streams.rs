@@ -52,6 +52,52 @@ pub async fn candidates(db: &Db, track_key: &str) -> Result<Vec<CandidateRow>, D
         .collect())
 }
 
+/// The source Raygun found for a song and played: a stream source's candidate, with the names
+/// that source gave it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundPick {
+    pub track_key: String,
+    pub provider_id: String,
+    pub candidate_id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub verified_at: i64,
+}
+
+/// The newest pick that played one of `track_keys` and hasn't failed since, from a stream source
+/// (picks the user made, kept under a source's name, are left out).
+pub async fn found_pick(db: &Db, track_keys: &[String]) -> Result<Option<FoundPick>, DbError> {
+    let mut found: Option<FoundPick> = None;
+    for key in track_keys {
+        let row = sqlx::query(
+            "SELECT track_key, provider_id, candidate_id, title, artist, verified_at
+             FROM local_stream_candidate
+             WHERE track_key = ?1 AND verified_at IS NOT NULL AND failed_at IS NULL
+               AND instr(provider_id, '/') > 0
+             ORDER BY verified_at DESC LIMIT 1",
+        )
+        .bind(key)
+        .fetch_optional(db.pool())
+        .await?;
+        let Some(row) = row else { continue };
+        let pick = FoundPick {
+            track_key: row.get("track_key"),
+            provider_id: row.get("provider_id"),
+            candidate_id: row.get("candidate_id"),
+            title: row.get("title"),
+            artist: row.get("artist"),
+            verified_at: row.get("verified_at"),
+        };
+        if found
+            .as_ref()
+            .is_none_or(|kept| pick.verified_at > kept.verified_at)
+        {
+            found = Some(pick);
+        }
+    }
+    Ok(found)
+}
+
 /// A stream that played, as [`mark_verified`] records it.
 #[derive(Debug, Clone, Copy)]
 pub struct Played<'a> {
@@ -59,6 +105,8 @@ pub struct Played<'a> {
     pub provider_id: &'a str,
     pub candidate_id: &'a str,
     pub title: &'a str,
+    /// The artist the source named, if it did.
+    pub artist: Option<&'a str>,
     pub source_json: &'a str,
     pub expires_at: Option<i64>,
     pub bitrate_kbps: Option<i64>,
@@ -71,10 +119,11 @@ pub async fn mark_verified(db: &Db, played: Played<'_>, now_ms: i64) -> Result<(
     sqlx::query(
         "INSERT INTO local_stream_candidate
              (track_key, provider_id, candidate_id, title, source, expires_at, verified_at, failed_at, failure,
-              bitrate_kbps)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8)
+              bitrate_kbps, artist)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9)
          ON CONFLICT (track_key, provider_id, candidate_id) DO UPDATE SET
              title = excluded.title,
+             artist = COALESCE(excluded.artist, local_stream_candidate.artist),
              source = excluded.source,
              expires_at = excluded.expires_at,
              verified_at = excluded.verified_at,
@@ -90,6 +139,7 @@ pub async fn mark_verified(db: &Db, played: Played<'_>, now_ms: i64) -> Result<(
     .bind(played.expires_at)
     .bind(now_ms)
     .bind(played.bitrate_kbps)
+    .bind(played.artist)
     .execute(&mut *transaction)
     .await?;
     count(&mut transaction, played.provider_id, "successes").await?;
@@ -135,10 +185,11 @@ pub async fn remember_pick(db: &Db, played: Played<'_>, now_ms: i64) -> Result<(
     sqlx::query(
         "INSERT INTO local_stream_candidate
              (track_key, provider_id, candidate_id, title, source, expires_at, verified_at,
-              failed_at, failure, bitrate_kbps)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8)
+              failed_at, failure, bitrate_kbps, artist)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9)
          ON CONFLICT (track_key, provider_id, candidate_id) DO UPDATE SET
              title = excluded.title,
+             artist = COALESCE(excluded.artist, local_stream_candidate.artist),
              source = excluded.source,
              expires_at = excluded.expires_at,
              verified_at = excluded.verified_at,
@@ -154,6 +205,7 @@ pub async fn remember_pick(db: &Db, played: Played<'_>, now_ms: i64) -> Result<(
     .bind(played.expires_at)
     .bind(now_ms)
     .bind(played.bitrate_kbps)
+    .bind(played.artist)
     .execute(db.pool())
     .await?;
     Ok(())
@@ -169,14 +221,15 @@ pub async fn copy_picks(db: &Db, from: &str, to: &str, now_ms: i64) -> Result<()
     sqlx::query(
         "INSERT INTO local_stream_candidate
              (track_key, provider_id, candidate_id, title, source, expires_at, verified_at,
-              failed_at, failure, bitrate_kbps)
+              failed_at, failure, bitrate_kbps, artist)
          SELECT ?2, provider_id, candidate_id, title, source, expires_at, ?3, NULL, NULL,
-                bitrate_kbps
+                bitrate_kbps, artist
          FROM local_stream_candidate
          WHERE track_key = ?1 AND verified_at IS NOT NULL AND failed_at IS NULL
            AND source IS NOT NULL
          ON CONFLICT (track_key, provider_id, candidate_id) DO UPDATE SET
              title = excluded.title,
+             artist = COALESCE(excluded.artist, local_stream_candidate.artist),
              source = excluded.source,
              expires_at = excluded.expires_at,
              verified_at = excluded.verified_at,
