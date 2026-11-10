@@ -44,8 +44,9 @@ export type MangaGridItem = {
 
 /**
  * Covers in a grid, each opening its title page. Compact puts the title over the cover's bottom
- * edge (Mihon's default); comfortable puts it underneath. A video's play button plays it; ⋮, a
- * right click or a long press opens the title's full menu.
+ * edge (Mihon's default); comfortable puts it underneath. A video's play button plays it; ⋮ (the
+ * cover's top right) opens the title's full menu. In a selection scope a long press, a right
+ * click or the circle on the cover's top left picks it.
  */
 export const MangaGrid: FC<{
   items: MangaGridItem[];
@@ -68,6 +69,7 @@ export const MangaGrid: FC<{
     ...(item.link ? { link: item.link } : {}),
   });
   const selectable = useInSelectionScope();
+  const picking = useSelectionStore((state) => state.items.length > 0);
   const [grouping, setGrouping] = useState<PickedTitle | null>(null);
   // A source's result as a selection item; library covers (a link of their own) aren't picked.
   const pickOf = (item: MangaGridItem): PickedTitle => ({
@@ -77,8 +79,8 @@ export const MangaGrid: FC<{
     remoteId: item.id,
     title: item.title,
   });
-  // The title's full menu; a source's result can also join a group, and be picked in a scope
-  // (where a long press picks, so ⋮ and a right click open this).
+  // The title's full menu (its ⋮); a source's result can also join a group, and be picked in a
+  // scope.
   const itemMenu = (item: MangaGridItem) =>
     menu(
       card(item),
@@ -135,6 +137,8 @@ export const MangaGrid: FC<{
                 search={item.link?.search ?? { source: item.sourceId, id: item.id }}
                 aria-label={item.title}
                 data-testid="manga-card"
+                // A long press picks: the webview would start dragging the link instead.
+                draggable={false}
                 className="flex flex-col gap-1"
               >
                 <span className="relative overflow-hidden rounded-xl">
@@ -144,7 +148,13 @@ export const MangaGrid: FC<{
                     landscape={landscape}
                     className="w-full"
                   />
-                  <span className="absolute top-1.5 left-1.5 flex gap-1">
+                  {/* The pick circle takes the top left corner while it shows (its ⋮ keeps the
+                      top right): the badges move over. */}
+                  <span
+                    className={`absolute top-1.5 right-11 left-1.5 flex flex-wrap gap-1 transition-[padding] ${
+                      selectable && !item.link ? (picking ? 'pl-7' : 'group-hover/pick:pl-7') : ''
+                    }`}
+                  >
                     {item.inLibrary && (
                       <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-3xs font-bold">
                         {t('manga.inLibraryBadge')}

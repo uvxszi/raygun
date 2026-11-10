@@ -5,6 +5,10 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { SelectCircle } from '../select/SelectCircle';
+import { usePickPress } from '../select/usePickPress';
+import type { PickState } from '../select/usePickPress';
+import { withSelect } from '../select/withSelect';
 import { ConfirmButton } from '../shell/ConfirmButton';
 import { MenuButton } from '../shell/MenuButton';
 import { formatLength } from './formatLength';
@@ -29,11 +33,21 @@ const ICON_BUTTON =
 const share = (received: number, total: number | null) =>
   total && total > 0 ? Math.min(99, Math.floor((received / total) * 100)) : null;
 
+/** An episode outside a list that picks. */
+const NO_PICK: PickState = {
+  selected: false,
+  selecting: false,
+  toggle: () => undefined,
+  extend: () => undefined,
+};
+
 /**
  * One episode: what it is, how far it was listened to, and play, played and download actions. An
  * audiobook's chapter (`chapter`) shows its number and reads finished rather than played; it
  * passes `onPlay` to play the rest of the book after it (M46.22), and `tapToPlay` so tapping the
- * chapter plays it (M46.45; its notes stay in its menu).
+ * chapter plays it (M46.45; its notes stay in its menu). In a list that picks (`pick`) a finger
+ * held on it, Ctrl/Shift-click or its ⋮'s Select picks it; while picking its circle shows at the
+ * row's start and a tap picks.
  */
 export const EpisodeItem: FC<{
   episode: PodcastEpisode;
@@ -41,8 +55,10 @@ export const EpisodeItem: FC<{
   onPlay?: () => void;
   tapToPlay?: boolean;
   chapter?: boolean;
-}> = ({ episode, showPodcast = false, onPlay, tapToPlay = false, chapter = false }) => {
+  pick?: PickState;
+}> = ({ episode, showPodcast = false, onPlay, tapToPlay = false, chapter = false, pick }) => {
   const { t, i18n } = useTranslation();
+  const press = usePickPress(pick ?? NO_PICK);
   const [expanded, setExpanded] = useState(false);
   const play = usePlayEpisode();
   const setPlayed = useSetPlayed();
@@ -100,11 +116,24 @@ export const EpisodeItem: FC<{
 
   return (
     <li
-      className="flex flex-col gap-2"
+      className={`flex flex-col gap-2 ${
+        pick ? 'rounded-lg transition-colors [-webkit-touch-callout:none]' : ''
+      } ${pick?.selected ? 'bg-primary/15 ring-primary -mx-2 px-2 ring-2' : ''}`}
       aria-label={episode.title}
       data-reveal={episodeReveal(episode.id)}
+      data-selected={pick?.selected || undefined}
+      {...(pick ? press : {})}
     >
       <div className="flex items-start gap-3">
+        {pick?.selecting && (
+          <SelectCircle
+            checked={pick.selected}
+            shown
+            label={t('search.select.pick', { title: episode.title })}
+            onToggle={pick.toggle}
+            place="inline"
+          />
+        )}
         {chapter && episode.number !== null && (
           <span
             aria-hidden
@@ -115,6 +144,8 @@ export const EpisodeItem: FC<{
         )}
         <button
           type="button"
+          // The row itself: while picking, a tap on it picks.
+          data-pick-main={pick ? '' : undefined}
           onClick={() => (tapToPlay ? start() : setExpanded(!expanded))}
           aria-expanded={tapToPlay ? undefined : expanded}
           className={`flex min-w-0 flex-1 flex-col gap-0.5 text-left ${tapToPlay ? 'hover:text-primary' : ''}`}
@@ -190,21 +221,25 @@ export const EpisodeItem: FC<{
         <MenuButton
           label={t('menu.options', { name: episode.title })}
           items={() =>
-            episodeMenu(episode, t, {
-              chapter,
-              play: start,
-              setPlayed: (played) => setPlayed.mutate({ id: episode.id, played }),
-              setEarlierPlayed: () => setEarlier.mutate(episode.id),
-              startOver: started ? () => forget.mutate(episode.id) : undefined,
-              download: () => download.mutate(episode.id),
-              cancelDownload: () => cancel.mutate(episode.id),
-              removeDownload: () => removeDownload.mutate(episode.id),
-              toggleNotes: () => setExpanded(!expanded),
-              notesShown: expanded,
-              openPodcast: showPodcast
-                ? () => void navigate({ to: '/podcast', search: { id: episode.podcastId } })
-                : undefined,
-            })
+            withSelect(
+              episodeMenu(episode, t, {
+                chapter,
+                play: start,
+                setPlayed: (played) => setPlayed.mutate({ id: episode.id, played }),
+                setEarlierPlayed: () => setEarlier.mutate(episode.id),
+                startOver: started ? () => forget.mutate(episode.id) : undefined,
+                download: () => download.mutate(episode.id),
+                cancelDownload: () => cancel.mutate(episode.id),
+                removeDownload: () => removeDownload.mutate(episode.id),
+                toggleNotes: () => setExpanded(!expanded),
+                notesShown: expanded,
+                openPodcast: showPodcast
+                  ? () => void navigate({ to: '/podcast', search: { id: episode.podcastId } })
+                  : undefined,
+              }),
+              t,
+              pick && !pick.selected ? pick.toggle : null,
+            )
           }
           className={ICON_BUTTON}
           iconSize={16}

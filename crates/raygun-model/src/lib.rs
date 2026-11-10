@@ -7162,6 +7162,17 @@ pub struct PodcastView {
     pub speed: Option<f64>,
 }
 
+/// Shows, books, episodes and chapters picked together in a list, for what the selection does to
+/// all of them at once.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PodcastPicks {
+    /// Shows and books, by id: each stands for its episodes or chapters.
+    pub shows: Vec<String>,
+    /// Episodes and chapters, by id, in the order they're listed.
+    pub episodes: Vec<String>,
+}
+
 // ---- Audiobooks (M46.22) ----
 
 /// A book in the library, with how far it was listened.

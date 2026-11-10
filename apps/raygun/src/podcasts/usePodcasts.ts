@@ -163,6 +163,23 @@ export const useCancelEpisodeDownload = () =>
 export const useRemoveDownloads = () =>
   usePodcastMutation((id: string) => unwrapResult(commands.podcastRemoveDownloads(id)));
 
+/**
+ * Runs what a selection of shows, books, episodes or chapters does to all of them (the
+ * `podcast*Picks` and `*Many` commands); its answer is what to say after. Shows and books are
+ * listed again once it's done.
+ */
+export const usePodcastPicksAction = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: () => Promise<string | null>) => action(),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: [PODCASTS] }),
+        queryClient.invalidateQueries({ queryKey: [BOOKS] }),
+      ]),
+  });
+};
+
 /** Opens a show's or book's website, or a link from its notes, in Raygun's browser (M46.48). */
 export const useOpenPodcastPage = () =>
   useMutation({ mutationFn: (url: string) => unwrapResult(commands.podcastOpenPage(url)) });

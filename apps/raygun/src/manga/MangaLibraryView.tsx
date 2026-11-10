@@ -6,6 +6,7 @@ import {
   BookImage,
   BookPlus,
   BookText,
+  CheckCheck,
   Clapperboard,
   Dices,
   Download,
@@ -17,14 +18,16 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { LibraryTop } from '../library/LibraryTop';
 import { unwrapResult } from '../lib/commandResult';
 import { useImportEpub } from '../novel/useImportEpub';
+import { usePickList } from '../select/usePickList';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import type { MenuItem } from '../shell/contextMenuStore';
 import { EmptyState } from '../shell/EmptyState';
 import type { OverflowItem } from '../shell/OverflowMenu';
 import { TopBarAction } from '../shell/TopBar';
@@ -51,7 +54,7 @@ import {
 } from './libraryFilters';
 import type { LibraryFilter, LibrarySort } from './libraryFilters';
 import { LibraryItems } from './LibraryItems';
-import { SelectionActions, SelectionTopBar } from './LibrarySelection';
+import { CategoriesSheet, SelectionActions, SelectionTopBar } from './LibrarySelection';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
 import { groupWords } from './groupWords';
@@ -98,8 +101,8 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
   useEffect(() => saveFilter(medium, filter), [medium, filter]);
   const [searching, setSearching] = useState(filter.query !== '');
   const [filtering, setFiltering] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const lastPicked = useRef<string | null>(null);
+  // A title whose groups are being set from its ⋮.
+  const [grouping, setGrouping] = useState<MangaLibraryEntry | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const updateStatus = useMangaUpdateStatus();
   const updateLibrary = useUpdateLibrary();
@@ -152,11 +155,13 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
   );
   const tags = useMemo(() => (entries ? libraryTags(entries) : []), [entries]);
   const people = useMemo(() => (entries ? libraryPeople(entries) : []), [entries]);
+  const shownIds = useMemo(() => shown.map((entry) => entry.titleId), [shown]);
+  const picks = usePickList(shownIds);
   const selectedEntries = useMemo(
-    () => (entries ?? []).filter((entry) => selected.has(entry.titleId)),
-    [entries, selected],
+    () => (entries ?? []).filter((entry) => picks.picked.has(entry.titleId)),
+    [entries, picks.picked],
   );
-  const selecting = selected.size > 0;
+  const selecting = picks.selecting;
 
   const onSort = (next: LibrarySort, descending: boolean, reshuffle: boolean) => {
     const seed = reshuffle ? newShuffleSeed() : filter.seed;
@@ -181,43 +186,14 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
     }
   };
 
-  const toggle = (entry: MangaLibraryEntry) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(entry.titleId)) next.delete(entry.titleId);
-      else next.add(entry.titleId);
-      lastPicked.current = entry.titleId;
-      return next;
-    });
-  // A long press adds the title, and everything between it and the last pick on this tab.
-  const longPress = (entry: MangaLibraryEntry) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      const from = lastPicked.current;
-      const start =
-        from && current.has(from) ? shown.findIndex((item) => item.titleId === from) : -1;
-      const end = shown.findIndex((item) => item.titleId === entry.titleId);
-      if (start >= 0 && end >= 0) {
-        const [low, high] = start < end ? [start, end] : [end, start];
-        for (const item of shown.slice(low, high + 1)) next.add(item.titleId);
-      } else {
-        next.add(entry.titleId);
-      }
-      lastPicked.current = entry.titleId;
-      return next;
-    });
-  const clearSelection = () => {
-    setSelected(new Set());
-    lastPicked.current = null;
-  };
-  useEffect(() => {
-    if (!selecting) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') clearSelection();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selecting]);
+  // The title's groups from its ⋮, as the selection's Set groups does for many.
+  const groupItem = (entry: MangaLibraryEntry): MenuItem[] => [
+    {
+      label: t('library.select.categories', groupWords(medium)),
+      icon: FolderCog,
+      onSelect: () => setGrouping(entry),
+    },
+  ];
 
   const onContinue = async (entry: MangaLibraryEntry) => {
     setNotice(null);
@@ -308,6 +284,10 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
       ? [{ label: t('manga.importComics'), icon: FileArchive, onSelect: comics.pick }]
       : []),
     { label: t('library.openRandom'), icon: Dices, onSelect: openRandom },
+    // Picking without a hold first: everything this tab shows.
+    ...(shown.length > 0
+      ? [{ label: t('library.select.all'), icon: CheckCheck, onSelect: picks.selectAll }]
+      : []),
     {
       label: t('manga.downloads'),
       icon: Download,
@@ -337,21 +317,10 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
     <div data-testid={`${medium}-library`} className="flex flex-1 flex-col gap-4">
       {selecting ? (
         <SelectionTopBar
-          count={selected.size}
-          onSelectAll={() =>
-            setSelected((current) => new Set([...current, ...shown.map((entry) => entry.titleId)]))
-          }
-          onInvert={() =>
-            setSelected((current) => {
-              const next = new Set(current);
-              for (const entry of shown) {
-                if (next.has(entry.titleId)) next.delete(entry.titleId);
-                else next.add(entry.titleId);
-              }
-              return next;
-            })
-          }
-          onClose={clearSelection}
+          count={picks.picked.size}
+          onSelectAll={picks.selectAll}
+          onInvert={picks.invert}
+          onClose={picks.clear}
         />
       ) : (
         <LibraryTop
@@ -490,10 +459,11 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
               medium={medium}
               mode={mode}
               display={display}
-              selected={selected}
-              onToggle={toggle}
-              onLongPress={longPress}
+              selected={picks.picked}
+              onToggle={(entry) => picks.toggle(entry.titleId)}
+              onLongPress={(entry) => picks.extend(entry.titleId)}
               onContinue={(entry) => void onContinue(entry)}
+              moreItems={groupItem}
             />
           )}
         </>
@@ -503,7 +473,16 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
           medium={medium}
           categories={categoryList}
           selected={selectedEntries}
-          onDone={clearSelection}
+          onDone={picks.clear}
+        />
+      )}
+      {grouping && (
+        <CategoriesSheet
+          medium={medium}
+          categories={categoryList}
+          selected={[grouping]}
+          onDone={() => setGrouping(null)}
+          onClose={() => setGrouping(null)}
         />
       )}
       {filtering && (

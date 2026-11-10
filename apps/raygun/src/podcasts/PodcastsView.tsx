@@ -1,11 +1,15 @@
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Podcast, RefreshCw, Rss, Search } from 'lucide-react';
+import { CheckCheck, Podcast, RefreshCw, Rss, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AudioViewChips } from '../library/AudioViewChips';
 import { LibraryTop } from '../library/LibraryTop';
+import { SelectionTopBar } from '../manga/LibrarySelection';
+import { PickTarget } from '../select/PickTarget';
+import { usePickList } from '../select/usePickList';
+import { withSelect } from '../select/withSelect';
 import { EmptyState } from '../shell/EmptyState';
 import { Sheet } from '../shell/Sheet';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
@@ -13,6 +17,7 @@ import { TopBarAction } from '../shell/TopBar';
 
 import { EpisodeItem } from './EpisodeItem';
 import { PodcastArt } from './PodcastArt';
+import { PodcastPickActions } from './PodcastPickActions';
 import {
   useLatestEpisodes,
   useOpenFeed,
@@ -30,9 +35,14 @@ import { SourceIssue } from '../shell/SourceIssue';
 const matches = (text: string, query: string) =>
   text.toLocaleLowerCase().includes(query.toLocaleLowerCase());
 
+/** How shows and episodes are told apart among the picks. */
+const SHOW = 'show:';
+const EPISODE = 'episode:';
+
 /**
  * Library → Audio → Podcasts: the shows you follow and their new episodes. Finding shows happens in
- * Search; the library's search only narrows what you follow.
+ * Search; the library's search only narrows what you follow. Shows and episodes are picked
+ * together (a finger held on one, Ctrl/Shift-click, a show's circle) for the selection's bar.
  */
 export const PodcastsView: FC = () => {
   const { t } = useTranslation();
@@ -74,45 +84,74 @@ export const PodcastsView: FC = () => {
     });
   };
   const hasSubscriptions = (subscriptions.data?.length ?? 0) > 0;
+  // Shows and new episodes are picked together, as they're listed.
+  const order = useMemo(
+    () => [
+      ...shows.map((podcast) => `${SHOW}${podcast.id}`),
+      ...episodes.map((episode) => `${EPISODE}${episode.id}`),
+    ],
+    [shows, episodes],
+  );
+  const picks = usePickList(order);
+  const picked = {
+    shows: shows.filter((podcast) => picks.has(`${SHOW}${podcast.id}`)).map(({ id }) => id),
+    episodes: episodes
+      .filter((episode) => picks.has(`${EPISODE}${episode.id}`))
+      .map(({ id }) => id),
+  };
 
   return (
-    <div data-testid="podcasts-view" className="flex flex-col gap-4">
-      <LibraryTop
-        media="music"
-        search={
-          searching
-            ? {
-                value: query,
-                onChange: setQuery,
-                placeholder: t('podcasts.filterPlaceholder'),
-                onClose: () => {
-                  setSearching(false);
-                  setQuery('');
-                },
-              }
-            : null
-        }
-        actions={
-          hasSubscriptions && (
-            <>
-              {!searching && (
+    <div data-testid="podcasts-view" className="flex flex-1 flex-col gap-4">
+      {picks.selecting ? (
+        <SelectionTopBar
+          count={picks.picked.size}
+          onSelectAll={picks.selectAll}
+          onInvert={picks.invert}
+          onClose={picks.clear}
+        />
+      ) : (
+        <LibraryTop
+          media="music"
+          search={
+            searching
+              ? {
+                  value: query,
+                  onChange: setQuery,
+                  placeholder: t('podcasts.filterPlaceholder'),
+                  onClose: () => {
+                    setSearching(false);
+                    setQuery('');
+                  },
+                }
+              : null
+          }
+          actions={
+            hasSubscriptions && (
+              <>
+                {!searching && (
+                  <TopBarAction
+                    label={t('library.filter.search')}
+                    icon={Search}
+                    onClick={() => setSearching(true)}
+                  />
+                )}
                 <TopBarAction
-                  label={t('library.filter.search')}
-                  icon={Search}
-                  onClick={() => setSearching(true)}
+                  label={t('podcasts.refresh')}
+                  icon={RefreshCw}
+                  disabled={refreshAll.isPending}
+                  onClick={() => refreshAll.mutate(undefined)}
                 />
-              )}
-              <TopBarAction
-                label={t('podcasts.refresh')}
-                icon={RefreshCw}
-                disabled={refreshAll.isPending}
-                onClick={() => refreshAll.mutate(undefined)}
-              />
-            </>
-          )
-        }
-        menu={[{ label: t('podcasts.openFeed'), icon: Rss, onSelect: () => setAddingFeed(true) }]}
-      />
+              </>
+            )
+          }
+          menu={[
+            { label: t('podcasts.openFeed'), icon: Rss, onSelect: () => setAddingFeed(true) },
+            ...(order.length > 0
+              ? [{ label: t('library.select.all'), icon: CheckCheck, onSelect: picks.selectAll }]
+              : []),
+          ]}
+        />
+      )}
       <AudioViewChips view="podcasts" />
       {subscriptions.data?.length === 0 && (
         <EmptyState
@@ -146,35 +185,50 @@ export const PodcastsView: FC = () => {
             )}
           </div>
           <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
-            {shows.map((podcast) => (
-              <li key={podcast.id} className="relative w-28 shrink-0">
-                <CardMenu
-                  label={t('menu.options', { name: podcast.title })}
-                  items={() =>
-                    showMenu({ ...podcast, subscribed: true }, t, {
-                      open: () => void navigate({ to: '/podcast', search: { id: podcast.id } }),
-                      refresh: () => refresh.mutate(podcast.id),
-                      setSubscribed: (subscribed) =>
-                        setSubscribed.mutate({ id: podcast.id, subscribed }),
-                    })
-                  }
-                />
-                <Link
-                  to="/podcast"
-                  search={{ id: podcast.id }}
-                  aria-label={podcast.title}
-                  className="flex flex-col gap-1"
-                >
-                  <PodcastArt url={podcast.artworkUrl} className="w-28 rounded-lg" />
-                  <span className="line-clamp-2 text-sm">{podcast.title}</span>
-                  {podcast.unplayed > 0 && (
-                    <span className="text-muted text-xs">
-                      {t('podcasts.unplayed', { count: podcast.unplayed })}
-                    </span>
-                  )}
-                </Link>
-              </li>
-            ))}
+            {shows.map((podcast) => {
+              const pick = picks.state(`${SHOW}${podcast.id}`);
+              return (
+                <li key={podcast.id} className="w-28 shrink-0">
+                  <PickTarget
+                    pick={pick}
+                    label={t('search.select.pick', { title: podcast.title })}
+                    testId="podcast-card"
+                  >
+                    <CardMenu
+                      label={t('menu.options', { name: podcast.title })}
+                      items={() =>
+                        withSelect(
+                          showMenu({ ...podcast, subscribed: true }, t, {
+                            open: () =>
+                              void navigate({ to: '/podcast', search: { id: podcast.id } }),
+                            refresh: () => refresh.mutate(podcast.id),
+                            setSubscribed: (subscribed) =>
+                              setSubscribed.mutate({ id: podcast.id, subscribed }),
+                          }),
+                          t,
+                          pick.selected ? null : pick.toggle,
+                        )
+                      }
+                    />
+                    <Link
+                      to="/podcast"
+                      search={{ id: podcast.id }}
+                      aria-label={podcast.title}
+                      draggable={false}
+                      className="flex flex-col gap-1"
+                    >
+                      <PodcastArt url={podcast.artworkUrl} className="w-28 rounded-lg" />
+                      <span className="line-clamp-2 text-sm">{podcast.title}</span>
+                      {podcast.unplayed > 0 && (
+                        <span className="text-muted text-xs">
+                          {t('podcasts.unplayed', { count: podcast.unplayed })}
+                        </span>
+                      )}
+                    </Link>
+                  </PickTarget>
+                </li>
+              );
+            })}
           </Carousel>
         </section>
       )}
@@ -185,11 +239,17 @@ export const PodcastsView: FC = () => {
           </h2>
           <ul className="bg-surface flex flex-col gap-4 rounded-xl px-4 py-3">
             {episodes.map((episode) => (
-              <EpisodeItem key={episode.id} episode={episode} showPodcast />
+              <EpisodeItem
+                key={episode.id}
+                episode={episode}
+                showPodcast
+                pick={picks.state(`${EPISODE}${episode.id}`)}
+              />
             ))}
           </ul>
         </section>
       )}
+      {picks.selecting && <PodcastPickActions picks={picked} onDone={picks.clear} />}
       {addingFeed && (
         <Sheet title={t('podcasts.openFeed')} onClose={() => setAddingFeed(false)}>
           <form onSubmit={onAddFeed} className="flex flex-col gap-3 text-sm">

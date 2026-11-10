@@ -37,6 +37,8 @@ export const MangaCover: FC<MangaCoverProps> = ({
     <img
       src={url}
       alt=""
+      // A long press picks the card; the webview would start dragging the picture instead.
+      draggable={false}
       {...imageLoading(url)}
       onError={() => setFailedUrl(url)}
       className={`bg-surface ${shape} object-cover ${className}`}

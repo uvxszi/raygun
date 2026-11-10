@@ -1948,7 +1948,21 @@
       "copyName": "Copy name",
       "copyFeed": "Copy feed address"
     },
-    "findEpisode": "Find an episode"
+    "findEpisode": "Find an episode",
+    "select": {
+      "actions": "Selected shows and episodes",
+      "queued_one": "{{count}} added to the queue",
+      "queued_other": "{{count}} added to the queue",
+      "nothingToQueue": "Nothing picked is left to play",
+      "removedDownloads_one": "{{count}} download deleted",
+      "removedDownloads_other": "{{count}} downloads deleted",
+      "unfollowed_one": "Unfollowed {{count}} show",
+      "unfollowed_other": "Unfollowed {{count}} shows",
+      "pinned_one": "{{count}} pinned to Quick access",
+      "pinned_other": "{{count}} pinned to Quick access",
+      "unpinned_one": "{{count}} unpinned from Quick access",
+      "unpinned_other": "{{count}} unpinned from Quick access"
+    }
   },
   "episodeOrder": {
     "title": "Sort and filter",
@@ -3736,7 +3750,12 @@
     "removeFromLibrary": "Remove from library",
     "inLibrary": "In your library",
     "findChapter": "Find a chapter",
-    "one": "Audiobook"
+    "one": "Audiobook",
+    "select": {
+      "actions": "Selected books and chapters",
+      "removed_one": "{{count}} book taken out of the library",
+      "removed_other": "{{count}} books taken out of the library"
+    }
   },
   "import": {
     "title": "Import songs",

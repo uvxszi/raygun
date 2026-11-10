@@ -4,6 +4,7 @@
 //! kept beside them; M46.48 adds each show's own order and speed, Continue listening, and books
 //! from sources that list their chapters without a feed.
 
+mod bulk;
 mod directory;
 mod order;
 mod titles;
@@ -21,8 +22,8 @@ use raygun_ext_host::podcast::PODCAST_DIRECTORY;
 use raygun_model::{
     AudiobookPage, AudiobookResult, AudiobookSummary, AudiobookView, BookResume, EpisodeDownload,
     EpisodeDownloadState, EpisodeOrder, ListeningItem, MediaKind, MediaSource, PlaybackControl,
-    PlaybackState, PlaybackStatus, PodcastEpisode, PodcastSearchResult, PodcastSummary,
-    PodcastView, QueueItem, QueueItemInput, SpokenItem, SpokenKind,
+    PlaybackState, PlaybackStatus, PodcastEpisode, PodcastPicks, PodcastSearchResult,
+    PodcastSummary, PodcastView, QueueItem, QueueItemInput, SpokenItem, SpokenKind,
 };
 use raygun_net::ImageLinks;
 use tauri::{AppHandle, Manager};
@@ -559,22 +560,115 @@ impl PodcastService {
             .map_err(to_message)?;
         // Quick access follows (M46.41): a followed show or a book kept in the library.
         if let Ok(row) = self.row(id).await {
-            let (kind, to, name) = if row.fields.kind == AUDIOBOOK {
-                ("audiobook", "/audiobook", book_name(&row.fields).title)
-            } else {
-                ("podcast", "/podcast", row.fields.title.clone())
-            };
+            let pin = page_pin(&row);
             if subscribed {
-                let pin =
-                    crate::quick_access::page_pin(kind, to, id, &name, row.fields.artwork.clone());
                 crate::quick_access::add(&self.app, pin).await;
             } else {
-                let search = [("id".to_owned(), id.to_owned())].into_iter().collect();
-                crate::quick_access::remove(&self.app, to, &search).await;
+                crate::quick_access::remove(&self.app, &pin.to, &pin.search).await;
             }
         }
         self.changed(id);
         Ok(())
+    }
+
+    // ---- Many at once: a selection's actions ----
+
+    /// Follows or unfollows shows (keeps books in the library or takes them out) together;
+    /// returns how many changed.
+    pub async fn set_subscribed_many(
+        &self,
+        ids: &[String],
+        subscribed: bool,
+    ) -> Result<u32, String> {
+        let db = self.db();
+        let mut changed = 0;
+        let mut seen = HashSet::new();
+        for id in ids.iter().filter(|id| seen.insert(id.as_str())) {
+            let Some(row) = store::podcast(&db, id).await.map_err(to_message)? else {
+                continue;
+            };
+            if row.subscribed_at.is_some() != subscribed {
+                self.set_subscribed(id, subscribed).await?;
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+
+    /// Marks every episode or chapter of the picks played (finished) or unplayed; returns how
+    /// many changed.
+    pub async fn set_played_picks(
+        &self,
+        picks: &PodcastPicks,
+        played: bool,
+    ) -> Result<u32, String> {
+        let db = self.db();
+        let gathered = bulk::gather(&db, picks).await.map_err(to_message)?;
+        let ids = bulk::to_mark(gathered.all(), played);
+        store::set_played_many(&db, &ids, played.then(now_ms))
+            .await
+            .map_err(to_message)?;
+        self.follow_marked(&ids, played);
+        for id in gathered.podcast_ids() {
+            self.changed(&id);
+        }
+        Ok(ids.len() as u32)
+    }
+
+    /// Downloads the picks: books whole, shows' new episodes and the episodes picked, two at a
+    /// time; returns how many were queued.
+    pub async fn download_picks(&self, picks: &PodcastPicks) -> Result<u32, String> {
+        let gathered = bulk::gather(&self.db(), picks).await.map_err(to_message)?;
+        let downloads = self.downloads_by_episode().await?;
+        let ids = bulk::to_download(&gathered, &downloads, |id| self.is_downloading(id));
+        for id in &ids {
+            self.download(id).await?;
+        }
+        Ok(ids.len() as u32)
+    }
+
+    /// Deletes every download of the picks and stops those under way; returns how many went.
+    pub async fn remove_downloads_picks(&self, picks: &PodcastPicks) -> Result<u32, String> {
+        let gathered = bulk::gather(&self.db(), picks).await.map_err(to_message)?;
+        let downloads = self.downloads_by_episode().await?;
+        let ids = bulk::with_downloads(&gathered, &downloads, |id| self.is_downloading(id));
+        for id in &ids {
+            self.remove_download(id).await?;
+        }
+        Ok(ids.len() as u32)
+    }
+
+    /// Queues the picks after what plays (`next`) or at the end: books from where they go on,
+    /// shows' newest unplayed episodes and the episodes picked; returns how many were queued.
+    pub async fn queue_picks(&self, picks: &PodcastPicks, next: bool) -> Result<u32, String> {
+        let gathered = bulk::gather(&self.db(), picks).await.map_err(to_message)?;
+        let mut items = Vec::new();
+        for id in bulk::to_queue(&gathered) {
+            items.push(self.queue_item(&id).await?.0);
+        }
+        let count = items.len() as u32;
+        if count > 0 {
+            let playback = self.app.state::<PlaybackService>();
+            if next {
+                playback.enqueue_next(items);
+            } else {
+                playback.enqueue(items, false);
+            }
+        }
+        Ok(count)
+    }
+
+    /// Pins shows and books to quick access by hand, or unpins them; returns how many changed.
+    pub async fn pin_many(&self, ids: &[String], pinned: bool) -> Result<u32, String> {
+        let db = self.db();
+        let mut pins = Vec::new();
+        let mut seen = HashSet::new();
+        for id in ids.iter().filter(|id| seen.insert(id.as_str())) {
+            if let Some(row) = store::podcast(&db, id).await.map_err(to_message)? {
+                pins.push(page_pin(&row));
+            }
+        }
+        Ok(crate::quick_access::set_pinned(&self.app, pins, pinned).await)
     }
 
     /// How a show's or book's episodes list; `None` (or its kind's own) forgets the change.
@@ -1537,6 +1631,16 @@ impl Progress {
 /// A book's name as listeners read it (M46.48).
 fn book_name(fields: &PodcastFields) -> BookName {
     titles::book(&fields.title, fields.author.as_deref())
+}
+
+/// A show's or book's page, for quick access.
+fn page_pin(row: &PodcastRow) -> crate::quick_access::QuickPin {
+    let (kind, to, name) = if row.fields.kind == AUDIOBOOK {
+        ("audiobook", "/audiobook", book_name(&row.fields).title)
+    } else {
+        ("podcast", "/podcast", row.fields.title.clone())
+    };
+    crate::quick_access::page_pin(kind, to, &row.id, &name, row.fields.artwork.clone())
 }
 
 /// Where a book goes on from, as a place in its chapters: the chapter listened last if it isn't

@@ -1,10 +1,12 @@
 import type { LibraryDisplayMode, MangaLibraryEntry } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
-import { Check, CheckSquare, FolderOpen, Pin, Play } from 'lucide-react';
+import { FolderOpen, Pin, Play } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { FC, MouseEvent, ReactNode } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { PickTarget } from '../select/PickTarget';
+import { withSelect } from '../select/withSelect';
 import { useSettings } from '../settings/useSettings';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
@@ -118,7 +120,11 @@ const ContinueButton: FC<{
   );
 };
 
-/** One library title in the chosen display, linking to its page (or selecting while selecting). */
+/**
+ * One library title in the chosen display, linking to its page. It's picked by a finger held on
+ * it, a right click, Ctrl/Shift-click or its circle (the cover's top left; its ⋮ is on the top
+ * right), and while picking a tap picks instead of opening.
+ */
 const LibraryItem: FC<ItemProps> = ({
   entry,
   medium,
@@ -138,14 +144,9 @@ const LibraryItem: FC<ItemProps> = ({
       ? videoTitleLink(entry.sourceId, entry.remoteId)
       : { to: ROUTES[medium].title, search: { source: entry.sourceId, id: entry.remoteId } };
   const continueShown = showContinue && entry.unread > 0 && !selecting;
-  const onClick = (event: MouseEvent) => {
-    if (!selecting) return;
-    event.preventDefault();
-    onToggle(entry);
-  };
   const { t } = useTranslation();
   const titleMenu = useTitleCardMenu();
-  // The title's full menu, with Select first (what a long press does).
+  // The title's full menu, with Select first, then what the list adds (its groups, downloads).
   const menu = (): MenuItem[] => {
     const items = titleMenu({
       medium,
@@ -158,116 +159,120 @@ const LibraryItem: FC<ItemProps> = ({
       titleId: entry.titleId,
     });
     const more = moreItems?.(entry) ?? [];
-    const first = items.findIndex((item) => item.kind !== 'heading');
-    return [
-      ...items.slice(0, first),
-      { label: t('menu.select'), icon: CheckSquare, onSelect: () => onLongPress(entry) },
-      { kind: 'separator' },
-      ...items.slice(first),
-      ...(more.length > 0 ? [{ kind: 'separator' } as MenuItem, ...more] : []),
-    ];
+    return withSelect(
+      [...items, ...(more.length > 0 ? [{ kind: 'separator' } as MenuItem, ...more] : [])],
+      t,
+      selected ? null : () => onToggle(entry),
+    );
   };
-  const onContextMenu = (event: MouseEvent) => {
-    // A long press (or right click) selects (Mihon), adding everything between it and the last
-    // pick; the title's menu is on its ⋮.
-    event.preventDefault();
-    onLongPress(entry);
-  };
-  const options = !selecting && (
+  // Last in the cover, so nothing drawn over the cover covers it; it stays while picking.
+  const options = (
     <MenuButton
       label={t('menu.options', { name: entry.title })}
       items={menu}
       className={
         mode === 'list'
           ? 'text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full'
-          : CARD_MENU_CLASS
+          : `${CARD_MENU_CLASS} z-10`
       }
       iconSize={16}
     />
   );
-  const common = {
+  const linkProps = {
     to: link.to,
     search: link.search,
-    onClick,
-    onContextMenu,
+    // A long press picks: the webview would start dragging the link instead.
+    draggable: false,
     'aria-pressed': selecting ? selected : undefined,
     'data-testid': 'library-item',
     'aria-label': entry.title,
   };
-  const check = selected && (
-    <span className="bg-primary text-background absolute top-1.5 right-1.5 grid size-6 place-items-center rounded-full">
-      <Check aria-hidden size={14} strokeWidth={3} />
-    </span>
-  );
+  const pick = {
+    selected,
+    selecting,
+    toggle: () => onToggle(entry),
+    extend: () => onLongPress(entry),
+  };
+  const pickLabel = t('search.select.pick', { title: entry.title });
 
   if (mode === 'list') {
     return (
-      <Link
-        {...common}
-        className={`flex items-center gap-3 rounded-xl px-2 py-1.5 ${selected ? 'bg-primary/15' : 'hover:bg-surface'}`}
-      >
-        <span className="relative w-10 shrink-0 overflow-hidden rounded-md">
-          <MangaCover url={entry.coverUrl} video={medium === 'video'} className="w-full" />
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
-          {entry.authors.length > 0 && (
-            <span className="text-muted truncate text-xs">{entry.authors.join(', ')}</span>
-          )}
-          <span className="flex min-w-0">
-            <SourceTag name={entry.sourceName} />
+      <PickTarget pick={pick} label={pickLabel} place="row">
+        <Link
+          {...linkProps}
+          className={`flex items-center gap-3 rounded-xl px-2 py-1.5 ${selected ? '' : 'hover:bg-surface'}`}
+        >
+          <span className="relative w-10 shrink-0 overflow-hidden rounded-md">
+            <MangaCover url={entry.coverUrl} video={medium === 'video'} className="w-full" />
           </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1">
-          <Badges entry={entry} medium={medium} badges={badges} />
-          {selected && <Check aria-hidden size={16} className="text-primary" />}
-        </span>
-        {continueShown && (
-          <ContinueButton entry={entry} medium={medium} large={false} onContinue={onContinue} />
-        )}
-        {options}
-      </Link>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
+            {entry.authors.length > 0 && (
+              <span className="text-muted truncate text-xs">{entry.authors.join(', ')}</span>
+            )}
+            <span className="flex min-w-0">
+              <SourceTag name={entry.sourceName} />
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1">
+            <Badges entry={entry} medium={medium} badges={badges} />
+          </span>
+          {continueShown && (
+            <ContinueButton entry={entry} medium={medium} large={false} onContinue={onContinue} />
+          )}
+          {options}
+        </Link>
+      </PickTarget>
     );
   }
 
   const compact = mode === 'compactGrid';
   const coverOnly = mode === 'coverOnlyGrid';
   return (
-    <Link {...common} className="flex flex-col gap-1">
-      <span
-        className={`relative overflow-hidden rounded-xl ${selected ? 'ring-primary ring-2' : ''}`}
-      >
-        <MangaCover
-          url={entry.coverUrl}
-          video={medium === 'video'}
-          className={`w-full ${selected ? 'opacity-75' : ''}`}
-        />
-        <span className="absolute top-1.5 left-1.5 flex gap-1">
-          <Badges entry={entry} medium={medium} badges={badges} />
-        </span>
-        {check}
-        {options}
-        {compact && (
-          <span className="absolute inset-x-0 bottom-0 flex items-end gap-1 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-2 pt-8 pb-2">
-            <span className="line-clamp-2 flex-1 text-xs font-semibold text-white">
-              {entry.title}
+    <PickTarget pick={pick} label={pickLabel}>
+      <Link {...linkProps} className="flex flex-col gap-1">
+        <span className="relative overflow-hidden rounded-xl">
+          <MangaCover
+            url={entry.coverUrl}
+            video={medium === 'video'}
+            className={`w-full ${selected ? 'opacity-75' : ''}`}
+          />
+          {/* The circle takes the top left corner while it shows: the badges move over. */}
+          <span
+            className={`absolute top-1.5 right-11 left-1.5 flex flex-wrap gap-1 transition-[padding] ${
+              selecting ? 'pl-7' : 'group-hover/pick:pl-7'
+            }`}
+          >
+            <Badges entry={entry} medium={medium} badges={badges} />
+          </span>
+          {compact && (
+            <span className="absolute inset-x-0 bottom-0 flex items-end gap-1 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-2 pt-8 pb-2">
+              <span className="line-clamp-2 flex-1 text-xs font-semibold text-white">
+                {entry.title}
+              </span>
+              {continueShown && (
+                <ContinueButton
+                  entry={entry}
+                  medium={medium}
+                  large={false}
+                  onContinue={onContinue}
+                />
+              )}
             </span>
-            {continueShown && (
-              <ContinueButton entry={entry} medium={medium} large={false} onContinue={onContinue} />
-            )}
-          </span>
+          )}
+          {!compact && continueShown && (
+            <span className="absolute right-1.5 bottom-1.5">
+              <ContinueButton entry={entry} medium={medium} large onContinue={onContinue} />
+            </span>
+          )}
+          {options}
+        </span>
+        {mode === 'comfortableGrid' && (
+          <span className="line-clamp-2 min-h-8 text-xs font-medium">{entry.title}</span>
         )}
-        {!compact && continueShown && (
-          <span className="absolute right-1.5 bottom-1.5">
-            <ContinueButton entry={entry} medium={medium} large onContinue={onContinue} />
-          </span>
-        )}
-      </span>
-      {mode === 'comfortableGrid' && (
-        <span className="line-clamp-2 min-h-8 text-xs font-medium">{entry.title}</span>
-      )}
-      {coverOnly && <span className="sr-only">{entry.title}</span>}
-    </Link>
+        {coverOnly && <span className="sr-only">{entry.title}</span>}
+      </Link>
+    </PickTarget>
   );
 };
 
@@ -277,7 +282,7 @@ export const LibraryItems: FC<{
   medium: Medium;
   mode: LibraryDisplayMode;
   display: LibraryDisplay;
-  selected: Set<string>;
+  selected: ReadonlySet<string>;
   onToggle: (entry: MangaLibraryEntry) => void;
   onLongPress: (entry: MangaLibraryEntry) => void;
   onContinue: (entry: MangaLibraryEntry) => void;
