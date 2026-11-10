@@ -427,4 +427,70 @@ describe('Sources', () => {
       'page',
     );
   });
+
+  it('shows the extension catalogue Browse → Extensions shows: install, update, uninstall', async () => {
+    const user = userEvent.setup();
+    commands.extensionCatalog.mockResolvedValue(
+      ok([
+        {
+          repo: REPO,
+          entries: [
+            entry('dev.example.shelf', ['manga.source']),
+            {
+              ...entry('dev.example.radio', ['music.metadata']),
+              name: 'Radio Stations',
+              state: 'updateAvailable',
+              installedVersion: '0.9.0',
+            },
+          ],
+          error: null,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/sources');
+    const page = await screen.findByTestId('sources-page');
+    const kinds = within(page).getByRole('navigation', { name: 'Kinds of sources' });
+    await user.click(within(kinds).getByRole('link', { name: 'Extension catalogue' }));
+    expect(within(kinds).getByRole('link', { name: 'Extension catalogue' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+
+    // Every repository's extensions, the whole list first; the rows' own pills stay away.
+    const views = await within(page).findByRole('navigation', { name: 'Extension views' });
+    expect(within(views).getByRole('link', { name: 'All' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(
+      within(page).queryByRole('group', { name: 'What sources are for' }),
+    ).not.toBeInTheDocument();
+    expect(within(page).queryByRole('region', { name: 'Repositories' })).not.toBeInTheDocument();
+    const entries = await within(page).findAllByTestId('catalog-entry');
+    await user.click(within(entries[0]!).getByRole('button', { name: 'Install' }));
+    expect(commands.extensionInstallsEnqueue).toHaveBeenLastCalledWith([
+      { repoId: 'repo-1', extensionId: 'dev.example.shelf', name: 'dev.example.shelf' },
+    ]);
+    await user.click(within(entries[1]!).getByRole('button', { name: 'Update' }));
+    expect(commands.extensionInstallsEnqueue).toHaveBeenLastCalledWith([
+      { repoId: 'repo-1', extensionId: 'dev.example.radio', name: 'Radio Stations' },
+    ]);
+
+    // Installed: the extensions here, each uninstalled from its menu.
+    const installed = within(views).getByRole('link', { name: 'Installed' });
+    expect(installed).toHaveAttribute('href', '/sources?type=catalogue&list=installed');
+    await user.click(installed);
+    expect(await within(page).findByTestId('installed-tab')).toBeInTheDocument();
+    await user.click(within(page).getByRole('button', { name: 'Options for Comic Shelf' }));
+    await user.click(
+      within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Uninstall' }),
+    );
+    const ask = await screen.findByRole('alertdialog', { name: 'Uninstall Comic Shelf?' });
+    await user.click(within(ask).getByRole('button', { name: 'Uninstall' }));
+    expect(commands.extensionUninstall).toHaveBeenCalledWith('dev.example.comics');
+
+    // The top bar's Reload reads the installed extensions again.
+    await user.click(within(page).getByRole('button', { name: 'Reload' }));
+    expect(commands.extensionsReload).toHaveBeenCalled();
+  });
 });

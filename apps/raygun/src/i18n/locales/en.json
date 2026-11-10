@@ -22,7 +22,6 @@
     "recentlyPlayed": "Recently played",
     "noHistory": "Songs you play show up here.",
     "clearHistory": "Clear history",
-    "yourMusic": "Your music",
     "heading": "Home",
     "continueReading": "Continue reading",
     "startTitle": "Get started",
@@ -44,7 +43,11 @@
       "chart": "Chart",
       "tag": "Genre",
       "podcast": "Podcast",
-      "audiobook": "Audiobook"
+      "audiobook": "Audiobook",
+      "manga": "Comic",
+      "novel": "Book",
+      "video": "Video",
+      "website": "Website"
     },
     "popularVideos": "Popular videos",
     "popularComics": "Popular comics",
@@ -416,7 +419,6 @@
     },
     "more": "More",
     "source": "Source",
-    "allSources": "All sources",
     "noCatalogSources": "No sources for this yet.",
     "findExtensions": "Find extensions",
     "typeToSearch": "Type something to search for.",
@@ -442,6 +444,14 @@
     "moreSources_other": "{{count}} more",
     "fewerSources": "Fewer",
     "findSource": "Find a source",
+    "customSources": {
+      "title": "Custom sources",
+      "count": "{{count}}/{{total}}",
+      "on": "{{count}} of {{total}} on",
+      "all": "All",
+      "none": "None",
+      "noneOn": "Turn on a source above to search it."
+    },
     "music": {
       "kind": "What to find",
       "relevant": "Relevant",
@@ -476,7 +486,6 @@
     "showMore": "Show {{count}} more",
     "popular": "Popular",
     "popularHint": "Popular now. Type above to search everything.",
-    "relevant": "Relevant",
     "playlists": {
       "which": "Which playlists",
       "all": "All",
@@ -3057,7 +3066,7 @@
       "continueWatching": "Continue watching",
       "continueReading": "Continue reading",
       "continueListening": "Continue listening",
-      "yourMusic": "Your music",
+      "quickAccess": "Quick access",
       "topArtists": "Your top artists",
       "recentlyPlayed": "Recently played",
       "newEpisodes": "New episodes",
@@ -3155,7 +3164,8 @@
         "repositories": "Repositories",
         "addons": "Addons",
         "servers": "Servers",
-        "extensions": "Extensions"
+        "extensions": "Extensions",
+        "catalogue": "Extension catalogue"
       },
       "media": "What sources are for",
       "empty": "Nothing here yet. Add a repository, a Stremio addon, a server or an extension by its address.",

@@ -153,12 +153,10 @@ describe('Search by type', () => {
     );
     await AppShellWrapper.mount('/search?type=manga');
     const view = await screen.findByTestId('manga-search');
-    const chips = await within(view).findByRole('group', { name: 'Sources' });
-    await user.click(within(chips).getByRole('button', { name: 'Comic Shelf' }));
-    expect(within(chips).getByRole('button', { name: 'Comic Shelf' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    await user.click(await within(view).findByRole('button', { name: /Custom sources/ }));
+    const panel = await within(view).findByRole('group', { name: 'Sources' });
+    await user.click(within(panel).getByRole('switch', { name: 'Other Source' }));
+    expect(within(panel).getByRole('switch', { name: 'Comic Shelf' })).toBeChecked();
     // Nothing typed: the source's popular titles.
     expect(await within(view).findByRole('heading', { name: 'Popular' })).toBeInTheDocument();
     expect(await within(view).findByText('Monster')).toBeInTheDocument();
@@ -318,7 +316,7 @@ describe('Search by type', () => {
     );
   });
 
-  it('searches the sources chosen with chips, several at once', async () => {
+  it('searches the sources switched on under Custom sources, several at once', async () => {
     const user = userEvent.setup();
     commands.catalogGlobalSearch.mockImplementation(async (_medium, _query, sources) =>
       ok(
@@ -333,34 +331,36 @@ describe('Search by type', () => {
     );
     await AppShellWrapper.mount('/search?type=manga&q=dark');
     const view = await screen.findByTestId('manga-search');
-    const chips = await within(view).findByRole('group', { name: 'Sources' });
-    expect(within(chips).getByRole('button', { name: 'All sources' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    const custom = await within(view).findByRole('button', { name: /Custom sources/ });
+    expect(custom).toHaveAttribute('aria-pressed', 'false');
+    expect(within(view).queryByRole('group', { name: 'Sources' })).not.toBeInTheDocument();
 
-    // Two sources search together (a row each), without filters.
-    await user.click(within(chips).getByRole('button', { name: 'Comic Shelf' }));
-    await user.click(within(chips).getByRole('button', { name: 'Other Source' }));
+    // On, every source starts switched on: the two search together (a row each), no filters.
+    await user.click(custom);
+    const panel = await within(view).findByRole('group', { name: 'Sources' });
+    expect(within(panel).getByRole('switch', { name: 'Comic Shelf' })).toBeChecked();
+    expect(within(panel).getByRole('switch', { name: 'Other Source' })).toBeChecked();
     expect(await within(view).findByRole('region', { name: 'Other Source' })).toHaveTextContent(
       'No results',
     );
     expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'dark', [OTHER.id]);
-    expect(within(chips).getByRole('button', { name: 'All sources' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
     expect(within(view).queryByRole('button', { name: 'Filters' })).not.toBeInTheDocument();
 
-    // Taking one away leaves one source, searched with its filters.
-    await user.click(within(chips).getByRole('button', { name: 'Other Source' }));
+    // Switching one off leaves one source, searched with its filters.
+    await user.click(within(panel).getByRole('switch', { name: 'Other Source' }));
+    expect(within(panel).getByRole('switch', { name: 'Other Source' })).not.toBeChecked();
     expect(await within(view).findByText('Claymore')).toBeInTheDocument();
     expect(commands.catalogSearch).toHaveBeenLastCalledWith('manga', COMICS.id, 'dark', 1, {});
 
-    // All sources again: every source's row, each asked on its own.
-    await user.click(within(chips).getByRole('button', { name: 'All sources' }));
+    // Off again: every source's row, each asked on its own; the panel folds away.
+    await user.click(custom);
+    expect(custom).toHaveAttribute('aria-pressed', 'false');
+    await vi.waitFor(() =>
+      expect(within(view).queryByRole('group', { name: 'Sources' })).not.toBeInTheDocument(),
+    );
     const row = await within(view).findByRole('region', { name: 'Comic Shelf' });
     expect(await within(row).findByText('Berserk')).toBeInTheDocument();
+    expect(await within(view).findByRole('region', { name: 'Other Source' })).toBeInTheDocument();
     expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('manga', 'dark', [COMICS.id]);
   });
 

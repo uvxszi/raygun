@@ -110,7 +110,7 @@ describe('Sources whose search fails or finds nothing', () => {
     });
     await AppShellWrapper.mount('/browse?tab=search&type=novel&q=mother%20of%20learning');
     await screen.findByTestId('ranked-results');
-    await user.click(screen.getByRole('button', { name: 'All sources' }));
+    await user.click(screen.getByRole('button', { name: 'By source' }));
 
     // Only the source that answered from its listings says so.
     const note = await screen.findByTestId('from-listings');

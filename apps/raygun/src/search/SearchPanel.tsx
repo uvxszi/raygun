@@ -58,8 +58,9 @@ const Section: FC<{ title: string; onMore?: () => void; children: ReactNode }> =
 /**
  * Videos (M46.25): Relevant is the addons' movies and series, the video sources' best answers
  * and a few from each source with a pill of its own, each leading to its pill; Movies and Series
- * narrow the addons' rows; Sources searches the sources with their chips. Video sources don't
- * say what a result is until it's opened, so their answers stay under Movies and Series too.
+ * narrow the addons' rows; Sources searches the sources, chosen with Custom sources. Video
+ * sources don't say what a result is until it's opened, so their answers stay under Movies and
+ * Series too.
  */
 const VideoSearch: FC<{
   query: string;
@@ -90,7 +91,7 @@ const VideoSearch: FC<{
   return (
     <div className="flex flex-col gap-5">
       {view === 'sources' && (
-        // Every video source by its chip, the ones with their own pill too (M46.40).
+        // Every video source, the ones with their own pill too (M46.40).
         <CatalogSearch key="video-sources" medium="video" query={query} withPills />
       )}
       {view === 'relevant' && (

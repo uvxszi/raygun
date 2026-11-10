@@ -1,4 +1,4 @@
-import type { MusicAlbum, OnlineTrack, PlayContext } from '@raygun/bindings';
+import type { MusicAlbum, OnlineTrack } from '@raygun/bindings';
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Play } from 'lucide-react';
@@ -258,37 +258,6 @@ describe('Menus', () => {
     fireEvent.pointerDown(menu.parentElement as HTMLElement);
     fireEvent.click(menu.parentElement as HTMLElement);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-  });
-
-  it("gives Your music's tiles their kind's menu, and Remove from Your music", async () => {
-    const user = userEvent.setup();
-    const album: PlayContext = {
-      kind: 'album',
-      name: 'Random Access Memories',
-      subtitle: 'Daft Punk',
-      artworkUrl: null,
-      to: '/music/album',
-      search: { provider: TUNES.id, id: ALBUM.id },
-      playedAt: 1,
-    };
-    commands.recentContexts.mockResolvedValue(ok([album]));
-    await AppShellWrapper.mount('/');
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Options for Random Access Memories' }),
-    );
-    const menu = await screen.findByRole('menu');
-    expect(within(menu).getByRole('menuitem', { name: 'Shuffle' })).toBeInTheDocument();
-    await user.click(within(menu).getByRole('menuitem', { name: 'Remove from Your music' }));
-    expect(commands.hiddenItemSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'album',
-        key: `/music/album?id=${ALBUM.id}&provider=${TUNES.id}`,
-      }),
-      true,
-    );
-    await vi.waitFor(() =>
-      expect(screen.queryByRole('link', { name: /Random Access Memories/ })).toBeNull(),
-    );
   });
 
   it("orders a playlist's menu the same way, with Delete last", async () => {

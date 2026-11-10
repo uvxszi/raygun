@@ -50,7 +50,7 @@ export const LAYOUT_ENTRIES: Record<LayoutSurface, readonly (readonly [string, b
     ['continueReading', true],
     ['continueListening', true],
     ['madeForYou', true],
-    ['yourMusic', true],
+    ['quickAccess', true],
     ['topArtists', true],
     ['recentlyPlayed', true],
     ['newEpisodes', true],
@@ -106,15 +106,25 @@ export const LAYOUT_SURFACES = Object.keys(LAYOUT_ENTRIES) as LayoutSurface[];
 export const isLayoutSurface = (value: unknown): value is LayoutSurface =>
   typeof value === 'string' && value in LAYOUT_ENTRIES;
 
-/** `saved` in its order with only known ids, then the missing defaults after their neighbour. */
+/**
+ * Matches `LAYOUT_RENAMED` in raygun-model: entries saved under an id they've since lost, with
+ * the id they have now, so a stored layout keeps their place and whether they show.
+ */
+export const LAYOUT_RENAMED: ReadonlyMap<string, string> = new Map([['yourMusic', 'quickAccess']]);
+
+/**
+ * `saved` in its order with only known ids (renamed ones under their new id), then the missing
+ * defaults after their neighbour.
+ */
 const arrange = (
   saved: LayoutItem[] | undefined,
   defaults: readonly (readonly [string, boolean])[],
 ): LayoutItem[] => {
   const items: LayoutItem[] = [];
   for (const item of saved ?? []) {
-    const known = defaults.some(([id]) => id === item.id);
-    if (known && !items.some((other) => other.id === item.id)) items.push({ ...item });
+    const id = LAYOUT_RENAMED.get(item.id) ?? item.id;
+    const known = defaults.some(([option]) => option === id);
+    if (known && !items.some((other) => other.id === id)) items.push({ ...item, id });
   }
   defaults.forEach(([id, visible], index) => {
     if (items.some((item) => item.id === id)) return;

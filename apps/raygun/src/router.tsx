@@ -24,8 +24,8 @@ import { isExtensionList } from './extensions/tabs';
 import type { BrowseSection, ExtensionList } from './pages/BrowsePage';
 import { MorePage } from './pages/MorePage';
 import { SourcesPage } from './pages/SourcesPage';
-import { isSourceMedia, isSourceType } from './sources/sourceMedia';
-import type { SourceMedia, SourceType } from './sources/sourceMedia';
+import { isSourceMedia, isSourcesTab } from './sources/sourceMedia';
+import type { SourceMedia, SourcesTab } from './sources/sourceMedia';
 import { LocalFilesPage } from './pages/LocalFilesPage';
 import { StremioAddonPage } from './pages/StremioAddonPage';
 import { WatchHistoryPage } from './pages/WatchHistoryPage';
@@ -433,17 +433,22 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/more', component: MorePage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/about', component: AboutPage }),
-  // Repositories, addons, servers and extensions in one place, with one Add (M46.52).
+  // Repositories, addons, servers and extensions in one place, with one Add (M46.52), and the
+  // extension catalogue Browse → Extensions shows.
   createRoute({
     getParentRoute: () => rootRoute,
     path: '/sources',
     component: SourcesPage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { type?: SourceType; media?: SourceMedia; add?: boolean } => ({
-      ...(isSourceType(search.type) ? { type: search.type } : {}),
+    ): { type?: SourcesTab; media?: SourceMedia; add?: boolean; list?: ExtensionList } => ({
+      ...(isSourcesTab(search.type) ? { type: search.type } : {}),
       ...(isSourceMedia(search.media) ? { media: search.media } : {}),
       ...(search.add === true || search.add === 'true' ? { add: true } : {}),
+      // The catalogue opens on All, its whole list.
+      ...(search.type === 'catalogue' && isExtensionList(search.list) && search.list !== 'all'
+        ? { list: search.list }
+        : {}),
     }),
   }),
   createRoute({
