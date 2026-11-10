@@ -12,8 +12,15 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.ChannelMixingAudioProcessor
 import androidx.media3.common.audio.ChannelMixingMatrix
+import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSourceBitmapLoader
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultAssetLoaderFactory
+import androidx.media3.transformer.DefaultDecoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
@@ -69,11 +76,40 @@ object VideoConvert {
             if (args.audio) add(C.TRACK_TYPE_AUDIO)
             if (args.video && !args.audioOnly) add(C.TRACK_TYPE_VIDEO)
         }
-        val sequence = EditedMediaItemSequence.Builder(tracks).addItem(edited.build()).build()
-        val composition = Composition.Builder(sequence)
-            .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
-            .build()
+        // A new composition for each try: Transformer prepares the one it's given.
+        val compose = {
+            val sequence = EditedMediaItemSequence.Builder(tracks).addItem(edited.build()).build()
+            Composition.Builder(sequence)
+                .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
+                .build()
+        }
+        launch(context, session, compose, output, softwareFirst = false)
+    }
+
+    /**
+     * Runs the conversion. A decoder that fails while it runs (some phones' hardware decoders,
+     * and the emulator's) gets one more go with the software decoders first; Media3's own
+     * fallback only covers decoders that fail to start.
+     */
+    private fun launch(
+        context: Context,
+        session: Session,
+        compose: () -> Composition,
+        output: File,
+        softwareFirst: Boolean,
+    ) {
+        val decoders = DefaultDecoderFactory.Builder(context).setEnableDecoderFallback(true)
+        if (softwareFirst) decoders.setMediaCodecSelector(SOFTWARE_FIRST)
         val transformer = Transformer.Builder(context)
+            .setAssetLoaderFactory(
+                DefaultAssetLoaderFactory(
+                    context,
+                    decoders.build(),
+                    Clock.DEFAULT,
+                    DefaultMediaSourceFactory(context),
+                    DataSourceBitmapLoader.Builder(context).build(),
+                ),
+            )
             .setVideoMimeType(MimeTypes.VIDEO_H264)
             .setAudioMimeType(MimeTypes.AUDIO_AAC)
             .addListener(object : Transformer.Listener {
@@ -87,14 +123,43 @@ object VideoConvert {
                     exportResult: ExportResult,
                     exportException: ExportException,
                 ) {
+                    output.delete()
+                    if (!softwareFirst && session.state == "running" && decoding(exportException)) {
+                        // After this callback returns: the failed run is still ending.
+                        main.post {
+                            if (sessions.containsValue(session)) {
+                                launch(context, session, compose, output, softwareFirst = true)
+                            }
+                        }
+                        return
+                    }
                     session.error = describe(exportException)
                     session.state = "failed"
-                    output.delete()
                 }
             })
             .build()
         session.transformer = transformer
-        transformer.start(composition, output.absolutePath)
+        try {
+            transformer.start(compose(), output.absolutePath)
+        } catch (error: RuntimeException) {
+            session.error = error.message ?: error.javaClass.simpleName
+            session.state = "failed"
+            output.delete()
+        }
+    }
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun decoding(error: ExportException) = error.errorCode in setOf(
+        ExportException.ERROR_CODE_DECODER_INIT_FAILED,
+        ExportException.ERROR_CODE_DECODING_FAILED,
+        ExportException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+    )
+
+    /** The platform's decoders with the software ones first. */
+    private val SOFTWARE_FIRST = MediaCodecSelector { mimeType, secure, tunneling ->
+        MediaCodecUtil.getDecoderInfos(mimeType, secure, tunneling)
+            .sortedBy { it.hardwareAccelerated }
     }
 
     /** `{state, progress, error}`: `running`, `done` or `failed`; progress 0 to 100. */
@@ -151,13 +216,37 @@ object VideoConvert {
     /** Mixes surround (and mono) sound into stereo. */
     private fun stereoMixer(): ChannelMixingAudioProcessor {
         val mixer = ChannelMixingAudioProcessor()
-        for (channels in 1..8) {
-            try {
-                mixer.putChannelMixingMatrix(ChannelMixingMatrix.createForConstantGain(channels, 2))
-            } catch (_: UnsupportedOperationException) {
-            }
+        for (channels in 1..2) {
+            mixer.putChannelMixingMatrix(ChannelMixingMatrix.createForConstantGain(channels, 2))
+        }
+        for (channels in 3..8) {
+            mixer.putChannelMixingMatrix(ChannelMixingMatrix(channels, 2, downmix(channels)))
         }
         return mixer
+    }
+
+    /**
+     * Stereo from Android's channel orders (3: L R C; 4: L R Ls Rs; 5: L R C Ls Rs; 6: L R C LFE
+     * Ls Rs; 7: L R C LFE Cs Ls Rs; 8: L R C LFE Lb Rb Ls Rs): centre and surrounds at -3 dB, the
+     * LFE left out, each side scaled so it never clips. Row-major, a row per input channel.
+     */
+    internal fun downmix(channels: Int): FloatArray {
+        val center = floatArrayOf(0.7071f, 0.7071f)
+        val left = floatArrayOf(1f, 0f)
+        val right = floatArrayOf(0f, 1f)
+        val surroundLeft = floatArrayOf(0.7071f, 0f)
+        val surroundRight = floatArrayOf(0f, 0.7071f)
+        val lfe = floatArrayOf(0f, 0f)
+        val rows = when (channels) {
+            3 -> listOf(left, right, center)
+            4 -> listOf(left, right, surroundLeft, surroundRight)
+            5 -> listOf(left, right, center, surroundLeft, surroundRight)
+            6 -> listOf(left, right, center, lfe, surroundLeft, surroundRight)
+            7 -> listOf(left, right, center, lfe, floatArrayOf(0.5f, 0.5f), surroundLeft, surroundRight)
+            else -> listOf(left, right, center, lfe, surroundLeft, surroundRight, surroundLeft, surroundRight)
+        }
+        val scale = maxOf(1f, rows.sumOf { it[0].toDouble() }.toFloat())
+        return FloatArray(channels * 2) { index -> rows[index / 2][index % 2] / scale }
     }
 
     /**
@@ -195,7 +284,36 @@ object VideoConvert {
     }
 
     /** Whether the file's first stream of a kind (`video/`, `audio/`) decodes a frame. */
+    /**
+     * Whether any of the phone's decoders reads the file's `kind` track: the first one Android
+     * offers, then the others (a hardware decoder can fail where the software one works).
+     */
     private fun decodes(path: String, kind: String): Boolean {
+        val mime = trackMime(path, kind) ?: return false
+        val names = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS)
+            .codecInfos
+            .filter { !it.isEncoder && it.supportedTypes.any { type -> type.equals(mime, true) } }
+            .sortedBy { if (android.os.Build.VERSION.SDK_INT >= 29) it.isSoftwareOnly else false }
+            .map { it.name }
+            .take(4)
+        return names.any { decodesWith(path, kind, it) }
+    }
+
+    private fun trackMime(path: String, kind: String): String? {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(path)
+            (0 until extractor.trackCount)
+                .map { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME) }
+                .firstOrNull { it?.startsWith(kind) == true }
+        } catch (_: Exception) {
+            null
+        } finally {
+            extractor.release()
+        }
+    }
+
+    private fun decodesWith(path: String, kind: String, name: String): Boolean {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
@@ -206,7 +324,7 @@ object VideoConvert {
             val format = extractor.getTrackFormat(track)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return false
             extractor.selectTrack(track)
-            val decoder = MediaCodec.createDecoderByType(mime)
+            val decoder = MediaCodec.createByCodecName(name)
             codec = decoder
             decoder.configure(format, null, null, 0)
             decoder.start()
