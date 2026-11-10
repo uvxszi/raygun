@@ -85,18 +85,20 @@ Each is an entry as above whose `package` is the addon's `https` manifest addres
 uninstalling it removes the addon:
 
 ```json
-"addons": [
-  {
-    "id": "org.stremio.opensubtitlesv3",
-    "name": "OpenSubtitles v3",
-    "version": "1.0.0",
-    "apiVersion": 1,
-    "provides": ["stremio.subtitles"],
-    "package": "https://opensubtitles-v3.strem.io/manifest.json",
-    "sha256": "",
-    "size": 0
-  }
-]
+{
+  "addons": [
+    {
+      "id": "org.stremio.opensubtitlesv3",
+      "name": "OpenSubtitles v3",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "provides": ["stremio.subtitles"],
+      "package": "https://opensubtitles-v3.strem.io/manifest.json",
+      "sha256": "",
+      "size": 0
+    }
+  ]
+}
 ```
 
 ## Host it
