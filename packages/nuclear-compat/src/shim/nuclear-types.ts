@@ -39,6 +39,51 @@ type Section = { label?: string; lines: Line[] };
 export type NuclearLyrics =
   { type: 'plain' | 'lineSynced' | 'wordSynced'; sections: Section[] } | { type: 'instrumental' };
 
+export type NuclearPlaylistItem = { id: string; track: NuclearTrack; addedAtIso?: string };
+
+export type NuclearPlaylist = {
+  id: string;
+  name: string;
+  description?: string;
+  artwork?: ArtworkSet;
+  origin?: ProviderRef;
+  items: NuclearPlaylistItem[];
+};
+
+// Nuclear's `Ytdlp` host (plugin-sdk `types/ytdlp.ts`): the shapes of its yt-dlp answers.
+export type YtdlpSearchResult = {
+  id: string;
+  title: string;
+  /** Seconds. */
+  duration: number | null;
+  thumbnail: string | null;
+  channel: string | null;
+};
+
+export type YtdlpStreamInfo = {
+  stream_url: string;
+  duration: number | null;
+  title: string | null;
+  container: string | null;
+  codec: string | null;
+  album: string | null;
+  artists: string[];
+  album_artists: string[];
+  upload_date: string | null;
+};
+
+export type YtdlpThumbnail = { url: string; width: number | null; height: number | null };
+
+export type YtdlpPlaylistEntry = {
+  id: string;
+  title: string;
+  duration: number | null;
+  thumbnails: YtdlpThumbnail[];
+  channel: string | null;
+};
+
+export type YtdlpPlaylistInfo = { id: string; title: string; entries: YtdlpPlaylistEntry[] };
+
 export type NuclearProvider = {
   id: string;
   kind: string;

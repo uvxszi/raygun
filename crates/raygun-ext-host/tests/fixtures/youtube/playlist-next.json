@@ -1,0 +1,62 @@
+{
+  "responseContext": {},
+  "onResponseReceivedActions": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "lockupViewModel": {
+              "metadata": {
+                "lockupMetadataViewModel": {
+                  "title": { "content": "Harder, Better, Faster, Stronger" },
+                  "metadata": {
+                    "contentMetadataViewModel": {
+                      "metadataRows": [
+                        { "metadataParts": [{ "text": { "content": "Daft Punk - Topic" } }] }
+                      ]
+                    }
+                  }
+                }
+              },
+              "contentId": "A2VpR8HahKc",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+            }
+          },
+          {
+            "playlistVideoRenderer": {
+              "videoId": "gAjR4_CbPpQ",
+              "title": {
+                "runs": [
+                  { "text": "Daft Punk - Harder, Better, Faster, Stronger (Official Video)" }
+                ]
+              },
+              "shortBylineText": { "runs": [{ "text": "Daft Punk" }] },
+              "lengthSeconds": "225",
+              "thumbnail": {
+                "thumbnails": [
+                  {
+                    "url": "https://i.ytimg.com/vi/gAjR4_CbPpQ/hqdefault.jpg?sqp=four",
+                    "width": 336,
+                    "height": 188
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "lockupViewModel": {
+              "metadata": {
+                "lockupMetadataViewModel": {
+                  "title": { "content": "[Deleted video]" },
+                  "metadata": { "contentMetadataViewModel": { "metadataRows": [] } }
+                }
+              },
+              "contentId": "zzzzzzzzzzz",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

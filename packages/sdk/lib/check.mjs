@@ -123,6 +123,11 @@ const sandboxApi = (manifest, registered) => {
         manifest.settings?.find((setting) => setting.key === key)?.default ?? null,
     },
     content: { showNsfw: () => false },
+    youtube: {
+      search: () => Promise.reject(new Error('raygun-ext validate makes no requests')),
+      stream: () => Promise.reject(new Error('raygun-ext validate makes no requests')),
+      playlist: () => Promise.reject(new Error('raygun-ext validate makes no requests')),
+    },
     providers: {
       register: (/** @type {unknown} */ provider) => {
         registered.push(provider);

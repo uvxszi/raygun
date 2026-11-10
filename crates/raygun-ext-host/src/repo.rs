@@ -389,12 +389,15 @@ pub fn nuclear_extension_id(package: &str) -> String {
     format!("nuclear.{}", if slug.is_empty() { "plugin" } else { slug })
 }
 
-/// Nuclear categories Raygun runs, as Raygun provider kinds.
+/// Nuclear categories Raygun runs, as Raygun provider kinds (as `CATEGORY_KINDS` in
+/// packages/nuclear-compat maps them).
 fn nuclear_kind(category: &str) -> Option<&'static str> {
     match category {
-        "metadata" => Some("music.metadata"),
+        "metadata" | "playlists" => Some("music.metadata"),
         "streaming" => Some("music.stream"),
         "lyrics" => Some("lyrics"),
+        "dashboard" => Some("music.charts"),
+        "discovery" => Some("music.recommend"),
         _ => None,
     }
 }
