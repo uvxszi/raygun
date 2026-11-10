@@ -1067,7 +1067,6 @@ mod tests {
             "pickFile",
             "pickDocuments",
             "requestPermission",
-            "recordingConsent",
             "restartApp",
             "shareFile",
         ] {

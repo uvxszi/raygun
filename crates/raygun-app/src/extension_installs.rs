@@ -283,7 +283,8 @@ impl Queue {
             done: count(ExtensionInstallState::Done),
             failed: count(ExtensionInstallState::Failed),
             cancelled: self.cancelled,
-            running: self.active(),
+            // Installed but not loaded yet counts: loading follows at once.
+            running: self.active() || self.unloaded,
             current: running.map(|item| item.name.clone()),
             phase: running
                 .and_then(|item| item.phase)
