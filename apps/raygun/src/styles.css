@@ -336,6 +336,64 @@
       var(--text-scale, 1)
   );
 }
+/* Synced lyrics and captions (player/LyricsView, player/CaptionsView): the line being sung is lit
+   and full size, the others rest dimmer and a little smaller, and a new line eases in as the last
+   eases out while the lines glide to it (player/useFollowLine). Only opacity and transform change,
+   so moving on lays nothing out again. Reduced keeps a short fade; Off changes at once. */
+.lyric-line {
+  opacity: 0.42;
+  transform: scale(var(--lyric-rest-scale, 1));
+  transform-origin: left center;
+}
+.lyric-line[data-align='center'] {
+  transform-origin: center;
+}
+.lyric-line[aria-current] {
+  opacity: 1;
+  transform: scale(1);
+}
+:root[data-motion='lively'] {
+  --lyric-rest-scale: 0.95;
+}
+:root[data-motion='calm'] {
+  --lyric-rest-scale: 0.97;
+}
+:root:is([data-motion='lively'], [data-motion='calm']) .lyric-line {
+  transition:
+    opacity 420ms cubic-bezier(0.25, 0.1, 0.25, 1),
+    transform 450ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:root[data-motion='reduced'] .lyric-line {
+  transition: opacity 200ms ease-out;
+}
+
+/* A cover held to open its save options (music/useCoverHold): after a moment, so a tap doesn't
+   flicker, it sinks a little and dims until the hold is long enough, and comes back as it's let
+   go. Where things may not move it only dims. */
+.cover-hold {
+  -webkit-touch-callout: none;
+}
+.cover-hold[data-holding] {
+  opacity: 0.75;
+}
+:root:is([data-motion='lively'], [data-motion='calm']) .cover-hold {
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 220ms ease-out;
+}
+:root:is([data-motion='lively'], [data-motion='calm']) .cover-hold[data-holding] {
+  opacity: 0.85;
+  transform: scale(0.95);
+  transition:
+    transform 380ms cubic-bezier(0.3, 0, 0.2, 1) 120ms,
+    opacity 380ms ease-out 120ms;
+}
+:root[data-motion='reduced'] .cover-hold {
+  transition: opacity 150ms ease-out;
+}
+:root[data-motion='reduced'] .cover-hold[data-holding] {
+  transition: opacity 300ms ease-out 120ms;
+}
 /* Titles by the width of their container: the side panel's song title (player/SidePanel), text-xl
    on a wide panel, and a card's (player/PlayerCards), text-lg with room; a step smaller in a narrow
    one, where they wrap to two lines. */

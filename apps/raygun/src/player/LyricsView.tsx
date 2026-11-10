@@ -1,7 +1,7 @@
 import type { LyricLine as SyncedLine, QueueItem, TextAlign } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { Package, PenLine, TextCursorInput } from 'lucide-react';
-import { memo, useEffect, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import type { FC, Ref, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,12 +13,11 @@ import { useShownTranslation } from '../sound/lyricsTranslation';
 import type { ShownTranslation } from '../sound/lyricsTranslation';
 import { TranslatedPlain } from '../sound/TranslatedLines';
 import { useSongEditStore } from '../sound/songEditStore';
-import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
+import { trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { usePlayerUiStore } from './playerUiStore';
 import { useLyricsLook } from './playerView';
-import { useLiveValue } from './useLivePosition';
-import { sendControl, usePlayerTiming } from './usePlayback';
-import { scrollMotion } from '../shell/deviceState';
+import { useCurrentLine, useFollowLine } from './useFollowLine';
+import { sendControl } from './usePlayback';
 
 type Variant = 'sheet' | 'panel';
 
@@ -27,9 +26,6 @@ type LyricsViewProps = {
   /** `panel`: the smaller card in the desktop side panel (M46.7). */
   variant?: Variant;
 };
-
-/** How long after the listener scrolls the lyrics they stay where they were put, ms. */
-const HOLD_AFTER_SCROLL_MS = 4000;
 
 /**
  * Lyrics for the playing item: synced lines follow playback, tapping one seeks there. Text is
@@ -147,7 +143,9 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
 
 /**
  * The synced lines. Only this follows the playhead, and only the line that starts and the one
- * that ends re-render when it moves on.
+ * that ends re-render when it moves on: the line sung eases in (styles.css `.lyric-line`) as the
+ * lines glide to put it in the middle (useFollowLine). Only the lyrics scroll, never what they sit
+ * in (the side panel scrolls too).
  */
 const SyncedLyrics: FC<{
   lines: SyncedLine[];
@@ -158,40 +156,12 @@ const SyncedLyrics: FC<{
   /** Translations and romanized lines under the lines (M46.48). */
   shown: ShownTranslation;
 }> = ({ lines, offsetMs, variant, align, container, shown }) => {
-  const timing = usePlayerTiming();
-  const current = useLiveValue(timing, (position) => currentLine(lines, position, offsetMs));
-  const currentRef = useRef<HTMLButtonElement>(null);
-  const heldUntil = useRef(0);
-
-  useEffect(() => {
-    // The listener scrolled: the lyrics stay where they put them for a moment.
-    const box = container.current;
-    if (!box) return;
-    const hold = () => {
-      heldUntil.current = performance.now() + HOLD_AFTER_SCROLL_MS;
-    };
-    box.addEventListener('wheel', hold, { passive: true });
-    box.addEventListener('touchmove', hold, { passive: true });
-    return () => {
-      box.removeEventListener('wheel', hold);
-      box.removeEventListener('touchmove', hold);
-    };
-  }, [container]);
-
-  useEffect(() => {
-    // Scrolls only the lyrics, not what they sit in (the side panel scrolls too); jsdom has no
-    // scrollTo on elements.
-    const box = container.current;
-    const line = currentRef.current;
-    if (!box || !line || performance.now() < heldUntil.current) return;
-    box.scrollTo?.({
-      top: line.offsetTop - box.clientHeight / 2 + line.clientHeight / 2,
-      behavior: scrollMotion(),
-    });
-  }, [current, container]);
+  const starts = useMemo(() => lines.map((line) => line.timeMs + offsetMs), [lines, offsetMs]);
+  const current = useCurrentLine(starts);
+  const { lineRef, listRef } = useFollowLine(container, current, lines);
 
   return (
-    <ol className="flex flex-col gap-[0.6em]" data-variant={variant}>
+    <ol ref={listRef} className="flex flex-col gap-[0.6em]" data-variant={variant}>
       {lines.map((line, index) => (
         <LyricLine
           key={`${line.timeMs}-${index}`}
@@ -202,7 +172,7 @@ const SyncedLyrics: FC<{
           align={align}
           translation={shown.translation?.lines[index] || null}
           romanized={shown.romanization?.lines[index] || null}
-          lineRef={index === current ? currentRef : undefined}
+          lineRef={index === current ? lineRef : undefined}
         />
       ))}
     </ol>
@@ -223,7 +193,10 @@ type LyricLineProps = {
   lineRef?: Ref<HTMLButtonElement>;
 };
 
-/** One line of synced lyrics; it re-renders only when it starts or stops being the one sung. */
+/**
+ * One line of synced lyrics; it re-renders only when it starts or stops being the one sung, and
+ * eases between lit and resting (styles.css `.lyric-line`).
+ */
 export const LyricLine: FC<LyricLineProps> = memo(function LyricLine({
   text,
   seekMs,
@@ -242,9 +215,10 @@ export const LyricLine: FC<LyricLineProps> = memo(function LyricLine({
         aria-current={playing ? 'true' : undefined}
         onClick={() => void sendControl({ type: 'seek', positionMs: seekMs })}
         data-variant={variant}
-        className={`lyric-text w-full leading-snug font-semibold transition-colors ${
+        data-align={align}
+        className={`lyric-text lyric-line text-foreground w-full leading-snug font-semibold ${
           align === 'center' ? 'text-center' : 'text-left'
-        } ${playing ? 'text-foreground' : 'text-muted/60'}`}
+        }`}
       >
         {text || '♪'}
         {romanized && (

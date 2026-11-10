@@ -4,25 +4,31 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
-import { coverTitle, useCoverSheetStore } from '../music/coverSheetStore';
+import { coverTitle } from '../music/coverSheetStore';
+import { useCoverHold } from '../music/useCoverHold';
 import { hasVideo } from './hasVideo';
 import { usePlayerUiStore } from './playerUiStore';
 import { useVideoSurface } from './useVideoSurface';
 
-/**
- * The artwork, or the video for songs that play through YouTube once asked for (M46.8): music
- * plays as music, and the video shows only when the user presses it. `active` says this is the
- * surface on screen (the full player takes the video from the side panel).
- */
-export const MediaArt: FC<{
+type MediaArtProps = {
   item: QueueItem;
   active: boolean;
   artworkClassName: string;
   videoClassName: string;
   iconSize: number;
   testId?: string;
-}> = ({ item, active, artworkClassName, videoClassName, iconSize, testId }) => {
-  const { t } = useTranslation();
+  /** What a tap on the artwork does (the phone's player: its lyrics), named by `tapLabel`. */
+  onTap?: () => void;
+  tapLabel?: string;
+};
+
+/**
+ * The artwork, or the video for songs that play through YouTube once asked for (M46.8): music
+ * plays as music, and the video shows only when the user presses it. `active` says this is the
+ * surface on screen (the full player takes the video from the side panel).
+ */
+export const MediaArt: FC<MediaArtProps> = (props) => {
+  const { item, active, videoClassName, testId } = props;
   const videoShown = usePlayerUiStore((store) => store.videoShown);
   const showing = hasVideo(item) && videoShown;
   const videoRef = useVideoSurface(active && showing);
@@ -32,30 +38,41 @@ export const MediaArt: FC<{
       <div ref={videoRef} data-testid={testId ?? 'video-surface'} className={videoClassName} />
     );
   }
+  return <HeldArtwork {...props} />;
+};
+
+/**
+ * The artwork. Held (or right-clicked) it shows large, to save (M46.26); a tap does `onTap`, if
+ * anything. The video toggle sits beside the title (M46.24: the button over the artwork was in
+ * the way).
+ */
+const HeldArtwork: FC<MediaArtProps> = ({ item, artworkClassName, iconSize, onTap, tapLabel }) => {
+  const { t } = useTranslation();
+  const cover = item.artworkUrl ? { url: item.artworkUrl, title: coverTitle(item) } : null;
+  const hold = useCoverHold({ cover, onTap });
+  const artwork = (
+    <Artwork
+      key={item.artworkUrl ?? 'none'}
+      url={item.artworkUrl}
+      className={artworkClassName}
+      iconSize={iconSize}
+    />
+  );
   return (
-    // The video toggle sits beside the title (M46.24: the button over the artwork was in the way).
-    // Clicking the artwork shows it large, to save (M46.26).
     <div className="relative w-full">
-      {item.artworkUrl ? (
+      {cover || onTap ? (
         <button
           type="button"
-          aria-label={t('cover.open')}
-          onClick={() =>
-            useCoverSheetStore
-              .getState()
-              .open({ url: item.artworkUrl as string, title: coverTitle(item) })
-          }
-          className="block w-full cursor-zoom-in"
+          aria-label={onTap ? tapLabel : t('cover.open')}
+          title={cover ? t('cover.holdHint') : undefined}
+          data-testid="player-artwork"
+          {...hold.props}
+          className="cover-hold block w-full"
         >
-          <Artwork
-            key={item.artworkUrl}
-            url={item.artworkUrl}
-            className={artworkClassName}
-            iconSize={iconSize}
-          />
+          {artwork}
         </button>
       ) : (
-        <Artwork key="none" url={null} className={artworkClassName} iconSize={iconSize} />
+        artwork
       )}
     </div>
   );

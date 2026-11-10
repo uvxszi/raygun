@@ -312,6 +312,79 @@ describe('Lyrics', () => {
   });
 });
 
+describe('Cover and lyrics on a phone', () => {
+  const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
+
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+    bindingsMock.commands.lyricsGet.mockResolvedValue(
+      ok({
+        providerName: 'Lyrics Base',
+        synced: [
+          { timeMs: 1_000, text: 'First line' },
+          { timeMs: 60_000, text: 'Second line' },
+          { timeMs: 120_000, text: 'Third line' },
+        ],
+        plain: null,
+      }),
+    );
+  });
+
+  const openPlayer = async () => {
+    await AppShellWrapper.mount();
+    AppShellWrapper.playing(QUEUE, 0);
+    await AppShellWrapper.miniPlayer.open();
+    return AppShellWrapper.playerSheet.element;
+  };
+
+  it('keeps the lyrics toggle in the controls, just before the download button', async () => {
+    const user = userEvent.setup();
+    const sheet = await openPlayer();
+    const header = within(sheet).getByTestId('player-sheet-header');
+
+    const toggle = within(sheet).getByRole('button', { name: 'Show lyrics' });
+    expect(toggle.nextElementSibling).toBe(within(sheet).getByTestId('download-song'));
+    expect(within(header).queryByRole('button', { name: /^Show / })).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(await within(sheet).findByTestId('lyrics-view')).toBeInTheDocument();
+    // Still beside the download button, now bringing the cover back; never at the top.
+    const back = within(sheet).getByRole('button', { name: 'Show artwork' });
+    expect(back.nextElementSibling).toBe(within(sheet).getByTestId('download-song'));
+    expect(within(header).queryByRole('button', { name: /^Show / })).not.toBeInTheDocument();
+
+    await user.click(back);
+    await waitFor(() => expect(screen.queryByTestId('lyrics-view')).not.toBeInTheDocument());
+    expect(within(sheet).getByRole('button', { name: 'Show lyrics' })).toBeInTheDocument();
+  });
+
+  it('shows the lyrics on a tap on the cover, and the cover on a tap beside the lines', async () => {
+    const user = userEvent.setup();
+    const sheet = await openPlayer();
+
+    await user.click(within(sheet).getByRole('button', { name: 'Cover: tap for lyrics' }));
+    const view = await within(sheet).findByTestId('lyrics-view');
+    expect(await within(view).findByRole('button', { current: true })).toHaveTextContent(
+      'Second line',
+    );
+
+    // A line seeks there and the lyrics stay.
+    await user.click(within(view).getByRole('button', { name: 'Third line' }));
+    expect(bindingsMock.commands.playbackControl).toHaveBeenCalledWith({
+      type: 'seek',
+      positionMs: 120_000,
+    });
+    expect(screen.getByTestId('lyrics-view')).toBeInTheDocument();
+
+    // A tap on the empty space around the lines brings the cover back.
+    await user.click(view);
+    await waitFor(() => expect(screen.queryByTestId('lyrics-view')).not.toBeInTheDocument());
+    expect(
+      within(sheet).getByRole('button', { name: 'Cover: tap for lyrics' }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('Cards under the player', () => {
   const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 

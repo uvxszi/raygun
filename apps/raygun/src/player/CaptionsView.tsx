@@ -11,20 +11,19 @@ import {
   Square,
   Subtitles,
 } from 'lucide-react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import type { FC, Ref, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
-import { currentCue, useCaptions, useStopCaptions, useTranscribe } from './spoken';
+import { useCaptions, useStopCaptions, useTranscribe } from './spoken';
 import { useSongEdit } from '../sound/useSound';
 import { useLyricsLook } from './playerView';
 import { trackQueryFor } from './lyricsQuery';
-import { useLiveValue } from './useLivePosition';
-import { sendControl, useCurrentItem, usePlayerTiming, useReadPosition } from './usePlayback';
-import { scrollMotion } from '../shell/deviceState';
+import { useCurrentLine, useFollowLine } from './useFollowLine';
+import { sendControl, useCurrentItem, useReadPosition } from './usePlayback';
 
 type Variant = 'sheet' | 'panel';
 
@@ -46,8 +45,12 @@ export const CaptionsView: FC<CaptionsViewProps> = ({ spoken, variant = 'sheet' 
   const containerRef = useRef<HTMLDivElement>(null);
   const trims = useTrims();
   // Only what plays shows (M46.36): lines the item's trims cut off are left out.
-  const cues = (captions.data?.cues ?? []).filter(
-    (cue) => cue.endMs > trims.startMs && (trims.endMs === null || cue.startMs < trims.endMs),
+  const cues = useMemo(
+    () =>
+      (captions.data?.cues ?? []).filter(
+        (cue) => cue.endMs > trims.startMs && (trims.endMs === null || cue.startMs < trims.endMs),
+      ),
+    [captions.data, trims.startMs, trims.endMs],
   );
   const hasLines = cues.length > 0;
   const height = variant === 'panel' ? (hasLines ? 'h-[min(26rem,60svh)]' : 'h-auto') : '';
@@ -66,7 +69,13 @@ export const CaptionsView: FC<CaptionsViewProps> = ({ spoken, variant = 'sheet' 
       )}
       {captions.error && <SourceIssue compact>{captions.error.message}</SourceIssue>}
       {hasLines && (
-        <CaptionLines cues={cues} variant={variant} align={align} container={containerRef} />
+        <CaptionLines
+          cues={cues}
+          episodeId={spoken.episodeId}
+          variant={variant}
+          align={align}
+          container={containerRef}
+        />
       )}
       {captions.data && (
         <CaptionsFooter captions={captions.data} spoken={spoken} slim={!hasLines} />
@@ -75,29 +84,24 @@ export const CaptionsView: FC<CaptionsViewProps> = ({ spoken, variant = 'sheet' 
   );
 };
 
-/** The lines, following the playhead: only the line said and the one before it re-render. */
+/**
+ * The lines, following the playhead as lyrics do (useFollowLine): only the line said and the one
+ * before it re-render. Lines transcribed while it plays join without moving the rest.
+ */
 const CaptionLines: FC<{
   cues: Caption[];
+  /** What the lines are of: another episode's start in place. */
+  episodeId: string;
   variant: Variant;
   align: TextAlign;
   container: RefObject<HTMLDivElement | null>;
-}> = ({ cues, variant, align, container }) => {
-  const timing = usePlayerTiming();
-  const current = useLiveValue(timing, (position) => currentCue(cues, position));
-  const currentRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const box = container.current;
-    const line = currentRef.current;
-    if (!box || !line) return;
-    box.scrollTo?.({
-      top: line.offsetTop - box.clientHeight / 2 + line.clientHeight / 2,
-      behavior: scrollMotion(),
-    });
-  }, [current, container]);
+}> = ({ cues, episodeId, variant, align, container }) => {
+  const starts = useMemo(() => cues.map((cue) => cue.startMs), [cues]);
+  const current = useCurrentLine(starts);
+  const { lineRef, listRef } = useFollowLine(container, current, episodeId);
 
   return (
-    <ol className="flex flex-col gap-[0.6em]">
+    <ol ref={listRef} className="flex flex-col gap-[0.6em]">
       {cues.map((cue, index) => (
         <CaptionLine
           key={cue.startMs}
@@ -106,7 +110,7 @@ const CaptionLines: FC<{
           said={index === current}
           variant={variant}
           align={align}
-          lineRef={index === current ? currentRef : undefined}
+          lineRef={index === current ? lineRef : undefined}
         />
       ))}
     </ol>
@@ -129,9 +133,10 @@ const CaptionLine: FC<{
         aria-current={said ? 'true' : undefined}
         onClick={() => void sendControl({ type: 'seek', positionMs: startMs })}
         data-variant={variant}
-        className={`lyric-text w-full leading-snug font-semibold transition-colors ${
+        data-align={align}
+        className={`lyric-text lyric-line text-foreground w-full leading-snug font-semibold ${
           align === 'center' ? 'text-center' : 'text-left'
-        } ${said ? 'text-foreground' : 'text-muted/60'}`}
+        }`}
       >
         {text}
       </button>

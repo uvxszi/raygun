@@ -1,5 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type { Caption, QueueItem, SpokenItem } from '@raygun/bindings';
+import type { QueueItem, SpokenItem } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -78,14 +78,4 @@ export const useStopCaptions = () => {
     onSettled: (_data, _error, episodeId) =>
       client.invalidateQueries({ queryKey: [CAPTIONS, episodeId] }),
   });
-};
-
-/** The line being said: the last one started by `positionMs`. */
-export const currentCue = (cues: Caption[], positionMs: number) => {
-  let current = -1;
-  for (const [index, cue] of cues.entries()) {
-    if (cue.startMs <= positionMs) current = index;
-    else break;
-  }
-  return current;
 };

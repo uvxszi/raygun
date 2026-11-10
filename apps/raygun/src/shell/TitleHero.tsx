@@ -1,9 +1,9 @@
 import { Play } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { FC, MouseEvent, ReactNode } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useCoverSheetStore } from '../music/coverSheetStore';
+import { useCoverHold } from '../music/useCoverHold';
 import { AdultMark } from './AdultMark';
 import { SourceTag } from './SourceTag';
 
@@ -48,13 +48,11 @@ export const TitleHero: FC<{
 }) => {
   const { t } = useTranslation();
   const shown = facts.filter(Boolean);
-  // The cover and the backdrop open close up, to zoom and save: a tap or right-click on the cover,
-  // a right-click (a long press on phones) on the backdrop.
-  const view = (url: string, name: string) => (event?: MouseEvent) => {
-    event?.preventDefault();
-    useCoverSheetStore.getState().open({ url, title: name });
-  };
-  const viewBackdrop = backdrop ? view(backdrop, t('cover.backdropName', { title })) : undefined;
+  // The cover and the backdrop open close up, to zoom and save, when held or right-clicked.
+  const coverHold = useCoverHold({ cover: art ? { url: art, title } : null });
+  const backdropHold = useCoverHold({
+    cover: backdrop ? { url: backdrop, title: t('cover.backdropName', { title }) } : null,
+  });
   return (
     <div className="relative isolate -mx-4 -mt-2 overflow-hidden px-4 pt-2 pb-4 lg:-mx-10 lg:px-10">
       {backdrop && (
@@ -62,8 +60,8 @@ export const TitleHero: FC<{
         <div
           aria-hidden
           data-testid="title-backdrop"
-          onContextMenu={viewBackdrop}
-          className="relative -mx-4 -mt-2 h-[min(56.25vw,52vh)] lg:-mx-10"
+          {...backdropHold.props}
+          className="cover-hold relative -mx-4 -mt-2 h-[min(56.25vw,52vh)] lg:-mx-10"
         >
           <img src={backdrop} alt="" className="size-full object-cover object-[50%_25%]" />
           <div className="to-background absolute inset-0 bg-gradient-to-b from-transparent from-30%" />
@@ -81,9 +79,9 @@ export const TitleHero: FC<{
             <button
               type="button"
               aria-label={t('cover.open')}
-              onClick={view(art, title)}
-              onContextMenu={view(art, title)}
-              className="block w-full cursor-zoom-in"
+              title={t('cover.holdHint')}
+              {...coverHold.props}
+              className="cover-hold block w-full"
             >
               {cover}
             </button>

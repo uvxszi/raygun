@@ -1113,6 +1113,10 @@
     "via": "via {{source}}",
     "lyrics": "Lyrics",
     "showArtwork": "Show artwork",
+    "showLyrics": "Show lyrics",
+    "showCaptions": "Show captions",
+    "coverToLyrics": "Cover: tap for lyrics",
+    "coverToCaptions": "Cover: tap for captions",
     "lyricsLoading": "Loading lyrics…",
     "lyricsNone": "No lyrics found for this track.",
     "lyricsFrom": "Lyrics from {{source}}",
@@ -3890,6 +3894,7 @@
   "cover": {
     "title": "Cover",
     "open": "Show the cover large",
+    "holdHint": "Hold or right-click to save the cover",
     "view": "View cover",
     "backdropName": "{{title}} - Background",
     "zoomIn": "Zoom in",
