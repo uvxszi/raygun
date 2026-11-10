@@ -202,9 +202,19 @@ impl ReaderAi {
         to: &str,
         model: &str,
     ) -> Result<Vec<String>, String> {
+        // Lettering in capitals (most comics') as ordinary sentences: this device's models
+        // learned from ordinary text, garble capitals, and only so tell English apart.
+        let cased: Vec<String> = texts.iter().map(|text| sentence_case(text)).collect();
+        let english = is_english(from)
+            || (from.is_empty()
+                && looks_english(&cased.iter().map(String::as_str).collect::<Vec<_>>()));
+        let calm: Vec<String> = if english {
+            cased.iter().map(|text| capital_i(text)).collect()
+        } else {
+            cased
+        };
         // Text already in the language wanted stays as it is.
-        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
-        if same_language(from, to) || (from.is_empty() && is_english(to) && looks_english(&refs)) {
+        if same_language(from, to) || (from.is_empty() && is_english(to) && english) {
             return Ok(texts.to_vec());
         }
         if let Some(provider) = model.strip_prefix(AI_PREFIX) {
@@ -220,7 +230,7 @@ impl ReaderAi {
         // sentences and comes back joined.
         let mut sentences: Vec<String> = Vec::new();
         let mut parts: Vec<usize> = Vec::with_capacity(texts.len());
-        for text in texts {
+        for text in &calm {
             let split = sentences_of(text);
             parts.push(split.len());
             sentences.extend(split);
@@ -229,7 +239,7 @@ impl ReaderAi {
         let translated = self
             .app
             .state::<Arc<LyricsTranslations>>()
-            .translate_on_device_with(to, &sentences, preferred, is_english(from), |_, _| {})
+            .translate_on_device_with(to, &sentences, preferred, english, |_, _| {})
             .await?;
         let mut rest = translated.into_iter();
         Ok(parts
@@ -384,8 +394,69 @@ fn looks_english(texts: &[&str]) -> bool {
     raygun_ai::marian::looks_english(texts)
 }
 
+/// A text lettered in capitals (four in five of its letters or more) in sentence case: lower
+/// case, with a capital at its start and after `.`, `!`, `?` and `…`. Other text stays as it is.
+fn sentence_case(text: &str) -> String {
+    let letters = text.chars().filter(|c| c.is_alphabetic()).count();
+    let capitals = text.chars().filter(|c| c.is_uppercase()).count();
+    if letters < 4 || capitals * 5 < letters * 4 {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut starting = true;
+    for c in text.chars() {
+        if c.is_alphabetic() {
+            if starting {
+                out.extend(c.to_uppercase());
+                starting = false;
+            } else {
+                out.extend(c.to_lowercase());
+            }
+        } else {
+            if matches!(c, '.' | '!' | '?' | '\u{2026}') {
+                starting = true;
+            }
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// English's "i" on its own ("i", "i'm", "i'll") as the capital it is.
+fn capital_i(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    chars
+        .iter()
+        .enumerate()
+        .map(|(at, &c)| {
+            let alone = c == 'i'
+                && (at == 0 || !chars[at - 1].is_alphabetic())
+                && chars.get(at + 1).is_none_or(|next| !next.is_alphabetic());
+            if alone { 'I' } else { c }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn capitals_become_sentences() {
+        assert_eq!(
+            super::sentence_case("HA HA. THEN YOU'LL NEED TO STUDY! WHY?"),
+            "Ha ha. Then you'll need to study! Why?"
+        );
+        assert_eq!(
+            super::capital_i("Sometimes i get scared, i'm sure. Is it iron?"),
+            "Sometimes I get scared, I'm sure. Is it iron?"
+        );
+        // Ordinary text, and short words in capitals, stay as they are.
+        assert_eq!(
+            super::sentence_case("CHAPTER I. Down the Rabbit-Hole"),
+            "CHAPTER I. Down the Rabbit-Hole"
+        );
+        assert_eq!(super::sentence_case("OK!"), "OK!");
+    }
+
     #[test]
     fn text_in_the_wanted_language_is_left_alone() {
         assert!(super::same_language("pt-BR", "pt"));
