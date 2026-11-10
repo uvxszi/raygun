@@ -283,6 +283,22 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'link.showCode',
     'link.scanCode',
   ),
-  ...on('ai')('ai.translators', 'ai.transcription.title', 'ai.models', 'mcp.title'),
+  ...on('ai')(
+    'ai.translation.title',
+    'ai.transcription.title',
+    'ai.textReading.title',
+    'ai.providers.title',
+    'ai.onDevice.title',
+    'mcp.title',
+  ),
+  ...on('ai', 'ai.translation.title')(
+    'ai.translation.comics',
+    'ai.translation.books',
+    'ai.translation.lyrics',
+    'ai.translation.subtitles',
+  ),
+  ...on('ai', 'ai.transcription.title')('ai.transcription.engine'),
+  ...on('ai', 'ai.textReading.title')('ai.textReading.reader', 'ai.textReading.import'),
+  ...on('ai', 'ai.onDevice.title')('ai.onDevice.storage'),
   ...on('about')('updater.check', 'settings.license'),
 ];

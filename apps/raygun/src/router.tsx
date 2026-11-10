@@ -6,7 +6,6 @@ import { isLibraryView } from './library/views';
 import type { Medium } from './manga/medium';
 import type { LibraryView } from './library/views';
 import { AlbumPage } from './pages/AlbumPage';
-import { AiPage } from './pages/AiPage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { PodcastPage } from './pages/PodcastPage';
 import { WatchCatalogPage } from './pages/WatchCatalogPage';
@@ -381,7 +380,6 @@ const routeTree = rootRoute.addChildren([
     path: '/settings/hidden',
     component: HiddenPage,
   }),
-  createRoute({ getParentRoute: () => rootRoute, path: '/settings/ai', component: AiPage }),
   // Watch was a tab until M42.1; what it held now lives in Library → Videos and Browse.
   createRoute({
     getParentRoute: () => rootRoute,

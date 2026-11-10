@@ -22,6 +22,7 @@ import { DownloadSettings } from './DownloadSettings';
 import { PermissionsSettings } from './PermissionsSettings';
 import { resetAll, resetKeys } from './resets';
 import type { SettingsReset } from './resets';
+import { AiSettings } from './screens/AiSettings';
 import { AppearanceSettings } from './screens/AppearanceSettings';
 import { BrowseSettings } from './screens/BrowseSettings';
 import { DataSettings } from './screens/DataSettings';
@@ -186,7 +187,8 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
   // What Android lets Raygun do; nothing here is a setting to reset.
   { id: 'permissions', icon: ShieldCheck, screen: PermissionsSettings, only: 'phone' },
   { id: 'devices', icon: Smartphone, to: '/settings/devices' },
-  { id: 'ai', icon: Sparkles, to: '/settings/ai' },
+  // Providers and models are what's on this device, not settings: they stay.
+  { id: 'ai', icon: Sparkles, screen: AiSettings, reset: resetKeys('transcription', 'readerAi') },
   {
     id: 'data',
     icon: Database,
@@ -208,6 +210,7 @@ export type SettingsSectionId =
   | 'browse'
   | 'privacy'
   | 'permissions'
+  | 'ai'
   | 'data';
 
 /** The category screens, routed at `/settings/<id>`. */

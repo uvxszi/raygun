@@ -71,7 +71,7 @@ impl Kind {
             Kind::Exports | Kind::YtDlp => "/downloads?tab=exports",
             Kind::Files => "/downloads?tab=files",
             Kind::Podcasts => "/library?media=audio",
-            Kind::Models => "/settings/ai",
+            Kind::Models => "/settings/ai#models",
             Kind::Update => "/about",
             Kind::Extensions => "/browse?tab=extensions&list=all",
         }

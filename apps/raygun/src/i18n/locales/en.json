@@ -614,7 +614,7 @@
       },
       "ai": {
         "title": "AI",
-        "summary": "Translators and models"
+        "summary": "Translation, transcription, text reading, providers, models"
       },
       "data": {
         "title": "Data and backup",
@@ -1742,15 +1742,7 @@
   },
   "ai": {
     "title": "AI",
-    "manage": "Manage",
-    "summary_one": "{{count}} translator · {{models}} models installed",
-    "summary_other": "{{count}} translators · {{models}} models installed",
     "translators": "Translators",
-    "translatorsHint": "Used to translate manga, novels and lyrics. Keys are stored encrypted on this device and never synced.",
-    "noTranslators": "No translators yet.",
-    "listFailed": "Couldn't read your translators",
-    "addTranslator": "Add translator",
-    "translatorForm": "Translator settings",
     "kindLabel": "Service",
     "kind": {
       "claude": "Claude",
@@ -1776,7 +1768,7 @@
       "deepl": ""
     },
     "save": "Save",
-    "saveFailed": "Couldn't save the translator",
+    "saveFailed": "Couldn't save the provider",
     "cancel": "Cancel",
     "keyHint": "key ••••{{hint}}",
     "noKey": "no key",
@@ -1785,33 +1777,95 @@
     "testFailed": "{{name}} didn't translate",
     "edit": "Edit",
     "delete": "Delete",
-    "deleteFailed": "Couldn't remove the translator",
+    "deleteFailed": "Couldn't remove the provider",
     "deleteQuestion": "Remove {{name}} and its key?",
     "deleteConfirm": "Remove",
-    "models": "Models",
-    "modelsHint": "Upscalers for the manga reader, the text reader for screenshots and speech to text for captions. Files are checked after downloading.",
-    "megabytes": "{{size}} MB",
     "installed": "Installed",
     "downloadModel": "Download {{name}}",
     "downloadFailed": "Couldn't download {{name}}",
     "deleteModel": "Delete {{name}}",
     "deleteModelFailed": "Couldn't remove the model",
     "downloading": "Downloading {{name}}",
+    "translation": {
+      "title": "Translation",
+      "about": "Comics, books, lyrics and video subtitles, on this device or online",
+      "comics": "Comics",
+      "books": "Books",
+      "lyrics": "Lyrics",
+      "lyricsSummary": "Into {{language}} · picked per song in the lyrics",
+      "subtitles": "Video subtitles",
+      "subtitlesSummary": "In the player: Translate subtitles",
+      "device": "On this device",
+      "online": "Online",
+      "off": "Off",
+      "layer": "{{translator}} · into {{language}}",
+      "models_one": "{{count}} model installed",
+      "models_other": "{{count}} models installed",
+      "noModels": "No models installed",
+      "noProviders": "No providers yet"
+    },
     "transcription": {
       "title": "Transcription",
-      "hint": "Captions for podcasts and audiobooks that have none: the audio is heard in 30-second parts from where you are, ahead of playback, and kept.",
+      "about": "Captions for podcasts, audiobooks and videos, and lyrics heard from songs",
       "engine": "Who listens",
       "engines": {
         "off": "Off",
         "local": "On this device",
         "online": "Online"
       },
-      "localReady": "Whisper runs on this device: nothing leaves it. Faster on newer phones.",
-      "localNeeds": "Download the speech model to start. It runs on this device: nothing leaves it.",
+      "engineHints": {
+        "local": "Nothing leaves this device",
+        "online": "Sent to a provider, which may charge for it"
+      },
+      "model": "Model",
       "provider": "Provider",
       "pickProvider": "Pick a provider",
-      "noProvider": "Add an OpenAI-compatible translator above with its address (such as https://api.openai.com/v1 or Groq’s) and key, then pick it here.",
-      "onlineHint": "The audio is sent to the provider, which may charge for it. Raygun asks once before the first chapter, and stays at most 10 minutes ahead of you."
+      "onlineHint": "The audio is sent there and may cost money; Raygun asks once first",
+      "addProvider": "Add an OpenAI-compatible provider",
+      "addProviderSummary": "Such as OpenAI or Groq, with its address and key",
+      "onlineModel": "Online model",
+      "podcasts": "Podcasts and audiobooks",
+      "podcastsSummary": "Captions in the player",
+      "videos": "Videos",
+      "videosSummary": "In the player: Transcribe with AI",
+      "lyrics": "Song lyrics",
+      "lyricsSummary": "In the lyrics' source menu: Hear the words with AI"
+    },
+    "textReading": {
+      "title": "Text reading",
+      "about": "Reads words on pictures: song lists in screenshots and comic pages",
+      "reader": "Text reader",
+      "builtIn": "Built into Windows",
+      "import": "Import songs",
+      "importSummary": "From screenshots of song lists",
+      "comics": "Comic translation",
+      "comicsSummary": "Reads the words on pages to translate them"
+    },
+    "providers": {
+      "title": "Online providers",
+      "about": "Claude, OpenAI-compatible services and DeepL; keys stay encrypted on this device",
+      "none": "No providers yet.",
+      "add": "Add provider",
+      "form": "Provider settings",
+      "listFailed": "Couldn't read your providers"
+    },
+    "onDevice": {
+      "title": "On-device models",
+      "about": "Run on this device: nothing leaves it",
+      "storage": "Storage used",
+      "storageSummary_one": "{{size}} · {{count}} model",
+      "storageSummary_other": "{{size}} · {{count}} models",
+      "storageNone": "Nothing downloaded",
+      "download": "Download",
+      "progress": "Downloading · {{percent}}%",
+      "listFailed": "Couldn't read the models",
+      "use": {
+        "translation": "Translation",
+        "transcription": "Transcription",
+        "textReading": "Text reading",
+        "comicReader": "Comic reader",
+        "unused": "Not used in this version"
+      }
     }
   },
   "podcasts": {

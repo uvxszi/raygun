@@ -15,9 +15,17 @@ import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
  * to decide, and the control. Rows sit in groups with a small label. Each row carries its title in
  * `data-pref`, which settings search scrolls to.
  */
-export const PrefGroup: FC<{ title?: string; children: ReactNode }> = ({ title, children }) => (
-  <section aria-label={title} className="flex flex-col pt-3 first:pt-0">
+export const PrefGroup: FC<{
+  title?: string;
+  /** One line under the label: what the group is for. */
+  summary?: string;
+  /** The group's anchor (`/settings/ai#transcription`), which `useFoundPref` scrolls to. */
+  id?: string;
+  children: ReactNode;
+}> = ({ title, summary, id, children }) => (
+  <section id={id} aria-label={title} className="flex flex-col pt-3 first:pt-0">
     {title && <h2 className="text-muted px-1 pt-1 pb-0.5 text-xs font-semibold">{title}</h2>}
+    {summary && <p className="text-muted px-1 pb-1 text-xs">{summary}</p>}
     <ul className="flex flex-col">{children}</ul>
   </section>
 );
@@ -438,20 +446,26 @@ export const PrefLink: FC<{
   </li>
 );
 
-/** A row that does something (Create backup, Clear history); `danger` for what removes data. */
+/**
+ * A row that does something (Create backup, Clear history); `danger` for what removes data. A row
+ * that opens a sheet says so (`dialog`) and gets its button, which the sheet stands beside on wide
+ * windows.
+ */
 export const PrefAction: FC<{
   title: string;
   summary?: ReactNode;
   icon?: LucideIcon;
-  onClick: () => void;
+  onClick: (button: HTMLButtonElement) => void;
   disabled?: boolean;
   danger?: boolean;
-}> = ({ title, summary, icon: Icon, onClick, disabled, danger }) => (
+  dialog?: boolean;
+}> = ({ title, summary, icon: Icon, onClick, disabled, danger, dialog }) => (
   <li data-pref={title}>
     <button
       type="button"
       disabled={disabled}
-      onClick={onClick}
+      aria-haspopup={dialog ? 'dialog' : undefined}
+      onClick={(event) => onClick(event.currentTarget)}
       className={`${ROW} hover:bg-surface disabled:opacity-60`}
     >
       {Icon && (
@@ -469,6 +483,13 @@ export const PrefAction: FC<{
 /** Free content inside a group (a card that has more than one control). */
 export const PrefBlock: FC<{ children: ReactNode }> = ({ children }) => (
   <li className="px-1 py-2">{children}</li>
+);
+
+/** A row that only tells something: what's used, what's built in. */
+export const PrefInfo: FC<{ title: string; summary?: ReactNode }> = ({ title, summary }) => (
+  <li data-pref={title} className={ROW}>
+    <RowText title={title} summary={summary} />
+  </li>
 );
 
 /** Free text, edited in a sheet. `check` returns why a text can't be saved, or null. */

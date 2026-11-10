@@ -1,5 +1,5 @@
 import type { AiModel, AiProvider, Captions, SpokenItem } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper, makeItem } from '../shell/AppShell.test-wrapper';
@@ -162,10 +162,13 @@ describe('Transcription settings', () => {
     });
     commands.aiModels.mockResolvedValue([SPEECH]);
     commands.aiProviders.mockResolvedValue(ok([GROQ]));
-    await AppShellWrapper.mount('/settings/ai');
-    const section = await screen.findByTestId('ai-transcription');
+    await AppShellWrapper.mount('/settings/ai#transcription');
+    const section = await screen.findByRole('region', { name: 'Transcription' });
+    const engine = within(section).getByRole('button', { name: /^Who listens/ });
+    await waitFor(() => expect(engine).toBeEnabled());
 
-    await user.click(within(section).getByRole('radio', { name: 'On this device' }));
+    await user.click(engine);
+    await user.click(await screen.findByRole('radio', { name: /^On this device/ }));
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
       key: 'transcription',
       value: expect.objectContaining({ engine: 'local' }),
@@ -174,8 +177,10 @@ describe('Transcription settings', () => {
       await within(section).findByRole('button', { name: `Download ${SPEECH.name}` }),
     ).toBeInTheDocument();
 
-    await user.click(within(section).getByRole('radio', { name: 'Online' }));
-    await user.selectOptions(await within(section).findByRole('combobox'), 'Groq');
+    await user.click(within(section).getByRole('button', { name: /^Who listens/ }));
+    await user.click(await screen.findByRole('radio', { name: /^Online/ }));
+    await user.click(await within(section).findByRole('button', { name: /^Provider/ }));
+    await user.click(await screen.findByRole('radio', { name: 'Groq' }));
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
       key: 'transcription',
       value: expect.objectContaining({ engine: 'online', providerId: 'groq' }),

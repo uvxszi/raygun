@@ -85,7 +85,8 @@ const SELECT = 'bg-background min-w-0 flex-1 rounded-lg px-2 py-1.5 text-sm';
 
 type SheetProps = {
   medium: ReaderMedium;
-  anchor: HTMLElement;
+  /** What it stands beside on wide windows; Settings → AI opens it from a row. */
+  anchor: HTMLElement | null;
   error: string | null;
   onClose: () => void;
 };
@@ -95,7 +96,7 @@ type SheetProps = {
  * (and a translation its languages) or removed. They work from the bottom up, each on what the
  * one under it made.
  */
-const ReaderAiSheet: FC<SheetProps> = ({ medium, anchor, error, onClose }) => {
+export const ReaderAiSheet: FC<SheetProps> = ({ medium, anchor, error, onClose }) => {
   const { t } = useTranslation();
   const { layers, save } = useReaderAiLayers(medium);
   const shown = [...layers].reverse();
@@ -155,6 +156,7 @@ const ReaderAiSheet: FC<SheetProps> = ({ medium, anchor, error, onClose }) => {
         </div>
         <Link
           to="/settings/ai"
+          hash="models"
           onClick={onClose}
           className="text-primary px-1 pb-1 text-sm font-medium"
         >

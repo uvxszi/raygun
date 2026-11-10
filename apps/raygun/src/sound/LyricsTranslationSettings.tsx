@@ -72,6 +72,7 @@ export const LyricsTranslationSettings: FC = () => {
         title={t('lyricsTranslate.models')}
         summary={t('lyricsTranslate.modelsHint')}
         to="/settings/ai"
+        hash="models"
         icon={Cpu}
       />
     </PrefGroup>
