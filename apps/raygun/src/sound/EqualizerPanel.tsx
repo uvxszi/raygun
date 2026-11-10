@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { EQ_FREQUENCIES } from '../engine/soundGraph';
+import { DragSlider } from './DragSlider';
 import { formatDb } from './format';
 import { EQ_PRESETS, presetFor } from './presets';
 import type { FullSound } from './soundPrefs';
@@ -20,7 +21,8 @@ type EqualizerPanelProps = {
  * The equalizer (M46.12): presets, ten bands as vertical sliders over their curve, and the
  * preamp. Changing a band makes the preset "custom". Only the switch turns it on or off: while
  * it's off the presets, bands, curve and preamp are dimmed and can't be changed, so a stray drag
- * or tap changes nothing.
+ * or tap changes nothing, and a finger scrolls the page over them. While it's on, a band takes a
+ * finger only once it clearly moves along it (`DragSlider`); one moving across is the page's.
  */
 export const EqualizerPanel: FC<EqualizerPanelProps> = ({ sound, change }) => {
   const { t } = useTranslation();
@@ -123,18 +125,19 @@ export const EqualizerPanel: FC<EqualizerPanelProps> = ({ sound, change }) => {
                   {gain > 0 ? '+' : ''}
                   {(gain / 10).toFixed(gain % 10 === 0 ? 0 : 1)}
                 </span>
-                <input
-                  type="range"
-                  aria-label={t('sound.band', { frequency: `${frequencyLabel(hertz)}Hz` })}
-                  aria-valuetext={formatDb(gain)}
+                <DragSlider
+                  axis="y"
+                  enabled={on}
+                  label={t('sound.band', { frequency: `${frequencyLabel(hertz)}Hz` })}
+                  valueText={formatDb(gain)}
                   min={-LIMIT}
                   max={LIMIT}
                   step={5}
                   value={gain}
-                  disabled={!on}
-                  onChange={(event) => setBand(index, Number(event.target.value))}
-                  onDoubleClick={() => setBand(index, 0)}
-                  className="accent-primary h-40 w-6 enabled:cursor-pointer [direction:rtl] [writing-mode:vertical-lr]"
+                  onValue={(next) => setBand(index, next)}
+                  onReset={() => setBand(index, 0)}
+                  boxClassName="flex w-full justify-center"
+                  className="accent-primary h-40 w-6 [direction:rtl] [writing-mode:vertical-lr]"
                 />
                 <span className="text-muted text-2xs tabular-nums">{frequencyLabel(hertz)}</span>
               </div>
@@ -149,16 +152,17 @@ export const EqualizerPanel: FC<EqualizerPanelProps> = ({ sound, change }) => {
               {formatDb(sound.preamp)}
             </span>
           </span>
-          <input
-            type="range"
-            aria-label={t('sound.preamp')}
-            aria-valuetext={formatDb(sound.preamp)}
+          <DragSlider
+            axis="x"
+            enabled={on}
+            label={t('sound.preamp')}
+            valueText={formatDb(sound.preamp)}
             min={-LIMIT}
             max={LIMIT}
             step={5}
             value={sound.preamp}
-            disabled={!on}
-            onChange={(event) => shape({ preamp: Number(event.target.value) })}
+            onValue={(preamp) => shape({ preamp })}
+            boxClassName="flex w-full"
             className="accent-primary w-full"
           />
           <span className="text-muted text-xs">{t('sound.preampHint')}</span>

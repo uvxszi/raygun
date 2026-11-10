@@ -1,6 +1,6 @@
 import { commands } from '@raygun/bindings';
 import type { SongDownload } from '@raygun/bindings';
-import { ChevronDown, CircleStop, Disc3, X } from 'lucide-react';
+import { ChevronDown, CircleStop, Disc3, Minimize2, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,15 +16,15 @@ const percent = (share: number | null) => (share === null ? null : `${Math.round
  * One card for every song being recorded or waiting to be (M46.52): songs only YouTube's player
  * plays, recorded one after another in the background from hidden players of their own, silent,
  * so whatever plays goes on. It says how many, which one records now and how far it is, opens to
- * the whole queue, and stops one or all (they keep what was recorded and wait for Retry). Put
- * away, it comes back when another song is added to record.
+ * the whole queue, and stops one or all (they keep what was recorded and wait for Retry). The dock
+ * above the player bar lays it out (music/DownloadDock); Minimize turns it into the dock's round
+ * button.
  */
-export const RecordingHost: FC = () => {
+export const RecordingHost: FC<{ onMinimize: () => void }> = ({ onMinimize }) => {
   const { t } = useTranslation();
   const recordings = useSongDownloadsSelect(recordingsOf).data ?? NONE;
   const [open, setOpen] = useState(false);
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
-  if (recordings.length === 0 || recordings.every((item) => hidden.has(item.id))) return null;
+  if (recordings.length === 0) return null;
 
   const current = recordings.find((item) => item.state === 'downloading') ?? null;
   const share = current ? shareOf(current) : null;
@@ -39,7 +39,7 @@ export const RecordingHost: FC = () => {
     <section
       aria-label={t('songs.recording.title', { count: recordings.length })}
       data-testid="recording-card"
-      className="bg-surface fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-[70] mx-auto flex max-w-sm flex-col gap-2 rounded-2xl p-3 shadow-xl"
+      className="bg-surface motion-rise flex w-full flex-col gap-2 rounded-2xl p-3 shadow-lg shadow-black/15"
     >
       <div className="flex items-center gap-3">
         <Disc3 aria-hidden size={20} className={`text-primary shrink-0 ${current ? SPIN : ''}`} />
@@ -68,11 +68,12 @@ export const RecordingHost: FC = () => {
         </button>
         <button
           type="button"
-          aria-label={t('songs.recording.hide')}
-          onClick={() => setHidden(new Set(recordings.map((item) => item.id)))}
+          aria-label={t('songs.dock.minimize')}
+          title={t('songs.dock.minimize')}
+          onClick={onMinimize}
           className="hover:bg-primary/15 shrink-0 rounded-full p-2"
         >
-          <X aria-hidden size={18} />
+          <Minimize2 aria-hidden size={18} />
         </button>
       </div>
       {current && (
@@ -90,7 +91,10 @@ export const RecordingHost: FC = () => {
           />
         </div>
       )}
-      <p className="text-muted text-xs">{t('songs.recording.background')}</p>
+      {/* A short screen (a phone on its side) keeps the bar to its lines and progress. */}
+      <p className="text-muted text-xs [@media(max-height:32rem)]:hidden">
+        {t('songs.recording.background')}
+      </p>
       {open && (
         <ol className="flex max-h-48 flex-col gap-1 overflow-y-auto" data-testid="recording-queue">
           {recordings.map((item) => (

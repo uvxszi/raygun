@@ -3732,6 +3732,13 @@
     "toMusic": "Music/Raygun, in a folder per artist",
     "chooseFolder": "Choose a folder",
     "otherFolder": "Choose another folder",
+    "dock": {
+      "minimize": "Minimize",
+      "showRecording_one": "Show the recording: {{count}} song left, {{percent}}%",
+      "showRecording_other": "Show the recording: {{count}} songs left, {{percent}}%",
+      "openDownloads_one": "Song downloads: {{count}} left, {{percent}}%",
+      "openDownloads_other": "Song downloads: {{count}} left, {{percent}}%"
+    },
     "button": {
       "download": "Download",
       "downloading": "Downloading",

@@ -12,7 +12,7 @@ import { CoverSheet } from '../music/CoverSheet';
 import { MenuSheets } from '../music/MenuSheets';
 import { SourcePickerSheet } from '../music/SourcePickerSheet';
 import { CollectionSheets } from '../collections/CollectionSheetsHost';
-import { RecordingHost } from '../music/RecordingHost';
+import { DownloadDock } from '../music/DownloadDock';
 import { SongDownloadsHost } from '../music/SongDownloadsHost';
 import { useEngineHost } from '../engine/useEngineHost';
 import { useSpeechHost } from '../engine/useSpeechHost';
@@ -210,6 +210,8 @@ export const AppShell: FC = () => {
               </main>
               {!immersive && !phone && <SidePanel />}
             </div>
+            {/* The recording bar, or its round button, above the player bar: it covers nothing. */}
+            {!immersive && <DownloadDock />}
             {!immersive && <MiniPlayer />}
             {!immersive && <BottomTabs />}
           </div>
@@ -222,7 +224,6 @@ export const AppShell: FC = () => {
         <SourcePickerSheet />
         <CollectionSheets />
         <SongDownloadsHost />
-        <RecordingHost />
         <VideoPlayer />
         <YouTubeOverlay />
         <HoverLabel />

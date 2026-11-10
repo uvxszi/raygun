@@ -52,13 +52,21 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let tickAt = 0;
 let stopFollowing: (() => void) | null = null;
 
+/**
+ * Live values held where they are while the full player is dragged (`holdLiveValues`): the state
+ * they were worked out from and the moment, so nothing on screen moves until they're let go.
+ */
+let held: { state: PlaybackState | undefined; at: number } | null = null;
+/** Views that don't follow the timer (nothing plays) but catch up when held values are let go. */
+const waiting = new Set<() => void>();
+
 const tick = () => {
   tickAt = performance.now();
   for (const listener of [...listeners]) listener();
 };
 
 const startTimer = () => {
-  if (timer !== null || listeners.size === 0 || !isAppActive()) return;
+  if (timer !== null || listeners.size === 0 || !isAppActive() || held) return;
   tickAt = performance.now();
   timer = setInterval(tick, TICK_MS);
 };
@@ -101,20 +109,49 @@ const subscribeTicks = (listener: () => void) => {
   };
 };
 
-const noTicks = () => () => {};
+const subscribeRelease = (listener: () => void) => {
+  waiting.add(listener);
+  return () => {
+    waiting.delete(listener);
+  };
+};
+
+/**
+ * Holds every live value where it shows now (the seek bar, the lyric line, the bar's progress)
+ * until the function it returns lets them go: the timer stops, and reports that come meanwhile
+ * change nothing on screen, so each frame of a drag of the full player only moves the sheet.
+ * `state` is the shown state, as the views last drew it. Let go, they catch up at once; letting
+ * go twice, or a hold another one replaced, does nothing.
+ */
+export const holdLiveValues = (state: PlaybackState | undefined) => {
+  const hold = { state, at: tickAt };
+  held = hold;
+  stopTimer();
+  return () => {
+    if (held !== hold) return;
+    held = null;
+    tick();
+    for (const listener of [...waiting]) listener();
+    startTimer();
+  };
+};
+
+/** Whether live values are held now (tests). */
+export const liveValuesHeld = () => held !== null;
 
 /**
  * Something that follows the playhead (the lyric line, the time shown, a progress step), worked
  * out from the live position: the component re-renders only when it changes, not on every
- * report or tick. `derive` gets the position in ms.
+ * report or tick. `derive` gets the position in ms. While held (`holdLiveValues`), it stays what it
+ * was when the hold began.
  */
 export const useLiveValue = <T>(
   state: PlaybackState | undefined,
   derive: (position: number) => T,
 ) =>
   useSyncExternalStore(
-    state?.status === 'playing' ? subscribeTicks : noTicks,
-    () => derive(positionAt(state, tickAt)),
+    state?.status === 'playing' ? subscribeTicks : subscribeRelease,
+    () => derive(held ? positionAt(held.state, held.at) : positionAt(state, tickAt)),
     () => derive(positionAt(state, tickAt)),
   );
 

@@ -9,8 +9,9 @@ import {
   SlidersHorizontal,
   Subtitles,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import { AnimatePresence, motion, useDragControls } from 'motion/react';
+import { AnimatePresence, motion, useDragControls, useIsPresent } from 'motion/react';
 import type { DragControls, PanInfo } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import type {
@@ -37,6 +38,7 @@ import { SourceIssue } from '../shell/SourceIssue';
 import { usePanelSizes } from '../shell/usePanelSizes';
 import { SoundButton } from '../sound/SoundButton';
 import { CaptionsView } from './CaptionsView';
+import { CoverWash } from './CoverWash';
 import { FavoriteButton } from './FavoriteButton';
 import { hasVideo } from './hasVideo';
 import { LyricsView } from './LyricsView';
@@ -56,7 +58,8 @@ import { QueueActions, QueueList } from './QueueList';
 import { SeekBar } from './SeekBar';
 import { spokenName, useSpokenItem } from './spoken';
 import { SpokenByline } from './SpokenByline';
-import { isHandleTap, sheetDismissed } from './swipe';
+import { isHandleTap, sheetDrag } from './swipe';
+import type { SheetDrag } from './swipe';
 import {
   NextButton,
   PlayPauseButton,
@@ -65,7 +68,9 @@ import {
   ShuffleButton,
 } from './transport';
 import { useCoverFit } from './useCoverFit';
+import { holdLiveValues } from './useLivePosition';
 import {
+  shownState,
   sourceNoteKey,
   useCurrentItem,
   usePlayerSelect,
@@ -93,7 +98,8 @@ const GUTTER =
  *   controls.
  *
  * It follows the song and the view, not the playhead: only the seek bar and the lyric lines move
- * as a song plays.
+ * as a song plays. It's a layer of its own, so a drag or its slide only moves it: meanwhile those
+ * hold still too (`sheetDrag`), and the cover behind it is a wash drawn once (`CoverWash`).
  */
 export const PlayerSheet: FC = () => {
   const { t } = useTranslation();
@@ -111,6 +117,10 @@ export const PlayerSheet: FC = () => {
   const [layoutAnchor, setLayoutAnchor] = useState<HTMLElement | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
   const dragControls = useDragControls();
+  const client = useQueryClient();
+  // The live values hold from a drag's start until the sheet is back or gone.
+  const [drag] = useState(() => sheetDrag(() => holdLiveValues(shownState(client))));
+  useEffect(() => drag.gone, [drag]);
   const href = useRouterState({ select: (router) => router.location.href });
   const openedAt = useRef(href);
 
@@ -130,7 +140,7 @@ export const PlayerSheet: FC = () => {
   }, [href, sheetOpen, closeSheet]);
 
   const handleDragEnd = (_event: PointerEvent, info: PanInfo) => {
-    if (sheetDismissed(info.offset, info.velocity)) {
+    if (drag.end(info.offset, info.velocity)) {
       closeSheet();
     }
   };
@@ -143,7 +153,7 @@ export const PlayerSheet: FC = () => {
   const parts: LayoutParts = { item, spoken, view, setView, onScrub, isVideo };
 
   return (
-    <AnimatePresence>
+    <AnimatePresence onExitComplete={drag.gone}>
       {sheetOpen && (
         <motion.div
           key="player-sheet"
@@ -161,23 +171,24 @@ export const PlayerSheet: FC = () => {
           dragListener={layout === 'sideBySide' && !scrubbing}
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.7 }}
+          onDragStart={drag.start}
           onDragEnd={handleDragEnd}
+          onDragTransitionEnd={drag.settled}
           style={sizes}
           // Below the status bar and the camera's cutout: the handle and the header's buttons
-          // start under the top inset, never in it.
-          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+          // start under the top inset, never in it. A layer of its own (`will-change`): moving
+          // it is the compositor's work, nothing in it is painted again.
+          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] will-change-transform"
         >
+          <HoldWhileLeaving drag={drag} />
           {prefs.background && item?.artworkUrl && !isVideo && (
-            // Its own layer, painted once: the controls changing over it don't blur it again.
+            // Its own layer, drawn once: the controls changing over it and the sheet moving
+            // don't draw it again.
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0 -z-10 transform-gpu overflow-hidden [contain:strict]"
             >
-              <img
-                src={item.artworkUrl}
-                alt=""
-                className="size-full scale-125 object-cover opacity-45 blur-3xl"
-              />
+              <CoverWash url={item.artworkUrl} className="size-full object-cover opacity-45" />
               <div className="from-background/30 via-background/60 to-background absolute inset-0 bg-gradient-to-b" />
             </div>
           )}
@@ -237,6 +248,19 @@ export const PlayerSheet: FC = () => {
       )}
     </AnimatePresence>
   );
+};
+
+/**
+ * Inside the sheet: as it starts sliding away (a drag let go, a tap on its handle, Back), its live
+ * values hold until it has gone; opened again on its way out, they're let go.
+ */
+const HoldWhileLeaving: FC<{ drag: SheetDrag }> = ({ drag }) => {
+  const present = useIsPresent();
+  useEffect(() => {
+    if (present) drag.gone();
+    else drag.leaving();
+  }, [present, drag]);
+  return null;
 };
 
 type LayoutParts = {
