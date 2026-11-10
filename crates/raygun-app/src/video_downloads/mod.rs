@@ -633,7 +633,11 @@ impl VideoDownloadService {
                     key: row.download.key,
                     title_id: row.download.title_id,
                     title: row.download.title,
-                    subtitle: row.download.subtitle,
+                    // A movie's line is the release years its addon wrote ("2024–").
+                    subtitle: row
+                        .download
+                        .subtitle
+                        .map(|subtitle| crate::stremio::release_label(&subtitle)),
                 })
                 .collect(),
         })

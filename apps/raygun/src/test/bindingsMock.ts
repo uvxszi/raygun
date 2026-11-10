@@ -621,7 +621,11 @@ export const bindingsMock = {
     videoPlayLink: vi.fn(),
     videoContinueWatching: vi.fn(),
     videoResume: vi.fn(),
+    videoPlayFromStart: vi.fn(),
+    videoPlayNext: vi.fn(),
+    videoMarkWatched: vi.fn(),
     videoRemove: vi.fn(),
+    videoRemoveMany: vi.fn(),
     libraryCategories: vi.fn(),
     libraryCategoryCreate: vi.fn(),
     libraryCategoryRename: vi.fn(),
@@ -1405,7 +1409,11 @@ export const seedBindings = () => {
   commands.videoPlayLink.mockResolvedValue(ok(null));
   commands.videoContinueWatching.mockResolvedValue(ok([]));
   commands.videoResume.mockResolvedValue(ok(null));
+  commands.videoPlayFromStart.mockResolvedValue(ok(null));
+  commands.videoPlayNext.mockResolvedValue(ok(true));
+  commands.videoMarkWatched.mockResolvedValue(ok(null));
   commands.videoRemove.mockResolvedValue(ok(null));
+  commands.videoRemoveMany.mockImplementation(async (keys: string[]) => ok(keys.length));
   commands.libraryCategories.mockResolvedValue(ok([]));
   commands.libraryCategoryCreate.mockResolvedValue(ok(null));
   commands.libraryCategoryRename.mockResolvedValue(ok(null));

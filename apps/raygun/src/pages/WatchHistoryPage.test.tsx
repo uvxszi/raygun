@@ -51,7 +51,7 @@ describe('Watch history', () => {
     expect(commands.videoResume).toHaveBeenCalledWith('stremio:series:tt1:1:2');
   });
 
-  it('follows the player and asks before removing an entry', async () => {
+  it('follows the player and asks before removing an entry from its menu', async () => {
     const user = userEvent.setup();
     commands.videoHistory.mockResolvedValue(ok([entry(1, Date.now())]));
     await AppShellWrapper.mount('/watch/history');
@@ -65,11 +65,54 @@ describe('Watch history', () => {
     ).toBeInTheDocument();
 
     await user.click(
-      within(row).getByRole('button', { name: 'Remove Breaking Bad · S1 E1 · Episode 1' }),
+      within(row).getByRole('button', { name: 'Options for Breaking Bad · S1 E1 · Episode 1' }),
     );
+    await user.click(screen.getByRole('menuitem', { name: 'Remove from history' }));
     expect(commands.videoRemove).not.toHaveBeenCalled();
-    await user.click(within(row).getByRole('button', { name: 'Remove' }));
+    await user.click(
+      within(
+        screen.getByRole('alertdialog', {
+          name: 'Remove Breaking Bad · S1 E1 · Episode 1 from your watch history?',
+        }),
+      ).getByRole('button', { name: 'Remove from history' }),
+    );
     expect(commands.videoRemove).toHaveBeenCalledWith('stremio:series:tt1:1:1');
+  });
+
+  it('removes picked entries together after asking', async () => {
+    const user = userEvent.setup();
+    commands.videoHistory.mockResolvedValue(
+      ok([entry(3, Date.now()), entry(2, Date.now() - 5), entry(1, Date.now() - 10)]),
+    );
+    await AppShellWrapper.mount('/watch/history');
+    const row = (episode: number) =>
+      screen.getByRole('listitem', {
+        name: `Breaking Bad · S1 E${episode} · Episode ${episode}`,
+      });
+    await screen.findByRole('listitem', { name: 'Breaking Bad · S1 E3 · Episode 3' });
+
+    // Ctrl-click picks a row instead of playing it; Shift-click picks the rows between.
+    await user.keyboard('[ControlLeft>]');
+    await user.click(within(row(3)).getByRole('button', { name: /^Breaking Bad/ }));
+    await user.keyboard('[/ControlLeft]');
+    await user.keyboard('[ShiftLeft>]');
+    await user.click(within(row(2)).getByRole('button', { name: /^Breaking Bad/ }));
+    await user.keyboard('[/ShiftLeft]');
+    expect(commands.videoResume).not.toHaveBeenCalled();
+    const bar = screen.getByRole('toolbar', { name: 'Selected videos' });
+    expect(bar).toHaveTextContent('2 selected');
+
+    await user.click(within(bar).getByRole('button', { name: 'Remove' }));
+    await user.click(
+      within(
+        screen.getByRole('alertdialog', { name: 'Remove 2 videos from your watch history?' }),
+      ).getByRole('button', { name: 'Remove' }),
+    );
+    expect(commands.videoRemoveMany).toHaveBeenCalledWith([
+      'stremio:series:tt1:1:3',
+      'stremio:series:tt1:1:2',
+    ]);
+    expect(await screen.findByText('Removed 2 videos from your watch history')).toBeInTheDocument();
   });
 
   it('sends an empty history to Browse → Search for videos', async () => {

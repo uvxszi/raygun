@@ -1096,7 +1096,15 @@ export const commands = {
 	videoContinueWatching: () => typedError<ContinueWatching[], string>(__TAURI_INVOKE("video_continue_watching")),
 	/**  Plays a "continue watching" entry again. */
 	videoResume: (key: string) => typedError<null, string>(__TAURI_INVOKE("video_resume", { key })),
+	/**  Plays a "continue watching" entry from its start. */
+	videoPlayFromStart: (key: string) => typedError<null, string>(__TAURI_INVOKE("video_play_from_start", { key })),
+	/**  Plays the episode after a "continue watching" entry's; false when there's none. */
+	videoPlayNext: (key: string) => typedError<boolean, string>(__TAURI_INVOKE("video_play_next", { key })),
+	/**  Marks a "continue watching" entry watched: it leaves Continue watching without moving on. */
+	videoMarkWatched: (key: string) => typedError<null, string>(__TAURI_INVOKE("video_mark_watched", { key })),
 	videoRemove: (key: string) => typedError<null, string>(__TAURI_INVOKE("video_remove", { key })),
+	/**  Takes several entries out of Continue watching (and the history) at once; returns how many. */
+	videoRemoveMany: (keys: string[]) => typedError<number, string>(__TAURI_INVOKE("video_remove_many", { keys })),
 	/**  Everything watched or started, most recent first (the Videos library). */
 	videoHistory: () => typedError<ContinueWatching[], string>(__TAURI_INVOKE("video_history")),
 	libraryCategories: (medium: string) => typedError<LibraryCategory[], string>(__TAURI_INVOKE("library_categories", { medium })),
@@ -2497,6 +2505,20 @@ export type ContinueWatching = {
 	 */
 	sourceId?: string | null,
 	remoteId?: string | null,
+	/**
+	 *  The title's player group (`title:<id>` for a video source's stored title, or
+	 *  `stremio:<type>:<id>`), which episode downloads take. None for a link played on its own.
+	 */
+	group?: string | null,
+	/**
+	 *  The movie's or episode's id at its source (Stremio: the video id), for picking its
+	 *  source or downloading it.
+	 */
+	episodeId?: string | null,
+	/**  The stored episode of a video source's title, which its servers are listed for. */
+	unitId?: string | null,
+	/**  An episode of a series, which may have a next one to move on to. */
+	series?: boolean,
 };
 
 /**  A cover a source has for a song, an album or an artist (M46.36), offered in Edit details. */

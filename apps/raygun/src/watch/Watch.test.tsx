@@ -51,7 +51,7 @@ describe('Watch tab', () => {
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
-  it('continues, removes and refreshes unfinished videos', async () => {
+  it('continues, removes (asked first) and refreshes unfinished videos', async () => {
     const user = userEvent.setup();
     commands.videoContinueWatching.mockResolvedValue(ok([FILM]));
     await AppShellWrapper.mount('/library?media=video');
@@ -60,9 +60,15 @@ describe('Watch tab', () => {
     await user.click(within(item).getByRole('button', { name: /^A Film/ }));
     expect(commands.videoResume).toHaveBeenCalledWith(FILM.key);
 
+    // Removing is in ⋮, and asks first.
+    await user.click(within(item).getByRole('button', { name: 'Options for A Film' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Remove from Continue watching' }));
+    expect(commands.videoRemove).not.toHaveBeenCalled();
     commands.videoContinueWatching.mockResolvedValue(ok([]));
     await user.click(
-      within(item).getByRole('button', { name: 'Remove A Film from Continue watching' }),
+      within(
+        screen.getByRole('alertdialog', { name: 'Remove A Film from Continue watching?' }),
+      ).getByRole('button', { name: 'Remove from Continue watching' }),
     );
     expect(commands.videoRemove).toHaveBeenCalledWith(FILM.key);
     await vi.waitFor(() => expect(screen.queryByText('Continue watching')).not.toBeInTheDocument());

@@ -3,6 +3,7 @@ import type { VideoRequest } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { unwrapResult } from '../lib/commandResult';
+import { WATCH_PROGRESS_KEYS } from '../shell/useLiveInvalidation';
 
 const WATCH = ['watch'];
 const CONTINUE = [...WATCH, 'continue'];
@@ -46,5 +47,29 @@ export const useRemoveContinue = () => {
     mutationFn: (key: string) => unwrapResult(commands.videoRemove(key)),
     // Continue watching and the history both list it.
     onSettled: () => queryClient.invalidateQueries({ queryKey: WATCH }),
+  });
+};
+
+/** Takes several entries out of Continue watching (and the history); resolves to how many. */
+export const useRemoveContinueMany = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (keys: string[]) => unwrapResult(commands.videoRemoveMany(keys)),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: WATCH }),
+  });
+};
+
+/**
+ * Marks an entry watched without moving on to its next episode: it leaves Continue watching, and
+ * its title's page shows the episode watched.
+ */
+export const useMarkContinueWatched = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => unwrapResult(commands.videoMarkWatched(key)),
+    onSettled: () =>
+      Promise.all(
+        WATCH_PROGRESS_KEYS.map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+      ),
   });
 };

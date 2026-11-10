@@ -7559,6 +7559,23 @@ pub struct ContinueWatching {
     #[serde(default)]
     #[specta(optional)]
     pub remote_id: Option<String>,
+    /// The title's player group (`title:<id>` for a video source's stored title, or
+    /// `stremio:<type>:<id>`), which episode downloads take. None for a link played on its own.
+    #[serde(default)]
+    #[specta(optional)]
+    pub group: Option<String>,
+    /// The movie's or episode's id at its source (Stremio: the video id), for picking its
+    /// source or downloading it.
+    #[serde(default)]
+    #[specta(optional)]
+    pub episode_id: Option<String>,
+    /// The stored episode of a video source's title, which its servers are listed for.
+    #[serde(default)]
+    #[specta(optional)]
+    pub unit_id: Option<String>,
+    /// An episode of a series, which may have a next one to move on to.
+    #[serde(default)]
+    pub series: bool,
 }
 
 // ---- Search across sources and source filters (M40) ----

@@ -4066,10 +4066,38 @@ pub async fn video_resume(app: tauri::AppHandle, key: String) -> Result<(), Stri
     crate::video::resume(&app, &key).await
 }
 
+/// Plays a "continue watching" entry from its start.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_play_from_start(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    crate::video::play_from_start(&app, &key).await
+}
+
+/// Plays the episode after a "continue watching" entry's; false when there's none.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_play_next(app: tauri::AppHandle, key: String) -> Result<bool, String> {
+    crate::video::play_next(&app, &key).await
+}
+
+/// Marks a "continue watching" entry watched: it leaves Continue watching without moving on.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_mark_watched(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    crate::video::mark_watched(&app, &key).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn video_remove(app: tauri::AppHandle, key: String) -> Result<(), String> {
     crate::video::remove(&app, &key).await
+}
+
+/// Takes several entries out of Continue watching (and the history) at once; returns how many.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_remove_many(app: tauri::AppHandle, keys: Vec<String>) -> Result<u32, String> {
+    crate::video::remove_many(&app, &keys).await
 }
 
 // ---- Library categories (M39) ----
