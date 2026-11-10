@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useEffectEvent, useLayoutEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 
 import { createGlide } from './lyricsGlide';
@@ -90,12 +90,14 @@ export const useFollowLine = <
   const lineRef = useRef<Line>(null);
   const listRef = useRef<List>(null);
   const glide = useRef<Glide | null>(null);
+  const teardown = useRef<(() => void) | null>(null);
   const heldUntil = useRef(0);
   const placed = useRef<{ key: unknown } | null>(null);
 
-  useLayoutEffect(() => {
-    const box = container.current;
-    if (!box) return;
+  // The glide is made when it's first needed: lines that show together with their box (the
+  // phone's lyrics opening) run their effects before the box's ref is set.
+  const ensure = (box: HTMLElement): Glide => {
+    if (glide.current) return glide.current;
     const moving = createGlide(box);
     glide.current = moving;
     // A finger on the lines stops them at once; scrolling them holds them where they're put.
@@ -119,27 +121,46 @@ export const useFollowLine = <
           });
     observer?.observe(box);
     if (listRef.current) observer?.observe(listRef.current);
-    return () => {
+    teardown.current = () => {
       box.removeEventListener('touchstart', stop);
       box.removeEventListener('touchmove', hold);
       box.removeEventListener('wheel', hold);
       observer?.disconnect();
       moving.stop();
-      glide.current = null;
-      placed.current = null;
     };
-  }, [container, scrollable, place]);
+    return moving;
+  };
 
-  useLayoutEffect(() => {
+  // Puts the line in its place: at once for lines seen for the first time, else gliding.
+  const follow = useEffectEvent(() => {
     const box = container.current;
-    const moving = glide.current;
-    if (!box || !moving) return;
+    if (!box) return;
+    const moving = ensure(box);
     const fresh = placed.current === null || placed.current.key !== linesKey;
     placed.current = { key: linesKey };
     if (fresh) heldUntil.current = 0;
     else if (performance.now() < heldUntil.current) return;
     moving.to(spotFor(box, lineRef.current, listRef.current, place), fresh);
+  });
+
+  useLayoutEffect(
+    () => () => {
+      teardown.current?.();
+      teardown.current = null;
+      glide.current = null;
+      placed.current = null;
+    },
+    [container, scrollable, place],
+  );
+
+  useLayoutEffect(() => {
+    follow();
   }, [current, linesKey, container, place]);
+
+  // Lines that showed before their box had its ref are placed once it has.
+  useEffect(() => {
+    if (!placed.current) follow();
+  });
 
   return { lineRef, listRef };
 };
