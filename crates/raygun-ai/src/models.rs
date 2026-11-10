@@ -1,6 +1,7 @@
 //! The model manager: a built-in catalogue of downloadable models, each installed as a folder
 //! `models/<id>/` holding exactly its files. Downloads are size-capped and SHA-256-checked, and
-//! land in `<id>.part/` until every file checks out.
+//! land in `<id>.part/` until every file checks out; a cancelled one stops at once and leaves
+//! nothing behind.
 
 use std::path::{Path, PathBuf};
 
@@ -8,6 +9,7 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
+pub use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +68,8 @@ pub enum ModelError {
     TooLarge(String),
     #[error("{0} is damaged (its size or checksum doesn't match)")]
     Mismatch(String),
+    #[error("the download was cancelled")]
+    Cancelled,
 }
 
 /// The built-in catalogue.
@@ -94,18 +98,33 @@ pub fn is_installed(models_dir: &Path, model: &ModelInfo) -> bool {
 }
 
 /// Downloads every file of `model`, calling `progress(received, total)` as bytes arrive, and
-/// installs it. On any failure nothing is left behind.
+/// installs it. `cancel` stops it wherever it is (waiting for an answer, between two pieces) with
+/// [`ModelError::Cancelled`]. On any failure, a cancel included, nothing is left behind and an
+/// installed copy stays as it was.
 pub async fn download(
     client: &reqwest::Client,
     models_dir: &Path,
     model: &ModelInfo,
+    cancel: &CancellationToken,
     mut progress: impl FnMut(u64, u64),
 ) -> Result<(), ModelError> {
     let target = model_dir(models_dir, model);
     let partial = models_dir.join(format!("{}.part", model.id));
     let _ = tokio::fs::remove_dir_all(&partial).await;
+    if cancel.is_cancelled() {
+        return Err(ModelError::Cancelled);
+    }
     tokio::fs::create_dir_all(&partial).await?;
-    if let Err(error) = fetch_all(client, &partial, model, &mut progress).await {
+    let fetched = fetch_all(client, &partial, model, cancel, &mut progress).await;
+    // Cancelled after its last byte: still nothing is installed.
+    let fetched = fetched.and_then(|()| {
+        if cancel.is_cancelled() {
+            Err(ModelError::Cancelled)
+        } else {
+            Ok(())
+        }
+    });
+    if let Err(error) = fetched {
         let _ = tokio::fs::remove_dir_all(&partial).await;
         return Err(error);
     }
@@ -118,6 +137,7 @@ async fn fetch_all(
     client: &reqwest::Client,
     dir: &Path,
     model: &ModelInfo,
+    cancel: &CancellationToken,
     progress: &mut impl FnMut(u64, u64),
 ) -> Result<(), ModelError> {
     let total = model.size();
@@ -128,7 +148,11 @@ async fn fetch_all(
         if file.name.contains(['/', '\\']) || file.name.starts_with('.') {
             return Err(ModelError::Mismatch(file.name.clone()));
         }
-        let response = client.get(&file.url).send().await?.error_for_status()?;
+        let response = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(ModelError::Cancelled),
+            response = client.get(&file.url).send() => response?.error_for_status()?,
+        };
         if response
             .content_length()
             .is_some_and(|length| length > file.size)
@@ -136,26 +160,54 @@ async fn fetch_all(
             return Err(ModelError::TooLarge(file.name.clone()));
         }
         let mut out = tokio::fs::File::create(dir.join(&file.name)).await?;
-        let mut hasher = Sha256::new();
-        let mut written = 0u64;
-        let mut body = response.bytes_stream();
-        while let Some(chunk) = body.next().await {
-            let chunk = chunk?;
-            written += chunk.len() as u64;
-            if written > file.size {
-                return Err(ModelError::TooLarge(file.name.clone()));
-            }
-            hasher.update(&chunk);
-            out.write_all(&chunk).await?;
-            received += chunk.len() as u64;
+        let written = write_body(response, &mut out, file, cancel, |bytes| {
+            received += bytes;
             progress(received, total);
-        }
-        out.flush().await?;
-        if written != file.size || hex(&hasher.finalize()) != file.sha256 {
+        })
+        .await;
+        // The file is closed before anything removes it: a write still on its way would keep
+        // it open (and Windows doesn't delete open files).
+        let flushed = out.flush().await;
+        drop(out);
+        let (written, hash) = written?;
+        flushed?;
+        if written != file.size || hash != file.sha256 {
             return Err(ModelError::Mismatch(file.name.clone()));
         }
     }
     Ok(())
+}
+
+/// Writes a file's body as it arrives, stopping at a cancel; its length and SHA-256 come back.
+async fn write_body(
+    response: reqwest::Response,
+    out: &mut tokio::fs::File,
+    file: &ModelFile,
+    cancel: &CancellationToken,
+    mut arrived: impl FnMut(u64),
+) -> Result<(u64, String), ModelError> {
+    let mut hasher = Sha256::new();
+    let mut written = 0u64;
+    let mut body = response.bytes_stream();
+    loop {
+        let chunk = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(ModelError::Cancelled),
+            chunk = body.next() => chunk,
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
+        let chunk = chunk?;
+        written += chunk.len() as u64;
+        if written > file.size {
+            return Err(ModelError::TooLarge(file.name.clone()));
+        }
+        hasher.update(&chunk);
+        out.write_all(&chunk).await?;
+        arrived(chunk.len() as u64);
+    }
+    Ok((written, hex(&hasher.finalize())))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -231,7 +283,25 @@ mod tests {
     async fn serve() -> String {
         let app = Router::new()
             .route("/a.param", get(|| async { "param-data" }))
-            .route("/a.bin", get(|| async { vec![7u8; 5000] }));
+            .route("/a.bin", get(|| async { vec![7u8; 5000] }))
+            // A piece of the file, then nothing more for as long as the client waits.
+            .route(
+                "/slow.bin",
+                get(|| async {
+                    let first = futures_util::stream::once(async {
+                        Ok::<_, std::io::Error>(axum::body::Bytes::from(vec![7u8; 1000]))
+                    });
+                    axum::body::Body::from_stream(first.chain(futures_util::stream::pending()))
+                }),
+            )
+            // No answer at all.
+            .route(
+                "/hang.bin",
+                get(|| async {
+                    std::future::pending::<()>().await;
+                    "never"
+                }),
+            );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -271,10 +341,11 @@ mod tests {
         let base = serve().await;
         let dir = tempfile::tempdir().unwrap();
         let client = raygun_net::http_client().unwrap();
+        let go = CancellationToken::new();
 
         let good = model(&base, sha(&[7u8; 5000]), 5000);
         let mut seen = Vec::new();
-        download(&client, dir.path(), &good, |received, total| {
+        download(&client, dir.path(), &good, &go, |received, total| {
             seen.push((received, total))
         })
         .await
@@ -289,15 +360,100 @@ mod tests {
         delete(dir.path(), &good).await.unwrap();
 
         let wrong_hash = model(&base, sha(b"other"), 5000);
-        let error = download(&client, dir.path(), &wrong_hash, |_, _| {}).await;
+        let error = download(&client, dir.path(), &wrong_hash, &go, |_, _| {}).await;
         assert!(matches!(error, Err(ModelError::Mismatch(_))), "{error:?}");
         let too_long = model(&base, sha(&[7u8; 5000]), 4000);
-        let error = download(&client, dir.path(), &too_long, |_, _| {}).await;
+        let error = download(&client, dir.path(), &too_long, &go, |_, _| {}).await;
         assert!(matches!(error, Err(ModelError::TooLarge(_))), "{error:?}");
         assert_eq!(
             std::fs::read_dir(dir.path()).unwrap().count(),
             0,
             "nothing left behind"
         );
+    }
+
+    /// `model`'s second file swapped for one served from `path`.
+    fn with_second(base: &str, path: &str) -> ModelInfo {
+        let mut model = model(base, sha(&[7u8; 5000]), 5000);
+        model.files[1].url = format!("{base}{path}");
+        model
+    }
+
+    #[tokio::test]
+    async fn a_cancel_stops_the_transfer_and_keeps_nothing_of_it() {
+        let base = serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        let client = raygun_net::http_client().unwrap();
+
+        // Already installed: a cancelled download of it again leaves this copy alone.
+        let good = model(&base, sha(&[7u8; 5000]), 5000);
+        download(
+            &client,
+            dir.path(),
+            &good,
+            &CancellationToken::new(),
+            |_, _| {},
+        )
+        .await
+        .unwrap();
+
+        // Cancelled once part of the second file is in, while the server holds the rest back.
+        let slow = with_second(&base, "/slow.bin");
+        let cancel = CancellationToken::new();
+        let mut last = 0;
+        let stopped = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            download(&client, dir.path(), &slow, &cancel, |received, _| {
+                last = received;
+                if received >= 1010 {
+                    cancel.cancel();
+                }
+            }),
+        )
+        .await
+        .expect("a cancel doesn't wait for the server");
+        assert!(matches!(stopped, Err(ModelError::Cancelled)), "{stopped:?}");
+        assert_eq!(last, 1010);
+        assert!(
+            !dir.path().join("test-model.part").exists(),
+            "no partial files"
+        );
+        assert!(is_installed(dir.path(), &good), "the installed copy stays");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_cancel_stops_a_download_still_waiting_for_its_answer() {
+        let base = serve().await;
+        let dir = tempfile::tempdir().unwrap();
+        let client = raygun_net::http_client().unwrap();
+        let hanging = with_second(&base, "/hang.bin");
+        let cancel = CancellationToken::new();
+        let later = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            later.cancel();
+        });
+        let stopped = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            download(&client, dir.path(), &hanging, &cancel, |_, _| {}),
+        )
+        .await
+        .expect("a cancel doesn't wait for the answer");
+        assert!(matches!(stopped, Err(ModelError::Cancelled)), "{stopped:?}");
+        assert!(!is_installed(dir.path(), &hanging));
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "nothing left behind"
+        );
+
+        // Cancelled before it starts: nothing is fetched.
+        let error = download(&client, dir.path(), &hanging, &cancel, |_, _| {
+            panic!("nothing arrives")
+        })
+        .await;
+        assert!(matches!(error, Err(ModelError::Cancelled)), "{error:?}");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 }

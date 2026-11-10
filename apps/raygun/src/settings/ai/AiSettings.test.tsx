@@ -396,7 +396,14 @@ describe('Settings → AI', () => {
     );
   });
 
-  it('lists the models by use, with their sizes and the space they take', async () => {
+  /** The model rows shown, in order. */
+  const modelRows = (models: HTMLElement) =>
+    within(models)
+      .getAllByRole('listitem')
+      .map((row) => row.getAttribute('aria-label'))
+      .filter(Boolean);
+
+  it('lists the models by name, with their uses, sizes and the space they take', async () => {
     commands.aiModels.mockResolvedValue([
       CUGAN,
       ANIME4K,
@@ -408,12 +415,8 @@ describe('Settings → AI', () => {
     const models = await region('On-device models');
 
     expect(await within(models).findByText('444 MB · 2 models')).toBeInTheDocument();
-    const rows = within(models)
-      .getAllByRole('listitem')
-      .map((row) => row.getAttribute('aria-label'))
-      .filter(Boolean);
     // ncnn's upscalers don't run in this version: they're listed only to remove them.
-    expect(rows).toEqual([OPUS.name, WHISPER.name, OCRS.name, ANIME4K.name]);
+    expect(modelRows(models)).toEqual([ANIME4K.name, WHISPER.name, OCRS.name, OPUS.name]);
     expect(
       within(within(models).getByRole('listitem', { name: OPUS.name })).getByText(
         'Translation · 298 MB · Installed',
@@ -426,10 +429,190 @@ describe('Settings → AI', () => {
     ).toBeInTheDocument();
   });
 
+  it('narrows the models by use with pills, and sorts them', async () => {
+    const user = userEvent.setup();
+    commands.aiModels.mockResolvedValue([
+      { ...CUGAN, installed: true },
+      ANIME4K,
+      OCRS,
+      WHISPER,
+      { ...WHISPER_BASE, installed: true },
+      OPUS,
+    ]);
+    await AppShellWrapper.mount('/settings/ai');
+    const models = await region('On-device models');
+    await within(models).findByRole('listitem', { name: OPUS.name });
+    const pills = within(models).getByRole('group', { name: 'Show models' });
+    expect(
+      within(pills)
+        .getAllByRole('button')
+        .map((pill) => pill.textContent),
+    ).toEqual(['All', 'Translation', 'Transcription', 'Text reading', 'Upscaling', 'Downloaded']);
+    expect(within(pills).getByRole('button', { name: 'All' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    const pill = (name: string) => user.click(within(pills).getByRole('button', { name }));
+
+    await pill('Translation');
+    expect(within(pills).getByRole('button', { name: 'Translation' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(modelRows(models)).toEqual([OPUS.name]);
+    await pill('Transcription');
+    expect(modelRows(models)).toEqual([WHISPER_BASE.name, WHISPER.name]);
+    await pill('Text reading');
+    expect(modelRows(models)).toEqual([OCRS.name]);
+    // The readers' upscalers, an ncnn one too while it's downloaded (to remove it).
+    await pill('Upscaling');
+    expect(modelRows(models)).toEqual([ANIME4K.name, CUGAN.name]);
+    await pill('Downloaded');
+    expect(modelRows(models)).toEqual([CUGAN.name, WHISPER_BASE.name]);
+
+    await pill('All');
+    const sort = within(models).getByRole('combobox', { name: 'Sort by' });
+    expect(sort).toHaveValue('name');
+    await user.selectOptions(sort, 'Size');
+    expect(modelRows(models)).toEqual([
+      OPUS.name,
+      WHISPER_BASE.name,
+      WHISPER.name,
+      OCRS.name,
+      CUGAN.name,
+      ANIME4K.name,
+    ]);
+    await user.selectOptions(sort, 'Downloaded first');
+    expect(modelRows(models)).toEqual([
+      CUGAN.name,
+      WHISPER_BASE.name,
+      ANIME4K.name,
+      WHISPER.name,
+      OCRS.name,
+      OPUS.name,
+    ]);
+  });
+
+  it('says when no model is downloaded yet', async () => {
+    const user = userEvent.setup();
+    commands.aiModels.mockResolvedValue([OCRS, OPUS]);
+    await AppShellWrapper.mount('/settings/ai');
+    const models = await region('On-device models');
+    await within(models).findByRole('listitem', { name: OPUS.name });
+    await user.click(
+      within(within(models).getByRole('group', { name: 'Show models' })).getByRole('button', {
+        name: 'Downloaded',
+      }),
+    );
+    expect(within(models).getByText('No models downloaded yet')).toBeInTheDocument();
+    expect(modelRows(models)).toEqual([]);
+  });
+
+  it('cancels a download from its row, leaving the model as it was', async () => {
+    const user = userEvent.setup();
+    commands.aiModels.mockResolvedValue([OPUS]);
+    let finish: (value: { status: 'ok'; data: 'cancelled' }) => void = () => {};
+    commands.aiModelDownload.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    await AppShellWrapper.mount('/settings/ai');
+    const models = await region('On-device models');
+    const row = await within(models).findByRole('listitem', { name: OPUS.name });
+
+    await user.click(within(row).getByRole('button', { name: `Download ${OPUS.name}` }));
+    emitEvent('aiModelEvent', {
+      id: OPUS.id,
+      state: 'downloading',
+      receivedBytes: 31_249_362,
+      totalBytes: OPUS.sizeBytes,
+      error: null,
+    });
+    expect(
+      await within(row).findByText('Translation · 298 MB · Downloading · 10%'),
+    ).toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: `Download ${OPUS.name}` })).toBeNull();
+
+    await user.click(within(row).getByRole('button', { name: `Cancel downloading ${OPUS.name}` }));
+    expect(commands.aiModelCancel).toHaveBeenCalledWith(OPUS.id);
+    finish(ok('cancelled'));
+    emitEvent('aiModelEvent', {
+      id: OPUS.id,
+      state: 'cancelled',
+      receivedBytes: 0,
+      totalBytes: OPUS.sizeBytes,
+      error: null,
+    });
+    // Back as it was: Download again, no bar and nothing said to have failed.
+    expect(
+      await within(row).findByRole('button', { name: `Download ${OPUS.name}` }),
+    ).toBeInTheDocument();
+    expect(within(row).getByText('Translation · 298 MB')).toBeInTheDocument();
+    expect(within(row).queryByRole('progressbar')).toBeNull();
+    expect(within(row).queryByRole('alert')).toBeNull();
+  });
+
+  it('cancels the speech model downloading in Transcription', async () => {
+    const user = userEvent.setup();
+    withSettings({
+      ...DEFAULT_SETTINGS,
+      transcription: { ...DEFAULT_SETTINGS.transcription, engine: 'local' },
+    });
+    commands.aiModels.mockResolvedValue([{ ...WHISPER, downloading: 15_354_413 }]);
+    await AppShellWrapper.mount('/settings/ai');
+    const transcription = await region('Transcription');
+    expect(await within(transcription).findByText('Downloading · 10%')).toBeInTheDocument();
+
+    // Rust's list, once it stopped.
+    commands.aiModels.mockResolvedValue([WHISPER]);
+    await user.click(
+      within(transcription).getByRole('button', { name: `Cancel downloading ${WHISPER.name}` }),
+    );
+    expect(commands.aiModelCancel).toHaveBeenCalledWith(WHISPER.id);
+    expect(
+      await within(transcription).findByRole('button', { name: `Download ${WHISPER.name}` }),
+    ).toBeInTheDocument();
+  });
+
+  it("cancels a layer's model downloading in the reader's AI layers", async () => {
+    const user = userEvent.setup();
+    withSettings({
+      ...DEFAULT_SETTINGS,
+      readerAi: {
+        comic: [{ id: 'up', kind: 'upscale', enabled: true, model: '', from: '', to: '' }],
+        novel: [],
+      },
+    });
+    commands.aiModels.mockResolvedValue([ANIME4K]);
+    commands.aiModelDownload.mockReturnValue(new Promise(() => {}));
+    await AppShellWrapper.mount('/settings/ai');
+    const reading = await region('Text reading');
+    await user.click(within(reading).getByRole('button', { name: /^Comic translation/ }));
+    const layers = await screen.findByRole('dialog', { name: 'AI layers' });
+    const layer = within(layers).getByRole('listitem', { name: 'Upscale' });
+
+    await user.click(await within(layer).findByRole('button', { name: 'Download' }));
+    expect(commands.aiModelDownload).toHaveBeenCalledWith(ANIME4K.id);
+    emitEvent('aiModelEvent', {
+      id: ANIME4K.id,
+      state: 'downloading',
+      receivedBytes: 9_319,
+      totalBytes: ANIME4K.sizeBytes,
+      error: null,
+    });
+    await waitFor(() => expect(within(layer).getByRole('status')).toHaveTextContent('50%'));
+    await user.click(
+      within(layer).getByRole('button', { name: `Cancel downloading ${ANIME4K.name}` }),
+    );
+    expect(commands.aiModelCancel).toHaveBeenCalledWith(ANIME4K.id);
+    expect(await within(layer).findByRole('button', { name: 'Download' })).toBeInTheDocument();
+  });
+
   it('downloads a model with progress and deletes it', async () => {
     const user = userEvent.setup();
     commands.aiModels.mockResolvedValue([ANIME4K, { ...CUGAN, installed: true }]);
-    let finish: (value: { status: 'ok'; data: null }) => void = () => {};
+    let finish: (value: { status: 'ok'; data: 'installed' }) => void = () => {};
     commands.aiModelDownload.mockReturnValue(
       new Promise((resolve) => {
         finish = resolve;
@@ -460,7 +643,7 @@ describe('Settings → AI', () => {
     expect(within(row).getByText('Comic reader · 18 KB · Downloading · 50%')).toBeInTheDocument();
 
     commands.aiModels.mockResolvedValue([{ ...ANIME4K, installed: true }, CUGAN]);
-    finish(ok(null));
+    finish(ok('installed'));
     await user.click(await within(row).findByRole('button', { name: `Delete ${ANIME4K.name}` }));
     expect(commands.aiModelDelete).toHaveBeenCalledWith(ANIME4K.id);
   });

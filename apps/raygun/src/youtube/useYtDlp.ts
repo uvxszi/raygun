@@ -72,5 +72,10 @@ export const useYtDlpActions = () => {
       mutationFn: () => unwrapResult(commands.ytdlpInstallFfmpeg()),
       onSettled: refresh,
     }),
+    /** Stops fetching yt-dlp or FFmpeg at once; nothing of it is kept. */
+    cancelInstall: useMutation({
+      mutationFn: () => commands.ytdlpCancelInstall(),
+      onSettled: refresh,
+    }),
   };
 };

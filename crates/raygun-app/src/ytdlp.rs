@@ -9,6 +9,9 @@
 //!
 //! Videos and sound go to the user's `Downloads/Raygun/YouTube/`, one at a time, listed in
 //! Downloads → Exports. yt-dlp runs without a console window and is stopped with the job.
+//!
+//! A fetch of yt-dlp or FFmpeg can be cancelled ([`YtDlpService::cancel_install`]): it stops
+//! wherever it is, and nothing of it is kept.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -21,6 +24,7 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 use crate::events::YtDlpEvent;
 
@@ -46,10 +50,42 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(400);
 /// Marks Raygun's own lines among yt-dlp's output.
 const PROGRESS: &str = "RAYGUN_PROGRESS";
 const FILE: &str = "RAYGUN_FILE";
+/// How often a job waiting for FFmpeg checks whether it was stopped.
+const STOP_CHECK: Duration = Duration::from_millis(250);
 
 /// Whether yt-dlp can run here: desktop only.
 pub const fn supported() -> bool {
     !cfg!(any(target_os = "android", target_os = "ios"))
+}
+
+/// What stopped a fetch of yt-dlp or FFmpeg: its Cancel, or a failure (why).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolError {
+    Cancelled,
+    Failed(String),
+}
+
+impl ToolError {
+    /// What a caller that needed `tool` says.
+    pub fn message(self, tool: &str) -> String {
+        match self {
+            ToolError::Cancelled => format!("Getting {tool} was cancelled"),
+            ToolError::Failed(why) => why,
+        }
+    }
+}
+
+impl From<String> for ToolError {
+    fn from(why: String) -> Self {
+        ToolError::Failed(why)
+    }
+}
+
+/// The tools Raygun fetches here.
+#[derive(Debug, Clone, Copy)]
+enum Tool {
+    YtDlp,
+    Ffmpeg,
 }
 
 struct Job {
@@ -67,6 +103,8 @@ struct Found {
     /// How far a fetch is, when its size is known.
     progress: Option<f64>,
     message: Option<String>,
+    /// Stops the fetch running now.
+    cancel: Option<CancellationToken>,
 }
 
 pub struct YtDlpService {
@@ -175,33 +213,53 @@ impl YtDlpService {
         if let Some((path, _)) = self.program().await {
             return Ok(path);
         }
-        self.install().await?;
+        self.fetch_tool(Tool::YtDlp)
+            .await
+            .map_err(|error| error.message("yt-dlp"))?;
         self.program()
             .await
             .map(|(path, _)| path)
             .ok_or_else(|| "yt-dlp was fetched but doesn't start".into())
     }
 
-    /// Fetches yt-dlp's latest release into Raygun's tools, checked against its checksums.
+    /// Fetches yt-dlp's latest release into Raygun's tools, checked against its checksums. A
+    /// fetch cancelled ([`Self::cancel_install`]) answers with the status as it was.
     pub async fn install(&self) -> Result<YtDlpStatus, String> {
         if !supported() {
             return Err("yt-dlp runs on computers only".into());
         }
-        let _turn = self.install_turn.lock().await;
-        self.set_installing(true, None);
-        let result = self.fetch_ytdlp().await;
-        self.set_installing(false, result.as_ref().err().cloned());
-        result?;
-        Ok(self.status().await)
+        match self.fetch_tool(Tool::YtDlp).await {
+            Ok(()) | Err(ToolError::Cancelled) => Ok(self.status().await),
+            Err(ToolError::Failed(why)) => Err(why),
+        }
     }
 
-    async fn fetch_ytdlp(&self) -> Result<(), String> {
-        let sums = self.text(&format!("{RELEASES}/SHA2-256SUMS")).await?;
+    async fn fetch_ytdlp(&self, cancel: &CancellationToken) -> Result<(), ToolError> {
+        let sums = download(
+            &self.client,
+            &format!("{RELEASES}/SHA2-256SUMS"),
+            cancel,
+            |_| {},
+        )
+        .await?;
+        let sums = String::from_utf8(sums).map_err(|error| error.to_string())?;
         let expected = checksum_for(&sums, ASSET)
             .ok_or_else(|| format!("yt-dlp's checksums don't list {ASSET}"))?;
-        let bytes = self.bytes(&format!("{RELEASES}/{ASSET}")).await?;
+        let bytes = download(
+            &self.client,
+            &format!("{RELEASES}/{ASSET}"),
+            cancel,
+            self.announce_share(),
+        )
+        .await?;
         if sha256_hex(&bytes) != expected {
-            return Err("yt-dlp's download doesn't match its checksum".into());
+            return Err(ToolError::Failed(
+                "yt-dlp's download doesn't match its checksum".into(),
+            ));
+        }
+        // Cancelled after its last byte: nothing is written.
+        if cancel.is_cancelled() {
+            return Err(ToolError::Cancelled);
         }
         let target = self.tools.join(exe("yt-dlp"));
         write_tool(&target, &bytes).await?;
@@ -210,22 +268,80 @@ impl YtDlpService {
         Ok(())
     }
 
-    /// Fetches FFmpeg (Windows: yt-dlp's builds) for videos above 360p.
+    /// Fetches FFmpeg (Windows: yt-dlp's builds) for videos above 360p. A fetch cancelled
+    /// ([`Self::cancel_install`]) answers with the status as it was.
     pub async fn install_ffmpeg(&self) -> Result<YtDlpStatus, String> {
-        if !cfg!(windows) {
-            return Err("Install FFmpeg with your system's package manager".into());
+        match self.fetch_ffmpeg().await {
+            Ok(()) | Err(ToolError::Cancelled) => Ok(self.status().await),
+            Err(ToolError::Failed(why)) => Err(why),
         }
-        let _turn = self.install_turn.lock().await;
-        self.set_installing(true, None);
-        let result = self.fetch_ffmpeg().await;
-        self.set_installing(false, result.as_ref().err().cloned());
-        result?;
-        Ok(self.status().await)
     }
 
-    async fn fetch_ffmpeg(&self) -> Result<(), String> {
+    /// Fetches FFmpeg into Raygun's tools (Windows; elsewhere the system's package manager has it).
+    pub async fn fetch_ffmpeg(&self) -> Result<(), ToolError> {
+        if !cfg!(windows) {
+            return Err(ToolError::Failed(
+                "Install FFmpeg with your system's package manager".into(),
+            ));
+        }
+        self.fetch_tool(Tool::Ffmpeg).await
+    }
+
+    /// [`Self::fetch_ffmpeg`] for a job that can be stopped: `stop` turning true (its Cancel)
+    /// cancels the fetch.
+    pub async fn fetch_ffmpeg_for(&self, stop: &AtomicBool) -> Result<(), ToolError> {
+        let fetch = self.fetch_ffmpeg();
+        tokio::pin!(fetch);
+        loop {
+            tokio::select! {
+                result = &mut fetch => return result,
+                () = tokio::time::sleep(STOP_CHECK) => {
+                    if stop.load(Ordering::SeqCst) {
+                        self.cancel_install();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Stops the fetch of yt-dlp or FFmpeg running now: the transfer ends at once and nothing of
+    /// it is kept. Whether one was running.
+    pub fn cancel_install(&self) -> bool {
+        let found = self.found.lock().expect("yt-dlp state poisoned");
+        let Some(cancel) = &found.cancel else {
+            return false;
+        };
+        cancel.cancel();
+        true
+    }
+
+    /// One fetch at a time, shown in [`Self::status`] while it runs; a failure's reason stays
+    /// there, a cancel leaves none.
+    async fn fetch_tool(&self, tool: Tool) -> Result<(), ToolError> {
+        let _turn = self.install_turn.lock().await;
+        let cancel = CancellationToken::new();
+        self.set_installing(true, None, Some(cancel.clone()));
+        let result = match tool {
+            Tool::YtDlp => self.fetch_ytdlp(&cancel).await,
+            Tool::Ffmpeg => {
+                fetch_ffmpeg_into(&self.client, &self.tools, &cancel, self.announce_share()).await
+            }
+        };
+        let message = match &result {
+            Err(ToolError::Failed(why)) => Some(why.clone()),
+            Ok(()) | Err(ToolError::Cancelled) => None,
+        };
+        if result == Err(ToolError::Cancelled) {
+            tracing::info!(?tool, "fetching a tool was cancelled");
+        }
+        self.set_installing(false, message, None);
+        result
+    }
+
+    /// Shows how far a fetch is, at most every [`PROGRESS_EVERY`].
+    fn announce_share(&self) -> impl Fn(f64) + '_ {
         let shown = Mutex::new(None::<Instant>);
-        fetch_ffmpeg_into(&self.client, &self.tools, |share| {
+        move |share| {
             let mut shown = shown.lock().expect("progress poisoned");
             if shown.is_some_and(|at| at.elapsed() < PROGRESS_EVERY) {
                 return;
@@ -233,50 +349,23 @@ impl YtDlpService {
             *shown = Some(Instant::now());
             self.found.lock().expect("yt-dlp state poisoned").progress = Some(share);
             let _ = YtDlpEvent(String::new()).emit(&self.app);
-        })
-        .await
+        }
     }
 
-    fn set_installing(&self, installing: bool, message: Option<String>) {
+    fn set_installing(
+        &self,
+        installing: bool,
+        message: Option<String>,
+        cancel: Option<CancellationToken>,
+    ) {
         {
             let mut found = self.found.lock().expect("yt-dlp state poisoned");
             found.installing = installing;
             found.progress = None;
             found.message = message;
+            found.cancel = cancel;
         }
         let _ = YtDlpEvent(String::new()).emit(&self.app);
-    }
-
-    async fn text(&self, url: &str) -> Result<String, String> {
-        let bytes = self.bytes(url).await?;
-        String::from_utf8(bytes).map_err(|error| error.to_string())
-    }
-
-    async fn bytes(&self, url: &str) -> Result<Vec<u8>, String> {
-        let response = self
-            .client
-            .get(url)
-            .timeout(Duration::from_secs(600))
-            .send()
-            .await
-            .map_err(|error| format!("{url}: {error}"))?;
-        if !response.status().is_success() {
-            return Err(format!("{url}: HTTP {}", response.status().as_u16()));
-        }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_TOOL_BYTES)
-        {
-            return Err(format!("{url} is too big"));
-        }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| format!("{url}: {error}"))?;
-        if bytes.len() as u64 > MAX_TOOL_BYTES {
-            return Err(format!("{url} is too big"));
-        }
-        Ok(bytes.to_vec())
     }
 
     // ---- Songs ----
@@ -730,24 +819,50 @@ async fn write_tool(target: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Fetches yt-dlp's Windows build of FFmpeg into `tools` (`ffmpeg.exe` and `ffprobe.exe`), checked
-/// against the release's checksums; `progress` hears the share of the archive fetched.
+/// against the release's checksums; `progress` hears the share of the archive fetched, and
+/// `cancel` stops it with nothing written.
 pub(crate) async fn fetch_ffmpeg_into(
     client: &reqwest::Client,
     tools: &Path,
+    cancel: &CancellationToken,
     progress: impl Fn(f64),
-) -> Result<(), String> {
+) -> Result<(), ToolError> {
+    fetch_ffmpeg_from(client, FFMPEG_RELEASES, tools, cancel, progress).await
+}
+
+/// [`fetch_ffmpeg_into`] from the release at `releases`.
+async fn fetch_ffmpeg_from(
+    client: &reqwest::Client,
+    releases: &str,
+    tools: &Path,
+    cancel: &CancellationToken,
+    progress: impl Fn(f64),
+) -> Result<(), ToolError> {
     let sums = download(
         client,
-        &format!("{FFMPEG_RELEASES}/checksums.sha256"),
+        &format!("{releases}/checksums.sha256"),
+        cancel,
         |_| {},
     )
     .await?;
     let sums = String::from_utf8(sums).map_err(|error| error.to_string())?;
     let expected = checksum_for(&sums, FFMPEG_ZIP)
         .ok_or_else(|| "FFmpeg's checksums don't list the Windows build".to_owned())?;
-    let bytes = download(client, &format!("{FFMPEG_RELEASES}/{FFMPEG_ZIP}"), progress).await?;
+    let bytes = download(
+        client,
+        &format!("{releases}/{FFMPEG_ZIP}"),
+        cancel,
+        progress,
+    )
+    .await?;
     if sha256_hex(&bytes) != expected {
-        return Err("FFmpeg's download doesn't match its checksum".into());
+        return Err(ToolError::Failed(
+            "FFmpeg's download doesn't match its checksum".into(),
+        ));
+    }
+    // Cancelled after its last byte: nothing is unpacked.
+    if cancel.is_cancelled() {
+        return Err(ToolError::Cancelled);
     }
     let tools = tools.to_owned();
     tokio::task::spawn_blocking(move || unpack_ffmpeg(&bytes, &tools))
@@ -757,34 +872,40 @@ pub(crate) async fn fetch_ffmpeg_into(
     Ok(())
 }
 
-/// A tool's file, read as it comes so `progress` hears how far it is (when its size is known).
+/// A tool's file, kept in memory as it comes so `progress` hears how far it is (when its size is
+/// known); `cancel` stops it wherever it is (waiting for the answer, between two pieces).
 async fn download(
     client: &reqwest::Client,
     url: &str,
+    cancel: &CancellationToken,
     progress: impl Fn(f64),
-) -> Result<Vec<u8>, String> {
-    let mut response = client
-        .get(url)
-        .timeout(Duration::from_secs(900))
-        .send()
-        .await
-        .map_err(|error| format!("{url}: {error}"))?;
+) -> Result<Vec<u8>, ToolError> {
+    let sent = client.get(url).timeout(Duration::from_secs(900)).send();
+    let mut response = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Err(ToolError::Cancelled),
+        response = sent => response.map_err(|error| format!("{url}: {error}"))?,
+    };
     if !response.status().is_success() {
-        return Err(format!("{url}: HTTP {}", response.status().as_u16()));
+        return Err(format!("{url}: HTTP {}", response.status().as_u16()).into());
     }
     let size = response.content_length();
     if size.is_some_and(|size| size > MAX_TOOL_BYTES) {
-        return Err(format!("{url} is too big"));
+        return Err(format!("{url} is too big").into());
     }
     let mut bytes = Vec::with_capacity(size.unwrap_or(0) as usize);
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("{url}: {error}"))?
-    {
+    loop {
+        let chunk = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(ToolError::Cancelled),
+            chunk = response.chunk() => chunk.map_err(|error| format!("{url}: {error}"))?,
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
         bytes.extend_from_slice(&chunk);
         if bytes.len() as u64 > MAX_TOOL_BYTES {
-            return Err(format!("{url} is too big"));
+            return Err(format!("{url} is too big").into());
         }
         if let Some(size) = size.filter(|size| *size > 0) {
             progress((bytes.len() as f64 / size as f64).min(1.0));
@@ -1097,5 +1218,138 @@ mod tests {
         assert_eq!(single.next(0.8), Some(0.8));
         single.announced = None;
         assert_eq!(single.next(0.1), None, "never backwards");
+    }
+
+    /// A zip laid out as yt-dlp's FFmpeg builds are.
+    fn ffmpeg_zip() -> Vec<u8> {
+        use std::io::Write as _;
+        let mut buffer = Vec::new();
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buffer));
+        let options = zip::write::SimpleFileOptions::default();
+        for name in [
+            "ffmpeg-x/bin/ffmpeg.exe",
+            "ffmpeg-x/bin/ffprobe.exe",
+            "ffmpeg-x/README",
+        ] {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(name.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+        buffer
+    }
+
+    /// Releases at `/ok` (whole), `/slow` (the archive stops after a piece) and `/hang` (no
+    /// answer at all).
+    async fn serve_releases() -> String {
+        use axum::Router;
+        use axum::body::{Body, Bytes};
+        use axum::routing::get;
+        use futures_util::StreamExt as _;
+
+        let zip = ffmpeg_zip();
+        let sums = format!("{}  {FFMPEG_ZIP}\n", sha256_hex(&zip));
+        let app = Router::new()
+            .route(
+                "/ok/checksums.sha256",
+                get({
+                    let sums = sums.clone();
+                    move || async move { sums }
+                }),
+            )
+            .route(
+                &format!("/ok/{FFMPEG_ZIP}"),
+                get(move || async move { zip }),
+            )
+            .route("/slow/checksums.sha256", get(move || async move { sums }))
+            .route(
+                &format!("/slow/{FFMPEG_ZIP}"),
+                get(|| async {
+                    let piece = futures_util::stream::once(async {
+                        Ok::<_, std::io::Error>(Bytes::from(vec![1u8; 100]))
+                    });
+                    Body::from_stream(piece.chain(futures_util::stream::pending()))
+                }),
+            )
+            .route(
+                "/hang/checksums.sha256",
+                get(|| async {
+                    std::future::pending::<()>().await;
+                    "never"
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://{address}")
+    }
+
+    /// Cancels `cancel` in a moment.
+    fn cancel_soon(cancel: &CancellationToken) {
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            cancel.cancel();
+        });
+    }
+
+    #[tokio::test]
+    async fn ffmpeg_fetches_check_out_and_a_cancel_keeps_nothing() {
+        let base = serve_releases().await;
+        let client = raygun_net::http_client().unwrap();
+
+        let tools = tempfile::tempdir().unwrap();
+        let fetched = fetch_ffmpeg_from(
+            &client,
+            &format!("{base}/ok"),
+            tools.path(),
+            &CancellationToken::new(),
+            |_| {},
+        )
+        .await;
+        assert_eq!(fetched, Ok(()));
+        let mut names: Vec<String> = std::fs::read_dir(tools.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["ffmpeg.exe", "ffprobe.exe"]);
+
+        // Stopped halfway through the archive, and before the checksums even answered.
+        for release in ["slow", "hang"] {
+            let tools = tempfile::tempdir().unwrap();
+            let cancel = CancellationToken::new();
+            cancel_soon(&cancel);
+            let stopped = tokio::time::timeout(
+                Duration::from_secs(10),
+                fetch_ffmpeg_from(
+                    &client,
+                    &format!("{base}/{release}"),
+                    tools.path(),
+                    &cancel,
+                    |_| {},
+                ),
+            )
+            .await
+            .expect("a cancel doesn't wait for the server");
+            assert_eq!(stopped, Err(ToolError::Cancelled), "{release}");
+            assert_eq!(
+                std::fs::read_dir(tools.path()).unwrap().count(),
+                0,
+                "{release}: nothing kept"
+            );
+        }
+
+        // A cancel before the start fetches nothing.
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let stopped = download(&client, &format!("{base}/ok/{FFMPEG_ZIP}"), &cancel, |_| {
+            panic!("nothing arrives")
+        })
+        .await;
+        assert_eq!(stopped, Err(ToolError::Cancelled));
+        assert_eq!(
+            ToolError::Cancelled.message("FFmpeg"),
+            "Getting FFmpeg was cancelled"
+        );
     }
 }

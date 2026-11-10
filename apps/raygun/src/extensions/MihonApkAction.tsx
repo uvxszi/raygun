@@ -1,12 +1,18 @@
 import type { CatalogEntry } from '@raygun/bindings';
-import { Download, LoaderCircle, Play } from 'lucide-react';
+import { Download, LoaderCircle, Play, X } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
 import { SourceIssue } from '../shell/SourceIssue';
-import { useMihonApk, useMihonRun, useMihonRuntime, useMihonRuntimeSetup } from './useExtensions';
+import {
+  useMihonApk,
+  useMihonRun,
+  useMihonRuntime,
+  useMihonRuntimeCancel,
+  useMihonRuntimeSetup,
+} from './useExtensions';
 
 /** `eu.kanade.tachiyomi.extension.<lang>.<name>` from `mihon.<lang>.<name>`. */
 const packageOf = (id: string) => `eu.kanade.tachiyomi.extension.${id.slice('mihon.'.length)}`;
@@ -22,6 +28,7 @@ export const MihonApkAction: FC<{ entry: CatalogEntry }> = ({ entry }) => {
   const download = useMihonApk();
   const runtime = useMihonRuntime();
   const setup = useMihonRuntimeSetup();
+  const cancelSetup = useMihonRuntimeCancel();
   const run = useMihonRun();
   const [tried, setTried] = useState<string | null>(null);
 
@@ -75,17 +82,32 @@ export const MihonApkAction: FC<{ entry: CatalogEntry }> = ({ entry }) => {
         <span className="text-muted text-xs">{t('extensions.apk.notAvailable')}</span>
       )}
       {saved && state?.supported && !state.ready && (
-        <button
-          type="button"
-          disabled={setup.isPending || state.settingUp}
-          onClick={() => setup.mutate()}
-          className="text-primary flex items-center gap-1.5 text-xs font-semibold disabled:opacity-60"
-        >
+        <span className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={setup.isPending || state.settingUp}
+            onClick={() => setup.mutate()}
+            className="text-primary flex items-center gap-1.5 text-xs font-semibold disabled:opacity-60"
+          >
+            {(setup.isPending || state.settingUp) && (
+              <LoaderCircle aria-hidden size={14} className="animate-spin" />
+            )}
+            {state.settingUp ? t('extensions.apk.settingUp') : t('extensions.apk.setup')}
+          </button>
+          {/* Stops the tools' download at once; nothing of it is kept. */}
           {(setup.isPending || state.settingUp) && (
-            <LoaderCircle aria-hidden size={14} className="animate-spin" />
+            <button
+              type="button"
+              aria-label={t('extensions.apk.cancelSetup')}
+              disabled={cancelSetup.isPending}
+              onClick={() => cancelSetup.mutate()}
+              className="text-muted hover:text-foreground flex items-center gap-1 text-xs font-semibold disabled:opacity-60"
+            >
+              <X aria-hidden size={14} />
+              {t('extensions.apk.cancel')}
+            </button>
           )}
-          {state.settingUp ? t('extensions.apk.settingUp') : t('extensions.apk.setup')}
-        </button>
+        </span>
       )}
       {saved && state?.ready && (
         <button

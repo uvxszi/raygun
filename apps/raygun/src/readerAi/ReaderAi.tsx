@@ -11,6 +11,7 @@ import {
   Sparkles,
   Trash2,
   Wand2,
+  X,
   ZoomIn,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -18,9 +19,10 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from '@tanstack/react-router';
 
-import { useAiModels, useAiProviders, useDownloadAiModel } from '../ai/useAi';
+import { useAiModels, useAiProviders, useCancelAiModel, useDownloadAiModel } from '../ai/useAi';
 import { LANGUAGES, nativeName } from '../i18n/languages';
 import { formatBytes } from '../lib/formatBytes';
+import { downloadPercent } from '../settings/ai/modelUse';
 import { OnOffSwitch } from '../shell/OnOffSwitch';
 import { Sheet } from '../shell/Sheet';
 import { KINDS_OF, modelsFor, newLayer, useReaderAiLayers } from './useReaderAi';
@@ -324,29 +326,44 @@ const DeviceTranslatorNeeded: FC<{ to: string }> = ({ to }) => {
   );
 };
 
-/** A model to download for a layer that has none yet. */
+/** A model to download for a layer that has none yet; while it downloads, how far and Cancel. */
 const GetModel: FC<{ model: AiModel }> = ({ model }) => {
   const { t } = useTranslation();
   const download = useDownloadAiModel();
-  const downloading = model.downloading !== null && model.downloading !== undefined;
+  const cancel = useCancelAiModel();
+  const percent = downloadPercent(model);
   return (
     <div className="flex items-center gap-2 px-1 text-sm">
       <span className="text-muted min-w-0 flex-1 text-xs">
         {t('readerAi.needsModel', { name: model.name, size: formatBytes(model.sizeBytes ?? 0) })}
       </span>
-      <button
-        type="button"
-        disabled={downloading}
-        onClick={() => download.mutate(model.id)}
-        className="bg-primary text-background flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-60"
-      >
-        {downloading ? (
-          <LoaderCircle aria-hidden size={14} className="animate-spin" />
-        ) : (
+      {percent !== null ? (
+        <>
+          <span role="status" className="text-muted flex shrink-0 items-center gap-1.5 text-xs">
+            <LoaderCircle aria-hidden size={14} className="animate-spin" />
+            {t('readerAi.downloading', { percent })}
+          </span>
+          <button
+            type="button"
+            aria-label={t('ai.cancelDownload', { name: model.name })}
+            disabled={cancel.isPending}
+            onClick={() => cancel.mutate(model.id)}
+            className="bg-background flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-60"
+          >
+            <X aria-hidden size={14} />
+            {t('readerAi.cancel')}
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => download.mutate(model.id)}
+          className="bg-primary text-background flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+        >
           <Download aria-hidden size={14} />
-        )}
-        {t('readerAi.download')}
-      </button>
+          {t('readerAi.download')}
+        </button>
+      )}
       {download.error && (
         <span role="alert" className="text-xs text-red-500">
           {download.error.message}

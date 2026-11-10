@@ -851,3 +851,39 @@ fn notices_tell_the_plugin_their_channel_and_route() {
     assert_eq!(json["route"], "/artist?name=Nina+Simone");
     assert_eq!(json["id"], super::notice_id("dz/1"));
 }
+
+#[test]
+fn a_model_downloading_can_be_cancelled_from_its_notification() {
+    use raygun_model::{AiModelProgress, AiModelState};
+    let progress = |state: AiModelState| AiModelProgress {
+        id: "whisper-tiny".into(),
+        state,
+        received_bytes: 50_000_000.0,
+        total_bytes: 150_000_000.0,
+        error: (state == AiModelState::Failed).then(|| "HTTP 503".to_owned()),
+    };
+    let name = || "Speech to text (Whisper tiny)".to_owned();
+    let running = super::model_download(&progress(AiModelState::Downloading), name()).unwrap();
+    assert!(running.abilities.cancel && !running.abilities.retry);
+    let mut tracker = Tracker::default();
+    let update = tracker.update(0.0, std::slice::from_ref(&running));
+    let summary = update.plan.summary.expect("a notification");
+    let actions: Vec<(&str, Vec<String>)> = summary
+        .actions
+        .iter()
+        .map(|action| (action.id, action.keys.clone()))
+        .collect();
+    assert_eq!(
+        actions,
+        [("cancel", vec!["models:whisper-tiny".to_owned()])]
+    );
+
+    // Cancelled: it goes, with no notice that it didn't download.
+    assert!(super::model_download(&progress(AiModelState::Cancelled), name()).is_none());
+    let update = tracker.update(1_000.0, &[]);
+    assert!(update.plan.summary.is_none());
+    assert!(update.finished.is_none());
+
+    let failed = super::model_download(&progress(AiModelState::Failed), name()).unwrap();
+    assert!(failed.abilities.retry && !failed.abilities.cancel);
+}

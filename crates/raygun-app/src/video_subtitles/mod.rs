@@ -35,7 +35,7 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use self::entries::{Entry, Limits, Next};
-use crate::ai::AiService;
+use crate::ai::{AiService, ModelDownloadError};
 use crate::captions::CaptionService;
 use crate::events::{CaptionsEvent, OpenRouteEvent, SettingsChangedEvent, VideoSubtitlesEvent};
 use crate::lyrics_translation::{AI_PREFIX, DEVICE, LyricsTranslations, language_tag};
@@ -496,6 +496,9 @@ impl VideoSubtitles {
 
     async fn work(&self, job: &Job, missing: Vec<String>) -> Result<(), String> {
         for model in &missing {
+            if job.stopped() {
+                return Ok(());
+            }
             self.download_model(job, model).await?;
         }
         let mut first = true;
@@ -626,7 +629,8 @@ impl VideoSubtitles {
         }
     }
 
-    /// Downloads one of this device's models before translating, saying how far it got.
+    /// Downloads one of this device's models before translating, saying how far it got. Stopping
+    /// the job cancels the download, which isn't a failure then.
     async fn download_model(&self, job: &Job, model: &str) -> Result<(), String> {
         let ai = self.app.state::<AiService>();
         if ai.installed_dir(model).is_some() {
@@ -639,8 +643,15 @@ impl VideoSubtitles {
         tokio::pin!(download);
         loop {
             tokio::select! {
-                result = &mut download => return result,
+                result = &mut download => return match result {
+                    Err(ModelDownloadError::Cancelled) if job.stopped() => Ok(()),
+                    result => result.map_err(String::from),
+                },
                 () = tokio::time::sleep(DOWNLOAD_STEP) => {
+                    // Stopping the translation stops the download it waits for (its own).
+                    if job.stopped() {
+                        ai.cancel_model_download(model);
+                    }
                     let received = ai.received(model).unwrap_or(0);
                     job.progress().downloading = Some(percent(received, size));
                     self.changed(job, None);
@@ -848,6 +859,17 @@ impl VideoSubtitles {
                     service.set_up_transcription(&key, position).await;
                 });
             }
+            // The speech model's download, stopped from the player's sheet.
+            "transcribeSetupCancel" => {
+                let downloading = self
+                    .state()
+                    .speech_download
+                    .as_ref()
+                    .map(|(model, _)| model.clone());
+                if let Some(model) = downloading {
+                    self.app.state::<AiService>().cancel_model_download(&model);
+                }
+            }
             "translateSubtitles" => {
                 let Some(source) = raw
                     .get("source")
@@ -971,7 +993,10 @@ impl VideoSubtitles {
             };
             self.state().speech_download = None;
             if let Err(error) = result {
-                self.state().setup_error = Some(error);
+                // Cancelled: the sheet offers the download again, with nothing to report.
+                if error != ModelDownloadError::Cancelled {
+                    self.state().setup_error = Some(error.into());
+                }
                 self.push_tools(key).await;
                 return;
             }

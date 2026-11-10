@@ -3,9 +3,6 @@ import type { AiModel } from '@raygun/bindings';
 /** What an on-device model is for: the part of Settings → AI it serves. */
 export type ModelUse = 'translation' | 'transcription' | 'textReading' | 'comicReader' | 'unused';
 
-/** Models list by their use, in the screen's order. */
-const ORDER: ModelUse[] = ['translation', 'transcription', 'textReading', 'comicReader', 'unused'];
-
 export const modelUse = (model: AiModel): ModelUse => {
   switch (model.kind) {
     case 'translate':
@@ -23,14 +20,61 @@ export const modelUse = (model: AiModel): ModelUse => {
   }
 };
 
+/** On-device models' pills: every model, those for one use, or the downloaded ones. */
+export type ModelFilter =
+  'all' | 'translation' | 'transcription' | 'textReading' | 'upscaling' | 'downloaded';
+
+export const MODEL_FILTERS: ModelFilter[] = [
+  'all',
+  'translation',
+  'transcription',
+  'textReading',
+  'upscaling',
+  'downloaded',
+];
+
+/** How On-device models are ordered: by name, the largest first, or the downloaded ones first. */
+export type ModelSort = 'name' | 'size' | 'downloaded';
+
+export const MODEL_SORTS: ModelSort[] = ['name', 'size', 'downloaded'];
+
+const matches = (model: AiModel, filter: ModelFilter): boolean => {
+  switch (filter) {
+    case 'all':
+      return true;
+    case 'downloaded':
+      return model.installed;
+    // The readers' upscale and restore layers.
+    case 'upscaling':
+      return model.kind === 'upscale' || model.kind === 'restore';
+    default:
+      return modelUse(model) === filter;
+  }
+};
+
+const byName = (first: AiModel, second: AiModel) => first.name.localeCompare(second.name);
+
+const ORDERS: Record<ModelSort, (first: AiModel, second: AiModel) => number> = {
+  name: byName,
+  size: (first, second) =>
+    (second.sizeBytes ?? 0) - (first.sizeBytes ?? 0) || byName(first, second),
+  downloaded: (first, second) =>
+    Number(second.installed) - Number(first.installed) || byName(first, second),
+};
+
 /**
- * The models to list, by use (the catalogue's order within one): every one Raygun runs, and the
- * others only while downloaded, to remove them.
+ * The models On-device models lists under `filter`, in `sort`'s order: every one Raygun runs, and
+ * the others only while downloaded, to remove them.
  */
-export const listedModels = (models: AiModel[]): AiModel[] =>
+export const listedModels = (
+  models: AiModel[],
+  filter: ModelFilter = 'all',
+  sort: ModelSort = 'name',
+): AiModel[] =>
   models
     .filter((model) => model.installed || modelUse(model) !== 'unused')
-    .sort((first, second) => ORDER.indexOf(modelUse(first)) - ORDER.indexOf(modelUse(second)));
+    .filter((model) => matches(model, filter))
+    .sort(ORDERS[sort]);
 
 /** The downloaded models, and the bytes they take. */
 export const modelStorage = (models: AiModel[]) => {

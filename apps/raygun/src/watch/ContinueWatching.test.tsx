@@ -1,10 +1,10 @@
-import type { ContinueWatching } from '@raygun/bindings';
+import type { ContinueWatching, DownloadState, VideoDownloadItem } from '@raygun/bindings';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { resetBackLayers } from '../shell/backLayers';
-import { bindingsMock } from '../test/bindingsMock';
+import { bindingsMock, emitEvent } from '../test/bindingsMock';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -291,5 +291,117 @@ describe('Continue watching', () => {
       'Mark as watched',
       'Remove from Continue watching',
     ]);
+  });
+
+  describe('its download', () => {
+    /** The episode's download, in `state`. */
+    const saved = (state: DownloadState, extra: Partial<VideoDownloadItem> = {}) =>
+      ({
+        id: 'dl-1',
+        key: EPISODE.key,
+        titleId: null,
+        title: EPISODE.title,
+        subtitle: EPISODE.subtitle,
+        poster: null,
+        state,
+        doneBytes: 40,
+        totalBytes: 100,
+        doneParts: 0,
+        totalParts: null,
+        error: null,
+        sourceId: 'stremio',
+        remoteId: 'series:tt1',
+        episodeId: 'tt1:1:2',
+        watched: false,
+        at: 1,
+        ...extra,
+      }) satisfies VideoDownloadItem;
+
+    const withDownload = (item: VideoDownloadItem) =>
+      commands.videoDownloads.mockResolvedValue(ok({ paused: false, items: [item] }));
+
+    /** The menu's lines between Mark as watched and Pin: the download's own. */
+    const downloadLines = () => {
+      const items = menuItems();
+      return items.slice(
+        items.indexOf('Mark as watched') + 1,
+        items.indexOf('Pin to Quick access'),
+      );
+    };
+
+    it('offers Delete download once it is downloaded, asked first', async () => {
+      const user = userEvent.setup();
+      withDownload(saved('done'));
+      const row = await mountRow([EPISODE]);
+      await waitFor(() => expect(commands.videoDownloads).toHaveBeenCalled());
+
+      await openMenu(user, row, 'Breaking Bad');
+      await waitFor(() => expect(downloadLines()).toEqual(['Delete download']));
+      await user.click(screen.getByRole('menuitem', { name: 'Delete download' }));
+      expect(commands.videoDownloadRemove).not.toHaveBeenCalled();
+      const ask = screen.getByRole('alertdialog', {
+        name: 'Delete the download of “Breaking Bad · S1 E2 · Cat”?',
+      });
+      await user.click(within(ask).getByRole('button', { name: 'Delete download' }));
+      await waitFor(() => expect(commands.videoDownloadRemove).toHaveBeenCalledWith('dl-1'));
+      expect(
+        await screen.findByText('Deleted the download of Breaking Bad · S1 E2 · Cat'),
+      ).toBeInTheDocument();
+      expect(commands.videoDownloadEpisodes).not.toHaveBeenCalled();
+    });
+
+    it('shows a download on its way, with Cancel asked first', async () => {
+      const user = userEvent.setup();
+      withDownload(saved('downloading'));
+      const row = await mountRow([EPISODE]);
+      await waitFor(() => expect(commands.videoDownloads).toHaveBeenCalled());
+
+      await openMenu(user, row, 'Breaking Bad');
+      await waitFor(() =>
+        expect(downloadLines()).toEqual(['Downloading · 40%', 'Cancel download']),
+      );
+      expect(screen.getByRole('menuitem', { name: 'Downloading · 40%' })).toBeDisabled();
+      await user.click(screen.getByRole('menuitem', { name: 'Cancel download' }));
+      const ask = screen.getByRole('alertdialog', {
+        name: 'Stop downloading “Breaking Bad · S1 E2 · Cat”?',
+      });
+      // Asked first: backing out keeps it.
+      await user.click(within(ask).getByRole('button', { name: 'Cancel' }));
+      expect(commands.videoDownloadRemove).not.toHaveBeenCalled();
+
+      await openMenu(user, row, 'Breaking Bad');
+      await user.click(screen.getByRole('menuitem', { name: 'Cancel download' }));
+      await user.click(
+        within(
+          screen.getByRole('alertdialog', {
+            name: 'Stop downloading “Breaking Bad · S1 E2 · Cat”?',
+          }),
+        ).getByRole('button', { name: 'Cancel download' }),
+      );
+      await waitFor(() => expect(commands.videoDownloadRemove).toHaveBeenCalledWith('dl-1'));
+      expect(
+        await screen.findByText('Stopped downloading Breaking Bad · S1 E2 · Cat'),
+      ).toBeInTheDocument();
+    });
+
+    it('says a queued one waits, and downloads a failed one again', async () => {
+      const user = userEvent.setup();
+      withDownload(saved('queued'));
+      const row = await mountRow([EPISODE]);
+      await waitFor(() => expect(commands.videoDownloads).toHaveBeenCalled());
+      await openMenu(user, row, 'Breaking Bad');
+      await waitFor(() =>
+        expect(downloadLines()).toEqual(['Waiting to download', 'Cancel download']),
+      );
+      await user.keyboard('{Escape}');
+
+      withDownload(saved('failed', { error: 'HTTP 404' }));
+      emitEvent('videoDownloadsEvent', 'dl-1');
+      await openMenu(user, row, 'Breaking Bad');
+      await waitFor(() => expect(downloadLines()).toEqual(['Download again']));
+      await user.click(screen.getByRole('menuitem', { name: 'Download again' }));
+      await waitFor(() => expect(commands.videoDownloadRetry).toHaveBeenCalledWith('dl-1'));
+      expect(commands.videoDownloadEpisodes).not.toHaveBeenCalled();
+    });
   });
 });

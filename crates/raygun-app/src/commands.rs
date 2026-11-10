@@ -1697,7 +1697,8 @@ pub async fn ytdlp_status(
     Ok(ytdlp.status().await)
 }
 
-/// Fetches yt-dlp's latest release (checked against its checksums) (M46.47).
+/// Fetches yt-dlp's latest release (checked against its checksums) (M46.47). A fetch cancelled by
+/// `ytdlp_cancel_install` answers with the status as it was.
 #[tauri::command]
 #[specta::specta]
 pub async fn ytdlp_install(
@@ -1706,13 +1707,21 @@ pub async fn ytdlp_install(
     ytdlp.install().await
 }
 
-/// Fetches FFmpeg for YouTube videos above 360p (Windows) (M46.47).
+/// Fetches FFmpeg for YouTube videos above 360p and conversions (Windows) (M46.47). A fetch
+/// cancelled by `ytdlp_cancel_install` answers with the status as it was.
 #[tauri::command]
 #[specta::specta]
 pub async fn ytdlp_install_ffmpeg(
     ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>,
 ) -> Result<raygun_model::YtDlpStatus, String> {
     ytdlp.install_ffmpeg().await
+}
+
+/// Stops the fetch of yt-dlp or FFmpeg running now; nothing of it is kept. Whether one ran.
+#[tauri::command]
+#[specta::specta]
+pub fn ytdlp_cancel_install(ytdlp: tauri::State<'_, Arc<crate::ytdlp::YtDlpService>>) -> bool {
+    ytdlp.cancel_install()
 }
 
 /// Saves a YouTube video or its sound to Downloads/Raygun/YouTube (M46.47); the job's id.
@@ -3801,11 +3810,26 @@ pub fn ai_models(ai: tauri::State<'_, AiService>) -> Vec<AiModel> {
     ai.models()
 }
 
-/// Downloads and installs a model; progress arrives as `AiModelEvent`s.
+/// Downloads and installs a model; progress arrives as `AiModelEvent`s. How it ended: `installed`,
+/// or `cancelled` by `ai_model_cancel` (nothing kept).
 #[tauri::command]
 #[specta::specta]
-pub async fn ai_model_download(ai: tauri::State<'_, AiService>, id: String) -> Result<(), String> {
-    ai.download_model(&id).await
+pub async fn ai_model_download(
+    ai: tauri::State<'_, AiService>,
+    id: String,
+) -> Result<raygun_model::AiModelState, String> {
+    match ai.download_model(&id).await {
+        Ok(()) => Ok(raygun_model::AiModelState::Installed),
+        Err(crate::ai::ModelDownloadError::Cancelled) => Ok(raygun_model::AiModelState::Cancelled),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Stops a model's download: what it fetched is deleted. Whether one was running.
+#[tauri::command]
+#[specta::specta]
+pub fn ai_model_cancel(ai: tauri::State<'_, AiService>, id: String) -> bool {
+    ai.cancel_model_download(&id)
 }
 
 #[tauri::command]

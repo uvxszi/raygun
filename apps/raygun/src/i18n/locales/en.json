@@ -1277,7 +1277,9 @@
       "ran": "Its own code answered with {{count}} titles.",
       "noSources": "The extension registered no sources.",
       "failed": "Couldn’t keep the APK",
-      "setupFailed": "Couldn’t set up the runtime"
+      "setupFailed": "Couldn’t set up the runtime",
+      "cancel": "Cancel",
+      "cancelSetup": "Cancel setting up the runtime"
     },
     "noRepos": "No repositories. Add one under Repositories.",
     "noReposYet": "No repositories yet.",
@@ -1787,6 +1789,7 @@
     "deleteModel": "Delete {{name}}",
     "deleteModelFailed": "Couldn't remove the model",
     "downloading": "Downloading {{name}}",
+    "cancelDownload": "Cancel downloading {{name}}",
     "translation": {
       "title": "Translation",
       "about": "Comics, books, lyrics and video subtitles, on this device or online",
@@ -1860,6 +1863,23 @@
       "download": "Download",
       "progress": "Downloading · {{percent}}%",
       "listFailed": "Couldn't read the models",
+      "filter": "Show models",
+      "filters": {
+        "all": "All",
+        "translation": "Translation",
+        "transcription": "Transcription",
+        "textReading": "Text reading",
+        "upscaling": "Upscaling",
+        "downloaded": "Downloaded"
+      },
+      "sort": "Sort by",
+      "sorts": {
+        "name": "Name",
+        "size": "Size",
+        "downloaded": "Downloaded first"
+      },
+      "none": "No models for this yet",
+      "noneDownloaded": "No models downloaded yet",
       "use": {
         "translation": "Translation",
         "transcription": "Transcription",
@@ -2002,6 +2022,15 @@
       "download": "Download",
       "downloading": "Downloading {{name}}",
       "downloadedAlready": "{{name}} is downloaded or queued already",
+      "downloadAgain": "Download again",
+      "waiting": "Waiting to download",
+      "downloadingNow": "Downloading…",
+      "progress": "Downloading · {{percent}}%",
+      "cancelDownload": "Cancel download",
+      "cancelled": "Stopped downloading {{name}}",
+      "deleteDownload": "Delete download",
+      "deleteDownloadAsk": "Delete the download of “{{name}}”?",
+      "deleted": "Deleted the download of {{name}}",
       "remove": "Remove from Continue watching",
       "removeHistory": "Remove from history",
       "removeHistoryAsk": "Remove {{title}} from your watch history?",
@@ -2535,6 +2564,7 @@
     "aiChecking": "Checking what’s set up…",
     "aiDownload": "Download the speech model",
     "aiDownloading": "Downloading the speech model… {{n}}%",
+    "aiDownloadCancel": "Cancel the download",
     "aiSettings": "Set up in Settings → AI",
     "aiStart": "Transcribe from here",
     "aiContinue": "Keep transcribing from here",
@@ -2642,7 +2672,9 @@
       "getFfmpeg": "Get FFmpeg",
       "gettingFfmpeg": "Getting FFmpeg…",
       "gettingFfmpegPercent": "Getting FFmpeg… {{percent}}%",
-      "ffmpegFailed": "Couldn't get FFmpeg"
+      "ffmpegFailed": "Couldn't get FFmpeg",
+      "cancel": "Cancel",
+      "cancelFfmpeg": "Cancel getting FFmpeg"
     },
     "destination": "Save to",
     "downloads": "Downloads folder",
@@ -3153,6 +3185,7 @@
       "continue": "Keep transcribing from here",
       "download": "Download the speech model ({{size}})",
       "downloading": "Downloading the speech model… {{percent}}%",
+      "cancelDownload": "Cancel",
       "preparing": "Getting the video’s sound…",
       "ahead": "Transcribing… {{time}} ahead",
       "complete": "Transcribed to the end",
@@ -3870,6 +3903,7 @@
     "screenshotsHint": "Pictures of a song list from any music app: Raygun reads the titles and artists.",
     "downloadReader": "Download the text reader (12 MB)",
     "downloadingReader": "Downloading the text reader…",
+    "cancelReader": "Cancel",
     "chooseScreenshots": "Choose screenshots",
     "read": "Read songs",
     "reading": "Reading…",
@@ -4479,6 +4513,7 @@
     "needsKey": "Add its key in Settings → AI",
     "again": "Translate again",
     "downloading": "Downloading the translation model, {{percent}}%",
+    "cancelDownload": "Cancel the model's download",
     "translating": "Translating the lyrics",
     "translatingLines": "Translating line {{done}} of {{total}}",
     "thisDevice": "this device",
@@ -4727,6 +4762,8 @@
     "noFfmpeg": "Videos save at up to 360p without FFmpeg.",
     "getFfmpeg": "Get FFmpeg for HD",
     "gettingFfmpeg": "Getting FFmpeg…",
+    "cancel": "Cancel",
+    "cancelFetch": "Cancel getting FFmpeg",
     "downloads": "From video links",
     "showFile": "Show file",
     "tryAgain": "Try again",
@@ -4859,6 +4896,8 @@
     "detect": "Detect",
     "needsModel": "Needs {{name}} ({{size}})",
     "download": "Download",
+    "downloading": "{{percent}}%",
+    "cancel": "Cancel",
     "moreModels": "More models in Settings → AI"
   }
 }

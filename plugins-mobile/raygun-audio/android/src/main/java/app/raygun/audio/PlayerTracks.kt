@@ -628,6 +628,12 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
         host.request("transcribeSetup")
     }
 
+    /** Stops the speech model's download that [setUpTranscription] started. */
+    fun cancelTranscriptionSetUp() {
+        wantAi = false
+        host.request("transcribeSetupCancel")
+    }
+
     /** Asks Rust to translate `source` into `language` with `translator`. */
     fun translate(source: JSONObject, language: String, translator: String, download: Boolean = false) {
         val ask = JSONObject()

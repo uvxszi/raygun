@@ -714,8 +714,14 @@ async fn handle_report(app: &AppHandle, json: &str) {
                 player_request(app, action, &raw).await;
             }
             // AI subtitles in Android's player: transcribing and translating as it plays.
-            "subtitleTools" | "transcribe" | "transcribeStop" | "transcribeSetup"
-            | "translateSubtitles" | "translateStop" | "openAiSettings" => {
+            "subtitleTools"
+            | "transcribe"
+            | "transcribeStop"
+            | "transcribeSetup"
+            | "transcribeSetupCancel"
+            | "translateSubtitles"
+            | "translateStop"
+            | "openAiSettings" => {
                 if let Some(subtitles) = &subtitles {
                     subtitles.on_request(action, &raw).await;
                 }

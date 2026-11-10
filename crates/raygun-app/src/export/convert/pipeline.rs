@@ -142,10 +142,14 @@ pub async fn convert(
             .ok_or("Re-encoding this video needs FFmpeg")?
             .inner()
             .clone();
-        ytdlp
-            .install_ffmpeg()
-            .await
-            .map_err(|why| format!("Re-encoding this video needs FFmpeg ({why})"))?;
+        // The export's Cancel stops the fetch too.
+        match ytdlp.fetch_ffmpeg_for(&cancel).await {
+            Ok(()) => {}
+            Err(crate::ytdlp::ToolError::Cancelled) => return Err("Cancelled".into()),
+            Err(crate::ytdlp::ToolError::Failed(why)) => {
+                return Err(format!("Re-encoding this video needs FFmpeg ({why})"));
+            }
+        }
         tools = ffmpeg_tools(app);
     }
     convert_with(Some(app), tools, request, cancel, progress).await

@@ -120,15 +120,21 @@ impl ImportService {
                 .is_some()
     }
 
-    /// Downloads the text reader for screenshots (12 MB; progress as `AiModelEvent`s).
+    /// Downloads the text reader for screenshots (12 MB; progress as `AiModelEvent`s). A
+    /// cancelled download isn't a failure: the reader is left as it was.
     pub async fn prepare_reader(&self) -> Result<(), String> {
         if self.reader_ready() {
             return Ok(());
         }
-        self.app
+        match self
+            .app
             .state::<AiService>()
             .download_model(ocr::OCRS_MODEL)
             .await
+        {
+            Ok(()) | Err(crate::ai::ModelDownloadError::Cancelled) => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Songs in screenshots of song lists, uploaded first (`upload_*`), in the pictures' order.

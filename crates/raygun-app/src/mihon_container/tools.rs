@@ -7,10 +7,12 @@
 //! plugin), not through a JVM Raygun fetches.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
-use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
+
+/// What a cancelled setup says.
+pub const CANCELLED: &str = "Fetching the Mihon tools was cancelled";
 
 /// A fetchable archive, pinned by URL and SHA-256.
 struct Pinned {
@@ -126,12 +128,13 @@ impl Tools {
     }
 
     /// Fetches whatever is missing. `progress(done, total)` hears the bytes of the current
-    /// download; `cancel` stops before the next step. The host jar is not fetched: it ships with
-    /// Raygun, and a missing one is an error naming it.
+    /// download; `cancel` stops it wherever it is with [`CANCELLED`] (a tool already unpacked
+    /// stays, nothing of the one being fetched is kept). The host jar is not fetched: it ships
+    /// with Raygun, and a missing one is an error naming it.
     pub async fn ensure(
         &self,
         progress: impl Fn(u64, Option<u64>) + Send + Sync,
-        cancel: Arc<Notify>,
+        cancel: &CancellationToken,
     ) -> Result<(), String> {
         if jre().is_none() {
             return Err("Raygun has no Java runtime for this kind of computer".into());
@@ -141,14 +144,14 @@ impl Tools {
         }
         if self.java_path().is_none() {
             let jre = jre().expect("a JRE is pinned for a supported platform");
-            let bytes = self.fetch(&jre, &progress, &cancel).await?;
+            let bytes = fetch(&self.client, &jre, &progress, cancel).await?;
             let dir = self.dir.clone();
             unpack_leading(bytes, &jre.url.to_lowercase(), &dir.join("jre"))
                 .await
                 .map_err(|error| format!("Raygun couldn't unpack the Java runtime: {error}"))?;
         }
         if self.dex2jar_dir().is_none() {
-            let bytes = self.fetch(&DEX2JAR, &progress, &cancel).await?;
+            let bytes = fetch(&self.client, &DEX2JAR, &progress, cancel).await?;
             let dir = self.dir.join("dex2jar");
             unpack_leading(bytes, ".zip", &dir)
                 .await
@@ -156,47 +159,53 @@ impl Tools {
         }
         Ok(())
     }
+}
 
-    /// Downloads a pinned archive and checks its hash, stopping if `cancel` fires.
-    async fn fetch(
-        &self,
-        pinned: &Pinned,
-        progress: &(impl Fn(u64, Option<u64>) + Send + Sync),
-        cancel: &Notify,
-    ) -> Result<Vec<u8>, String> {
-        use futures_util::StreamExt;
-        let response = self
-            .client
-            .get(pinned.url)
-            .send()
-            .await
+/// Downloads a pinned archive into memory and checks its hash; `cancel` stops it wherever it is
+/// (waiting for the answer, between two pieces, before it's unpacked).
+async fn fetch(
+    client: &reqwest::Client,
+    pinned: &Pinned,
+    progress: &(impl Fn(u64, Option<u64>) + Send + Sync),
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, String> {
+    use futures_util::StreamExt;
+    let sent = client.get(pinned.url).send();
+    let response = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Err(CANCELLED.into()),
+        response = sent => response
             .map_err(|error| format!("couldn't reach {}: {error}", pinned.url))?
             .error_for_status()
-            .map_err(|error| error.to_string())?;
-        let total = response.content_length();
-        let mut stream = response.bytes_stream();
-        let mut bytes = Vec::new();
-        loop {
-            tokio::select! {
-                () = cancel.notified() => return Err("Fetching the Mihon tools was cancelled".into()),
-                chunk = stream.next() => match chunk {
-                    Some(chunk) => {
-                        bytes.extend_from_slice(&chunk.map_err(|error| error.to_string())?);
-                        progress(bytes.len() as u64, total);
-                    }
-                    None => break,
-                },
-            }
-        }
-        let hash = hex(&Sha256::digest(&bytes));
-        if hash != pinned.sha256 {
-            return Err(format!(
-                "a Mihon tool didn't match its checksum (expected {}, got {hash})",
-                pinned.sha256
-            ));
-        }
-        Ok(bytes)
+            .map_err(|error| error.to_string())?,
+    };
+    let total = response.content_length();
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    loop {
+        let chunk = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(CANCELLED.into()),
+            chunk = stream.next() => chunk,
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
+        bytes.extend_from_slice(&chunk.map_err(|error| error.to_string())?);
+        progress(bytes.len() as u64, total);
     }
+    // Cancelled after its last byte: nothing is unpacked.
+    if cancel.is_cancelled() {
+        return Err(CANCELLED.into());
+    }
+    let hash = hex(&Sha256::digest(&bytes));
+    if hash != pinned.sha256 {
+        return Err(format!(
+            "a Mihon tool didn't match its checksum (expected {}, got {hash})",
+            pinned.sha256
+        ));
+    }
+    Ok(bytes)
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -204,38 +213,43 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// Unpacks an archive into `target`, dropping its single leading folder (`jdk-21…/`,
-/// `dex-tools-v2.4/`) so the contents land directly under `target`.
+/// `dex-tools-v2.4/`) so the contents land directly under `target`. It's unpacked beside it
+/// first, and a failed unpack leaves nothing there.
 async fn unpack_leading(bytes: Vec<u8>, name_hint: &str, target: &Path) -> Result<(), String> {
     let target = target.to_path_buf();
     let is_zip = name_hint.ends_with(".zip");
     tokio::task::spawn_blocking(move || {
         let staging = target.with_extension("part");
         let _ = std::fs::remove_dir_all(&staging);
-        std::fs::create_dir_all(&staging).map_err(|error| error.to_string())?;
-        if is_zip {
-            unpack_zip(&bytes, &staging)?;
-        } else {
-            unpack_tar_gz(&bytes, &staging)?;
-        }
-        // Move the single leading folder's contents up, if there is exactly one.
-        let entries: Vec<PathBuf> = std::fs::read_dir(&staging)
-            .map_err(|error| error.to_string())?
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .collect();
-        let source = match entries.as_slice() {
-            [only] if only.is_dir() => only.clone(),
-            _ => staging.clone(),
-        };
-        let _ = std::fs::remove_dir_all(&target);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        std::fs::rename(&source, &target).map_err(|error| error.to_string())?;
+        let unpacked = unpack_staged(&bytes, is_zip, &staging, &target);
         let _ = std::fs::remove_dir_all(&staging);
-        Ok(())
+        unpacked
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+fn unpack_staged(bytes: &[u8], is_zip: bool, staging: &Path, target: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(staging).map_err(|error| error.to_string())?;
+    if is_zip {
+        unpack_zip(bytes, staging)?;
+    } else {
+        unpack_tar_gz(bytes, staging)?;
+    }
+    // Move the single leading folder's contents up, if there is exactly one.
+    let entries: Vec<PathBuf> = std::fs::read_dir(staging)
+        .map_err(|error| error.to_string())?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .collect();
+    let source = match entries.as_slice() {
+        [only] if only.is_dir() => only.clone(),
+        _ => staging.to_path_buf(),
+    };
+    let _ = std::fs::remove_dir_all(target);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    std::fs::rename(&source, target).map_err(|error| error.to_string())
 }
 
 fn unpack_zip(bytes: &[u8], target: &Path) -> Result<(), String> {
@@ -322,6 +336,65 @@ mod tests {
             .unwrap();
         assert!(temp.join("jre").join("bin").join("java").is_file());
         assert!(temp.join("jre").join("lib").join("x").is_file());
+
+        // A damaged archive leaves nothing beside the tools.
+        let failed = unpack_leading(b"not a zip".to_vec(), "dex.zip", &temp.join("dex2jar")).await;
+        assert!(failed.is_err());
+        assert!(!temp.join("dex2jar").exists());
+        assert!(!temp.join("dex2jar.part").exists());
         let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[tokio::test]
+    async fn a_cancel_stops_a_tool_fetch_wherever_it_is() {
+        use axum::Router;
+        use axum::body::{Body, Bytes};
+        use axum::routing::get;
+        use futures_util::StreamExt as _;
+
+        let app = Router::new()
+            .route(
+                "/slow.zip",
+                get(|| async {
+                    let piece = futures_util::stream::once(async {
+                        Ok::<_, std::io::Error>(Bytes::from(vec![1u8; 100]))
+                    });
+                    Body::from_stream(piece.chain(futures_util::stream::pending()))
+                }),
+            )
+            .route(
+                "/hang.zip",
+                get(|| async {
+                    std::future::pending::<()>().await;
+                    "never"
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = raygun_net::http_client().unwrap();
+
+        for path in ["slow.zip", "hang.zip"] {
+            let pinned = Pinned {
+                url: Box::leak(format!("http://{address}/{path}").into_boxed_str()),
+                sha256: DEX2JAR.sha256,
+            };
+            let cancel = CancellationToken::new();
+            let later = cancel.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                later.cancel();
+            });
+            let stopped = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                fetch(&client, &pinned, &|_, _| {}, &cancel),
+            )
+            .await
+            .expect("a cancel doesn't wait for the server");
+            assert_eq!(stopped, Err(CANCELLED.to_owned()), "{path}");
+            // Already cancelled: nothing is asked for.
+            let again = fetch(&client, &pinned, &|_, _| panic!("nothing arrives"), &cancel).await;
+            assert_eq!(again, Err(CANCELLED.to_owned()), "{path}");
+        }
     }
 }

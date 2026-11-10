@@ -70,7 +70,12 @@ export const useExportFfmpeg = (wanted: boolean) => {
       void client.invalidateQueries({ queryKey: [...EXPORTS, 'plan'] });
     },
   });
-  return { status, install };
+  // Stops the fetch at once; nothing of it is kept, and Get FFmpeg is offered again.
+  const cancel = useMutation({
+    mutationFn: () => commands.ytdlpCancelInstall(),
+    onSettled: () => void client.invalidateQueries({ queryKey: FFMPEG_STATUS }),
+  });
+  return { status, install, cancel };
 };
 
 const LAST_FOLDER = [...EXPORTS, 'lastFolder'] as const;

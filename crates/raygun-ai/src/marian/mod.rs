@@ -365,7 +365,8 @@ mod tests {
             Err(_) => {
                 let client = raygun_net::http_client().unwrap();
                 let started = std::time::Instant::now();
-                crate::models::download(&client, temp.path(), &model, |_, _| {})
+                let go = crate::models::CancellationToken::new();
+                crate::models::download(&client, temp.path(), &model, &go, |_, _| {})
                     .await
                     .unwrap();
                 println!("downloaded in {:?}", started.elapsed());

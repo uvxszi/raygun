@@ -426,20 +426,33 @@ export const ExportSheet: FC<{
         {needsFfmpeg && (
           <div className="bg-background flex flex-col gap-2 rounded-xl p-3 text-xs">
             <p className="text-muted">{t('export.convert.needsFfmpeg')}</p>
-            <button
-              type="button"
-              disabled={fetching}
-              onClick={() => ffmpeg.install.mutate()}
-              className="bg-primary text-background self-start rounded-full px-4 py-2 font-semibold disabled:opacity-50"
-            >
-              {fetching
-                ? fetched === null
-                  ? t('export.convert.gettingFfmpeg')
-                  : t('export.convert.gettingFfmpegPercent', {
-                      percent: Math.floor(fetched * 100),
-                    })
-                : t('export.convert.getFfmpeg')}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={fetching}
+                onClick={() => ffmpeg.install.mutate()}
+                className="bg-primary text-background rounded-full px-4 py-2 font-semibold disabled:opacity-50"
+              >
+                {fetching
+                  ? fetched === null
+                    ? t('export.convert.gettingFfmpeg')
+                    : t('export.convert.gettingFfmpegPercent', {
+                        percent: Math.floor(fetched * 100),
+                      })
+                  : t('export.convert.getFfmpeg')}
+              </button>
+              {fetching && (
+                <button
+                  type="button"
+                  aria-label={t('export.convert.cancelFfmpeg')}
+                  disabled={ffmpeg.cancel.isPending}
+                  onClick={() => ffmpeg.cancel.mutate()}
+                  className="bg-surface rounded-full px-4 py-2 font-semibold disabled:opacity-50"
+                >
+                  {t('export.convert.cancel')}
+                </button>
+              )}
+            </div>
             {fetching && fetched !== null && (
               <div
                 role="progressbar"

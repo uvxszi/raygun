@@ -40,7 +40,8 @@ mod desktop {
 
     use tauri::AppHandle;
     use tauri_specta::Event as _;
-    use tokio::sync::{Mutex, Notify};
+    use tokio::sync::Mutex;
+    use tokio_util::sync::CancellationToken;
 
     use super::sidecar::{IDLE, Load, Sidecar};
     use crate::events::MihonRuntimeEvent;
@@ -53,7 +54,8 @@ mod desktop {
         user_agent: Arc<dyn Fn() -> String + Send + Sync>,
         sidecars: Mutex<HashMap<String, Arc<Sidecar>>>,
         setting_up: AtomicBool,
-        cancel: Arc<Notify>,
+        /// Stops the setup running now (each setup has its own).
+        cancel: std::sync::Mutex<CancellationToken>,
     }
 
     impl MihonContainer {
@@ -71,7 +73,7 @@ mod desktop {
                 user_agent,
                 sidecars: Mutex::new(HashMap::new()),
                 setting_up: AtomicBool::new(false),
-                cancel: Arc::new(Notify::new()),
+                cancel: std::sync::Mutex::new(CancellationToken::new()),
             });
             container.clone().sweep_idle();
             container
@@ -109,11 +111,14 @@ mod desktop {
         }
 
         /// Fetches the JRE and dex2jar if they're missing, announcing the runtime state as it
-        /// goes. A second call while one is running does nothing; `cancel_setup` stops it.
+        /// goes. A second call while one is running does nothing; `cancel_setup` stops it, which
+        /// isn't a failure: the runtime is left as it was.
         pub async fn setup(self: &Arc<Self>) -> Result<(), String> {
             if self.setting_up.swap(true, Ordering::SeqCst) {
                 return Err("The runtime is already being set up".into());
             }
+            let cancel = CancellationToken::new();
+            *self.cancel.lock().expect("mihon setup cancel poisoned") = cancel.clone();
             MihonRuntimeEvent(self.runtime_state()).emit(&self.app).ok();
             let container = self.clone();
             let announce = {
@@ -129,15 +134,24 @@ mod desktop {
                     }
                 }
             };
-            let result = self.tools.ensure(announce, self.cancel.clone()).await;
+            let result = self.tools.ensure(announce, &cancel).await;
             self.setting_up.store(false, Ordering::SeqCst);
             MihonRuntimeEvent(self.runtime_state()).emit(&self.app).ok();
-            result
+            match result {
+                Err(why) if cancel.is_cancelled() => {
+                    tracing::info!(%why, "the Mihon runtime's setup was cancelled");
+                    Ok(())
+                }
+                result => result,
+            }
         }
 
-        /// Stops a setup that's running.
+        /// Stops a setup that's running: the fetch ends at once and nothing of it is kept.
         pub fn cancel_setup(&self) {
-            self.cancel.notify_waiters();
+            self.cancel
+                .lock()
+                .expect("mihon setup cancel poisoned")
+                .cancel();
         }
 
         /// The sources an installed APK extension registers; starts its sidecar.

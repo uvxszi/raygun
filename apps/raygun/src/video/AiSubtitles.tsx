@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useAiModels, useDownloadAiModel } from '../ai/useAi';
+import { useAiModels, useCancelAiModel, useDownloadAiModel } from '../ai/useAi';
 import { formatBytes } from '../lib/formatBytes';
 import { formatTime } from '../player/formatTime';
 import { useCaptions, useStopCaptions } from '../player/spoken';
@@ -49,6 +49,7 @@ export const AiSubtitles: FC<Props> = ({
   const update = useUpdateSetting();
   const models = useAiModels();
   const download = useDownloadAiModel();
+  const cancel = useCancelAiModel();
   const captions = useCaptions(videoKey);
   const stop = useStopCaptions();
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +111,8 @@ export const AiSubtitles: FC<Props> = ({
     if (!wanted || !prefs) return;
     setError(null);
     try {
-      await download.mutateAsync(wanted.id);
+      // Cancelled: nothing changes, and the download is offered again.
+      if ((await download.mutateAsync(wanted.id)) === 'cancelled') return;
       await update.mutateAsync({
         key: 'transcription',
         value: { ...prefs, engine: 'local', localModel: wanted.id },
@@ -143,10 +145,21 @@ export const AiSubtitles: FC<Props> = ({
           <p>{t('desktopPlayer.ai.needsModel')}</p>
           {wanted &&
             (downloaded !== null ? (
-              <p role="status" className="flex items-center gap-2">
-                <LoaderCircle aria-hidden size={14} className="animate-spin" />
-                {t('desktopPlayer.ai.downloading', { percent })}
-              </p>
+              <div className="flex items-center gap-2">
+                <p role="status" className="flex flex-1 items-center gap-2">
+                  <LoaderCircle aria-hidden size={14} className="animate-spin" />
+                  {t('desktopPlayer.ai.downloading', { percent })}
+                </p>
+                <button
+                  type="button"
+                  aria-label={t('ai.cancelDownload', { name: wanted.name })}
+                  disabled={cancel.isPending}
+                  onClick={() => cancel.mutate(wanted.id)}
+                  className="rounded-lg bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20 disabled:opacity-50"
+                >
+                  {t('desktopPlayer.ai.cancelDownload')}
+                </button>
+              </div>
             ) : (
               <button type="button" onClick={() => void downloadModel()} className={BUTTON}>
                 {t('desktopPlayer.ai.download', { size: formatBytes(wanted.sizeBytes ?? 0) })}

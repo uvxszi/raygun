@@ -638,7 +638,8 @@ async fn live_tools() -> ffmpeg::Tools {
     }
     let client = raygun_net::http_client().unwrap();
     let started = std::time::Instant::now();
-    crate::ytdlp::fetch_ffmpeg_into(&client, &dir, |_| {})
+    let go = tokio_util::sync::CancellationToken::new();
+    crate::ytdlp::fetch_ffmpeg_into(&client, &dir, &go, |_| {})
         .await
         .expect("FFmpeg fetched");
     println!("FFmpeg fetched in {:.1} s", started.elapsed().as_secs_f64());

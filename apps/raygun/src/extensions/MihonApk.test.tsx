@@ -1,5 +1,5 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -136,5 +136,35 @@ describe('Mihon APKs', () => {
       '{}',
     );
     expect(await screen.findByText('Its own code answered with 2 titles.')).toBeInTheDocument();
+  });
+
+  it('cancels setting up the runtime while its tools download', async () => {
+    const user = userEvent.setup();
+    const RUNTIME_MISSING = { supported: true, ready: false, settingUp: false, note: '' };
+    commands.settingsGet.mockResolvedValue(ok({ ...DEFAULT_SETTINGS, runSourceCode: true }));
+    commands.mihonRuntimeState.mockResolvedValue(ok(RUNTIME_MISSING));
+    commands.mihonRuntimeCancel.mockResolvedValue(ok(null));
+    let finish: (value: { status: 'ok'; data: typeof RUNTIME_MISSING }) => void = () => {};
+    commands.mihonRuntimeSetup.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    savedApk();
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    await user.click(await screen.findByRole('button', { name: 'Download APK' }));
+    expect(screen.queryByRole('button', { name: 'Cancel setting up the runtime' })).toBeNull();
+    await user.click(await screen.findByRole('button', { name: 'Set up the runtime' }));
+    await user.click(await screen.findByRole('button', { name: 'Cancel setting up the runtime' }));
+    expect(commands.mihonRuntimeCancel).toHaveBeenCalled();
+
+    // Rust answers once it stopped: the runtime is as it was, with nothing said to have failed.
+    finish(ok(RUNTIME_MISSING));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Set up the runtime' })).toBeEnabled(),
+    );
+    expect(screen.queryByRole('button', { name: 'Cancel setting up the runtime' })).toBeNull();
+    expect(screen.queryByText('Couldn’t set up the runtime')).toBeNull();
   });
 });

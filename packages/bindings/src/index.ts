@@ -822,10 +822,18 @@ export const commands = {
 	youtubePlay: (videoId: string, title: string, channel: string | null) => typedError<null, string>(__TAURI_INVOKE("youtube_play", { videoId, title, channel })),
 	/**  yt-dlp and FFmpeg on this device (M46.47). */
 	ytdlpStatus: () => typedError<YtDlpStatus, string>(__TAURI_INVOKE("ytdlp_status")),
-	/**  Fetches yt-dlp's latest release (checked against its checksums) (M46.47). */
+	/**
+	 *  Fetches yt-dlp's latest release (checked against its checksums) (M46.47). A fetch cancelled by
+	 *  `ytdlp_cancel_install` answers with the status as it was.
+	 */
 	ytdlpInstall: () => typedError<YtDlpStatus, string>(__TAURI_INVOKE("ytdlp_install")),
-	/**  Fetches FFmpeg for YouTube videos above 360p (Windows) (M46.47). */
+	/**
+	 *  Fetches FFmpeg for YouTube videos above 360p and conversions (Windows) (M46.47). A fetch
+	 *  cancelled by `ytdlp_cancel_install` answers with the status as it was.
+	 */
 	ytdlpInstallFfmpeg: () => typedError<YtDlpStatus, string>(__TAURI_INVOKE("ytdlp_install_ffmpeg")),
+	/**  Stops the fetch of yt-dlp or FFmpeg running now; nothing of it is kept. Whether one ran. */
+	ytdlpCancelInstall: () => __TAURI_INVOKE<boolean>("ytdlp_cancel_install"),
 	/**  Saves a YouTube video or its sound to Downloads/Raygun/YouTube (M46.47); the job's id. */
 	ytdlpDownload: (url: string, title: string, kind: YtDlpKind) => typedError<string, string>(__TAURI_INVOKE("ytdlp_download", { url, title, kind })),
 	/**  yt-dlp's downloads, newest first (M46.47). */
@@ -1037,8 +1045,13 @@ export const commands = {
 	aiProviderTest: (id: string) => typedError<string, string>(__TAURI_INVOKE("ai_provider_test", { id })),
 	/**  Models the model manager offers, and which are installed. */
 	aiModels: () => __TAURI_INVOKE<AiModel[]>("ai_models"),
-	/**  Downloads and installs a model; progress arrives as `AiModelEvent`s. */
-	aiModelDownload: (id: string) => typedError<null, string>(__TAURI_INVOKE("ai_model_download", { id })),
+	/**
+	 *  Downloads and installs a model; progress arrives as `AiModelEvent`s. How it ended: `installed`,
+	 *  or `cancelled` by `ai_model_cancel` (nothing kept).
+	 */
+	aiModelDownload: (id: string) => typedError<AiModelState, string>(__TAURI_INVOKE("ai_model_download", { id })),
+	/**  Stops a model's download: what it fetched is deleted. Whether one was running. */
+	aiModelCancel: (id: string) => __TAURI_INVOKE<boolean>("ai_model_cancel", { id }),
 	aiModelDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("ai_model_delete", { id })),
 	/**  Subscribed podcasts, most recently updated first. */
 	podcastSubscriptions: () => typedError<PodcastSummary[], string>(__TAURI_INVOKE("podcast_subscriptions")),
@@ -1784,7 +1797,11 @@ export type AiModelProgress = {
 	error: string | null,
 };
 
-export type AiModelState = "downloading" | "installed" | "failed";
+/**
+ *  Where a model's download is. `ai_model_download` answers with how it ended: `Installed`, or
+ *  `Cancelled` (nothing of it was kept, an installed copy stays as it was).
+ */
+export type AiModelState = "downloading" | "installed" | "failed" | "cancelled";
 
 /**  A configured translator. Its key stays in the secrets store; only a hint is shown. */
 export type AiProvider = {

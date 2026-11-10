@@ -101,6 +101,10 @@ export const useMihonRuntime = () => {
 export const useMihonRuntimeSetup = () =>
   useMutation({ mutationFn: () => unwrapResult(commands.mihonRuntimeSetup()) });
 
+/** Stops fetching the Mihon runtime's tools at once; nothing of the download is kept. */
+export const useMihonRuntimeCancel = () =>
+  useMutation({ mutationFn: () => unwrapResult(commands.mihonRuntimeCancel()) });
+
 /** Runs one call on an installed, checked Mihon APK through the container; the result is JSON. */
 export const useMihonRun = () =>
   useMutation({

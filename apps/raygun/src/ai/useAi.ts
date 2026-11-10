@@ -53,12 +53,28 @@ export const useAiModels = () => {
   return useQuery({ queryKey: MODELS, queryFn: () => commands.aiModels() });
 };
 
+/**
+ * Downloads a model; resolves to how it ended: `installed`, or `cancelled` (by its Cancel here, in
+ * another screen or in the notification), which isn't a failure.
+ */
 export const useDownloadAiModel = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => unwrapResult(commands.aiModelDownload(id)),
     onMutate: (id) => {
       queryClient.setQueryData<AiModel[]>(MODELS, (list) => setDownloading(list, id, 0));
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: MODELS }),
+  });
+};
+
+/** Stops a model's download at once: what came so far is deleted and the model is as it was. */
+export const useCancelAiModel = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => commands.aiModelCancel(id),
+    onMutate: (id) => {
+      queryClient.setQueryData<AiModel[]>(MODELS, (list) => setDownloading(list, id, null));
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: MODELS }),
   });

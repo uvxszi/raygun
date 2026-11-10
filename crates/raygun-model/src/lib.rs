@@ -7074,12 +7074,15 @@ pub struct AiModel {
     pub engine: Option<String>,
 }
 
+/// Where a model's download is. `ai_model_download` answers with how it ended: `Installed`, or
+/// `Cancelled` (nothing of it was kept, an installed copy stays as it was).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AiModelState {
     Downloading,
     Installed,
     Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

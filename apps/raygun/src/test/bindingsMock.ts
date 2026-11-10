@@ -388,6 +388,7 @@ export const bindingsMock = {
     ytdlpStatus: vi.fn(),
     ytdlpInstall: vi.fn(),
     ytdlpInstallFfmpeg: vi.fn(),
+    ytdlpCancelInstall: vi.fn(),
     ytdlpDownload: vi.fn(),
     ytdlpJobs: vi.fn(),
     ytdlpCancel: vi.fn(),
@@ -593,6 +594,7 @@ export const bindingsMock = {
     aiProviderTest: vi.fn(),
     aiModels: vi.fn(),
     aiModelDownload: vi.fn(),
+    aiModelCancel: vi.fn(),
     aiModelDelete: vi.fn(),
     aiModelText: vi.fn(),
     readerAiSupport: vi.fn(),
@@ -1164,6 +1166,7 @@ export const seedBindings = () => {
   commands.ytdlpStatus.mockResolvedValue(ok(YTDLP_OFF));
   commands.ytdlpInstall.mockResolvedValue(ok(YTDLP_OFF));
   commands.ytdlpInstallFfmpeg.mockResolvedValue(ok(YTDLP_OFF));
+  commands.ytdlpCancelInstall.mockResolvedValue(true);
   commands.ytdlpDownload.mockResolvedValue(ok('job'));
   commands.ytdlpJobs.mockResolvedValue([]);
   commands.ytdlpCancel.mockResolvedValue(null);
@@ -1389,7 +1392,8 @@ export const seedBindings = () => {
   commands.aiProviderDelete.mockResolvedValue(ok(null));
   commands.aiProviderTest.mockResolvedValue(ok(''));
   commands.aiModels.mockResolvedValue([]);
-  commands.aiModelDownload.mockResolvedValue(ok(null));
+  commands.aiModelDownload.mockResolvedValue(ok('installed'));
+  commands.aiModelCancel.mockResolvedValue(true);
   commands.aiModelDelete.mockResolvedValue(ok(null));
   commands.aiModelText.mockResolvedValue(ok(''));
   commands.readerAiSupport.mockResolvedValue({ textReaderBuiltIn: true });

@@ -7,7 +7,7 @@ import type {
   TrackQuery,
 } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Cpu, Languages, LoaderCircle, RotateCcw, Sparkles } from 'lucide-react';
+import { Check, Cpu, Languages, LoaderCircle, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -77,7 +77,7 @@ export const LyricsTranslateMenu: FC<{
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   // While models download: how much of everything to download is in, in percent.
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null);
-  const download = useRef({ base: 0, total: 0, models: [] as string[] });
+  const download = useRef({ base: 0, total: 0, models: [] as string[], current: '' });
 
   const savePrefs = (change: Partial<TranslationPrefs>) =>
     update.mutate({ key: 'lyricsTranslation', value: { ...prefs, ...change } });
@@ -90,10 +90,17 @@ export const LyricsTranslateMenu: FC<{
         const missing = option.models.filter(
           (id) => !models.find((model: AiModel) => model.id === id)?.installed,
         );
-        download.current = { base: 0, total: option.downloadBytes ?? 0, models: missing };
+        download.current = {
+          base: 0,
+          total: option.downloadBytes ?? 0,
+          models: missing,
+          current: '',
+        };
         setDownloadPercent(0);
         for (const id of missing) {
-          await unwrapResult(commands.aiModelDownload(id));
+          download.current.current = id;
+          // Cancelled (here, or from its notification): nothing is translated.
+          if ((await unwrapResult(commands.aiModelDownload(id))) === 'cancelled') return null;
           download.current.base += models.find((model: AiModel) => model.id === id)?.sizeBytes ?? 0;
         }
         setDownloadPercent(null);
@@ -101,6 +108,7 @@ export const LyricsTranslateMenu: FC<{
       return unwrapResult(commands.lyricsTranslate(query, target, option.id));
     },
     onSuccess: (translation) => {
+      if (!translation) return;
       choose(key, { translator: translation.translator ?? '', language: translation.language });
       void client.invalidateQueries({ queryKey: lyricsKey(query) });
       void client.invalidateQueries({ queryKey: ['lyricsCache'] });
@@ -218,6 +226,17 @@ export const LyricsTranslateMenu: FC<{
               ? `${progress.done}/${progress.total}`
               : null}
         </span>
+      )}
+      {running && downloadPercent !== null && (
+        <button
+          type="button"
+          aria-label={t('lyricsTranslate.cancelDownload')}
+          title={t('lyricsTranslate.cancelDownload')}
+          onClick={() => void commands.aiModelCancel(download.current.current)}
+          className="text-muted hover:text-foreground grid size-5 place-items-center rounded-full"
+        >
+          <X aria-hidden size={13} />
+        </button>
       )}
       {translate.error && translate.variables && (
         <SourceIssue

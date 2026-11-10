@@ -241,7 +241,7 @@ describe('Lyrics translations', () => {
     ]);
     let finishDownload: () => void = () => {};
     commands.aiModelDownload.mockImplementation(
-      () => new Promise((resolve) => (finishDownload = () => resolve(ok(null)))),
+      () => new Promise((resolve) => (finishDownload = () => resolve(ok('installed')))),
     );
     let finishTranslation: () => void = () => {};
     commands.lyricsTranslate.mockImplementation(
@@ -300,6 +300,47 @@ describe('Lyrics translations', () => {
     ).toHaveTextContent('1/2');
     finishTranslation();
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  });
+
+  it('cancels the translation model’s download, translating nothing', async () => {
+    const user = userEvent.setup();
+    commands.lyricsGet.mockResolvedValue(ok(LYRICS));
+    commands.lyricsTranslateOptions.mockResolvedValue(ok([DEVICE]));
+    commands.aiModels.mockResolvedValue([
+      {
+        id: 'opus-mt-mul-en',
+        name: 'Translate into English (OPUS-MT)',
+        kind: 'translate',
+        description: '',
+        license: 'Apache-2.0',
+        licenseUrl: 'https://huggingface.co/Helsinki-NLP/opus-mt-mul-en',
+        sourceUrl: 'https://github.com/Helsinki-NLP/Opus-MT',
+        sizeBytes: 310_361_360,
+        installed: false,
+        downloading: null,
+      },
+    ]);
+    let stopped: () => void = () => {};
+    commands.aiModelDownload.mockImplementation(
+      () => new Promise((resolve) => (stopped = () => resolve(ok('cancelled')))),
+    );
+    commands.aiModelCancel.mockImplementation(async () => {
+      stopped();
+      return true;
+    });
+    show();
+    const view = await screen.findByTestId('lyrics-view');
+    await user.click(await within(view).findByRole('button', { name: 'Translate lyrics' }));
+    const menu = await screen.findByTestId('lyrics-translate-menu');
+    await user.click(await within(menu).findByRole('button', { name: /On this device/ }));
+    await user.click(within(menu).getByRole('button', { name: 'Download' }));
+    await waitFor(() => expect(commands.aiModelDownload).toHaveBeenCalledWith('opus-mt-mul-en'));
+
+    await user.click(await screen.findByRole('button', { name: "Cancel the model's download" }));
+    expect(commands.aiModelCancel).toHaveBeenCalledWith('opus-mt-mul-en');
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(commands.lyricsTranslate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('says calmly when a translator fails, naming it, and tries again', async () => {

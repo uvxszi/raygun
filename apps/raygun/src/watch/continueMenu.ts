@@ -1,13 +1,16 @@
 import { commands } from '@raygun/bindings';
-import type { ContinueWatching } from '@raygun/bindings';
+import type { ContinueWatching, VideoDownloadItem } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
+import type { TFunction } from 'i18next';
 import {
   BookmarkMinus,
   BookmarkPlus,
   CheckCheck,
+  CircleX,
   Download,
   ListVideo,
+  LoaderCircle,
   PanelTop,
   Play,
   RotateCcw,
@@ -31,6 +34,10 @@ import {
 } from './continueEntry';
 import {
   STREMIO_SOURCE,
+  downloadShare,
+  useDownloadsByKey,
+  useRemoveVideoDownload,
+  useRetryVideoDownload,
   useSetStremioInLibrary,
   useSetVideoInLibrary,
   videoTitleLink,
@@ -42,11 +49,80 @@ export type ContinueListing = 'continue' | 'history';
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+type DownloadActions = {
+  /** Whether it can be downloaded at all (a source's episode, not a file on this device). */
+  canDownload: boolean;
+  download: () => void;
+  retry: (id: string) => void;
+  /** Deletes or cancels the download; `done` is said once it's gone. */
+  remove: (id: string, done: string) => void;
+  name: string;
+  t: TFunction;
+};
+
+/**
+ * The menu's download lines, by where the video's download is: Download when there's none (or
+ * Download again when it failed), its progress and Cancel while it's queued or downloading, Delete
+ * download once it's done. Cancelling and deleting ask first.
+ */
+export const downloadItems = (
+  saved: VideoDownloadItem | undefined,
+  { canDownload, download, retry, remove, name, t }: DownloadActions,
+): MenuItem[] => {
+  switch (saved?.state) {
+    case 'done':
+      return [
+        {
+          label: t('watch.continueMenu.deleteDownload'),
+          icon: Trash2,
+          confirm: t('watch.continueMenu.deleteDownloadAsk', { name }),
+          onSelect: () => remove(saved.id, t('watch.continueMenu.deleted', { name })),
+        },
+      ];
+    case 'queued':
+    case 'downloading': {
+      const share = downloadShare(saved);
+      return [
+        {
+          label:
+            saved.state === 'queued'
+              ? t('watch.continueMenu.waiting')
+              : share === null
+                ? t('watch.continueMenu.downloadingNow')
+                : t('watch.continueMenu.progress', { percent: Math.floor(share * 100) }),
+          icon: LoaderCircle,
+          disabled: true,
+          onSelect: () => undefined,
+        },
+        {
+          label: t('watch.continueMenu.cancelDownload'),
+          icon: CircleX,
+          // Stopping asks first, as every download's ring does.
+          confirm: t('downloads.stop.ask', { name }),
+          onSelect: () => remove(saved.id, t('watch.continueMenu.cancelled', { name })),
+        },
+      ];
+    }
+    case 'failed':
+      return [
+        {
+          label: t('watch.continueMenu.downloadAgain'),
+          icon: Download,
+          onSelect: () => retry(saved.id),
+        },
+      ];
+    default:
+      return canDownload
+        ? [{ label: t('watch.continueMenu.download'), icon: Download, onSelect: download }]
+        : [];
+  }
+};
+
 /**
  * The ⋮ menu of a Continue watching entry or a watch history row: resume it, play it from the
  * start or its series' next episode, open its title, choose its source; save the title or take it
- * out, mark it watched; download it, pin its title; and take it out of the list, asked first.
- * `onChooseSource` opens the source picker for it.
+ * out, mark it watched; download it (or cancel or delete its download, see `downloadItems`), pin
+ * its title; and take it out of the list, asked first. `onChooseSource` opens the source picker.
  */
 export const useContinueMenu = (
   listing: ContinueListing,
@@ -61,6 +137,9 @@ export const useContinueMenu = (
   const remove = useRemoveContinue();
   const setVideoInLibrary = useSetVideoInLibrary();
   const setStremioInLibrary = useSetStremioInLibrary();
+  const downloads = useDownloadsByKey();
+  const removeDownload = useRemoveVideoDownload();
+  const retry = useRetryVideoDownload();
 
   return (item: ContinueWatching): MenuItem[] => {
     const name = item.title;
@@ -156,28 +235,29 @@ export const useContinueMenu = (
         },
       ],
       keep: [
-        group &&
-          episodeId &&
-          !local && {
-            label: t('watch.continueMenu.download'),
-            icon: Download,
-            onSelect: () =>
-              attempt(async () => {
-                // It finds its best link when its turn comes, as a title's episodes do.
-                const queued = await unwrapResult(
-                  commands.videoDownloadEpisodes(group, [episodeId]),
-                );
-                await client.invalidateQueries({ queryKey: ['video', 'downloads'] });
-                showToast(
-                  t(
-                    queued > 0
-                      ? 'watch.continueMenu.downloading'
-                      : 'watch.continueMenu.downloadedAlready',
-                    { name: episodeName },
-                  ),
-                );
-              }),
-          },
+        ...downloadItems(downloads.get(item.key), {
+          canDownload: Boolean(group && episodeId && !local),
+          download: () =>
+            attempt(async () => {
+              if (!group || !episodeId) return;
+              // It finds its best link when its turn comes, as a title's episodes do.
+              const queued = await unwrapResult(commands.videoDownloadEpisodes(group, [episodeId]));
+              await client.invalidateQueries({ queryKey: ['video', 'downloads'] });
+              showToast(
+                t(
+                  queued > 0
+                    ? 'watch.continueMenu.downloading'
+                    : 'watch.continueMenu.downloadedAlready',
+                  { name: episodeName },
+                ),
+              );
+            }),
+          retry: (id) => retry.mutate(id, failed),
+          remove: (id, done) =>
+            removeDownload.mutate(id, { ...failed, onSuccess: () => showToast(done) }),
+          name: episodeName,
+          t,
+        }),
         ...(page
           ? pinItems({
               kind: 'video',

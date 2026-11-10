@@ -447,31 +447,12 @@ impl DownloadNotices {
         // Finished ones are only kept while their batch is reported.
         let list: Vec<Download> = models
             .values()
-            .map(|progress| Download {
-                kind: Kind::Models,
-                id: progress.id.clone(),
-                title: names
+            .filter_map(|progress| {
+                let title = names
                     .get(&progress.id)
                     .cloned()
-                    .unwrap_or_else(|| progress.id.clone()),
-                subtitle: None,
-                phase: match progress.state {
-                    AiModelState::Downloading => Phase::Running,
-                    AiModelState::Installed => Phase::Done,
-                    AiModelState::Failed => Phase::Failed,
-                },
-                done: progress.received_bytes,
-                total: Some(progress.total_bytes).filter(|total| *total > 0.0),
-                unit: Unit::Bytes,
-                bytes: None,
-                left_ms: None,
-                speed: None,
-                error: progress.error.clone(),
-                abilities: Abilities {
-                    retry: progress.state == AiModelState::Failed,
-                    ..Abilities::default()
-                },
-                route: Kind::Models.route().to_owned(),
+                    .unwrap_or_else(|| progress.id.clone());
+                model_download(progress, title)
             })
             .collect();
         models.retain(|_, progress| progress.state == AiModelState::Downloading);
@@ -554,6 +535,12 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
             state::<Arc<crate::export::ExportService>>(app)?.cancel(id);
             Ok(())
         }
+        (Kind::Models, "cancel") => {
+            if let Some(ai) = app.try_state::<crate::ai::AiService>() {
+                ai.cancel_model_download(id);
+            }
+            Ok(())
+        }
         (Kind::Models, "retry") => {
             let app = app.clone();
             let id = id.to_owned();
@@ -634,6 +621,37 @@ fn takes_report(known: Option<SongDownloadState>, report: SongDownloadState) -> 
         Some(known) if ended(known) && !ended(report) => Report::Drop,
         Some(_) => Report::Take,
     }
+}
+
+/// An AI model's download as notifications show it: a running one can be cancelled, a failed one
+/// tried again; a cancelled one isn't shown.
+fn model_download(progress: &AiModelProgress, title: String) -> Option<Download> {
+    let phase = match progress.state {
+        AiModelState::Downloading => Phase::Running,
+        AiModelState::Installed => Phase::Done,
+        AiModelState::Failed => Phase::Failed,
+        AiModelState::Cancelled => return None,
+    };
+    Some(Download {
+        kind: Kind::Models,
+        id: progress.id.clone(),
+        title,
+        subtitle: None,
+        phase,
+        done: progress.received_bytes,
+        total: Some(progress.total_bytes).filter(|total| *total > 0.0),
+        unit: Unit::Bytes,
+        bytes: None,
+        left_ms: None,
+        speed: None,
+        error: progress.error.clone(),
+        abilities: Abilities {
+            cancel: phase == Phase::Running,
+            retry: phase == Phase::Failed,
+            ..Abilities::default()
+        },
+        route: Kind::Models.route().to_owned(),
+    })
 }
 
 /// A waiting download whose queue battery saver holds shows as held, not as about to start.

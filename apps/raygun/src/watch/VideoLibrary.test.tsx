@@ -655,6 +655,26 @@ describe('Video library', () => {
     ).toHaveAttribute('aria-valuenow', '40');
     expect(within(sheet).getByRole('button', { name: 'Getting FFmpeg… 40%' })).toBeDisabled();
 
+    // Cancel stops the fetch: nothing is kept, and Get FFmpeg is offered again, with nothing said
+    // to have failed (Rust answers with the status as it was).
+    await user.click(within(sheet).getByRole('button', { name: 'Cancel getting FFmpeg' }));
+    expect(commands.ytdlpCancelInstall).toHaveBeenCalled();
+    commands.ytdlpStatus.mockResolvedValue(ok(status));
+    fetched(ok(status));
+    expect(await within(sheet).findByRole('button', { name: 'Get FFmpeg' })).toBeEnabled();
+    expect(within(sheet).queryByRole('progressbar', { name: 'Getting FFmpeg…' })).toBeNull();
+    expect(within(sheet).queryByRole('button', { name: 'Cancel getting FFmpeg' })).toBeNull();
+    expect(within(sheet).queryByText("Couldn't get FFmpeg")).toBeNull();
+
+    // Fetched again, to the end.
+    commands.ytdlpInstallFfmpeg.mockReturnValue(
+      new Promise((resolve) => {
+        fetched = resolve;
+      }),
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Get FFmpeg' }));
+    expect(commands.ytdlpInstallFfmpeg).toHaveBeenCalledTimes(2);
+
     // Once it's there, the plan is asked again and the export can start.
     commands.exportPlan.mockResolvedValue(
       ok({

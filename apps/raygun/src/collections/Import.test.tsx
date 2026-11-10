@@ -285,4 +285,39 @@ describe('Importing songs', () => {
     );
     expect(commands.importPrepareReader).toHaveBeenCalled();
   });
+
+  it('cancels the text reader’s download, offering it again', async () => {
+    const user = userEvent.setup();
+    commands.importReaderReady.mockResolvedValue(false);
+    commands.readerAiSupport.mockResolvedValue({
+      textReaderBuiltIn: false,
+      textReaderModel: 'ocrs-latin',
+    });
+    // Rust answers once the download stopped, as if done: the reader is still missing.
+    let stopped: () => void = () => {};
+    commands.importPrepareReader.mockReturnValue(
+      new Promise((resolve) => (stopped = () => resolve(ok(null)))),
+    );
+    commands.aiModelCancel.mockImplementation(async () => {
+      stopped();
+      return true;
+    });
+    await AppShellWrapper.mount('/library?view=playlists');
+    await user.click(await screen.findByRole('button', { name: 'Import songs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Import songs' });
+    await user.click(within(sheet).getByRole('tab', { name: 'Screenshots' }));
+    await user.click(
+      await within(sheet).findByRole('button', { name: 'Download the text reader (12 MB)' }),
+    );
+    expect(
+      within(sheet).getByRole('button', { name: 'Downloading the text reader…' }),
+    ).toBeDisabled();
+
+    await user.click(await within(sheet).findByRole('button', { name: 'Cancel' }));
+    expect(commands.aiModelCancel).toHaveBeenCalledWith('ocrs-latin');
+    expect(
+      await within(sheet).findByRole('button', { name: 'Download the text reader (12 MB)' }),
+    ).toBeEnabled();
+    expect(within(sheet).queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
 });

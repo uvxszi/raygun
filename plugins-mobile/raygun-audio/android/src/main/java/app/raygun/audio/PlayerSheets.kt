@@ -328,6 +328,11 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 val model = transcription.optJSONObject("model")
                 if (downloading != null) {
                     sheet.row(label("aiDownloading", "Downloading the speech model… {n}%", downloading.toString()), onClick = null)
+                    // Stops it at once; what came so far is deleted and the sheet offers it again.
+                    sheet.row(label("aiDownloadCancel", "Cancel the download")) {
+                        live.cancelTranscriptionSetUp()
+                        transcribe()
+                    }
                 } else if (model != null) {
                     sheet.row(
                         label("aiDownload", "Download the speech model"),

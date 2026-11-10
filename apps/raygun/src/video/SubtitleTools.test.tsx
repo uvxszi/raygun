@@ -125,6 +125,59 @@ describe('AI subtitles and translations in the desktop player', () => {
     );
   });
 
+  it('cancels the speech model’s download, setting nothing up', async () => {
+    const user = userEvent.setup();
+    commands.aiModels.mockResolvedValue([
+      {
+        id: 'whisper-tiny',
+        name: 'Speech to text (Whisper tiny)',
+        kind: 'speech',
+        description: '',
+        license: 'Apache-2.0',
+        licenseUrl: '',
+        sourceUrl: '',
+        sizeBytes: 153_544_121,
+        installed: false,
+        downloading: null,
+      },
+    ]);
+    let finish: (value: { status: 'ok'; data: 'cancelled' }) => void = () => {};
+    commands.aiModelDownload.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const { panel } = await openPanel([]);
+    await user.click(
+      await within(panel).findByRole('button', { name: 'Download the speech model (146 MB)' }),
+    );
+    emitEvent('aiModelEvent', {
+      id: 'whisper-tiny',
+      state: 'downloading',
+      receivedBytes: 76_772_061,
+      totalBytes: 153_544_121,
+      error: null,
+    });
+    await vi.waitFor(() =>
+      expect(within(panel).getByRole('status')).toHaveTextContent(
+        'Downloading the speech model… 50%',
+      ),
+    );
+
+    await user.click(
+      within(panel).getByRole('button', {
+        name: 'Cancel downloading Speech to text (Whisper tiny)',
+      }),
+    );
+    expect(commands.aiModelCancel).toHaveBeenCalledWith('whisper-tiny');
+    finish({ status: 'ok', data: 'cancelled' });
+    expect(
+      await within(panel).findByRole('button', { name: 'Download the speech model (146 MB)' }),
+    ).toBeInTheDocument();
+    expect(within(panel).queryByRole('alert')).toBeNull();
+    expect(commands.settingsUpdate).not.toHaveBeenCalled();
+  });
+
   it('says how far ahead of the viewer transcribing is', async () => {
     commands.aiModels.mockResolvedValue([
       {

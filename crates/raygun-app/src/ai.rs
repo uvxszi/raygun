@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
-use raygun_ai::models::{self, ModelInfo};
+use raygun_ai::models::{self, CancellationToken, ModelError, ModelInfo};
 use raygun_ai::secrets::{self, Vault};
 use raygun_ai::translate::{self, Provider, ProviderKind, TranslateError};
 use raygun_model::{
@@ -28,13 +28,42 @@ const SAMPLE: &str = "Good morning! Three new chapters are waiting in your libra
 /// Progress events are sent at most this often (in bytes received).
 const PROGRESS_STEP: u64 = 256 * 1024;
 
+/// A model downloading now: the bytes in so far, and what cancels it.
+struct Running {
+    received: u64,
+    cancel: CancellationToken,
+}
+
+/// Why a model didn't download.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelDownloadError {
+    /// Stopped by [`AiService::cancel_model_download`]: nothing of it was kept.
+    Cancelled,
+    Failed(String),
+}
+
+impl std::fmt::Display for ModelDownloadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModelDownloadError::Cancelled => f.write_str("The download was cancelled"),
+            ModelDownloadError::Failed(why) => f.write_str(why),
+        }
+    }
+}
+
+impl From<ModelDownloadError> for String {
+    fn from(error: ModelDownloadError) -> String {
+        error.to_string()
+    }
+}
+
 pub struct AiService {
     app: AppHandle,
     client: reqwest::Client,
     models_dir: PathBuf,
     vault: Vault,
-    /// Bytes received per model being downloaded.
-    downloads: Arc<Mutex<HashMap<String, u64>>>,
+    /// The models being downloaded, by id.
+    downloads: Arc<Mutex<HashMap<String, Running>>>,
     /// Serializes changes to the provider list.
     providers_lock: tokio::sync::Mutex<()>,
 }
@@ -251,7 +280,7 @@ impl AiService {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .get(id)
-            .copied()
+            .map(|running| running.received)
     }
 
     /// An OpenAI-compatible provider's address and key, for transcription (M46.32).
@@ -377,7 +406,9 @@ impl AiService {
             .into_iter()
             .map(|model| AiModel {
                 installed: models::is_installed(&self.models_dir, &model),
-                downloading: downloads.get(&model.id).map(|received| *received as f64),
+                downloading: downloads
+                    .get(&model.id)
+                    .map(|running| running.received as f64),
                 size_bytes: model.size() as f64,
                 id: model.id,
                 name: model.name,
@@ -398,32 +429,49 @@ impl AiService {
             .then(|| models::model_dir(&self.models_dir, &model))
     }
 
-    /// Downloads a model, reporting progress as `AiModelEvent`s; returns when it is installed.
-    pub async fn download_model(&self, id: &str) -> Result<(), String> {
-        let model = models::find(id).map_err(|error| error.to_string())?;
+    /// Downloads a model, reporting progress as `AiModelEvent`s; returns when it is installed, or
+    /// when [`Self::cancel_model_download`] stopped it (nothing of it kept).
+    pub async fn download_model(&self, id: &str) -> Result<(), ModelDownloadError> {
+        let model =
+            models::find(id).map_err(|error| ModelDownloadError::Failed(error.to_string()))?;
+        let cancel = CancellationToken::new();
         {
             let mut downloads = self.downloads.lock().unwrap_or_else(|p| p.into_inner());
             if downloads.contains_key(id) {
-                return Err("This model is already downloading".into());
+                return Err(ModelDownloadError::Failed(
+                    "This model is already downloading".into(),
+                ));
             }
-            downloads.insert(id.to_owned(), 0);
+            downloads.insert(
+                id.to_owned(),
+                Running {
+                    received: 0,
+                    cancel: cancel.clone(),
+                },
+            );
         }
         let total = model.size();
         let mut reported = 0u64;
-        let result = models::download(&self.client, &self.models_dir, &model, |received, _| {
-            if let Some(entry) = self
-                .downloads
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .get_mut(id)
-            {
-                *entry = received;
-            }
-            if received == 0 || received >= reported + PROGRESS_STEP {
-                reported = received;
-                self.emit(&model, AiModelState::Downloading, received, None);
-            }
-        })
+        let result = models::download(
+            &self.client,
+            &self.models_dir,
+            &model,
+            &cancel,
+            |received, _| {
+                if let Some(running) = self
+                    .downloads
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get_mut(id)
+                {
+                    running.received = received;
+                }
+                if received == 0 || received >= reported + PROGRESS_STEP {
+                    reported = received;
+                    self.emit(&model, AiModelState::Downloading, received, None);
+                }
+            },
+        )
         .await;
         self.downloads
             .lock()
@@ -435,12 +483,28 @@ impl AiService {
                 self.emit(&model, AiModelState::Installed, total, None);
                 Ok(())
             }
+            Err(ModelError::Cancelled) => {
+                tracing::info!(model = %id, "model download cancelled");
+                self.emit(&model, AiModelState::Cancelled, 0, None);
+                Err(ModelDownloadError::Cancelled)
+            }
             Err(error) => {
                 tracing::warn!(model = %id, %error, "model download failed");
                 self.emit(&model, AiModelState::Failed, 0, Some(error.to_string()));
-                Err(error.to_string())
+                Err(ModelDownloadError::Failed(error.to_string()))
             }
         }
+    }
+
+    /// Stops a model's download wherever it is; what it fetched is deleted and the model stays
+    /// as it was. Whether one was running.
+    pub fn cancel_model_download(&self, id: &str) -> bool {
+        let downloads = self.downloads.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(running) = downloads.get(id) else {
+            return false;
+        };
+        running.cancel.cancel();
+        true
     }
 
     /// Whether a model is downloading now.

@@ -59,7 +59,7 @@ const LinkCard: FC<{ link: YouTubeLink; query: string }> = ({ link, query }) => 
   const { t } = useTranslation();
   const status = useYtDlpStatus(link.kind === 'video');
   const jobs = useYtDlpJobs();
-  const { download, installFfmpeg } = useYtDlpActions();
+  const { download, installFfmpeg, cancelInstall } = useYtDlpActions();
   const sources = useMangaSources('video');
   const youtube = sources.data?.find((source) => source.extensionId === YOUTUBE_EXTENSION);
   // The same search the Playlists row asks, so it's answered once.
@@ -173,6 +173,20 @@ const LinkCard: FC<{ link: YouTubeLink; query: string }> = ({ link, query }) => 
               >
                 {installFfmpeg.isPending ? t('youtube.gettingFfmpeg') : t('youtube.getFfmpeg')}
               </button>
+              {(installFfmpeg.isPending || status.data.installing) && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    aria-label={t('youtube.cancelFetch')}
+                    disabled={cancelInstall.isPending}
+                    onClick={() => cancelInstall.mutate()}
+                    className="text-muted hover:text-foreground font-semibold disabled:opacity-50"
+                  >
+                    {t('youtube.cancel')}
+                  </button>
+                </>
+              )}
             </>
           )}
         </p>

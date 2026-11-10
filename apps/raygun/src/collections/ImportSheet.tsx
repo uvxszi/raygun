@@ -50,6 +50,14 @@ export const ImportSheet: FC<{ onClose: () => void; initialLink?: string }> = ({
     mutationFn: () => unwrapResult(commands.importPrepareReader()),
     onSuccess: () => void reader.refetch(),
   });
+  // The text reader's model, for Cancel while it downloads.
+  const support = useQuery({
+    queryKey: ['readerAi', 'support'],
+    queryFn: () => commands.readerAiSupport(),
+    staleTime: Infinity,
+    enabled: reader.data === false,
+  });
+  const readerModel = support.data?.textReaderModel;
   const read = useMutation({
     mutationFn: async (input: { way: Way; files?: File[] }) => {
       if (input.way === 'link') return unwrapResult(commands.importReadLink(link));
@@ -152,14 +160,26 @@ export const ImportSheet: FC<{ onClose: () => void; initialLink?: string }> = ({
             <div className="flex flex-col gap-2">
               <p className="text-muted text-sm">{t('import.screenshotsHint')}</p>
               {reader.data === false ? (
-                <button
-                  type="button"
-                  disabled={prepare.isPending}
-                  onClick={() => prepare.mutate()}
-                  className="bg-background self-start rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
-                >
-                  {t(prepare.isPending ? 'import.downloadingReader' : 'import.downloadReader')}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={prepare.isPending}
+                    onClick={() => prepare.mutate()}
+                    className="bg-background rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                  >
+                    {t(prepare.isPending ? 'import.downloadingReader' : 'import.downloadReader')}
+                  </button>
+                  {/* Stops it at once; the reader is offered again (Rust answers as if done). */}
+                  {prepare.isPending && readerModel && (
+                    <button
+                      type="button"
+                      onClick={() => void commands.aiModelCancel(readerModel)}
+                      className="text-muted hover:text-foreground rounded-full px-3 py-2 text-sm font-semibold"
+                    >
+                      {t('import.cancelReader')}
+                    </button>
+                  )}
+                </div>
               ) : shots.length === 0 ? (
                 <button
                   type="button"

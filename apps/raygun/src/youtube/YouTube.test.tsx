@@ -74,6 +74,37 @@ describe('YouTube addresses (M46.47)', () => {
     expect(within(job).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
   });
 
+  it('cancels getting FFmpeg for HD, saying nothing failed', async () => {
+    const user = userEvent.setup();
+    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
+    const status = {
+      supported: true,
+      version: '2026.10.01',
+      ffmpeg: false,
+      installing: false,
+      progress: null,
+      message: null,
+    };
+    commands.ytdlpStatus.mockResolvedValue(ok(status));
+    let fetched: (value: { status: 'ok'; data: typeof status }) => void = () => {};
+    commands.ytdlpInstallFfmpeg.mockReturnValue(
+      new Promise((resolve) => {
+        fetched = resolve;
+      }),
+    );
+    await AppShellWrapper.mount(`/browse?tab=search&q=${encodeURIComponent(ADDRESS)}`);
+    const card = await screen.findByTestId('youtube-link');
+
+    await user.click(await within(card).findByRole('button', { name: 'Get FFmpeg for HD' }));
+    await user.click(await within(card).findByRole('button', { name: 'Cancel getting FFmpeg' }));
+    expect(commands.ytdlpCancelInstall).toHaveBeenCalled();
+    // Rust answers with the status as it was once the fetch stopped.
+    fetched(ok(status));
+    expect(await within(card).findByRole('button', { name: 'Get FFmpeg for HD' })).toBeEnabled();
+    expect(within(card).queryByRole('button', { name: 'Cancel getting FFmpeg' })).toBeNull();
+    expect(within(card).queryByText("Couldn't get FFmpeg")).toBeNull();
+  });
+
   it('downloads the sound as a song on a phone, and still plays', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount(`/browse?tab=search&q=${encodeURIComponent(ADDRESS)}`);
