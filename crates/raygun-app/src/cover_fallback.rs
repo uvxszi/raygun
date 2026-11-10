@@ -141,6 +141,23 @@ impl CoverFallbacks {
             .collect()
     }
 
+    /// The pictures found elsewhere for these artists (quick access's): the cache sweep keeps
+    /// them.
+    pub async fn artist_addresses(&self, names: &[String]) -> Vec<String> {
+        self.load().await;
+        let remembered = self.remembered.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(map) = remembered.as_ref() else {
+            return Vec::new();
+        };
+        names
+            .iter()
+            .filter_map(|name| {
+                let key = key(&DetailTarget::Artist { name: name.clone() });
+                map.get(&key).and_then(|(url, _)| url.clone())
+            })
+            .collect()
+    }
+
     /// Another source's cover for `target`, or `None` when no source has one.
     pub async fn cover(&self, target: &DetailTarget) -> Option<String> {
         // A playlist's cover is its songs' (or the user's).

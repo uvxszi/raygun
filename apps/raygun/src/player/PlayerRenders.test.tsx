@@ -72,7 +72,7 @@ describe('The player as a song plays', () => {
     expect(within(sheet).queryByRole('link', { name: 'Raygun' })).not.toBeInTheDocument();
     await user.click(within(sheet).getByRole('button', { name: 'More options' }));
     const more = await screen.findByTestId('track-more-actions');
-    expect(await within(more).findByRole('button', { name: 'Go to Raygun' })).toBeInTheDocument();
+    expect(await within(more).findByRole('button', { name: 'Go to artist' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
   });
 

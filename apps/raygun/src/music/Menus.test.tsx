@@ -1,12 +1,14 @@
 import type { MusicAlbum, OnlineTrack, PlayContext } from '@raygun/bindings';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Play } from 'lucide-react';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import type { MenuItem } from '../shell/contextMenuStore';
+import { useToastStore } from '../shell/toastStore';
 import { bindingsMock } from '../test/bindingsMock';
 import { buildMenu } from './mediaMenu';
+import { keysOf } from './trackKey';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -43,13 +45,20 @@ const ALBUM: MusicAlbum = {
 
 /** The menu's lines as text: items by label, `|` for a separator, `#` before the heading. */
 const lines = (menu: HTMLElement) =>
-  Array.from(menu.querySelectorAll('[role="menuitem"], [role="separator"], div.text-muted')).map(
-    (line) =>
-      line.getAttribute('role') === 'separator'
-        ? '|'
-        : line.getAttribute('role') === 'menuitem'
-          ? (line.textContent ?? '')
-          : `# ${line.textContent ?? ''}`,
+  Array.from(
+    menu.querySelectorAll('[role="menuitem"], [role="separator"], [data-menu-heading]'),
+  ).map((line) =>
+    line.getAttribute('role') === 'separator'
+      ? '|'
+      : line.getAttribute('role') === 'menuitem'
+        ? (line.textContent ?? '')
+        : `# ${line.querySelector('button')?.textContent ?? ''}`,
+  );
+
+/** Search answers with one song. */
+const songFound = (track: OnlineTrack) =>
+  commands.onlineSearch.mockResolvedValue(
+    ok({ library: [], top: [], providers: [{ provider: TUNES, tracks: [track], error: null }] }),
   );
 
 /** A song's ⋮ actions below Favorite and the playlists, as text: `|` for a line. */
@@ -126,14 +135,10 @@ describe('Menus', () => {
       'Add to queue',
       '|',
       'Go to album',
-      'Go to Daft Punk',
-      'Go to Pharrell Williams',
+      'Go to artists',
       'Find this song elsewhere',
       '|',
       'Download',
-      '|',
-      'Copy title',
-      'Copy artist',
       '|',
       'Edit details',
       'Edit sound and lyrics',
@@ -170,13 +175,11 @@ describe('Menus', () => {
       '|',
       'Add to playlist',
       '|',
-      'Go to Daft Punk',
+      'Go to artist',
       '|',
       'Download',
       // Quick access holds pins on phones too (the drawer).
       'Pin to Quick access',
-      '|',
-      'Copy name',
       '|',
       'Edit album',
       '|',
@@ -207,6 +210,23 @@ describe('Menus', () => {
     expect(await screen.findByTestId('toast')).toHaveTextContent('Added 2 songs to Road trip');
   });
 
+  it("copies a menu's title from the keyboard without choosing a row", async () => {
+    const user = userEvent.setup();
+    commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
+    commands.musicSearchAlbums.mockResolvedValue(ok([ALBUM]));
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=albums&q=random');
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Options for Random Access Memories' }),
+    );
+    const menu = await screen.findByRole('menu');
+    within(menu).getByRole('button', { name: 'Daft Punk' }).focus();
+    await user.keyboard('{Enter}');
+    expect(await navigator.clipboard.readText()).toBe('Daft Punk');
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Copied');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(commands.playbackQueueTracks).not.toHaveBeenCalled();
+  });
+
   it("opens an artist row's menu from ⋮, to follow, edit or hide them", async () => {
     const user = userEvent.setup();
     commands.onlineSearch.mockResolvedValue(ok({ library: [], top: [], providers: [] }));
@@ -224,8 +244,6 @@ describe('Menus', () => {
       'Add to queue',
       '|',
       'Follow',
-      '|',
-      'Copy name',
       '|',
       'Edit artist',
       '|',
@@ -258,6 +276,138 @@ describe('Menus', () => {
     fireEvent.pointerDown(menu.parentElement as HTMLElement);
     fireEvent.click(menu.parentElement as HTMLElement);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('copies the title or the artists when held, with a glow while pressed', async () => {
+    songFound(song('Get Lucky', 'Daft Punk, Pharrell Williams', 'Random Access Memories'));
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get+lucky');
+    await screen.findByTestId('online-track-row');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Get Lucky' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Get Lucky' });
+    const title = within(sheet).getByRole('button', { name: 'Get Lucky' });
+    const artists = within(sheet).getByRole('button', { name: 'Daft Punk, Pharrell Williams' });
+    expect(title).toHaveAttribute('title', 'Hold to copy');
+    act(() => useToastStore.getState().dismiss());
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    // A tap copies nothing.
+    await user.pointer({ keys: '[MouseLeft]', target: title });
+    await act(() => vi.advanceTimersByTimeAsync(600));
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
+
+    await user.pointer({ keys: '[MouseLeft>]', target: title });
+    expect(title).toHaveAttribute('data-pressed');
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Copied');
+    expect(await navigator.clipboard.readText()).toBe('Get Lucky');
+    await user.pointer({ keys: '[/MouseLeft]', target: title });
+
+    // From the keyboard: Enter copies at once.
+    artists.focus();
+    await user.keyboard('{Enter}');
+    expect(await navigator.clipboard.readText()).toBe('Daft Punk, Pharrell Williams');
+    // Still open: copying chose nothing.
+    expect(screen.getByRole('dialog', { name: 'Get Lucky' })).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("opens a song's one artist, or shows several to pick from", async () => {
+    const user = userEvent.setup();
+    commands.musicArtistInfo.mockImplementation(async (name: string) =>
+      ok(
+        name === 'Daft Punk'
+          ? {
+              name,
+              kind: 'Group',
+              bio: null,
+              imageUrl: 'http://127.0.0.1:1/cover/daft',
+              url: null,
+              origin: null,
+              active: null,
+              members: [],
+              providerName: 'MusicBrainz',
+            }
+          : null,
+      ),
+    );
+    commands.coverFallback.mockResolvedValue(ok('http://127.0.0.1:1/cover/pharrell'));
+    songFound(song('Get Lucky', 'Daft Punk, Pharrell Williams'));
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get+lucky');
+    await screen.findByTestId('online-track-row');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Go to artists' }));
+
+    const picker = await screen.findByRole('dialog', { name: 'Go to artists' });
+    const tiles = within(picker).getByTestId('artist-tiles');
+    await vi.waitFor(() =>
+      expect(
+        within(tiles)
+          .getAllByTestId('artwork-image')
+          .map((image) => image.getAttribute('src')),
+      ).toEqual(['http://127.0.0.1:1/cover/daft', 'http://127.0.0.1:1/cover/pharrell']),
+    );
+    // Only the artist without a picture of their own is looked for elsewhere.
+    expect(commands.coverFallback).toHaveBeenCalledWith({
+      kind: 'artist',
+      name: 'Pharrell Williams',
+    });
+    expect(commands.coverFallback).not.toHaveBeenCalledWith({ kind: 'artist', name: 'Daft Punk' });
+    await user.click(within(tiles).getByRole('button', { name: /Pharrell Williams/ }));
+    expect(await screen.findByTestId('music-artist-page')).toHaveTextContent('Pharrell Williams');
+    expect(screen.queryByRole('dialog', { name: 'Go to artists' })).not.toBeInTheDocument();
+  });
+
+  it("goes straight to a song's only artist", async () => {
+    const user = userEvent.setup();
+    songFound(song('One More Time', 'Daft Punk'));
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=one+more+time');
+    await screen.findByTestId('online-track-row');
+    fireEvent.click(screen.getByRole('button', { name: 'More for One More Time' }));
+    await user.click(await screen.findByRole('button', { name: 'Go to artist' }));
+    expect(await screen.findByTestId('music-artist-page')).toHaveTextContent('Daft Punk');
+  });
+
+  it.each([
+    { kept: 'nowhere', followed: false, favorite: false, playlists: [], offered: true },
+    {
+      kept: 'by a followed artist',
+      followed: true,
+      favorite: false,
+      playlists: [],
+      offered: false,
+    },
+    { kept: 'a favorite', followed: false, favorite: true, playlists: [], offered: false },
+    { kept: 'in a playlist', followed: false, favorite: false, playlists: ['p1'], offered: false },
+  ])("offers hiding a song's artist only when it's kept $kept", async (kept) => {
+    songFound(song('Get Lucky', 'Daft Punk'));
+    if (kept.followed) {
+      commands.artistsFollowed.mockResolvedValue(
+        ok([{ name: 'daft punk', imageUrl: null, followedAt: 1, alerts: false }]),
+      );
+    }
+    commands.collectionsSavedIndex.mockResolvedValue(
+      ok(
+        kept.favorite || kept.playlists.length > 0
+          ? [
+              {
+                trackKey: 'daft punk|get lucky',
+                songKeys: keysOf('Get Lucky', 'Daft Punk'),
+                favorite: kept.favorite,
+                playlistIds: kept.playlists,
+              },
+            ]
+          : [],
+      ),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get+lucky');
+    await screen.findByTestId('online-track-row');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Get Lucky' }));
+    const actions = await screen.findByTestId('track-more-actions');
+    // Once the song's saves and the follows are in.
+    await vi.waitFor(() =>
+      expect(actionLines(actions).includes("Don't show Daft Punk")).toBe(kept.offered),
+    );
   });
 
   it("gives Your music's tiles their kind's menu, and Remove from Your music", async () => {

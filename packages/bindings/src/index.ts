@@ -1621,6 +1621,7 @@ export const commands = {
 export const events = {
 	aiModelEvent: makeEvent<AiModelEvent>("ai-model-event"),
 	appUpdateEvent: makeEvent<AppUpdateEvent>("app-update-event"),
+	artistProfileEvent: makeEvent<ArtistProfileEvent>("artist-profile-event"),
 	artistReleasesEvent: makeEvent<ArtistReleasesEvent>("artist-releases-event"),
 	audiobooksFoundEvent: makeEvent<AudiobooksFoundEvent>("audiobooks-found-event"),
 	captionsEvent: makeEvent<CaptionsEvent>("captions-event"),
@@ -1846,6 +1847,12 @@ export type ArtistOverview = {
 	albums: LibraryAlbum[],
 	tracks: LibraryTrack[],
 };
+
+/**
+ *  An artist's kept page (popular songs, facts, releases or events) was asked again in the
+ *  background and changed; carries the artist's name.
+ */
+export type ArtistProfileEvent = string;
 
 /**  A release found for a followed artist since the last check (M46.42). */
 export type ArtistReleaseNews = ArtistReleaseNews_Serialize | ArtistReleaseNews_Deserialize;

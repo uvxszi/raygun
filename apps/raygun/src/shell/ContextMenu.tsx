@@ -7,6 +7,7 @@ import { Artwork } from '../library/Artwork';
 import { afterLayersClose, useBackLayer } from './backLayers';
 import { useContextMenuStore } from './contextMenuStore';
 import type { MenuItem } from './contextMenuStore';
+import { HoldToCopy } from './HoldToCopy';
 
 /** A touch screen: menus come up from the bottom as a sheet, with rows a finger can hit. */
 const coarsePointer = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
@@ -24,7 +25,8 @@ const editable = (target: EventTarget | null): HTMLInputElement | HTMLTextAreaEl
 
 /**
  * The menu of an item's ⋮ button (`openMenuAt`), in the theme's colours and accent: under the
- * button, or a sheet from the bottom on a touch screen. A right click or a long press opens no
+ * button, or a sheet from the bottom on a touch screen, with rows tall enough to hit and scroll
+ * past. The title and the line under it copy when held. A right click or a long press opens no
  * menu: the webview's own shows only in text fields and on selected text, to cut, copy and paste.
  */
 export const ContextMenuHost: FC = () => {
@@ -131,7 +133,11 @@ export const ContextMenuHost: FC = () => {
     }
     if (item.kind === 'heading') {
       return sheet ? (
-        <div key={index} className="flex min-w-0 shrink-0 items-center gap-3 px-4 pt-2 pb-3">
+        <div
+          key={index}
+          data-menu-heading=""
+          className="flex min-w-0 shrink-0 items-center gap-3 px-4 pt-2 pb-3"
+        >
           {item.artworkUrl !== undefined && (
             <Artwork
               url={item.artworkUrl}
@@ -139,20 +145,27 @@ export const ContextMenuHost: FC = () => {
               iconSize={22}
             />
           )}
-          <span className="flex min-w-0 flex-col">
-            <span className="truncate text-[clamp(1rem,4.4vw,1.125rem)] font-semibold">
-              {item.label}
-            </span>
+          <span className="flex min-w-0 flex-col items-start gap-0.5">
+            <HoldToCopy
+              text={item.label}
+              className="text-[clamp(1rem,4.4vw,1.125rem)] font-semibold"
+            />
             {item.subtitle && (
-              <span className="text-muted truncate text-[clamp(0.875rem,3.8vw,1rem)]">
-                {item.subtitle}
-              </span>
+              <HoldToCopy
+                text={item.subtitle}
+                className="text-muted text-[clamp(0.875rem,3.8vw,1rem)]"
+              />
             )}
           </span>
         </div>
       ) : (
-        <div key={index} className="text-muted truncate px-3 pt-1.5 pb-1 text-xs font-semibold">
-          {item.label}
+        <div
+          key={index}
+          data-menu-heading=""
+          className="flex min-w-0 shrink-0 flex-col items-start gap-0.5 px-3 pt-1.5 pb-1.5"
+        >
+          <HoldToCopy text={item.label} className="text-sm font-semibold" />
+          {item.subtitle && <HoldToCopy text={item.subtitle} className="text-muted text-xs" />}
         </div>
       );
     }
@@ -172,7 +185,7 @@ export const ContextMenuHost: FC = () => {
         className={`flex shrink-0 items-center text-left disabled:opacity-40 ${
           sheet
             ? 'min-h-[max(3rem,7dvh)] gap-4 rounded-xl px-4 py-2 text-[clamp(1rem,4.3vw,1.125rem)]'
-            : 'gap-3 rounded-lg px-3 py-1.5 text-sm'
+            : 'min-h-10 gap-3 rounded-lg px-3 py-2 text-sm'
         } ${index === active ? 'bg-primary/15 text-foreground' : ''} ${
           item.danger ? 'text-primary' : ''
         }`}

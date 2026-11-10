@@ -101,7 +101,7 @@ export const OverflowMenu: FC<{ items: OverflowItem[]; label?: string }> = ({ it
                   type="button"
                   role="menuitem"
                   onClick={() => select(item)}
-                  className={`hover:bg-background flex w-full items-center gap-3 px-4 py-3 text-left text-sm ${askingHere ? 'text-primary font-semibold' : ''}`}
+                  className={`hover:bg-background flex min-h-11 w-full items-center gap-3 px-4 py-3 text-left text-sm pointer-coarse:min-h-12 ${askingHere ? 'text-primary font-semibold' : ''}`}
                 >
                   {item.icon && (
                     <item.icon aria-hidden size={18} className={askingHere ? '' : 'text-muted'} />

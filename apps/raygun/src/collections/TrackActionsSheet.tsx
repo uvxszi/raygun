@@ -7,6 +7,8 @@ import { useTranslation } from 'react-i18next';
 import { TrackTagChips } from '../music/TrackTagChips';
 import { useTrackMenuItems } from '../music/useTrackMenu';
 import { afterLayersClose, useBackLayer } from '../shell/backLayers';
+import { HoldToCopy } from '../shell/HoldToCopy';
+import { MENU_ROW } from '../shell/menuRow';
 import { Popover } from '../shell/Popover';
 import { TextField } from '../shell/TextField';
 import { useWideScreen } from '../shell/useWideScreen';
@@ -20,7 +22,7 @@ import {
   useSetFavorite,
 } from './useCollections';
 
-const ROW_CLASS = 'flex h-12 w-full items-center gap-3 rounded-lg px-2 text-left text-sm';
+const ROW_CLASS = `flex w-full items-center gap-3 rounded-lg px-2 text-left text-sm ${MENU_ROW}`;
 
 /**
  * Picks a playlist for `track`, or makes a new one with it. A playlist that holds the song already
@@ -196,7 +198,7 @@ export const TrackActionsSheet: FC = () => {
         role="dialog"
         aria-modal="true"
         aria-labelledby="track-actions-title"
-        className="bg-surface motion-rise flex w-full max-w-md flex-col gap-3 rounded-t-2xl px-4 pt-5 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl"
+        className="bg-surface motion-rise flex max-h-[90dvh] w-full max-w-md flex-col gap-3 rounded-t-2xl px-4 pt-5 sm:rounded-2xl"
       >
         <TrackActions track={track} sheet />
       </div>
@@ -204,7 +206,10 @@ export const TrackActionsSheet: FC = () => {
   );
 };
 
-/** The actions themselves; `sheet` adds the bottom sheet's Cancel. */
+/**
+ * The actions themselves: the song's title and artists (each copies when held), then its rows.
+ * `sheet` scrolls the rows under the title as one list and adds the bottom sheet's Cancel.
+ */
 const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet = false }) => {
   const { t } = useTranslation();
   const playlistItemId = useTrackActionsStore((state) => state.playlistItemId);
@@ -215,17 +220,8 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
   const remove = useRemovePlaylistItem();
   const isFavorite = saves?.favorite === true;
 
-  return (
+  const rows = (
     <>
-      <div className="flex flex-col px-2">
-        <h2 id="track-actions-title" className="truncate font-semibold">
-          {track.title}
-        </h2>
-        <p className="text-muted truncate text-sm">
-          {[track.artist, track.album].filter(Boolean).join(' · ')}
-        </p>
-        <TrackTagChips track={track} onOpen={close} className="pt-2" />
-      </div>
       <button
         type="button"
         // Rust favorites a song once, so a tap before the list loads is safe.
@@ -264,23 +260,57 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
         <button
           type="button"
           onClick={close}
-          className="bg-background self-end rounded-full px-5 py-2 text-sm"
+          className="bg-background min-h-11 self-end rounded-full px-5 py-2 text-sm"
         >
           {t('collections.cancel')}
         </button>
       )}
     </>
   );
+  return (
+    <>
+      <div className="flex shrink-0 flex-col items-start px-2">
+        <h2 id="track-actions-title" className="flex max-w-full min-w-0 font-semibold">
+          <HoldToCopy text={track.title} />
+        </h2>
+        <p className="text-muted flex max-w-full min-w-0 items-baseline gap-1 text-sm">
+          {track.artist && <HoldToCopy text={track.artist} />}
+          {track.album && (
+            <span className="min-w-0 truncate">
+              {track.artist ? `· ${track.album}` : track.album}
+            </span>
+          )}
+        </p>
+        <TrackTagChips track={track} onOpen={close} className="pt-2" />
+      </div>
+      {sheet ? (
+        <div
+          data-testid="track-actions-rows"
+          className="-mx-4 flex min-h-0 touch-pan-y flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+        >
+          {rows}
+        </div>
+      ) : (
+        rows
+      )}
+    </>
+  );
 };
 
 /**
- * The rest of a song's menu (M46.36): play next, download, go to the album or artist, edit,
- * copy..., minus what the actions already have above.
+ * The rest of a song's menu (M46.36): play next, download, go to the album or artists, edit...,
+ * minus what the actions already have above.
  */
 const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onDone }) => {
   const { t } = useTranslation();
   const menu = useTrackMenuItems();
   const extras = useTrackActionsStore((state) => state.extras);
+  // What the menu opens next to (Go to artists' pictures) sits by the ⋮ pressed.
+  const anchor = useTrackActionsStore((state) => state.anchor);
+  const box = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
+  const at = box
+    ? { x: box.left, y: box.bottom }
+    : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   // A row that asks first (deleting a download) shows its question; a second tap does it.
   const [asking, setAsking] = useState<number | null>(null);
   const above = new Set([
@@ -289,13 +319,13 @@ const MoreActions: FC<{ track: TrackInput; onDone: () => void }> = ({ track, onD
     t('collections.addToPlaylist'),
     t('collections.removeFromPlaylist'),
   ]);
-  const items = menu(track, extras, { x: window.innerWidth / 2, y: window.innerHeight / 2 }).filter(
+  const items = menu(track, extras, at).filter(
     (item) => item.kind !== 'heading' && !('label' in item && above.has(item.label)),
   );
   return (
     <div
       data-testid="track-more-actions"
-      className="-mx-1 flex max-h-[40dvh] flex-col overflow-y-auto border-t border-white/10 pt-1"
+      className="-mx-1 flex flex-col border-t border-white/10 pt-1"
     >
       {items.map((item, index) => {
         if (item.kind === 'separator') {

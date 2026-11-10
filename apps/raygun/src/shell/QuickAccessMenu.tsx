@@ -137,7 +137,7 @@ export const QuickAccessMenu: FC<{
                 role="menuitem"
                 disabled={item.disabled}
                 onClick={() => choose(item)}
-                className={`hover:bg-background focus-visible:bg-background flex min-h-9 shrink-0 items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm outline-none disabled:opacity-40 ${
+                className={`hover:bg-background focus-visible:bg-background flex min-h-10 shrink-0 items-center gap-3 rounded-lg px-3 py-2 text-left text-sm outline-none disabled:opacity-40 pointer-coarse:min-h-12 ${
                   item.danger ? 'text-primary' : ''
                 }`}
               >

@@ -13,6 +13,7 @@ use raygun_model::{
 };
 
 use crate::ai::AiService;
+use crate::artist_profiles::Part as ArtistPart;
 use crate::backup::BackupService;
 use crate::collections::CollectionsService;
 use crate::device_sync::SyncService;
@@ -108,6 +109,7 @@ pub async fn settings_update_many(
     for change in changes {
         // When quick access's pages were played from is Rust's to keep (and never while
         // incognito, M47): the UI's copy stays out.
+        let change = crate::quick_access::with_source_covers(&app, change);
         kept.push(crate::quick_access::keep_stamps(&db.0, change).await);
     }
     let keys: Vec<&'static str> = kept.iter().map(SettingChange::key).collect();
@@ -1282,10 +1284,22 @@ pub async fn artist_releases_check(
 pub async fn music_artist_events(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    profiles: tauri::State<'_, Arc<crate::artist_profiles::ArtistProfiles>>,
     name: String,
 ) -> Result<Vec<raygun_model::ArtistEvent>, String> {
     let name = details.original_artist(name.trim());
-    Ok(extensions.artist_events(&name).await)
+    if name.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (extensions, asked) = (extensions.inner().clone(), name.clone());
+    let mut events = profiles
+        .get(&name, ArtistPart::Events, move || async move {
+            extensions.artist_events(&asked).await
+        })
+        .await;
+    // A kept list ages: events that are over leave it.
+    crate::artist_profiles::upcoming(&mut events, &crate::artist_profiles::today());
+    Ok(events)
 }
 
 /// Playlists for a search from every source that searches them; `featured` keeps the services'
@@ -1340,13 +1354,19 @@ pub async fn music_playlist(
 pub async fn music_artist_releases(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    profiles: tauri::State<'_, Arc<crate::artist_profiles::ArtistProfiles>>,
     name: String,
 ) -> Result<Vec<raygun_model::MusicAlbum>, String> {
     let name = details.original_artist(name.trim());
     if name.is_empty() {
         return Ok(Vec::new());
     }
-    Ok(extensions.artist_releases(&name).await)
+    let (extensions, asked) = (extensions.inner().clone(), name.clone());
+    Ok(profiles
+        .get(&name, ArtistPart::Releases, move || async move {
+            extensions.artist_releases(&asked).await
+        })
+        .await)
 }
 
 /// The album a song is on, from the sources' album search (M46.36: Go to album).
@@ -2566,6 +2586,7 @@ pub async fn music_artist(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     library: tauri::State<'_, LibraryService>,
     details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    profiles: tauri::State<'_, Arc<crate::artist_profiles::ArtistProfiles>>,
     name: String,
 ) -> Result<raygun_model::ArtistOverview, String> {
     // A renamed artist is found by the name sources know (M46.30).
@@ -2573,8 +2594,14 @@ pub async fn music_artist(
     if name.is_empty() {
         return Err("No artist named".into());
     }
-    let (providers, albums, local) = futures_util::future::join3(
-        extensions.search(&name),
+    // The sources' popular songs are kept with the artist's page; the library's are read now.
+    let (sources, asked) = (extensions.inner().clone(), name.clone());
+    let popular = profiles.get(&name, ArtistPart::Popular, move || async move {
+        let providers = sources.search(&asked).await;
+        crate::search::artist_tracks(&providers, &asked, ARTIST_POPULAR_LIMIT)
+    });
+    let (mut popular, albums, local) = futures_util::future::join3(
+        popular,
         library.albums(Some(&name)),
         library.search(&name, 500),
     )
@@ -2587,7 +2614,6 @@ pub async fn music_artist(
                 || crate::search::credits_include(&track.album_artist, &name)
         })
         .collect();
-    let mut popular = crate::search::artist_tracks(&providers, &name, ARTIST_POPULAR_LIMIT);
     details.apply_online(&mut popular);
     Ok(raygun_model::ArtistOverview {
         popular,
@@ -2604,11 +2630,19 @@ pub async fn music_artist_info(
     extensions: tauri::State<'_, Arc<ExtensionService>>,
     images: tauri::State<'_, raygun_net::ImageLinks>,
     details: tauri::State<'_, Arc<crate::details::DetailService>>,
+    profiles: tauri::State<'_, Arc<crate::artist_profiles::ArtistProfiles>>,
     name: String,
 ) -> Result<Option<raygun_model::ArtistInfo>, String> {
-    let name = details.original_artist(&name);
-    Ok(extensions
-        .artist_info(&name)
+    let name = details.original_artist(name.trim());
+    if name.is_empty() {
+        return Ok(None);
+    }
+    // Kept with the source's own picture address; the link to show is made each time.
+    let (extensions, asked) = (extensions.inner().clone(), name.clone());
+    Ok(profiles
+        .get(&name, ArtistPart::Info, move || async move {
+            extensions.artist_info(&asked).await
+        })
         .await
         .map(|info| raygun_model::ArtistInfo {
             image_url: info

@@ -1,6 +1,6 @@
 import { commands, events } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 
@@ -28,6 +28,23 @@ export const useFollowedArtists = () => {
     queryKey: FOLLOWS,
     queryFn: () => unwrapResult(commands.artistsFollowed()),
   });
+};
+
+/**
+ * Whether an artist is followed, from the same list as `useFollowedArtists` without listening for
+ * changes itself (every row's menu has one; the list's own views listen).
+ */
+export const useIsFollowed = () => {
+  const follows = useQuery({
+    queryKey: FOLLOWS,
+    queryFn: () => unwrapResult(commands.artistsFollowed()),
+    staleTime: 60_000,
+  });
+  const list = follows.data;
+  return useCallback(
+    (name: string) => (list ?? []).some((artist) => sameArtist(artist.name, name)),
+    [list],
+  );
 };
 
 /** New releases found for followed artists (M46.42). */

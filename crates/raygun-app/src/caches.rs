@@ -188,6 +188,8 @@ async fn kept_tokens(app: &AppHandle) -> Result<HashSet<String>, raygun_db::DbEr
     for address in fallbacks.kept_addresses(&songs).await {
         kept.insert(proxy_image_token(&address, &Default::default()));
     }
+    // Quick access's pinned covers and followed artists' pictures.
+    kept.extend(crate::quick_access::kept_tokens(app).await);
     // Installed extensions' icons and addons' logos come as kept cover links already.
     let token_of = |link: &str| {
         link.contains("/cover/")

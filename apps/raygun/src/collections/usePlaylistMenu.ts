@@ -2,21 +2,11 @@ import { commands } from '@raygun/bindings';
 import type { PlaylistSummary } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useRouter } from '@tanstack/react-router';
-import {
-  Copy,
-  Download,
-  ListEnd,
-  ListPlus,
-  ListStart,
-  Merge,
-  Play,
-  Shuffle,
-  Trash2,
-} from 'lucide-react';
+import { Download, ListEnd, ListPlus, ListStart, Merge, Play, Shuffle, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
-import { buildMenu, copyText } from '../music/mediaMenu';
+import { buildMenu } from '../music/mediaMenu';
 import { useMenuSheetsStore } from '../music/menuSheetsStore';
 import { downloadSongs } from '../music/useSongDownloads';
 import type { MenuItem } from '../shell/contextMenuStore';
@@ -94,7 +84,6 @@ export const usePlaylistMenuItems = () => {
         },
         ...(pin ? pinItems(playlistPin(playlist)) : []),
       ],
-      share: [{ label: t('menu.copyName'), icon: Copy, onSelect: () => copyText(playlist.name) }],
       edit: [
         {
           label: t('collections.merge.menu'),

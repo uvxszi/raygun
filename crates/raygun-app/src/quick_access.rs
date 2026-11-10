@@ -612,7 +612,6 @@ pub async fn list(app: &AppHandle, names: QuickAccessNames) -> Result<QuickAcces
         .ok()
         .map(|sites| sites.into_iter().map(|site| site.id).collect());
     let images = app.state::<raygun_net::ImageLinks>();
-    let no_headers = BTreeMap::new();
     Ok(arrange(
         &settings.rail,
         library,
@@ -630,8 +629,82 @@ pub async fn list(app: &AppHandle, names: QuickAccessNames) -> Result<QuickAcces
                 _ => true,
             }
         },
-        |url| images.cover(&images.original(url), &no_headers),
+        |url| shown_cover(&images, url),
     ))
+}
+
+/// A cover address quick access saved (a pin's, a followed artist's) as a link to show: a
+/// source's through the cover cache, kept there whatever its size limit ([`kept_tokens`]); one of
+/// the proxy's own links from an earlier start at this run's address, where its copy on disk is.
+fn shown_cover(images: &raygun_net::ImageLinks, url: &str) -> String {
+    let relinked = images.relink(&images.original(url));
+    if images.is_remote(&relinked) {
+        images.kept_cover(&relinked, &BTreeMap::new())
+    } else {
+        relinked
+    }
+}
+
+/// The cover cache's names for what quick access shows from its own addresses: pinned pages'
+/// covers, followed artists' pictures and the pictures found elsewhere for them (M46.40). The
+/// cache's sweep keeps them on the device.
+pub async fn kept_tokens(app: &AppHandle) -> Vec<String> {
+    let db = app.state::<AppDb>().0.clone();
+    let images = app.state::<raygun_net::ImageLinks>();
+    let follows = app
+        .state::<Arc<crate::follows::ArtistFollows>>()
+        .list()
+        .await;
+    let pins = crate::settings::load(&db)
+        .await
+        .map(|settings| settings.rail.pins)
+        .unwrap_or_default();
+    let mut artists: Vec<String> = follows.iter().map(|artist| artist.name.clone()).collect();
+    artists.extend(
+        pins.iter()
+            .filter(|pin| pin.kind == "artist")
+            .map(|pin| pin.name.clone()),
+    );
+    let fallbacks = app.state::<Arc<crate::cover_fallback::CoverFallbacks>>();
+    let mut addresses: Vec<String> = follows
+        .into_iter()
+        .filter_map(|artist| artist.image_url)
+        .chain(pins.into_iter().filter_map(|pin| pin.artwork_url))
+        .collect();
+    addresses.extend(fallbacks.artist_addresses(&artists).await);
+    addresses
+        .iter()
+        .filter_map(|url| cover_token(&images, url))
+        .collect()
+}
+
+/// The cover cache's name for a saved cover address: a source's hashed as the proxy does, one of
+/// the proxy's own cover links by the name it carries.
+fn cover_token(images: &raygun_net::ImageLinks, url: &str) -> Option<String> {
+    let relinked = images.relink(&images.original(url));
+    if images.is_remote(&relinked) {
+        return Some(raygun_net::proxy_image_token(&relinked, &BTreeMap::new()));
+    }
+    relinked
+        .split_once("/cover/")
+        .map(|(_, token)| token.to_owned())
+        .filter(|token| !token.is_empty() && !token.contains('/'))
+}
+
+/// A quick access change from the UI with its pins' covers at their sources' addresses: a
+/// proxy link lasts only while this run knows it.
+pub fn with_source_covers(app: &AppHandle, change: SettingChange) -> SettingChange {
+    let SettingChange::Rail(mut rail) = change else {
+        return change;
+    };
+    if let Some(images) = app.try_state::<raygun_net::ImageLinks>() {
+        for pin in &mut rail.pins {
+            if let Some(url) = pin.artwork_url.as_deref() {
+                pin.artwork_url = Some(images.original(url));
+            }
+        }
+    }
+    SettingChange::Rail(rail)
 }
 
 fn library_item(
@@ -769,7 +842,7 @@ async fn library(app: &AppHandle, db: &Arc<Db>, names: &QuickAccessNames) -> Vec
             artwork_url: artist
                 .image_url
                 .as_deref()
-                .map(|url| images.kept_cover(&images.original(url), &no_headers)),
+                .map(|url| shown_cover(&images, url)),
             removable: true,
             added_at: ms_to_s(artist.followed_at),
             ..library_item(

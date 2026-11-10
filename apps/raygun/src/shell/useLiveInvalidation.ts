@@ -33,6 +33,22 @@ const refresh = (client: QueryClient, keys: QueryKey[]) => {
   for (const queryKey of keys) void client.invalidateQueries({ queryKey });
 };
 
+/** The parts of an artist's page Rust keeps (`['music', part, name]`). */
+const ARTIST_PARTS = new Set(['artist', 'artistInfo', 'artistReleases', 'artistEvents']);
+
+/** Refreshes what shows the artist `name`'s page, whatever case its keys spell the name in. */
+const refreshArtist = (client: QueryClient, name: string) => {
+  const wanted = name.trim().toLowerCase();
+  void client.invalidateQueries({
+    predicate: ({ queryKey: [scope, part, who] }) =>
+      scope === 'music' &&
+      typeof part === 'string' &&
+      ARTIST_PARTS.has(part) &&
+      typeof who === 'string' &&
+      who.trim().toLowerCase() === wanted,
+  });
+};
+
 /**
  * The one place Rust's change events reach the cached answers (M46.48): each event refreshes
  * every view showing what changed, whichever screens are open. Hooks that keep an event's payload
@@ -47,6 +63,8 @@ export const useLiveInvalidation = () => {
       // A refresh, a download, a finished or listened episode.
       events.podcastsChangedEvent.listen(() => refresh(client, PODCAST_KEYS)),
       events.extensionsChangedEvent.listen(() => refresh(client, SOURCE_KEYS)),
+      // An artist's kept page was asked again in the background and changed.
+      events.artistProfileEvent.listen((event) => refreshArtist(client, event.payload)),
       // Another device's changes may touch anything shown.
       events.syncChangedEvent.listen(() => void client.invalidateQueries()),
       // Quick access: the library or its settings changed, a page was played from.

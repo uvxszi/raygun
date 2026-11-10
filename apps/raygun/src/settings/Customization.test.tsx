@@ -203,7 +203,7 @@ describe('Customization', () => {
     // The player's More options opens the song's menu beside it; Add to playlist pops up there.
     await user.click(within(sheet).getByRole('button', { name: 'More options' }));
     const menu = await screen.findByTestId('context-menu');
-    expect(within(menu).getByRole('menuitem', { name: 'Go to Raygun' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Go to artist' })).toBeInTheDocument();
     await user.click(within(menu).getByRole('menuitem', { name: 'Add to playlist' }));
     const popover = await screen.findByTestId('popover');
     expect(popover).toHaveAccessibleName('Intro');

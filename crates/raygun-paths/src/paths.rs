@@ -24,6 +24,8 @@ pub enum CacheKind {
     Covers,
     /// Episodes' audio fetched for transcribing (M46.32).
     Captions,
+    /// Artists' pages as last answered: popular songs, facts, releases, events.
+    Artists,
 }
 
 impl CacheKind {
@@ -37,6 +39,7 @@ impl CacheKind {
             Self::Share => "share",
             Self::Covers => "covers",
             Self::Captions => "captions",
+            Self::Artists => "artists",
         }
     }
 }

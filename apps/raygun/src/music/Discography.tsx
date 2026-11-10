@@ -7,6 +7,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { useLate } from '../shell/useLate';
 import { AlbumTile } from '../search/MusicFinds';
 import { useAlbumMenuItems } from './cardMenus';
 import { Sheet } from '../shell/Sheet';
@@ -54,6 +55,7 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
   const { t } = useTranslation();
   const menu = useAlbumMenuItems();
   const releases = useArtistReleases(name);
+  const slow = useLate(releases.isPending);
   const [shelf, setShelf] = useState<Shelf>('all');
   const [all, setAll] = useState(false);
   const [sorts, setSorts] = useState(readReleaseSorts);
@@ -75,10 +77,12 @@ export const Discography: FC<{ name: string; title: string }> = ({ name, title }
     return (
       <section aria-label={title} className="flex flex-col gap-3">
         <h2 className="text-lg font-bold">{title}</h2>
-        <LoaderCircle
-          aria-label={t('artist.loadingReleases')}
-          className="text-muted animate-spin"
-        />
+        {slow && (
+          <LoaderCircle
+            aria-label={t('artist.loadingReleases')}
+            className="text-muted animate-spin"
+          />
+        )}
       </section>
     );
   }

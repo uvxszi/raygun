@@ -2,6 +2,7 @@ import { commands } from '@raygun/bindings';
 import type { DetailTarget } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
 import { Disc3 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 
@@ -17,10 +18,18 @@ type ArtworkProps = {
    * the same song, album or artist is used, found once and remembered.
    */
   fallback?: DetailTarget | null;
+  /** The placeholder's icon (a disc unless it's someone, say). */
+  icon?: LucideIcon;
 };
 
 /** Album art, or a placeholder when there is none or it fails to load. */
-export const Artwork: FC<ArtworkProps> = ({ url, className = '', iconSize = 32, fallback }) => {
+export const Artwork: FC<ArtworkProps> = ({
+  url,
+  className = '',
+  iconSize = 32,
+  fallback,
+  icon: Icon = Disc3,
+}) => {
   // Remembered per address: a new address (a picked cover) is tried at once.
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
   const ownFailed = !url || failedUrls.includes(url);
@@ -38,7 +47,7 @@ export const Artwork: FC<ArtworkProps> = ({ url, className = '', iconSize = 32, 
         aria-hidden
         className={`bg-surface text-muted grid aspect-square place-items-center ${className}`}
       >
-        <Disc3 size={iconSize} />
+        <Icon size={iconSize} />
       </span>
     );
   }

@@ -118,18 +118,6 @@ export const episodeMenu = (
           ? { label: t('podcasts.cancelDownload'), icon: CircleX, onSelect: actions.cancelDownload }
           : { label: t('podcasts.download'), icon: Download, onSelect: actions.download },
     ],
-    share: [
-      {
-        label: t(actions.chapter ? 'audiobooks.copyChapter' : 'podcasts.menu.copyTitle'),
-        icon: Copy,
-        onSelect: () => copy(episode.title),
-      },
-      {
-        label: t(actions.chapter ? 'audiobooks.copyBook' : 'podcasts.menu.copyShow'),
-        icon: Copy,
-        onSelect: () => copy(episode.podcastTitle),
-      },
-    ],
     edit: [
       actions.toggleNotes &&
         episode.description && {
@@ -177,10 +165,7 @@ export const showMenu = (
             }),
     ],
     keep: actions.pin ?? [],
-    share: [
-      { label: t('podcasts.menu.copyName'), icon: Copy, onSelect: () => copy(show.title) },
-      { label: t('podcasts.menu.copyFeed'), icon: Copy, onSelect: () => copy(show.feedUrl) },
-    ],
+    share: [{ label: t('podcasts.menu.copyFeed'), icon: Copy, onSelect: () => copy(show.feedUrl) }],
     edit: [
       actions.refresh && {
         label: t('podcasts.menu.refresh'),

@@ -744,3 +744,26 @@ async fn the_cast_route_serves_subtitles_as_webvtt_or_subrip() {
     );
     assert!(file.is_none());
 }
+
+#[tokio::test]
+async fn links_from_an_earlier_start_point_at_this_one() {
+    let proxy = proxy().await;
+    let links = proxy.images();
+    let here = proxy.address();
+    assert_eq!(
+        links.relink("http://127.0.0.1:1/cover/abc"),
+        format!("http://{here}/cover/abc")
+    );
+    assert_eq!(
+        links.relink("http://localhost:40123/art/cover.jpg"),
+        format!("http://{here}/art/cover.jpg")
+    );
+    // Sources' addresses and other local servers stay as they are.
+    for url in [
+        "https://example.com/cover/abc",
+        "http://127.0.0.1:8080/api/thing",
+        "http://127.0.0.1:x/cover/abc",
+    ] {
+        assert_eq!(links.relink(url), url);
+    }
+}

@@ -19,23 +19,36 @@ export type DetailsToEdit =
 /** A stored comic, book or video to export, from a card's menu. */
 export type TitleToExport = { medium: Medium; titleId: string };
 
+/** The artists of a song or an album to pick one of (Go to artists). */
+export type ArtistsToPick = {
+  names: string[];
+  /** Where the menu was: on wide windows the tiles pop up there. */
+  anchor?: HTMLElement | null;
+};
+
 type MenuSheetsState = {
   adding: SongsToAdd | null;
   editing: DetailsToEdit | null;
   exporting: TitleToExport | null;
+  artists: ArtistsToPick | null;
   addToPlaylist: (songs: SongsToAdd) => void;
   editDetails: (details: DetailsToEdit) => void;
   exportTitle: (title: TitleToExport) => void;
+  pickArtist: (artists: ArtistsToPick) => void;
   close: () => void;
 };
 
-/** The sheets cards' menus open: Add to playlist for many songs, Edit details, Export. */
+const NONE = { adding: null, editing: null, exporting: null, artists: null };
+
+/**
+ * The sheets cards' menus open: Add to playlist for many songs, Edit details, Export, and the
+ * artists to go to.
+ */
 export const useMenuSheetsStore = create<MenuSheetsState>((set) => ({
-  adding: null,
-  editing: null,
-  exporting: null,
-  addToPlaylist: (adding) => set({ adding, editing: null, exporting: null }),
-  editDetails: (editing) => set({ editing, adding: null, exporting: null }),
-  exportTitle: (exporting) => set({ exporting, adding: null, editing: null }),
-  close: () => set({ adding: null, editing: null, exporting: null }),
+  ...NONE,
+  addToPlaylist: (adding) => set({ ...NONE, adding }),
+  editDetails: (editing) => set({ ...NONE, editing }),
+  exportTitle: (exporting) => set({ ...NONE, exporting }),
+  pickArtist: (artists) => set({ ...NONE, artists }),
+  close: () => set(NONE),
 }));

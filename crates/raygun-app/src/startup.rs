@@ -246,6 +246,17 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         crate::video_subtitles::VideoSubtitles::new(app.handle().clone(), &paths.downloads());
     video_subtitles.start();
     app.manage(video_subtitles);
+    // Artists' pages kept for a day, asked again in the background when older.
+    let profiles_app = app.handle().clone();
+    let profiles = crate::artist_profiles::ArtistProfiles::new(
+        paths.cache(raygun_paths::CacheKind::Artists),
+        move |name| {
+            let changed = crate::events::ArtistProfileEvent(name.to_owned());
+            let _ = tauri_specta::Event::emit(&changed, &profiles_app);
+        },
+    );
+    profiles.trim_later();
+    app.manage(profiles);
     // Covers from other sources when one's missing or fails (M46.40).
     app.manage(crate::cover_fallback::CoverFallbacks::new(
         app.handle().clone(),

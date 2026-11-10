@@ -19,7 +19,7 @@ export type MenuGroups = {
   goTo?: Maybe[];
   /** Download or remove the download, Pin to the sidebar. */
   keep?: Maybe[];
-  /** Copy link, Copy name. */
+  /** Copy link (the heading's title and line under it copy when held). */
   share?: Maybe[];
   /** Edit details, and the kind's own tools. */
   edit?: Maybe[];
@@ -45,7 +45,3 @@ export const buildMenu = (groups: MenuGroups): MenuItem[] => {
 /** Copies `text`, quietly when the clipboard isn't there. */
 export const copyText = (text: string) =>
   void navigator.clipboard?.writeText(text).catch(() => undefined);
-
-/** "Name – Artist" for Copy name, without an empty side. */
-export const nameWith = (name: string, by?: string | null) =>
-  [name, by].filter((part) => part && part.trim()).join(' – ');

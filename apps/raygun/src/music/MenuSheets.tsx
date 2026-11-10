@@ -1,6 +1,7 @@
 import { commands } from '@raygun/bindings';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ListPlus, LoaderCircle, Plus } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { ListPlus, LoaderCircle, Plus, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,12 +9,15 @@ import { useTranslation } from 'react-i18next';
 import { COLLECTIONS, usePlaylists } from '../collections/useCollections';
 import { ExportSheet } from '../export/ExportSheet';
 import { unwrapResult } from '../lib/commandResult';
+import { Artwork } from '../library/Artwork';
+import { useArtistInfo } from '../player/musicInfo';
+import { afterLayersClose } from '../shell/backLayers';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { showToast } from '../shell/toastStore';
 import { DetailEditForm } from './DetailEditForm';
 import { useMenuSheetsStore } from './menuSheetsStore';
-import type { DetailsToEdit, SongsToAdd } from './menuSheetsStore';
+import type { ArtistsToPick, DetailsToEdit, SongsToAdd } from './menuSheetsStore';
 
 const ROW =
   'hover:bg-background flex h-12 w-full items-center gap-3 rounded-lg px-2 text-left text-sm pointer-coarse:h-auto pointer-coarse:min-h-[max(3rem,7dvh)] pointer-coarse:gap-4 pointer-coarse:text-[calc(clamp(1rem,4.3vw,1.125rem)*var(--text-scale,1))] pointer-coarse:[&>svg]:size-[calc(22px*var(--ui-scale,1))]';
@@ -130,11 +134,69 @@ const EditDetailsSheet: FC<{ details: DetailsToEdit; onClose: () => void }> = ({
   );
 };
 
+/** One artist to go to: their picture (another source's when theirs is missing) and name. */
+const ArtistTile: FC<{ name: string; onOpen: () => void }> = ({ name, onOpen }) => {
+  const info = useArtistInfo(name);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="hover:bg-background focus-visible:bg-background flex w-full min-w-0 flex-col items-center gap-2 rounded-2xl p-2 text-center outline-none"
+    >
+      <Artwork
+        url={info.data?.imageUrl ?? null}
+        // Asked only once their own is known to be missing.
+        fallback={info.isPending ? null : { kind: 'artist', name }}
+        icon={UserRound}
+        className="w-full rounded-full shadow-md"
+        iconSize={30}
+      />
+      <span className="line-clamp-2 w-full text-sm font-medium wrap-anywhere">{name}</span>
+    </button>
+  );
+};
+
+/** Go to artists: a song's or an album's artists as tiles, each opening the artist's page. */
+const ArtistsSheet: FC<{ artists: ArtistsToPick; onClose: () => void }> = ({
+  artists,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  return (
+    <Sheet
+      title={t('menu.goToArtists')}
+      onClose={onClose}
+      anchor={artists.anchor}
+      popoverWidth={380}
+    >
+      <ul
+        data-testid="artist-tiles"
+        className="grid max-h-[min(60dvh,28rem)] grid-cols-[repeat(auto-fill,minmax(min(7rem,40%),1fr))] gap-2 overflow-y-auto overscroll-contain"
+      >
+        {artists.names.map((name) => (
+          <li key={name} className="min-w-0">
+            <ArtistTile
+              name={name}
+              onOpen={() => {
+                onClose();
+                // After the sheet's history entry is gone (phones), so the page stays open.
+                afterLayersClose(() => void navigate({ to: '/artist', search: { name } }));
+              }}
+            />
+          </li>
+        ))}
+      </ul>
+    </Sheet>
+  );
+};
+
 /** Hosts the sheets that cards' menus open (mounted once by the shell). */
 export const MenuSheets: FC = () => {
   const adding = useMenuSheetsStore((state) => state.adding);
   const editing = useMenuSheetsStore((state) => state.editing);
   const exporting = useMenuSheetsStore((state) => state.exporting);
+  const artists = useMenuSheetsStore((state) => state.artists);
   const close = useMenuSheetsStore((state) => state.close);
   // Each is a Sheet: Back and Escape close it (shell/backLayers).
   if (adding) return <AddSongsSheet songs={adding} onClose={close} />;
@@ -142,5 +204,6 @@ export const MenuSheets: FC = () => {
   if (exporting) {
     return <ExportSheet medium={exporting.medium} titleIds={[exporting.titleId]} onClose={close} />;
   }
+  if (artists) return <ArtistsSheet artists={artists} onClose={close} />;
   return null;
 };
