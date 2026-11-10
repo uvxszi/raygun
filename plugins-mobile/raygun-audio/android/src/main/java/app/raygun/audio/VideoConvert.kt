@@ -60,7 +60,9 @@ object VideoConvert {
         val item = MediaItem.Builder().setUri(Uri.fromFile(File(args.input)))
         if (args.input.endsWith(".m3u8")) item.setMimeType(MimeTypes.APPLICATION_M3U8)
         val edited = EditedMediaItem.Builder(item.build()).setRemoveVideo(args.audioOnly)
-        if (args.stereo) {
+        // Surround sound is mixed into stereo whenever sound is converted: Transformer has no
+        // mixing matrix of its own for more than two channels, and phones' AAC encoders take two.
+        if (args.audio || args.stereo) {
             edited.setEffects(Effects(listOf<AudioProcessor>(stereoMixer()), emptyList()))
         }
         val tracks = buildSet {
@@ -129,6 +131,10 @@ object VideoConvert {
     private fun describe(error: ExportException): String {
         val cause = error.cause?.message?.takeIf { it.isNotBlank() }
         val name = error.errorCodeName
+        // A problem with the sound's processing comes as a decoding error: say what it was.
+        val sound = generateSequence(error.cause) { it.cause }
+            .any { it is AudioProcessor.UnhandledAudioFormatException }
+        if (sound) return "The sound couldn't be converted ($name: ${cause ?: "unsupported format"})"
         return when (error.errorCode) {
             ExportException.ERROR_CODE_DECODER_INIT_FAILED,
             ExportException.ERROR_CODE_DECODING_FAILED,
