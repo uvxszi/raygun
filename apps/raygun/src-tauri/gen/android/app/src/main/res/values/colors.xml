@@ -7,6 +7,6 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <!-- The dark theme's background (styles.css `--color-background`), behind the start screen. -->
+    <!-- The dark theme's background (the `color-background` token in styles.css), behind the start screen. -->
     <color name="raygun_start">#FF0A0D16</color>
 </resources>
