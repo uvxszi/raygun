@@ -9,6 +9,7 @@ import { ROUTES } from '../manga/medium';
 import { useMangaSources } from '../manga/useManga';
 import { DownloadSongButton } from '../music/DownloadSongButton';
 import { NoSources } from '../search/NoSources';
+import { usePlaylistFinds } from '../search/useMusicFinds';
 import { playResults } from '../search/useOnlineSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { YtDlpJobCard } from './YtDlpJobs';
@@ -45,21 +46,25 @@ const asSong = (link: YouTubeLink): TrackInput => ({
  * A YouTube address typed in Search (M46.47): the video with Play, Play as music, and on desktop
  * Download video or Download audio through yt-dlp, with the download's progress; elsewhere its
  * sound downloads as a song (M46.51). Playlists and channels open on an installed video source's
- * pages.
+ * pages; a playlist also opens as songs when a music source reads it from its address (Nuclear's
+ * YouTube Playlists plugin).
  */
 export const YouTubeLinkCard: FC<{ query: string }> = ({ query }) => {
   const link = useYouTubeLink(query);
   if (!link.data) return null;
-  return <LinkCard link={link.data} key={link.data.url} />;
+  return <LinkCard link={link.data} query={query} key={link.data.url} />;
 };
 
-const LinkCard: FC<{ link: YouTubeLink }> = ({ link }) => {
+const LinkCard: FC<{ link: YouTubeLink; query: string }> = ({ link, query }) => {
   const { t } = useTranslation();
   const status = useYtDlpStatus(link.kind === 'video');
   const jobs = useYtDlpJobs();
   const { download, installFfmpeg } = useYtDlpActions();
   const sources = useMangaSources('video');
   const youtube = sources.data?.find((source) => source.extensionId === YOUTUBE_EXTENSION);
+  // The same search the Playlists row asks, so it's answered once.
+  const songLists = usePlaylistFinds(link.kind === 'playlist' && !youtube ? query : '', false);
+  const songList = songLists.list[0];
   const title = link.title ?? link.id;
   const mine = (jobs.data ?? []).filter((job) => job.url === link.url).slice(0, 2);
   const supported = status.data?.supported ?? false;
@@ -139,7 +144,16 @@ const LinkCard: FC<{ link: YouTubeLink }> = ({ link }) => {
           <ExternalLink aria-hidden size={15} />
           {t(`youtube.open.${link.kind}`)}
         </Link>
-      ) : (
+      ) : songList ? (
+        <Link
+          to="/music/playlist"
+          search={{ provider: songList.provider.id, id: songList.id }}
+          className={`${BUTTON} bg-primary text-background w-fit`}
+        >
+          <Music aria-hidden size={15} />
+          {t('youtube.open.songs', { source: songList.provider.name })}
+        </Link>
+      ) : songLists.isFetching ? null : (
         <NoSources label={t('youtube.needsExtension')} />
       )}
       {supported && status.data && (

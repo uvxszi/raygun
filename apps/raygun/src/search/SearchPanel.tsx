@@ -25,6 +25,7 @@ import { useDragScroll } from '../shell/useDragScroll';
 import { usePressedInView } from '../shell/usePressedInView';
 import { usePlayContext } from '../music/playContext';
 import { YouTubeLinkCard } from '../youtube/YouTubeLinkCard';
+import { useYouTubeLink } from '../youtube/useYtDlp';
 
 /** Video sources' best answers Relevant shows before See all. */
 const RELEVANT_TITLES = 12;
@@ -211,6 +212,9 @@ export const SearchPanel: FC<{
   );
   const pillSource = type === 'video' ? pills.find((source) => source.id === pill) : undefined;
   const blank = query.trim() === '';
+  // A YouTube address is answered by its card; the sources' matches for the address's words
+  // would only be noise under it.
+  const youtubeLink = useYouTubeLink(query);
   // What plays from here shows "Playing from" this search.
   usePlayContext(
     blank
@@ -288,47 +292,58 @@ export const SearchPanel: FC<{
           <p className="text-muted text-sm">{t('search.hintFor.library')}</p>
         )}
         {/* Opening or playing something found remembers the search. */}
-        <div
-          className="flex flex-col gap-4"
-          onClickCapture={(event) => {
-            if (!blank && opensResult(event)) remember(query, type);
-          }}
-        >
-          {type === 'all' && <AllResults query={query} onType={onType} />}
-          {type === 'music' && (
-            <MusicResults query={query} view={musicView} onView={(next) => onType('music', next)} />
-          )}
-          {type === 'video' && (
-            <VideoPillRow
-              view={videoView}
-              site={pillSource?.id ?? null}
-              sites={pills}
-              onView={(next) => onType('video', next)}
-              onSite={(id) => onType('video', undefined, id)}
-            />
-          )}
-          {type === 'video' && pillSource && (
-            <CatalogSearch key={pillSource.id} medium="video" query={query} only={pillSource.id} />
-          )}
-          {type === 'video' && !pillSource && (
-            <VideoSearch
-              query={query}
-              view={videoView}
-              onView={(next) => onType('video', next)}
-              pills={pills}
-              onPill={(id) => onType('video', undefined, id)}
-            />
-          )}
-          {!blank && type === 'library' && <LibraryMatches query={query} />}
-          {(type === 'manga' || type === 'novel') && (
-            <CatalogSearch
-              key={type}
-              medium={type}
-              query={query}
-              onLibrary={() => onType('library')}
-            />
-          )}
-        </div>
+        {!youtubeLink.data && (
+          <div
+            className="flex flex-col gap-4"
+            onClickCapture={(event) => {
+              if (!blank && opensResult(event)) remember(query, type);
+            }}
+          >
+            {type === 'all' && <AllResults query={query} onType={onType} />}
+            {type === 'music' && (
+              <MusicResults
+                query={query}
+                view={musicView}
+                onView={(next) => onType('music', next)}
+              />
+            )}
+            {type === 'video' && (
+              <VideoPillRow
+                view={videoView}
+                site={pillSource?.id ?? null}
+                sites={pills}
+                onView={(next) => onType('video', next)}
+                onSite={(id) => onType('video', undefined, id)}
+              />
+            )}
+            {type === 'video' && pillSource && (
+              <CatalogSearch
+                key={pillSource.id}
+                medium="video"
+                query={query}
+                only={pillSource.id}
+              />
+            )}
+            {type === 'video' && !pillSource && (
+              <VideoSearch
+                query={query}
+                view={videoView}
+                onView={(next) => onType('video', next)}
+                pills={pills}
+                onPill={(id) => onType('video', undefined, id)}
+              />
+            )}
+            {!blank && type === 'library' && <LibraryMatches query={query} />}
+            {(type === 'manga' || type === 'novel') && (
+              <CatalogSearch
+                key={type}
+                medium={type}
+                query={query}
+                onLibrary={() => onType('library')}
+              />
+            )}
+          </div>
+        )}
       </SelectionScope>
     </div>
   );

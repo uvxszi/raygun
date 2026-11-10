@@ -4645,7 +4645,8 @@
     "downloadAudio": "Download audio",
     "open": {
       "playlist": "Open the playlist",
-      "channel": "Open the channel"
+      "channel": "Open the channel",
+      "songs": "Open its songs ({{source}})"
     },
     "needsExtension": "No installed source opens playlists and channels from this address.",
     "ytdlpVersion": "Downloads with yt-dlp {{version}}.",

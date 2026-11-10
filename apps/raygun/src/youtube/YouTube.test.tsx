@@ -147,6 +147,39 @@ describe('YouTube addresses (M46.47)', () => {
     );
   });
 
+  it("opens a playlist's songs when a music source reads its address", async () => {
+    commands.youtubeLink.mockResolvedValue(
+      ok({ ...LINK, kind: 'playlist' as const, id: 'PL123', title: 'Open films' }),
+    );
+    commands.musicSearchPlaylists.mockResolvedValue(
+      ok([
+        {
+          id: 'PL123',
+          title: 'Open films',
+          author: 'Blender Foundation',
+          artworkUrl: null,
+          trackCount: 17,
+          featured: false,
+          provider: {
+            id: 'nuclear.nuclear-plugin-youtube-playlists/youtube-playlists',
+            extensionId: 'nuclear.nuclear-plugin-youtube-playlists',
+            kind: 'music.metadata',
+            name: 'YouTube Playlists',
+            adult: false,
+          },
+        },
+      ]),
+    );
+    await AppShellWrapper.mount(`/browse?tab=search&q=${encodeURIComponent(ADDRESS)}`);
+    const card = await screen.findByTestId('youtube-link');
+    const open = await within(card).findByRole('link', {
+      name: 'Open its songs (YouTube Playlists)',
+    });
+    expect(open).toHaveAttribute('href', expect.stringContaining('/music/playlist'));
+    expect(open).toHaveAttribute('href', expect.stringContaining('id=PL123'));
+    expect(within(card).queryByText(/No installed source/)).not.toBeInTheDocument();
+  });
+
   it('leaves ordinary searches alone', async () => {
     await AppShellWrapper.mount('/browse?tab=search&q=daft%20punk');
     await screen.findByTestId('search-page');
