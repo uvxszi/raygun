@@ -17,15 +17,20 @@ const packageOf = (id: string) => `eu.kanade.tachiyomi.extension.${id.slice('mih
  * code (tier 2). Running isn't available on every device, which the panel says plainly.
  */
 export const MihonApkAction: FC<{ entry: CatalogEntry }> = ({ entry }) => {
-  const { t } = useTranslation();
   const allowed = useSettings().data?.runSourceCode ?? false;
+  // The panel's own hooks only for the entries it's for: a store lists thousands of others.
+  if (!allowed || !entry.unsupported || !entry.id.startsWith('mihon.')) return null;
+  return <MihonApkPanel entry={entry} />;
+};
+
+const MihonApkPanel: FC<{ entry: CatalogEntry }> = ({ entry }) => {
+  const { t } = useTranslation();
   const download = useMihonApk();
   const runtime = useMihonRuntime();
   const setup = useMihonRuntimeSetup();
   const run = useMihonRun();
   const [tried, setTried] = useState<string | null>(null);
 
-  if (!allowed || !entry.unsupported || !entry.id.startsWith('mihon.')) return null;
   const state = runtime.data;
   const saved = download.isSuccess;
 

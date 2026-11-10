@@ -6,8 +6,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use raygun_db::extensions::{self as store, InstallRow};
 use raygun_ext_host::mihon;
@@ -34,11 +35,20 @@ use tokio::sync::RwLock;
 use crate::events::ExtensionsChangedEvent;
 use crate::startup::AppDb;
 
+mod catalog;
+
 const SEARCH_LIMIT: u32 = 30;
 /// Candidates asked of each `music.stream` provider per track.
 const CANDIDATE_LIMIT: u32 = 10;
 const WATCH_INTERVAL: Duration = Duration::from_secs(1);
 const INDEX_CACHE: Duration = Duration::from_secs(10 * 60);
+/// An index read this recently counts as current for installing (a queue installs many
+/// extensions from one repository, and a large index takes seconds to read and parse).
+const FRESH_INDEX: Duration = Duration::from_secs(30);
+/// How long a built listing is kept while nothing it depends on changes (`catalog::Listings`).
+const LISTING_CACHE: Duration = Duration::from_secs(2 * 60);
+/// Where installed extensions' icon addresses are kept (`local_value`), one key each.
+const ICON_PREFIX: &str = "extension.icon.";
 const MAX_INDEX_BYTES: u64 = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Where the reasons Mihon extensions couldn't be converted are kept (`local_value`).
@@ -219,7 +229,14 @@ pub struct ExtensionService {
     changing: tokio::sync::Mutex<()>,
     /// The installed files as of the last load, so the dev watcher skips the app's own changes.
     loaded_files: Mutex<Fingerprint>,
-    indexes: Mutex<HashMap<String, (Instant, RepoIndex)>>,
+    indexes: Mutex<catalog::Indexes>,
+    /// Each repository's catalogue listing as last built (`catalog`).
+    listings: Mutex<catalog::Listings>,
+    /// The converter each installed Mihon extension was made by, by id: its version and the
+    /// converter, read from its manifest once per load.
+    mihon_converters: Mutex<HashMap<String, (String, Option<u64>)>>,
+    /// Counts changes to the 18+ switch and marks, which listings depend on.
+    content_changes: AtomicU64,
     /// Mihon stores read with their index, by the repository's address: where the extensions
     /// came from and what the store says of each (its sources, where its code is).
     mihon_stores: Mutex<HashMap<String, (reqwest::Url, Arc<mihon::Store>)>>,
@@ -251,7 +268,10 @@ impl ExtensionService {
             loading: Arc::new(RwLock::new(())),
             changing: tokio::sync::Mutex::new(()),
             loaded_files: Mutex::new(Vec::new()),
-            indexes: Mutex::new(HashMap::new()),
+            indexes: Mutex::new(catalog::Indexes::default()),
+            listings: Mutex::new(catalog::Listings::default()),
+            mihon_converters: Mutex::new(HashMap::new()),
+            content_changes: AtomicU64::new(0),
             mihon_stores: Mutex::new(HashMap::new()),
             info_cache: Mutex::new(InfoCache::default()),
         });
@@ -330,22 +350,27 @@ impl ExtensionService {
         let images = self.app.state::<raygun_net::ImageLinks>();
         let installs = store::installs(self.db()).await.unwrap_or_default();
         let repos = self.repos().await.unwrap_or_default();
-        let mut with_icons = Vec::with_capacity(infos.len());
-        for info in infos {
-            let icon = raygun_db::local_value(self.db(), &icon_key(&info.id))
-                .await
-                .ok()
-                .flatten()
-                .filter(|url| images.is_remote(url))
-                .map(|url| images.kept_cover(&url, &Default::default()));
-            let repository = repository_name(&info.id, &installs, &repos);
-            with_icons.push(ExtensionInfo {
-                icon,
-                repository,
-                ..info
-            });
-        }
-        with_icons
+        // Every icon in one query, and every repository's name at once: hundreds of extensions
+        // took a query and a search through the installs each.
+        let icons = raygun_db::local_values_with_prefix(self.db(), ICON_PREFIX)
+            .await
+            .unwrap_or_default();
+        let repositories = repository_names(&installs, &repos);
+        infos
+            .into_iter()
+            .map(|info| {
+                let icon = icons
+                    .get(&icon_key(&info.id))
+                    .filter(|url| images.is_remote(url))
+                    .map(|url| images.kept_cover(url, &Default::default()));
+                let repository = repositories.get(&info.id).cloned();
+                ExtensionInfo {
+                    icon,
+                    repository,
+                    ..info
+                }
+            })
+            .collect()
     }
 
     /// Whether NSFW extensions and content are shown (M35).
@@ -363,6 +388,7 @@ impl ExtensionService {
     pub async fn set_content(&self, show_nsfw: bool, explicit_music: bool) {
         self.host.content().set_show_nsfw(show_nsfw);
         self.host.content().set_show_explicit_music(explicit_music);
+        self.content_changes.fetch_add(1, Ordering::Relaxed);
         let infos = self.list().await;
         if let Err(error) = ExtensionsChangedEvent(infos).emit(&self.app) {
             tracing::warn!(%error, "could not announce extension changes");
@@ -373,6 +399,7 @@ impl ExtensionService {
     /// 18+ tags depend on them.
     pub async fn set_content_overrides(&self, overrides: raygun_model::ContentOverrides) {
         self.host.content().set_overrides(overrides);
+        self.content_changes.fetch_add(1, Ordering::Relaxed);
         let infos = self.list().await;
         if let Err(error) = ExtensionsChangedEvent(infos).emit(&self.app) {
             tracing::warn!(%error, "could not announce extension changes");
@@ -891,6 +918,8 @@ impl ExtensionService {
             .await
             .unwrap_or_default();
         *self.loaded_files.lock().unwrap() = files;
+        // Installs may have written new manifests, even at the same version.
+        self.mihon_converters.lock().unwrap().clear();
 
         self.learn_extension_repositories().await;
         let sources = discover_installed(&self.extensions_dir);
@@ -1089,7 +1118,7 @@ impl ExtensionService {
                         .map_err(|error| error.to_string())?
                 }
                 PackageFormat::Shosetsu => {
-                    let mut libraries: Vec<(reqwest::Url, RepoIndex)> = Vec::new();
+                    let mut libraries: Vec<(reqwest::Url, Arc<RepoIndex>)> = Vec::new();
                     for repo in self.repos().await? {
                         if let (Ok(index_url), Ok(index)) = (
                             repo.url.parse::<reqwest::Url>(),
@@ -1142,14 +1171,19 @@ impl ExtensionService {
         Ok(self.reload().await)
     }
 
-    /// The extensions on this device by id, for marking a repository's entries.
+    /// The extensions on this device by id, for marking a repository's entries. Their icons and
+    /// repositories (`list`) aren't needed here.
     async fn installed_versions(&self) -> HashMap<String, Installed> {
+        let infos = {
+            let _ready = self.loading.read().await;
+            self.host.list().await
+        };
         let mut installed = HashMap::new();
-        for info in self.list().await {
+        for info in infos {
             // A converted Mihon extension says which converter made it in its manifest.
             let stale_mihon = info.id.starts_with("mihon.")
                 && self
-                    .mihon_converter(&info.id)
+                    .mihon_converter(&info.id, &info.version)
                     .await
                     .is_some_and(|converter| converter < u64::from(mihon::CONVERTER_VERSION));
             let entry = Installed {
@@ -1197,15 +1231,30 @@ impl ExtensionService {
         None
     }
 
-    /// The converter an installed Mihon extension was made by.
-    async fn mihon_converter(&self, id: &str) -> Option<u64> {
+    /// The converter an installed Mihon extension (at `version`) was made by, read from its
+    /// manifest once per load: hundreds installed from a store were read on every look at the
+    /// catalogue.
+    async fn mihon_converter(&self, id: &str, version: &str) -> Option<u64> {
+        if let Some((read, converter)) = self.mihon_converters.lock().unwrap().get(id)
+            && read == version
+        {
+            return *converter;
+        }
         let path = self
             .extensions_dir
             .join(id)
             .join(raygun_ext_host::MANIFEST_FILE);
-        let text = tokio::fs::read_to_string(path).await.ok()?;
-        let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
-        manifest.get("mihon")?.get("converter")?.as_u64()
+        let converter = async {
+            let text = tokio::fs::read_to_string(path).await.ok()?;
+            let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+            manifest.get("mihon")?.get("converter")?.as_u64()
+        }
+        .await;
+        self.mihon_converters
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), (version.to_owned(), converter));
+        converter
     }
 
     /// A repository index's entries as the catalog lists them: 18+ ones (rated `nsfw`, or marked
@@ -1266,11 +1315,16 @@ impl ExtensionService {
             .collect()
     }
 
+    /// Every repository's listing. A listing is built again only when its index was read again
+    /// or something it shows changed on this device (`catalog::Listings`): a store of thousands
+    /// of entries took long to build on each look.
     pub async fn catalog(&self, refresh: bool) -> Result<Vec<RepoCatalog>, String> {
         let repos = self.repos().await?;
         let local = self.installed_versions().await;
         let verdicts = self.mihon_verdicts().await;
         let addons = self.added_addons().await;
+        let inputs = self.listing_inputs(&local, &verdicts, &addons);
+        self.listings.lock().unwrap().keep_only(&repos);
         let listings = repos.into_iter().map(|repo| {
             let (local, verdicts, addons) = (&local, &verdicts, &addons);
             async move {
@@ -1281,7 +1335,25 @@ impl ExtensionService {
                             let _ = store::rename_repo(self.db(), &repo.id, &name).await;
                         }
                         let repo = ExtensionRepo { name, ..repo };
-                        let entries = self.entries_of(&repo, &index, local, verdicts, addons);
+                        let kept =
+                            self.listings
+                                .lock()
+                                .unwrap()
+                                .get(&repo, &index, inputs, LISTING_CACHE);
+                        let entries = match kept {
+                            Some(entries) => entries,
+                            None => {
+                                let entries =
+                                    self.entries_of(&repo, &index, local, verdicts, addons);
+                                self.listings.lock().unwrap().put(
+                                    &repo,
+                                    index.clone(),
+                                    inputs,
+                                    entries.clone(),
+                                );
+                                entries
+                            }
+                        };
                         RepoCatalog {
                             repo,
                             entries,
@@ -1300,13 +1372,42 @@ impl ExtensionService {
         Ok(crate::stremio::at_most(4, listings).await)
     }
 
+    /// What every listing depends on besides its index, as one fingerprint: the extensions on
+    /// this device, the conversions tried, the addons added, the 18+ switch and marks, and
+    /// whether Mihon extensions' own code can run here.
+    fn listing_inputs(
+        &self,
+        local: &HashMap<String, Installed>,
+        verdicts: &HashMap<String, MihonVerdict>,
+        addons: &HashSet<String>,
+    ) -> catalog::Inputs {
+        let local = catalog::sorted(
+            local
+                .iter()
+                .map(|(id, installed)| (id, &installed.version, installed.stale_conversion)),
+        );
+        let verdicts = catalog::sorted(
+            verdicts
+                .iter()
+                .map(|(id, verdict)| (id, &verdict.version, verdict.converter, &verdict.reason)),
+        );
+        catalog::Inputs::of(&(
+            local,
+            verdicts,
+            catalog::sorted(addons),
+            self.host.content().show_nsfw(),
+            self.content_changes.load(Ordering::Relaxed),
+            mihon::runtime_present(),
+        ))
+    }
+
     /// The index at `url`, or for a folder's address (as Miru takes repositories) the
     /// `index.json` in it; with the address it was read from.
     async fn index_at(
         &self,
         url: reqwest::Url,
         refresh: bool,
-    ) -> Result<(reqwest::Url, RepoIndex), String> {
+    ) -> Result<(reqwest::Url, Arc<RepoIndex>), String> {
         match self.fetch_index(url.as_str(), refresh).await {
             Ok(index) => Ok((url, index)),
             Err(error) => {
@@ -1338,12 +1439,11 @@ impl ExtensionService {
         }
     }
 
-    async fn fetch_index(&self, url: &str, refresh: bool) -> Result<RepoIndex, String> {
-        if !refresh
-            && let Some((fetched, index)) = self.indexes.lock().unwrap().get(url)
-            && fetched.elapsed() < INDEX_CACHE
-        {
-            return Ok(index.clone());
+    /// The index at `url`: the one read within [`INDEX_CACHE`] unless `refresh`, shared rather
+    /// than copied (a store's index holds thousands of entries).
+    async fn fetch_index(&self, url: &str, refresh: bool) -> Result<Arc<RepoIndex>, String> {
+        if !refresh && let Some(index) = self.indexes.lock().unwrap().get(url, INDEX_CACHE) {
+            return Ok(index);
         }
         let bytes = self.download(url, MAX_INDEX_BYTES).await?;
         // A Mihon store (`index.min.json`, `repo.json`, `index.pb`), followed to its extensions.
@@ -1358,20 +1458,26 @@ impl ExtensionService {
                 .lock()
                 .unwrap()
                 .insert(url.to_owned(), (from, Arc::new(store)));
-            self.indexes
-                .lock()
-                .unwrap()
-                .insert(url.to_owned(), (Instant::now(), index.clone()));
-            return Ok(index);
+            return Ok(self.indexes.lock().unwrap().put(url, index));
         }
-        // Kodi's indexes come gzipped as often as not (`addons.xml.gz`).
-        let text = raygun_ext_host::kodi::unpack(&bytes)?;
-        let index = repo::parse_index(&text).map_err(|error| error.to_string())?;
-        self.indexes
-            .lock()
-            .unwrap()
-            .insert(url.to_owned(), (Instant::now(), index.clone()));
-        Ok(index)
+        // Kodi's indexes come gzipped as often as not (`addons.xml.gz`). Parsing a large index
+        // takes a while: off the async workers.
+        let index = tauri::async_runtime::spawn_blocking(move || {
+            let text = raygun_ext_host::kodi::unpack(&bytes)?;
+            repo::parse_index(&text).map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        Ok(self.indexes.lock().unwrap().put(url, index))
+    }
+
+    /// The index at `url` as it is now, for installing from it: one read moments ago counts
+    /// ([`FRESH_INDEX`]), and says so.
+    async fn current_index(&self, url: &str) -> Result<(Arc<RepoIndex>, bool), String> {
+        if let Some(index) = self.indexes.lock().unwrap().get(url, FRESH_INDEX) {
+            return Ok((index, true));
+        }
+        Ok((self.fetch_index(url, true).await?, false))
     }
 
     /// A repository file, asked for again after a pause when the host says too many requests
@@ -1467,8 +1573,40 @@ impl ExtensionService {
             .into_iter()
             .find(|repo| repo.id == repo_id)
             .ok_or("that repository was removed")?;
-        // Always the current index: a cached one could name a package that has since changed.
-        let index = self.fetch_index(&repo.url, true).await?;
+        // The current index, not the catalogue's (a package may have changed since); the
+        // installs of a queue share one read moments ago (`FRESH_INDEX`).
+        let (index, reused) = self.current_index(&repo.url).await?;
+        match self.install_from(&repo, &index, extension_id, phase).await {
+            // The repository may have changed the entry in the meantime: read it again, and
+            // install what it lists now if it did.
+            Err(error) if reused => {
+                let current = self.fetch_index(&repo.url, true).await?;
+                let listed = |index: &RepoIndex| {
+                    index
+                        .extensions
+                        .iter()
+                        .find(|entry| entry.id == extension_id)
+                        .cloned()
+                };
+                if listed(&current) == listed(&index) {
+                    return Err(error);
+                }
+                self.install_from(&repo, &current, extension_id, phase)
+                    .await
+            }
+            done => done,
+        }
+    }
+
+    /// Installs `extension_id` as `index`, the repository's current index, lists it.
+    async fn install_from(
+        &self,
+        repo: &ExtensionRepo,
+        index: &RepoIndex,
+        extension_id: &str,
+        phase: &(dyn Fn(raygun_model::ExtensionInstallPhase) + Send + Sync),
+    ) -> Result<(), String> {
+        use raygun_model::ExtensionInstallPhase as Phase;
         let entry = index
             .extensions
             .iter()
@@ -1492,8 +1630,8 @@ impl ExtensionService {
         }
         // Mihon's extensions are converted from their source code; their APKs aren't run.
         if entry.format == PackageFormat::Mihon {
-            let verified = self.convert_mihon(&repo, entry, phase).await?;
-            return self.finish_install(&repo, entry, verified, phase).await;
+            let verified = self.convert_mihon(repo, entry, phase).await?;
+            return self.finish_install(repo, entry, verified, phase).await;
         }
         let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
         let package_url =
@@ -1540,7 +1678,7 @@ impl ExtensionService {
                     shosetsu::package::dependencies(&String::from_utf8_lossy(&bytes))
                         .iter()
                         .any(|name| !index.libraries.iter().any(|library| library.name == *name));
-                let mut others: Vec<(reqwest::Url, RepoIndex)> = Vec::new();
+                let mut others: Vec<(reqwest::Url, Arc<RepoIndex>)> = Vec::new();
                 for other in self.repos().await? {
                     if !needs_others || other.id == repo.id {
                         continue;
@@ -1555,7 +1693,7 @@ impl ExtensionService {
                 }
                 let mut sources = vec![shosetsu::package::LibrarySource {
                     index_url: &index_url,
-                    index: &index,
+                    index,
                 }];
                 sources.extend(others.iter().map(|(index_url, index)| {
                     shosetsu::package::LibrarySource { index_url, index }
@@ -1582,7 +1720,7 @@ impl ExtensionService {
             PackageFormat::Mihon => unreachable!("converted before downloading"),
             PackageFormat::Stremio => unreachable!("added before downloading"),
         };
-        self.finish_install(&repo, entry, verified, phase).await
+        self.finish_install(repo, entry, verified, phase).await
     }
 
     /// The kept, checked APK for a Mihon package (`.apk/<package>.apk`), when it's there.
@@ -2045,19 +2183,49 @@ fn extension_repositories(
     installs: &[InstallRow],
     repos: &[ExtensionRepo],
 ) -> HashMap<String, String> {
+    let by_address = by_address(repos);
     installs
         .iter()
         .filter_map(|install| {
-            let repo = repos
-                .iter()
-                .find(|repo| same_url(&repo.url, &install.repo_url))?;
+            let repo = by_address.get(&url_key(&install.repo_url))?;
             Some((install.extension_id.clone(), repo.id.clone()))
         })
         .collect()
 }
 
-/// The name of the repository an installed extension came from, matched by the address it was
-/// installed from; Paraline for one installed from an index Paraline replaced.
+/// Repositories by their address as [`same_url`] compares them, the first of any two alike.
+fn by_address(repos: &[ExtensionRepo]) -> HashMap<String, &ExtensionRepo> {
+    let mut found = HashMap::with_capacity(repos.len());
+    for repo in repos {
+        found.entry(url_key(&repo.url)).or_insert(repo);
+    }
+    found
+}
+
+/// The name of the repository each installed extension came from, by its id: matched by the
+/// address it was installed from; Paraline for one installed from an index Paraline replaced.
+fn repository_names(installs: &[InstallRow], repos: &[ExtensionRepo]) -> HashMap<String, String> {
+    let by_address = by_address(repos);
+    let mut names = HashMap::with_capacity(installs.len());
+    for install in installs {
+        let name = by_address
+            .get(&url_key(&install.repo_url))
+            .map(|repo| repo.name.clone())
+            .or_else(|| {
+                RETIRED_REPOS
+                    .iter()
+                    .any(|retired| same_url(&install.repo_url, retired))
+                    .then(|| PARALINE_NAME.to_owned())
+            });
+        if let Some(name) = name {
+            names.entry(install.extension_id.clone()).or_insert(name);
+        }
+    }
+    names
+}
+
+/// [`repository_names`] for one extension.
+#[cfg(test)]
 fn repository_name(
     extension_id: &str,
     installs: &[InstallRow],
@@ -2066,22 +2234,18 @@ fn repository_name(
     let install = installs
         .iter()
         .find(|install| install.extension_id == extension_id)?;
-    repos
-        .iter()
-        .find(|repo| same_url(&repo.url, &install.repo_url))
-        .map(|repo| repo.name.clone())
-        .or_else(|| {
-            RETIRED_REPOS
-                .iter()
-                .any(|retired| same_url(&install.repo_url, retired))
-                .then(|| PARALINE_NAME.to_owned())
-        })
+    repository_names(std::slice::from_ref(install), repos).remove(extension_id)
 }
 
 fn same_url(a: &str, b: &str) -> bool {
     a.trim()
         .trim_end_matches('/')
         .eq_ignore_ascii_case(b.trim().trim_end_matches('/'))
+}
+
+/// An address as [`same_url`] compares it: trimmed, without trailing slashes, in lower case.
+fn url_key(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_ascii_lowercase()
 }
 
 /// A GitHub file's address as owner, project, branch and path within the project.

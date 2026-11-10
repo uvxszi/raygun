@@ -1,4 +1,4 @@
-import type { MangaSource } from '@raygun/bindings';
+import type { ContentOverride, ExtensionInfo, MangaSource } from '@raygun/bindings';
 import { useIsFetching } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
@@ -14,7 +14,7 @@ import {
   Square,
   SquareCheck,
 } from 'lucide-react';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -50,6 +50,8 @@ import type { MenuItem } from '../shell/contextMenuStore';
 import { mediaOfKind } from '../sources/sourceMedia';
 import { WebsitesSection } from '../websites/WebsitesSection';
 import { OnOffSwitch } from '../shell/OnOffSwitch';
+import { VirtualRows } from '../shell/VirtualRows';
+import type { RowProps } from '../shell/windowedRows';
 import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
 import { useBulkSelection } from '../shell/useBulkSelection';
 import type { BulkSelection } from '../shell/useBulkSelection';
@@ -117,14 +119,16 @@ const addonMenu = (
     edit: row.addonId ? marks : [],
   });
 
-const SourceRowLink: FC<{ row: SourceRow }> = ({ row }) => {
-  const { t } = useTranslation();
-  const rating = useContentRating();
-  const mark = row.source
+/** A row's 18+ mark, set by the user: on its extension, or on its addon. */
+const markOfRow = (row: SourceRow, rating: ReturnType<typeof useContentRating>): ContentOverride =>
+  row.source
     ? rating.markOf('extensions', row.source.extensionId)
     : row.addonId
       ? rating.markOf('addons', row.addonId)
       : 'default';
+
+const SourceRowLink: FC<{ row: SourceRow; mark: ContentOverride }> = ({ row, mark }) => {
+  const { t } = useTranslation();
   return (
     <Link
       to={row.to}
@@ -165,10 +169,11 @@ const LatestLink: FC<{ row: SourceRow }> = ({ row }) => {
 const ExtensionSourceRow: FC<{
   row: SourceRow;
   source: NonNullable<SourceRow['source']>;
-}> = ({ row, source }) => {
+  mark: ContentOverride;
+}> = ({ row, source, mark }) => {
   return (
     <>
-      <SourceRowLink row={row} />
+      <SourceRowLink row={row} mark={mark} />
       <LatestLink row={row} />
       <SourceMenu sourceId={source.id} extensionId={source.extensionId} name={row.name} />
     </>
@@ -189,39 +194,44 @@ const SourceSection: FC<{
   const navigate = useNavigate();
   if (rows.length === 0) return null;
   const go = (page: Page) => void navigate({ to: page.to, search: page.search as never });
+  const line = (row: SourceRow, place: RowProps) => (
+    <li {...place} className="flex items-center gap-1">
+      <SelectCheck selection={selection} id={row.key} name={row.name} />
+      {row.source ? (
+        <ExtensionSourceRow row={row} source={row.source} mark={markOfRow(row, rating)} />
+      ) : row.audio ? (
+        // An extension's audio sources: its page holds their settings.
+        <SourceRowLink row={row} mark={markOfRow(row, rating)} />
+      ) : (
+        <>
+          <SourceRowLink row={row} mark={markOfRow(row, rating)} />
+          <LatestLink row={row} />
+          <MenuButton
+            label={t('menu.options', { name: row.name })}
+            items={() =>
+              addonMenu(row, t, go, rating.menuItems('addons', row.addonId ?? '', row.adult))
+            }
+          />
+        </>
+      )}
+      <OnOffSwitch
+        checked={rowEnabled(row)}
+        label={t('sources.switch', { name: row.name })}
+        disabled={switcher.busy}
+        onChange={(on) => switcher.set([row.key], on)}
+      />
+    </li>
+  );
   return (
     <section aria-label={title} className="flex flex-col">
       <h2 className="text-muted px-1 pt-2 pb-1 text-sm font-medium">{title}</h2>
-      <ul className="flex flex-col">
-        {rows.map((row) => (
-          <li key={row.key} className="flex items-center gap-1">
-            <SelectCheck selection={selection} id={row.key} name={row.name} />
-            {row.source ? (
-              <ExtensionSourceRow row={row} source={row.source} />
-            ) : row.audio ? (
-              // An extension's audio sources: its page holds their settings.
-              <SourceRowLink row={row} />
-            ) : (
-              <>
-                <SourceRowLink row={row} />
-                <LatestLink row={row} />
-                <MenuButton
-                  label={t('menu.options', { name: row.name })}
-                  items={() =>
-                    addonMenu(row, t, go, rating.menuItems('addons', row.addonId ?? '', row.adult))
-                  }
-                />
-              </>
-            )}
-            <OnOffSwitch
-              checked={rowEnabled(row)}
-              label={t('sources.switch', { name: row.name })}
-              disabled={switcher.busy}
-              onChange={(on) => switcher.set([row.key], on)}
-            />
-          </li>
-        ))}
-      </ul>
+      <VirtualRows
+        items={rows}
+        keyOf={(row) => row.key}
+        rowRem={3.75}
+        className="flex flex-col"
+        renderRow={(row, _index, place) => line(row, place)}
+      />
     </section>
   );
 };
@@ -252,6 +262,38 @@ const AUDIO_KINDS: [prefix: string, label: string][] = [
   ['audiobook.', 'browse.audioKind.audiobook'],
 ];
 
+/** A kind of catalogue's sources as rows: failing ones last, each with its extension's icon. */
+const catalogueRows = (
+  sources: MangaSource[] | undefined,
+  route: string,
+  byId: ReadonlyMap<string, ExtensionInfo>,
+  failures: Record<string, number>,
+  failingAtEnd: boolean,
+  t: TFunction,
+): SourceRow[] =>
+  failingLast(sources ?? [], failures, failingAtEnd).map((source) => {
+    const extension = byId.get(source.extensionId);
+    return {
+      key: source.id,
+      name: source.name,
+      detail:
+        source.id in failures
+          ? t('sources.failedLately', { detail: extension?.name ?? source.extensionId })
+          : (extension?.name ?? source.extensionId),
+      // A source shows its extension's icon (M46.2).
+      logo: extension?.icon,
+      to: route,
+      search: { id: source.id },
+      latest: { to: route, search: { id: source.id, mode: 'latest' } },
+      source: { id: source.id, extensionId: source.extensionId, enabled: source.enabled },
+      adult: source.adult === true || extension?.adult === true,
+    };
+  });
+
+/** The rows whose name or detail has every word typed. */
+const findRows = (rows: SourceRow[], query: string) =>
+  query.trim() ? rows.filter((row) => matchesSearch(query, [row.name, row.detail])) : rows;
+
 /**
  * Browse → Sources: every catalogue to browse, by kind (Aniyomi's Browse). Chips pick one kind
  * and a field finds sources by name (M46.35), so a long list stays short.
@@ -270,8 +312,8 @@ const SourcesList: FC = () => {
       // A per-device convenience.
     }
   };
-  const found = (rows: SourceRow[]) =>
-    rows.filter((row) => matchesSearch(query, [row.name, row.detail]));
+  // The rows follow typing once there's a moment to spare.
+  const shownQuery = useDeferredValue(query);
   const extensions = useExtensions();
   const addons = useStremioAddons();
   const video = useVideoSources();
@@ -280,24 +322,13 @@ const SourcesList: FC = () => {
   // Sources that failed lately go last (M46.9), unless Settings says otherwise.
   const failures = useSourceHealth((state) => state.failures);
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
-  const extensionOf = (source: MangaSource) =>
-    extensions.data?.find((extension) => extension.id === source.extensionId);
+  // Each source's extension, found at once: thousands of sources come from hundreds of them.
+  const byId = useMemo(
+    () => new Map((extensions.data ?? []).map((extension) => [extension.id, extension])),
+    [extensions.data],
+  );
   const catalogue = (sources: MangaSource[] | undefined, route: string): SourceRow[] =>
-    failingLast(sources ?? [], failures, failingAtEnd).map((source) => ({
-      key: source.id,
-      name: source.name,
-      detail:
-        source.id in failures
-          ? t('sources.failedLately', { detail: extensionOf(source)?.name ?? source.extensionId })
-          : (extensionOf(source)?.name ?? source.extensionId),
-      // A source shows its extension's icon (M46.2).
-      logo: extensionOf(source)?.icon,
-      to: route,
-      search: { id: source.id },
-      latest: { to: route, search: { id: source.id, mode: 'latest' } },
-      source: { id: source.id, extensionId: source.extensionId, enabled: source.enabled },
-      adult: source.adult === true || extensionOf(source)?.adult === true,
-    }));
+    catalogueRows(sources, route, byId, failures, failingAtEnd, t);
 
   const videoRows: SourceRow[] = [
     ...(addons.data ?? [])
@@ -353,20 +384,31 @@ const SourcesList: FC = () => {
     (manga.data?.length ?? 0) === 0 &&
     (novel.data?.length ?? 0) === 0;
 
-  const mangaRows = catalogue(manga.data, '/manga/source');
-  const novelRows = catalogue(novel.data, '/novel/source');
+  const mangaRows = useMemo(
+    () => catalogueRows(manga.data, '/manga/source', byId, failures, failingAtEnd, t),
+    [manga.data, byId, failures, failingAtEnd, t],
+  );
+  const novelRows = useMemo(
+    () => catalogueRows(novel.data, '/novel/source', byId, failures, failingAtEnd, t),
+    [novel.data, byId, failures, failingAtEnd, t],
+  );
+  const foundVideo = findRows(videoRows, shownQuery);
+  const foundAudio = findRows(audioRows, shownQuery);
+  const foundManga = useMemo(() => findRows(mangaRows, shownQuery), [mangaRows, shownQuery]);
+  const foundNovel = useMemo(() => findRows(novelRows, shownQuery), [novelRows, shownQuery]);
   const shownRows = [
-    ...(kind === 'all' || kind === 'video' ? found(videoRows) : []),
-    ...(kind === 'all' || kind === 'audio' ? found(audioRows) : []),
-    ...(kind === 'all' || kind === 'manga' ? found(mangaRows) : []),
-    ...(kind === 'all' || kind === 'novel' ? found(novelRows) : []),
+    ...(kind === 'all' || kind === 'video' ? foundVideo : []),
+    ...(kind === 'all' || kind === 'audio' ? foundAudio : []),
+    ...(kind === 'all' || kind === 'manga' ? foundManga : []),
+    ...(kind === 'all' || kind === 'novel' ? foundNovel : []),
   ];
   const selection = useBulkSelection(shownRows.map((row) => row.key));
   const setAddon = useSetAddonEnabled();
   const switcher: RowSwitch = {
     busy: switches.busy || setAddon.isPending,
     set: (keys, on) => {
-      const rows = shownRows.filter((row) => keys.includes(row.key));
+      const picked = new Set(keys);
+      const rows = shownRows.filter((row) => picked.has(row.key));
       const sourceIds = rows.flatMap((row) =>
         row.source ? [row.source.id] : (row.audio?.sourceIds ?? []),
       );
@@ -388,7 +430,7 @@ const SourcesList: FC = () => {
     video: (
       <SourceSection
         title={t('browse.kind.video')}
-        rows={found(videoRows)}
+        rows={foundVideo}
         selection={selection}
         switcher={switcher}
       />
@@ -396,7 +438,7 @@ const SourcesList: FC = () => {
     audio: (
       <SourceSection
         title={t('browse.kind.audio')}
-        rows={found(audioRows)}
+        rows={foundAudio}
         selection={selection}
         switcher={switcher}
       />
@@ -404,7 +446,7 @@ const SourcesList: FC = () => {
     manga: (
       <SourceSection
         title={t('library.media.manga')}
-        rows={found(mangaRows)}
+        rows={foundManga}
         selection={selection}
         switcher={switcher}
       />
@@ -412,7 +454,7 @@ const SourcesList: FC = () => {
     novel: (
       <SourceSection
         title={t('library.media.novel')}
-        rows={found(novelRows)}
+        rows={foundNovel}
         selection={selection}
         switcher={switcher}
       />
@@ -499,6 +541,24 @@ const SourcesList: FC = () => {
   );
 };
 
+/**
+ * The search bar's spinner while anything loads. Kept apart from the page: following every
+ * fetch in the app redrew all of Browse (an open extension catalogue too) each time one started
+ * or ended.
+ */
+const SearchingMark: FC = () => {
+  const { t } = useTranslation();
+  const fetching = useIsFetching() > 0;
+  return fetching ? (
+    <LoaderCircle
+      aria-label={t('search.searching')}
+      role="status"
+      size={20}
+      className="text-muted shrink-0 animate-spin"
+    />
+  ) : null;
+};
+
 /** Wait for a pause in typing before searching, so each keystroke doesn't hit the network. */
 export const SEARCH_DEBOUNCE_MS = 400;
 
@@ -531,7 +591,6 @@ export const BrowsePage: FC = () => {
   const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
   const catalogRefresh = useCatalogRefresh(list);
-  const fetching = useIsFetching() > 0;
   const remember = useRememberSearch();
   const [input, setInput] = useState(q);
   // The address's query last seen, and the one this field last searched for.
@@ -669,16 +728,7 @@ export const BrowsePage: FC = () => {
               aria-label={t('search.title')}
               className="bg-surface flex-1 gap-3 rounded-full py-1.5 pr-2 pl-5"
               inputClassName="py-1.5"
-              trailing={
-                fetching && q && tab === 'search' ? (
-                  <LoaderCircle
-                    aria-label={t('search.searching')}
-                    role="status"
-                    size={20}
-                    className="text-muted shrink-0 animate-spin"
-                  />
-                ) : null
-              }
+              trailing={q && tab === 'search' ? <SearchingMark /> : null}
             />
             {menu}
             <QuickAccessButton />

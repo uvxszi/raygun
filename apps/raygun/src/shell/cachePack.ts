@@ -90,6 +90,36 @@ const revive = (value: unknown): unknown => {
   return record;
 };
 
+type Packed = { json: string; tagged: boolean };
+
+/**
+ * Each answer's JSON, kept while the answer is the same object (answers are never changed in
+ * place, only replaced): the cache is saved every few seconds, and long lists (a catalogue of
+ * thousands of extensions, a library) were written out again each time.
+ */
+const packedAnswers = new WeakMap<object, Packed>();
+
+/** Stands for a query's answer while the rest of the query is written. */
+const ANSWER = `~raygun-answer-${Math.random().toString(36).slice(2)}~`;
+
+/** A query as JSON: its answer from `packedAnswers` when it's an object written before. */
+const packQuery = (query: DehydratedState['queries'][number]): Packed => {
+  const answer: unknown = query.state.data;
+  if (answer === null || typeof answer !== 'object') return stringify(query);
+  let packed = packedAnswers.get(answer);
+  if (!packed) {
+    packed = stringify(answer);
+    packedAnswers.set(answer, packed);
+  }
+  const rest = stringify({ ...query, state: { ...query.state, data: ANSWER } });
+  const at = rest.json.indexOf(`"${ANSWER}"`);
+  if (at < 0) return stringify(query);
+  return {
+    json: `${rest.json.slice(0, at)}${packed.json}${rest.json.slice(at + ANSWER.length + 2)}`,
+    tagged: rest.tagged || packed.tagged,
+  };
+};
+
 /**
  * `state` as JSON, and the hashes of the queries in it that hold tagged values. Queries that
  * can't be written as JSON are left out (they're asked again).
@@ -99,7 +129,7 @@ export const packQueries = (state: DehydratedState): { json: string; tagged: str
   const tagged: string[] = [];
   for (const query of state.queries) {
     try {
-      const packed = stringify(query);
+      const packed = packQuery(query);
       queries.push(packed.json);
       if (packed.tagged) tagged.push(query.queryHash);
     } catch {

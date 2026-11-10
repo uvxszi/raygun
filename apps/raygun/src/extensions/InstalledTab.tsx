@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { useExtensionMenuItems } from './extensionMenu';
 import { ChevronRight } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -22,6 +22,7 @@ import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
 import { useBulkSelection } from '../shell/useBulkSelection';
 import { useSourceSwitches } from '../search/useSourceSwitch';
 import { MenuButton } from '../shell/MenuButton';
+import { VirtualRows } from '../shell/VirtualRows';
 import { originLabel } from './originLabel';
 
 /** Installed extensions before the list gets a search field. */
@@ -41,14 +42,21 @@ export const InstalledTab: FC = () => {
     const present = new Set(all.flatMap((extension) => kindsOf(extension)));
     return EXTENSION_KINDS.filter((option) => present.has(option));
   }, [all]);
-  const shown = all.filter(
-    (extension) =>
-      (!kind || kindsOf(extension).includes(kind)) &&
-      matchesSearch(query, [extension.name, extension.description]),
+  // The list follows typing once there's a moment to spare.
+  const shownQuery = useDeferredValue(query);
+  const shown = useMemo(
+    () =>
+      all.filter(
+        (extension) =>
+          (!kind || kindsOf(extension).includes(kind)) &&
+          matchesSearch(shownQuery, [extension.name, extension.description]),
+      ),
+    [all, kind, shownQuery],
   );
+  const shownIds = useMemo(() => shown.map((extension) => extension.id), [shown]);
   // An extension's id in `disabledSources` turns off every source it has.
   const switches = useSourceSwitches();
-  const selection = useBulkSelection(shown.map((extension) => extension.id));
+  const selection = useBulkSelection(shownIds);
 
   return (
     <div data-testid="installed-tab" className="flex flex-col gap-3">
@@ -76,9 +84,13 @@ export const InstalledTab: FC = () => {
       {all.length > 0 && shown.length === 0 && (
         <p className="text-muted text-sm">{t('extensions.noMatches')}</p>
       )}
-      <ul className="flex flex-col">
-        {shown.map((extension) => (
-          <li key={`${extension.origin}-${extension.id}`} className="flex items-center gap-1">
+      <VirtualRows
+        items={shown}
+        keyOf={(extension) => `${extension.origin}-${extension.id}`}
+        rowRem={4}
+        className="flex flex-col"
+        renderRow={(extension, _index, row) => (
+          <li {...row} className="flex items-center gap-1">
             <SelectCheck selection={selection} id={extension.id} name={extension.name} />
             <Link
               to="/extensions/detail"
@@ -128,8 +140,8 @@ export const InstalledTab: FC = () => {
               onChange={(on) => switches.setMany([extension.id], on)}
             />
           </li>
-        ))}
-      </ul>
+        )}
+      />
     </div>
   );
 };

@@ -550,6 +550,47 @@ async fn local_values_round_trip_and_never_touch_synced_settings() {
 }
 
 #[tokio::test]
+async fn local_values_are_read_by_their_keys_prefix() {
+    let dir = TempDir::new().unwrap();
+    let db = open_in(dir.path()).await;
+    set_local_value(&db, "extension.icon.dev.a", "https://example.org/a.png")
+        .await
+        .unwrap();
+    // Long enough to be kept compressed.
+    let long = format!("https://example.org/{}.png", "b".repeat(2000));
+    set_local_value(&db, "extension.icon.dev.b", &long)
+        .await
+        .unwrap();
+    // Neighbours either side of the prefix.
+    set_local_value(&db, "extension.icon", "no").await.unwrap();
+    set_local_value(&db, "extension.icons.x", "no")
+        .await
+        .unwrap();
+    set_local_value(&db, "extension.iconz", "no").await.unwrap();
+    sqlx::query("INSERT INTO local_meta (key, value) VALUES ('extension.icon.broken', ?1)")
+        .bind("\u{1}z1:not deflate")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let found = local_values_with_prefix(&db, "extension.icon.")
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(
+        found.get("extension.icon.dev.a").map(String::as_str),
+        Some("https://example.org/a.png")
+    );
+    assert_eq!(found.get("extension.icon.dev.b"), Some(&long));
+    assert!(
+        local_values_with_prefix(&db, "nothing.")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn long_local_values_are_kept_compressed_and_old_ones_still_read() {
     let dir = TempDir::new().unwrap();
     let db = open_in(dir.path()).await;

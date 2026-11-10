@@ -40,22 +40,14 @@ type SourceMenuProps = {
  * extension's settings, or switch it off, without hunting for it in Sources. M46.11 adds its
  * website in Raygun's browser and clearing its cookies and stored data.
  */
-export const SourceMenu: FC<SourceMenuProps> = ({ sourceId, extensionId, name, page, onOnly }) => {
+export const SourceMenu: FC<SourceMenuProps> = (props) => {
   const { t } = useTranslation();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const { enabled, setEnabled, busy } = useSourceSwitch(sourceId);
-  const website = useExtension(extensionId).data?.website ?? null;
-  const openWebsite = useOpenExtensionWebsite();
-  const clearData = useClearExtensionData();
-  const close = () => {
-    setAnchor(null);
-    clearData.reset();
-  };
   return (
     <>
       <button
         type="button"
-        aria-label={t('sources.menu', { name })}
+        aria-label={t('sources.menu', { name: props.name })}
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}
         onClick={(event) => setAnchor(anchor ? null : event.currentTarget)}
@@ -63,82 +55,99 @@ export const SourceMenu: FC<SourceMenuProps> = ({ sourceId, extensionId, name, p
       >
         <MoreHorizontal aria-hidden size={18} />
       </button>
-      {anchor && (
-        <Sheet title={name} anchor={anchor} popoverWidth={260} onClose={close}>
-          <div className="-mx-2 flex flex-col">
-            {onOnly && (
-              <button
-                type="button"
-                onClick={() => {
-                  onOnly();
-                  close();
-                }}
-                className={ITEM}
-              >
-                <Filter aria-hidden size={16} className="text-muted" />
-                {t('sources.only')}
-              </button>
-            )}
-            {page && (
-              <Link to={page.to} search={page.search} onClick={close} className={ITEM}>
-                <Compass aria-hidden size={16} className="text-muted" />
-                {t('sources.open')}
-              </Link>
-            )}
-            <Link
-              to="/extensions/detail"
-              search={{ id: extensionId }}
-              onClick={close}
-              className={ITEM}
-            >
-              <Settings2 aria-hidden size={16} className="text-muted" />
-              {t('sources.settings')}
-            </Link>
-            {website && (
-              <button
-                type="button"
-                onClick={() => {
-                  openWebsite.mutate(extensionId);
-                  close();
-                }}
-                className={ITEM}
-              >
-                <Globe aria-hidden size={16} className="text-muted" />
-                {t('sources.website')}
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={clearData.isPending || clearData.isSuccess}
-              onClick={() => clearData.mutate(extensionId)}
-              className={`${ITEM} disabled:opacity-70`}
-            >
-              {clearData.isSuccess ? (
-                <Check aria-hidden size={16} className="text-primary" />
-              ) : (
-                <Eraser aria-hidden size={16} className="text-muted" />
-              )}
-              {t(clearData.isSuccess ? 'sources.cleared' : 'sources.clearData')}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setEnabled(!enabled);
-                close();
-              }}
-              className={`${ITEM} ${enabled ? 'text-primary' : ''}`}
-            >
-              {enabled ? (
-                <Ban aria-hidden size={16} />
-              ) : (
-                <CircleCheck aria-hidden size={16} className="text-muted" />
-              )}
-              {t(enabled ? 'sources.disable' : 'sources.enable')}
-            </button>
-          </div>
-        </Sheet>
-      )}
+      {/* What the sheet needs is read once it opens: lists show thousands of these buttons. */}
+      {anchor && <SourceMenuSheet {...props} anchor={anchor} onClose={() => setAnchor(null)} />}
     </>
+  );
+};
+
+const SourceMenuSheet: FC<SourceMenuProps & { anchor: HTMLElement; onClose: () => void }> = ({
+  sourceId,
+  extensionId,
+  name,
+  page,
+  onOnly,
+  anchor,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const { enabled, setEnabled, busy } = useSourceSwitch(sourceId);
+  const website = useExtension(extensionId).data?.website ?? null;
+  const openWebsite = useOpenExtensionWebsite();
+  const clearData = useClearExtensionData();
+  const close = () => {
+    onClose();
+    clearData.reset();
+  };
+  return (
+    <Sheet title={name} anchor={anchor} popoverWidth={260} onClose={close}>
+      <div className="-mx-2 flex flex-col">
+        {onOnly && (
+          <button
+            type="button"
+            onClick={() => {
+              onOnly();
+              close();
+            }}
+            className={ITEM}
+          >
+            <Filter aria-hidden size={16} className="text-muted" />
+            {t('sources.only')}
+          </button>
+        )}
+        {page && (
+          <Link to={page.to} search={page.search} onClick={close} className={ITEM}>
+            <Compass aria-hidden size={16} className="text-muted" />
+            {t('sources.open')}
+          </Link>
+        )}
+        <Link to="/extensions/detail" search={{ id: extensionId }} onClick={close} className={ITEM}>
+          <Settings2 aria-hidden size={16} className="text-muted" />
+          {t('sources.settings')}
+        </Link>
+        {website && (
+          <button
+            type="button"
+            onClick={() => {
+              openWebsite.mutate(extensionId);
+              close();
+            }}
+            className={ITEM}
+          >
+            <Globe aria-hidden size={16} className="text-muted" />
+            {t('sources.website')}
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={clearData.isPending || clearData.isSuccess}
+          onClick={() => clearData.mutate(extensionId)}
+          className={`${ITEM} disabled:opacity-70`}
+        >
+          {clearData.isSuccess ? (
+            <Check aria-hidden size={16} className="text-primary" />
+          ) : (
+            <Eraser aria-hidden size={16} className="text-muted" />
+          )}
+          {t(clearData.isSuccess ? 'sources.cleared' : 'sources.clearData')}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setEnabled(!enabled);
+            close();
+          }}
+          className={`${ITEM} ${enabled ? 'text-primary' : ''}`}
+        >
+          {enabled ? (
+            <Ban aria-hidden size={16} />
+          ) : (
+            <CircleCheck aria-hidden size={16} className="text-muted" />
+          )}
+          {t(enabled ? 'sources.disable' : 'sources.enable')}
+        </button>
+      </div>
+    </Sheet>
   );
 };

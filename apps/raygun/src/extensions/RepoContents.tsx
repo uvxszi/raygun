@@ -1,4 +1,5 @@
 import type { CatalogEntry } from '@raygun/bindings';
+import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,7 +14,7 @@ export const RepoContents: FC<{ entries: CatalogEntry[]; label: string }> = ({
   label,
 }) => {
   const { t } = useTranslation();
-  const { kinds, formats } = repoContents(entries);
+  const { kinds, formats } = useMemo(() => repoContents(entries), [entries]);
   if (kinds.length === 0) return null;
   const chip = 'bg-background text-muted rounded-full px-2.5 py-0.5 text-xs whitespace-nowrap';
   return (

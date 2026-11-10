@@ -41,7 +41,7 @@ import {
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { FC, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { commands } from '@raygun/bindings';
@@ -83,7 +83,8 @@ import { ExplicitMark } from './ExplicitMark';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
 import { songCover } from '../library/coverTargets';
-import { songReveal } from './reveal';
+import { songReveal, useRevealIndex } from './reveal';
+import { useWindowedRows } from '../shell/windowedRows';
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
@@ -249,15 +250,30 @@ const PickCover: FC<{
 
 type RowSortable = ReturnType<typeof useSortable>;
 
-/** A row's drag state (M46.44), handed to the row it wraps; null when rows don't move. */
+/**
+ * A row's drag state (M46.44), handed to the row it wraps; null when rows don't move. `ref` takes
+ * the row's element, for the drag and for a long table, which measures the rows it draws.
+ */
 const SortableRow: FC<{
   id: string;
   enabled: boolean;
-  children: (sortable: RowSortable | null) => ReactNode;
-}> = ({ id, enabled, children }) => {
+  measure: ((element: HTMLElement | null) => void) | undefined;
+  children: (sortable: RowSortable | null, ref: (element: HTMLElement | null) => void) => ReactNode;
+}> = ({ id, enabled, measure, children }) => {
   const sortable = useSortable({ id, disabled: !enabled });
-  return children(enabled ? sortable : null);
+  const { setNodeRef } = sortable;
+  const ref = useCallback(
+    (element: HTMLElement | null) => {
+      if (enabled) setNodeRef(element);
+      measure?.(element);
+    },
+    [enabled, setNodeRef, measure],
+  );
+  return children(enabled ? sortable : null, ref);
 };
+
+/** How a table names a row, to find the song the player asks to show. */
+const revealName = (track: TableTrack) => songReveal(track.title, track.artist);
 
 type TrackTableProps = {
   kind: TrackTableKind;
@@ -312,6 +328,8 @@ export const TrackTable: FC<TrackTableProps> = ({
   const playingMatch = usePlayingMatch();
   const { view, set } = useTableView(kind);
   const [filter, setFilter] = useState('');
+  // Thousands of songs: the table follows typing once there's a moment to spare.
+  const shownFilter = useDeferredValue(filter);
   const [filtering, setFiltering] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   // Rows have grips and move (by pointer or keyboard) only in edit mode (M46.49).
@@ -361,12 +379,25 @@ export const TrackTable: FC<TrackTableProps> = ({
   }, [tracks, tagsFor.data]);
   const shown = useMemo(
     () =>
-      filterTracks(sortTracks(tracks, view), filter).filter(
+      filterTracks(sortTracks(tracks, view), shownFilter).filter(
         (track) =>
           !tag || (tagsFor.data?.get(track.trackKey) ?? []).some((found) => found.name === tag),
       ),
-    [tracks, view, filter, tag, tagsFor.data],
+    [tracks, view, shownFilter, tag, tagsFor.data],
   );
+  // A long table draws the rows near the screen (`useWindowedRows`), the one being dragged, and
+  // the song the player asks to show (Playing from), brought onto the screen to be found.
+  const [dragging, setDragging] = useState<number | null>(null);
+  const revealAt = useRevealIndex(shown, revealName);
+  const rowKeyAt = useCallback((index: number) => shown[index]?.rowKey ?? String(index), [shown]);
+  const { start, measure, ...rows } = useWindowedRows({
+    count: shown.length,
+    keyOf: rowKeyAt,
+    // List rows' covers grow with a phone's screen; compact rows are one line.
+    rowRem: view.view === 'compact' ? 2.75 : wide ? 3.5 : 5,
+    showIndex: revealAt,
+    keepIndex: dragging,
+  });
   const columns = view.columns.filter((column) => column.visible);
   const sortLabel = (key: TrackSortKey) =>
     key === 'custom' ? (customLabel ?? t('tracks.sort.custom')) : t(`tracks.sort.${key}`);
@@ -546,6 +577,7 @@ export const TrackTable: FC<TrackTableProps> = ({
   };
   // A dropped row.
   const onRowDragEnd = ({ active, over }: DragEndEvent) => {
+    setDragging(null);
     if (!over || active.id === over.id) return;
     const from = shown.findIndex((track) => track.rowKey === active.id);
     const to = shown.findIndex((track) => track.rowKey === over.id);
@@ -894,19 +926,30 @@ export const TrackTable: FC<TrackTableProps> = ({
         <DndContext
           sensors={rowSensors}
           collisionDetection={closestCenter}
+          onDragStart={({ active }) =>
+            setDragging(shown.findIndex((track) => track.rowKey === active.id))
+          }
+          onDragCancel={() => setDragging(null)}
           onDragEnd={onRowDragEnd}
         >
           <SortableContext
             items={shown.map((track) => track.rowKey)}
             strategy={verticalListSortingStrategy}
           >
-            {shown.map((track, index) => {
+            {/* The room of the rows above the ones drawn (none for a short table). */}
+            <div ref={start} aria-hidden style={{ height: rows.before, overflowAnchor: 'none' }} />
+            {rows.slice(shown).map(([track, index]) => {
               const playing = playingMatch(track);
               const isSelected = selected.has(track.rowKey);
               const compact = view.view === 'compact';
               return (
-                <SortableRow key={track.rowKey} id={track.rowKey} enabled={reorderable}>
-                  {(sortable) => {
+                <SortableRow
+                  key={track.rowKey}
+                  id={track.rowKey}
+                  enabled={reorderable}
+                  measure={measure}
+                >
+                  {(sortable, ref) => {
                     // The grip (M46.44), shown on every row in edit mode (M46.49).
                     const grip = sortable && (
                       <button
@@ -923,7 +966,8 @@ export const TrackTable: FC<TrackTableProps> = ({
                     );
                     return (
                       <div
-                        ref={sortable?.setNodeRef}
+                        ref={ref}
+                        data-index={measure ? index : undefined}
                         role="row"
                         aria-selected={isSelected}
                         data-testid="track-table-row"
@@ -1106,6 +1150,7 @@ export const TrackTable: FC<TrackTableProps> = ({
                 </SortableRow>
               );
             })}
+            <div aria-hidden style={{ height: rows.after, overflowAnchor: 'none' }} />
           </SortableContext>
         </DndContext>
       </div>

@@ -1,7 +1,7 @@
-import type { ExtensionInfo, RepoCatalog, ServerInfo } from '@raygun/bindings';
+import type { ContentOverride, ExtensionInfo, RepoCatalog, ServerInfo } from '@raygun/bindings';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { ChevronRight, LoaderCircle, Plus, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -19,6 +19,8 @@ import { AdultMark } from '../shell/AdultMark';
 import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { OnOffSwitch } from '../shell/OnOffSwitch';
+import { VirtualRows } from '../shell/VirtualRows';
+import type { RowProps } from '../shell/windowedRows';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBarAction } from '../shell/TopBar';
 import { useBulkSelection } from '../shell/useBulkSelection';
@@ -45,18 +47,22 @@ const isServer = (extension: ExtensionInfo) => extension.id.startsWith('server.'
 const chip = (on: boolean) =>
   `shrink-0 rounded-full px-3 py-1.5 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
 
-/** An installed extension: its page, where it came from, and its switch. */
+/**
+ * An installed extension: its page, where it came from, and its switch. Its 18+ mark comes from
+ * the page, which reads the marks once for every row.
+ */
 const ExtensionRow: FC<{
   extension: ExtensionInfo;
   selection: BulkSelection;
   enabled: boolean;
   busy: boolean;
+  mark: ContentOverride;
   onSwitch: (on: boolean) => void;
-}> = ({ extension, selection, enabled, busy, onSwitch }) => {
+  row: RowProps;
+}> = ({ extension, selection, enabled, busy, mark, onSwitch, row }) => {
   const { t } = useTranslation();
-  const rating = useContentRating();
   return (
-    <li aria-label={extension.name} className="flex items-center gap-1">
+    <li {...row} aria-label={extension.name} className="flex items-center gap-1">
       <SelectCheck selection={selection} id={`extension:${extension.id}`} name={extension.name} />
       <Link
         to="/extensions/detail"
@@ -73,7 +79,7 @@ const ExtensionRow: FC<{
               {originLabel(extension, t)}
             </span>
             {extension.adult && <AdultMark />}
-            <RatingHint mark={rating.markOf('extensions', extension.id)} />
+            <RatingHint mark={mark} />
           </span>
           <span className="text-muted truncate text-xs">
             {!enabled
@@ -131,23 +137,46 @@ export const SourcesPage: FC = () => {
   const setAddon = useSetAddonEnabled();
   const setOrder = useSetAddonOrder();
 
-  const query = find.query;
-  const listings = new Map<string, RepoCatalog>(
-    catalog.data?.map((listing) => [listing.repo.id, listing]),
+  const rating = useContentRating();
+  // Lists follow typing once there's a moment to spare.
+  const query = useDeferredValue(find.query);
+  // What each repository is for, worked out once per catalogue (thousands of entries).
+  const listings = useMemo(
+    () => new Map<string, RepoCatalog>(catalog.data?.map((listing) => [listing.repo.id, listing])),
+    [catalog.data],
   );
-  const repoMedia = (id: string) =>
-    mediaOfAll(listings.get(id)?.entries.map((entry) => entry.provides) ?? []);
+  const repoMedia = useMemo(
+    () =>
+      new Map(
+        [...listings].map(([id, listing]) => [
+          id,
+          mediaOfAll(listing.entries.map((entry) => entry.provides)),
+        ]),
+      ),
+    [listings],
+  );
 
   // Every row with what it's for; the pills narrow them.
-  const allRepos = (repos.data ?? []).map((repo) => ({ repo, media: repoMedia(repo.id) }));
+  const allRepos = useMemo(
+    () =>
+      (repos.data ?? []).map((repo) => ({
+        repo,
+        media: repoMedia.get(repo.id) ?? mediaOfAll([]),
+      })),
+    [repos.data, repoMedia],
+  );
   const allAddons = addons.data ?? [];
   const allServers = (servers.data ?? []).map((server) => ({
     server,
     media: mediaOf(server.provides),
   }));
-  const allExtensions = (extensions.data ?? [])
-    .filter((extension) => !isServer(extension))
-    .map((extension) => ({ extension, media: mediaOf(extension.provides) }));
+  const allExtensions = useMemo(
+    () =>
+      (extensions.data ?? [])
+        .filter((extension) => !isServer(extension))
+        .map((extension) => ({ extension, media: mediaOf(extension.provides) })),
+    [extensions.data],
+  );
 
   const of = (section: SourceType) => !type || type === section;
   const forMedia = (rowMedia: SourceMedia[]) => !media || rowMedia.includes(media);
@@ -343,11 +372,16 @@ export const SourcesPage: FC = () => {
         (shownRepos.length > 0 || (!narrowed && (type === 'repositories' || noRepos))) && (
           <Section title={t('sources.page.type.repositories')}>
             {shownRepos.length > 0 && (
-              <ul className="flex flex-col gap-2">
-                {shownRepos.map(({ repo }) => (
-                  <RepoRow key={repo.id} repo={repo} listing={listings.get(repo.id)} />
-                ))}
-              </ul>
+              <VirtualRows
+                items={shownRepos}
+                keyOf={({ repo }) => repo.id}
+                rowRem={6}
+                gapRem={0.5}
+                className="flex flex-col gap-2"
+                renderRow={({ repo }, _index, row) => (
+                  <RepoRow repo={repo} listing={listings.get(repo.id)} row={row} />
+                )}
+              />
             )}
             {!narrowed && <SuggestedRepos />}
           </Section>
@@ -412,18 +446,23 @@ export const SourcesPage: FC = () => {
       )}
       {of('extensions') && shownExtensions.length > 0 && (
         <Section title={t('sources.page.type.extensions')}>
-          <ul className="flex flex-col">
-            {shownExtensions.map(({ extension }) => (
+          <VirtualRows
+            items={shownExtensions}
+            keyOf={({ extension }) => `${extension.origin}-${extension.id}`}
+            rowRem={4}
+            className="flex flex-col"
+            renderRow={({ extension }, _index, row) => (
               <ExtensionRow
-                key={`${extension.origin}-${extension.id}`}
                 extension={extension}
                 selection={selection}
                 enabled={switches.isEnabled(extension.id)}
                 busy={switches.busy}
+                mark={rating.markOf('extensions', extension.id)}
                 onSwitch={(on) => switches.setMany([extension.id], on)}
+                row={row}
               />
-            ))}
-          </ul>
+            )}
+          />
         </Section>
       )}
       {adding && <AddSourceSheet onClose={() => setAdding(false)} />}

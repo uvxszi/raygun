@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -29,7 +30,7 @@ export const ExtensionCatalog: FC<{ list: ExtensionList; linkOf: ExtensionListLi
   const { t } = useTranslation();
   const listRow = useDragScroll<HTMLElement>();
   const catalog = useCatalog();
-  const updates = updateCount(catalog.data);
+  const updates = useMemo(() => updateCount(catalog.data), [catalog.data]);
   // Updates shows only while there are some (or while it's open).
   const lists = EXTENSION_LISTS.filter(
     (option) => option !== 'updates' || updates > 0 || list === 'updates',

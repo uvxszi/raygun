@@ -49,13 +49,18 @@ const useQueueStore = create<InstallQueueState>(() => ({
 let follower: { client: QueryClient; unlisten: Promise<() => void> } | null = null;
 const timers = new Set<ReturnType<typeof setTimeout>>();
 
-/** Rust's queue as it is now; finished installs refresh the catalogue's states. */
+/**
+ * Rust's queue as it is now. The catalogue's states are read again once the whole queue is
+ * through: Rust loads what was installed then, so reading the catalogue after each install (a
+ * large one, thousands of entries) only sent the same states again.
+ */
 const receive = (queue: ExtensionInstallStatus) => {
   const before = useQueueStore.getState();
   const wasDone = new Set(before.queue.items.filter((item) => item.state === 'done').map(itemKey));
   const fresh = queue.items
     .filter((item) => item.state === 'done' && !wasDone.has(itemKey(item)))
     .map(itemKey);
+  // An install that ended while the queue was seen running, or a queue seen only once through.
   const ended = queue.items.some(
     (item) =>
       (item.state === 'done' || item.state === 'failed') &&
@@ -76,11 +81,10 @@ const receive = (queue: ExtensionInstallStatus) => {
     }, DONE_SHOWN_MS);
     timers.add(timer);
   }
-  if (ended) void follower?.client.invalidateQueries({ queryKey: CATALOG });
   // Installed extensions load once the whole queue is through (the last step of `running`), so
-  // the catalogue and the installed list are read again then too; read only when an install
-  // ends, they still showed just-installed ones as not installed.
-  if (before.queue.running && !queue.running) {
+  // the catalogue and the installed list are read again then; meanwhile a finished row says
+  // "Installed" from the queue itself.
+  if (!queue.running && (before.queue.running || ended)) {
     void follower?.client.invalidateQueries({ queryKey: CATALOG });
     void follower?.client.invalidateQueries({ queryKey: EXTENSIONS });
     // A repository's Stremio addon installs as an addon.
@@ -105,6 +109,31 @@ const follow = (client: QueryClient) => {
     .catch(() => undefined);
 };
 
+const answer = (promise: Promise<ExtensionInstallStatus>) =>
+  void promise.then(receive).catch(() => undefined);
+
+/** The queue's actions: the same functions every time, so rows given them aren't drawn again. */
+const ACTIONS = {
+  /** One, a selection, every update: queued in Rust, installed one at a time. */
+  install: (entries: CatalogEntry[]) => {
+    if (entries.length === 0) return;
+    answer(
+      commands.extensionInstallsEnqueue(
+        entries.map((entry) => ({
+          repoId: entry.repoId,
+          extensionId: entry.id,
+          name: entry.name,
+        })),
+      ),
+    );
+  },
+  cancel: (entry: { repoId: string; id: string }) =>
+    answer(commands.extensionInstallsCancel(entry.repoId, entry.id)),
+  cancelAll: () => answer(commands.extensionInstallsCancelAll()),
+  retry: () => answer(commands.extensionInstallsRetry()),
+  dismiss: () => answer(commands.extensionInstallsDismiss(null, null)),
+};
+
 /** The queue, each entry's status, and ways to add, cancel and retry installs. */
 export const useInstallQueue = () => {
   const queryClient = useQueryClient();
@@ -125,31 +154,7 @@ export const useInstallQueue = () => {
     return byKey;
   }, [queue, justDone]);
 
-  const answer = (promise: Promise<ExtensionInstallStatus>) =>
-    void promise.then(receive).catch(() => undefined);
-
-  return {
-    queue,
-    status,
-    /** One, a selection, every update: queued in Rust, installed one at a time. */
-    install: (entries: CatalogEntry[]) => {
-      if (entries.length === 0) return;
-      answer(
-        commands.extensionInstallsEnqueue(
-          entries.map((entry) => ({
-            repoId: entry.repoId,
-            extensionId: entry.id,
-            name: entry.name,
-          })),
-        ),
-      );
-    },
-    cancel: (entry: { repoId: string; id: string }) =>
-      answer(commands.extensionInstallsCancel(entry.repoId, entry.id)),
-    cancelAll: () => answer(commands.extensionInstallsCancelAll()),
-    retry: () => answer(commands.extensionInstallsRetry()),
-    dismiss: () => answer(commands.extensionInstallsDismiss(null, null)),
-  };
+  return { queue, status, ...ACTIONS };
 };
 
 /** Clears the queue between tests. */

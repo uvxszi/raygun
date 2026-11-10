@@ -1,14 +1,18 @@
 import type { CatalogEntry, RepoCatalog } from '@raygun/bindings';
 import { Check, Info, LoaderCircle, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { nativeName } from '../i18n/languages';
+import { useSettings } from '../settings/useSettings';
 import { LetterAvatar } from '../shell/LetterAvatar';
 import { ListSearchField } from '../shell/ListSearchField';
 import { Sheet } from '../shell/Sheet';
 import { useDragScroll } from '../shell/useDragScroll';
+import { VirtualRows } from '../shell/VirtualRows';
+import { rowsEqual } from '../shell/windowedRows';
+import type { RowProps } from '../shell/windowedRows';
 import { NO_FILTER, catalogFacets, filterCatalog } from './catalogFilters';
 import type { CatalogFilter, CatalogShow, ExtensionKind } from './catalogFilters';
 import { AdultMark } from '../shell/AdultMark';
@@ -130,8 +134,8 @@ const installable = (entry: CatalogEntry) =>
 const EntryAction: FC<{
   entry: CatalogEntry;
   status: InstallStatus | undefined;
-  onInstall: () => void;
-  onCancel: () => void;
+  onInstall: (entry: CatalogEntry) => void;
+  onCancel: (entry: CatalogEntry) => void;
 }> = ({ entry, status, onInstall, onCancel }) => {
   const { t } = useTranslation();
   if (entry.unsupported) {
@@ -166,7 +170,7 @@ const EntryAction: FC<{
           <button
             type="button"
             aria-label={t('extensions.cancelInstall', { name: entry.name })}
-            onClick={onCancel}
+            onClick={() => onCancel(entry)}
             className="hover:text-foreground grid size-7 place-items-center rounded-full"
           >
             <X aria-hidden size={14} />
@@ -181,7 +185,7 @@ const EntryAction: FC<{
       return (
         <button
           type="button"
-          onClick={onInstall}
+          onClick={() => onInstall(entry)}
           className="bg-primary text-background rounded-full px-4 py-1.5 text-sm font-semibold whitespace-nowrap"
         >
           {status?.state === 'failed'
@@ -196,41 +200,182 @@ const EntryAction: FC<{
   }
 };
 
+/** One extension a repository lists, drawn again only when something it shows changes. */
+const CatalogRow = memo<{
+  entry: CatalogEntry;
+  status: InstallStatus | undefined;
+  selected: boolean;
+  /** Its info is open. */
+  expanded: boolean;
+  /** Allow running source code is on and Raygun can't convert it: its APK may be fetched. */
+  apk: boolean;
+  onToggle: (entry: CatalogEntry) => void;
+  onInfo: (entry: CatalogEntry, anchor: HTMLElement) => void;
+  onInstall: (entry: CatalogEntry) => void;
+  onCancel: (entry: CatalogEntry) => void;
+  row: RowProps;
+}>(({ entry, status, selected, expanded, apk, onToggle, onInfo, onInstall, onCancel, row }) => {
+  const { t } = useTranslation();
+  const canChoose = installable(entry) && status?.state !== 'installing';
+  return (
+    <li {...row} data-testid="catalog-entry" className="flex items-center gap-3 px-1 py-2.5">
+      {canChoose ? (
+        <input
+          type="checkbox"
+          aria-label={t('extensions.select', { name: entry.name })}
+          checked={selected}
+          onChange={() => onToggle(entry)}
+          className="accent-primary size-4 shrink-0 cursor-pointer"
+        />
+      ) : (
+        <span aria-hidden className="size-4 shrink-0" />
+      )}
+      <LetterAvatar name={entry.name} logo={entry.icon} />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-medium">{entry.name}</span>
+          {entry.adult && <AdultMark />}
+          {entry.nuclear && (
+            <span className="bg-background text-muted rounded px-1.5 py-0.5 text-3xs font-semibold tracking-wide uppercase">
+              {t('extensions.nuclearBadge')}
+            </span>
+          )}
+          <span className="text-muted text-xs">
+            {entry.state !== 'updateAvailable' || !entry.installedVersion
+              ? entry.version
+              : entry.installedVersion === entry.version
+                ? t('extensions.newerConversion', { version: entry.version })
+                : `${entry.installedVersion} → ${entry.version}`}
+          </span>
+          {entry.lang && (
+            <span className="text-muted text-xs">
+              {languageName(entry.lang, t('extensions.multiLanguage'))}
+            </span>
+          )}
+        </span>
+        {entry.description && (
+          <span className="text-muted line-clamp-2 text-xs">{entry.description}</span>
+        )}
+        {entry.unsupported && <span className="text-muted text-xs">{entry.unsupported}</span>}
+        {apk && <MihonApkAction entry={entry} />}
+
+        {status?.state === 'failed' && (
+          <SourceIssue compact title={t('extensions.installFailed')} className="mt-1">
+            {status.message}
+          </SourceIssue>
+        )}
+      </span>
+      <button
+        type="button"
+        aria-label={t('extensions.about', { name: entry.name })}
+        aria-haspopup="dialog"
+        aria-expanded={expanded}
+        onClick={(event) => onInfo(entry, event.currentTarget)}
+        className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full"
+      >
+        <Info aria-hidden size={18} />
+      </button>
+      <EntryAction entry={entry} status={status} onInstall={onInstall} onCancel={onCancel} />
+    </li>
+  );
+}, rowsEqual);
+
+/** A repository's name, and why it couldn't be read or that it lists nothing that fits. */
+const RepoHeading: FC<{ listing: RepoCatalog; first: boolean; row: RowProps }> = ({
+  listing,
+  first,
+  row,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <li {...row} className={`flex flex-col gap-2 ${first ? '' : 'pt-4'} pb-1`}>
+      <h2 className="text-primary px-1 text-sm font-semibold">{listing.repo.name}</h2>
+      {listing.error && <SourceIssue source={listing.repo.name}>{listing.error}</SourceIssue>}
+      {!listing.error && listing.entries.length === 0 && (
+        <p className="text-muted text-sm">{t('extensions.repoEmpty')}</p>
+      )}
+    </li>
+  );
+};
+
+/** The catalogue as one list: each repository's heading, then its extensions. */
+type CatalogLine =
+  { kind: 'repo'; listing: RepoCatalog; first: boolean } | { kind: 'entry'; entry: CatalogEntry };
+
+const lineKey = (line: CatalogLine) =>
+  line.kind === 'repo' ? `repo:${line.listing.repo.id}` : entryKey(line.entry);
+
 /**
  * Browse → Extensions' catalogue: every repository's extensions (All), the ones not installed
- * yet, or the ones with an update, with filters over them.
+ * yet, or the ones with an update, with filters over them. Thousands of entries (Mihon's stores,
+ * Shosetsu's index) stay quick: only rows near the screen are drawn, filtering waits for typing
+ * to pause, and a row is drawn again only when what it shows changes.
  */
 export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
   const { t } = useTranslation();
   const catalog = useCatalog();
   const queue = useInstallQueue();
+  const runSourceCode = useSettings().data?.runSourceCode ?? false;
   const [info, setInfo] = useState<{ entry: CatalogEntry; anchor: HTMLElement } | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [filter, setFilter] = useState<CatalogFilter>(NO_FILTER);
+  // Typing stays quick: the list follows once there's a moment to spare.
+  const shownFilter = useDeferredValue(filter);
   const error = catalog.error;
   const listings = useMemo(
-    () => (catalog.data ? filterCatalog(catalog.data, filter, show) : undefined),
-    [catalog.data, filter, show],
+    () => (catalog.data ? filterCatalog(catalog.data, shownFilter, show) : undefined),
+    [catalog.data, shownFilter, show],
   );
   const shown = useMemo(() => listings?.flatMap((listing) => listing.entries) ?? [], [listings]);
-  // Entries that can still be installed, among those shown; a selection keeps only these.
-  const choosable = shown.filter(
-    (entry) => installable(entry) && queue.status[entryKey(entry)]?.state !== 'installing',
+  const lines = useMemo(
+    () =>
+      (listings ?? []).flatMap((listing, index): CatalogLine[] => [
+        { kind: 'repo', listing, first: index === 0 },
+        ...listing.entries.map((entry): CatalogLine => ({ kind: 'entry', entry })),
+      ]),
+    [listings],
   );
-  const chosen = choosable.filter((entry) => selected.has(entryKey(entry)));
-  const updates = shown.filter((entry) => entry.state === 'updateAvailable');
-  const repoNames = new Map(catalog.data?.map((listing) => [listing.repo.id, listing.repo.name]));
+  // Entries that can still be installed, among those shown; a selection keeps only these.
+  const choosable = useMemo(
+    () =>
+      shown.filter(
+        (entry) => installable(entry) && queue.status[entryKey(entry)]?.state !== 'installing',
+      ),
+    [shown, queue.status],
+  );
+  const chosen = useMemo(
+    () => choosable.filter((entry) => selected.has(entryKey(entry))),
+    [choosable, selected],
+  );
+  const updates = useMemo(
+    () => shown.filter((entry) => entry.state === 'updateAvailable'),
+    [shown],
+  );
+  const repoNames = useMemo(
+    () => new Map(catalog.data?.map((listing) => [listing.repo.id, listing.repo.name])),
+    [catalog.data],
+  );
 
-  const toggle = (entry: CatalogEntry) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      const key = entryKey(entry);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const toggle = useCallback(
+    (entry: CatalogEntry) =>
+      setSelected((current) => {
+        const next = new Set(current);
+        const key = entryKey(entry);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
+    [],
+  );
+  const openInfo = useCallback(
+    (entry: CatalogEntry, anchor: HTMLElement) =>
+      setInfo((current) => (current?.entry === entry ? null : { entry, anchor })),
+    [],
+  );
+  const { install, cancel } = queue;
+  const installOne = useCallback((entry: CatalogEntry) => install([entry]), [install]);
   const installChosen = () => {
-    queue.install(chosen);
+    install(chosen);
     setSelected(new Set());
   };
 
@@ -292,7 +437,7 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
         (updates.length > 1 || (show === 'updates' && updates.length > 0)) && (
           <button
             type="button"
-            onClick={() => queue.install(updates)}
+            onClick={() => install(updates)}
             className="bg-surface self-start rounded-full px-4 py-1.5 text-sm font-semibold"
           >
             {t('extensions.updateAll', { count: updates.length })}
@@ -301,103 +446,43 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
       )}
       {listings?.length === 0 && catalog.data && catalog.data.length > 0 && (
         <p className="text-muted text-sm">
-          {show === 'updates' && filter === NO_FILTER
+          {show === 'updates' && shownFilter === NO_FILTER
             ? t('extensions.allUpToDate')
-            : show === 'notInstalled' && filter === NO_FILTER
+            : show === 'notInstalled' && shownFilter === NO_FILTER
               ? t('extensions.allInstalled')
               : t('extensions.noMatches')}
         </p>
       )}
-      {listings?.map((listing) => (
-        <section key={listing.repo.id} data-testid="repo-catalog" className="flex flex-col gap-2">
-          <h2 className="text-primary px-1 text-sm font-semibold">{listing.repo.name}</h2>
-          {listing.error && <SourceIssue source={listing.repo.name}>{listing.error}</SourceIssue>}
-          {!listing.error && listing.entries.length === 0 && (
-            <p className="text-muted text-sm">{t('extensions.repoEmpty')}</p>
-          )}
-          <ul className="flex flex-col">
-            {listing.entries.map((entry) => {
-              const key = entryKey(entry);
-              const status = queue.status[key];
-              const canChoose = installable(entry) && status?.state !== 'installing';
-              return (
-                <li
-                  key={entry.id}
-                  data-testid="catalog-entry"
-                  className="flex items-center gap-3 px-1 py-2.5"
-                >
-                  {canChoose ? (
-                    <input
-                      type="checkbox"
-                      aria-label={t('extensions.select', { name: entry.name })}
-                      checked={selected.has(key)}
-                      onChange={() => toggle(entry)}
-                      className="accent-primary size-4 shrink-0 cursor-pointer"
-                    />
-                  ) : (
-                    <span aria-hidden className="size-4 shrink-0" />
-                  )}
-                  <LetterAvatar name={entry.name} logo={entry.icon} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="font-medium">{entry.name}</span>
-                      {entry.adult && <AdultMark />}
-                      {entry.nuclear && (
-                        <span className="bg-background text-muted rounded px-1.5 py-0.5 text-3xs font-semibold tracking-wide uppercase">
-                          {t('extensions.nuclearBadge')}
-                        </span>
-                      )}
-                      <span className="text-muted text-xs">
-                        {entry.state !== 'updateAvailable' || !entry.installedVersion
-                          ? entry.version
-                          : entry.installedVersion === entry.version
-                            ? t('extensions.newerConversion', { version: entry.version })
-                            : `${entry.installedVersion} → ${entry.version}`}
-                      </span>
-                      {entry.lang && (
-                        <span className="text-muted text-xs">
-                          {languageName(entry.lang, t('extensions.multiLanguage'))}
-                        </span>
-                      )}
-                    </span>
-                    {entry.description && (
-                      <span className="text-muted line-clamp-2 text-xs">{entry.description}</span>
-                    )}
-                    {entry.unsupported && (
-                      <span className="text-muted text-xs">{entry.unsupported}</span>
-                    )}
-                    <MihonApkAction entry={entry} />
-
-                    {status?.state === 'failed' && (
-                      <SourceIssue compact title={t('extensions.installFailed')} className="mt-1">
-                        {status.message}
-                      </SourceIssue>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={t('extensions.about', { name: entry.name })}
-                    aria-haspopup="dialog"
-                    aria-expanded={info?.entry === entry}
-                    onClick={(event) =>
-                      setInfo(info?.entry === entry ? null : { entry, anchor: event.currentTarget })
-                    }
-                    className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full"
-                  >
-                    <Info aria-hidden size={18} />
-                  </button>
-                  <EntryAction
-                    entry={entry}
-                    status={status}
-                    onInstall={() => queue.install([entry])}
-                    onCancel={() => queue.cancel(entry)}
-                  />
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
+      {lines.length > 0 && (
+        <VirtualRows
+          items={lines}
+          keyOf={lineKey}
+          rowRem={4.5}
+          className="flex flex-col"
+          renderRow={(line, _index, row) =>
+            line.kind === 'repo' ? (
+              <RepoHeading listing={line.listing} first={line.first} row={row} />
+            ) : (
+              <CatalogRow
+                entry={line.entry}
+                status={queue.status[entryKey(line.entry)]}
+                selected={selected.has(entryKey(line.entry))}
+                expanded={info?.entry === line.entry}
+                apk={
+                  runSourceCode &&
+                  Boolean(line.entry.unsupported) &&
+                  line.entry.id.startsWith('mihon.')
+                }
+                onToggle={toggle}
+                onInfo={openInfo}
+                onInstall={installOne}
+                onCancel={cancel}
+                row={row}
+              />
+            )
+          }
+        />
+      )}
       {info && (
         <Sheet
           title={t('extensions.aboutTitle')}
