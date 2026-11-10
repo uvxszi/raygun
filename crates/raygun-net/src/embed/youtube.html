@@ -5,8 +5,12 @@
   literal IP origins; see docs/reference-notes.md, RiPlay).
 
   Protocol (window.postMessage with the parent app):
-    app  -> page: { raygunCommand: true, type: "load" | "play" | "pause" | "seek" | "volume" | "stop", ... }
+    app  -> page: { raygunCommand: true, type: "load" | "play" | "pause" | "seek" | "volume" | "rate" |
+                    "stop" | "mute" | "tap", ... }
     page -> app:  { raygunEmbed: true, type: "ready" | "state" | "progress" | "error", token, ... }
+
+  "tap" (M46.52) passes { tap: "start" | "stop", session, speed, mode } on to Raygun's tap script
+  inside YouTube's frame, which answers Raygun's page itself (music_downloads/capture/youtube_tap.js).
 
   `token` is the load the reply is about (sent with "load"), so the app can drop what the player
   says about the previous video after a new one was asked for (M46.7).
@@ -106,6 +110,26 @@
             settled = false;
             player.stopVideo();
             break;
+          case 'mute':
+            player.mute();
+            break;
+          case 'tap': {
+            // Raygun's tap inside YouTube's frame (M46.52): start or stop hearing its player.
+            var frame = player.getIframe ? player.getIframe() : null;
+            if (frame && frame.contentWindow) {
+              frame.contentWindow.postMessage(
+                {
+                  raygunTap: true,
+                  type: command.tap,
+                  session: command.session,
+                  speed: command.speed,
+                  mode: command.mode,
+                },
+                '*',
+              );
+            }
+            break;
+          }
         }
       }
 

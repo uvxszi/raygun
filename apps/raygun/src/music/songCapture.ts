@@ -290,11 +290,15 @@ export const stop = (id: string) => {
   void session.context.close().catch(() => undefined);
 };
 
-/** Captures what Rust asks for, on desktop (Android's capture player is native). */
+/**
+ * Captures the streams Rust asks for, on desktop (Android's capture player is native). YouTube's
+ * videos are `youtubeCapture`'s.
+ */
 export const useSongCaptureHost = (enabled: boolean) => {
   useEffect(() => {
     if (!enabled) return;
     const listening = events.songCaptureEvent.listen(({ payload }) => {
+      if (payload.videoId) return;
       if (payload.url) void start(payload);
       else stop(payload.session);
     });

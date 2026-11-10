@@ -545,8 +545,11 @@ fn create_main_window(app: &tauri::AppHandle, paths: &Paths) -> Result<(), Box<d
 
     // Honored by WebView2 (Windows) and WebKitGTK (Linux). Android keeps webview data in
     // the app sandbox anyway; macOS/iOS ignore it (documented limitation, ARCHITECTURE §3.3).
+    // The YouTube tap runs in every frame, idle except inside Raygun's own hidden capture
+    // players (M46.52).
     WebviewWindowBuilder::from_config(app, &config)?
         .data_directory(paths.webview())
+        .initialization_script_for_all_frames(crate::music_downloads::capture::youtube::TAP_SCRIPT)
         .build()?;
     Ok(())
 }

@@ -81,20 +81,11 @@ pub struct SongDownloadsEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongDownloadProgressEvent(pub raygun_model::SongDownload);
 
-/// A stream for the desktop webview to capture in the background, or (no `url`) to stop
-/// capturing (M46.49); it reports with `song_capture_report`.
+/// A stream for the desktop webview to capture in the background (M46.49), or a YouTube video for
+/// either platform's webview to capture from a hidden player of its own (`video_id`, M46.52), or
+/// (neither) to stop capturing; it reports with `song_capture_report`.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SongCaptureEvent(pub raygun_model::SongCaptureRequest);
-
-/// A song for the webview to play aloud in its recording player (Android), or (no `video_id`)
-/// to stop it; it reports with `song_recording_report`.
-#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
-pub struct SongRecordingEvent(pub raygun_model::SongRecordingRequest);
-
-/// Songs wait to be recorded as they play: the shell explains it and asks to allow recording
-/// (`song_recording_consent`, or `song_recording_decline`).
-#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
-pub struct RecordingConsentEvent(pub raygun_model::RecordingConsentRequest);
 
 /// An import matched another song in the background; carries the playlist's id (M46.31).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]

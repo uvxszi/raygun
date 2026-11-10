@@ -33,18 +33,21 @@ object WebAwake {
     var keepAwake = false
         private set
 
-    /** What Rust's player asked for ([set]), and whether a recording plays in the webview. */
+    /** What Rust's player asked for ([set]), and whether a captured player plays in the webview. */
     private var player = false
-    private var recording = false
+    private var capturing = false
 
-    /** A song recorded as it plays in the webview (PlaybackRecorder) keeps it awake too. */
+    /**
+     * A hidden YouTube player whose sound is captured (M46.52, `captureHoldWebview`) keeps it
+     * awake too.
+     */
     fun hold(on: Boolean) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             main.post { hold(on) }
             return
         }
-        recording = on
-        apply(player || recording)
+        capturing = on
+        apply(player || capturing)
     }
 
     /** Wraps the activity's content (the webview) so its window's visibility can be held. */
@@ -78,7 +81,7 @@ object WebAwake {
             return
         }
         player = awake
-        apply(player || recording)
+        apply(player || capturing)
     }
 
     private fun apply(awake: Boolean) {

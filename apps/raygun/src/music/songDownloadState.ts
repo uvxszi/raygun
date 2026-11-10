@@ -36,6 +36,22 @@ export const shareOf = (item: SongDownload) => {
 /** Its place in the queue (earlier downloads first). */
 export const placeOf = (item: SongDownload) => item.queuedAt ?? 0;
 
+/**
+ * The songs to record (M46.52), in the order they will be: the one recording now, then the queue.
+ */
+export const recordingsOf = (list: readonly SongDownload[]) =>
+  list
+    .filter(
+      (item) =>
+        item.kind === 'recording' && (item.state === 'downloading' || item.state === 'queued'),
+    )
+    .sort(
+      (a, b) =>
+        (a.state === 'downloading' ? 0 : 1) - (b.state === 'downloading' ? 0 : 1) ||
+        placeOf(a) - placeOf(b) ||
+        a.id.localeCompare(b.id),
+    );
+
 /** The downloads in the groups the list shows, each in its own order. */
 export const sectionsOf = (list: readonly SongDownload[]) => {
   const newestFirst = (a: SongDownload, b: SongDownload) =>
@@ -71,15 +87,28 @@ export const useStateLine = () => {
             ? t('songs.state.paused')
             : held
               ? t('songs.state.batterySaver')
-              : t('songs.state.queued'),
+              : item.kind === 'recording'
+                ? t('songs.state.toRecord')
+                : t('songs.state.queued'),
           again,
           item.provider,
+          // Why a recording waits (M46.52): Raygun's window, or a quiet player.
+          paused ? null : item.error,
         ]
           .filter(Boolean)
           .join(' · ');
       case 'downloading': {
         const share = shareOf(item);
         const done = item.doneBytes ?? 0;
+        if (item.kind === 'recording') {
+          return [
+            again,
+            t('songs.state.recording'),
+            share === null ? null : `${Math.round(share * 100)}%`,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+        }
         if (item.kind === 'capture') {
           return [
             again,
@@ -120,7 +149,11 @@ export const useStateLine = () => {
           t('songs.state.done'),
           item.format?.toUpperCase(),
           item.totalBytes ? size(item.totalBytes) : null,
-          item.kind === 'capture' ? t('songs.state.captured') : null,
+          item.kind === 'capture'
+            ? t('songs.state.captured')
+            : item.kind === 'recording'
+              ? t('songs.state.recorded')
+              : null,
           item.provider,
         ]
           .filter(Boolean)
@@ -149,6 +182,11 @@ export const useProblemLine = () => {
         return t('songs.problem.sourceChanged', { change });
       case 'detailsChanged':
         return t('songs.problem.detailsChanged', { change });
+      case 'partial':
+        return t('songs.problem.partial', {
+          saved: problem.was ?? '?',
+          length: problem.now ?? '?',
+        });
     }
   };
 };

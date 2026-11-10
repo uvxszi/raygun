@@ -28,12 +28,10 @@ import type {
   QueueSnapshot,
   QuickAccessItem,
   QuickAccessNames,
-  RecordingConsentRequest,
   SearchProgress,
   Settings,
   SongCaptureRequest,
   SongDownload,
-  SongRecordingRequest,
   SpeechCommand,
   StorageInfo,
   TrackDuration,
@@ -82,8 +80,6 @@ type EventPayloads = {
   songDownloadsEvent: string;
   songDownloadProgressEvent: SongDownload;
   songCaptureEvent: SongCaptureRequest;
-  songRecordingEvent: SongRecordingRequest;
-  recordingConsentEvent: RecordingConsentRequest;
   madeForYouEvent: null;
   trackDurationsEvent: TrackDuration[];
   importEvent: string;
@@ -416,9 +412,6 @@ export const bindingsMock = {
     songDownloadsCheck: vi.fn(),
     songDownloadsRedownload: vi.fn(),
     songCaptureReport: vi.fn(),
-    songRecordingReport: vi.fn(),
-    songRecordingConsent: vi.fn(),
-    songRecordingDecline: vi.fn(),
     songDownloadCancelRecording: vi.fn(),
     songsSave: vi.fn(),
     songDownloadedKeys: vi.fn(),
@@ -772,8 +765,6 @@ export const bindingsMock = {
     songDownloadsEvent: makeEvent('songDownloadsEvent'),
     songDownloadProgressEvent: makeEvent('songDownloadProgressEvent'),
     songCaptureEvent: makeEvent('songCaptureEvent'),
-    songRecordingEvent: makeEvent('songRecordingEvent'),
-    recordingConsentEvent: makeEvent('recordingConsentEvent'),
     madeForYouEvent: makeEvent('madeForYouEvent'),
     trackDurationsEvent: makeEvent('trackDurationsEvent'),
     importEvent: makeEvent('importEvent'),
@@ -1182,9 +1173,6 @@ export const seedBindings = () => {
   commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 0, problems: 0 }));
   commands.songDownloadsRedownload.mockResolvedValue(ok(0));
   commands.songCaptureReport.mockResolvedValue(ok(null));
-  commands.songRecordingReport.mockResolvedValue(ok(null));
-  commands.songRecordingConsent.mockResolvedValue(ok(true));
-  commands.songRecordingDecline.mockResolvedValue(null);
   commands.songDownloadCancelRecording.mockResolvedValue(ok(null));
   commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));
   commands.songDownloadedKeys.mockResolvedValue([]);

@@ -586,7 +586,27 @@ impl CaptionService {
     ) -> Result<(), String> {
         let prefs = self.prefs().await;
         let engine = self.engine(&prefs).await?;
-        let sound = self.song_sound(query).await?;
+        let (sound, captured) = self.song_sound(query, &stop).await?;
+        let outcome = self.hear_sound(key, query, &stop, engine, sound).await;
+        // A capture of YouTube's player is kept while the song may go on from where it stopped.
+        if let Some(dir) = captured
+            && !stop.load(Ordering::Relaxed)
+        {
+            let _ = tokio::fs::remove_dir_all(dir).await;
+        }
+        outcome
+    }
+
+    /// Hears `sound` as the song's words, from where it stopped.
+    async fn hear_sound(
+        &self,
+        key: &str,
+        query: &TrackQuery,
+        stop: &Arc<AtomicBool>,
+        engine: Engine,
+        sound: VideoAudio,
+    ) -> Result<(), String> {
+        let stop = stop.clone();
         if stop.load(Ordering::Relaxed) {
             return Ok(());
         }
@@ -667,21 +687,56 @@ impl CaptionService {
 
     /// What a song sounds like, for hearing its words: its downloaded copy, else the first stream
     /// the resolver finds that names it, a YouTube video's own audio file included (M46.51: M4A,
-    /// which decodes here). Errors say what was tried, in words, with the details on the lines
-    /// after.
-    async fn song_sound(&self, query: &TrackQuery) -> Result<VideoAudio, String> {
+    /// which decodes here), else, for a song YouTube's player plays, its sound captured from a
+    /// hidden player of its own (M46.52; with the folder that capture is in). Errors say what was
+    /// tried, in words, with the details on the lines after.
+    async fn song_sound(
+        &self,
+        query: &TrackQuery,
+        stop: &Arc<AtomicBool>,
+    ) -> Result<(VideoAudio, Option<PathBuf>), String> {
+        let mut failures: Vec<(String, String)> = Vec::new();
+        let mut heard_videos: Vec<String> = Vec::new();
+        let mut unresolved = None;
+        if let Some(sound) = self
+            .stream_sound(query, &mut failures, &mut heard_videos, &mut unresolved)
+            .await?
+        {
+            return Ok((sound, None));
+        }
+        // YouTube's player plays it: its sound, as the player gives it.
+        if let Some(video_id) = heard_videos.first()
+            && !stop.load(Ordering::Relaxed)
+        {
+            let dir = self.work_dir.join("youtube").join(safe_name(video_id));
+            match self.youtube_sound(video_id, &dir, query, stop).await {
+                Ok(sound) => return Ok((sound, Some(dir))),
+                Err(error) => failures.push(("YouTube's player".into(), error)),
+            }
+        }
+        Err(no_sound(&failures, unresolved.as_deref()))
+    }
+
+    /// The song's downloaded copy, else the first stream that names it and opens here; what was
+    /// tried goes in `failures`, and the YouTube videos met in `heard_videos`.
+    async fn stream_sound(
+        &self,
+        query: &TrackQuery,
+        failures: &mut Vec<(String, String)>,
+        heard_videos: &mut Vec<String>,
+        unresolved: &mut Option<String>,
+    ) -> Result<Option<VideoAudio>, String> {
         let songs = self
             .app
             .state::<Arc<crate::music_downloads::SongDownloadService>>()
             .inner()
             .clone();
-        let mut failures: Vec<(String, String)> = Vec::new();
         if let Some(path) = songs.offline_file(&raygun_resolver::track_key(query)) {
             match tauri::async_runtime::spawn_blocking(move || AudioReader::open(&path))
                 .await
                 .map_err(to_message)?
             {
-                Ok(reader) => return Ok(VideoAudio::File(reader)),
+                Ok(reader) => return Ok(Some(VideoAudio::File(reader))),
                 Err(error) => failures.push(("the downloaded copy".into(), error)),
             }
         }
@@ -697,13 +752,11 @@ impl CaptionService {
             ..crate::resolution::Exclusions::default()
         };
         let using = resolver.stream_use(None, true).await;
-        let mut heard_videos: Vec<String> = Vec::new();
-        let mut unresolved = None;
         for _ in 0..SONG_TRIES {
             let pick = match resolver.resolve(query, &exclusions).await {
                 Ok(pick) => pick,
                 Err(error) => {
-                    unresolved = Some(error);
+                    *unresolved = Some(error);
                     break;
                 }
             };
@@ -752,11 +805,79 @@ impl CaptionService {
                 | raygun_model::MediaSource::Lookup { .. } => continue,
             };
             match opened {
-                Ok(sound) => return Ok(sound),
+                Ok(sound) => return Ok(Some(sound)),
                 Err(error) => failures.push((format!("{}'s stream", pick.provider_name), error)),
             }
         }
-        Err(no_sound(&failures, unresolved.as_deref()))
+        Ok(None)
+    }
+
+    /// A YouTube video's sound for hearing its words (M46.52): captured from a hidden YouTube
+    /// player of its own, silent and beside whatever plays, at twice its pace where that keeps
+    /// what speech needs, into the work folder (kept until it's whole, so a stopped song goes on
+    /// from there).
+    async fn youtube_sound(
+        &self,
+        video_id: &str,
+        dir: &Path,
+        query: &TrackQuery,
+        stop: &Arc<AtomicBool>,
+    ) -> Result<VideoAudio, String> {
+        use crate::music_downloads::capture::{self, CaptureError, youtube};
+
+        // Captured whole before the song was stopped: heard from there.
+        let (wav, whole) = (dir.join("capture.wav"), dir.join(WHOLE));
+        if tokio::fs::try_exists(&whole).await.unwrap_or(false) {
+            let path = wav.clone();
+            if let Ok(Ok(reader)) =
+                tauri::async_runtime::spawn_blocking(move || AudioReader::open(&path)).await
+            {
+                return Ok(VideoAudio::File(reader));
+            }
+        }
+        let stopped = Arc::new(tokio::sync::Notify::new());
+        let watcher = {
+            let (stop, stopped) = (stop.clone(), stopped.clone());
+            tauri::async_runtime::spawn(async move {
+                while !stop.load(Ordering::Relaxed) {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                stopped.notify_one();
+            })
+        };
+        let expected = capture::Expected {
+            duration_ms: query.duration_ms.map(u64::from),
+            start_ms: 0,
+            end_ms: None,
+        };
+        let captured = capture::youtube_sound(
+            &self.app,
+            video_id,
+            dir,
+            &expected,
+            youtube::Purpose::Words,
+            &|_| {},
+            &stopped,
+        )
+        .await;
+        watcher.abort();
+        let stitched = captured.map_err(|error| match error {
+            CaptureError::Stopped => "Stopped".to_owned(),
+            CaptureError::Interrupted => {
+                "YouTube's player plays in Raygun's window: open Raygun to hear this song"
+                    .to_owned()
+            }
+            CaptureError::Device(error) | CaptureError::Failed(error) => error,
+            CaptureError::Partial { why, .. } => {
+                format!("Only part of it could be heard ({why}); try again to hear the rest")
+            }
+        })?;
+        let _ = tokio::fs::write(&whole, b"").await;
+        let path = stitched.wav;
+        tauri::async_runtime::spawn_blocking(move || AudioReader::open(&path))
+            .await
+            .map_err(to_message)?
+            .map(VideoAudio::File)
     }
 
     /// Keeps what was heard of a song as its own synced lyrics (M46.36).
@@ -1330,6 +1451,9 @@ fn is_quiet(samples: &[f32]) -> bool {
 
 /// Streams tried when looking for a song's sound to hear (M46.36).
 const SONG_TRIES: usize = 4;
+
+/// Marks a capture of YouTube's player that holds the whole song (M46.52), next to it.
+const WHOLE: &str = "whole";
 
 /// Where a source's captions wait while the listener uses the other (M46.45).
 const AI_SHELF: &str = "#ai";

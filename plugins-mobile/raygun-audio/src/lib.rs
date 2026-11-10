@@ -231,17 +231,6 @@ pub struct NativeAudio<R: Runtime> {
     _runtime: std::marker::PhantomData<fn() -> R>,
 }
 
-/// The person's answer to recording what Raygun plays.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordingConsent {
-    pub granted: bool,
-    /// Why not: `unsupported` (before Android 10), `microphone` (RECORD_AUDIO refused),
-    /// `declined` (Android's capture question refused) or `failed`.
-    #[serde(default)]
-    pub reason: Option<String>,
-}
-
 /// Result of asking Android for access to the device's music.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -343,7 +332,6 @@ const WINDOW_COMMANDS: &[&str] = &[
     "pickDocuments",
     "pickFile",
     "pickFolder",
-    "recordingConsent",
     "requestLibraryAccess",
     "requestLocalNetwork",
     "requestMediaAccess",
@@ -702,57 +690,10 @@ impl<R: Runtime> NativeAudio<R> {
             .map(|_| ())
     }
 
-    /// Asks the person to let Raygun record what it plays (RECORD_AUDIO, then Android's capture
-    /// question); the consent is held until [`Self::recording_end`]. Needs Raygun's window, and
-    /// blocks until they answer.
-    pub fn recording_consent(&self) -> Result<RecordingConsent, String> {
-        self.run("recordingConsent", ())
-    }
-
-    /// Whether a consent is held: songs can be recorded now.
-    pub fn recording_ready(&self) -> Result<bool, String> {
-        #[derive(serde::Deserialize)]
-        struct Ready {
-            ready: bool,
-        }
-        self.run::<Ready>("recordingReady", ())
-            .map(|answer| answer.ready)
-    }
-
-    /// Starts recording what Raygun plays into pieces in `dir` (`{session, dir}`); nothing is
-    /// kept until [`Self::recording_mark`] says where the song plays from.
-    pub fn recording_start(&self, session: &str, dir: &str) -> Result<(), String> {
-        self.run::<serde_json::Value>(
-            "recordingStart",
-            serde_json::json!({ "session": session, "dir": dir }),
-        )
-        .map(|_| ())
-    }
-
-    /// The song plays from `position_ms` now (a run starts there), or doesn't (`None`: held).
-    pub fn recording_mark(&self, session: &str, position_ms: Option<f64>) -> Result<(), String> {
-        self.run::<serde_json::Value>(
-            "recordingMark",
-            serde_json::json!({ "session": session, "positionMs": position_ms }),
-        )
-        .map(|_| ())
-    }
-
-    /// A recording's state, as [`Self::capture_status`] gives a capture's: `{state, error,
-    /// pieces}`; `state` is `playing` or `failed`.
-    pub fn recording_status(&self, session: &str) -> Result<serde_json::Value, String> {
-        self.run("recordingStatus", serde_json::json!({ "session": session }))
-    }
-
-    /// Stops a recording.
-    pub fn recording_stop(&self, session: &str) -> Result<(), String> {
-        self.run::<serde_json::Value>("recordingStop", serde_json::json!({ "session": session }))
-            .map(|_| ())
-    }
-
-    /// No song waits to be recorded: the consent is given back (and Android's notice of it).
-    pub fn recording_end(&self) -> Result<(), String> {
-        self.run::<serde_json::Value>("recordingEnd", ())
+    /// Keeps the webview running while Raygun is off screen (`on`), for a hidden YouTube player
+    /// whose sound is captured (M46.52), or lets it go.
+    pub fn capture_hold_webview(&self, on: bool) -> Result<(), String> {
+        self.run::<serde_json::Value>("captureHoldWebview", serde_json::json!({ "on": on }))
             .map(|_| ())
     }
 
@@ -1099,12 +1040,7 @@ mod tests {
             "captureStart",
             "captureStatus",
             "captureStop",
-            "recordingStart",
-            "recordingMark",
-            "recordingStatus",
-            "recordingStop",
-            "recordingEnd",
-            "recordingReady",
+            "captureHoldWebview",
             "createOutput",
             "finishOutput",
             "deleteFile",
