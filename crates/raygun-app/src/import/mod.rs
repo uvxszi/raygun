@@ -422,6 +422,13 @@ impl ImportService {
             .map(|(matched, _)| key_of(&matched.song))
             .collect();
         let _ = raygun_db::collections::mark_imported(&db, &imported, now_ms()).await;
+        let matched: Vec<&MatchedSong> = songs
+            .iter()
+            .zip(&added)
+            .filter(|(matched, added)| **added && !matched.pending)
+            .map(|(matched, _)| matched)
+            .collect();
+        self.keep_matches(&matched).await;
         let missing: Vec<String> = songs
             .iter()
             .zip(&added)
@@ -459,6 +466,7 @@ impl ImportService {
                         };
                         let _ =
                             raygun_db::collections::set_track_source(db, &key, &found, false).await;
+                        import.keep_matches(&[&matched]).await;
                     } else {
                         let _ =
                             raygun_db::collections::mark_unavailable(db, &[key], now_ms()).await;
@@ -470,6 +478,43 @@ impl ImportService {
             });
         }
         Ok(id)
+    }
+
+    /// Keeps each imported song's match as its pick (M46.53), so playing it asks the match's source
+    /// for its stream before any search. A match with a stream of its own already plays it as the
+    /// song's source; one that's a YouTube video plays its audio file through the YouTube source
+    /// installed (the embed alone isn't the song's, M46.48).
+    async fn keep_matches(&self, songs: &[&MatchedSong]) {
+        let resolver = self
+            .app
+            .state::<Arc<crate::resolver::ResolverService>>()
+            .inner()
+            .clone();
+        let db = self.app.state::<crate::startup::AppDb>().inner().0.clone();
+        for matched in songs {
+            let Some((video_id, title, artist)) = matched_video(matched) else {
+                continue;
+            };
+            let Some(pick) = resolver.youtube_audio_pick(&video_id).await else {
+                // Without a YouTube source the song is searched for, as before.
+                return;
+            };
+            for key in pick_keys(matched) {
+                if let Err(error) = raygun_db::streams::keep_match(
+                    &db,
+                    &key,
+                    &pick.provider_id,
+                    &pick.candidate_id,
+                    &title,
+                    artist.as_deref(),
+                    now_ms(),
+                )
+                .await
+                {
+                    tracing::warn!(%error, "couldn't keep an imported song's match");
+                }
+            }
+        }
     }
 
     /// Gives every saved copy of a song the source the user picked (M46.31): copies saved under
@@ -505,6 +550,47 @@ impl ImportService {
 
 /// Sources' answers kept per imported song (M46.31).
 const CANDIDATES: usize = 5;
+
+/// The YouTube video an imported song matched, with the names it matched under: the answer its
+/// source (a lookup under the match's names) came from, when that answer is a YouTube video.
+fn matched_video(matched: &MatchedSong) -> Option<(String, String, Option<String>)> {
+    matched.matched_by.as_ref()?;
+    let Some(MediaSource::Lookup { title, artist, .. }) = &matched.source else {
+        return None;
+    };
+    matched.candidates.iter().find_map(|candidate| {
+        let track = &candidate.track;
+        if track.title != *title || track.artist != *artist {
+            return None;
+        }
+        match &track.source {
+            Some(MediaSource::YouTube { video_id }) => {
+                Some((video_id.clone(), title.clone(), artist.clone()))
+            }
+            _ => None,
+        }
+    })
+}
+
+/// The keys an imported song plays under: its own names, and the match's it plays by.
+fn pick_keys(matched: &MatchedSong) -> Vec<String> {
+    let mut keys = vec![raygun_resolver::track_key(&TrackQuery {
+        title: matched.song.title.clone(),
+        artist: matched.song.artist.clone(),
+        album: None,
+        duration_ms: None,
+    })];
+    if let Some(MediaSource::Lookup { title, artist, .. }) = &matched.source {
+        keys.push(raygun_resolver::track_key(&TrackQuery {
+            title: title.clone(),
+            artist: artist.clone(),
+            album: None,
+            duration_ms: None,
+        }));
+    }
+    keys.dedup();
+    keys
+}
 
 /// The album an imported song gets (M46.46): the one its matches name, spelled as they spell it.
 /// An imported album that none of them names (a misread screenshot) gives way to the album most
@@ -717,6 +803,58 @@ mod album_tests {
             agreed_album(Some("Mine"), &[candidate(None, 90)]).as_deref(),
             Some("Mine")
         );
+    }
+
+    #[test]
+    fn a_youtube_match_is_kept_as_the_songs_pick_under_the_names_it_plays_by() {
+        let mut video = candidate(None, 90);
+        video.track.title = "Song (Official Video)".into();
+        video.track.source = Some(MediaSource::YouTube {
+            video_id: "dQw4w9WgXcQ".into(),
+        });
+        let lookup = MediaSource::Lookup {
+            title: "Song (Official Video)".into(),
+            artist: Some("Someone".into()),
+            album: None,
+            duration_ms: None,
+        };
+        let matched = MatchedSong {
+            song: ImportedSong {
+                title: "Song".into(),
+                artist: Some("Someone Else".into()),
+                album: None,
+                duration_ms: None,
+                artwork_url: None,
+            },
+            matched_by: Some("YouTube".into()),
+            source: Some(lookup),
+            candidates: vec![candidate(None, 95), video],
+            pending: false,
+        };
+        assert_eq!(
+            matched_video(&matched),
+            Some((
+                "dQw4w9WgXcQ".to_owned(),
+                "Song (Official Video)".to_owned(),
+                Some("Someone".to_owned())
+            ))
+        );
+        assert_eq!(pick_keys(&matched), ["someone else|song", "someone|song"]);
+
+        // A match with a stream of its own plays it already; one nothing matched has no pick.
+        let streamed = MatchedSong {
+            source: Some(MediaSource::Url {
+                url: "https://example.org/song.mp3".into(),
+                headers: Default::default(),
+            }),
+            ..matched.clone()
+        };
+        assert_eq!(matched_video(&streamed), None);
+        let unmatched = MatchedSong {
+            matched_by: None,
+            ..matched
+        };
+        assert_eq!(matched_video(&unmatched), None);
     }
 }
 

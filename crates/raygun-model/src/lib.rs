@@ -3204,6 +3204,11 @@ pub struct PlaybackState {
     /// plays: the skip notice offers to find a source for it.
     #[serde(default)]
     pub skipped_item_id: Option<String>,
+    /// The player really waits for its song: a stream being found or loaded, or the engine
+    /// buffering one. A file on this device (a download, a local song) never waits, nor does a
+    /// song the engine already holds that only resumes (M46.53).
+    #[serde(default)]
+    pub waiting: bool,
 }
 
 /// The sleep timer (M46.8).

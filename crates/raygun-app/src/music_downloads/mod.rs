@@ -24,6 +24,7 @@
 
 pub mod capture;
 mod check;
+mod known;
 pub mod transcode;
 
 use std::collections::{HashMap, HashSet};
@@ -50,7 +51,7 @@ use crate::catalog::{now_ms, to_message};
 use crate::events::{SongDownloadProgressEvent, SongDownloadsEvent};
 use crate::export::output::Place;
 use crate::resolution::{Exclusions, Notes};
-use crate::resolver::ResolverService;
+use crate::resolver::{Known, ResolverService};
 use crate::startup::AppDb;
 use raygun_resolver::Pick;
 
@@ -1060,7 +1061,7 @@ impl SongDownloadService {
     }
 
     /// Finds a file for the song and saves it ([`find_file`]): every way to a file first (its own
-    /// source, what the resolver finds, YouTube's own audio files every way they're asked for,
+    /// source, the sources it plays or played from ([`known`]), what the resolver finds, YouTube's own audio files every way they're asked for,
     /// yt-dlp on desktop), and only then, once trouble with the network or a source was tried
     /// again later, a stream that plays it is captured (M46.49). A song only YouTube's player plays
     /// then goes to the recordings' queue (M46.52); the recordings' worker records the video found,
@@ -2784,14 +2785,18 @@ pub fn offline_item(app: &AppHandle, item: &QueueItem) -> Option<QueueItem> {
         return None;
     }
     let service = app.try_state::<Arc<SongDownloadService>>()?;
-    let key = raygun_resolver::track_key(&TrackQuery::for_item(item));
-    // A song given other names (Edit details) is saved under its own.
-    let path = service.offline_file(&key).or_else(|| {
-        let original = app
-            .try_state::<Arc<crate::details::DetailService>>()?
-            .original_song_key(&item.title, item.artist.as_deref())?;
-        service.offline_file(&original)
-    })?;
+    // Saved under the names the song shows; one that plays by a picked source's names (a lookup
+    // under other names, M46.48) may have been saved under those (M46.53).
+    let path = offline_keys(item)
+        .iter()
+        .find_map(|key| service.offline_file(key))
+        .or_else(|| {
+            // A song given other names (Edit details) is saved under its own.
+            let original = app
+                .try_state::<Arc<crate::details::DetailService>>()?
+                .original_song_key(&item.title, item.artist.as_deref())?;
+            service.offline_file(&original)
+        })?;
     Some(QueueItem {
         source: MediaSource::LocalFile {
             path: path.to_string_lossy().into_owned(),
@@ -2799,6 +2804,23 @@ pub fn offline_item(app: &AppHandle, item: &QueueItem) -> Option<QueueItem> {
         media_kind: MediaKind::Audio,
         ..item.clone()
     })
+}
+
+/// The keys a queue item's saved copy is found under, in turn: the names it shows (what a download
+/// of it is saved under), then the names it plays by when they differ (a picked source's).
+fn offline_keys(item: &QueueItem) -> Vec<String> {
+    let shown = raygun_resolver::track_key(&TrackQuery {
+        title: item.title.clone(),
+        artist: item.artist.clone(),
+        album: None,
+        duration_ms: None,
+    });
+    let plays_by = raygun_resolver::track_key(&TrackQuery::for_item(item));
+    if plays_by == shown {
+        vec![shown]
+    } else {
+        vec![shown, plays_by]
+    }
 }
 
 /// Whether `offered` (a stream's title) has every word of the song's own title.
@@ -3445,6 +3467,15 @@ trait Ways {
     ) -> Option<(Result<Pick, String>, Notes)>;
     /// A pick's file, counted for or against the pick for playback.
     async fn pick_file(&self, pick: &Pick) -> Result<Saved, StreamError>;
+    /// The sources the song is known to play from: the stream playing it now, its picks that
+    /// played (M46.53).
+    async fn known(&self, _query: &TrackQuery) -> Vec<Known> {
+        Vec::new()
+    }
+    /// A known source's stream now, as a pick.
+    async fn known_stream(&self, _known: &Known) -> Result<Pick, String> {
+        Err("no known stream".into())
+    }
     /// A YouTube video's own audio file every way there is (`given` first), and the files that
     /// play but didn't save.
     async fn youtube(
@@ -3524,6 +3555,72 @@ async fn find_file(ways: &impl Ways, asked: &Asked) -> Result<Saved, Failure> {
             tracing::info!(song = %asked.query.title, "the song's own stream gave no file; trying others");
         }
         _ => {}
+    }
+
+    // 1b. The sources it plays or played from (M46.53): the stream playing it, its picks.
+    for known in ways.known(&asked.query).await {
+        if ways.stopped() {
+            return Err(Failure::Stopped);
+        }
+        let tried_source = known
+            .source
+            .as_ref()
+            .is_some_and(|source| exclusions.failed_sources.contains(source));
+        if exclusions.tried.contains(&known.key) || tried_source {
+            continue;
+        }
+        exclusions.tried.push(known.key.clone());
+        let origin = Origin {
+            provider: Some(known.key.provider_id.clone()),
+            stream: Some(known.key.candidate_id.clone()),
+            source: known
+                .source
+                .as_ref()
+                .and_then(|source| serde_json::to_string(source).ok()),
+            title: Some(known.title.clone()),
+            artist: known.artist.clone(),
+        };
+        tracing::info!(song = %asked.query.title, provider = %known.key.provider_id, "downloading from the song's known source");
+        if let Some(video_id) = known.video() {
+            let tried = attempts
+                .youtube
+                .iter()
+                .any(|copy| copy.video_id == video_id && copy.tried);
+            if tried {
+                continue;
+            }
+            match ways.youtube(&video_id, None).await {
+                (Ok(saved), _) => return Ok(saved.from(origin)),
+                (Err(error), files) => {
+                    ends(&error)?;
+                    attempts.own_video_failed(&video_id, files, origin, &error);
+                }
+            }
+            continue;
+        }
+        let Ok(pick) = ways.known_stream(&known).await else {
+            continue;
+        };
+        match ways.pick_file(&pick).await {
+            Ok(saved) => {
+                return Ok(saved.from(Origin {
+                    source: serde_json::to_string(&pick.source).ok(),
+                    ..origin
+                }));
+            }
+            Err(error) => {
+                ends(&error)?;
+                exclusions.failed_sources.push(pick.source.clone());
+                attempts.file_failed(
+                    Candidate {
+                        name: pick.provider_name.clone(),
+                        source: pick.source.clone(),
+                        origin,
+                    },
+                    &error,
+                );
+            }
+        }
     }
 
     // 2. Whatever else the resolver finds; YouTube's videos wait for step 3.
@@ -3713,6 +3810,23 @@ struct ServiceWays<'a> {
 impl Ways for ServiceWays<'_> {
     fn stopped(&self) -> bool {
         self.service.stopped(&self.row.id)
+    }
+
+    async fn known(&self, query: &TrackQuery) -> Vec<Known> {
+        let keys = known::song_keys(self.row, query);
+        let playing = self
+            .service
+            .app
+            .try_state::<crate::playback::PlaybackService>()
+            .and_then(|playback| playback.playing_pick(&keys));
+        self.resolver.known_sources(&keys, playing.as_ref()).await
+    }
+
+    async fn known_stream(&self, known: &Known) -> Result<Pick, String> {
+        tokio::select! {
+            pick = self.resolver.known_stream(known, self.using) => pick,
+            () = self.stop.notified() => Err("stopped".into()),
+        }
     }
 
     fn retries_left(&self) -> bool {
@@ -4764,6 +4878,8 @@ mod tests {
         captures: Says,
         recording: Says,
         retries_left: bool,
+        /// The sources the song is known to play from.
+        known: Vec<Known>,
     }
 
     impl Default for Fake {
@@ -4777,6 +4893,7 @@ mod tests {
                 captures: Says::Fails,
                 recording: Says::Fails,
                 retries_left: true,
+                known: Vec::new(),
             }
         }
     }
@@ -4821,6 +4938,20 @@ mod tests {
             self.note("search".into());
             let next = self.picks.borrow_mut().pop_front();
             Some(next.unwrap_or_else(|| (Err("No playable source found".into()), Notes::default())))
+        }
+
+        async fn known(&self, _query: &TrackQuery) -> Vec<Known> {
+            self.known.clone()
+        }
+
+        async fn known_stream(&self, known: &Known) -> Result<Pick, String> {
+            let source = known.source.clone().ok_or("no stream")?;
+            Ok(pick(
+                &known.key.provider_id,
+                &known.title,
+                &known.key.candidate_id,
+                source,
+            ))
         }
 
         async fn pick_file(&self, pick: &Pick) -> Result<Saved, StreamError> {
@@ -4925,6 +5056,34 @@ mod tests {
             "audio:dQw4w9WgXcQ",
             web(&googlevideo("rr2")),
         ))
+    }
+
+    #[tokio::test]
+    async fn a_known_source_saves_the_song_before_any_search() {
+        let known = Known {
+            track_key: "artist|swim".into(),
+            key: raygun_resolver::CandidateKey {
+                provider_id: "indie".into(),
+                candidate_id: "7".into(),
+            },
+            title: "Played".into(),
+            artist: Some("Artist".into()),
+            source: Some(web("https://indie.example/7.mp3")),
+            expires_at: None,
+            bitrate_kbps: None,
+        };
+        let ways = Fake {
+            files: HashMap::from([("Played".to_owned(), Says::Saves)]),
+            known: vec![known],
+            ..Fake::default()
+        };
+        let saved = find_file(&ways, &asked(None, Lane::Recordings)).await;
+        assert!(saved.is_ok());
+        assert_eq!(
+            ways.asked(),
+            ["file Played"],
+            "no search when a known source has it"
+        );
     }
 
     #[tokio::test]
@@ -5317,6 +5476,7 @@ mod tests {
             verified_at: Some(5),
             failed_at: None,
             bitrate_kbps: None,
+            artist: None,
         };
         let origin = asked_origin(&row, &source, std::slice::from_ref(&picked));
         assert_eq!(

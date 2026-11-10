@@ -4,6 +4,7 @@
 //! stream stops working isn't skipped at once: it looks for another source as `resolution`
 //! plans, and the player says so meanwhile.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -22,6 +23,7 @@ use tauri_specta::Event;
 use crate::collections::CollectionsService;
 use crate::events::{EngineCommandEvent, PlaybackStateEvent, QueueEvent};
 use crate::history::PlayCounter;
+use crate::prefetch::{Ahead, Wanted};
 use crate::resolution::{Cause, ErrorPlan, Failed, LoadPlan, Notes, Tracker, Unresolved};
 use crate::resolver::ResolverService;
 use crate::sound::{SoundService, Tuning};
@@ -68,6 +70,16 @@ struct Inner {
     sound: SoundPrefs,
     /// A crossfade waiting for its stream to be found: the load and how long it fades.
     pending_fade: Option<(u32, f64)>,
+    /// Streams found ahead for the songs around the current one (M46.53).
+    ahead: Ahead,
+    /// The searches finding them, by queue item id, each with its number: stopped once their
+    /// song isn't wanted.
+    ahead_tasks: HashMap<String, (u64, tauri::async_runtime::JoinHandle<()>)>,
+    /// The number the next of those searches gets.
+    ahead_next: u64,
+    /// The load whose end asked for the next song's stream to be found again if it was about to
+    /// expire (once per load).
+    refreshed_for: Option<u32>,
 }
 
 pub struct PlaybackService {
@@ -125,6 +137,9 @@ struct Outbox {
     current: Option<QueueItem>,
     /// This load plays in YouTube's player, and Raygun's webview is gone (Android): it pauses.
     needs_webview: Option<(u32, QueueItem)>,
+    /// The songs around the current one may have changed (a song started, the queue changed):
+    /// their streams are found ahead (M46.53).
+    find_ahead: bool,
 }
 
 impl Outbox {
@@ -153,6 +168,10 @@ impl PlaybackService {
                 plays: PlayCounter::default(),
                 sound: SoundPrefs::default(),
                 pending_fade: None,
+                ahead: Ahead::default(),
+                ahead_tasks: HashMap::new(),
+                ahead_next: 0,
+                refreshed_for: None,
             }),
             proxy,
             app,
@@ -822,6 +841,15 @@ impl PlaybackService {
         let outbox = {
             let mut inner = self.lock();
             let current = report.load_id == inner.core.load_id();
+            // An end before the song ever sounded isn't its end (M46.53): the load failed, so a
+            // downloaded copy gives way to the song's stream, rather than the song being skipped
+            // or the queue ending there.
+            if current && matches!(report.event, EngineEvent::Ended) && inner.core.ends_unheard() {
+                tracing::info!(load_id = report.load_id, "the song ended before it played");
+                report.event = EngineEvent::Error {
+                    message: UNHEARD.to_owned(),
+                };
+            }
             // The song after one that couldn't play is given less time to look (a run of them).
             let cause = if matches!(report.event, EngineEvent::Error { .. }) {
                 Cause::AfterFailure
@@ -832,6 +860,7 @@ impl PlaybackService {
             let mut rescued = None;
             let mut gave_up = None;
             let mut lost = None;
+            let mut find_ahead = false;
             let counted = current
                 && match &report.event {
                     EngineEvent::Progress {
@@ -890,7 +919,31 @@ impl PlaybackService {
                         ErrorPlan::Forward => {}
                     }
                 }
+                EngineEvent::Progress {
+                    position_ms,
+                    duration_ms,
+                } if current => {
+                    // Near its end, the next song's stream is found again if it would stop
+                    // working before that song plays (M46.53).
+                    let duration = duration_ms.or(inner.core.state().duration_ms);
+                    if let Some(left) = duration.map(|duration| duration - position_ms)
+                        && left < REFRESH_BEFORE_END_MS
+                        && inner.refreshed_for != Some(report.load_id)
+                    {
+                        inner.refreshed_for = Some(report.load_id);
+                        let due = crate::catalog::now_ms() + left.max(0.0) as i64;
+                        let next = inner.core.neighbors().first().map(|item| item.id.clone());
+                        if let Some(next) = next
+                            && inner.ahead.expires_before(&next, due)
+                        {
+                            inner.ahead.forget(&next);
+                            find_ahead = true;
+                        }
+                    }
+                }
                 EngineEvent::Playing if current => {
+                    // The songs around this one are found ahead now that it plays.
+                    find_ahead = true;
                     if let Some(played) = inner.tracker.engine_playing(report.load_id) {
                         if played.rescued
                             && let Some(item) = inner.core.current_item().cloned()
@@ -921,6 +974,7 @@ impl PlaybackService {
             outbox.played = played;
             outbox.rescued = rescued;
             outbox.gave_up = gave_up;
+            outbox.find_ahead |= find_ahead;
             if let Some((failed, item, message)) = lost {
                 outbox.note(failed, item, message);
             }
@@ -1109,6 +1163,44 @@ impl PlaybackService {
                             );
                         }
                         LoadPlan::Resolve => {
+                            // Found ahead while the song before played (M46.53): it plays at once.
+                            let key = raygun_resolver::track_key(&TrackQuery::for_item(&item));
+                            let found = inner
+                                .ahead
+                                .take(
+                                    &item.id,
+                                    &key,
+                                    self.now_ms(),
+                                    crate::catalog::now_ms(),
+                                    crate::network::known_mobile_data(),
+                                )
+                                .and_then(|pick| {
+                                    let start = inner.tracker.resolved(
+                                        load_id,
+                                        pick.clone(),
+                                        &Notes::default(),
+                                        start_ms,
+                                    )?;
+                                    Some((pick, start))
+                                });
+                            if let Some((pick, start)) = found {
+                                tracing::info!(load_id, title = %item.title, provider = %pick.provider_name, "playing the stream found ahead");
+                                self.load_into(
+                                    inner,
+                                    &mut outbox,
+                                    load_id,
+                                    &item,
+                                    &pick.source,
+                                    start,
+                                    autoplay,
+                                    fade_ms,
+                                );
+                                // The state the load sends next says where it's from.
+                                let _ = inner
+                                    .core
+                                    .set_source_label(load_id, Some(pick.provider_name));
+                                continue;
+                            }
                             tracing::debug!(load_id, title = %item.title, "finding a stream");
                             if fade_ms > 0.0 {
                                 // A crossfade: the song ending plays on until the next is found.
@@ -1133,7 +1225,10 @@ impl PlaybackService {
                     outbox.state = Some(inner.core.state());
                     outbox.current = inner.core.current_item().cloned();
                 }
-                Effect::QueueChanged => outbox.queue = Some(inner.core.queue()),
+                Effect::QueueChanged => {
+                    outbox.queue = Some(inner.core.queue());
+                    outbox.find_ahead = true;
+                }
             }
         }
         outbox
@@ -1196,6 +1291,9 @@ impl PlaybackService {
         if let Some((load_id, wait)) = outbox.resolve {
             self.start_resolving(load_id, wait);
         }
+        if outbox.find_ahead {
+            self.find_ahead();
+        }
         if let Some((load_id, item)) = outbox.needs_webview {
             let app = self.app.clone();
             tauri::async_runtime::spawn(async move {
@@ -1244,6 +1342,10 @@ impl PlaybackService {
         }
         inner.active = Some(engine);
         let volume = inner.core.state().volume;
+        // A file on this device starts at once: the player doesn't say it waits (M46.53).
+        inner
+            .core
+            .set_on_device(load_id, matches!(source, MediaSource::LocalFile { .. }));
         // The song's trims and gain (M46.12): a song from its top starts at its start trim.
         let tuning = self.tuning(&inner.sound, item);
         inner.core.set_end(load_id, tuning.end_ms);
@@ -1327,6 +1429,113 @@ impl PlaybackService {
                 });
             }
         });
+    }
+
+    /// Finds the streams of the songs around the current one ahead (M46.53), while one plays: the
+    /// next, and the one before too off mobile data. Downloaded songs and songs with a stream of
+    /// their own need nothing found. Nothing new is searched for in battery saver; searches for
+    /// songs no longer around the current one stop.
+    fn find_ahead(&self) {
+        let saver = crate::device_state::current().power_save;
+        // What was found last: asking Android waits on its main thread, which may be this one.
+        // The searches ask (for the quality they aim at), and say what they found.
+        let mobile = crate::network::known_mobile_data().unwrap_or(false);
+        let mut inner = self.lock();
+        if inner.core.current_item().is_none() {
+            let stopped = inner.ahead.clear();
+            for item_id in stopped {
+                if let Some((_, task)) = inner.ahead_tasks.remove(&item_id) {
+                    task.abort();
+                }
+            }
+            return;
+        }
+        if saver || inner.core.state().status != raygun_model::PlaybackStatus::Playing {
+            return;
+        }
+        let around = if mobile { 1 } else { 2 };
+        let wanted: Vec<(Wanted, TrackQuery, crate::resolution::Exclusions)> = inner
+            .core
+            .neighbors()
+            .into_iter()
+            .take(around)
+            .filter(|item| crate::music_downloads::offline_item(&self.app, item).is_none())
+            .filter_map(|item| {
+                let (query, exclusions) = inner.tracker.search_for(item)?;
+                let want = Wanted {
+                    item_id: item.id.clone(),
+                    key: raygun_resolver::track_key(&query),
+                };
+                Some((want, query, exclusions))
+            })
+            .collect();
+        let wants: Vec<Wanted> = wanted.iter().map(|(want, _, _)| want.clone()).collect();
+        let now = self.now_ms();
+        let plan = inner.ahead.want(
+            &wants,
+            now,
+            crate::catalog::now_ms(),
+            crate::network::known_mobile_data(),
+        );
+        for item_id in plan.stop {
+            if let Some((_, task)) = inner.ahead_tasks.remove(&item_id) {
+                task.abort();
+            }
+        }
+        for want in plan.search {
+            let Some((_, query, exclusions)) = wanted
+                .iter()
+                .find(|(candidate, _, _)| *candidate == want)
+                .cloned()
+            else {
+                continue;
+            };
+            let number = inner.ahead_next;
+            inner.ahead_next += 1;
+            let app = self.app.clone();
+            let item_id = want.item_id.clone();
+            let task = tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(crate::prefetch::AFTER).await;
+                let resolver = app.state::<Arc<ResolverService>>().inner().clone();
+                let (found, _) = resolver.find(&query, &exclusions).await;
+                // The search asked which network this is, for the quality it aimed at.
+                let mobile = crate::network::known_mobile_data().unwrap_or(false);
+                app.state::<PlaybackService>()
+                    .found_ahead(number, &want, found.ok(), mobile);
+            });
+            inner.ahead_tasks.insert(item_id, (number, task));
+        }
+    }
+
+    /// Search `number` for a song around the current one finished (see [`Self::find_ahead`]).
+    fn found_ahead(&self, number: u64, want: &Wanted, pick: Option<Pick>, mobile: bool) {
+        let mut inner = self.lock();
+        if inner
+            .ahead_tasks
+            .get(&want.item_id)
+            .is_some_and(|(running, _)| *running == number)
+        {
+            inner.ahead_tasks.remove(&want.item_id);
+        }
+        let found = pick.as_ref().map(|pick| pick.provider_name.clone());
+        let now = self.now_ms();
+        if inner
+            .ahead
+            .found(&want.item_id, &want.key, pick, now, mobile)
+        {
+            tracing::debug!(item = %want.item_id, ?found, "a song's stream was found ahead");
+        }
+    }
+
+    /// The resolver's pick the song playing now plays from, when it's the song `keys` name: a
+    /// download of that song starts from it (M46.53).
+    pub fn playing_pick(&self, keys: &[String]) -> Option<Pick> {
+        let inner = self.lock();
+        let item = inner.core.current_item()?;
+        if !song_keys(item).iter().any(|key| keys.contains(key)) {
+            return None;
+        }
+        inner.tracker.pick(inner.core.load_id()).cloned()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -1465,6 +1674,13 @@ fn worth_sending(last: &PlaybackState, next: &PlaybackState, since: Duration) ->
 /// How long a load may take to start playing before another stream is tried (M46.16).
 const START_TIMEOUT: Duration = Duration::from_secs(25);
 
+/// This close to a song's end (ms), the next song's stream found ahead is found again if it would
+/// stop working before that song plays (M46.53).
+const REFRESH_BEFORE_END_MS: f64 = 30_000.0;
+
+/// Why a load that ended before it played failed.
+const UNHEARD: &str = "It ended before it played";
+
 /// How often the watchdog checks that what plays moves on.
 const WATCH_EVERY: Duration = Duration::from_secs(1);
 
@@ -1519,6 +1735,7 @@ mod tests {
             stop_after_current: false,
             looking_for_source: false,
             skipped_item_id: None,
+            waiting: false,
         }
     }
 

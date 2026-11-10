@@ -276,11 +276,43 @@ impl Tracker {
 
     /// The stream `load_id` plays now, when the resolver picked it.
     pub fn playing(&self, load_id: u32) -> Option<&MediaSource> {
+        self.pick(load_id).map(|pick| &pick.source)
+    }
+
+    /// The resolver's pick `load_id` plays now, if it plays one.
+    pub fn pick(&self, load_id: u32) -> Option<&Pick> {
         self.current
             .as_ref()
             .filter(|attempt| attempt.load_id == load_id)
             .and_then(|attempt| attempt.playing.as_ref())
-            .map(|pick| &pick.source)
+    }
+
+    /// How a load of `item` would play: as it is, or after finding a stream for this query with
+    /// these exclusions (YouTube songs try their own video's audio file first, M46.51).
+    fn plan_for(&self, item: &QueueItem) -> (LoadPlan, Option<MediaSource>, Exclusions) {
+        let mut exclusions = Exclusions::default();
+        let (plan, concrete) = match &item.source {
+            MediaSource::Lookup { .. } => (LoadPlan::Resolve, None),
+            // A file on this device has no alternative worth searching for.
+            MediaSource::LocalFile { .. } => (LoadPlan::Direct, None),
+            // YouTube's own audio file plays in the native player (M46.51); the resolver tries it
+            // first, then the embed, then other sources. With its video shown, the embed plays.
+            MediaSource::YouTube { video_id } if !self.video => {
+                exclusions.youtube = Some(video_id.clone());
+                (LoadPlan::Resolve, None)
+            }
+            source => (LoadPlan::Direct, Some(source.clone())),
+        };
+        (plan, concrete, exclusions)
+    }
+
+    /// What a load of `item` would search for, when it would (M46.53: the songs around the one
+    /// playing have their streams found ahead); `None` for one that plays as it is.
+    pub fn search_for(&self, item: &QueueItem) -> Option<(TrackQuery, Exclusions)> {
+        match self.plan_for(item) {
+            (LoadPlan::Resolve, _, exclusions) => Some((TrackQuery::for_item(item), exclusions)),
+            (LoadPlan::Direct, _, _) => None,
+        }
     }
 
     /// Whether the engine holds a stream for `load_id`: false while a stream is being found, when
@@ -308,19 +340,7 @@ impl Tracker {
         start_ms: f64,
         cause: Cause,
     ) -> LoadPlan {
-        let mut exclusions = Exclusions::default();
-        let (plan, concrete) = match &item.source {
-            MediaSource::Lookup { .. } => (LoadPlan::Resolve, None),
-            // A file on this device has no alternative worth searching for.
-            MediaSource::LocalFile { .. } => (LoadPlan::Direct, None),
-            // YouTube's own audio file plays in the native player (M46.51); the resolver tries it
-            // first, then the embed, then other sources. With its video shown, the embed plays.
-            MediaSource::YouTube { video_id } if !self.video => {
-                exclusions.youtube = Some(video_id.clone());
-                (LoadPlan::Resolve, None)
-            }
-            source => (LoadPlan::Direct, Some(source.clone())),
-        };
+        let (plan, concrete, exclusions) = self.plan_for(item);
         self.current = Some(Attempt {
             load_id,
             query: TrackQuery::for_item(item),
@@ -632,6 +652,35 @@ mod tests {
         assert!(!tracker.loaded(1), "nothing loaded while it's found");
         assert_eq!(tracker.resolved(1, pick("a"), &NONE, 0.0), Some(0.0));
         assert!(tracker.loaded(1));
+    }
+
+    #[test]
+    fn songs_are_found_ahead_as_their_load_would_find_them() {
+        let mut tracker = Tracker::default();
+        // A lookup is searched for by its names; a stream or a file of its own plays as it is.
+        let (query, exclusions) = tracker.search_for(&item(lookup())).unwrap();
+        assert_eq!(query.title, "Song");
+        assert_eq!(exclusions, Exclusions::default());
+        assert_eq!(tracker.search_for(&item(url("own"))), None);
+        let file = MediaSource::LocalFile {
+            path: "/sdcard/Music/a.mp3".into(),
+        };
+        assert_eq!(tracker.search_for(&item(file)), None);
+        // A YouTube song tries its video's audio file first, unless its video shows.
+        let video = MediaSource::YouTube {
+            video_id: "dQw4w9WgXcQ".into(),
+        };
+        let (_, exclusions) = tracker.search_for(&item(video.clone())).unwrap();
+        assert_eq!(exclusions.youtube.as_deref(), Some("dQw4w9WgXcQ"));
+        tracker.set_video(true);
+        assert_eq!(tracker.search_for(&item(video)), None);
+
+        // The pick a load plays now (a download of the same song starts from it).
+        tracker.begin(1, &item(lookup()), 0.0, Cause::Chosen);
+        assert_eq!(tracker.pick(1), None, "nothing found yet");
+        tracker.resolved(1, pick("a"), &NONE, 0.0);
+        assert_eq!(tracker.pick(1), Some(&pick("a")));
+        assert_eq!(tracker.pick(2), None, "another load's");
     }
 
     #[test]

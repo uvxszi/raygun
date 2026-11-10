@@ -359,7 +359,11 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
             val player = enginePlayer() ?: return
             when (playbackState) {
                 Player.STATE_READY -> reportProgress(player)
-                Player.STATE_ENDED -> {
+                // The session's word comes late, and a report carries the load of now: the song
+                // after may be in the deck already (a downloaded one loads at once, M46.53). Only
+                // the deck's own end is this load's; taken as the new song's, the song before's
+                // end skipped it, or ended the queue there.
+                Player.STATE_ENDED -> if (holdsLoad(player) && player.playbackState == Player.STATE_ENDED) {
                     reportLoudnessIfHeard()
                     report("ended")
                 }
@@ -380,9 +384,17 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // As with the end: only an error of the song the deck holds now is this load's (a
+            // late one of the song before made a downloaded copy look broken).
+            val player = enginePlayer()
+            if (player != null && (!holdsLoad(player) || player.playerError == null)) return
             report("error", JSONObject().put("message", error.message ?: error.errorCodeName))
         }
     }
+
+    /** Whether `player` holds the current load's song (each load's item is named by its id). */
+    private fun holdsLoad(player: Player): Boolean =
+        loadId != null && player.currentMediaItem?.mediaId == loadId.toString()
 
     /**
      * The player the engine's commands drive: the service's current deck, directly. Never through
@@ -507,7 +519,7 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
             player.volume = (args.volume ?: 1.0).toFloat()
             if (service != null && crossfading) {
                 // The next song starts on the other player while this one fades out (M46.12).
-                service.crossfade(item, startMs, fadeMs, gainDb, args.measure)
+                service.crossfade(item, startMs, fadeMs, gainDb, args.measure, args.autoplay)
             } else {
                 service?.startTrack(gainDb, args.measure)
                 player.setMediaItem(item, startMs)
@@ -627,6 +639,9 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     fun play(invoke: Invoke) {
         withEngine {
             it.play()
+            // Said again even when it's what was said last: Rust's player shows loading after a
+            // Play until it hears, and a song already playing would never say so again.
+            lastStatus = null
             reportStatus()
         }
         invoke.resolve()
@@ -636,6 +651,7 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     fun pause(invoke: Invoke) {
         withEngine {
             it.pause()
+            lastStatus = null
             reportStatus()
         }
         invoke.resolve()

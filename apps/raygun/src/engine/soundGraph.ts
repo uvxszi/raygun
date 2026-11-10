@@ -48,15 +48,17 @@ export const headroomDb = (sound: FullSound) => {
   return Math.max(bands, (sound.bassBoost / 100) * 12);
 };
 
+/** The equal-power curve's level `progress` (0–1) of the way from `from` to `to`. */
+const curveAt = (from: number, to: number, progress: number) =>
+  to >= from
+    ? from + (to - from) * Math.sin((progress * Math.PI) / 2)
+    : to + (from - to) * Math.cos((progress * Math.PI) / 2);
+
 /** Ramps on an equal-power curve: rising like a sine, falling like a cosine. */
 const fadeCurve = (from: number, to: number, points = 64) => {
   const curve = new Float32Array(points);
   for (let index = 0; index < points; index += 1) {
-    const progress = index / (points - 1);
-    curve[index] =
-      to >= from
-        ? from + (to - from) * Math.sin((progress * Math.PI) / 2)
-        : to + (from - to) * Math.cos((progress * Math.PI) / 2);
+    curve[index] = curveAt(from, to, index / (points - 1));
   }
   return curve;
 };
@@ -178,18 +180,37 @@ export class WebAudioSound implements SoundBackend {
       }
     };
 
+    // Where the fade stands, kept here (M46.53): an AudioParam's value only moves once the
+    // context renders, so read right after a change it gave the level before it, and a crossfade
+    // into a deck that was last cut off at full level started at full level, over the song
+    // fading out (both at once, into the limiter: a loud, distorted start).
+    let fading = { from: 1, to: 1, start: 0, end: 0 };
+    const fadeLevel = () => {
+      const now = context.currentTime;
+      if (now >= fading.end) return fading.to;
+      if (now <= fading.start) return fading.from;
+      return curveAt(fading.from, fading.to, (now - fading.start) / (fading.end - fading.start));
+    };
+    const holdFade = (value: number) => {
+      const now = context.currentTime;
+      fade.gain.cancelScheduledValues(now);
+      fade.gain.setValueAtTime(value, now);
+      fading = { from: value, to: value, start: now, end: now };
+    };
+
     return {
       setGain: (db, smoothMs = 0) => glide(level.gain, dbToGain(db), smoothMs),
-      setFade: (value) => glide(fade.gain, value, 0),
+      setFade: holdFade,
       fadeTo: (value, ms) => {
         const now = context.currentTime;
-        const from = fade.gain.value;
-        fade.gain.cancelScheduledValues(now);
+        const from = fadeLevel();
         if (ms <= 0 || from === value) {
-          fade.gain.setValueAtTime(value, now);
+          holdFade(value);
           return;
         }
+        fade.gain.cancelScheduledValues(now);
         fade.gain.setValueCurveAtTime(fadeCurve(from, value), now, ms / 1000);
+        fading = { from, to: value, start: now, end: now + ms / 1000 };
       },
       power: () => {
         let sum = 0;
@@ -284,6 +305,12 @@ export const elementSound = (): SoundBackend => {
         },
         fadeTo: (value, ms) => {
           if (timer) clearInterval(timer);
+          // Shorter than a step (a de-click): at once, as a bare element can't do better.
+          if (ms < 50) {
+            fade = value;
+            update();
+            return;
+          }
           const steps = Math.max(1, Math.round(ms / 50));
           const from = fade;
           let step = 0;

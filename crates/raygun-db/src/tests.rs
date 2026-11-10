@@ -536,6 +536,69 @@ async fn a_stream_that_stopped_working_is_forgotten_but_not_held_against_its_sou
 }
 
 #[tokio::test]
+async fn a_match_kept_at_import_is_the_songs_pick_until_one_plays() {
+    let temp = TempDir::new().unwrap();
+    let db = open_in(temp.path()).await;
+    let song = "artist|song";
+    streams::keep_match(
+        &db,
+        song,
+        "dev.raygun.youtube/stream",
+        "audio:abc",
+        "Song (Official Audio)",
+        Some("Artist"),
+        10,
+    )
+    .await
+    .unwrap();
+    let rows = streams::candidates(&db, song).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].verified_at, Some(10), "asked first, as a pick");
+    assert_eq!(
+        rows[0].source, None,
+        "its stream is asked for when it plays"
+    );
+    assert_eq!(rows[0].artist.as_deref(), Some("Artist"));
+
+    // Played since: the match kept again (another import) leaves what played as it was.
+    streams::mark_verified(
+        &db,
+        streams::Played {
+            track_key: song,
+            provider_id: "dev.raygun.youtube/stream",
+            candidate_id: "audio:abc",
+            title: "Song",
+            artist: None,
+            source_json: r#"{"kind":"url","url":"https://a.example/1","headers":{}}"#,
+            expires_at: Some(99),
+            bitrate_kbps: Some(128),
+        },
+        20,
+    )
+    .await
+    .unwrap();
+    streams::keep_match(
+        &db,
+        song,
+        "dev.raygun.youtube/stream",
+        "audio:abc",
+        "Song",
+        None,
+        30,
+    )
+    .await
+    .unwrap();
+    let rows = streams::candidates(&db, song).await.unwrap();
+    assert_eq!(rows[0].verified_at, Some(20));
+    assert!(rows[0].source.is_some());
+    assert_eq!(rows[0].artist.as_deref(), Some("Artist"));
+    // Keeping a match counts for no provider.
+    let stats = streams::provider_stats(&db).await.unwrap();
+    assert_eq!(stats.len(), 1);
+    assert_eq!(stats[0].successes, 1);
+}
+
+#[tokio::test]
 async fn local_values_round_trip_and_never_touch_synced_settings() {
     let dir = TempDir::new().unwrap();
     let db = open_in(dir.path()).await;

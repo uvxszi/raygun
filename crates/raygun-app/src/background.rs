@@ -269,6 +269,7 @@ mod tests {
             stop_after_current: false,
             looking_for_source: false,
             skipped_item_id: None,
+            waiting: false,
         }
     }
 

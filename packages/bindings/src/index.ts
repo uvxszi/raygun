@@ -4681,6 +4681,12 @@ export type PlaybackState = {
 	 *  plays: the skip notice offers to find a source for it.
 	 */
 	skippedItemId?: string | null,
+	/**
+	 *  The player really waits for its song: a stream being found or loaded, or the engine
+	 *  buffering one. A file on this device (a download, a local song) never waits, nor does a
+	 *  song the engine already holds that only resumes (M46.53).
+	 */
+	waiting?: boolean,
 };
 
 /**  The canonical player state changed. */

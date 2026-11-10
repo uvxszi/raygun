@@ -188,6 +188,33 @@ describe('The Web Audio sound graph', () => {
     // Both channels' power, summed.
     expect(deck.power()).toBeCloseTo(0.5, 6);
   });
+
+  it('starts a crossfade from silence even before the context renders the change', () => {
+    const { sound, made, context } = build();
+    const deck = sound.deck({} as HTMLMediaElement);
+    const fade = made.filter((node) => node instanceof FakeGain).at(-1) as FakeGain;
+    // As a real AudioParam does: scheduled changes reach `value` only when the context renders.
+    fade.gain.setValueAtTime = () => fade.gain;
+    fade.gain.setValueCurveAtTime = (curve: Float32Array) => {
+      fade.gain.curve = curve;
+      return fade.gain;
+    };
+
+    // The deck was cut off at full level last; the next song crossfades in on it.
+    expect(fade.gain.value).toBe(1);
+    deck.setFade(0);
+    deck.fadeTo(1, 4000);
+    expect(fade.gain.curve?.[0]).toBe(0);
+
+    // Halfway through, a fade back down starts where the level is, not where it was asked to go.
+    context.currentTime = 2;
+    deck.fadeTo(0, 1000);
+    expect(fade.gain.curve?.[0]).toBeCloseTo(Math.SQRT1_2, 5);
+    // Over, the level is the fade's end.
+    context.currentTime = 10;
+    deck.fadeTo(1, 15);
+    expect(fade.gain.curve?.[0]).toBe(0);
+  });
 });
 
 describe('The loudness meter', () => {

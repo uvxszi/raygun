@@ -6,6 +6,7 @@ import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -18,6 +19,15 @@ import kotlin.math.sqrt
 
 /** Centre frequencies of the equalizer's bands, Hz; the same as `EQ_FREQUENCIES` in Rust. */
 val EQ_FREQUENCIES = doubleArrayOf(31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0)
+
+/**
+ * Sound that starts after a cut (a new song, a seek) fades in from silence over this long, ms: it
+ * starts mid-wave, and a jump from silence to full level clicks.
+ */
+private const val DECLICK_MS = 12L
+
+/** A song starting on a player: its gain (linear), and how long it fades in (a crossfade's), ms. */
+private class TrackStart(val gain: Double, val fadeInMs: Long)
 
 /** The sound settings every player follows (M46.12); set from Rust's `SetEffects`. */
 data class SoundConfig(
@@ -147,6 +157,14 @@ class LoudnessMeter {
  * the platform equalizer's (whatever the device offers) don't. It also measures the song's
  * K-weighted loudness for normalization. Each player has its own, so a crossfade's two songs keep
  * their own gains and fades.
+ *
+ * A song starts clean (M46.53): what the song before left in the filters and the limiter goes,
+ * its own gain applies at once, and it fades in from silence (over its crossfade, else a few ms).
+ * That happens at the song's own first sound, after the flush that starts it, not when the song
+ * is set up: the song before may still be playing its last buffers through this processor then,
+ * and taking the new gain and fade there made its end jump, then the new song start at full
+ * level on the old one's limiter and filter state (a short distorted burst). Sound after a seek
+ * fades in over a few ms too.
  */
 @UnstableApi
 class SoundProcessor : BaseAudioProcessor() {
@@ -164,14 +182,19 @@ class SoundProcessor : BaseAudioProcessor() {
 
     // The song's own gain, glided toward its target; the fade from one value to another.
     @Volatile private var targetGain = 1.0
-    /** A new song starts at its gain instead of gliding there. */
-    @Volatile private var jumpGain = false
     private var gain = 1.0
     private var fadeFrom = 1.0
     private var fadeTo = 1.0
     private var fadeTotal = 0L
     private var fadeDone = 0L
     @Volatile private var pendingFade: Pair<Double, Long>? = null
+
+    /** A song set up on this player ([startTrack]), applied once its own sound comes. */
+    private val pendingStart = AtomicReference<TrackStart?>(null)
+    /** The flush that starts the pending song came: the next sound is that song's. */
+    private var startDue = false
+    /** Sound starts again after a flush (a new song, a seek). */
+    private var restarting = true
 
     private var limiterEnvelope = 0.0
 
@@ -186,13 +209,17 @@ class SoundProcessor : BaseAudioProcessor() {
         config = next
     }
 
-    /** A new song on this player: its gain in dB, a fade in over `fadeInMs` (0 = none), a meter. */
+    /**
+     * A new song on this player: its gain in dB, a fade in over `fadeInMs` (0: just the few ms
+     * that keep it from clicking), a meter. The gain and fade apply from the song's own first
+     * sound (see the class).
+     */
     fun startTrack(gainDb: Double, fadeInMs: Long, measure: Boolean) {
-        targetGain = 10.0.pow(gainDb / 20)
-        jumpGain = true
         meter = LoudnessMeter()
         measuring = measure
-        pendingFade = if (fadeInMs > 0) -1.0 to fadeInMs else 1.0 to 0L
+        // A fade asked of the song before (fading out) isn't this one's.
+        pendingFade = null
+        pendingStart.set(TrackStart(10.0.pow(gainDb / 20), fadeInMs))
     }
 
     fun setGainDb(gainDb: Double) {
@@ -280,11 +307,11 @@ class SoundProcessor : BaseAudioProcessor() {
         if (bands.isEmpty()) useFormat(inputAudioFormat)
         applyConfig()
         val current = applied ?: config
-        takeFade()
-        if (jumpGain) {
-            jumpGain = false
-            gain = targetGain
+        if (restarting) {
+            restarting = false
+            startSound()
         }
+        takeFade()
         val sampleSize = if (encoding == C.ENCODING_PCM_FLOAT) 4 else 2
         val frames = bytes / (sampleSize * channels)
         val output = replaceOutputBuffer(frames * sampleSize * channels).order(ByteOrder.nativeOrder())
@@ -362,6 +389,29 @@ class SoundProcessor : BaseAudioProcessor() {
         output.flip()
     }
 
+    /**
+     * Sound starts again after a flush. A song set up here begins clean: its gain at once, the
+     * limiter at rest (the filters were cleared by the flush), rising from silence over its fade
+     * or a few ms. After a seek, whatever fade runs goes on from silence, over a few ms at least.
+     */
+    private fun startSound() {
+        val declick = DECLICK_MS * rate / 1000
+        val start = if (startDue) pendingStart.getAndSet(null) else null
+        startDue = false
+        val left = fadeTotal - fadeDone
+        fadeFrom = 0.0
+        fadeDone = 0
+        if (start != null) {
+            targetGain = start.gain
+            gain = start.gain
+            limiterEnvelope = 0.0
+            fadeTo = 1.0
+            fadeTotal = max(start.fadeInMs * rate / 1000, declick)
+        } else {
+            fadeTotal = max(left, declick)
+        }
+    }
+
     /** Takes a fade asked for from another thread; `-1` as the level means "from silence up". */
     private fun takeFade() {
         val request = pendingFade ?: return
@@ -397,6 +447,10 @@ class SoundProcessor : BaseAudioProcessor() {
         clearFilters()
         stepSquares = 0.0
         stepFrames = 0
+        // What comes next is a new stretch of sound: a song set up before this flush starts now
+        // (the player flushes for each new song), anything else is a seek.
+        restarting = true
+        if (pendingStart.get() != null) startDue = true
     }
 
     override fun onReset() {

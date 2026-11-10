@@ -62,6 +62,7 @@ mod picker;
 mod playback;
 mod podcast_feed;
 mod podcasts;
+mod prefetch;
 mod privacy;
 mod quick_access;
 mod reader_ai;

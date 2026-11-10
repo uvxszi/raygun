@@ -44,3 +44,17 @@ pub fn on_mobile_data(app: &AppHandle) -> bool {
 pub fn on_mobile_data(_app: &AppHandle) -> bool {
     false
 }
+
+/// What [`on_mobile_data`] last found, without asking Android (it never waits, so it's safe under
+/// the playback lock); `None` before it was asked.
+#[cfg(target_os = "android")]
+pub fn known_mobile_data() -> Option<bool> {
+    let last = *LAST.lock().unwrap();
+    last.map(|(_, cellular)| cellular)
+}
+
+/// What [`on_mobile_data`] last found: desktop is never on mobile data.
+#[cfg(not(target_os = "android"))]
+pub fn known_mobile_data() -> Option<bool> {
+    Some(false)
+}
