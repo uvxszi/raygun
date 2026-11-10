@@ -9,11 +9,16 @@ import {
   Play,
   Plus,
   RotateCcw,
+  SquareCheckBig,
   Trash2,
 } from 'lucide-react';
+import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { SelectionTopBar } from '../manga/LibrarySelection';
+import { PodcastPickActions } from '../podcasts/PodcastPickActions';
+import { usePickList } from '../select/usePickList';
 import {
   useAudiobook,
   useDownloadAudiobook,
@@ -64,6 +69,13 @@ export const AudiobookPage: FC = () => {
   const forget = useForgetPosition();
   const client = useQueryClient();
   const view = book.data;
+  const shown = useMemo(
+    () => (view?.chapters ?? []).filter((chapter) => matchesSearch(find.query, [chapter.title])),
+    [view?.chapters, find.query],
+  );
+  const shownIds = useMemo(() => shown.map((chapter) => chapter.id), [shown]);
+  // Chapters are picked (a finger held on one, Ctrl/Shift-click) for the selection's bar.
+  const picks = usePickList(shownIds);
   // A feed without its own picture shows the one the directory listed it with (M46.45).
   const artworkUrl =
     view?.artworkUrl ??
@@ -108,7 +120,6 @@ export const AudiobookPage: FC = () => {
   const listenedMs = view.listenedMs ?? 0;
   const left = Math.max(0, totalMs - listenedMs);
   const share = totalMs > 0 ? Math.min(1, listenedMs / totalMs) : 0;
-  const shown = view.chapters.filter((chapter) => matchesSearch(find.query, [chapter.title]));
   const filtered = view.order.filters.length > 0 || find.query.trim() !== '';
   // The whole book's listening time; "about …" or "…+" while some chapters' lengths are unknown.
   const length = describeLength(
@@ -131,67 +142,85 @@ export const AudiobookPage: FC = () => {
     openPage.error;
 
   return (
-    <section data-testid="audiobook-page" className="flex flex-col gap-5">
-      <TopBar
-        back
-        fallback="/library"
-        plainTitle
-        title={t('audiobooks.title')}
-        search={find.search}
-        actions={
-          <>
-            {find.action}
-            <EpisodeOrderButton
-              order={view.order}
-              custom={view.customOrder}
-              book
-              onChange={(order) => setOrder.mutate({ id: view.id, order })}
-            />
-            <PinButton
-              target={{
-                kind: 'audiobook',
-                to: '/audiobook',
-                search: { id: view.id },
-                name: view.title,
-                artworkUrl: artworkUrl ?? null,
-              }}
-            />
-            <OverflowMenu
-              items={[
-                {
-                  label: t('audiobooks.markAllFinished'),
-                  icon: CheckCheck,
-                  onSelect: () => setAll.mutate({ id: view.id, played: true }),
-                },
-                {
-                  label: t('audiobooks.markAllUnfinished'),
-                  icon: Check,
-                  onSelect: () => setAll.mutate({ id: view.id, played: false }),
-                },
-                ...(downloadedCount > 0
-                  ? [
-                      {
-                        label: t('podcasts.removeDownloads'),
-                        icon: Trash2,
-                        confirm: t('podcasts.removeDownloadsConfirm', { count: downloadedCount }),
-                        onSelect: () => removeDownloads.mutate(view.id),
-                      },
-                    ]
-                  : []),
-                ...(view.link
-                  ? [
-                      {
-                        label: t('audiobooks.openPage'),
-                        icon: Globe,
-                        onSelect: () => view.link && openPage.mutate(view.link),
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-          </>
-        }
-      />
+    <section data-testid="audiobook-page" className="flex min-h-full flex-col gap-5">
+      {picks.selecting ? (
+        <SelectionTopBar
+          count={picks.picked.size}
+          onSelectAll={picks.selectAll}
+          onInvert={picks.invert}
+          onClose={picks.clear}
+        />
+      ) : (
+        <TopBar
+          back
+          fallback="/library"
+          plainTitle
+          title={t('audiobooks.title')}
+          search={find.search}
+          actions={
+            <>
+              {find.action}
+              <EpisodeOrderButton
+                order={view.order}
+                custom={view.customOrder}
+                book
+                onChange={(order) => setOrder.mutate({ id: view.id, order })}
+              />
+              <PinButton
+                target={{
+                  kind: 'audiobook',
+                  to: '/audiobook',
+                  search: { id: view.id },
+                  name: view.title,
+                  artworkUrl: artworkUrl ?? null,
+                }}
+              />
+              <OverflowMenu
+                items={[
+                  ...(shownIds.length > 0
+                    ? [
+                        {
+                          label: t('library.select.all'),
+                          icon: SquareCheckBig,
+                          onSelect: picks.selectAll,
+                        },
+                      ]
+                    : []),
+                  {
+                    label: t('audiobooks.markAllFinished'),
+                    icon: CheckCheck,
+                    onSelect: () => setAll.mutate({ id: view.id, played: true }),
+                  },
+                  {
+                    label: t('audiobooks.markAllUnfinished'),
+                    icon: Check,
+                    onSelect: () => setAll.mutate({ id: view.id, played: false }),
+                  },
+                  ...(downloadedCount > 0
+                    ? [
+                        {
+                          label: t('podcasts.removeDownloads'),
+                          icon: Trash2,
+                          confirm: t('podcasts.removeDownloadsConfirm', { count: downloadedCount }),
+                          onSelect: () => removeDownloads.mutate(view.id),
+                        },
+                      ]
+                    : []),
+                  ...(view.link
+                    ? [
+                        {
+                          label: t('audiobooks.openPage'),
+                          icon: Globe,
+                          onSelect: () => view.link && openPage.mutate(view.link),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            </>
+          }
+        />
+      )}
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
         <PodcastArt url={artworkUrl} className="w-40 shrink-0 rounded-lg shadow-xl sm:w-48" />
         <div className="flex min-w-0 flex-col items-center gap-2 sm:items-start">
@@ -329,11 +358,19 @@ export const AudiobookPage: FC = () => {
                 chapter
                 tapToPlay
                 onPlay={() => play.mutate({ id: view.id, chapterId: chapter.id })}
+                pick={picks.state(chapter.id)}
               />
             )}
           </EpisodeList>
         )}
       </section>
+      {picks.selecting && (
+        <PodcastPickActions
+          picks={{ shows: [], episodes: shownIds.filter((id) => picks.has(id)) }}
+          books
+          onDone={picks.clear}
+        />
+      )}
     </section>
   );
 };

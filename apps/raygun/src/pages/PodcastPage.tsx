@@ -7,11 +7,16 @@ import {
   LoaderCircle,
   Plus,
   RefreshCw,
+  SquareCheckBig,
   Trash2,
 } from 'lucide-react';
+import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { SelectionTopBar } from '../manga/LibrarySelection';
+import { PodcastPickActions } from '../podcasts/PodcastPickActions';
+import { usePickList } from '../select/usePickList';
 import { TopBar } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
 import { OverflowMenu } from '../shell/OverflowMenu';
@@ -57,6 +62,16 @@ export const PodcastPage: FC = () => {
   const removeDownloads = useRemoveDownloads();
   const openPage = useOpenPodcastPage();
   const view = podcast.data;
+  const shown = useMemo(
+    () =>
+      (view?.episodes ?? []).filter((episode) =>
+        matchesSearch(find.query, [episode.title, episode.description]),
+      ),
+    [view?.episodes, find.query],
+  );
+  const shownIds = useMemo(() => shown.map((episode) => episode.id), [shown]);
+  // Episodes are picked (a finger held on one, Ctrl/Shift-click) for the selection's bar.
+  const picks = usePickList(shownIds);
   usePlayContext(
     view
       ? {
@@ -85,9 +100,6 @@ export const PodcastPage: FC = () => {
     );
   }
 
-  const shown = view.episodes.filter((episode) =>
-    matchesSearch(find.query, [episode.title, episode.description]),
-  );
   const filtered = view.order.filters.length > 0 || find.query.trim() !== '';
   const listedAll = !filtered || shown.length === view.episodeCount;
   // Every episode's length together, or the shown ones' while a filter is on.
@@ -109,77 +121,95 @@ export const PodcastPage: FC = () => {
     openPage.error;
 
   return (
-    <section data-testid="podcast-page" className="flex flex-col gap-5">
-      <TopBar
-        back
-        fallback="/library"
-        plainTitle
-        title={t('library.media.podcast')}
-        search={find.search}
-        actions={
-          <>
-            {find.action}
-            <EpisodeOrderButton
-              order={view.order}
-              custom={view.customOrder}
-              book={false}
-              onChange={(order) => setOrder.mutate({ id: view.id, order })}
-            />
-            <PinButton
-              target={{
-                kind: 'podcast',
-                to: '/podcast',
-                search: { id: view.id },
-                name: view.title,
-                artworkUrl: view.artworkUrl ?? null,
-              }}
-            />
-            <OverflowMenu
-              items={[
-                {
-                  label: t('podcasts.menu.refresh'),
-                  icon: RefreshCw,
-                  onSelect: () => refresh.mutate(view.id),
-                },
-                {
-                  label: t('podcasts.markAllPlayed'),
-                  icon: CheckCheck,
-                  onSelect: () => setAll.mutate({ id: view.id, played: true }),
-                },
-                {
-                  label: t('podcasts.markAllUnplayed'),
-                  icon: Check,
-                  onSelect: () => setAll.mutate({ id: view.id, played: false }),
-                },
-                ...(downloadedCount > 0
-                  ? [
-                      {
-                        label: t('podcasts.removeDownloads'),
-                        icon: Trash2,
-                        confirm: t('podcasts.removeDownloadsConfirm', { count: downloadedCount }),
-                        onSelect: () => removeDownloads.mutate(view.id),
-                      },
-                    ]
-                  : []),
-                ...(view.link
-                  ? [
-                      {
-                        label: t('podcasts.openWebsite'),
-                        icon: Globe,
-                        onSelect: () => view.link && openPage.mutate(view.link),
-                      },
-                    ]
-                  : []),
-                {
-                  label: t('podcasts.menu.copyFeed'),
-                  icon: Copy,
-                  onSelect: () => copy(view.feedUrl),
-                },
-              ]}
-            />
-          </>
-        }
-      />
+    <section data-testid="podcast-page" className="flex min-h-full flex-col gap-5">
+      {picks.selecting ? (
+        <SelectionTopBar
+          count={picks.picked.size}
+          onSelectAll={picks.selectAll}
+          onInvert={picks.invert}
+          onClose={picks.clear}
+        />
+      ) : (
+        <TopBar
+          back
+          fallback="/library"
+          plainTitle
+          title={t('library.media.podcast')}
+          search={find.search}
+          actions={
+            <>
+              {find.action}
+              <EpisodeOrderButton
+                order={view.order}
+                custom={view.customOrder}
+                book={false}
+                onChange={(order) => setOrder.mutate({ id: view.id, order })}
+              />
+              <PinButton
+                target={{
+                  kind: 'podcast',
+                  to: '/podcast',
+                  search: { id: view.id },
+                  name: view.title,
+                  artworkUrl: view.artworkUrl ?? null,
+                }}
+              />
+              <OverflowMenu
+                items={[
+                  {
+                    label: t('podcasts.menu.refresh'),
+                    icon: RefreshCw,
+                    onSelect: () => refresh.mutate(view.id),
+                  },
+                  ...(shownIds.length > 0
+                    ? [
+                        {
+                          label: t('library.select.all'),
+                          icon: SquareCheckBig,
+                          onSelect: picks.selectAll,
+                        },
+                      ]
+                    : []),
+                  {
+                    label: t('podcasts.markAllPlayed'),
+                    icon: CheckCheck,
+                    onSelect: () => setAll.mutate({ id: view.id, played: true }),
+                  },
+                  {
+                    label: t('podcasts.markAllUnplayed'),
+                    icon: Check,
+                    onSelect: () => setAll.mutate({ id: view.id, played: false }),
+                  },
+                  ...(downloadedCount > 0
+                    ? [
+                        {
+                          label: t('podcasts.removeDownloads'),
+                          icon: Trash2,
+                          confirm: t('podcasts.removeDownloadsConfirm', { count: downloadedCount }),
+                          onSelect: () => removeDownloads.mutate(view.id),
+                        },
+                      ]
+                    : []),
+                  ...(view.link
+                    ? [
+                        {
+                          label: t('podcasts.openWebsite'),
+                          icon: Globe,
+                          onSelect: () => view.link && openPage.mutate(view.link),
+                        },
+                      ]
+                    : []),
+                  {
+                    label: t('podcasts.menu.copyFeed'),
+                    icon: Copy,
+                    onSelect: () => copy(view.feedUrl),
+                  },
+                ]}
+              />
+            </>
+          }
+        />
+      )}
       <header className="flex gap-4">
         <PodcastArt url={view.artworkUrl} className="w-28 shrink-0 rounded-lg shadow-lg sm:w-40" />
         <div className="flex min-w-0 flex-col gap-2">
@@ -243,10 +273,18 @@ export const PodcastPage: FC = () => {
           </div>
         ) : (
           <EpisodeList episodes={shown}>
-            {(episode) => <EpisodeItem key={episode.id} episode={episode} />}
+            {(episode) => (
+              <EpisodeItem key={episode.id} episode={episode} pick={picks.state(episode.id)} />
+            )}
           </EpisodeList>
         )}
       </section>
+      {picks.selecting && (
+        <PodcastPickActions
+          picks={{ shows: [], episodes: shownIds.filter((id) => picks.has(id)) }}
+          onDone={picks.clear}
+        />
+      )}
     </section>
   );
 };

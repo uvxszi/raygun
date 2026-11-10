@@ -43,6 +43,8 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
         <button
           type="button"
           data-testid="online-track-row"
+          // The row itself: while picking, a tap on it picks (its ⋮ keeps its menu).
+          data-pick-main=""
           onClick={() => onPlay(track)}
           className={`flex min-w-0 flex-1 items-center gap-3 text-left ${source ? 'min-h-14 py-1.5' : 'h-14'}`}
         >

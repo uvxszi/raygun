@@ -616,6 +616,12 @@ export const bindingsMock = {
     podcastRemoveDownload: vi.fn(),
     podcastRemoveDownloads: vi.fn(),
     podcastCancelDownload: vi.fn(),
+    podcastSetSubscribedMany: vi.fn(),
+    podcastSetPlayedPicks: vi.fn(),
+    podcastDownloadPicks: vi.fn(),
+    podcastRemoveDownloadsPicks: vi.fn(),
+    podcastQueuePicks: vi.fn(),
+    podcastPinMany: vi.fn(),
     podcastOpenPage: vi.fn(),
     videoPlay: vi.fn(),
     videoPlayLink: vi.fn(),
@@ -1400,6 +1406,12 @@ export const seedBindings = () => {
   commands.podcastRemoveDownload.mockResolvedValue(ok(null));
   commands.podcastRemoveDownloads.mockResolvedValue(ok(null));
   commands.podcastCancelDownload.mockResolvedValue(ok(null));
+  commands.podcastSetSubscribedMany.mockResolvedValue(ok(0));
+  commands.podcastSetPlayedPicks.mockResolvedValue(ok(0));
+  commands.podcastDownloadPicks.mockResolvedValue(ok(0));
+  commands.podcastRemoveDownloadsPicks.mockResolvedValue(ok(0));
+  commands.podcastQueuePicks.mockResolvedValue(ok(0));
+  commands.podcastPinMany.mockResolvedValue(ok(0));
   commands.podcastOpenPage.mockResolvedValue(ok(null));
   commands.videoPlay.mockResolvedValue(ok(null));
   commands.videoPlayLink.mockResolvedValue(ok(null));

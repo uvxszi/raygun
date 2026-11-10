@@ -38,6 +38,7 @@ export const StremioPoster: FC<{ url: string | null; shape?: string; className?:
       src={url}
       alt=""
       loading="lazy"
+      draggable={false}
       onError={() => setFailed(url)}
       className={`bg-surface rounded-lg object-cover ${aspect} ${className}`}
     />
@@ -74,8 +75,9 @@ export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
   const menu = useTitleCardMenu();
   const play = usePlayTitle();
   const name = item.name || item.id;
-  // In search a card can be picked (M46.50): a long press picks there, ⋮ and a right click open
-  // the menu (with Select); the box around it then takes the card's size.
+  // In search a card can be picked (M46.50): a long press, a right click or the circle on its top
+  // left picks it, ⋮ on its top right opens the menu (with Select); the box around it then takes
+  // the card's size.
   const pickable = useInSelectionScope();
   const picked = {
     kind: 'title' as const,
@@ -104,6 +106,7 @@ export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
         search={{ type: item.kind, id: item.id }}
         aria-label={name}
         data-testid="stremio-card"
+        draggable={false}
         className={`flex flex-col gap-1 ${pickable ? '' : className}`}
       >
         <span className="relative">

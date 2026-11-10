@@ -1086,6 +1086,27 @@ export const commands = {
 	podcastRemoveDownloads: (id: string) => typedError<null, string>(__TAURI_INVOKE("podcast_remove_downloads", { id })),
 	/**  Stops a download that's waiting or under way (M46.48). */
 	podcastCancelDownload: (episodeId: string) => typedError<null, string>(__TAURI_INVOKE("podcast_cancel_download", { episodeId })),
+	/**
+	 *  Follows or unfollows shows (keeps books in the library or takes them out) together; returns
+	 *  how many changed.
+	 */
+	podcastSetSubscribedMany: (ids: string[], subscribed: boolean) => typedError<number, string>(__TAURI_INVOKE("podcast_set_subscribed_many", { ids, subscribed })),
+	/**  Marks every episode or chapter of the picks played or unplayed; returns how many changed. */
+	podcastSetPlayedPicks: (picks: PodcastPicks, played: boolean) => typedError<number, string>(__TAURI_INVOKE("podcast_set_played_picks", { picks, played })),
+	/**
+	 *  Downloads the picks: books whole, shows' new episodes and the episodes picked; returns how
+	 *  many were queued.
+	 */
+	podcastDownloadPicks: (picks: PodcastPicks) => typedError<number, string>(__TAURI_INVOKE("podcast_download_picks", { picks })),
+	/**  Deletes every download of the picks, stopping those under way; returns how many went. */
+	podcastRemoveDownloadsPicks: (picks: PodcastPicks) => typedError<number, string>(__TAURI_INVOKE("podcast_remove_downloads_picks", { picks })),
+	/**
+	 *  Queues the picks after what plays (`next`) or at the end: books from where they go on, shows'
+	 *  newest unplayed episodes and the episodes picked; returns how many were queued.
+	 */
+	podcastQueuePicks: (picks: PodcastPicks, next: boolean) => typedError<number, string>(__TAURI_INVOKE("podcast_queue_picks", { picks, next })),
+	/**  Pins shows and books to quick access, or unpins them; returns how many changed. */
+	podcastPinMany: (ids: string[], pinned: boolean) => typedError<number, string>(__TAURI_INVOKE("podcast_pin_many", { ids, pinned })),
 	/**  Opens a show's or book's website, or a link from its notes, in Raygun's browser (M46.48). */
 	podcastOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("podcast_open_page", { url })),
 	/**  Plays a video in the player, resuming where it was left. */
@@ -4609,6 +4630,17 @@ export type PodcastEpisode = {
 	download: EpisodeDownload | null,
 	/**  The episode's number (`itunes:episode`), or a chapter's place in its book (M46.48). */
 	number: number | null,
+};
+
+/**
+ *  Shows, books, episodes and chapters picked together in a list, for what the selection does to
+ *  all of them at once.
+ */
+export type PodcastPicks = {
+	/**  Shows and books, by id: each stands for its episodes or chapters. */
+	shows: string[],
+	/**  Episodes and chapters, by id, in the order they're listed. */
+	episodes: string[],
 };
 
 /**  A podcast a directory found. */

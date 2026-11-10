@@ -4010,6 +4010,73 @@ pub async fn podcast_cancel_download(
     podcasts.cancel_download(&episode_id).await
 }
 
+/// Follows or unfollows shows (keeps books in the library or takes them out) together; returns
+/// how many changed.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_subscribed_many(
+    podcasts: Podcasts<'_>,
+    ids: Vec<String>,
+    subscribed: bool,
+) -> Result<u32, String> {
+    podcasts.set_subscribed_many(&ids, subscribed).await
+}
+
+/// Marks every episode or chapter of the picks played or unplayed; returns how many changed.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_set_played_picks(
+    podcasts: Podcasts<'_>,
+    picks: raygun_model::PodcastPicks,
+    played: bool,
+) -> Result<u32, String> {
+    podcasts.set_played_picks(&picks, played).await
+}
+
+/// Downloads the picks: books whole, shows' new episodes and the episodes picked; returns how
+/// many were queued.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_download_picks(
+    podcasts: Podcasts<'_>,
+    picks: raygun_model::PodcastPicks,
+) -> Result<u32, String> {
+    podcasts.download_picks(&picks).await
+}
+
+/// Deletes every download of the picks, stopping those under way; returns how many went.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_remove_downloads_picks(
+    podcasts: Podcasts<'_>,
+    picks: raygun_model::PodcastPicks,
+) -> Result<u32, String> {
+    podcasts.remove_downloads_picks(&picks).await
+}
+
+/// Queues the picks after what plays (`next`) or at the end: books from where they go on, shows'
+/// newest unplayed episodes and the episodes picked; returns how many were queued.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_queue_picks(
+    podcasts: Podcasts<'_>,
+    picks: raygun_model::PodcastPicks,
+    next: bool,
+) -> Result<u32, String> {
+    podcasts.queue_picks(&picks, next).await
+}
+
+/// Pins shows and books to quick access, or unpins them; returns how many changed.
+#[tauri::command]
+#[specta::specta]
+pub async fn podcast_pin_many(
+    podcasts: Podcasts<'_>,
+    ids: Vec<String>,
+    pinned: bool,
+) -> Result<u32, String> {
+    podcasts.pin_many(&ids, pinned).await
+}
+
 /// Opens a show's or book's website, or a link from its notes, in Raygun's browser (M46.48).
 #[tauri::command]
 #[specta::specta]

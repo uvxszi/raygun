@@ -25,6 +25,8 @@ export const PodcastArt: FC<{ url: string | null | undefined; className?: string
     <img
       src={url}
       alt=""
+      // A long press picks a show or a book; the webview would start dragging the picture.
+      draggable={false}
       {...imageLoading(url)}
       onError={() => setFailedUrl(url)}
       className={`bg-surface aspect-square object-cover ${className}`}

@@ -73,8 +73,11 @@ export const SelectionTopBar: FC<{
 
 type CheckState = 'on' | 'off' | 'mixed';
 
-/** Categories for the selection: tri-state boxes where only some of the titles are in one. */
-const CategoriesSheet: FC<{
+/**
+ * Categories for the selection (or one title, from its ⋮): tri-state boxes where only some of the
+ * titles are in one.
+ */
+export const CategoriesSheet: FC<{
   medium: Medium;
   categories: LibraryCategory[];
   selected: MangaLibraryEntry[];

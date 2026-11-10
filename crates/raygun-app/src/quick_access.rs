@@ -236,6 +236,56 @@ pub async fn remove(app: &AppHandle, to: &str, search: &BTreeMap<String, String>
     }
 }
 
+/// Pins pages by hand, or takes their pins away, all at once (a selection's Pin); returns how
+/// many changed. New pins follow the others, in the order given.
+pub async fn set_pinned(app: &AppHandle, pins: Vec<QuickPin>, pinned: bool) -> u32 {
+    let mut changed = 0;
+    change(app, |_, rail| {
+        changed = set_page_pins(rail, pins, pinned, now_s());
+        changed > 0
+    })
+    .await;
+    changed
+}
+
+/// [`set_pinned`]'s change to `rail`: a page pinned automatically becomes pinned by hand, so it
+/// stays when it leaves the library.
+fn set_page_pins(rail: &mut RailPrefs, pins: Vec<QuickPin>, pinned: bool, at: u32) -> u32 {
+    let mut changed = 0;
+    for pin in pins {
+        let same = |other: &RailPin| other.to == pin.to && other.search == pin.search;
+        if !pinned {
+            let before = rail.pins.len();
+            rail.pins.retain(|other| !same(other));
+            changed += (before - rail.pins.len()) as u32;
+            continue;
+        }
+        if let Some(existing) = rail.pins.iter_mut().find(|other| same(other)) {
+            if existing.auto {
+                existing.auto = false;
+                changed += 1;
+            }
+            continue;
+        }
+        if rail.pins.len() >= raygun_model::RAIL_MAX_PINS {
+            break;
+        }
+        rail.pins.push(RailPin {
+            kind: pin.kind.to_owned(),
+            to: pin.to,
+            search: pin.search,
+            name: pin.name,
+            artwork_url: pin.artwork_url,
+            pinned_at: at,
+            played_at: 0,
+            opened_at: 0,
+            auto: false,
+        });
+        changed += 1;
+    }
+    changed
+}
+
 fn drop_pins(rail: &mut RailPrefs, to: &str, search: &BTreeMap<String, String>) -> bool {
     let every = matches!(
         to,
@@ -1102,6 +1152,52 @@ mod tests {
         assert_eq!(
             names(&list),
             [("b", true), ("book", false), ("comic", true)]
+        );
+    }
+
+    #[test]
+    fn many_pages_pin_and_unpin_together() {
+        let mut rail = RailPrefs {
+            pins: vec![
+                pin("manga", "/manga/title", "comic", 1),
+                RailPin {
+                    auto: true,
+                    ..pin("audiobook", "/audiobook", "book", 2)
+                },
+            ],
+            ..RailPrefs::default()
+        };
+        let pages = || {
+            vec![
+                page_pin("podcast", "/podcast", "show", "Show", None),
+                page_pin("audiobook", "/audiobook", "book", "Book", None),
+                page_pin("podcast", "/podcast", "show", "Show", None),
+            ]
+        };
+        // The show is new; the book's automatic pin becomes one made by hand; the repeat is one.
+        assert_eq!(set_page_pins(&mut rail, pages(), true, 50), 2);
+        let pinned: Vec<(&str, bool, u32)> = rail
+            .pins
+            .iter()
+            .map(|pin| (pin.name.as_str(), pin.auto, pin.pinned_at))
+            .collect();
+        assert_eq!(
+            pinned,
+            [("comic", false, 1), ("book", false, 2), ("Show", false, 50)]
+        );
+        assert_eq!(
+            set_page_pins(&mut rail, pages(), true, 60),
+            0,
+            "pinned already"
+        );
+
+        assert_eq!(set_page_pins(&mut rail, pages(), false, 70), 2);
+        assert_eq!(
+            rail.pins
+                .iter()
+                .map(|pin| pin.name.as_str())
+                .collect::<Vec<_>>(),
+            ["comic"]
         );
     }
 

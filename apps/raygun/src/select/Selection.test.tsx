@@ -123,6 +123,30 @@ describe('Picking search and source results', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('keeps the circle on the cover’s top left, clear of the ⋮, which opens its menu while picking', async () => {
+    const user = userEvent.setup();
+    const page = await mountSource();
+    const circle = within(pickable(page, 'Frieren')).getByRole('checkbox', {
+      name: 'Select Frieren',
+    });
+    const options = within(pickable(page, 'Frieren')).getByRole('button', {
+      name: 'Options for Frieren',
+    });
+    expect(circle.className).toMatch(/\btop-1\.5\b.*\bleft-1\.5\b/);
+    expect(options.className).toMatch(/\btop-1\.5\b.*\bright-1\.5\b/);
+
+    await user.click(circle);
+    expect(bar()).toHaveTextContent('1 selected');
+    await user.click(
+      within(pickable(page, 'Dandadan')).getByRole('button', { name: 'Options for Dandadan' }),
+    );
+    expect(
+      within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Select Dandadan' }),
+    ).toBeInTheDocument();
+    expect(pickable(page, 'Dandadan')).not.toHaveAttribute('data-selected');
+    expect(bar()).toHaveTextContent('1 selected');
+  });
+
   it('clears on Escape and with the bar’s Clear', async () => {
     const user = userEvent.setup();
     const page = await mountSource();
