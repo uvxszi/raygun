@@ -115,37 +115,3 @@ export const LocalFilesTile: FC = () => {
     </li>
   );
 };
-
-/** Home's tiles for Downloaded (blue) and Local files (green), always shown (M46.29). */
-export const HomeFixedTiles: FC<{ className: string }> = ({ className }) => {
-  const { t } = useTranslation();
-  const menu = useFixedTileMenuItems();
-  return (
-    <>
-      <li>
-        <Link to="/library" search={{ view: 'downloaded' }} className={`relative ${className}`}>
-          <CardMenu
-            label={t('menu.options', { name: t('library.view.downloaded') })}
-            items={() => menu('downloaded')}
-          />
-          <span className="grid aspect-square place-items-center rounded-lg bg-sky-500/20 text-sky-500">
-            <ArrowDown aria-hidden size={32} strokeWidth={3} />
-          </span>
-          <span className="truncate font-medium">{t('library.view.downloaded')}</span>
-        </Link>
-      </li>
-      <li>
-        <Link to="/local-files" className={`relative ${className}`}>
-          <CardMenu
-            label={t('menu.options', { name: t('localFiles.title') })}
-            items={() => menu('localFiles')}
-          />
-          <span className="grid aspect-square place-items-center rounded-lg bg-emerald-500/20 text-emerald-500">
-            <Folder aria-hidden size={30} fill="currentColor" />
-          </span>
-          <span className="truncate font-medium">{t('localFiles.title')}</span>
-        </Link>
-      </li>
-    </>
-  );
-};

@@ -19,21 +19,13 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
-import { BrowseTab as AvailableExtensions } from '../extensions/BrowseTab';
 import { useContentRating } from '../extensions/contentRating';
 import type { RatingItem } from '../extensions/contentRating';
+import { ExtensionCatalog } from '../extensions/ExtensionCatalog';
 import { RatingHint } from '../extensions/RatingHint';
-import { updateCount } from '../extensions/catalogFilters';
-import { InstalledTab } from '../extensions/InstalledTab';
-import { InstallProgress } from '../extensions/InstallProgress';
-import { EXTENSION_LISTS } from '../extensions/tabs';
 import type { ExtensionList } from '../extensions/tabs';
-import {
-  useCatalog,
-  useExtensions,
-  useRefreshCatalog,
-  useReloadExtensions,
-} from '../extensions/useExtensions';
+import { useCatalogRefresh } from '../extensions/useCatalogRefresh';
+import { useExtensions } from '../extensions/useExtensions';
 import { useLayout } from '../layout/useLayout';
 import { useMangaSources } from '../manga/useManga';
 import { AdultMark } from '../shell/AdultMark';
@@ -65,7 +57,6 @@ import { useSourceSwitches } from '../search/useSourceSwitch';
 import type { SearchType, SearchView } from '../search/searchTypes';
 import { useSetAddonEnabled, useStremioAddons } from '../watch/useStremio';
 import { useVideoSources } from '../watch/useVideoSources';
-import { SourceIssue } from '../shell/SourceIssue';
 import { BROWSE_TAB_LABEL, browseStartTab } from './browseTabs';
 import { MenuButton } from '../shell/MenuButton';
 
@@ -520,7 +511,6 @@ export const BrowsePage: FC = () => {
   const { t } = useTranslation();
   const current = useSearch({ from: '/browse' });
   const layout = useLayout();
-  const listRow = useDragScroll<HTMLElement>();
   // Without a tab in the address, Sources, or the first tab the user shows (M46.5).
   const shownTabs = layout.browseTabs
     .filter((item) => item.visible)
@@ -540,10 +530,7 @@ export const BrowsePage: FC = () => {
   const incognitoItem = useIncognitoItem();
   const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
-  const reload = useReloadExtensions();
-  const refresh = useRefreshCatalog();
-  const catalog = useCatalog(tab === 'extensions');
-  const updates = updateCount(catalog.data);
+  const catalogRefresh = useCatalogRefresh(list);
   const fetching = useIsFetching() > 0;
   const remember = useRememberSearch();
   const [input, setInput] = useState(q);
@@ -617,23 +604,9 @@ export const BrowsePage: FC = () => {
   const menu = (
     <OverflowMenu
       items={[
-        ...(tab === 'extensions' && list === 'installed'
-          ? [
-              {
-                label: t('extensions.reload'),
-                icon: RefreshCw,
-                onSelect: () => reload.mutate(),
-              },
-            ]
-          : []),
-        ...(tab === 'extensions' && list !== 'installed'
-          ? [
-              {
-                label: t('extensions.refresh'),
-                icon: RefreshCw,
-                onSelect: () => refresh.mutate(),
-              },
-            ]
+        // Installed reloads the extensions; the catalogue's lists fetch the indexes again.
+        ...(tab === 'extensions'
+          ? [{ label: catalogRefresh.label, icon: RefreshCw, onSelect: catalogRefresh.run }]
           : []),
         {
           label: t('sources.failingLast'),
@@ -649,10 +622,6 @@ export const BrowsePage: FC = () => {
         },
       ]}
     />
-  );
-  // Updates shows only while there are some (or while it's open).
-  const extensionLists = EXTENSION_LISTS.filter(
-    (option) => option !== 'updates' || updates > 0 || list === 'updates',
   );
   const tabs = (
     <Tabs
@@ -717,15 +686,7 @@ export const BrowsePage: FC = () => {
           {tabs}
         </>
       )}
-      {(reload.error ?? refresh.error) && (
-        <SourceIssue>{(reload.error ?? refresh.error)?.message}</SourceIssue>
-      )}
-      {(reload.isPending || refresh.isPending) && (
-        <p role="status" className="text-muted flex items-center gap-2 text-sm">
-          <RefreshCw aria-hidden size={14} className="text-primary animate-spin" />
-          {t(reload.isPending ? 'extensions.reload' : 'extensions.refresh')}
-        </p>
-      )}
+      {catalogRefresh.status}
       {tab === 'search' && (
         <SearchPanel
           query={q}
@@ -739,31 +700,13 @@ export const BrowsePage: FC = () => {
       {tab === 'discover' && <BrowseAll />}
       {tab === 'sources' && <SourcesList />}
       {tab === 'extensions' && (
-        <div className="flex flex-col gap-4">
-          <nav
-            ref={listRow}
-            aria-label={t('extensions.tabs')}
-            className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
-          >
-            {extensionLists.map((option) => (
-              <Link
-                key={option}
-                to="/browse"
-                search={{ tab: 'extensions', ...(option === 'installed' ? {} : { list: option }) }}
-                replace
-                data-testid={`extensions-tab-${option}`}
-                aria-current={option === list ? 'page' : undefined}
-                className={`shrink-0 rounded-full px-4 py-1.5 text-sm ${option === list ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`}
-              >
-                {option === 'updates'
-                  ? t('extensions.tab.updatesCount', { count: updates })
-                  : t(`extensions.tab.${option}`)}
-              </Link>
-            ))}
-          </nav>
-          <InstallProgress />
-          {list === 'installed' ? <InstalledTab /> : <AvailableExtensions show={list} />}
-        </div>
+        <ExtensionCatalog
+          list={list}
+          linkOf={(option) => ({
+            to: '/browse',
+            search: { tab: 'extensions', ...(option === 'installed' ? {} : { list: option }) },
+          })}
+        />
       )}
     </section>
   );

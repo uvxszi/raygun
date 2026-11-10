@@ -6004,7 +6004,8 @@ pub const LAYOUT_HOME_SECTIONS: [(&str, bool); 23] = [
     ("continueReading", true),
     ("continueListening", true),
     ("madeForYou", true),
-    ("yourMusic", true),
+    // Quick access's list as cards (was "Your music": `LAYOUT_RENAMED`).
+    ("quickAccess", true),
     // The artists played most now, from Made for You's numbers.
     ("topArtists", true),
     ("recentlyPlayed", true),
@@ -6069,14 +6070,30 @@ pub const LAYOUT_MORE_ENTRIES: [(&str, bool); 8] = [
     ("about", true),
 ];
 
-/// `saved` in its order with only known ids (once each), then every default it lacks, placed
-/// after the entry that comes before it by default.
+/// Entries saved under an id they've since lost, with the id they have now: a stored layout keeps
+/// their place and whether they show.
+pub const LAYOUT_RENAMED: [(&str, &str); 1] = [("yourMusic", "quickAccess")];
+
+/// An entry's id now, for one a stored layout may have saved under its old id.
+fn current_id(id: &str) -> &str {
+    LAYOUT_RENAMED
+        .iter()
+        .find(|(old, _)| *old == id)
+        .map_or(id, |(_, new)| new)
+}
+
+/// `saved` in its order with only known ids (once each, renamed ones under their new id), then
+/// every default it lacks, placed after the entry that comes before it by default.
 fn arrange(saved: &[LayoutItem], defaults: &[(&str, bool)]) -> Vec<LayoutItem> {
     let mut items: Vec<LayoutItem> = Vec::with_capacity(defaults.len());
     for item in saved {
-        let known = defaults.iter().any(|(id, _)| *id == item.id);
-        if known && !items.iter().any(|other| other.id == item.id) {
-            items.push(item.clone());
+        let id = current_id(&item.id);
+        let known = defaults.iter().any(|(default, _)| *default == id);
+        if known && !items.iter().any(|other| other.id == id) {
+            items.push(LayoutItem {
+                id: id.to_owned(),
+                visible: item.visible,
+            });
         }
     }
     for (index, (id, visible)) in defaults.iter().enumerate() {
@@ -8161,6 +8178,44 @@ pub struct VideoDownloads {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_renamed_home_row_keeps_its_place_and_whether_it_shows() {
+        let item = |id: &str, visible: bool| LayoutItem {
+            id: id.to_owned(),
+            visible,
+        };
+        let saved = LayoutPrefs {
+            home_sections: vec![
+                item("recentlyPlayed", true),
+                item("yourMusic", false),
+                item("continueWatching", true),
+            ],
+            ..LayoutPrefs::default()
+        }
+        .normalized();
+        let ids: Vec<(&str, bool)> = saved
+            .home_sections
+            .iter()
+            .map(|entry| (entry.id.as_str(), entry.visible))
+            .collect();
+        // The saved ones keep their order (other rows join after their default neighbours).
+        let kept: Vec<(&str, bool)> = ids
+            .iter()
+            .copied()
+            .filter(|(id, _)| ["recentlyPlayed", "quickAccess", "continueWatching"].contains(id))
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                ("recentlyPlayed", true),
+                ("quickAccess", false),
+                ("continueWatching", true)
+            ]
+        );
+        assert!(!ids.iter().any(|(id, _)| *id == "yourMusic"));
+        assert_eq!(ids.len(), LAYOUT_HOME_SECTIONS.len());
+    }
 
     #[test]
     fn an_indent_is_saved_as_an_amount_and_checked() {

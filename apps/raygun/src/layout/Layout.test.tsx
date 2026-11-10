@@ -148,6 +148,7 @@ describe('Customizable layout', () => {
     withLayout({
       homeSections: [
         { id: 'recentlyPlayed', visible: true },
+        // Saved before the row was renamed: it keeps its place as Quick access.
         { id: 'yourMusic', visible: true },
         { id: 'continueWatching', visible: false },
         { id: 'continueReading', visible: true },
@@ -158,10 +159,11 @@ describe('Customizable layout', () => {
     });
     await AppShellWrapper.mount('/');
     const home = await screen.findByTestId('home-page');
+    await within(home).findByRole('heading', { level: 2, name: 'Quick access' });
     const headings = within(home)
       .getAllByRole('heading', { level: 2 })
       .map((heading) => heading.textContent);
-    expect(headings.indexOf('Recently played')).toBeLessThan(headings.indexOf('Your music'));
+    expect(headings.indexOf('Recently played')).toBeLessThan(headings.indexOf('Quick access'));
 
     await AppShellWrapper.tapTab('more');
     const more = await screen.findByTestId('more-page');

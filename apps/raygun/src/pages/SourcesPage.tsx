@@ -1,13 +1,15 @@
 import type { ExtensionInfo, RepoCatalog, ServerInfo } from '@raygun/bindings';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { ChevronRight, LoaderCircle, Plus } from 'lucide-react';
+import { ChevronRight, LoaderCircle, Plus, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useContentRating } from '../extensions/contentRating';
+import { ExtensionCatalog } from '../extensions/ExtensionCatalog';
 import { RatingHint } from '../extensions/RatingHint';
 import { RepoRow, SuggestedRepos } from '../extensions/RepoRows';
+import { useCatalogRefresh } from '../extensions/useCatalogRefresh';
 import { useCatalog, useExtensions, useRepos } from '../extensions/useExtensions';
 import { useSourceSwitches } from '../search/useSourceSwitch';
 import { ServerRow } from '../servers/ServerRow';
@@ -31,7 +33,7 @@ import {
   mediaOf,
   mediaOfAll,
 } from '../sources/sourceMedia';
-import type { SourceMedia, SourceType } from '../sources/sourceMedia';
+import type { SourceMedia, SourceType, SourcesTab } from '../sources/sourceMedia';
 import { AddonItem, AddonSuggestions } from '../watch/AddonRows';
 import { useSetAddonEnabled, useSetAddonOrder, useStremioAddons } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
@@ -100,17 +102,23 @@ const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }
   </section>
 );
 
+/** The pills after All: each kind of source, then the extension catalogue. */
+const SOURCES_TABS: SourcesTab[] = [...SOURCE_TYPES, 'catalogue'];
+
 /**
  * Sources (M46.52): everything content comes from, in one place — extension repositories (every
  * format Raygun reads), Stremio addons, servers and the extensions on this device. Pills pick a
  * kind and what they're for (Audio, Videos…); rows keep their details, switch, selection, order
- * and removal; Add takes any address and works out what it is.
+ * and removal; Add takes any address and works out what it is. The last pill is the extension
+ * catalogue of every repository, as Browse → Extensions shows it (install, update, remove).
  */
 export const SourcesPage: FC = () => {
   const { t } = useTranslation();
-  const { type, media, add } = useSearch({ from: '/sources' });
+  const { type, media, add, list = 'all' } = useSearch({ from: '/sources' });
   const navigate = useNavigate({ from: '/sources' });
   const find = useSearchMode(t('sources.page.find'));
+  const catalogue = type === 'catalogue';
+  const catalogRefresh = useCatalogRefresh(list);
   const [adding, setAdding] = useState(add === true);
   const [signingIn, setSigningIn] = useState<ServerInfo | null>(null);
 
@@ -206,14 +214,16 @@ export const SourcesPage: FC = () => {
   const noRepos = !repos.isPending && allRepos.length === 0;
   const loading = repos.isPending || addons.isPending || servers.isPending || extensions.isPending;
   const nothing =
+    !catalogue &&
     !loading &&
     (!of('repositories') || shownRepos.length === 0) &&
     (!of('addons') || shownAddons.length === 0) &&
     (!of('servers') || shownServers.length === 0) &&
     (!of('extensions') || shownExtensions.length === 0);
-  const pill = (next: { type?: SourceType; media?: SourceMedia }) => ({
+  // The catalogue has filters of its own: what sources are for doesn't follow it there.
+  const pill = (next: { type?: SourcesTab; media?: SourceMedia }) => ({
     ...(next.type ? { type: next.type } : {}),
-    ...(next.media ? { media: next.media } : {}),
+    ...(next.media && next.type !== 'catalogue' ? { media: next.media } : {}),
   });
 
   return (
@@ -222,10 +232,18 @@ export const SourcesPage: FC = () => {
         back
         fallback="/browse"
         title={t('sources.title')}
-        search={find.search}
+        search={catalogue ? null : find.search}
         actions={
           <>
-            {find.action}
+            {catalogue ? (
+              <TopBarAction
+                label={catalogRefresh.label}
+                icon={RefreshCw}
+                onClick={catalogRefresh.run}
+              />
+            ) : (
+              find.action
+            )}
             <TopBarAction
               label={t('sources.add.title')}
               icon={Plus}
@@ -238,7 +256,7 @@ export const SourcesPage: FC = () => {
         aria-label={t('sources.page.types')}
         className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"
       >
-        {[undefined, ...SOURCE_TYPES].map((option) => (
+        {[undefined, ...SOURCES_TABS].map((option) => (
           <Link
             key={option ?? 'all'}
             to="/sources"
@@ -248,53 +266,71 @@ export const SourcesPage: FC = () => {
             aria-current={option === type ? 'page' : undefined}
             className={chip(option === type)}
           >
-            {option
-              ? `${t(`sources.page.type.${option}`)} · ${counts[option]}`
-              : t('sources.page.type.all')}
+            {option === 'catalogue'
+              ? t('sources.page.type.catalogue')
+              : option
+                ? `${t(`sources.page.type.${option}`)} · ${counts[option]}`
+                : t('sources.page.type.all')}
           </Link>
         ))}
       </nav>
-      <div className="flex items-start gap-2">
-        {mediaPills.length > 1 || media ? (
-          <div
-            role="group"
-            aria-label={t('sources.page.media')}
-            // To the screen's edge, unless Select sits at the row's end: pills would pass under it.
-            className={`-ml-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto pl-4 lg:ml-0 lg:pl-0 ${
-              switchable.length > 0 ? '' : '-mr-4 pr-4 lg:mr-0 lg:pr-0'
-            }`}
-          >
-            {mediaPills.map((option) => (
-              <button
-                key={option}
-                type="button"
-                aria-pressed={media === option}
-                onClick={() =>
-                  void navigate({
-                    search: pill({ type, media: media === option ? undefined : option }),
-                    replace: true,
-                  })
-                }
-                className={chip(media === option)}
-              >
-                {t(`sources.media.${option}`)}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <span className="flex-1" />
-        )}
-        {switchable.length > 0 && <SelectButton selection={selection} />}
-      </div>
-      <BulkSwitchBar
-        selection={selection}
-        busy={switches.busy || setAddon.isPending}
-        onSwitch={switchMany}
-      />
-      {loading && (
+      {catalogue && (
+        <>
+          {catalogRefresh.status}
+          <ExtensionCatalog
+            list={list}
+            linkOf={(option) => ({
+              to: '/sources',
+              search: { type: 'catalogue', ...(option === 'all' ? {} : { list: option }) },
+            })}
+          />
+        </>
+      )}
+      {!catalogue && (
+        <div className="flex items-start gap-2">
+          {mediaPills.length > 1 || media ? (
+            <div
+              role="group"
+              aria-label={t('sources.page.media')}
+              // To the screen's edge, unless Select sits at the row's end: pills would pass under it.
+              className={`-ml-4 flex min-w-0 flex-1 gap-2 no-scrollbar overflow-x-auto pl-4 lg:ml-0 lg:pl-0 ${
+                switchable.length > 0 ? '' : '-mr-4 pr-4 lg:mr-0 lg:pr-0'
+              }`}
+            >
+              {mediaPills.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={media === option}
+                  onClick={() =>
+                    void navigate({
+                      search: pill({ type, media: media === option ? undefined : option }),
+                      replace: true,
+                    })
+                  }
+                  className={chip(media === option)}
+                >
+                  {t(`sources.media.${option}`)}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="flex-1" />
+          )}
+          {switchable.length > 0 && <SelectButton selection={selection} />}
+        </div>
+      )}
+      {!catalogue && (
+        <BulkSwitchBar
+          selection={selection}
+          busy={switches.busy || setAddon.isPending}
+          onSwitch={switchMany}
+        />
+      )}
+      {loading && !catalogue && (
         <LoaderCircle aria-label={t('watch.loading')} className="text-muted mx-auto animate-spin" />
       )}
-      {(addons.error ?? setOrder.error) && (
+      {!catalogue && (addons.error ?? setOrder.error) && (
         <SourceIssue compact>{(addons.error ?? setOrder.error)?.message}</SourceIssue>
       )}
       {nothing && (

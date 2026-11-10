@@ -103,12 +103,17 @@ describe('Ranked search across sources', () => {
     expect(failed).toHaveTextContent('Broken Site refused access');
     expect(failed).toHaveTextContent('HTTP 403');
 
-    // Relevant is the default chip (M46.35); All sources groups by source, the failing one last.
-    expect(screen.getByRole('button', { name: 'Relevant' })).toHaveAttribute(
+    // Every source searches while Custom sources is off, best matches first (M46.35); By source
+    // gives each its row, the failing one last.
+    expect(screen.getByRole('button', { name: /Custom sources/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(screen.getByRole('button', { name: 'Best matches' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
-    await user.click(screen.getByRole('button', { name: 'All sources' }));
+    await user.click(screen.getByRole('button', { name: 'By source' }));
     const rows = await screen.findAllByTestId('source-row');
     await vi.waitFor(() =>
       expect(rows.map((row) => within(row).getByRole('region').getAttribute('aria-label'))).toEqual(
@@ -168,8 +173,8 @@ describe('Ranked search across sources', () => {
     });
     await AppShellWrapper.mount('/browse?tab=search&type=novel&q=mother%20of%20learning');
     await screen.findByTestId('ranked-results');
-    await user.click(screen.getByRole('button', { name: 'All sources' }));
-    // The answers Relevant already got order the rows at once.
+    await user.click(screen.getByRole('button', { name: 'By source' }));
+    // The answers the best matches already got order the rows at once.
     await vi.waitFor(() =>
       expect(
         screen
@@ -251,17 +256,24 @@ describe('Ranked search across sources', () => {
     await Promise.all(held);
   });
 
-  it('finds a source chip by name when there are many', async () => {
+  it('finds a source by name in Custom sources when there are many, folded after a dozen', async () => {
     const user = userEvent.setup();
     const many = Array.from({ length: 14 }, (_, index) =>
-      source(`x.s${index}/novel`, index === 9 ? 'Zeta Novels' : `Source ${index}`),
+      source(`x.s${index}/novel`, index === 12 ? 'Zeta Novels' : `Source ${index}`),
     );
     commands.novelSources.mockResolvedValue(ok(many));
     commands.catalogGlobalSearch.mockResolvedValue(ok([]));
     await AppShellWrapper.mount('/browse?tab=search&type=novel');
-    const chips = await screen.findByRole('group', { name: 'Sources' });
-    await user.type(within(chips).getByRole('searchbox', { name: 'Find a source' }), 'zeta');
-    expect(within(chips).getByRole('button', { name: 'Zeta Novels' })).toBeInTheDocument();
-    expect(within(chips).queryByRole('button', { name: 'Source 1' })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: /Custom sources/ }));
+    const panel = await screen.findByRole('group', { name: 'Sources' });
+    expect(within(panel).getAllByRole('switch')).toHaveLength(12);
+    expect(within(panel).queryByRole('switch', { name: 'Zeta Novels' })).not.toBeInTheDocument();
+    await user.type(within(panel).getByRole('searchbox', { name: 'Find a source' }), 'zeta');
+    expect(within(panel).getByRole('switch', { name: 'Zeta Novels' })).toBeInTheDocument();
+    expect(within(panel).queryByRole('switch', { name: 'Source 1' })).not.toBeInTheDocument();
+
+    await user.clear(within(panel).getByRole('searchbox', { name: 'Find a source' }));
+    await user.click(within(panel).getByRole('button', { name: '2 more' }));
+    expect(within(panel).getAllByRole('switch')).toHaveLength(14);
   });
 });

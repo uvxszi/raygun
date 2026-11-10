@@ -2,7 +2,7 @@ import type { MangaCard, MangaSource, SourceSearchResult } from '@raygun/binding
 import { useQueries } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ChevronRight, LoaderCircle, SlidersHorizontal } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,9 +12,10 @@ import type { Medium } from '../manga/medium';
 import { useMangaLibrary, useMangaSources } from '../manga/useManga';
 import { ROUTES } from '../manga/medium';
 import { AdultMark } from '../shell/AdultMark';
-import { ListSearchField } from '../shell/ListSearchField';
 import { matchesSearch } from '../shell/useListSearch';
 import { useInView } from '../shell/useInView';
+import { CustomSourcesPill, SourceSwitchPanel } from './CustomSources';
+import { useCustomSources } from './useCustomSources';
 import { FailedSources } from './FailedSources';
 import { FromListingsNote } from './FromListingsNote';
 import { NoSources } from './NoSources';
@@ -357,25 +358,6 @@ const readGrouped = (medium: Medium) => {
   }
 };
 
-const SourceChip: FC<{ label: string; pressed: boolean; onClick: () => void }> = ({
-  label,
-  pressed,
-  onClick,
-}) => (
-  <button
-    type="button"
-    aria-pressed={pressed}
-    onClick={onClick}
-    className={
-      pressed
-        ? 'bg-primary/20 text-primary shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold'
-        : 'bg-surface shrink-0 rounded-full px-4 py-1.5 text-sm'
-    }
-  >
-    {label}
-  </button>
-);
-
 const SourceSearch: FC<{
   medium: Medium;
   sourceId: string;
@@ -443,33 +425,20 @@ const SourceSearch: FC<{
   );
 };
 
-/** Sources' chips before they fold; chosen ones always show. */
-const FOLDED_CHIPS = 12;
-
-const chosenKey = (medium: Medium) => `raygun.search.sources.${medium}`;
-
-const readChosen = (medium: Medium): string[] => {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(chosenKey(medium)) ?? '[]');
-    return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : [];
-  } catch {
-    return [];
-  }
-};
-
 /**
- * Search → Comics, Books or Videos: sources picked with chips (several at once; none is every
- * source). Several sources search together; one source searches with its filters and tags.
- * Relevant also leads with what's already in the library.
+ * Search → Comics, Books or Videos: every source, or with Custom sources on, the ones switched on
+ * in its panel. Several sources search together, their answers ranked as one list (Best
+ * matches, which also leads with what's already in the library) or a row each (By source); one
+ * source alone searches with its filters and tags.
  */
 export const CatalogSearch: FC<{
   medium: Medium;
   query: string;
-  /** One source only, without chips: a video source's own pill (M46.35). */
+  /** One source only, without a choice of sources: a video source's own pill (M46.35). */
   only?: string;
-  /** Sources with their own pill (YouTube, PeerTube…) among the chips too (M46.40). */
+  /** Sources with their own pill (YouTube, PeerTube…) among the others too (M46.40). */
   withPills?: boolean;
-  /** Where Relevant's "In your library" leads. */
+  /** Where Best matches' "In your library" leads. */
   onLibrary?: () => void;
 }> = ({ medium, query, only, withPills = false, onLibrary }) => {
   const { t } = useTranslation();
@@ -484,9 +453,8 @@ export const CatalogSearch: FC<{
         (only ? source.id === only : withPills || !source.searchPill) && keepSource(filter, source),
     ),
   };
-  const [chosen, setChosenState] = useState(() => readChosen(medium));
-  const [unfolded, setUnfolded] = useState(false);
-  const [finding, setFinding] = useState('');
+  const choice = useCustomSources(medium, sources.data);
+  const panelId = useId();
   const [grouped, setGroupedState] = useState(() => readGrouped(medium));
   const failures = useSourceHealth((state) => state.failures);
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
@@ -498,28 +466,14 @@ export const CatalogSearch: FC<{
       // A per-device convenience.
     }
   };
-  // Sources removed since they were chosen don't count.
-  const picked = only
-    ? [only]
-    : sources.data
-      ? chosen.filter((id) => sources.data?.some((source) => source.id === id))
-      : chosen;
+  // Custom sources off: every source; on: the ones switched on (one alone, with its filters).
+  const custom = !only && choice.custom;
+  const picked = only ? [only] : custom ? choice.picked : [];
   const sourceId = picked.length === 1 ? picked[0]! : '';
-
-  const setChosen = (ids: string[]) => {
-    setChosenState(ids);
-    try {
-      localStorage.setItem(chosenKey(medium), JSON.stringify(ids));
-    } catch {
-      // A per-device convenience.
-    }
-  };
-  const toggle = (id: string) =>
-    setChosen(picked.includes(id) ? picked.filter((other) => other !== id) : [...picked, id]);
   const all = sources.data ?? [];
   // Several sources: a row each, loading as they come into view (M46.7).
   const searched = failingLast(
-    picked.length > 0 ? all.filter((source) => picked.includes(source.id)) : all,
+    picked.length > 0 ? all.filter((source) => picked.includes(source.id)) : custom ? [] : all,
     failures,
     failingAtEnd,
   );
@@ -531,96 +485,64 @@ export const CatalogSearch: FC<{
     query,
   );
   const rows = answeredFirst(searched, (source) => answers(source.id));
-  // Finding a source by name shows every match; otherwise the list folds after a dozen.
-  const needle = finding.trim();
-  const shown = needle
-    ? all.filter((source) => matchesSearch(needle, [source.name]) || picked.includes(source.id))
-    : unfolded || all.length <= FOLDED_CHIPS
-      ? all
-      : all.filter((source, index) => index < FOLDED_CHIPS || picked.includes(source.id));
-  const relevant = picked.length === 0 && !grouped;
+  const relevant = !only && !custom && !grouped;
+  // Best matches or By source, while more than one source searches.
+  const arrange = sourceId === '' && searched.length > 1 && (
+    <div
+      role="group"
+      aria-label={t('search.arrange')}
+      className="bg-surface ml-auto flex rounded-full p-0.5 text-sm"
+    >
+      {([false, true] as const).map((byGroup) => (
+        <button
+          key={String(byGroup)}
+          type="button"
+          aria-pressed={grouped === byGroup}
+          onClick={() => setGrouped(byGroup)}
+          className={`rounded-full px-3 py-1 ${grouped === byGroup ? 'bg-primary/20 text-primary font-semibold' : 'text-muted'}`}
+        >
+          {t(byGroup ? 'search.bySource' : 'search.byResult')}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div data-testid={`${medium}-search`} className="flex flex-col gap-4">
       {sources.data?.length === 0 && <NoSources label={t('search.noCatalogSources')} />}
       {all.length > 0 && !only && (
-        <div role="group" aria-label={t('search.sources')} className="flex flex-wrap gap-2">
-          {all.length > FOLDED_CHIPS && (
-            <ListSearchField
-              value={finding}
-              onChange={setFinding}
-              label={t('search.findSource')}
-              className="w-44"
+        <div className="flex flex-col gap-2">
+          {/* One pill: off searches every source; on unfolds a switch for each. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <CustomSourcesPill
+              on={custom}
+              count={picked.length}
+              total={all.length}
+              panelId={panelId}
+              onChange={choice.setCustom}
             />
-          )}
-          {/* Relevant (M46.35): every source's answers ranked as one list; the default. */}
-          <SourceChip
-            label={t('search.relevant')}
-            pressed={relevant}
-            onClick={() => {
-              setChosen([]);
-              setGrouped(false);
-            }}
+            {arrange}
+          </div>
+          <SourceSwitchPanel
+            open={custom}
+            id={panelId}
+            sources={all}
+            picked={choice.picked}
+            onChange={choice.set}
+            onAll={choice.setAll}
           />
-          <SourceChip
-            label={t('search.allSources')}
-            pressed={picked.length === 0 && grouped}
-            onClick={() => {
-              setChosen([]);
-              setGrouped(true);
-            }}
-          />
-          {shown.map((source) => (
-            <SourceChip
-              key={source.id}
-              label={source.name}
-              pressed={picked.includes(source.id)}
-              onClick={() => toggle(source.id)}
-            />
-          ))}
-          {all.length > FOLDED_CHIPS && !needle && (
-            <button
-              type="button"
-              aria-expanded={unfolded}
-              onClick={() => setUnfolded(!unfolded)}
-              className="text-primary shrink-0 rounded-full px-3 py-1.5 text-sm"
-            >
-              {unfolded
-                ? t('search.fewerSources')
-                : t('search.moreSources', { count: all.length - shown.length })}
-            </button>
-          )}
         </div>
       )}
-      {relevant && !only && medium !== 'video' && onLibrary && (
+      {relevant && medium !== 'video' && onLibrary && (
         <InYourLibrary medium={medium} query={query} onMore={onLibrary} />
       )}
-      {sourceId === '' ? (
+      {custom && picked.length === 0 ? (
+        <p className="text-muted text-sm">{t('search.customSources.noneOn')}</p>
+      ) : sourceId === '' ? (
         <>
-          <div className="flex items-center gap-3">
-            {!query.trim() && all.length > 0 && (
-              <h2 className="font-semibold">{t('search.popular')}</h2>
-            )}
-            {picked.length > 1 && (
-              <div
-                role="group"
-                aria-label={t('search.arrange')}
-                className="bg-surface ml-auto flex rounded-full p-0.5 text-sm"
-              >
-                {([false, true] as const).map((byGroup) => (
-                  <button
-                    key={String(byGroup)}
-                    type="button"
-                    aria-pressed={grouped === byGroup}
-                    onClick={() => setGrouped(byGroup)}
-                    className={`rounded-full px-3 py-1 ${grouped === byGroup ? 'bg-primary/20 text-primary font-semibold' : 'text-muted'}`}
-                  >
-                    {t(byGroup ? 'search.bySource' : 'search.byResult')}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {!query.trim() && all.length > 0 && (
+            <h2 className="font-semibold">{t('search.popular')}</h2>
+          )}
           {grouped || searched.length === 1 ? (
             rows.map((source) => (
               <LazySourceRow
@@ -628,7 +550,7 @@ export const CatalogSearch: FC<{
                 source={source}
                 medium={medium}
                 query={query}
-                onMore={() => setChosen([source.id])}
+                onMore={() => choice.only(source.id)}
               />
             ))
           ) : (

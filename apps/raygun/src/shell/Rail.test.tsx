@@ -283,8 +283,8 @@ describe('Quick access in the sidebar', () => {
     const drawn = names().length;
     expect(drawn).toBeGreaterThan(5);
     expect(drawn).toBeLessThan(60);
-    // Covers of rows off the screen aren't there to load.
-    const covers = screen.queryAllByTestId('artwork-image').length;
+    // Covers of rows off the screen aren't there to load (Home's Quick access row has its own).
+    const covers = within(rail()).queryAllByTestId('artwork-image').length;
     expect(covers).toBeGreaterThan(0);
     expect(covers).toBeLessThan(60);
     expect(screen.getByRole('link', { name: '42 more in your library' })).toBeInTheDocument();

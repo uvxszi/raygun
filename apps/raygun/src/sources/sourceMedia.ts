@@ -6,6 +6,12 @@ export const SOURCE_TYPES: SourceType[] = ['repositories', 'addons', 'servers', 
 export const isSourceType = (value: unknown): value is SourceType =>
   typeof value === 'string' && (SOURCE_TYPES as string[]).includes(value);
 
+/** Sources' pills: All, the kinds, then the extension catalogue every repository lists. */
+export type SourcesTab = SourceType | 'catalogue';
+
+export const isSourcesTab = (value: unknown): value is SourcesTab =>
+  value === 'catalogue' || isSourceType(value);
+
 /**
  * What sources are for, as Sources' and Browse → Sources' pills group them: Audio gathers music
  * (`music.*`), lyrics, podcast and audiobook directories, and with them the servers that bring

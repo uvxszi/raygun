@@ -1,43 +1,32 @@
-import { commands } from '@raygun/bindings';
 import type { MangaLibraryEntry } from '@raygun/bindings';
-import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { BookAudio, Compass, Heart, LayoutList, Library, Mic2, Search, X } from 'lucide-react';
+import { BookAudio, Compass, LayoutList, Library, Mic2, Search, X } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PlaylistCover } from '../collections/PlaylistCover';
 import { SavedTrackRow } from '../collections/SavedTrackRow';
 import {
   HOME_HISTORY_LIMIT,
   playCollection,
-  fromSavedTrack,
   useClearHistory,
-  useFavorites,
   useHistory,
-  usePlaylists,
 } from '../collections/useCollections';
-import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
 import { useHasProvider } from '../extensions/useExtensions';
-import { unwrapResult } from '../lib/commandResult';
-import { Artwork } from '../library/Artwork';
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
 import { useLayout, useSaveLayout } from '../layout/useLayout';
-import { useContextMenuItems, useMixCardMenu, useTitleMenuItems } from '../music/cardMenus';
+import { useMixCardMenu, useTitleMenuItems } from '../music/cardMenus';
 import { HomeChartRow } from '../music/ChartRow';
 import { pageKey, useHidden } from '../music/hidden';
 import { MixCard } from '../music/MixCard';
-import { TrackMoreButton } from '../collections/TrackMoreButton';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { useSettings } from '../settings/useSettings';
-import { HomeFixedTiles } from '../library/LocalFilesTile';
-import { useFixedTileMenuItems } from '../library/useFixedTileMenu';
 import { HomeCarousel, HomeSection } from '../home/HomeSection';
 import { useHomeRowActions } from '../home/homeRows';
+import { QuickAccessSection } from '../home/QuickAccessSection';
 import {
   FollowedReleasesSection,
   NewEpisodesSection,
@@ -63,172 +52,8 @@ import { ContinueWatchingRow } from '../watch/ContinueWatchingRow';
 import { ContinueListening } from '../podcasts/ContinueListening';
 import { useContinueWatching } from '../watch/useWatch';
 import { CardMenu } from '../shell/CardMenu';
-import { CARD_MENU_BESIDE, CARD_MENU_BESIDE_TIGHT } from '../manga/CardPlayButton';
-
-/** Playlists shown as shortcuts next to Favorites. */
-const HOME_PLAYLISTS = 5;
-
-const TILE_CLASS = 'bg-surface flex w-32 shrink-0 flex-col gap-2 rounded-xl p-2 text-sm';
-
-/** Recently played from (M46.37) and favorite songs shown in Your music. */
-const RECENT_SHOWN = 12;
-const FAVORITES_SHOWN = 12;
 
 type SectionProps = { id: string };
-
-/**
- * Your music (M46.37): Favorites, Downloaded and Local files, then what was played from lately
- * (albums, playlists, mixes, artists, charts, podcasts, books), then playlists not among them,
- * and a row of the latest favorite songs. Each tile has its kind's menu, and Remove from Your
- * music; hidden artists and tiles stay out.
- */
-const YourMusic: FC<SectionProps> = ({ id }) => {
-  const { t } = useTranslation();
-  const playlists = usePlaylists();
-  const playlistMenu = usePlaylistMenuItems();
-  const contextMenu = useContextMenuItems();
-  const recent = useQuery({
-    queryKey: ['recentContexts'],
-    queryFn: () => unwrapResult(commands.recentContexts()),
-  });
-  const favorites = useFavorites();
-  const tileMenu = useFixedTileMenuItems();
-  const hidden = useHidden();
-  // Kept only while recently played is on (M46.41).
-  const keepRecent = useSettings().data?.privacy.recentlyPlayed !== false;
-  const contexts = (keepRecent ? (recent.data ?? []) : [])
-    .filter(
-      (context) =>
-        !(context.kind === 'artist' && hidden.hidesArtist(context.name)) &&
-        !hidden.hidesItem(pageKey(context.to, context.search)),
-    )
-    .slice(0, RECENT_SHOWN);
-  const recentPlaylists = new Set(
-    contexts.filter((context) => context.kind === 'playlist').map((context) => context.search.id),
-  );
-  const latest = [...(favorites.data ?? [])]
-    .filter((track) => !hidden.hidesCredit(track.artist))
-    .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
-    .slice(0, FAVORITES_SHOWN);
-  return (
-    <HomeSection id={id} title={t('home.yourMusic')} all={{ to: '/library' }} testId="your-music">
-      <div className="flex flex-col gap-2">
-        <HomeCarousel>
-          <li>
-            <Link to="/library" search={{ view: 'favorites' }} className={`relative ${TILE_CLASS}`}>
-              <CardMenu
-                label={t('menu.options', { name: t('collections.favorites') })}
-                items={() => tileMenu('favorites')}
-                className={CARD_MENU_BESIDE}
-              />
-              <span className="bg-primary/15 text-primary grid aspect-square place-items-center rounded-lg">
-                <Heart aria-hidden size={32} fill="currentColor" />
-              </span>
-              <span className="truncate font-medium">{t('collections.favorites')}</span>
-            </Link>
-          </li>
-          <HomeFixedTiles className={TILE_CLASS} />
-          {contexts.map((context) => (
-            <li key={`${context.to}?${JSON.stringify(context.search)}`}>
-              <Link
-                to={context.to}
-                search={context.search as never}
-                aria-label={`${context.name} · ${t(`home.played.${context.kind}`, { defaultValue: '' })}`}
-                className={`relative ${TILE_CLASS}`}
-              >
-                <CardMenu
-                  label={t('menu.options', { name: context.name })}
-                  items={() => contextMenu(context)}
-                  className={CARD_MENU_BESIDE}
-                />
-                <Artwork
-                  url={context.artworkUrl}
-                  className={`w-full ${context.kind === 'artist' ? 'rounded-full' : 'rounded-lg'}`}
-                  iconSize={32}
-                />
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate font-medium">{context.name}</span>
-                  <span className="text-muted truncate text-xs">
-                    {[t(`home.played.${context.kind}`, { defaultValue: '' }), context.subtitle]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                </span>
-              </Link>
-            </li>
-          ))}
-          {playlists.data
-            ?.filter((playlist) => !recentPlaylists.has(playlist.id))
-            .slice(0, HOME_PLAYLISTS)
-            .map((playlist) => (
-              <li key={playlist.id}>
-                <Link
-                  to="/library/playlist"
-                  search={{ id: playlist.id }}
-                  className={`relative ${TILE_CLASS}`}
-                >
-                  <CardMenu
-                    label={t('menu.options', { name: playlist.name })}
-                    items={() => playlistMenu(playlist)}
-                    className={CARD_MENU_BESIDE}
-                  />
-                  <PlaylistCover
-                    artworkUrls={playlist.artworkUrls}
-                    coverUrl={playlist.coverUrl}
-                    className="aspect-square w-full rounded-lg"
-                  />
-                  <span className="truncate font-medium">{playlist.name}</span>
-                </Link>
-              </li>
-            ))}
-        </HomeCarousel>
-        {latest.length > 0 && (
-          <>
-            <div className="mt-2 flex items-center gap-3">
-              <h3 className="text-muted text-sm font-semibold">{t('home.latestFavorites')}</h3>
-              <Link
-                to="/library"
-                search={{ view: 'favorites' }}
-                aria-label={t('home.showAllOf', { name: t('home.latestFavorites') })}
-                className="text-muted hover:text-foreground ml-auto px-1 text-sm font-semibold"
-              >
-                {t('discover.seeAll')}
-              </Link>
-            </div>
-            <HomeCarousel>
-              {latest.map((track) => (
-                <li key={track.trackKey} className="relative w-28 shrink-0">
-                  {/* The same menu as anywhere a song is listed (M46.40). */}
-                  <TrackMoreButton
-                    track={fromSavedTrack(track)}
-                    extras={{ favorite: true }}
-                    className={CARD_MENU_BESIDE_TIGHT}
-                    iconSize={16}
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void playCollection({
-                        collection: { kind: 'favorites' },
-                        startIndex: (favorites.data ?? []).indexOf(track),
-                        shuffle: false,
-                      })
-                    }
-                    className="hover:bg-surface flex w-full flex-col gap-1.5 rounded-xl p-1.5 text-left"
-                  >
-                    <Artwork url={track.artworkUrl} className="w-full rounded-lg" iconSize={28} />
-                    <span className="truncate text-sm font-medium">{track.title}</span>
-                    <span className="text-muted -mt-0.5 truncate text-xs">{track.artist}</span>
-                  </button>
-                </li>
-              ))}
-            </HomeCarousel>
-          </>
-        )}
-      </div>
-    </HomeSection>
-  );
-};
 
 /** What was played last, as rows (hidden artists' songs and Not interested ones stay out). */
 const RecentlyPlayed: FC<SectionProps> = ({ id }) => {
@@ -491,7 +316,7 @@ const HOME_SECTIONS: Record<string, FC<SectionProps>> = {
   continueReading: ContinueReading,
   continueListening: ContinueListeningSection,
   madeForYou: MadeForYouRow,
-  yourMusic: YourMusic,
+  quickAccess: QuickAccessSection,
   topArtists: TopArtistsSection,
   recentlyPlayed: RecentlyPlayed,
   newEpisodes: NewEpisodesSection,
