@@ -102,6 +102,19 @@ describe('pausing out of sight', () => {
     expect(root().active).toBe('true');
   });
 
+  it('says the page is visible on start before reading the state', async () => {
+    // The page before (a reload, Android's window made again) said hidden on its way out.
+    commands.deviceSetVisible.mockClear();
+    commands.deviceState.mockResolvedValue(ON_SCREEN);
+    render(<Feel />);
+    await vi.waitFor(() => expect(commands.deviceState).toHaveBeenCalled());
+    expect(commands.deviceSetVisible).toHaveBeenCalledWith(true);
+    expect(commands.deviceSetVisible.mock.invocationCallOrder[0]).toBeLessThan(
+      commands.deviceState.mock.invocationCallOrder[0] ?? 0,
+    );
+    await vi.waitFor(() => expect(root().active).toBe('true'));
+  });
+
   it("stops the playhead's timer while Raygun is in the background", async () => {
     vi.useFakeTimers();
     try {

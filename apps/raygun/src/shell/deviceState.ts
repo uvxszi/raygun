@@ -140,20 +140,22 @@ export const useEffectiveMotion = (setting: MotionLevel | undefined) => {
 export const useDeviceStateSync = () => {
   useEffect(() => {
     let alive = true;
-    void commands
-      .deviceState()
-      .then((state) => {
-        if (alive && state) setDeviceState(state);
-      })
-      .catch(() => {});
     const unlisten = events.deviceStateEvent.listen((event) => setDeviceState(event.payload));
 
     const onVisibility = () => {
       const visible = document.visibilityState !== 'hidden';
       setPageVisible(visible);
-      void commands.deviceSetVisible(visible).catch(() => {});
+      return commands.deviceSetVisible(visible).catch(() => {});
     };
     document.addEventListener('visibilitychange', onVisibility);
+    // The page says how it is first: Rust keeps the last page's word, and a page unloading (a
+    // reload, Android's window made again) says hidden on its way out. Then Rust's state is read.
+    void onVisibility()
+      .then(() => commands.deviceState())
+      .then((state) => {
+        if (alive && state) setDeviceState(state);
+      })
+      .catch(() => {});
 
     const query =
       typeof window.matchMedia === 'function'
