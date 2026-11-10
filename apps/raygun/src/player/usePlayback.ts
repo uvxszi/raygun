@@ -193,6 +193,14 @@ export const isActive = (state: PlaybackState | undefined) =>
   state?.status === 'playing' || state?.status === 'loading' || state?.status === 'buffering';
 
 /**
+ * Whether the player really waits for its song: a stream being found or loading, or the engine
+ * buffering one. Rust says so (`waiting`); a file on the device, or a song only resuming, never
+ * waits. A player that doesn't say (another device's older Raygun) waits while it loads.
+ */
+export const isWaiting = (state: PlaybackState | undefined) =>
+  state?.waiting ?? (state?.status === 'loading' || state?.status === 'buffering');
+
+/**
  * Where the stream comes from: "looking" while another source is looked for (what the song had
  * stopped working), "finding" while the resolver looks for one (M14), else the provider it
  * picked, or `null` for items that carry their own source.

@@ -233,6 +233,7 @@ mod tests {
             verified_at: Some(verified_at),
             failed_at: None,
             bitrate_kbps: None,
+            artist: None,
         }
     }
 
@@ -315,6 +316,7 @@ mod tests {
             verified_at: Some(at),
             failed_at: None,
             bitrate_kbps: None,
+            artist: None,
         }
         };
         // Saved from the song's own YouTube video, then played as its audio file.

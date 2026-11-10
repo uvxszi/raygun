@@ -1,6 +1,6 @@
 import type { EngineCommand, EngineReport } from '@raygun/bindings';
 
-import { Html5Engine } from './html5Engine';
+import { DECLICK_MS, Html5Engine } from './html5Engine';
 import type { MediaElementLike } from './html5Engine';
 import { toLufs } from './loudness';
 import type { DeckAudio, SoundBackend } from './soundGraph';
@@ -209,17 +209,60 @@ describe('Html5Engine', () => {
     expect(media.pause).toHaveBeenCalled();
   });
 
-  it('goes silent after stop', () => {
-    const { media, reports, engine, load } = setup();
+  it('goes silent after stop, fading out over a few ms', () => {
+    vi.useFakeTimers();
+    const { media, decks, reports, engine, load } = setup();
     load();
     reports.length = 0;
 
     engine.handle({ type: 'stop' });
+    expect(decks[0]?.fades.at(-1)).toEqual([0, DECLICK_MS]);
+    expect(reports).toEqual([]);
+    vi.advanceTimersByTime(DECLICK_MS + 50);
     media.fire('pause');
 
     expect(media.src).toBe('');
     expect(media.load).toHaveBeenCalled();
     expect(reports).toEqual([]);
+  });
+
+  it('fades a song in over a few ms once its sound starts, not as it loads', () => {
+    vi.useFakeTimers();
+    const { media, other, decks, load } = setup();
+    load({ gainDb: -4 });
+    // Silent until it sounds: it starts mid-wave, and a jump to full level clicks.
+    expect(decks[0]?.fade).toBe(0);
+    expect(decks[0]?.gain).toBe(-4);
+    expect(decks[0]?.fades).toEqual([]);
+    media.fire('playing');
+    expect(decks[0]?.fades).toEqual([[1, DECLICK_MS]]);
+    // Paused and played again, it doesn't drop to silence first.
+    media.fire('pause');
+    media.fire('playing');
+    expect(decks[0]?.fades).toEqual([[1, DECLICK_MS]]);
+
+    // The next song cut in: this one fades out over a few ms before it stops, under it.
+    load({ loadId: 8, url: 'http://127.0.0.1:9000/stream/next' });
+    expect(decks[0]?.fades.at(-1)).toEqual([0, DECLICK_MS]);
+    expect(media.src).not.toBe('');
+    expect(other.src).toBe('http://127.0.0.1:9000/stream/next');
+    vi.advanceTimersByTime(DECLICK_MS + 50);
+    expect(media.src).toBe('');
+    // One whose start went unheard rises with its first progress.
+    other.fire('timeupdate');
+    expect(decks[1]?.fades).toEqual([[1, DECLICK_MS]]);
+  });
+
+  it('says it plays when told to play while playing already', async () => {
+    const { media, reports, engine, load } = setup();
+    load();
+    media.fire('playing');
+    await vi.waitFor(() => expect(reports.at(-1)?.event.type).toBe('playing'));
+    reports.length = 0;
+
+    // The player shows loading after a Play until it hears the song plays.
+    engine.handle({ type: 'play' });
+    await vi.waitFor(() => expect(reports).toEqual([{ loadId: 7, event: { type: 'playing' } }]));
   });
 
   it('explains media errors', () => {
@@ -280,7 +323,13 @@ describe('Html5Engine', () => {
     expect(other.play).toHaveBeenCalled();
     expect(decks[1]?.gain).toBe(2);
     expect(decks[1]?.fades).toEqual([[1, 4000]]);
-    expect(decks[0]?.fades).toEqual([[0, 4000]]);
+    // Its sound starting doesn't start it over: the crossfade's fade-in goes on.
+    other.fire('playing');
+    expect(decks[1]?.fades).toEqual([[1, 4000]]);
+    expect(decks[0]?.fades).toEqual([
+      [1, DECLICK_MS],
+      [0, 4000],
+    ]);
     // The old song plays on under the new one, then stops; it says nothing more.
     expect(media.src).not.toBe('');
     reports.length = 0;
@@ -291,15 +340,17 @@ describe('Html5Engine', () => {
   });
 
   it('cuts without a fade, and when nothing was playing', () => {
+    vi.useFakeTimers();
     const { media, other, decks, load } = setup();
     load({ autoplay: false });
     load({ loadId: 8, fadeMs: 4000 });
-    // The first song never played: nothing to fade from.
+    // The first song never played: nothing to fade from, and the next starts as on a cut.
     expect(media.src).toBe('');
-    expect(decks[1]?.fade).toBe(1);
     expect(decks[1]?.fades).toEqual([]);
     other.fire('playing');
+    expect(decks[1]?.fades).toEqual([[1, DECLICK_MS]]);
     load({ loadId: 9 });
+    vi.advanceTimersByTime(DECLICK_MS + 50);
     expect(other.src).toBe('');
   });
 

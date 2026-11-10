@@ -17,6 +17,8 @@ pub struct CandidateRow {
     pub failed_at: Option<i64>,
     /// The stream's bitrate when it played (M46.18).
     pub bitrate_kbps: Option<i64>,
+    /// The artist its source named, when it did.
+    pub artist: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +32,7 @@ pub struct ProviderStats {
 pub async fn candidates(db: &Db, track_key: &str) -> Result<Vec<CandidateRow>, DbError> {
     let rows = sqlx::query(
         "SELECT provider_id, candidate_id, title, source, expires_at, verified_at, failed_at,
-                bitrate_kbps
+                bitrate_kbps, artist
          FROM local_stream_candidate WHERE track_key = ?1
          ORDER BY verified_at DESC NULLS LAST",
     )
@@ -48,8 +50,40 @@ pub async fn candidates(db: &Db, track_key: &str) -> Result<Vec<CandidateRow>, D
             verified_at: row.get("verified_at"),
             failed_at: row.get("failed_at"),
             bitrate_kbps: row.get("bitrate_kbps"),
+            artist: row.get("artist"),
         })
         .collect())
+}
+
+/// Keeps a source's match for a song as its pick before it ever played (M46.53: a song imported
+/// with a match): its source is asked for a stream before any search, and when that fails it
+/// counts against the pick like any other. A pick the song already has, played or chosen, stays
+/// as it is. It counts for no provider.
+pub async fn keep_match(
+    db: &Db,
+    track_key: &str,
+    provider_id: &str,
+    candidate_id: &str,
+    title: &str,
+    artist: Option<&str>,
+    now_ms: i64,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO local_stream_candidate
+             (track_key, provider_id, candidate_id, title, source, expires_at, verified_at,
+              failed_at, failure, bitrate_kbps, artist)
+         VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, NULL, NULL, NULL, ?6)
+         ON CONFLICT (track_key, provider_id, candidate_id) DO NOTHING",
+    )
+    .bind(track_key)
+    .bind(provider_id)
+    .bind(candidate_id)
+    .bind(title)
+    .bind(now_ms)
+    .bind(artist)
+    .execute(db.pool())
+    .await?;
+    Ok(())
 }
 
 /// The source Raygun found for a song and played: a stream source's candidate, with the names

@@ -1129,3 +1129,111 @@ fn a_song_nothing_played_is_named_until_one_plays() {
     assert_eq!(core.state().skipped_item_id, None);
     assert_eq!(core.state().error, None);
 }
+
+#[test]
+fn only_a_song_on_its_way_waits_never_a_file_on_this_device() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    let load_id = core.load_id;
+    // A stream being found, then loading: the player waits.
+    assert!(core.state().waiting);
+    report(&mut core, EngineEvent::Buffering);
+    assert!(core.state().waiting);
+    report(&mut core, EngineEvent::Playing);
+    assert!(!core.state().waiting);
+
+    // Paused and played again, it only resumes: no wait unless the engine buffers.
+    core.pause();
+    assert!(!core.state().waiting, "a pause shows a pause");
+    core.play();
+    assert_eq!(core.state().status, PlaybackStatus::Loading);
+    assert!(!core.state().waiting);
+    report(&mut core, EngineEvent::Buffering);
+    assert!(core.state().waiting, "a stream buffering again waits");
+    report(&mut core, EngineEvent::Playing);
+
+    // Its stream stopped working: another source is looked for.
+    core.set_looking(load_id, true);
+    assert!(core.state().waiting);
+
+    // The next song is a download: it starts at once, never waiting.
+    core.next();
+    let file = core.load_id;
+    core.set_on_device(file, true);
+    assert_eq!(core.state().status, PlaybackStatus::Loading);
+    assert!(!core.state().waiting);
+    report(&mut core, EngineEvent::Buffering);
+    assert!(!core.state().waiting);
+    // Another load's word changes nothing, and a new load starts as a stream would.
+    core.set_on_device(file + 1, false);
+    assert!(!core.state().waiting);
+    core.previous();
+    assert!(core.state().waiting);
+}
+
+#[test]
+fn an_end_before_the_song_ever_sounded_is_no_end() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    // An end now would be a copy that can't play, or the song before's end arriving late under
+    // this load's id: the service takes it as the load failing (its stream plays instead).
+    assert!(core.ends_unheard());
+    report(&mut core, EngineEvent::Buffering);
+    assert!(core.ends_unheard());
+    report(&mut core, EngineEvent::Playing);
+    assert!(!core.ends_unheard(), "it played: its end is an end");
+
+    // Reopened paused near its end and played: a real end, whatever was reported.
+    let mut restored = PlaybackCore::new(3);
+    restored.restore(
+        vec![input("a"), input("b")],
+        vec![0, 1],
+        0,
+        179_500.0,
+        false,
+        RepeatMode::Off,
+    );
+    restored.play();
+    assert!(!restored.ends_unheard());
+
+    // Another stream looked for where the song was: what it plays was heard before.
+    progress(&mut core, 42_000.0);
+    core.set_looking(core.load_id, true);
+    assert!(!core.ends_unheard(), "it's past its start");
+    core.seek(0.0);
+    assert!(core.ends_unheard());
+    // Nothing current: nothing to end.
+    core.clear();
+    assert!(!core.ends_unheard());
+}
+
+#[test]
+fn the_songs_next_and_before_are_the_ones_found_ahead() {
+    let titles = |core: &PlaybackCore| -> Vec<String> {
+        core.neighbors()
+            .into_iter()
+            .map(|item| item.title.clone())
+            .collect()
+    };
+    let mut core = core_with(&["a", "b", "c"]);
+    assert!(titles(&core).is_empty(), "nothing current");
+    core.play();
+    assert_eq!(titles(&core), ["b"], "the first song has nothing before it");
+    core.next();
+    assert_eq!(titles(&core), ["c", "a"]);
+    core.next();
+    assert_eq!(titles(&core), ["b"]);
+    // Repeating the queue, the ends meet.
+    core.set_repeat(RepeatMode::All);
+    assert_eq!(titles(&core), ["a", "b"]);
+    // Two songs repeating: the other one, once.
+    let mut pair = core_with(&["a", "b"]);
+    pair.play();
+    pair.set_repeat(RepeatMode::All);
+    assert_eq!(titles(&pair), ["b"]);
+    // One song: nothing else to find.
+    let mut single = core_with(&["a"]);
+    single.play();
+    single.set_repeat(RepeatMode::All);
+    assert!(titles(&single).is_empty());
+}

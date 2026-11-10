@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import {
   isActive,
+  isWaiting,
   NEXT_REPEAT,
   sendControl,
   useCurrentItemId,
@@ -107,8 +108,9 @@ export const NextButton: FC<ButtonProps & { filled?: boolean }> = ({
 };
 
 /**
- * Play or Pause, by whether something plays (or is about to). While the song is still on its
- * way (loading, buffering) a ring turns around it, so a Pause that isn't playing yet shows it.
+ * Play or Pause, by whether something plays (or is about to). While the player really waits for
+ * its song (a stream being found or buffering, see {@link isWaiting}) a ring turns around it, so
+ * a Pause that isn't playing yet shows it; a downloaded song starts at once and shows none.
  */
 export const PlayPauseButton: FC<ButtonProps & { filled?: boolean }> = ({
   className = '',
@@ -117,9 +119,7 @@ export const PlayPauseButton: FC<ButtonProps & { filled?: boolean }> = ({
 }) => {
   const { t } = useTranslation();
   const active = usePlayerSelect(isActive);
-  const waiting = usePlayerSelect(
-    (state) => state?.status === 'loading' || state?.status === 'buffering',
-  );
+  const waiting = usePlayerSelect(isWaiting);
   const playing = useCurrentItemId() !== null;
   const Icon = active ? Pause : Play;
   return (

@@ -22,6 +22,7 @@
 
 pub mod capture;
 mod check;
+mod known;
 pub mod transcode;
 
 use std::collections::{HashMap, HashSet};
@@ -1005,8 +1006,9 @@ impl SongDownloadService {
         }
     }
 
-    /// Finds a file for the song and saves it: the source it was asked with first, then what the
-    /// resolver finds, then YouTube's own audio files (M46.51), then YouTube's copy with yt-dlp on
+    /// Finds a file for the song and saves it: the source it was asked with first, then the one it
+    /// plays from or played from ([`known`], M46.53), then what the resolver finds, then YouTube's
+    /// own audio files (M46.51), then YouTube's copy with yt-dlp on
     /// desktop. When nothing gives a file, a stream that plays it is captured (M46.49): first when
     /// the download was queued to be. A song only YouTube's player plays then goes to the
     /// recordings' queue (M46.52); the recordings' worker records the video found, or (after a
@@ -1153,6 +1155,24 @@ impl SongDownloadService {
                 exclusions.failed_sources.push(source.clone())
             }
             _ => {}
+        }
+
+        // 1b. The song's known source (M46.53): the stream playing it now, one picked for it, or
+        // one that played it before, before a search that can come up empty.
+        let known = self
+            .save_known(
+                row,
+                &dir,
+                &query,
+                &mut exclusions,
+                &mut attempts,
+                &resolver,
+                using,
+                stop,
+            )
+            .await?;
+        if let Some(saved) = known {
+            return Ok(saved);
         }
 
         // 2. Whatever else the resolver finds; YouTube's videos wait for step 3.
@@ -2709,14 +2729,18 @@ pub fn offline_item(app: &AppHandle, item: &QueueItem) -> Option<QueueItem> {
         return None;
     }
     let service = app.try_state::<Arc<SongDownloadService>>()?;
-    let key = raygun_resolver::track_key(&TrackQuery::for_item(item));
-    // A song given other names (Edit details) is saved under its own.
-    let path = service.offline_file(&key).or_else(|| {
-        let original = app
-            .try_state::<Arc<crate::details::DetailService>>()?
-            .original_song_key(&item.title, item.artist.as_deref())?;
-        service.offline_file(&original)
-    })?;
+    // Saved under the names the song shows; one that plays by a picked source's names (a lookup
+    // under other names, M46.48) may have been saved under those (M46.53).
+    let path = offline_keys(item)
+        .iter()
+        .find_map(|key| service.offline_file(key))
+        .or_else(|| {
+            // A song given other names (Edit details) is saved under its own.
+            let original = app
+                .try_state::<Arc<crate::details::DetailService>>()?
+                .original_song_key(&item.title, item.artist.as_deref())?;
+            service.offline_file(&original)
+        })?;
     Some(QueueItem {
         source: MediaSource::LocalFile {
             path: path.to_string_lossy().into_owned(),
@@ -2724,6 +2748,23 @@ pub fn offline_item(app: &AppHandle, item: &QueueItem) -> Option<QueueItem> {
         media_kind: MediaKind::Audio,
         ..item.clone()
     })
+}
+
+/// The keys a queue item's saved copy is found under, in turn: the names it shows (what a download
+/// of it is saved under), then the names it plays by when they differ (a picked source's).
+fn offline_keys(item: &QueueItem) -> Vec<String> {
+    let shown = raygun_resolver::track_key(&TrackQuery {
+        title: item.title.clone(),
+        artist: item.artist.clone(),
+        album: None,
+        duration_ms: None,
+    });
+    let plays_by = raygun_resolver::track_key(&TrackQuery::for_item(item));
+    if plays_by == shown {
+        vec![shown]
+    } else {
+        vec![shown, plays_by]
+    }
 }
 
 /// Whether `offered` (a stream's title) has every word of the song's own title.

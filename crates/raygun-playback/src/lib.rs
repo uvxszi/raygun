@@ -25,6 +25,8 @@ pub const STALL_MS: f64 = 3_000.0;
 pub const READY_STALL_MS: f64 = 3_000.0;
 /// The position moving less than this (ms) isn't moving.
 const MOVED_MS: f64 = 150.0;
+/// A load ending before it played and this close to its start (ms) never sounded.
+const UNHEARD_MS: f64 = 1_000.0;
 
 /// What the watchdog knows of the current load ([`PlaybackCore::watchdog`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -101,6 +103,9 @@ pub struct PlaybackCore {
     looking: bool,
     /// See [`PlaybackState::skipped_item_id`].
     skipped: Option<String>,
+    /// The current load plays a file on this device (set by the service): it never waits for the
+    /// network, so the player doesn't say it waits while it starts (M46.53).
+    on_device: bool,
 }
 
 impl PlaybackCore {
@@ -131,12 +136,22 @@ impl PlaybackCore {
             context: None,
             looking: false,
             skipped: None,
+            on_device: false,
         }
     }
 
     /// Whether the engine has started the current load (reported it plays) since it was given.
     pub fn started(&self) -> bool {
         self.watch.started
+    }
+
+    /// Whether an end reported now would be the end of a song never heard (M46.53): the engine
+    /// hasn't played this load, and it's still at its start. That's no song's end: a copy that
+    /// can't play (an empty or cut-off file ends at once), or the end of the song before arriving
+    /// late under this load's id. Taken as the end, it skipped the song, or ended the queue there
+    /// and Play was needed; the service treats it as the load failing instead.
+    pub fn ends_unheard(&self) -> bool {
+        self.cursor.is_some() && !self.watch.started && self.position_ms < UNHEARD_MS
     }
 
     /// Run about every second with a monotonic clock (ms). It catches an engine that doesn't
@@ -258,6 +273,59 @@ impl PlaybackCore {
         }
     }
 
+    /// Says whether the engine was given a file on this device for load `load_id` (a download, a
+    /// local song) rather than a stream. Ignored for older loads.
+    pub fn set_on_device(&mut self, load_id: u32, on_device: bool) {
+        if load_id == self.load_id {
+            self.on_device = on_device;
+        }
+    }
+
+    /// See [`PlaybackState::waiting`]: a song being found (or another source looked for), a
+    /// stream loading that hasn't played yet, or an engine buffering a stream. Only while the
+    /// player is about to play: a pause shows a pause.
+    fn waiting(&self) -> bool {
+        if self.cursor.is_none() {
+            return false;
+        }
+        match self.status {
+            // A stream that played before only resumes; the engine says when it buffers.
+            PlaybackStatus::Loading => self.looking || (!self.on_device && !self.watch.started),
+            PlaybackStatus::Buffering => self.looking || !self.on_device,
+            _ => false,
+        }
+    }
+
+    /// The queue items Next and Previous would load now, next first (M46.53): the songs whose
+    /// streams are worth finding ahead while one plays. Neither is ever the current item.
+    pub fn neighbors(&self) -> Vec<&QueueItem> {
+        let Some(cursor) = self.cursor else {
+            return Vec::new();
+        };
+        let count = self.order.len();
+        let wraps = self.repeat == RepeatMode::All && count > 1;
+        let next = if cursor + 1 < count {
+            Some(cursor + 1)
+        } else {
+            wraps.then_some(0)
+        };
+        let previous = if cursor > 0 {
+            Some(cursor - 1)
+        } else {
+            wraps.then(|| count - 1)
+        };
+        let mut positions: Vec<usize> = Vec::with_capacity(2);
+        for position in [next, previous].into_iter().flatten() {
+            if position != cursor && !positions.contains(&position) {
+                positions.push(position);
+            }
+        }
+        positions
+            .into_iter()
+            .map(|position| &self.items[self.order[position]])
+            .collect()
+    }
+
     pub fn state(&self) -> PlaybackState {
         PlaybackState {
             status: self.status,
@@ -274,6 +342,7 @@ impl PlaybackCore {
             stop_after_current: self.stop_after_current,
             looking_for_source: self.looking,
             skipped_item_id: self.skipped.clone(),
+            waiting: self.waiting(),
         }
     }
 
@@ -913,6 +982,7 @@ impl PlaybackCore {
         self.error = None;
         self.source_label = None;
         self.looking = false;
+        self.on_device = false;
         self.skipped = None;
         vec![Effect::Engine(EngineCommand::Stop), Effect::StateChanged]
     }
@@ -931,6 +1001,7 @@ impl PlaybackCore {
         self.position_ms = start_ms;
         self.source_label = None;
         self.looking = false;
+        self.on_device = false;
         self.watch = Watch::default();
         let item = self.items[self.order[cursor]].clone();
         self.duration_ms = item.duration_ms.map(f64::from);

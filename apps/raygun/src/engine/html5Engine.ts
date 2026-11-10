@@ -35,6 +35,12 @@ const LEVEL_AFTER_S = 3;
 /** Live levelling's limits, dB: never boost a quiet song more, nor cut a loud one more. */
 const LEVEL_BOOST_DB = 10;
 const LEVEL_CUT_DB = 20;
+/**
+ * A song that starts on a cut fades in over this long once its sound starts, ms, and one cut off
+ * while it sounds fades out over it (M46.53): both happen mid-wave, and a jump between silence
+ * and full level clicks.
+ */
+export const DECLICK_MS = 15;
 
 const MEDIA_ERROR_MESSAGES: Record<number, string> = {
   1: 'Playback was aborted',
@@ -62,6 +68,8 @@ type Deck = {
   meter: LoudnessMeter;
   /** It reached its end trim: the pause that follows isn't the listener's. */
   finished: boolean;
+  /** Its song started on a cut: it fades in over a few ms once its sound starts. */
+  rampIn: boolean;
 };
 
 /**
@@ -123,17 +131,25 @@ export class Html5Engine {
       measure: false,
       meter: new LoudnessMeter(),
       finished: false,
+      rampIn: false,
     };
     const listeners: [string, () => void][] = [
       ['loadedmetadata', () => this.onLoadedMetadata(deck)],
       ['durationchange', () => this.sendProgress(deck, true)],
-      ['timeupdate', () => this.sendProgress(deck, false)],
+      [
+        'timeupdate',
+        () => {
+          this.rampIn(deck);
+          this.sendProgress(deck, false);
+        },
+      ],
       ['seeked', () => this.onSeeked(deck)],
       [
         'playing',
         () => {
           // A context still asleep would play it without a sound.
           this.backend.resume();
+          this.rampIn(deck);
           this.startMeter();
           this.scheduleEnd(deck);
           this.emitFrom(deck, { type: 'playing' });
@@ -244,7 +260,9 @@ export class Html5Engine {
     deck.meter = new LoudnessMeter();
     deck.finished = false;
     deck.audio.setGain(deck.gainDb);
-    deck.audio.setFade(fading ? 0 : 1);
+    // From silence either way: over the crossfade, or over a few ms once its sound starts.
+    deck.audio.setFade(0);
+    deck.rampIn = !fading;
     this.loadId = command.loadId;
     this.lastProgressAt = Number.NEGATIVE_INFINITY;
     this.backend.setVolume(command.volume ?? 1);
@@ -257,9 +275,13 @@ export class Html5Engine {
     if (fading) deck.audio.fadeTo(1, fadeMs);
   }
 
-  /** Lets a deck go: fades it out over `fadeMs`, then stops it (at once for 0). */
+  /**
+   * Lets a deck go: fades it out over `fadeMs` (a cut, over a few ms), then stops it; one that
+   * isn't sounding stops at once.
+   */
   private retire(deck: Deck, fadeMs: number) {
     deck.loadId = null;
+    deck.rampIn = false;
     this.clearEnd(deck);
     if (deck.stopTimer) clearTimeout(deck.stopTimer);
     deck.stopTimer = null;
@@ -269,30 +291,48 @@ export class Html5Engine {
       deck.media.removeAttribute('src');
       deck.media.load();
     };
-    if (fadeMs > 0 && !deck.media.paused) {
-      deck.audio.fadeTo(0, fadeMs);
-      deck.stopTimer = setTimeout(stop, fadeMs + 50);
+    if (!deck.media.paused) {
+      const ms = fadeMs > 0 ? fadeMs : DECLICK_MS;
+      deck.audio.fadeTo(0, ms);
+      deck.stopTimer = setTimeout(stop, ms + 50);
     } else if (deck.media.src) {
       stop();
     }
   }
 
+  /** A song that started on a cut rises from silence, once its sound starts. */
+  private rampIn(deck: Deck) {
+    if (!deck.rampIn || deck.loadId === null || deck.media.paused) return;
+    deck.rampIn = false;
+    deck.audio.fadeTo(1, DECLICK_MS);
+  }
+
   private play(deck: Deck) {
     const loadId = deck.loadId;
-    deck.media.play().catch((error: unknown) => {
-      // A newer load or pause interrupting play() is normal, not a failure.
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
-      if (loadId === null || loadId !== deck.loadId) return;
-      // The webview wants a tap before it plays: the song is fine, and waits paused, so the
-      // player shows Play instead of a Pause that does nothing (and doesn't skip the song).
-      if (error instanceof DOMException && error.name === 'NotAllowedError') {
-        this.emitFrom(deck, { type: 'paused' });
-        return;
-      }
-      this.emitFrom(deck, { type: 'error', message: String(error) });
-    });
+    deck.media
+      .play()
+      .then(() => {
+        // Playing already, it says nothing more; the player shows loading after a Play until it
+        // hears that it plays.
+        if (loadId !== null && loadId === deck.loadId && !deck.media.paused) {
+          this.rampIn(deck);
+          this.emitFrom(deck, { type: 'playing' });
+        }
+      })
+      .catch((error: unknown) => {
+        // A newer load or pause interrupting play() is normal, not a failure.
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
+        if (loadId === null || loadId !== deck.loadId) return;
+        // The webview wants a tap before it plays: the song is fine, and waits paused, so the
+        // player shows Play instead of a Pause that does nothing (and doesn't skip the song).
+        if (error instanceof DOMException && error.name === 'NotAllowedError') {
+          this.emitFrom(deck, { type: 'paused' });
+          return;
+        }
+        this.emitFrom(deck, { type: 'error', message: String(error) });
+      });
   }
 
   private onLoadedMetadata(deck: Deck) {

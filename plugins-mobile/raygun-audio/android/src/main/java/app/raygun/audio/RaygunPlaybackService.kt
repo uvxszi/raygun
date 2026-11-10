@@ -135,8 +135,11 @@ fun openRaygunIntent(context: Context, route: String): PendingIntent? {
  * lock-screen controls.
  *
  * Two players take turns (M46.12): a crossfade starts the next song on the other one, hands it
- * to the media session, and fades the old one out. Only the session's player holds audio focus,
- * or the new one's request would pause the old one.
+ * to the media session, and fades the old one out. Only one player handles audio focus, or the
+ * new one's request would pause the old one. Each asks for and gives up the focus on its own
+ * playback thread, so it changes hands only once the old player has stopped (M46.53): handed over
+ * as the crossfade began, the new player's request could come first, reach the old one as a loss
+ * and cut its fade off at once.
  *
  * While the native engine isn't the one playing (a song in the webview's YouTube player, or the
  * next song while its stream is found), the session shows [mirror] instead: Rust's player as it
@@ -149,6 +152,8 @@ class RaygunPlaybackService : MediaSessionService() {
     /** Each deck's player as the session shows it, made once (each listens to its player). */
     private val shown = mutableListOf<RaygunSessionPlayer>()
     private var current = 0
+    /** The deck whose player handles audio focus (the first, as built). */
+    private var focusDeck = 0
     private val main = Handler(Looper.getMainLooper())
     private var reverb: PresetReverb? = null
     private val audioAttributes = AudioAttributes.Builder()
@@ -256,21 +261,28 @@ class RaygunPlaybackService : MediaSessionService() {
 
     /**
      * Plays `item` on the other player, fading in over `fadeMs` while the current song fades out
-     * (a crossfade). The session moves to the new player, so controls and reports follow it.
+     * (a crossfade); `autoplay` false loads it paused (the player was paused while it was found).
+     * The session moves to the new player, so controls and reports follow it. The old player keeps
+     * the audio focus until it stops (see the class).
      */
-    fun crossfade(item: MediaItem, startMs: Long, fadeMs: Long, gainDb: Double, measure: Boolean) {
+    fun crossfade(
+        item: MediaItem,
+        startMs: Long,
+        fadeMs: Long,
+        gainDb: Double,
+        measure: Boolean,
+        autoplay: Boolean,
+    ) {
         val old = deck
         val next = decks[1 - current]
         next.stopAt?.let(main::removeCallbacks)
         next.stopAt = null
         next.player.volume = old.player.volume
         next.player.playbackParameters = old.player.playbackParameters
-        old.player.setAudioAttributes(audioAttributes, false)
-        next.player.setAudioAttributes(audioAttributes, true)
         next.processor.startTrack(gainDb, fadeMs, measure)
         next.player.setMediaItem(item, startMs)
         next.player.prepare()
-        next.player.playWhenReady = true
+        next.player.playWhenReady = autoplay
         current = 1 - current
         session?.player = shown[current]
         mirror.standDown()
@@ -285,9 +297,19 @@ class RaygunPlaybackService : MediaSessionService() {
             deck.stopAt = null
             deck.player.stop()
             deck.player.clearMediaItems()
+            // Stopped, it holds no focus: the player in the session handles it from now on.
+            focusOnCurrent()
         }
         deck.stopAt = stop
         main.postDelayed(stop, fadeMs + 100)
+    }
+
+    /** The player in the session handles audio focus, the other none (once no fade runs). */
+    private fun focusOnCurrent() {
+        if (focusDeck == current) return
+        decks[focusDeck].player.setAudioAttributes(audioAttributes, false)
+        decks[current].player.setAudioAttributes(audioAttributes, true)
+        focusDeck = current
     }
 
     /** A song loaded the usual way (cut, not crossfaded); a fading-out player stops now. */
@@ -300,6 +322,8 @@ class RaygunPlaybackService : MediaSessionService() {
             main.removeCallbacks(it)
             it.run()
         }
+        // Whatever a crossfade before left, this player handles the focus for its song.
+        focusOnCurrent()
         deck.processor.startTrack(gainDb, 0, measure)
     }
 
