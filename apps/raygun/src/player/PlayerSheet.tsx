@@ -699,8 +699,9 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, t
         compact ? 'gap-[min(0.75rem,2svh)]' : 'gap-[min(1.25rem,3svh)]'
       }`}
     >
-      <div className="flex w-full items-center gap-1">
-        <div className="title-gap flex min-w-0 flex-1 flex-col">
+      {/* A phone gives the title the whole width, above the names and the song's buttons. */}
+      <div className="title-gap flex w-full min-w-0 flex-col">
+        {!wide && (
           <span className="flex w-full min-w-0 items-center gap-2">
             <Marquee
               testId="sheet-title"
@@ -709,48 +710,62 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, t
             />
             {item?.explicit && <ExplicitMark />}
           </span>
-          {/* On a phone the names are text (the menu goes to them); with a pointer, only the
+        )}
+        <div className="flex w-full items-center gap-1">
+          <div className="title-gap flex min-w-0 flex-1 flex-col">
+            {wide && (
+              <span className="flex w-full min-w-0 items-center gap-2">
+                <Marquee
+                  testId="sheet-title"
+                  text={item?.title ?? t('player.nothingPlaying')}
+                  className={`min-w-0 font-bold ${compact ? 'text-lg' : 'text-2xl'}`}
+                />
+                {item?.explicit && <ExplicitMark />}
+              </span>
+            )}
+            {/* On a phone the names are text (the menu goes to them); with a pointer, only the
               names themselves are links, kept apart from the title. */}
-          {spoken ? (
-            wide ? (
-              <SpokenByline
-                spoken={spoken}
-                className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
-              />
+            {spoken ? (
+              wide ? (
+                <SpokenByline
+                  spoken={spoken}
+                  className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
+                />
+              ) : (
+                <span
+                  data-testid="spoken-byline"
+                  className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
+                >
+                  {spokenName(spoken)}
+                </span>
+              )
             ) : (
-              <span
-                data-testid="spoken-byline"
-                className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
-              >
-                {spokenName(spoken)}
-              </span>
-            )
-          ) : (
-            item?.artist &&
-            (wide ? (
-              <ArtistLinks
-                credit={item.artist}
-                className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
-              />
-            ) : (
-              <span
-                data-testid="sheet-artist"
-                className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
-              >
-                {item.artist}
-              </span>
-            ))
-          )}
-          {note && (
-            <p data-testid="sheet-source-note" className="text-muted text-xs">
-              {t(sourceNoteKey(note), note.kind === 'via' ? { source: note.source } : {})}
-            </p>
-          )}
-          {error && <SourceIssue>{error}</SourceIssue>}
+              item?.artist &&
+              (wide ? (
+                <ArtistLinks
+                  credit={item.artist}
+                  className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
+                />
+              ) : (
+                <span
+                  data-testid="sheet-artist"
+                  className={`text-muted block w-full truncate ${compact ? 'text-sm' : 'text-lg'}`}
+                >
+                  {item.artist}
+                </span>
+              ))
+            )}
+            {note && (
+              <p data-testid="sheet-source-note" className="text-muted text-xs">
+                {t(sourceNoteKey(note), note.kind === 'via' ? { source: note.source } : {})}
+              </p>
+            )}
+            {error && <SourceIssue>{error}</SourceIssue>}
+          </div>
+          {toggle}
+          {item && !spoken && <FavoriteButton item={item} download />}
+          {item && <MoreButton item={item} spoken={spoken} />}
         </div>
-        {toggle}
-        {item && !spoken && <FavoriteButton item={item} download />}
-        {item && <MoreButton item={item} spoken={spoken} />}
       </div>
 
       <SeekBar variant="sheet" onScrub={onScrub} />
