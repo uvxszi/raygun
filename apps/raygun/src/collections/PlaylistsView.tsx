@@ -101,6 +101,7 @@ export const PlaylistsView: FC = () => {
             >
               <PlaylistCover
                 artworkUrls={playlist.artworkUrls}
+                artworkSongs={playlist.artworkSongs}
                 coverUrl={playlist.coverUrl}
                 className="size-12 rounded-lg"
               />

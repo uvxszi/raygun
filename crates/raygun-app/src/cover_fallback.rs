@@ -1,33 +1,46 @@
 //! Covers from other sources (M46.40): when a song's, an album's or an artist's own cover is
 //! missing or fails to load, the music sources are asked for theirs (`ExtensionService::
-//! cover_options`) and the nearest is used, remembered on this device so it's asked once.
-//! Lookups run two at a time, so a list full of missing covers doesn't flood the sources.
+//! cover_options`) and the nearest is used, remembered on this device with the source that gave
+//! it (`raygun_db::song_memory`), so it's asked once. Lookups the UI waits on run two at a time,
+//! so a list full of missing covers doesn't flood the sources; the background search for library
+//! songs without covers (`cover_search`) also fetches what it finds into the cover cache.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use raygun_db::song_memory::{self, FoundCover};
 use raygun_model::DetailTarget;
 use tauri::{AppHandle, Manager};
-use tokio::sync::Semaphore;
+use tokio::sync::{OnceCell, Semaphore};
 
 use crate::extensions::ExtensionService;
 use crate::startup::AppDb;
 
-/// The `local_meta` key of the remembered covers (JSON `{ key: [url or null, unix ms] }`).
-const STORE: &str = "covers.fallback";
-/// A lookup that found nothing is tried again after a day.
+/// The `local_meta` key the remembered covers were kept under before they had a table.
+const LEGACY_STORE: &str = "covers.fallback";
+/// A lookup the UI asked for that found nothing is tried again after a day.
 const RETRY_MS: i64 = 24 * 60 * 60 * 1000;
-/// Remembered covers kept at most; the oldest go first.
-const KEPT: usize = 5000;
-/// Lookups at once.
+/// Lookups the UI waits on at once.
 const AT_ONCE: usize = 2;
-
-type Remembered = HashMap<String, (Option<String>, i64)>;
+/// Of what a background lookup found, this many pictures are tried until one downloads.
+const TRIED: usize = 3;
 
 pub struct CoverFallbacks {
     app: AppHandle,
-    remembered: Mutex<Option<Remembered>>,
     lookups: Semaphore,
+    /// The old value moved into the table, once a run.
+    moved: OnceCell<()>,
+}
+
+/// How a background lookup went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Looked {
+    /// A source had a cover; it's remembered and cached.
+    Found,
+    /// The sources answered without one; remembered as a miss.
+    Missing,
+    /// No source answered (offline, every source failing): nothing remembered.
+    Unanswered,
 }
 
 fn now_ms() -> i64 {
@@ -38,9 +51,9 @@ fn now_ms() -> i64 {
 }
 
 /// What a cover is remembered by: the kind and its normalized names.
-fn key(target: &DetailTarget) -> String {
+pub fn key(target: &DetailTarget) -> String {
     match target {
-        DetailTarget::Song { query } => format!("song:{}", raygun_resolver::track_key(query)),
+        DetailTarget::Song { query } => song_key(&raygun_resolver::track_key(query)),
         DetailTarget::Album { artist, album } => {
             format!(
                 "album:{}",
@@ -52,64 +65,69 @@ fn key(target: &DetailTarget) -> String {
     }
 }
 
+/// A song's remembered cover's key, by its track key.
+pub fn song_key(track_key: &str) -> String {
+    format!("{}{track_key}", song_memory::SONG)
+}
+
 impl CoverFallbacks {
     pub fn new(app: AppHandle) -> Arc<Self> {
         Arc::new(Self {
             app,
-            remembered: Mutex::new(None),
             lookups: Semaphore::new(AT_ONCE),
+            moved: OnceCell::new(),
         })
     }
 
-    async fn load(&self) {
-        if self
-            .remembered
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .is_some()
-        {
-            return;
-        }
-        let db = self.app.state::<AppDb>().0.clone();
-        let stored = raygun_db::local_value(&db, STORE)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|json| serde_json::from_str::<Remembered>(&json).ok())
-            .unwrap_or_default();
-        let mut slot = self.remembered.lock().unwrap_or_else(|p| p.into_inner());
-        slot.get_or_insert(stored);
+    fn db(&self) -> Arc<raygun_db::Db> {
+        self.app.state::<AppDb>().0.clone()
     }
 
-    fn remembered(&self, key: &str) -> Option<(Option<String>, i64)> {
-        self.remembered
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_ref()
-            .and_then(|map| map.get(key).cloned())
-    }
-
-    async fn remember(&self, key: String, url: Option<String>) {
-        let json = {
-            let mut slot = self.remembered.lock().unwrap_or_else(|p| p.into_inner());
-            let map = slot.get_or_insert_with(HashMap::new);
-            map.insert(key, (url, now_ms()));
-            if map.len() > KEPT {
-                let mut by_age: Vec<(String, i64)> = map
-                    .iter()
-                    .map(|(key, (_, at))| (key.clone(), *at))
-                    .collect();
-                by_age.sort_by_key(|(_, at)| *at);
-                for (old, _) in by_age.into_iter().take(map.len() - KEPT) {
-                    map.remove(&old);
+    /// The table, with what was remembered the old way moved in.
+    async fn ready(&self) -> Arc<raygun_db::Db> {
+        let db = self.db();
+        self.moved
+            .get_or_init(|| async {
+                match song_memory::import_legacy(&db, LEGACY_STORE).await {
+                    Ok(0) => {}
+                    Ok(moved) => tracing::info!(moved, "remembered covers moved to their table"),
+                    Err(error) => tracing::warn!(%error, "couldn't move remembered covers"),
                 }
-            }
-            serde_json::to_string(map).unwrap_or_default()
-        };
-        let db = self.app.state::<AppDb>().0.clone();
-        if let Err(error) = raygun_db::set_local_value(&db, STORE, &json).await {
+            })
+            .await;
+        db
+    }
+
+    async fn remembered_many(&self, keys: &[String]) -> HashMap<String, FoundCover> {
+        let db = self.ready().await;
+        song_memory::found(&db, keys).await.unwrap_or_else(|error| {
+            tracing::warn!(%error, "couldn't read remembered covers");
+            HashMap::new()
+        })
+    }
+
+    async fn remembered(&self, key: &str) -> Option<FoundCover> {
+        self.remembered_many(&[key.to_owned()]).await.remove(key)
+    }
+
+    async fn remember(&self, key: &str, url: Option<&str>, source: Option<&str>) {
+        let db = self.ready().await;
+        if let Err(error) = song_memory::put_found(&db, key, url, source, now_ms()).await {
             tracing::warn!(%error, "could not keep a fallback cover");
         }
+    }
+
+    /// The covers found elsewhere for songs by track key (only those with one): what a list
+    /// shows for songs without their own (a playlist's cover made of its songs').
+    pub async fn remembered_songs(&self, track_keys: &[String]) -> HashMap<String, String> {
+        let keys: Vec<String> = track_keys.iter().map(|key| song_key(key)).collect();
+        self.remembered_many(&keys)
+            .await
+            .into_iter()
+            .filter_map(|(key, found)| {
+                Some((key.strip_prefix(song_memory::SONG)?.to_owned(), found.url?))
+            })
+            .collect()
     }
 
     /// The covers found for songs in Favorites, playlists or downloads, and for their albums and
@@ -118,10 +136,9 @@ impl CoverFallbacks {
         &self,
         saved: &[(String, Option<String>, Option<String>)],
     ) -> Vec<String> {
-        self.load().await;
         let mut keys: Vec<String> = Vec::new();
         for (track_key, artist, album) in saved {
-            keys.push(format!("song:{track_key}"));
+            keys.push(song_key(track_key));
             if let Some(artist) = artist {
                 keys.push(format!("artist:{}", raygun_resolver::normalize(artist)));
             }
@@ -132,29 +149,26 @@ impl CoverFallbacks {
                 ));
             }
         }
-        let remembered = self.remembered.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(map) = remembered.as_ref() else {
-            return Vec::new();
-        };
-        keys.iter()
-            .filter_map(|key| map.get(key).and_then(|(url, _)| url.clone()))
+        keys.sort_unstable();
+        keys.dedup();
+        self.remembered_many(&keys)
+            .await
+            .into_values()
+            .filter_map(|found| found.url)
             .collect()
     }
 
     /// The pictures found elsewhere for these artists (quick access's): the cache sweep keeps
     /// them.
     pub async fn artist_addresses(&self, names: &[String]) -> Vec<String> {
-        self.load().await;
-        let remembered = self.remembered.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(map) = remembered.as_ref() else {
-            return Vec::new();
-        };
-        names
+        let keys: Vec<String> = names
             .iter()
-            .filter_map(|name| {
-                let key = key(&DetailTarget::Artist { name: name.clone() });
-                map.get(&key).and_then(|(url, _)| url.clone())
-            })
+            .map(|name| key(&DetailTarget::Artist { name: name.clone() }))
+            .collect();
+        self.remembered_many(&keys)
+            .await
+            .into_values()
+            .filter_map(|found| found.url)
             .collect()
     }
 
@@ -164,27 +178,60 @@ impl CoverFallbacks {
         if matches!(target, DetailTarget::Playlist { .. }) {
             return None;
         }
-        self.load().await;
         let key = key(target);
-        if let Some((url, at)) = self.remembered(&key)
-            && (url.is_some() || now_ms() - at < RETRY_MS)
+        if let Some(found) = self.remembered(&key).await
+            && (found.url.is_some() || now_ms() - found.found_at < RETRY_MS)
         {
-            return url;
+            return found.url;
         }
         let _turn = self.lookups.acquire().await.ok()?;
         // Another lookup may have found it while this one waited.
-        if let Some((Some(url), _)) = self.remembered(&key) {
+        if let Some(FoundCover { url: Some(url), .. }) = self.remembered(&key).await {
             return Some(url);
         }
         let extensions = self.app.state::<Arc<ExtensionService>>().inner().clone();
-        let url = extensions
-            .cover_options(target)
-            .await
-            .into_iter()
-            .next()
-            .map(|option| option.url);
-        self.remember(key, url.clone()).await;
-        url
+        let (options, answered) = extensions.cover_options_answered(target).await;
+        let first = options.into_iter().next();
+        if first.is_some() || answered {
+            self.remember(
+                &key,
+                first.as_ref().map(|option| option.url.as_str()),
+                first.as_ref().map(|option| option.source.as_str()),
+            )
+            .await;
+        }
+        first.map(|option| option.url)
+    }
+
+    /// Looks for a library song's cover in the background, remembered under `key` (the song's
+    /// stored key): the sources' first pictures are tried with `fetch` (into the cover cache)
+    /// until one downloads, and the one that did is remembered with its source. When none
+    /// downloads the first is remembered all the same (a picture that failed now may load
+    /// later); none at all is remembered as a miss, unless no source answered.
+    pub async fn search<F, Fut>(&self, key: &str, target: &DetailTarget, fetch: F) -> Looked
+    where
+        F: Fn(String) -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let extensions = self.app.state::<Arc<ExtensionService>>().inner().clone();
+        let (options, answered) = extensions.cover_options_answered(target).await;
+        if options.is_empty() {
+            if !answered {
+                return Looked::Unanswered;
+            }
+            self.remember(key, None, None).await;
+            return Looked::Missing;
+        }
+        let mut chosen = &options[0];
+        for option in options.iter().take(TRIED) {
+            if fetch(option.url.clone()).await {
+                chosen = option;
+                break;
+            }
+        }
+        self.remember(key, Some(&chosen.url), Some(&chosen.source))
+            .await;
+        Looked::Found
     }
 }
 
@@ -203,6 +250,7 @@ mod tests {
             },
         };
         assert_eq!(key(&song), "song:daft punk|get lucky");
+        assert_eq!(song_key("daft punk|get lucky"), key(&song));
         let artist = DetailTarget::Artist {
             name: "Daft Punk".into(),
         };

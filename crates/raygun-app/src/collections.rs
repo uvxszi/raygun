@@ -753,7 +753,28 @@ impl CollectionsService {
     }
 
     /// What was played from lately (M46.37), newest first: device-local, like history's order.
+    /// Their pictures show through the cover cache.
     pub async fn recent_contexts(&self) -> Result<Vec<raygun_model::PlayContext>, String> {
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        Ok(self
+            .stored_contexts()
+            .await?
+            .into_iter()
+            .map(|context| raygun_model::PlayContext {
+                artwork_url: context.artwork_url.map(|url| {
+                    let relinked = images.relink(&url);
+                    if images.is_remote(&relinked) {
+                        images.cover(&relinked, &Default::default())
+                    } else {
+                        relinked
+                    }
+                }),
+                ..context
+            })
+            .collect())
+    }
+
+    async fn stored_contexts(&self) -> Result<Vec<raygun_model::PlayContext>, String> {
         let stored = raygun_db::local_value(self.db(), RECENT_CONTEXTS)
             .await
             .map_err(to_message)?;
@@ -778,7 +799,11 @@ impl CollectionsService {
             return Ok(());
         }
         context.played_at = now_ms() as f64;
-        let mut list = self.recent_contexts().await?;
+        // Kept by the source's address: a link to the cover cache lasts only while this run
+        // knows it (a playlist's cover made of its songs' is one).
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        context.artwork_url = context.artwork_url.map(|url| images.original(&url));
+        let mut list = self.stored_contexts().await?;
         list.retain(|other| other.to != context.to || other.search != context.search);
         list.insert(0, context);
         list.truncate(RECENT_CONTEXTS_KEPT);
@@ -789,7 +814,8 @@ impl CollectionsService {
     }
 
     /// Writes a play to history in the background; failures only log. Nothing is written while
-    /// listening history is off (M46.41) or incognito is on (M47).
+    /// listening history is off (M46.41) or incognito is on (M47); with history off the song is
+    /// still stamped as played on this device, for what's kept of it (`song_memory`).
     pub fn record_play(&self, item: QueueItem) {
         if crate::privacy::incognito(&self.app) {
             return;
@@ -797,13 +823,6 @@ impl CollectionsService {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
             let service = app.state::<CollectionsService>();
-            let keep = crate::settings::load(service.db())
-                .await
-                .map(|settings| settings.privacy.history)
-                .unwrap_or(true);
-            if !keep {
-                return;
-            }
             let explicit = item.explicit;
             let track = fields(TrackInput {
                 explicit: item.explicit,
@@ -814,6 +833,14 @@ impl CollectionsService {
                 artwork_url: item.artwork_url,
                 source: Some(item.source),
             });
+            crate::song_memory::played(&app, &track.track_key).await;
+            let keep = crate::settings::load(service.db())
+                .await
+                .map(|settings| settings.privacy.history)
+                .unwrap_or(true);
+            if !keep {
+                return;
+            }
             if explicit {
                 service
                     .remember_explicit(vec![track.track_key.clone()])
@@ -1042,7 +1069,10 @@ impl CollectionsService {
     }
 
     /// Playlists as listed: covers from their first items' artwork (the library's where it has
-    /// the song, the user's own covers), found for every playlist at once.
+    /// the song, the user's own covers, else the cover found for it at another source), found for
+    /// every playlist at once. The pictures go through the cover cache and stay there (saved
+    /// songs' covers are kept, M46.46), so a cover made of them shows without its playlist being
+    /// opened, offline too.
     async fn summaries(
         &self,
         rows: Vec<collections::PlaylistRow>,
@@ -1054,30 +1084,49 @@ impl CollectionsService {
         let local = self.local_matches(&keys).await?;
         let library = self.app.state::<LibraryService>();
         let details = self.app.state::<Arc<DetailService>>();
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        let found = self
+            .app
+            .state::<Arc<crate::cover_fallback::CoverFallbacks>>()
+            .remembered_songs(&keys)
+            .await;
         Ok(rows
             .into_iter()
             .map(|row| {
-                let mut artwork_urls: Vec<String> = Vec::new();
-                for item in row.first_items {
-                    let mut artwork = local
-                        .get(&item.track_key)
-                        .and_then(|track| library.artwork_url(track.art.clone()))
-                        .or(item.artwork_url);
-                    let (mut title, mut artist, mut album) = (item.title, item.artist, item.album);
-                    details.apply(
-                        &item.track_key,
-                        &mut title,
-                        &mut artist,
-                        &mut album,
-                        &mut artwork,
-                    );
-                    if let Some(url) = artwork
-                        && !artwork_urls.contains(&url)
-                    {
-                        artwork_urls.push(url);
-                    }
-                }
-                artwork_urls.truncate(COVER_ARTWORKS);
+                let candidates = row
+                    .first_items
+                    .into_iter()
+                    .map(|item| {
+                        let mut artwork = local
+                            .get(&item.track_key)
+                            .and_then(|track| library.artwork_url(track.art.clone()))
+                            .or(item.artwork_url);
+                        let (mut title, mut artist, mut album) =
+                            (item.title, item.artist, item.album);
+                        details.apply(
+                            &item.track_key,
+                            &mut title,
+                            &mut artist,
+                            &mut album,
+                            &mut artwork,
+                        );
+                        CoverCandidate {
+                            own: artwork,
+                            found: found.get(&item.track_key).cloned(),
+                            song: TrackQuery {
+                                title,
+                                artist,
+                                album,
+                                duration_ms: item.duration_ms.and_then(|ms| u32::try_from(ms).ok()),
+                            },
+                        }
+                    })
+                    .collect();
+                let (artwork_urls, songs) = mosaic(candidates);
+                let artwork_urls = artwork_urls
+                    .into_iter()
+                    .map(|url| crate::quick_access::shown_cover(&images, &url))
+                    .collect();
                 // The user's own cover (M46.45).
                 let cover_url = details
                     .get(&DetailTarget::Playlist { id: row.id.clone() })
@@ -1087,6 +1136,7 @@ impl CollectionsService {
                     name: row.name,
                     item_count: row.item_count as u32,
                     artwork_urls,
+                    artwork_songs: Some(songs),
                     cover_url,
                     length: Some(CollectionLength {
                         known_secs: u32::try_from(row.known_ms / 1000).unwrap_or(u32::MAX),
@@ -1096,6 +1146,35 @@ impl CollectionsService {
             })
             .collect())
     }
+}
+
+/// One of a playlist's first songs as its cover sees it: its own artwork (`None` without), the
+/// cover found for it at another source, and the song.
+struct CoverCandidate {
+    own: Option<String>,
+    found: Option<String>,
+    song: TrackQuery,
+}
+
+/// A playlist's cover made of its first songs: up to [`COVER_ARTWORKS`] distinct pictures, each
+/// a song's own artwork or else the one found for it elsewhere (M46.40), with the songs they're
+/// of, in the same order. A song with neither gives way to the next.
+fn mosaic(candidates: Vec<CoverCandidate>) -> (Vec<String>, Vec<TrackQuery>) {
+    let mut urls: Vec<String> = Vec::new();
+    let mut songs = Vec::new();
+    for candidate in candidates {
+        if urls.len() == COVER_ARTWORKS {
+            break;
+        }
+        let Some(url) = candidate.own.or(candidate.found) else {
+            continue;
+        };
+        if !urls.contains(&url) {
+            urls.push(url);
+            songs.push(candidate.song);
+        }
+    }
+    (urls, songs)
 }
 
 /// The resolver's key of the names a saved track shows.
@@ -1655,6 +1734,44 @@ mod tests {
         );
         let dated = with_dates(tracks, vec![10, 20, 30, 40]);
         assert_eq!(dated[1].added_at, Some(20.0));
+    }
+
+    #[test]
+    fn a_playlist_cover_takes_found_covers_for_songs_without_their_own() {
+        let candidate = |title: &str, own: Option<&str>, found: Option<&str>| CoverCandidate {
+            own: own.map(str::to_owned),
+            found: found.map(str::to_owned),
+            song: TrackQuery {
+                title: title.to_owned(),
+                artist: Some("Artist".into()),
+                album: None,
+                duration_ms: None,
+            },
+        };
+        let (urls, songs) = mosaic(vec![
+            candidate("one", Some("https://img/1"), None),
+            // Without its own: the one found elsewhere.
+            candidate("two", None, Some("https://found/2")),
+            // Neither: the next song's.
+            candidate("three", None, None),
+            // The same picture once.
+            candidate("four", Some("https://img/1"), None),
+            // Its own first.
+            candidate("five", Some("https://img/5"), Some("https://found/5")),
+            candidate("six", Some("https://img/6"), None),
+            candidate("seven", Some("https://img/7"), None),
+        ]);
+        assert_eq!(
+            urls,
+            [
+                "https://img/1",
+                "https://found/2",
+                "https://img/5",
+                "https://img/6"
+            ]
+        );
+        let titles: Vec<&str> = songs.iter().map(|song| song.title.as_str()).collect();
+        assert_eq!(titles, ["one", "two", "five", "six"]);
     }
 
     #[test]

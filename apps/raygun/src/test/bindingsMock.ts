@@ -679,6 +679,7 @@ export const bindingsMock = {
     pageCopy: vi.fn(),
     storageUsage: vi.fn(),
     storageClear: vi.fn(),
+    songMemoryUsage: vi.fn(),
     websiteList: vi.fn(),
     websiteAdd: vi.fn(),
     websiteEdit: vi.fn(),
@@ -1487,6 +1488,7 @@ export const seedBindings = () => {
   commands.pageCopy.mockResolvedValue(ok(null));
   commands.storageUsage.mockResolvedValue(ok([]));
   commands.storageClear.mockResolvedValue(ok([]));
+  commands.songMemoryUsage.mockResolvedValue(ok({ songs: 0, coverSources: 0 }));
   commands.websiteList.mockResolvedValue(ok([]));
   commands.websiteDownloads.mockResolvedValue([]);
   commands.websiteDownloadCancel.mockResolvedValue(null);

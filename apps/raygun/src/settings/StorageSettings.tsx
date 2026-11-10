@@ -7,15 +7,77 @@ import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
 import { formatBytes } from '../lib/formatBytes';
-import { CACHE_SIZES_MB, COVER_REFRESH_DAYS, withCache } from './cacheDefaults';
+import {
+  CACHE_SIZES_MB,
+  COVER_REFRESH_DAYS,
+  COVER_SOURCE_SONGS,
+  SONG_FACTS_DAYS,
+  withCache,
+} from './cacheDefaults';
 import type { Cache } from './cacheDefaults';
 import { LyricsStorage } from './LyricsStorage';
-import { PrefBlock, PrefChoice, PrefGroup, PrefSwitch } from './prefs';
+import { PrefBlock, PrefChoice, PrefGroup, PrefInfo, PrefSwitch } from './prefs';
 import { Problem } from './Problem';
 import { useSettings, useUpdateSetting } from './useSettings';
 
 const STORAGE = ['storage'] as const;
+const SONG_MEMORY = ['songMemory'] as const;
 const MB = 1024 * 1024;
+
+/**
+ * What's kept about songs, in the order it goes (Rust's `song_memory`): cover pictures, where
+ * covers came from, everything else; with how much is kept and the two limits.
+ */
+const SongMemory: FC<{
+  cache: Cache;
+  busy: boolean;
+  onChange: (patch: Partial<Cache>) => void;
+}> = ({ cache, busy, onChange }) => {
+  const { t, i18n } = useTranslation();
+  const usage = useQuery({
+    queryKey: SONG_MEMORY,
+    queryFn: () => unwrapResult(commands.songMemoryUsage()),
+  });
+  const number = (value: number) => value.toLocaleString(i18n.language);
+  const songs = (count: number) => t('songMemory.songs', { count, number: number(count) });
+  const age = (days: number) =>
+    days === 0 ? t('songMemory.never') : t('songMemory.days', { count: days });
+  return (
+    <PrefGroup title={t('songMemory.title')} summary={t('songMemory.summary')}>
+      <PrefInfo title={t('songMemory.pictures')} summary={t('songMemory.picturesHint')} />
+      <PrefInfo
+        title={t('songMemory.sources')}
+        summary={t('songMemory.sourcesHint', {
+          kept: number(usage.data?.coverSources ?? 0),
+          limit: songs(cache.coverSourceSongs),
+        })}
+      />
+      <PrefChoice<number>
+        title={t('songMemory.sourcesLimit')}
+        value={cache.coverSourceSongs}
+        disabled={busy}
+        options={COVER_SOURCE_SONGS.map((value) => ({ value, label: songs(value) }))}
+        onChange={(coverSourceSongs) => onChange({ coverSourceSongs })}
+      />
+      <PrefInfo
+        title={t('songMemory.rest')}
+        summary={t('songMemory.restHint', { songs: songs(usage.data?.songs ?? 0) })}
+      />
+      <PrefChoice<number>
+        title={t('songMemory.restLimit')}
+        value={cache.songFactsDays}
+        disabled={busy}
+        options={SONG_FACTS_DAYS.map((value) => ({ value, label: age(value) }))}
+        onChange={(songFactsDays) => onChange({ songFactsDays })}
+      />
+      {usage.isError && (
+        <PrefBlock>
+          <Problem title={t('songMemory.usageFailed')} detail={usage.error.message} />
+        </PrefBlock>
+      )}
+    </PrefGroup>
+  );
+};
 
 const sizeLabel = (megabytes: number) => formatBytes(megabytes * MB);
 
@@ -157,6 +219,7 @@ export const StorageSettings: FC = () => {
           />
         </PrefGroup>
       )}
+      {settings.data && <SongMemory cache={cache} busy={busy} onChange={change} />}
       <LyricsStorage />
     </>
   );

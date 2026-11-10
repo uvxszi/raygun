@@ -68,6 +68,30 @@ const CATALOG_SEARCHES: usize = 6;
 /// Longest tag name kept from a provider.
 const MAX_TAG_CHARS: usize = 60;
 
+/// Calls someone waits on running now (searches, stream lookups, lyrics…), in every host.
+static INTERACTIVE_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How many calls someone waits on are running: work in the background holds back while any do.
+pub fn interactive_calls() -> usize {
+    INTERACTIVE_CALLS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Counts one interactive call while it lives (also when it's dropped unfinished).
+struct Interactive;
+
+impl Interactive {
+    fn start() -> Self {
+        INTERACTIVE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for Interactive {
+    fn drop(&mut self) {
+        INTERACTIVE_CALLS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// One `music.stream` provider's answer: its candidates, or why it failed.
 #[derive(Debug, Clone)]
 pub struct ProviderCandidates {
@@ -632,12 +656,14 @@ impl ExtensionHost {
     /// Calls `method` on a provider (its full `<extension>/<provider>` id), JSON in and out.
     /// A call someone is waiting on (M46.17): a search or a stream lookup gives up after
     /// [`INTERACTIVE_TIMEOUT`], so one source that never answers doesn't hold up the others.
+    /// Counted while it runs ([`interactive_calls`]).
     pub async fn call_interactive(
         &self,
         provider: &str,
         method: &str,
         args: serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
+        let _counted = Interactive::start();
         self.call_within(provider, method, args, INTERACTIVE_TIMEOUT)
             .await
     }

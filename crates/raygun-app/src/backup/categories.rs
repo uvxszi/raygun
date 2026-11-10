@@ -350,6 +350,10 @@ pub async fn clear(
                     .map_err(to_message)?;
                 // Quick access forgets when its pages were played from too; its pins stay.
                 crate::quick_access::forget(app, false, true).await;
+                // And songs' play stamps (what's kept of songs, `song_memory`).
+                raygun_db::song_memory::clear_stamps(&db)
+                    .await
+                    .map_err(to_message)?;
             }
             tracing::info!(?category, changed, "data cleared");
             // Cached lists in the UI are stale, as after a sync.

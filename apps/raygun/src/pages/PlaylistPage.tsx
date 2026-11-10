@@ -237,6 +237,7 @@ export const PlaylistPage: FC = () => {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <PlaylistCover
           artworkUrls={detail.playlist.artworkUrls}
+          artworkSongs={detail.playlist.artworkSongs}
           coverUrl={detail.playlist.coverUrl}
           className="size-48 self-center rounded-xl shadow-lg sm:self-auto"
         />

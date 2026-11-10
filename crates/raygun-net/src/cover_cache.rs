@@ -8,7 +8,8 @@
 //! gets a new token and is fetched fresh.
 //!
 //! Covers of titles in the library are "kept": they live in `keep/` and are never evicted. The
-//! rest are trimmed least recently used first once the folder passes its size limit.
+//! rest are trimmed least recently used first once the folder passes its size limit, except the
+//! covers in use (the playing and queued songs', [`CoverCache::spare_with`]).
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -18,7 +19,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::header;
 
-use crate::page_cache::{MAX_IMAGE_BYTES, evict, sniff_content_type, touch};
+use crate::page_cache::{MAX_IMAGE_BYTES, evict_sparing, sniff_content_type, touch};
+
+/// Names the covers in use now, which trimming leaves.
+type InUse = Arc<dyn Fn() -> HashSet<String> + Send + Sync>;
 
 const KEEP: &str = "keep";
 const META: &str = "meta";
@@ -143,6 +147,7 @@ pub struct CoverCache {
     written: Arc<AtomicU64>,
     /// Checks running, so one image is checked once at a time.
     checking: Arc<Mutex<HashSet<String>>>,
+    in_use: Arc<Mutex<Option<InUse>>>,
 }
 
 impl CoverCache {
@@ -153,7 +158,14 @@ impl CoverCache {
             refresh_ms: Arc::new(AtomicU64::new(refresh.as_millis() as u64)),
             written: Arc::new(AtomicU64::new(u64::MAX / 2)),
             checking: Arc::new(Mutex::new(HashSet::new())),
+            in_use: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// What trimming leaves however long ago it was seen: the tokens `in_use` names when the
+    /// folder is trimmed (the playing and queued songs' covers).
+    pub fn spare_with(&self, in_use: impl Fn() -> HashSet<String> + Send + Sync + 'static) {
+        *self.in_use.lock().expect("cover cache poisoned") = Some(Arc::new(in_use));
     }
 
     /// Changes the limits (from settings) and trims to the new size.
@@ -230,10 +242,13 @@ impl CoverCache {
         if written + bytes.len() as u64 > max / 10 {
             self.written.store(0, Ordering::Relaxed);
             let dir = self.dir.clone();
+            let in_use = self.in_use.lock().expect("cover cache poisoned").clone();
             let _ = tokio::task::spawn_blocking(move || {
-                // The size limit covers kept covers too; only the others go.
+                // The size limit covers kept covers too; only the others go, and of those not
+                // the ones in use.
                 let kept = usage_of(&dir.join(KEEP)).bytes;
-                evict(&dir, max.saturating_sub(kept));
+                let spared = in_use.map(|in_use| in_use()).unwrap_or_default();
+                evict_sparing(&dir, max.saturating_sub(kept), &spared);
                 clean_meta(&dir);
             })
             .await;
@@ -594,6 +609,37 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    /// The first tier of what's kept about songs: pictures go least recently used first once the
+    /// cache is full, except the ones in use and the kept ones.
+    #[tokio::test]
+    async fn trimming_takes_the_oldest_pictures_but_not_those_in_use() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let cache = CoverCache::new(temp.path().join("covers"), 1 << 20, Duration::ZERO);
+        let meta = Meta::default();
+        let ten = b"0123456789";
+        for (token, kept) in [("aa", false), ("bb", false), ("cc", false), ("ee", true)] {
+            cache.store(token, kept, ten, &meta).await;
+        }
+        // Seen long ago, oldest first: aa (playing), bb, cc.
+        for (seconds, token) in [(1, "aa"), (2, "bb"), (3, "cc")] {
+            std::fs::File::options()
+                .write(true)
+                .open(temp.path().join("covers").join(token))
+                .unwrap()
+                .set_modified(UNIX_EPOCH + Duration::from_secs(seconds))
+                .unwrap();
+        }
+        cache.spare_with(|| HashSet::from(["aa".to_owned()]));
+        // The kept one counts toward the limit: 30 bytes for the rest, trimmed to 90 %.
+        cache.set_limits(40, Duration::ZERO);
+        cache.store("dd", false, ten, &meta).await;
+        let left = |token: &str| temp.path().join("covers").join(token).exists();
+        assert!(left("aa"), "the picture in use stays");
+        assert!(!left("bb") && !left("cc"), "the least recently seen go");
+        assert!(left("dd"));
+        assert!(temp.path().join("covers/keep/ee").exists());
     }
 
     #[test]

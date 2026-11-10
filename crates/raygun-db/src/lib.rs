@@ -21,6 +21,7 @@ pub mod packed;
 pub mod podcasts;
 pub mod settings;
 pub mod song_edits;
+pub mod song_memory;
 pub mod streams;
 pub mod stremio;
 pub mod sync;

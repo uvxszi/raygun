@@ -4738,6 +4738,11 @@ pub struct PlaylistSummary {
     pub item_count: u32,
     /// Up to four distinct artworks of the first items, for the cover.
     pub artwork_urls: Vec<String>,
+    /// The songs `artwork_urls` are the covers of, in the same order: one that fails to load is
+    /// looked for at other sources (`cover_fallback`), as in song lists.
+    #[serde(default)]
+    #[specta(optional)]
+    pub artwork_songs: Option<Vec<TrackQuery>>,
     /// The cover the user picked (M46.45), shown instead of the artworks.
     pub cover_url: Option<String>,
     /// How long the items with a known length play together.
@@ -6248,8 +6253,19 @@ pub struct BlocklistStatus {
 pub const CACHE_SIZES_MB: [u32; 6] = [128, 256, 512, 1024, 2048, 4096];
 /// How old a cached cover may get before it's checked again, in days; 0 never checks.
 pub const COVER_REFRESH_DAYS: [u32; 5] = [0, 1, 3, 7, 30];
+/// For how many songs where their covers came from is remembered (the most recently played or
+/// seen first).
+pub const COVER_SOURCE_SONGS: [u32; 5] = [5_000, 10_000, 25_000, 50_000, 100_000];
+/// After how many days without being played or seen a song's other kept facts go; 0 keeps them.
+pub const SONG_FACTS_DAYS: [u32; 5] = [0, 90, 180, 365, 730];
 
-/// Image cache limits and refreshing. One stored row; missing fields keep their defaults.
+/// Image cache limits and refreshing, and how long what Raygun learned about songs is kept. One
+/// stored row; missing fields keep their defaults.
+///
+/// What's kept of a song goes in tiers, by one recency (when it was last played or seen): its
+/// cover picture first (the cover cache's least recently used, past `cover_cache_mb`), then the
+/// record of which source gave its cover (past `cover_source_songs`), then everything else
+/// (the stream that played it, its length, its lyrics: after `song_facts_days`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CachePrefs {
@@ -6260,6 +6276,12 @@ pub struct CachePrefs {
     pub cover_refresh_days: u32,
     /// The page cache is emptied each time the app starts (Mihon's option).
     pub clear_pages_on_start: bool,
+    /// Where covers came from is kept for this many songs, the most recently played or seen
+    /// first; songs in the library keep theirs.
+    pub cover_source_songs: u32,
+    /// A song's other kept facts go this many days after it was last played or seen; 0 keeps
+    /// them.
+    pub song_facts_days: u32,
 }
 
 impl Default for CachePrefs {
@@ -6269,6 +6291,8 @@ impl Default for CachePrefs {
             page_cache_mb: 512,
             cover_refresh_days: 7,
             clear_pages_on_start: false,
+            cover_source_songs: 25_000,
+            song_facts_days: 365,
         }
     }
 }
@@ -6286,8 +6310,31 @@ impl CachePrefs {
                 self.cover_refresh_days
             ));
         }
+        if !COVER_SOURCE_SONGS.contains(&self.cover_source_songs) {
+            return Err(format!(
+                "{} songs isn't an offered number",
+                self.cover_source_songs
+            ));
+        }
+        if !SONG_FACTS_DAYS.contains(&self.song_facts_days) {
+            return Err(format!(
+                "{} days isn't an offered age",
+                self.song_facts_days
+            ));
+        }
         Ok(())
     }
+}
+
+/// What Raygun keeps about songs (Settings → Data → Storage): how many songs it keeps facts for
+/// and how many covers found at other sources it remembers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SongMemoryUsage {
+    /// Songs with anything kept about them (a stream that played, a length, lyrics, a cover).
+    pub songs: u32,
+    /// Covers found at other sources, with the source that gave each.
+    pub cover_sources: u32,
 }
 
 /// A part of what Raygun stores, as Settings → Data → Storage lists it.

@@ -19,6 +19,7 @@ mod comics;
 mod commands;
 mod connect;
 mod cover_fallback;
+mod cover_search;
 mod details;
 mod device_link;
 mod device_state;
@@ -72,6 +73,7 @@ mod search;
 mod search_filter;
 mod servers;
 mod settings;
+mod song_memory;
 mod sound;
 mod source_detect;
 mod startup;
@@ -490,6 +492,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::page_copy,
             commands::storage_usage,
             commands::storage_clear,
+            commands::song_memory_usage,
             commands::website_list,
             commands::website_add,
             commands::website_edit,

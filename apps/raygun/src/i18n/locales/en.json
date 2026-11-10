@@ -3039,6 +3039,24 @@
     "clearPagesOnStart": "Clear the page cache on start",
     "clearPagesOnStartHint": "Reader pages are fetched again each time the app opens."
   },
+  "songMemory": {
+    "title": "What's kept about songs",
+    "summary": "In this order, by when each song was last played or seen",
+    "pictures": "1. Cover pictures",
+    "picturesHint": "The least recently seen go once the covers cache is full · your library's and the queue's stay",
+    "sources": "2. Where covers came from",
+    "sourcesHint": "{{kept}} kept · for the {{limit}} played or seen last · your library's stay",
+    "sourcesLimit": "Keep where covers came from for",
+    "rest": "3. Everything else",
+    "restHint": "The source that played a song, its length, its lyrics · {{songs}}",
+    "restLimit": "Forget everything else after",
+    "songs_one": "{{number}} song",
+    "songs_other": "{{number}} songs",
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "never": "Never",
+    "usageFailed": "Couldn't read what's kept"
+  },
   "servers": {
     "title": "Servers",
     "add": "Add server",

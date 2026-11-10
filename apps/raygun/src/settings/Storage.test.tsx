@@ -77,6 +77,36 @@ describe('Storage and caches', () => {
     });
   });
 
+  it("shows what's kept about songs in the order it goes, and changes how long", async () => {
+    const user = userEvent.setup();
+    commands.songMemoryUsage.mockResolvedValue(ok({ songs: 8412, coverSources: 312 }));
+    await AppShellWrapper.mount('/settings/data');
+    const pictures = await screen.findByText('1. Cover pictures');
+    const sources = screen.getByText('2. Where covers came from');
+    const rest = screen.getByText('3. Everything else');
+    // In that order on the page.
+    const follows = (before: Node, after: Node) =>
+      Boolean(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(pictures, sources) && follows(sources, rest)).toBe(true);
+    expect(
+      await screen.findByText(/^312 kept · for the 25,000 songs played or seen last/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/its lyrics · 8,412 songs$/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^Keep where covers came from for/ }));
+    await user.click(screen.getByRole('radio', { name: /^50,000 songs/ }));
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({
+      key: 'cache',
+      value: { ...CACHE_DEFAULTS, coverSourceSongs: 50_000 },
+    });
+    await user.click(screen.getByRole('button', { name: /^Forget everything else after/ }));
+    await user.click(screen.getByRole('radio', { name: /^Never/ }));
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({
+      key: 'cache',
+      value: expect.objectContaining({ songFactsDays: 0 }),
+    });
+  });
+
   it('formats sizes', () => {
     expect(formatBytes(512)).toBe('512 B');
     expect(formatBytes(1536)).toBe('1.5 KB');

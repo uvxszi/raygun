@@ -193,6 +193,11 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     ));
     crate::playback::PlaybackService::start_saving(app.handle().clone());
     crate::playback::PlaybackService::start_watchdog(app.handle().clone());
+    // The cover cache trims its least recently seen pictures, never the queue's.
+    let in_use_app = app.handle().clone();
+    app.state::<crate::caches::Caches>()
+        .covers
+        .spare_with(move || crate::song_memory::in_use(&in_use_app));
 
     let extensions = crate::extensions::ExtensionService::start(app.handle().clone(), &paths)?;
     app.manage(crate::extension_installs::ExtensionInstalls::start_in(
@@ -261,10 +266,19 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     );
     profiles.trim_later();
     app.manage(profiles);
-    // Covers from other sources when one's missing or fails (M46.40).
+    // Covers from other sources when one's missing or fails (M46.40), and looked for in the
+    // background for library songs without one.
     app.manage(crate::cover_fallback::CoverFallbacks::new(
         app.handle().clone(),
     ));
+    let cover_search =
+        crate::cover_search::CoverSearch::new(app.handle().clone(), raygun_net::http_client()?);
+    cover_search.start();
+    app.manage(cover_search);
+    // What's kept of songs, in tiers, swept daily.
+    let song_memory = crate::song_memory::SongMemory::new(app.handle().clone());
+    song_memory.start();
+    app.manage(song_memory);
     // The user's own details for songs, albums and artists (M46.30).
     let details = crate::details::DetailService::new(app.handle().clone(), paths.downloads());
     app.manage(details.clone());

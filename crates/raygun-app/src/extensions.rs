@@ -534,9 +534,19 @@ impl ExtensionService {
         &self,
         target: &raygun_model::DetailTarget,
     ) -> Vec<raygun_model::CoverOption> {
+        self.cover_options_answered(target).await.0
+    }
+
+    /// [`Self::cover_options`], and whether a source answered: for a song, a search that failed
+    /// at every source (offline, say) found nothing without saying there is nothing.
+    pub async fn cover_options_answered(
+        &self,
+        target: &raygun_model::DetailTarget,
+    ) -> (Vec<raygun_model::CoverOption>, bool) {
         use raygun_model::DetailTarget;
         let _ready = self.loading.read().await;
         let mut options = Vec::new();
+        let mut answered = true;
         match target {
             DetailTarget::Song { query } => {
                 let artist = query.artist.as_deref().unwrap_or_default();
@@ -560,6 +570,7 @@ impl ExtensionService {
                     },
                 )
                 .await;
+                answered = songs.iter().any(|result| result.error.is_none()) || !albums.is_empty();
                 let title = raygun_resolver::core_title(&query.title);
                 for result in songs {
                     for track in result.tracks {
@@ -606,7 +617,7 @@ impl ExtensionService {
         let mut seen = std::collections::HashSet::new();
         options.retain(|option| seen.insert(option.url.clone()));
         options.truncate(COVER_OPTIONS);
-        options
+        (options, answered)
     }
 
     /// An artist's coming events from every source that lists them (M46.42), soonest first.

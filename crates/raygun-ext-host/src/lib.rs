@@ -48,6 +48,7 @@ pub use host::{
     CATALOG_SEARCH_TIMEOUT, CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig,
     INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS, MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS,
     ProviderCandidates, ResolvedStream, ServerSecrets, StreamUse, UserSettings, discover_installed,
+    interactive_calls,
 };
 pub use js::{Limits, asked_wait};
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};

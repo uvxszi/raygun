@@ -163,7 +163,8 @@ async fn kept_tokens(app: &AppHandle) -> Result<HashSet<String>, raygun_db::DbEr
         kept.insert(proxy_image_token(&artwork, &Default::default()));
     }
     // Downloaded songs' covers show offline (M46.26).
-    for row in raygun_db::music_downloads::all(&db).await? {
+    let downloads = raygun_db::music_downloads::all(&db).await?;
+    for row in &downloads {
         if let Some(artwork) = &row.song.artwork_url {
             kept.insert(proxy_image_token(artwork, &Default::default()));
         }
@@ -181,9 +182,15 @@ async fn kept_tokens(app: &AppHandle) -> Result<HashSet<String>, raygun_db::DbEr
         kept.insert(proxy_image_token(&address, &Default::default()));
     }
     let fallbacks = app.state::<std::sync::Arc<crate::cover_fallback::CoverFallbacks>>();
+    // Downloaded songs' covers found elsewhere too.
     let songs: Vec<(String, Option<String>, Option<String>)> = saved
         .into_iter()
         .map(|(key, artist, album, _)| (key, artist, album))
+        .chain(
+            downloads
+                .into_iter()
+                .map(|row| (row.song.track_key, row.song.artist, row.song.album)),
+        )
         .collect();
     for address in fallbacks.kept_addresses(&songs).await {
         kept.insert(proxy_image_token(&address, &Default::default()));
