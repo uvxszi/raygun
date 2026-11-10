@@ -64,6 +64,8 @@ struct Found {
     /// yt-dlp's path and version, once looked for.
     program: Option<(PathBuf, String)>,
     installing: bool,
+    /// How far a fetch is, when its size is known.
+    progress: Option<f64>,
     message: Option<String>,
 }
 
@@ -106,6 +108,7 @@ impl YtDlpService {
             version,
             ffmpeg: self.ffmpeg().is_some(),
             installing: found.installing,
+            progress: found.installing.then_some(found.progress).flatten(),
             message: found.message.clone(),
         }
     }
@@ -150,6 +153,18 @@ impl YtDlpService {
             return Some(self.tools.clone());
         }
         on_path("ffmpeg").and_then(|path| path.parent().map(Path::to_path_buf))
+    }
+
+    /// FFmpeg and ffprobe for converting videos (desktop): Raygun's own, else a pair on the PATH.
+    pub fn ffmpeg_tools(&self) -> Option<crate::export::convert::ffmpeg::Tools> {
+        if !supported() {
+            return None;
+        }
+        use crate::export::convert::ffmpeg::Tools;
+        Tools::in_dir(&self.tools).or_else(|| {
+            let dir = on_path("ffmpeg")?.parent()?.to_path_buf();
+            Tools::in_dir(&dir)
+        })
     }
 
     /// yt-dlp, fetched first when it isn't here.
@@ -209,29 +224,24 @@ impl YtDlpService {
     }
 
     async fn fetch_ffmpeg(&self) -> Result<(), String> {
-        let sums = self
-            .text(&format!("{FFMPEG_RELEASES}/checksums.sha256"))
-            .await?;
-        let expected = checksum_for(&sums, FFMPEG_ZIP)
-            .ok_or_else(|| "FFmpeg's checksums don't list the Windows build".to_owned())?;
-        let bytes = self
-            .bytes(&format!("{FFMPEG_RELEASES}/{FFMPEG_ZIP}"))
-            .await?;
-        if sha256_hex(&bytes) != expected {
-            return Err("FFmpeg's download doesn't match its checksum".into());
-        }
-        let tools = self.tools.clone();
-        tokio::task::spawn_blocking(move || unpack_ffmpeg(&bytes, &tools))
-            .await
-            .map_err(|error| error.to_string())??;
-        tracing::info!("FFmpeg installed");
-        Ok(())
+        let shown = Mutex::new(None::<Instant>);
+        fetch_ffmpeg_into(&self.client, &self.tools, |share| {
+            let mut shown = shown.lock().expect("progress poisoned");
+            if shown.is_some_and(|at| at.elapsed() < PROGRESS_EVERY) {
+                return;
+            }
+            *shown = Some(Instant::now());
+            self.found.lock().expect("yt-dlp state poisoned").progress = Some(share);
+            let _ = YtDlpEvent(String::new()).emit(&self.app);
+        })
+        .await
     }
 
     fn set_installing(&self, installing: bool, message: Option<String>) {
         {
             let mut found = self.found.lock().expect("yt-dlp state poisoned");
             found.installing = installing;
+            found.progress = None;
             found.message = message;
         }
         let _ = YtDlpEvent(String::new()).emit(&self.app);
@@ -717,6 +727,70 @@ async fn write_tool(target: &Path, bytes: &[u8]) -> Result<(), String> {
     tokio::fs::rename(&partial, target)
         .await
         .map_err(|error| error.to_string())
+}
+
+/// Fetches yt-dlp's Windows build of FFmpeg into `tools` (`ffmpeg.exe` and `ffprobe.exe`), checked
+/// against the release's checksums; `progress` hears the share of the archive fetched.
+pub(crate) async fn fetch_ffmpeg_into(
+    client: &reqwest::Client,
+    tools: &Path,
+    progress: impl Fn(f64),
+) -> Result<(), String> {
+    let sums = download(
+        client,
+        &format!("{FFMPEG_RELEASES}/checksums.sha256"),
+        |_| {},
+    )
+    .await?;
+    let sums = String::from_utf8(sums).map_err(|error| error.to_string())?;
+    let expected = checksum_for(&sums, FFMPEG_ZIP)
+        .ok_or_else(|| "FFmpeg's checksums don't list the Windows build".to_owned())?;
+    let bytes = download(client, &format!("{FFMPEG_RELEASES}/{FFMPEG_ZIP}"), progress).await?;
+    if sha256_hex(&bytes) != expected {
+        return Err("FFmpeg's download doesn't match its checksum".into());
+    }
+    let tools = tools.to_owned();
+    tokio::task::spawn_blocking(move || unpack_ffmpeg(&bytes, &tools))
+        .await
+        .map_err(|error| error.to_string())??;
+    tracing::info!("FFmpeg installed");
+    Ok(())
+}
+
+/// A tool's file, read as it comes so `progress` hears how far it is (when its size is known).
+async fn download(
+    client: &reqwest::Client,
+    url: &str,
+    progress: impl Fn(f64),
+) -> Result<Vec<u8>, String> {
+    let mut response = client
+        .get(url)
+        .timeout(Duration::from_secs(900))
+        .send()
+        .await
+        .map_err(|error| format!("{url}: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("{url}: HTTP {}", response.status().as_u16()));
+    }
+    let size = response.content_length();
+    if size.is_some_and(|size| size > MAX_TOOL_BYTES) {
+        return Err(format!("{url} is too big"));
+    }
+    let mut bytes = Vec::with_capacity(size.unwrap_or(0) as usize);
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("{url}: {error}"))?
+    {
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() as u64 > MAX_TOOL_BYTES {
+            return Err(format!("{url} is too big"));
+        }
+        if let Some(size) = size.filter(|size| *size > 0) {
+            progress((bytes.len() as f64 / size as f64).min(1.0));
+        }
+    }
+    Ok(bytes)
 }
 
 /// `ffmpeg.exe` and `ffprobe.exe` from the build's `bin/` folder into `tools`.

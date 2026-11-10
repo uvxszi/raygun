@@ -122,6 +122,29 @@ class CaptureArgs {
     lateinit var session: String
 }
 
+/** A video export re-encoded with Media3's Transformer ([VideoConvert]). */
+@InvokeArg
+class ConvertStartArgs {
+    lateinit var session: String
+    lateinit var input: String
+    lateinit var output: String
+    var audioOnly: Boolean = false
+    var stereo: Boolean = false
+    /** What the source has (both when unknown). */
+    var video: Boolean = true
+    var audio: Boolean = true
+}
+
+@InvokeArg
+class ConvertArgs {
+    lateinit var session: String
+}
+
+@InvokeArg
+class MediaCheckArgs {
+    lateinit var path: String
+}
+
 /** Whether a hidden YouTube player being captured keeps the webview running ([WebAwake.hold]). */
 @InvokeArg
 class HoldArgs {
@@ -1024,6 +1047,40 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         val args = invoke.parseArgs(CaptureArgs::class.java)
         SongCapture.stop(args.session)
         invoke.resolve()
+    }
+
+    /** Starts re-encoding a video export with Media3's Transformer. */
+    @Command
+    fun convertStart(invoke: Invoke) {
+        val args = invoke.parseArgs(ConvertStartArgs::class.java)
+        try {
+            VideoConvert.start(activity.applicationContext, args)
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "The conversion didn't start")
+        }
+    }
+
+    @Command
+    fun convertStatus(invoke: Invoke) {
+        val args = invoke.parseArgs(ConvertArgs::class.java)
+        invoke.resolve(VideoConvert.status(args.session))
+    }
+
+    @Command
+    fun convertStop(invoke: Invoke) {
+        val args = invoke.parseArgs(ConvertArgs::class.java)
+        VideoConvert.stop(args.session)
+        invoke.resolve()
+    }
+
+    /** What Android's extractor and decoders find in a converted file. */
+    @Command
+    fun mediaCheck(invoke: Invoke) {
+        val args = invoke.parseArgs(MediaCheckArgs::class.java)
+        VideoConvert.check(args.path) { found, error ->
+            if (found != null) invoke.resolve(found) else invoke.reject(error ?: "The file is unreadable")
+        }
     }
 
     /**

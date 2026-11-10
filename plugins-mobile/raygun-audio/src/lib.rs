@@ -690,6 +690,32 @@ impl<R: Runtime> NativeAudio<R> {
             .map(|_| ())
     }
 
+    /// Starts converting a video with Media3's Transformer: `{session, input, output, audioOnly,
+    /// stereo}` (H.264 and AAC in MP4, or AAC alone; what fits is copied). One session at a time
+    /// per id; it runs until done, failed or stopped.
+    pub fn convert_start(&self, request: &serde_json::Value) -> Result<(), String> {
+        self.run::<serde_json::Value>("convertStart", request.clone())
+            .map(|_| ())
+    }
+
+    /// A conversion's state: `{state, progress, error}`; `state` is `running`, `done` or
+    /// `failed`, `progress` 0 to 100.
+    pub fn convert_status(&self, session: &str) -> Result<serde_json::Value, String> {
+        self.run("convertStatus", serde_json::json!({ "session": session }))
+    }
+
+    /// Stops a conversion (its partial file is deleted).
+    pub fn convert_stop(&self, session: &str) -> Result<(), String> {
+        self.run::<serde_json::Value>("convertStop", serde_json::json!({ "session": session }))
+            .map(|_| ())
+    }
+
+    /// What Android's extractor and decoders find in a media file: `{durationMs, video, audio,
+    /// frame}` (`frame`: a picture frame decoded).
+    pub fn media_check(&self, path: &str) -> Result<serde_json::Value, String> {
+        self.run("mediaCheck", serde_json::json!({ "path": path }))
+    }
+
     /// Keeps the webview running while Raygun is off screen (`on`), for a hidden YouTube player
     /// whose sound is captured (M46.52), or lets it go.
     pub fn capture_hold_webview(&self, on: bool) -> Result<(), String> {
@@ -1041,6 +1067,10 @@ mod tests {
             "captureStatus",
             "captureStop",
             "captureHoldWebview",
+            "convertStart",
+            "convertStatus",
+            "convertStop",
+            "mediaCheck",
             "createOutput",
             "finishOutput",
             "deleteFile",

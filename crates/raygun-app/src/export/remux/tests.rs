@@ -16,6 +16,15 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src/export/remux/fixtures")
 }
 
+fn convert(
+    source: &Source,
+    target: Target,
+    out: &mut dyn std::io::Write,
+    cancel: &AtomicBool,
+) -> Result<()> {
+    convert_with(source, target, out, cancel, &[])
+}
+
 fn convert_to(source: &Source, target: Target) -> Vec<u8> {
     let mut out = Vec::new();
     convert(source, target, &mut out, &AtomicBool::new(false)).expect("converts");
@@ -253,11 +262,11 @@ fn m4a_holds_the_sound_alone() {
     assert_eq!(&m4a[8..12], b"M4A ");
     let seconds = sound_seconds(m4a, "m4a");
     assert!((seconds - 2.0).abs() < 0.1, "{seconds} s");
-    // M4A takes AAC only.
+    // M4A takes AAC only: MP3 sound is refused here (converting re-encodes it first).
     let mp3 = Source::File(fixtures().join("mp3.m2t"));
-    let probed = probe(&mp3).unwrap();
-    assert!(refusal(&probed, Target::M4a).is_some());
-    assert!(refusal(&probed, Target::Mp3 { kbps: 128 }).is_none());
+    let mut out = Vec::new();
+    let refused = convert(&mp3, Target::M4a, &mut out, &AtomicBool::new(false));
+    assert!(matches!(refused, Err(Error::Unsupported(_))));
 }
 
 #[test]
@@ -346,18 +355,29 @@ fn packed_audio_takes_its_time_from_id3() {
 }
 
 #[test]
-fn targets_say_what_they_cannot_hold() {
-    let vp9 = Probe {
-        video: Some(Codec::Vp9),
-        audio: Some(Codec::Opus(
-            b"OpusHead\x01\x02\x38\x01\x80\xBB\0\0\0\0\0".to_vec(),
-        )),
-    };
-    assert!(refusal(&vp9, Target::Mp4).is_some());
-    assert!(refusal(&vp9, Target::Mkv).is_none());
-    assert!(refusal(&vp9, Target::M4a).is_some());
-    assert!(refusal(&vp9, Target::Mp3 { kbps: 128 }).is_some());
-    assert!(refusal(&Probe::default(), Target::Mkv).is_some());
+fn probes_say_size_rate_and_length() {
+    for source in [
+        Source::File(fixtures().join("plain.mp4")),
+        Source::File(fixtures().join("plain.mkv")),
+        hls("ts"),
+    ] {
+        let probed = probe(&source).unwrap();
+        assert!(probed.width > 0 && probed.height > 0, "{probed:?}");
+        assert!(probed.channels > 0, "{probed:?}");
+        assert!(probed.fps.is_some_and(|fps| fps > 1.0), "{probed:?}");
+        assert!(
+            probed
+                .seconds
+                .is_some_and(|seconds| (seconds - 2.0).abs() < 0.5),
+            "{probed:?}"
+        );
+        assert!(probed.skipped.is_empty());
+    }
+    assert_eq!(
+        frame_rate(&[0, 3003, 1001, 2002, 4004, 5005], 30_000),
+        Some(29.97002997002997)
+    );
+    assert_eq!(frame_rate(&[0, 1], 1000), None);
 }
 
 #[test]

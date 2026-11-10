@@ -15,16 +15,25 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
   const dismiss = useDismissExport();
   const [done, total] =
     job.state === 'downloading' ? [job.downloaded, job.toDownload] : [job.written, job.toWrite];
-  const fraction = total > 0 ? Math.min(1, done / total) : 0;
+  // A video being converted counts its share of the file it's on.
+  const converting = job.state === 'writing' && job.progress !== null;
+  const progress = converting ? (job.progress ?? 0) : 0;
+  const fraction = total > 0 ? Math.min(1, (done + progress) / total) : 0;
   const status =
     job.state === 'downloading'
       ? t(job.medium === 'video' ? 'export.state.downloadingVideo' : 'export.state.downloading', {
           done,
           total,
         })
-      : job.state === 'writing'
-        ? t('export.state.writing', { done, total })
-        : t(`export.state.${job.state}`);
+      : converting
+        ? t('export.state.converting', {
+            done: Math.min(total, done + 1),
+            total,
+            percent: Math.floor(progress * 100),
+          })
+        : job.state === 'writing'
+          ? t('export.state.writing', { done, total })
+          : t(`export.state.${job.state}`);
 
   return (
     <li
@@ -67,7 +76,7 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
           aria-label={status}
           aria-valuemin={0}
           aria-valuemax={total}
-          aria-valuenow={done}
+          aria-valuenow={done + progress}
           className="bg-background h-1.5 overflow-hidden rounded-full"
         >
           <div

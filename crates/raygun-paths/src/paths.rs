@@ -26,6 +26,8 @@ pub enum CacheKind {
     Captions,
     /// Artists' pages as last answered: popular songs, facts, releases, events.
     Artists,
+    /// Video exports being converted, until they're copied where they go.
+    Convert,
 }
 
 impl CacheKind {
@@ -40,6 +42,7 @@ impl CacheKind {
             Self::Covers => "covers",
             Self::Captions => "captions",
             Self::Artists => "artists",
+            Self::Convert => "convert",
         }
     }
 }

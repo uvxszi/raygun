@@ -1,9 +1,11 @@
 import type {
+  ExportConversion,
   MangaLibraryEntry,
   StremioMeta,
   VideoDownloadItem,
   VideoTitleView,
   VideoUpdateItem,
+  YtDlpStatus,
 } from '@raygun/bindings';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -342,6 +344,7 @@ describe('Video library', () => {
         missing: request.scope.kind === 'downloaded' ? 0 : 1,
         files: 1,
         problem: null,
+        conversions: [],
       }),
     );
     await AppShellWrapper.mount('/watch/title?type=series&id=tt0903747');
@@ -516,7 +519,9 @@ describe('Video library', () => {
     commands.videoDownloads.mockResolvedValue(
       ok({ paused: false, items: [download('1', 'done', { doneBytes: 800 * 1024 ** 2 })] }),
     );
-    commands.exportPlan.mockResolvedValue(ok({ chapters: 1, missing: 0, files: 1, problem: null }));
+    commands.exportPlan.mockResolvedValue(
+      ok({ chapters: 1, missing: 0, files: 1, problem: null, conversions: [] }),
+    );
     commands.exportLastFormat.mockResolvedValue(ok('mkv'));
     await AppShellWrapper.mount('/downloads?tab=videos');
     const saved = await screen.findByRole('listitem', { name: 'Breaking Bad · S1 E1' });
@@ -576,6 +581,123 @@ describe('Video library', () => {
     await open();
     await user.click(await screen.findByRole('menuitem', { name: 'Go to title' }));
     expect(await screen.findByTestId('watch-title-page')).toBeInTheDocument();
+  });
+
+  it('says what each format re-encodes and how long it takes, getting FFmpeg first', async () => {
+    const user = userEvent.setup();
+    commands.videoDownloads.mockResolvedValue(
+      ok({ paused: false, items: [download('1', 'done', { doneBytes: 300 * 1024 ** 2 })] }),
+    );
+    // A VP9 and Opus WebM on a computer without FFmpeg yet.
+    const conversions: ExportConversion[] = [
+      {
+        format: 'mp4',
+        video: true,
+        audio: true,
+        from: ['VP9', 'Opus'],
+        seconds: 150,
+        needsFfmpeg: true,
+      },
+      { format: 'mkv', video: false, audio: false, from: [], seconds: 2, needsFfmpeg: false },
+      { format: 'm4a', video: false, audio: true, from: ['Opus'], seconds: 20, needsFfmpeg: true },
+      { format: 'mp3', video: false, audio: true, from: [], seconds: 4000, needsFfmpeg: true },
+    ];
+    commands.exportPlan.mockResolvedValue(
+      ok({ chapters: 1, missing: 0, files: 1, problem: null, conversions }),
+    );
+    const status: YtDlpStatus = {
+      supported: true,
+      version: null,
+      ffmpeg: false,
+      installing: false,
+      progress: null,
+      message: null,
+    };
+    commands.ytdlpStatus.mockResolvedValue(ok(status));
+    let fetched: (value: { status: 'ok'; data: YtDlpStatus }) => void = () => {};
+    commands.ytdlpInstallFfmpeg.mockReturnValue(
+      new Promise((resolve) => {
+        fetched = resolve;
+      }),
+    );
+    await AppShellWrapper.mount('/downloads?tab=videos');
+    const saved = await screen.findByRole('listitem', { name: 'Breaking Bad · S1 E1' });
+    await user.click(
+      within(saved).getByRole('button', { name: 'Options for Breaking Bad · S1 E1' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: 'Save as file…' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Export' });
+
+    // Every format is offered; each says whether it re-encodes, from what, and about how long.
+    const mp4 = within(sheet).getByRole('radio', { name: 'MP4' });
+    expect(await within(mp4).findByTestId('conversion-mp4')).toHaveTextContent(
+      'Re-encodes the picture and sound (VP9, Opus), which takes longer: about 3 minutes',
+    );
+    expect(within(sheet).getByTestId('conversion-mkv')).toHaveTextContent('Nothing is re-encoded');
+    expect(within(sheet).getByTestId('conversion-m4a')).toHaveTextContent(
+      'Re-encodes the sound (Opus), which takes longer: under a minute',
+    );
+    expect(within(sheet).getByTestId('conversion-mp3')).toHaveTextContent(
+      'Re-encodes the sound, which takes longer: about 1 hour',
+    );
+    expect(within(sheet).queryByRole('alert')).not.toBeInTheDocument();
+
+    // Re-encoding on this computer needs FFmpeg: fetched here, with its progress.
+    await user.click(mp4);
+    expect(await within(sheet).findByText(/needs FFmpeg/)).toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: 'Export' })).toBeDisabled();
+    await user.click(within(sheet).getByRole('button', { name: 'Get FFmpeg' }));
+    expect(commands.ytdlpInstallFfmpeg).toHaveBeenCalled();
+    commands.ytdlpStatus.mockResolvedValue(ok({ ...status, installing: true, progress: 0.4 }));
+    emitEvent('ytDlpEvent', '');
+    expect(
+      await within(sheet).findByRole('progressbar', { name: 'Getting FFmpeg…' }),
+    ).toHaveAttribute('aria-valuenow', '40');
+    expect(within(sheet).getByRole('button', { name: 'Getting FFmpeg… 40%' })).toBeDisabled();
+
+    // Once it's there, the plan is asked again and the export can start.
+    commands.exportPlan.mockResolvedValue(
+      ok({
+        chapters: 1,
+        missing: 0,
+        files: 1,
+        problem: null,
+        conversions: conversions.map((conversion) => ({ ...conversion, needsFfmpeg: false })),
+      }),
+    );
+    commands.ytdlpStatus.mockResolvedValue(ok({ ...status, ffmpeg: true }));
+    fetched(ok({ ...status, ffmpeg: true }));
+    await vi.waitFor(() =>
+      expect(within(sheet).queryByText(/needs FFmpeg/)).not.toBeInTheDocument(),
+    );
+    expect(within(sheet).getByRole('button', { name: 'Export' })).toBeEnabled();
+  });
+
+  it('shows how far a video conversion is in Downloads → Exports', async () => {
+    commands.exportJobs.mockResolvedValue([
+      {
+        id: 'j1',
+        label: 'Big Buck Bunny',
+        medium: 'video',
+        format: 'mp4',
+        destination: 'downloads',
+        state: 'writing',
+        downloaded: 0,
+        toDownload: 0,
+        written: 0,
+        toWrite: 2,
+        files: [],
+        failedChapters: 0,
+        skippedPages: 0,
+        message: null,
+        startedAt: 0,
+        progress: 0.45,
+      },
+    ]);
+    await AppShellWrapper.mount('/downloads?tab=exports');
+    const card = await screen.findByRole('listitem', { name: 'Big Buck Bunny' });
+    expect(card).toHaveTextContent('MP4 · Converting 1 of 2 · 45%');
+    expect(within(card).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0.45');
   });
 
   it('lists new and upcoming episodes in Updates', async () => {

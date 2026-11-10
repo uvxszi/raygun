@@ -1,12 +1,13 @@
-//! Downloaded videos as files (M46.1). They're saved as MP4 or Matroska (packets copied into the
-//! new container, `remux`), as their sound alone (M4A or MP3), or as they downloaded: a plain
-//! download copied out, an HLS download (segments, keys and init maps beside a playlist) joined
-//! into one file, MPEG-TS segments into a `.ts` and fragmented MP4 (an `#EXT-X-MAP` init section)
-//! into an `.mp4`, AES-128 segments decrypted by their saved keys. A stream whose sound is a
-//! separate rendition joins it only when converted. A video a format can't hold is kept as it
-//! downloaded, and the job says so. Saved subtitle tracks go beside the video. Episodes that
-//! aren't downloaded yet are queued first (finding their links on their own) and the export waits
-//! for them.
+//! Downloaded videos as files (M46.1). They're saved as MP4 or Matroska, as their sound alone (M4A
+//! or MP3), or as they downloaded: a plain download copied out, an HLS download (segments, keys
+//! and init maps beside a playlist) joined into one file, MPEG-TS segments into a `.ts` and
+//! fragmented MP4 (an `#EXT-X-MAP` init section) into an `.mp4`, AES-128 segments decrypted by
+//! their saved keys. Converting (`convert`) copies streams a format holds and re-encodes the rest,
+//! so every format takes every video; one that still couldn't be converted is kept as it
+//! downloaded, and the job says why. A stream whose sound is a separate rendition joins it only
+//! when converted. Subtitle tracks go inside where the format holds them, else beside the video.
+//! Episodes that aren't downloaded yet are queued first (finding their links on their own) and the
+//! export waits for them.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -21,9 +22,10 @@ use std::collections::{HashMap, HashSet};
 
 use raygun_db::titles::{self, TitleRow, UnitRow};
 use raygun_db::video_downloads::{self as store, VideoDownloadRow};
-use raygun_model::{ExportFormat, ExportRequest, ExportScope, VideoSubtitle};
+use raygun_model::{ExportConversion, ExportFormat, ExportRequest, ExportScope, VideoSubtitle};
 use tauri::{AppHandle, Manager};
 
+use super::convert::{self, Engines, MediaInfo, ffmpeg, pipeline};
 use super::{Chosen, ExportService, Place, Planned, names, output, remux};
 use crate::catalog::{now_ms, to_message};
 use crate::startup::{AppDb, AppPaths};
@@ -50,6 +52,8 @@ enum Part {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Join {
     parts: Vec<Part>,
+    /// How long its segments play (`#EXTINF`), ms.
+    length_ms: u64,
 }
 
 impl Join {
@@ -66,12 +70,16 @@ impl Join {
         let mut sequence: u128 = 0;
         let mut key: Option<(String, Option<[u8; 16]>)> = None;
         let mut map: Option<String> = None;
+        let mut length = 0.0f64;
         for line in playlist
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
         {
-            if let Some(value) = line.strip_prefix("#EXT-X-MEDIA-SEQUENCE:") {
+            if let Some(value) = line.strip_prefix("#EXTINF:") {
+                let seconds = value.split(',').next().unwrap_or_default().trim();
+                length += seconds.parse::<f64>().unwrap_or(0.0).max(0.0);
+            } else if let Some(value) = line.strip_prefix("#EXT-X-MEDIA-SEQUENCE:") {
                 sequence = value.trim().parse().unwrap_or(0);
             } else if let Some(attributes) = line.strip_prefix("#EXT-X-KEY:") {
                 key = match attribute(attributes, "METHOD").as_deref() {
@@ -110,7 +118,15 @@ impl Join {
         {
             return Err("The saved stream has no segments".into());
         }
-        Ok(Self { parts })
+        Ok(Self {
+            parts,
+            length_ms: (length * 1000.0).round() as u64,
+        })
+    }
+
+    /// How long its segments play, when the playlist says.
+    pub fn seconds(&self) -> Option<f64> {
+        (self.length_ms > 0).then(|| self.length_ms as f64 / 1000.0)
     }
 
     /// `mp4` for fragmented MP4, else `ts`.
@@ -318,22 +334,29 @@ pub(super) fn mime_of(name: &str) -> &'static str {
     }
 }
 
-/// What each download holds, read once (by download id and file): its streams, or why it can't
-/// be read.
+/// What each download holds, read once (by download id, file and reader).
 #[derive(Default)]
-pub(crate) struct Probes(Mutex<HashMap<String, Result<remux::Probe, String>>>);
+pub(crate) struct Probes(Mutex<HashMap<String, MediaInfo>>);
 
 impl Probes {
-    fn get(&self, key: &str) -> Option<Result<remux::Probe, String>> {
+    fn get(&self, key: &str) -> Option<MediaInfo> {
         self.0.lock().ok()?.get(key).cloned()
     }
 
-    fn put(&self, key: String, probe: Result<remux::Probe, String>) {
+    fn put(&self, key: String, info: MediaInfo) {
         if let Ok(mut probes) = self.0.lock() {
-            probes.insert(key, probe);
+            probes.insert(key, info);
         }
     }
 }
+
+/// The video formats, each with the file it converts to.
+const VIDEO_FORMATS: [ExportFormat; 4] = [
+    ExportFormat::Mp4,
+    ExportFormat::Mkv,
+    ExportFormat::M4a,
+    ExportFormat::Mp3,
+];
 
 /// The MP3 bitrate: the Downloads audio quality, as songs saved as MP3 (Best is 320 kbps).
 async fn mp3_kbps(app: &AppHandle) -> u32 {
@@ -416,7 +439,8 @@ pub(super) async fn plan(
             units: picked,
         });
     }
-    problems.extend(problems_of(service, &rows, request.format).await);
+    let (conversions, found) = conversions_of(service, &rows, request.format).await;
+    problems.extend(found);
     let files: u32 = chosen.iter().map(|title| title.units.len() as u32).sum();
     let problem = if files == 0 {
         Some(problems.first().cloned().unwrap_or_else(|| {
@@ -437,6 +461,7 @@ pub(super) async fn plan(
         videos: missing,
         files,
         problem,
+        conversions,
     })
 }
 
@@ -510,8 +535,9 @@ pub(super) fn settled(
     (done, failed)
 }
 
-/// Writes each episode as one file in `format` (a video's subtitles beside it). An episode the
-/// format can't hold is saved as it downloaded, and the job's message says so.
+/// Writes each episode as one file in `format` (subtitles inside where the format holds them,
+/// else beside it). An episode that couldn't be converted is saved as it downloaded, and the job's
+/// message says why.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn write(
     service: &ExportService,
@@ -536,7 +562,8 @@ pub(super) async fn write(
             .await
             .map_err(to_message)?
             .ok_or_else(|| format!("{} isn't downloaded", unit.fields.name))?;
-        let (files, why) = write_row(service, &app, &row, title, target, place, cancel).await?;
+        let (files, why) =
+            write_row(service, &app, Some(job), &row, title, target, place, cancel).await?;
         saved.extend(files);
         kept.extend(why);
         service.update(job, |job| job.written += 1);
@@ -551,110 +578,286 @@ pub(super) async fn write(
     Ok(saved)
 }
 
-/// What a download holds, read from its start.
-fn probe_row(dir: &Path, file: &str) -> Result<remux::Probe, String> {
-    let source = remux::Source::of_download(dir, file).map_err(|error| error.to_string())?;
-    remux::probe(&source).map_err(|error| error.to_string())
+/// The bytes a download takes (its folder's files).
+fn folder_bytes(dir: &Path) -> u64 {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|entry| entry.metadata().ok())
+                .filter(std::fs::Metadata::is_file)
+                .map(|metadata| metadata.len())
+                .sum()
+        })
+        .unwrap_or(0)
 }
 
-/// Why the downloaded episodes can't be written in `format`, each reason once.
-async fn problems_of(
+/// What a download holds, by Raygun's own reader (anything it can't read is re-encoded by an
+/// engine that can).
+async fn remux_info(folder: PathBuf, file: String) -> MediaInfo {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = folder_bytes(&folder);
+        match remux::Source::of_download(&folder, &file).and_then(|source| remux::probe(&source)) {
+            Ok(probe) => MediaInfo::from_probe(&probe, bytes),
+            Err(_) => MediaInfo::unknown(bytes),
+        }
+    })
+    .await
+    .unwrap_or_else(|_| MediaInfo::unknown(0))
+}
+
+/// What a download holds, read once: by ffprobe when FFmpeg is here and it's one file, else by
+/// Raygun's own reader.
+pub(super) async fn media_info(service: &ExportService, row_id: &str, file: &str) -> MediaInfo {
+    let folder = downloads_dir(&service.app).join(row_id);
+    let tools = pipeline::ffmpeg_tools(&service.app).filter(|_| !file.ends_with(".m3u8"));
+    let reader = if tools.is_some() { "ffprobe" } else { "remux" };
+    let key = format!("{row_id}/{file}/{reader}");
+    if let Some(info) = service.probes.get(&key) {
+        return info;
+    }
+    let info = match &tools {
+        Some(tools) => match ffmpeg::probe(tools, &folder.join(file)).await {
+            Ok(info) => info,
+            Err(_) => remux_info(folder, file.to_owned()).await,
+        },
+        None => remux_info(folder, file.to_owned()).await,
+    };
+    service.probes.put(key, info.clone());
+    info
+}
+
+/// What each video format does with the downloaded episodes, and why `format` can't be written
+/// for them (each reason once).
+async fn conversions_of(
     service: &ExportService,
     rows: &[VideoDownloadRow],
     format: ExportFormat,
-) -> Vec<String> {
+) -> (Vec<ExportConversion>, Vec<String>) {
     let dir = downloads_dir(&service.app);
-    let target = target_of(format, 128);
+    let engines = Engines::here(pipeline::ffmpeg_tools(&service.app).is_some());
+    let speeds = pipeline::speeds(&service.app).await;
     let mut problems: Vec<String> = Vec::new();
+    let mut infos = Vec::new();
     for row in rows {
         let Some(file) = row.file.clone() else {
             continue;
         };
-        let folder = dir.join(&row.id);
-        let found = match target {
-            // As it downloaded: a stream with separate sound can't be one file.
-            None if file.ends_with(".m3u8") => std::fs::read_to_string(folder.join(&file))
+        // As it downloaded: a stream with separate sound can't be one file.
+        if format == ExportFormat::Video
+            && file.ends_with(".m3u8")
+            && let Some(problem) = std::fs::read_to_string(dir.join(&row.id).join(&file))
                 .ok()
-                .and_then(|playlist| Join::parse(&playlist).err()),
-            None => None,
-            Some(target) => {
-                let key = format!("{}/{file}", row.id);
-                let probe = match service.probes.get(&key) {
-                    Some(probe) => probe,
-                    None => {
-                        let probe =
-                            tauri::async_runtime::spawn_blocking(move || probe_row(&folder, &file))
-                                .await
-                                .map_err(to_message)
-                                .and_then(|probe| probe);
-                        service.probes.put(key, probe.clone());
-                        probe
-                    }
-                };
-                match probe {
-                    Ok(probe) => remux::refusal(&probe, target),
-                    Err(error) => Some(error),
-                }
-            }
-        };
-        if let Some(problem) = found
+                .and_then(|playlist| Join::parse(&playlist).err())
             && !problems.contains(&problem)
         {
             problems.push(problem);
         }
+        let info = media_info(service, &row.id, &file).await;
+        infos.push((file.ends_with(".m3u8"), info));
     }
-    problems
+    if matches!(format, ExportFormat::M4a | ExportFormat::Mp3)
+        && !infos.is_empty()
+        && infos.iter().all(|(_, info)| info.audio.is_none())
+    {
+        problems.push("This video has no sound to save".into());
+    }
+    let conversions = VIDEO_FORMATS
+        .iter()
+        .filter_map(|format| Some((*format, target_of(*format, 192)?)))
+        .map(|(format, target)| conversion_for(format, target, &infos, engines, &speeds))
+        .collect();
+    (conversions, problems)
 }
 
-/// Converts a download into `target`: `Ok(Err(why))` when the target can't hold it (nothing is
-/// left behind, so it can be saved as it downloaded instead).
+/// What `format` does with the downloads `infos` (each with whether it's a saved HLS stream).
+fn conversion_for(
+    format: ExportFormat,
+    target: remux::Target,
+    infos: &[(bool, MediaInfo)],
+    engines: Engines,
+    speeds: &convert::Speeds,
+) -> ExportConversion {
+    let mut conversion = ExportConversion {
+        format,
+        video: false,
+        audio: false,
+        from: Vec::new(),
+        seconds: None,
+        needs_ffmpeg: false,
+    };
+    let mut total = 0.0;
+    let mut known = !infos.is_empty();
+    for (hls, info) in infos {
+        if target.audio_only() && info.audio.is_none() {
+            continue;
+        }
+        let route = convert::route(info, target, *hls, engines);
+        conversion.needs_ffmpeg |= route.needs_ffmpeg;
+        let mut from = Vec::new();
+        if route.encodes_video() {
+            conversion.video = true;
+            from.extend(
+                info.video
+                    .iter()
+                    .map(|video| convert::shown_codec(&video.codec)),
+            );
+        }
+        if route.encodes_audio() {
+            conversion.audio = true;
+            from.extend(
+                info.audio
+                    .iter()
+                    .map(|audio| convert::shown_codec(&audio.codec)),
+            );
+        }
+        for codec in from {
+            if !codec.is_empty() && !conversion.from.contains(&codec) {
+                conversion.from.push(codec);
+            }
+        }
+        // Once FFmpeg is fetched, it does the work.
+        let planned = if route.needs_ffmpeg {
+            convert::route(
+                info,
+                target,
+                *hls,
+                Engines {
+                    ffmpeg: true,
+                    transformer: false,
+                },
+            )
+        } else {
+            route
+        };
+        if info.seconds.is_none() && planned.passes.iter().any(convert::Pass::encodes) {
+            known = false;
+        }
+        total += convert::estimate(&planned, info, speeds);
+    }
+    conversion.seconds = known.then(|| total.ceil() as u32);
+    conversion
+}
+
+/// A download's subtitle tracks as files (named as saved, never paths).
+fn subtitle_files(dir: &Path, tracks: &[VideoSubtitle]) -> Vec<Option<ffmpeg::SubtitleFile>> {
+    tracks
+        .iter()
+        .map(|track| {
+            let path = safe_join(dir, &track.url).ok()?;
+            let format = track
+                .format
+                .clone()
+                .or_else(|| {
+                    Path::new(&track.url)
+                        .extension()
+                        .and_then(|extension| extension.to_str())
+                        .map(str::to_lowercase)
+                })
+                .unwrap_or_else(|| "srt".into());
+            Some(ffmpeg::SubtitleFile {
+                path,
+                format,
+                language: track
+                    .lang
+                    .as_deref()
+                    .and_then(crate::video_downloads::subtitles::language_code),
+            })
+        })
+        .collect()
+}
+
+/// Converts a download into `target` in the cache, checked; the job (when there is one) shows how
+/// far it is. `Ok(Err(why))` when it couldn't be converted (it can be saved as it downloaded).
 #[allow(clippy::too_many_arguments)]
-fn convert_row(
-    outputs: &output::Outputs,
-    place: &Place,
-    folder: &[String],
-    stem: &str,
-    dir: &Path,
+async fn convert_row(
+    service: &ExportService,
+    app: &AppHandle,
+    job: Option<&str>,
+    row: &VideoDownloadRow,
     file: &str,
     target: remux::Target,
+    subtitles: &[Option<ffmpeg::SubtitleFile>],
+    stem: &str,
     cancel: &AtomicBool,
-) -> Result<Result<output::Saved, String>, String> {
-    let source = remux::Source::of_download(dir, file).map_err(|error| error.to_string())?;
-    match remux::probe(&source) {
-        Ok(probe) => {
-            if let Some(why) = remux::refusal(&probe, target) {
-                return Ok(Err(why));
-            }
+) -> Result<Result<pipeline::Converted, String>, String> {
+    let dir = downloads_dir(app).join(&row.id);
+    let info = media_info(service, &row.id, file).await;
+    let request = pipeline::Request {
+        source: pipeline::Source {
+            dir,
+            file: file.to_owned(),
+            info,
+        },
+        target,
+        subtitles: subtitles.iter().flatten().cloned().collect(),
+        title: stem.to_owned(),
+        work: service
+            .convert_dir
+            .join(uuid::Uuid::now_v7().simple().to_string()),
+    };
+    let shared = app
+        .try_state::<std::sync::Arc<ExportService>>()
+        .map(|service| service.inner().clone());
+    let job = job.map(str::to_owned);
+    let shown = std::sync::Arc::new(Mutex::new(-1i32));
+    let progress: pipeline::Progress = std::sync::Arc::new(move |share: f64| {
+        let percent = (share * 100.0).floor() as i32;
+        let Ok(mut last) = shown.lock() else {
+            return;
+        };
+        if percent == *last {
+            return;
         }
-        Err(remux::Error::Unsupported(why)) => return Ok(Err(why)),
-        Err(error) => return Err(error.to_string()),
-    }
-    let name = names::file_name(stem, target.extension());
-    let mut refused = None;
-    let written = super::write_one(outputs, place, folder, &name, target.mime(), |out| {
-        let mut out = std::io::BufWriter::new(out);
-        match remux::convert(&source, target, &mut out, cancel) {
-            Ok(()) => out.flush().map(|()| 0),
-            Err(remux::Error::Io(error)) => Err(error),
-            Err(remux::Error::Unsupported(why)) => {
-                refused = Some(why);
-                Err(std::io::Error::other("refused"))
-            }
-            Err(error) => Err(std::io::Error::other(error.to_string())),
+        *last = percent;
+        if let (Some(service), Some(job)) = (&shared, &job) {
+            service.update(job, |job| job.progress = Some(share.clamp(0.0, 1.0)));
         }
     });
-    match (written, refused) {
-        (_, Some(why)) => Ok(Err(why)),
-        (Ok((saved, _)), None) => Ok(Ok(saved)),
-        (Err(error), None) => Err(error),
+    // Cancelling reaches the conversion through its own flag.
+    let cancel_flag = std::sync::Arc::new(AtomicBool::new(cancel.load(Ordering::SeqCst)));
+    let finished = AtomicBool::new(false);
+    let conversion = async {
+        let result = pipeline::convert(app, &request, cancel_flag.clone(), progress).await;
+        finished.store(true, Ordering::SeqCst);
+        result
+    };
+    let watcher = async {
+        while !finished.load(Ordering::SeqCst) {
+            if cancel.load(Ordering::SeqCst) {
+                cancel_flag.store(true, Ordering::SeqCst);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    };
+    let (result, ()) = tokio::join!(conversion, watcher);
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&request.work);
+    }
+    match result {
+        Ok(converted) => {
+            tracing::info!(
+                download = %row.id,
+                passes = ?converted.route.passes,
+                "video converted and checked"
+            );
+            Ok(Ok(converted))
+        }
+        Err(_) if cancel.load(Ordering::SeqCst) => Err("Cancelled".into()),
+        Err(why) => {
+            tracing::warn!(%why, download = %row.id, "a video couldn't be converted");
+            Ok(Err(why))
+        }
     }
 }
 
-/// Writes one download: converted into `target`, or as it downloaded (`None`, or when the target
-/// can't hold it: the reason comes back).
+/// Writes one download: converted into `target`, or as it downloaded (`None`, or when it couldn't
+/// be converted: the reason comes back).
+#[allow(clippy::too_many_arguments)]
 async fn write_row(
     service: &ExportService,
     app: &AppHandle,
+    job: Option<&str>,
     row: &VideoDownloadRow,
     title: &TitleRow,
     target: Option<remux::Target>,
@@ -675,6 +878,28 @@ async fn write_row(
     ];
     let subtitles: Vec<VideoSubtitle> =
         serde_json::from_str(&row.local_subtitles).unwrap_or_default();
+    let files = subtitle_files(&dir, &subtitles);
+    let converted = match target {
+        Some(target) => Some(
+            convert_row(service, app, job, row, &file, target, &files, &stem, cancel)
+                .await?
+                .map(|converted| (target, converted)),
+        ),
+        None => None,
+    };
+    if let Some(job) = job {
+        service.update(job, |job| job.progress = None);
+    }
+    // Which subtitle tracks went inside the converted file.
+    let mut inside = vec![false; subtitles.len()];
+    if let Some(Ok((_, converted))) = &converted {
+        let mut kept = converted.inside.iter();
+        for (index, file) in files.iter().enumerate() {
+            if file.is_some() {
+                inside[index] = kept.next().copied().unwrap_or(false);
+            }
+        }
+    }
     let outputs = service.outputs.clone();
     let place = place.clone();
     // Cancelling reaches the blocking writer through its own flag.
@@ -686,31 +911,26 @@ async fn write_row(
         let _finished = Finished(writer_finished);
         let mut saved = Vec::new();
         let mut kept = None;
-        let converted = match target {
-            Some(target) => match convert_row(
-                &outputs,
-                &place,
-                &folder,
-                &stem,
-                &dir,
-                &file,
-                target,
-                &cancel_flag,
-            )? {
-                Ok(video) => {
-                    saved.push(video);
-                    true
+        let audio_only = match converted {
+            Some(Ok((target, converted))) => {
+                let name = names::file_name(&stem, target.extension());
+                let written =
+                    super::write_one(&outputs, &place, &folder, &name, target.mime(), |out| {
+                        std::io::copy(&mut File::open(&converted.path)?, out).map(|_| 0)
+                    });
+                if let Some(work) = converted.path.parent() {
+                    let _ = std::fs::remove_dir_all(work);
                 }
-                Err(why) => {
-                    kept = Some(why);
-                    false
-                }
-            },
+                saved.push(written?.0);
+                target.audio_only()
+            }
+            Some(Err(why)) => {
+                kept = Some(why);
+                false
+            }
             None => false,
         };
-        // The sound alone has no use for subtitles.
-        let audio_only =
-            matches!(target, Some(remux::Target::M4a | remux::Target::Mp3 { .. })) && converted;
+        let converted = !saved.is_empty();
         if !converted && file.ends_with(".m3u8") {
             let playlist = std::fs::read_to_string(dir.join(&file)).map_err(to_message)?;
             let join = Join::parse(&playlist)?;
@@ -736,7 +956,12 @@ async fn write_row(
                 })?;
             saved.push(video);
         }
-        for track in subtitles.into_iter().filter(|_| !audio_only) {
+        // The sound alone has no use for subtitles; those inside the video aren't repeated.
+        for (track, _) in subtitles
+            .into_iter()
+            .zip(inside)
+            .filter(|(_, inside)| !audio_only && !inside)
+        {
             let Ok(source) = safe_join(&dir, &track.url) else {
                 continue;
             };
@@ -808,18 +1033,33 @@ pub fn save_finished(app: &AppHandle, download_id: &str) {
                 .await
                 .map_err(to_message)?
                 .ok_or("The title is no longer stored")?;
-            // Saved as it downloaded, unless its sound is a separate stream: then joined in an MP4.
+            // Saved as it downloaded, unless its sound is a separate stream: then joined in an MP4
+            // (Matroska when MP4 would need it re-encoded).
             let separate = row.file.as_deref().is_some_and(|file| {
                 file.ends_with(".m3u8")
                     && std::fs::read_to_string(downloads_dir(&app).join(&row.id).join(file))
                         .is_ok_and(|playlist| playlist.contains("#EXT-X-STREAM-INF"))
             });
+            let target = match row.file.as_deref() {
+                Some(file) if separate => {
+                    let info = media_info(&service, &row.id, file).await;
+                    let engines = Engines::here(pipeline::ffmpeg_tools(&app).is_some());
+                    let mp4 = convert::route(&info, remux::Target::Mp4, true, engines);
+                    Some(if mp4.decision.encodes() {
+                        remux::Target::Mkv
+                    } else {
+                        remux::Target::Mp4
+                    })
+                }
+                _ => None,
+            };
             write_row(
                 &service,
                 &app,
+                None,
                 &row,
                 &title,
-                separate.then_some(remux::Target::Mp4),
+                target,
                 &place,
                 &AtomicBool::new(false),
             )
@@ -932,22 +1172,56 @@ mod tests {
         assert_eq!(mime_of("Show"), "video/*");
     }
 
+    fn probe_row(dir: &Path, file: &str) -> MediaInfo {
+        let source = remux::Source::of_download(dir, file).unwrap();
+        MediaInfo::from_probe(&remux::probe(&source).unwrap(), folder_bytes(dir))
+    }
+
     #[test]
-    fn downloads_are_probed_once_for_what_formats_take() {
+    fn downloads_are_probed_once_for_what_formats_do() {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/export/remux/fixtures");
-        let probe = probe_row(&fixtures.join("ts"), "index.m3u8").unwrap();
-        assert!(matches!(probe.video, Some(remux::Codec::H264(_))));
-        assert!(remux::refusal(&probe, remux::Target::Mp4).is_none());
+        let info = probe_row(&fixtures.join("ts"), "index.m3u8");
+        assert_eq!(
+            info.video.as_ref().map(|video| video.codec.as_str()),
+            Some("h264")
+        );
+        assert!(
+            info.seconds.is_some_and(|seconds| seconds > 0.0),
+            "{info:?}"
+        );
+        assert!(info.bytes > 0);
         let probes = Probes::default();
-        probes.put("d1/index.m3u8".into(), Ok(probe.clone()));
-        assert_eq!(probes.get("d1/index.m3u8"), Some(Ok(probe)));
-        // MP3 sound can't go in an M4A: the plan says so before anything is written.
-        let mp3 = probe_row(&fixtures, "mp3.m2t").unwrap();
-        assert!(remux::refusal(&mp3, remux::Target::M4a).is_some_and(|why| why.contains("MP3")));
+        probes.put("d1/index.m3u8/remux".into(), info.clone());
+        assert_eq!(probes.get("d1/index.m3u8/remux"), Some(info.clone()));
+        // H.264 and AAC copy into MP4 everywhere; nothing needs FFmpeg.
+        let phone = Engines {
+            ffmpeg: false,
+            transformer: true,
+        };
+        let mp4 = conversion_for(
+            ExportFormat::Mp4,
+            remux::Target::Mp4,
+            &[(true, info)],
+            phone,
+            &convert::Speeds::guessed(),
+        );
+        assert!(!mp4.video && !mp4.audio && !mp4.needs_ffmpeg, "{mp4:?}");
+        // MP3 sound re-encodes for an M4A, rather than being refused.
+        let mp3 = probe_row(&fixtures, "mp3.m2t");
+        let m4a = conversion_for(
+            ExportFormat::M4a,
+            remux::Target::M4a,
+            &[(false, mp3)],
+            phone,
+            &convert::Speeds::guessed(),
+        );
+        assert!(m4a.audio && !m4a.video, "{m4a:?}");
+        assert_eq!(m4a.from, vec!["MP3".to_owned()]);
         // A separate audio stream is one file only when converted.
         let pair = std::fs::read_to_string(fixtures.join("pair/index.m3u8")).unwrap();
         assert!(Join::parse(&pair).is_err());
-        assert!(probe_row(&fixtures.join("pair"), "index.m3u8").is_ok());
+        let joined = probe_row(&fixtures.join("pair"), "index.m3u8");
+        assert!(joined.video.is_some() && joined.audio.is_some());
     }
 
     #[test]

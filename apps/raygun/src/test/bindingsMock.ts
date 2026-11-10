@@ -813,6 +813,7 @@ const YTDLP_OFF: YtDlpStatus = {
   version: null,
   ffmpeg: false,
   installing: false,
+  progress: null,
   message: null,
 };
 
@@ -1467,7 +1468,9 @@ export const seedBindings = () => {
   commands.savePickFolder.mockResolvedValue(ok(DEFAULT_SETTINGS));
   commands.songsPickFolder.mockResolvedValue(ok(null));
   commands.saveFolderState.mockResolvedValue(ok({ granted: true, name: null }));
-  commands.exportPlan.mockResolvedValue(ok({ chapters: 0, missing: 0, files: 0, problem: null }));
+  commands.exportPlan.mockResolvedValue(
+    ok({ chapters: 0, missing: 0, files: 0, problem: null, conversions: [] }),
+  );
   commands.exportStart.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.exportPickFolder.mockResolvedValue(ok(null));
   commands.exportLastFolder.mockResolvedValue(ok(null));

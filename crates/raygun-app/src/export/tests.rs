@@ -297,6 +297,7 @@ fn a_cancelled_export_reads_cancelled_at_once_and_stays_so() {
         skipped_pages: 0,
         message: Some("Downloads are paused".into()),
         started_at: 0.0,
+        progress: None,
     };
     assert!(super::cancel_job(&mut job));
     assert_eq!(job.state, ExportState::Cancelled);
