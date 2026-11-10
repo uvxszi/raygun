@@ -293,6 +293,14 @@ enum Request {
     Settings {
         reply: oneshot::Sender<Vec<(String, Vec<ExtensionSetting>)>>,
     },
+    /// A YouTube video's audio file from Raygun's YouTube module, asked through `extension`'s
+    /// own fetch.
+    YouTubeAudio {
+        extension: String,
+        video: String,
+        prefs: crate::youtube::StreamPrefs,
+        reply: oneshot::Sender<Result<crate::youtube::Stream, String>>,
+    },
 }
 
 /// An extension for a lane to load.
@@ -1585,6 +1593,62 @@ impl ExtensionHost {
             expires_at: expires_at.filter(|ms| ms.is_finite()).map(|ms| ms as i64),
         })
     }
+
+    /// A YouTube video's own audio file from Raygun's YouTube module (`raygun.youtube`), asked
+    /// through `extension_id`'s own fetch, so its permissions and cookies apply. The module checks
+    /// each file at its last bytes, so the files of app clients that stop after their first
+    /// megabyte are passed over: downloads ask it when a YouTube source is installed.
+    pub async fn youtube_audio(
+        &self,
+        extension_id: &str,
+        video: &str,
+        using: StreamUse,
+        limit: Duration,
+    ) -> Result<ResolvedStream, CallError> {
+        let lane = self
+            .directory()
+            .lanes
+            .get(extension_id)
+            .copied()
+            .ok_or_else(|| CallError::UnknownProvider(extension_id.to_owned()))?;
+        let prefs = crate::youtube::StreamPrefs {
+            target_kbps: using.quality.kbps().map(f64::from),
+            decodable: using.decodable,
+        };
+        let (reply, answer) = oneshot::channel();
+        self.shared.lanes[lane]
+            .send(Request::YouTubeAudio {
+                extension: extension_id.to_owned(),
+                video: video.to_owned(),
+                prefs,
+                reply,
+            })
+            .map_err(|_| CallError::HostStopped)?;
+        let name = || "YouTube".to_owned();
+        let stream = match tokio::time::timeout(limit, answer).await {
+            Err(_) => {
+                return Err(CallError::Timeout {
+                    name: name(),
+                    after: limit,
+                });
+            }
+            Ok(Err(_)) => return Err(CallError::HostStopped),
+            Ok(Ok(Err(message))) => {
+                return Err(CallError::Said {
+                    name: name(),
+                    message,
+                });
+            }
+            Ok(Ok(Ok(stream))) => stream,
+        };
+        Ok(ResolvedStream {
+            source: MediaSource::Url {
+                url: stream.url,
+                headers: stream.headers,
+            },
+            expires_at: stream.expires_at,
+        })
+    }
 }
 
 /// One source's songs, or why it had none.
@@ -1784,6 +1848,27 @@ impl LaneState {
                     () = reply.closed() => {
                         tracing::debug!(%provider, %method, "call stopped: nobody waits for it");
                     }
+                }
+            }
+            Request::YouTubeAudio {
+                extension,
+                video,
+                prefs,
+                mut reply,
+            } => {
+                let loaded = self.loaded.borrow().get(&extension).cloned();
+                let answer = async {
+                    match loaded.as_deref() {
+                        Some(Extension::Js(js)) => js.youtube_stream(&video, prefs).await,
+                        Some(_) => Err("This source can't ask YouTube".to_owned()),
+                        None => Err("That source isn't installed".to_owned()),
+                    }
+                };
+                tokio::select! {
+                    answer = answer => {
+                        let _ = reply.send(answer);
+                    }
+                    () = reply.closed() => {}
                 }
             }
         }

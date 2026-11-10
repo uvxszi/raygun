@@ -1476,6 +1476,18 @@ pub async fn song_downloads_remove(
     songs.remove_many(&ids).await
 }
 
+/// Takes song downloads off the Downloads list: ones on their way are cancelled and failed ones
+/// cleared; saved songs stay saved (the list leaves them out) unless `delete_files`.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_forget(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+    delete_files: bool,
+) -> Result<(), String> {
+    songs.forget(&ids, delete_files).await
+}
+
 /// Queues a failed song download again, first in the queue (M46.10).
 #[tauri::command]
 #[specta::specta]

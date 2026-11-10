@@ -793,6 +793,21 @@ impl ExtensionService {
         answer
     }
 
+    /// A YouTube video's own audio file from Raygun's YouTube module, asked through an installed
+    /// YouTube source (`extension_id`): its files play to their end (downloads).
+    pub async fn youtube_audio(
+        &self,
+        extension_id: &str,
+        video: &str,
+        using: raygun_ext_host::StreamUse,
+        limit: std::time::Duration,
+    ) -> Result<ResolvedStream, raygun_ext_host::CallError> {
+        let _ready = self.loading.read().await;
+        self.host
+            .youtube_audio(extension_id, video, using, limit)
+            .await
+    }
+
     /// The stream sources searches use now: not turned off, nor left out as 18+.
     pub async fn stream_provider_ids(&self) -> std::collections::HashSet<String> {
         let _ready = self.loading.read().await;

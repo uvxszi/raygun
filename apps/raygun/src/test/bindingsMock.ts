@@ -407,6 +407,7 @@ export const bindingsMock = {
     songDownload: vi.fn(),
     songDownloadRemove: vi.fn(),
     songDownloadsRemove: vi.fn(),
+    songDownloadsForget: vi.fn(),
     songDownloadRetry: vi.fn(),
     songDownloadsRetryFailed: vi.fn(),
     songDownloadsReorder: vi.fn(),
@@ -1183,6 +1184,7 @@ export const seedBindings = () => {
   commands.songDownload.mockResolvedValue(ok(null));
   commands.songDownloadRemove.mockResolvedValue(ok(null));
   commands.songDownloadsRemove.mockResolvedValue(ok(null));
+  commands.songDownloadsForget.mockResolvedValue(ok(null));
   commands.songDownloadRetry.mockResolvedValue(ok(null));
   commands.songDownloadsRetryFailed.mockResolvedValue(ok(0));
   commands.songDownloadsReorder.mockResolvedValue(ok(null));

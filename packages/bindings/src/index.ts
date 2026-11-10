@@ -389,6 +389,11 @@ export const commands = {
 	replacing: boolean,
 	/**  What Check downloads found wrong with a downloaded song (M46.49). */
 	problem: SongDownloadProblem | null,
+	/**
+	 *  A saved song taken off the Downloads list: it stays saved (Library → Downloaded) and plays
+	 *  offline, but the list leaves it out.
+	 */
+	unlisted: boolean,
 	/**  Its place in the queue (unix ms): queued songs download earliest first. */
 	queuedAt: number | null,
 	/**  When it finished, or stopped with an error (unix ms). */
@@ -731,6 +736,11 @@ export const commands = {
 	replacing: boolean,
 	/**  What Check downloads found wrong with a downloaded song (M46.49). */
 	problem: SongDownloadProblem | null,
+	/**
+	 *  A saved song taken off the Downloads list: it stays saved (Library → Downloaded) and plays
+	 *  offline, but the list leaves it out.
+	 */
+	unlisted: boolean,
 	/**  Its place in the queue (unix ms): queued songs download earliest first. */
 	queuedAt: number | null,
 	/**  When it finished, or stopped with an error (unix ms). */
@@ -740,6 +750,11 @@ export const commands = {
 	songDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_remove", { id })),
 	/**  Removes several song downloads and their files at once (cancels waiting ones). */
 	songDownloadsRemove: (ids: string[]) => typedError<null, string>(__TAURI_INVOKE("song_downloads_remove", { ids })),
+	/**
+	 *  Takes song downloads off the Downloads list: ones on their way are cancelled and failed ones
+	 *  cleared; saved songs stay saved (the list leaves them out) unless `delete_files`.
+	 */
+	songDownloadsForget: (ids: string[], deleteFiles: boolean) => typedError<null, string>(__TAURI_INVOKE("song_downloads_forget", { ids, deleteFiles })),
 	/**  Queues a failed song download again, first in the queue (M46.10). */
 	songDownloadRetry: (id: string) => typedError<null, string>(__TAURI_INVOKE("song_download_retry", { id })),
 	/**  Queues every failed song download again; returns how many. */
@@ -5673,6 +5688,11 @@ export type SongDownload = {
 	replacing: boolean,
 	/**  What Check downloads found wrong with a downloaded song (M46.49). */
 	problem: SongDownloadProblem | null,
+	/**
+	 *  A saved song taken off the Downloads list: it stays saved (Library → Downloaded) and plays
+	 *  offline, but the list leaves it out.
+	 */
+	unlisted: boolean,
 	/**  Its place in the queue (unix ms): queued songs download earliest first. */
 	queuedAt: number | null,
 	/**  When it finished, or stopped with an error (unix ms). */

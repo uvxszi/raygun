@@ -478,7 +478,8 @@ impl DownloadNotices {
         list
     }
 
-    /// A notification's button: Pause, Resume, Cancel, Retry or Stop, for `keys`.
+    /// A notification's button: Pause, Resume, Cancel, Skip, Cancel all, Retry or Stop, for
+    /// `keys`.
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub async fn act(&self, action: &str, keys: &[String]) {
         let mut queues_done: HashSet<Kind> = HashSet::new();
@@ -489,15 +490,16 @@ impl DownloadNotices {
             let Some(kind) = Kind::from_tag(tag) else {
                 continue;
             };
-            // Pausing and resuming act on a whole queue: once is enough.
-            if matches!(action, "pause" | "resume") && !queues_done.insert(kind) {
-                continue;
-            }
-            if action == "cancel" {
+            // What leaves its queue goes from the notifications at once.
+            if matches!(action, "cancel" | "skip" | "stop" | "cancelAll") {
                 self.cancelled
                     .lock()
                     .expect("cancelled poisoned")
                     .insert(key.clone(), Instant::now());
+            }
+            // Pausing, resuming and cancelling all act on a whole queue: once is enough.
+            if matches!(action, "pause" | "resume" | "cancelAll") && !queues_done.insert(kind) {
+                continue;
             }
             if let Err(error) = act_on(&self.app, kind, id, action).await {
                 tracing::info!(%error, %key, action, "a notification's button didn't work");
@@ -519,6 +521,15 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
             Ok(())
         }
         (Kind::Songs, "cancel") => state::<Arc<SongDownloadService>>(app)?.remove(id).await,
+        // The song downloading now is skipped (it can be tried again); the queue goes on.
+        (Kind::Songs, "skip") => state::<Arc<SongDownloadService>>(app)?.skip(id).await,
+        (Kind::Songs, "cancelAll") => state::<Arc<SongDownloadService>>(app)?.cancel_all().await,
+        // A recording stops, keeping what it recorded.
+        (Kind::Songs, "stop") => {
+            state::<Arc<SongDownloadService>>(app)?
+                .cancel_recordings(Some(id))
+                .await
+        }
         (Kind::Songs, "retry") => state::<Arc<SongDownloadService>>(app)?.retry(id).await,
         (Kind::Videos, "pause" | "resume") => {
             state::<Arc<VideoDownloadService>>(app)?.set_paused(action == "pause");
@@ -657,6 +668,11 @@ fn songs(list: Vec<raygun_model::SongDownload>, paused: bool) -> Vec<Download> {
                 SongDownloadState::Done => Phase::Done,
                 SongDownloadState::Failed => Phase::Failed,
             };
+            if phase == Phase::Running
+                && song.kind == Some(raygun_model::SongDownloadKind::Recording)
+            {
+                return recording(song);
+            }
             // A capture (M46.49) counts the share of the song it holds.
             let capture = song.kind == Some(raygun_model::SongDownloadKind::Capture);
             let captured = (phase == Phase::Running && capture)
@@ -695,12 +711,48 @@ fn songs(list: Vec<raygun_model::SongDownload>, paused: bool) -> Vec<Download> {
                     pause: true,
                     cancel: true,
                     retry: song.state == SongDownloadState::Failed,
+                    skip: true,
+                    stop: false,
                 },
                 route: Kind::Songs.route().to_owned(),
                 id: song.id,
             }
         })
         .collect()
+}
+
+/// A song being recorded from YouTube's player (M46.52), as its notification shows it: how much
+/// of the song it has and the time it takes (a recording runs as the song plays), with Stop,
+/// which keeps what it recorded for Retry.
+fn recording(song: raygun_model::SongDownload) -> Download {
+    let share = song.fraction.unwrap_or(0.0).clamp(0.0, 1.0);
+    let left_ms = song
+        .duration_ms
+        .filter(|ms| *ms > 0)
+        .map(|ms| f64::from(ms) * (1.0 - share));
+    let subtitle = match song.artist {
+        Some(artist) => format!("Recording · {artist}"),
+        None => "Recording".to_owned(),
+    };
+    Download {
+        kind: Kind::Songs,
+        title: song.title,
+        subtitle: Some(subtitle),
+        phase: Phase::Running,
+        done: share,
+        total: Some(1.0),
+        unit: Unit::Fraction,
+        bytes: None,
+        left_ms,
+        speed: None,
+        error: song.error,
+        abilities: Abilities {
+            stop: true,
+            ..Abilities::default()
+        },
+        route: Kind::Songs.route().to_owned(),
+        id: song.id,
+    }
 }
 
 async fn videos(app: &AppHandle) -> Vec<Download> {
@@ -748,6 +800,7 @@ async fn videos(app: &AppHandle) -> Vec<Download> {
                     pause: true,
                     cancel: true,
                     retry: item.state == DownloadState::Failed,
+                    ..Abilities::default()
                 },
                 route: Kind::Videos.route().to_owned(),
             }
@@ -791,6 +844,7 @@ async fn chapters(app: &AppHandle, memory: &mut Memory) -> Vec<Download> {
                     pause: true,
                     cancel: true,
                     retry: state == DownloadState::Failed,
+                    ..Abilities::default()
                 },
                 route: Kind::Chapters.route().to_owned(),
             }
@@ -896,6 +950,7 @@ async fn podcasts(app: &AppHandle, memory: &mut Memory) -> Vec<Download> {
                 pause: false,
                 cancel: phase.active(),
                 retry: phase == Phase::Failed,
+                ..Abilities::default()
             },
             route: format!("/podcast?id={podcast_id}"),
         });

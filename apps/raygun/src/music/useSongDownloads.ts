@@ -186,6 +186,25 @@ export const useSongDownloadActions = () => {
       },
       onError: refetch,
     }),
+    /**
+     * Takes downloads off the list: ones on their way are cancelled and failed ones cleared;
+     * saved songs stay saved (the list leaves them out) unless `deleteFiles`.
+     */
+    forget: useMutation({
+      mutationFn: ({ ids, deleteFiles }: { ids: string[]; deleteFiles: boolean }) =>
+        unwrapResult(commands.songDownloadsForget(ids, deleteFiles)),
+      onMutate: ({ ids, deleteFiles }) => {
+        const list = client.getQueryData<SongDownload[]>(SONGS) ?? [];
+        for (const id of ids) {
+          const item = list.find((song) => song.id === id);
+          if (item?.state === 'done' && !deleteFiles) patchItem(client, id, { unlisted: true });
+          // A song downloading again only stops: the copy it had stays (M46.49).
+          else if (item?.replacing) patchItem(client, id, { state: 'done', replacing: false });
+          else applyItem(client, id, null);
+        }
+      },
+      onError: refetch,
+    }),
     retry: useMutation({
       mutationFn: (id: string) => unwrapResult(commands.songDownloadRetry(id)),
       onMutate: (id) => patchItem(client, id, queuedFirst(client)),

@@ -19,6 +19,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowUpToLine,
+  CheckSquare,
   CircleAlert,
   Disc3,
   FileDown,
@@ -30,6 +31,7 @@ import {
   RefreshCw,
   RotateCw,
   Settings2,
+  Square,
   Trash2,
   X,
 } from 'lucide-react';
@@ -41,9 +43,12 @@ import { TrackMoreButton } from '../collections/TrackMoreButton';
 import { StopDownloadButton } from '../downloads/StopDownload';
 import { Artwork } from '../library/Artwork';
 import { useSettings } from '../settings/useSettings';
+import { SelectButton } from '../shell/BulkSwitch';
 import { ConfirmButton } from '../shell/ConfirmButton';
 import { useDeviceState } from '../shell/deviceState';
 import { EmptyState } from '../shell/EmptyState';
+import { useBulkSelection } from '../shell/useBulkSelection';
+import type { BulkSelection } from '../shell/useBulkSelection';
 import { useIsDesktop } from '../shell/useIsDesktop';
 import { formatBytes } from '../watch/episodeLabel';
 import { tidyCredit } from './artists';
@@ -138,10 +143,46 @@ type RowProps = {
   /** Puts it first in the queue. */
   onFirst?: (id: string) => void;
   drag?: Drag;
+  /** Rows are being picked: each has a checkbox instead of its buttons. */
+  selecting?: boolean;
+  picked?: boolean;
+  onPick?: (id: string) => void;
 };
 
-/** One download. Rows change only when their own download does. */
-const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProps) => {
+/** A row while rows are picked: its checkbox, the song and where it stands. */
+const PickRow: FC<RowProps> = ({ item, paused, picked = false, onPick }) => {
+  const { t } = useTranslation();
+  const line = useStateLine();
+  const held = useDownloadsHeld();
+  return (
+    <li
+      data-testid="song-download"
+      aria-label={item.title}
+      className="flex items-center gap-3 px-2 py-2"
+    >
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={picked}
+        aria-label={t('bulk.pick', { name: item.title })}
+        onClick={() => onPick?.(item.id)}
+        className={`grid size-11 shrink-0 place-items-center ${picked ? 'text-primary' : 'text-muted'}`}
+      >
+        {picked ? <CheckSquare aria-hidden size={22} /> : <Square aria-hidden size={22} />}
+      </button>
+      <Artwork url={item.artworkUrl} className="size-12 shrink-0 rounded-md" iconSize={20} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate font-medium">{item.title}</span>
+        {item.artist && (
+          <span className="text-muted truncate text-sm">{tidyCredit(item.artist)}</span>
+        )}
+        <span className="text-muted truncate text-xs">{line(item, paused, held)}</span>
+      </div>
+    </li>
+  );
+};
+
+const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
   const { t } = useTranslation();
   const line = useStateLine();
   const problemLine = useProblemLine();
@@ -292,7 +333,12 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
       )}
     </li>
   );
-});
+};
+
+/** One download. Rows change only when their own download does (or they're being picked). */
+const Row: FC<RowProps> = memo((props: RowProps) =>
+  props.selecting ? <PickRow {...props} /> : <DownloadRow {...props} />,
+);
 Row.displayName = 'SongDownloadRow';
 
 /** A queued download that can be dragged to another place in the queue. */
@@ -347,11 +393,12 @@ const ShowAll: FC<{ hidden: number; onShow: () => void; label: string }> = ({
   ) : null;
 
 /** Downloading now, then the queue in the order it runs; the queue can be reordered. */
-const Queue: FC<{ running: SongDownload[]; queued: SongDownload[]; paused: boolean }> = ({
-  running,
-  queued,
-  paused,
-}) => {
+const Queue: FC<{
+  running: SongDownload[];
+  queued: SongDownload[];
+  paused: boolean;
+  selection: BulkSelection;
+}> = ({ running, queued, paused, selection }) => {
   const { t } = useTranslation();
   const { reorder } = useSongDownloadActions();
   const [all, setAll] = useState(false);
@@ -374,7 +421,14 @@ const Queue: FC<{ running: SongDownload[]; queued: SongDownload[]; paused: boole
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ul aria-label={t('songs.sections.active')} className="flex flex-col">
             {running.map((item) => (
-              <Row key={item.id} item={item} paused={paused} />
+              <Row
+                key={item.id}
+                item={item}
+                paused={paused}
+                selecting={selection.selecting}
+                picked={selection.isSelected(item.id)}
+                onPick={selection.toggle}
+              />
             ))}
             {shown.map((item, index) => (
               <QueuedRow
@@ -382,6 +436,9 @@ const Queue: FC<{ running: SongDownload[]; queued: SongDownload[]; paused: boole
                 item={item}
                 paused={paused}
                 onFirst={index === 0 ? undefined : first}
+                selecting={selection.selecting}
+                picked={selection.isSelected(item.id)}
+                onPick={selection.toggle}
               />
             ))}
           </ul>
@@ -397,20 +454,138 @@ const Queue: FC<{ running: SongDownload[]; queued: SongDownload[]; paused: boole
 };
 
 /**
+ * While rows are picked: Select all, how many, and Remove from list, which asks first. Songs on
+ * their way are cancelled and failed ones cleared; saved songs stay saved unless their files are
+ * deleted too (`saved` of the picked ones are saved songs).
+ */
+const ForgetBar: FC<{
+  selection: BulkSelection;
+  saved: number;
+  busy: boolean;
+  onForget: (ids: string[], deleteFiles: boolean) => void;
+}> = ({ selection, saved, busy, onForget }) => {
+  const { t } = useTranslation();
+  const [asking, setAsking] = useState(false);
+  const [deleteFiles, setDeleteFiles] = useState(false);
+  const count = selection.selected.length;
+  const action =
+    'bg-surface flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm disabled:opacity-50';
+  return (
+    <div
+      role="toolbar"
+      aria-label={t('bulk.bar')}
+      className="bg-background/95 sticky top-0 z-10 flex flex-col gap-2 py-2"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selection.allSelected}
+          onClick={selection.toggleAll}
+          className={action}
+        >
+          {selection.allSelected ? (
+            <CheckSquare aria-hidden size={16} className="text-primary" />
+          ) : (
+            <Square aria-hidden size={16} />
+          )}
+          {t('bulk.selectAll')}
+        </button>
+        <span className="text-muted text-sm">{t('bulk.count', { count })}</span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          disabled={count === 0 || busy}
+          aria-expanded={asking}
+          onClick={() => setAsking(true)}
+          className={action}
+        >
+          <Trash2 aria-hidden size={16} />
+          {t('songs.forget.button')}
+        </button>
+        <button
+          type="button"
+          aria-label={t('bulk.done')}
+          onClick={selection.stop}
+          className="grid size-9 place-items-center rounded-full"
+        >
+          <X aria-hidden size={18} />
+        </button>
+      </div>
+      {asking && count > 0 && (
+        <div
+          role="group"
+          aria-label={t('songs.forget.title', { count })}
+          className="bg-surface flex flex-col gap-2 rounded-xl p-3"
+        >
+          <span className="font-medium">{t('songs.forget.title', { count })}</span>
+          <span className="text-muted text-sm">{t('songs.forget.hint')}</span>
+          {saved > 0 && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={deleteFiles}
+                onChange={(event) => setDeleteFiles(event.target.checked)}
+                className="accent-primary size-4"
+              />
+              {t('songs.forget.deleteFiles')}
+            </label>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setAsking(false)}
+              className="rounded-full px-3 py-1.5 text-sm"
+            >
+              {t('songs.forget.keep')}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                onForget(selection.selected, saved > 0 && deleteFiles);
+                setAsking(false);
+                setDeleteFiles(false);
+                selection.stop();
+              }}
+              className="bg-primary text-background rounded-full px-3 py-1.5 text-sm font-semibold disabled:opacity-60"
+            >
+              {t('songs.forget.confirm')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
  * Downloads → Music (M46.10): songs downloading now and waiting (in the order they run, to be
  * reordered, paused or cancelled), the ones that didn't download (why, and what can be done), and
  * the ones on this device, which save as files. `compact` (the All tab) leaves the finished ones
- * as a line leading here.
+ * as a line leading here. Rows can be picked (Select) and taken off the list.
  */
 export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }) => {
   const { t, i18n } = useTranslation();
   const downloads = useSongDownloads();
   const paused = useSongDownloadsPaused().data ?? false;
-  const { setPaused, retryFailed, removeMany, check, redownload } = useSongDownloadActions();
+  const { setPaused, retryFailed, removeMany, check, redownload, forget } =
+    useSongDownloadActions();
   const [saving, setSaving] = useState<string[] | null>(null);
   const [allDone, setAllDone] = useState(false);
   const items = useMemo(() => downloads.data ?? [], [downloads.data]);
   const { running, queued, failed, attention, done } = useMemo(() => sectionsOf(items), [items]);
+  // Every row shown can be picked; saved songs are counted apart (their files can go too).
+  const savedIds = useMemo(
+    () => new Set(compact ? [] : [...attention, ...done].map((item) => item.id)),
+    [compact, attention, done],
+  );
+  const pickable = useMemo(
+    () => [...running, ...queued, ...failed].map((item) => item.id).concat([...savedIds]),
+    [running, queued, failed, savedIds],
+  );
+  const selection = useBulkSelection(pickable);
+  const savedPicked = selection.selected.filter((id) => savedIds.has(id)).length;
   const checked = check.data;
   const saveOne = useCallback((id: string) => setSaving([id]), []);
   const doneBytes = done.reduce((sum, item) => sum + (item.totalBytes ?? 0), 0);
@@ -434,9 +609,21 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
   }
   const waiting = running.length + queued.length;
   const shownDone = allDone ? done : done.slice(0, SHOWN);
+  const picking = {
+    selecting: selection.selecting,
+    onPick: selection.toggle,
+  };
   return (
     <div data-testid="song-downloads" className="flex flex-col gap-4">
-      {(waiting > 0 || failed.length > 0) && (
+      {selection.selecting && (
+        <ForgetBar
+          selection={selection}
+          saved={savedPicked}
+          busy={forget.isPending}
+          onForget={(ids, deleteFiles) => forget.mutate({ ids, deleteFiles })}
+        />
+      )}
+      {!selection.selecting && pickable.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           {waiting > 0 && (
             <button
@@ -486,18 +673,25 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
               {t('songs.cancelWaiting', { count: queued.length })}
             </button>
           )}
+          <SelectButton selection={selection} />
         </div>
       )}
       {waiting > 0 && (
         <Group label={t('songs.sections.active')} count={waiting}>
-          <Queue running={running} queued={queued} paused={paused} />
+          <Queue running={running} queued={queued} paused={paused} selection={selection} />
         </Group>
       )}
       {failed.length > 0 && (
         <Group label={t('songs.sections.failed')} count={failed.length}>
           <ul aria-label={t('songs.sections.failed')} className="flex flex-col">
             {failed.map((item) => (
-              <Row key={item.id} item={item} paused={paused} />
+              <Row
+                key={item.id}
+                item={item}
+                paused={paused}
+                {...picking}
+                picked={selection.isSelected(item.id)}
+              />
             ))}
           </ul>
         </Group>
@@ -522,7 +716,13 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
         >
           <ul aria-label={t('songs.sections.attention')} className="flex flex-col">
             {attention.map((item) => (
-              <Row key={item.id} item={item} paused={paused} />
+              <Row
+                key={item.id}
+                item={item}
+                paused={paused}
+                {...picking}
+                picked={selection.isSelected(item.id)}
+              />
             ))}
           </ul>
         </Group>
@@ -589,7 +789,14 @@ export const SongDownloadsList: FC<{ compact?: boolean }> = ({ compact = false }
           </div>
           <ul aria-label={t('songs.title')} className="flex flex-col">
             {shownDone.map((item) => (
-              <Row key={item.id} item={item} paused={paused} onSave={saveOne} />
+              <Row
+                key={item.id}
+                item={item}
+                paused={paused}
+                onSave={saveOne}
+                {...picking}
+                picked={selection.isSelected(item.id)}
+              />
             ))}
           </ul>
           <ShowAll

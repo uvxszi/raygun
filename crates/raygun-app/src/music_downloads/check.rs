@@ -16,6 +16,26 @@ use super::{covers_title, names_artist, source_name, transcode};
 /// Sources' names by their provider id, for saying which one a song has now.
 pub type Names = HashMap<String, String>;
 
+/// What's wrong with a saved song now, if anything, in the order it matters: its file (`damaged`,
+/// what [`file_problem`] found), too little of the song in it (`end_ms`: its end trim), another
+/// source given since ([`source_problem`]), other names given since ([`details_problem`]).
+pub fn problem(
+    row: &SongDownloadRow,
+    damaged: Option<SongDownloadProblem>,
+    end_ms: Option<u64>,
+    picks: &[CandidateRow],
+    names: &Names,
+    shown: Option<(String, Option<String>)>,
+) -> Option<SongDownloadProblem> {
+    if damaged.is_some() {
+        return damaged;
+    }
+    if !super::holds_the_song(row, end_ms) {
+        return Some(super::partial_problem(row));
+    }
+    source_problem(row, picks, names).or_else(|| details_problem(row, shown))
+}
+
 /// What's wrong with a saved file: gone, another size than it was saved at (`recorded` bytes),
 /// or not audio anymore. Blocking.
 pub fn file_problem(path: &Path, recorded: Option<i64>) -> Option<SongDownloadProblem> {
@@ -103,7 +123,7 @@ fn origin_video(origin: &Origin) -> Option<String> {
         provider_id: origin.provider.clone()?,
         candidate_id: origin.stream.clone().unwrap_or_default(),
     };
-    crate::resolver::youtube_video(&key)
+    super::youtube_video_of(&key)
         .map(str::to_owned)
         .or_else(|| embedded_video(origin.source.as_deref()))
 }
@@ -114,19 +134,20 @@ fn pick_video(pick: &CandidateRow) -> Option<String> {
         provider_id: pick.provider_id.clone(),
         candidate_id: pick.candidate_id.clone(),
     };
-    crate::resolver::youtube_video(&key)
+    super::youtube_video_of(&key)
         .map(str::to_owned)
         .or_else(|| embedded_video(pick.source.as_deref()))
 }
 
 /// Whether two sources (JSON) are one stream: the same address or video.
-fn same_media(was: &str, now: &str) -> bool {
+pub(super) fn same_media(was: &str, now: &str) -> bool {
     match (
         serde_json::from_str::<MediaSource>(was),
         serde_json::from_str::<MediaSource>(now),
     ) {
+        // One of YouTube's files has another address with every lookup.
         (Ok(MediaSource::Url { url: was, .. }), Ok(MediaSource::Url { url: now, .. })) => {
-            was == now
+            super::same_file(&was, &now)
         }
         (Ok(was), Ok(now)) => was == now,
         _ => was == now,

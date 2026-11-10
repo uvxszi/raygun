@@ -289,6 +289,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::song_download,
             commands::song_download_remove,
             commands::song_downloads_remove,
+            commands::song_downloads_forget,
             commands::song_download_retry,
             commands::song_downloads_retry_failed,
             commands::song_downloads_reorder,
