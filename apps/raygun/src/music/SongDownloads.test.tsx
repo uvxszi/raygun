@@ -49,6 +49,7 @@ const download = (
   errorDetail: null,
   replacing: false,
   problem: null,
+  unlisted: false,
   queuedAt: 1,
   finishedAt: null,
   ...extra,
@@ -483,6 +484,50 @@ describe('Song downloads', () => {
     await user.click(screen.getByRole('button', { name: 'Check downloads' }));
     await user.click(await screen.findByRole('button', { name: 'Download 2 again' }));
     expect(commands.songDownloadsRedownload).toHaveBeenLastCalledWith(['moved', 'gone']);
+  });
+
+  it('takes picked downloads off the list, keeping saved songs unless their files go too', async () => {
+    const user = userEvent.setup();
+    const waiting = download('w', 'Waiting song', 'queued', { queuedAt: 5 });
+    const kept = download('k', 'Kept song', 'done', { format: 'mp3', finishedAt: 20 });
+    const other = download('o', 'Other song', 'done', { format: 'mp3', finishedAt: 10 });
+    commands.songDownloads.mockResolvedValue(ok([waiting, BROKEN, kept, other]));
+    await AppShellWrapper.mount('/downloads?tab=music');
+    await list();
+
+    await user.click(screen.getByRole('button', { name: 'Select' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected' });
+    const remove = within(bar).getByRole('button', { name: 'Remove from list' });
+    expect(remove).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: 'Pick Waiting song' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Pick Broken' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Pick Kept song' }));
+    expect(within(bar).getByText('3 selected')).toBeInTheDocument();
+
+    // It asks first; saved songs stay saved unless their files are deleted too.
+    await user.click(remove);
+    const asked = within(bar).getByRole('group', { name: 'Remove 3 from the list?' });
+    expect(
+      within(asked).getByRole('checkbox', { name: 'Also delete the downloaded songs' }),
+    ).not.toBeChecked();
+    await user.click(within(asked).getByRole('button', { name: 'Remove' }));
+    expect(commands.songDownloadsForget).toHaveBeenCalledWith(['w', '4', 'k'], false);
+    // The saved song leaves the list at once; the one not picked stays.
+    await vi.waitFor(() =>
+      expect(
+        within(screen.getByTestId('song-downloads')).queryByRole('listitem', { name: 'Kept song' }),
+      ).toBeNull(),
+    );
+    expect(row('Other song')).toBeInTheDocument();
+    expect(screen.queryByRole('toolbar', { name: 'Selected' })).toBeNull();
+
+    // Another one with its file.
+    await user.click(screen.getByRole('button', { name: 'Select' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Pick Other song' }));
+    await user.click(screen.getByRole('button', { name: 'Remove from list' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Also delete the downloaded songs' }));
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(commands.songDownloadsForget).toHaveBeenLastCalledWith(['o'], true);
   });
 
   it('names a download’s artist without the quotes its source left around it', async () => {

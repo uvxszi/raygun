@@ -170,6 +170,11 @@ pub struct Abilities {
     pub cancel: bool,
     /// A failed one can be tried again.
     pub retry: bool,
+    /// Its queue goes on without it: with others of its kind waiting, it's skipped (Skip) and
+    /// they're all cancelled at once (Cancel all) instead of a Cancel for it alone.
+    pub skip: bool,
+    /// It stops, keeping what it has (a recording).
+    pub stop: bool,
 }
 
 /// One download, from whichever service keeps it.
@@ -227,7 +232,7 @@ pub fn key(kind: Kind, id: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Action {
-    /// `pause`, `resume`, `cancel`, `retry` or `stop`.
+    /// `pause`, `resume`, `cancel`, `skip`, `cancelAll`, `retry` or `stop`.
     pub id: &'static str,
     pub label: &'static str,
     pub keys: Vec<String>,
@@ -570,7 +575,7 @@ impl Tracker {
         }
         let moving: Vec<&&Download> = active.iter().filter(|d| d.phase.moving()).collect();
         let waiting = active.iter().filter(|d| d.phase == Phase::Queued).count();
-        let mut shown: Vec<Shown> = moving.iter().map(|d| self.shown(d)).collect();
+        let mut shown: Vec<Shown> = moving.iter().map(|d| self.shown(d, active)).collect();
         // A paused queue is one notification, whatever it holds.
         let mut paused_kinds: Vec<Kind> = active
             .iter()
@@ -584,6 +589,20 @@ impl Tracker {
                 .iter()
                 .filter(|d| d.kind == kind && d.phase == Phase::Paused)
                 .collect();
+            let keys: Vec<String> = held.iter().map(|d| d.key()).collect();
+            let mut actions = vec![Action {
+                id: "resume",
+                label: "Resume",
+                keys: keys.clone(),
+            }];
+            // A paused queue that goes on without its songs is called off at once.
+            if held.iter().any(|d| d.abilities.skip && d.abilities.cancel) {
+                actions.push(Action {
+                    id: "cancelAll",
+                    label: "Cancel all",
+                    keys,
+                });
+            }
             shown.push(Shown {
                 key: format!("{}:paused", kind.tag()),
                 title: format!("{} paused", capitalized(&kind.count(held.len()))),
@@ -596,11 +615,7 @@ impl Tracker {
                 info: None,
                 progress: None,
                 ongoing: false,
-                actions: vec![Action {
-                    id: "resume",
-                    label: "Resume",
-                    keys: held.iter().map(|d| d.key()).collect(),
-                }],
+                actions,
                 route: kind.route().to_owned(),
             });
         }
@@ -707,7 +722,8 @@ impl Tracker {
         }
     }
 
-    fn shown(&self, download: &Download) -> Shown {
+    /// A running download's notification; `active` is every download on its way, for its queue.
+    fn shown(&self, download: &Download, active: &[&Download]) -> Shown {
         let speed = self.speed(download);
         let left = self.left(download);
         let amount = amount_text(download);
@@ -726,7 +742,32 @@ impl Tracker {
                 keys: vec![key.clone()],
             });
         }
-        if download.abilities.cancel {
+        if download.abilities.stop {
+            actions.push(Action {
+                id: "stop",
+                label: "Stop",
+                keys: vec![key.clone()],
+            });
+        }
+        // Its queue: every one of its kind on its way, itself included.
+        let queue: Vec<String> = active
+            .iter()
+            .filter(|other| other.kind == download.kind)
+            .map(|other| other.key())
+            .collect();
+        if download.abilities.cancel && download.abilities.skip && queue.len() > 1 {
+            // Skip goes on with the next; Cancel all calls the whole queue off.
+            actions.push(Action {
+                id: "skip",
+                label: "Skip",
+                keys: vec![key.clone()],
+            });
+            actions.push(Action {
+                id: "cancelAll",
+                label: "Cancel all",
+                keys: queue,
+            });
+        } else if download.abilities.cancel {
             actions.push(Action {
                 id: "cancel",
                 label: "Cancel",
@@ -1152,6 +1193,7 @@ fn installs_download(
             pause: false,
             cancel: false,
             retry: phase == Phase::Failed,
+            ..Abilities::default()
         },
         route,
     }

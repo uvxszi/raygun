@@ -18,6 +18,7 @@ fn song(id: &str, phase: Phase, done: f64) -> Download {
             pause: false,
             cancel: true,
             retry: phase == Phase::Failed,
+            ..Abilities::default()
         },
         route: Kind::Songs.route().into(),
     }
@@ -41,6 +42,7 @@ fn chapter(id: &str, phase: Phase, pages: f64) -> Download {
             pause: true,
             cancel: true,
             retry: phase == Phase::Failed,
+            ..Abilities::default()
         },
         route: Kind::Chapters.route().into(),
     }
@@ -315,6 +317,7 @@ fn song_download(state: raygun_model::SongDownloadState) -> raygun_model::SongDo
         error_detail: None,
         replacing: false,
         problem: None,
+        unlisted: false,
         queued_at: 1.0,
         finished_at: None,
     }
@@ -493,6 +496,103 @@ fn a_paused_song_queue_shows_paused_instead_of_waiting_for_good() {
     assert!(!summary.ongoing, "no bar, and it can be swiped away");
     assert!(!update.plan.foreground);
     assert_eq!(summary.actions[0].id, "resume");
+    // The paused songs can all be called off from there.
+    assert_eq!(summary.actions[1].id, "cancelAll");
+    assert_eq!(summary.actions[1].keys, ["songs:s", "songs:t"]);
+}
+
+fn song_numbered(id: &str, state: raygun_model::SongDownloadState) -> raygun_model::SongDownload {
+    raygun_model::SongDownload {
+        id: id.into(),
+        ..song_download(state)
+    }
+}
+
+#[test]
+fn songs_with_others_waiting_are_skipped_or_all_cancelled_from_their_notification() {
+    use raygun_model::SongDownloadState as State;
+
+    let mut tracker = Tracker::default();
+    let list = super::songs(
+        vec![
+            song_numbered("a", State::Downloading),
+            song_numbered("b", State::Queued),
+            song_numbered("c", State::Queued),
+        ],
+        false,
+    );
+    let update = tracker.update(0.0, &list);
+    let summary = update.plan.summary.expect("a notification");
+    let ids: Vec<&str> = summary.actions.iter().map(|action| action.id).collect();
+    assert_eq!(ids, ["pause", "skip", "cancelAll"], "three at most");
+    assert_eq!(summary.actions[1].label, "Skip");
+    assert_eq!(
+        summary.actions[1].keys,
+        ["songs:a"],
+        "Skip is the one downloading"
+    );
+    assert_eq!(summary.actions[2].label, "Cancel all");
+    let mut all = summary.actions[2].keys.clone();
+    all.sort();
+    assert_eq!(
+        all,
+        ["songs:a", "songs:b", "songs:c"],
+        "Cancel all is every one"
+    );
+
+    // The last one left has a Cancel of its own.
+    let update = tracker.update(
+        1_000.0,
+        &super::songs(vec![song_numbered("c", State::Downloading)], false),
+    );
+    let ids: Vec<String> = update
+        .plan
+        .summary
+        .expect("a notification")
+        .actions
+        .iter()
+        .map(|action| action.id.to_owned())
+        .collect();
+    assert_eq!(ids, ["pause", "cancel"]);
+}
+
+#[test]
+fn a_recording_shows_how_far_it_is_and_the_time_it_takes_with_stop() {
+    use raygun_model::SongDownloadState as State;
+
+    let mut tracker = Tracker::default();
+    let mut recording = song_numbered("r", State::Downloading);
+    recording.kind = Some(raygun_model::SongDownloadKind::Recording);
+    recording.provider = Some("YouTube".into());
+    recording.fraction = Some(0.25);
+    let file = song_numbered("f", State::Downloading);
+    let update = tracker.update(0.0, &super::songs(vec![recording.clone(), file], false));
+    let shown = update
+        .plan
+        .items
+        .iter()
+        .find(|shown| shown.key == "songs:r")
+        .expect("the recording's own notification");
+    assert_eq!(shown.title, "Swim");
+    assert_eq!(shown.text, "Recording · BTS · 25%");
+    // A recording runs as the song plays: three quarters of 3:00 to go.
+    assert_eq!(shown.info.as_deref(), Some("about 3 min left"));
+    assert_eq!(shown.progress, Some(0.25));
+    let actions: Vec<(&str, &str)> = shown
+        .actions
+        .iter()
+        .map(|action| (action.id, action.label))
+        .collect();
+    assert_eq!(actions, [("stop", "Stop")]);
+    assert_eq!(shown.actions[0].keys, ["songs:r"]);
+    assert!(update.plan.foreground, "it keeps Raygun running");
+
+    // Alone, it's the notification itself.
+    recording.fraction = Some(0.5);
+    let update = tracker.update(1_000.0, &super::songs(vec![recording], false));
+    let summary = update.plan.summary.expect("a notification");
+    assert_eq!(summary.text, "Recording · BTS · 50%");
+    assert_eq!(summary.info.as_deref(), Some("about 2 min left"));
 }
 
 #[test]

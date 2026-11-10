@@ -52,10 +52,14 @@ export const recordingsOf = (list: readonly SongDownload[]) =>
         a.id.localeCompare(b.id),
     );
 
-/** The downloads in the groups the list shows, each in its own order. */
+/**
+ * The downloads in the groups the list shows, each in its own order. Saved songs taken off the
+ * list (`unlisted`) stay saved but aren't shown.
+ */
 export const sectionsOf = (list: readonly SongDownload[]) => {
   const newestFirst = (a: SongDownload, b: SongDownload) =>
     (b.finishedAt ?? placeOf(b)) - (a.finishedAt ?? placeOf(a));
+  const saved = list.filter((item) => item.state === 'done' && !item.unlisted);
   return {
     /** Downloading or being captured now. */
     running: list.filter((item) => item.state === 'downloading'),
@@ -65,8 +69,8 @@ export const sectionsOf = (list: readonly SongDownload[]) => {
       .sort((a, b) => placeOf(a) - placeOf(b) || a.id.localeCompare(b.id)),
     failed: list.filter(isFailed).sort(newestFirst),
     /** Saved songs a check found something wrong with (M46.49). */
-    attention: list.filter(needsAttention).sort(newestFirst),
-    done: list.filter((item) => item.state === 'done' && !needsAttention(item)).sort(newestFirst),
+    attention: saved.filter(needsAttention).sort(newestFirst),
+    done: saved.filter((item) => !needsAttention(item)).sort(newestFirst),
   };
 };
 

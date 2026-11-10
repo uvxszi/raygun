@@ -310,6 +310,39 @@ async fn registers_providers_and_calls_them_with_json() {
 }
 
 #[tokio::test]
+async fn youtube_files_are_asked_of_raygun_s_module_through_an_installed_source() {
+    let host = provider_host("return null;").await;
+    let using = crate::StreamUse::default();
+    // The module answers through the extension's own fetch; what it says comes back as YouTube's.
+    let answer = host
+        .youtube_audio(
+            "dev.raygun.test",
+            "not a video",
+            using,
+            Duration::from_secs(5),
+        )
+        .await;
+    match answer {
+        Err(CallError::Said { name, message }) => {
+            assert_eq!(name, "YouTube");
+            assert!(message.contains("isn't a YouTube video"), "{message}");
+        }
+        other => panic!("YouTube's own words: {other:?}"),
+    }
+    // A source that isn't installed can't ask.
+    assert_eq!(
+        host.youtube_audio(
+            "dev.raygun.missing",
+            "dQw4w9WgXcQ",
+            using,
+            Duration::from_secs(5)
+        )
+        .await,
+        Err(CallError::UnknownProvider("dev.raygun.missing".into()))
+    );
+}
+
+#[tokio::test]
 async fn cookies_last_per_extension_until_its_data_is_cleared() {
     let address = start_server();
     let dir = tempfile::tempdir().unwrap();

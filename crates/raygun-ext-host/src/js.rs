@@ -402,6 +402,19 @@ impl JsExtension {
             }
         })
     }
+
+    /// A YouTube video's audio stream from Raygun's YouTube module, asked through this
+    /// extension's own fetch (its permissions and cookies), as its `raygun.youtube.stream` would.
+    pub async fn youtube_stream(
+        &self,
+        video: &str,
+        prefs: crate::youtube::StreamPrefs,
+    ) -> Result<crate::youtube::Stream, String> {
+        let _running = Running::new(&self.shared);
+        crate::youtube::YouTube::shared()
+            .stream(&ExtensionHttp(self.shared.clone()), video, prefs)
+            .await
+    }
 }
 
 /// What a failed provider call tells the user: the thrown message alone. The stack trace, which

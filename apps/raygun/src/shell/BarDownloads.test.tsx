@@ -37,6 +37,7 @@ const song = (id: string, state: SongDownload['state'], at: number): SongDownloa
   errorDetail: null,
   replacing: false,
   problem: null,
+  unlisted: false,
   queuedAt: at,
   finishedAt: state === 'done' ? at : null,
 });

@@ -3740,6 +3740,15 @@
     },
     "clearFailed_one": "Remove {{count}} failed",
     "clearFailed_other": "Remove {{count}} failed",
+    "forget": {
+      "button": "Remove from list",
+      "title_one": "Remove {{count}} from the list?",
+      "title_other": "Remove {{count}} from the list?",
+      "hint": "Songs waiting or downloading are cancelled. Songs on this device stay saved and keep playing offline.",
+      "deleteFiles": "Also delete the downloaded songs",
+      "keep": "Keep",
+      "confirm": "Remove"
+    },
     "cancelWaiting_one": "Cancel {{count}} waiting",
     "cancelWaiting_other": "Cancel {{count}} waiting",
     "pause": "Pause downloads",

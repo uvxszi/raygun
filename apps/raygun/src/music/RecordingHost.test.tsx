@@ -39,6 +39,7 @@ const download = (
   errorDetail: null,
   replacing: false,
   problem: null,
+  unlisted: false,
   queuedAt: 1,
   finishedAt: null,
   ...extra,

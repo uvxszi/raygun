@@ -197,8 +197,10 @@ const DownloadsPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({
   const busy = (state: string) => state === 'downloading' || state === 'queued';
   const chaptersPaused = chapters.data?.paused ?? false;
   const videosPaused = videos.data?.paused ?? false;
+  // Saved songs taken off the downloads' list stay off it here too.
+  const listedSongs = (songs.data ?? []).filter((song) => !song.unlisted);
   const rows: DownloadRow[] = [
-    ...(songs.data ?? []).map((song) => ({
+    ...listedSongs.map((song) => ({
       key: `s-${song.id}`,
       picture: <Artwork url={song.artworkUrl} className="w-full rounded" iconSize={16} />,
       title: song.title,

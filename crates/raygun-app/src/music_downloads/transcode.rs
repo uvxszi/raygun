@@ -204,6 +204,16 @@ pub fn measure(path: &Path) -> Result<Option<u64>, String> {
     if let Some(ms) = length_ms(path).filter(|ms| *ms > 0) {
         return Ok(Some(ms));
     }
+    counted_ms(path)
+}
+
+/// How long a song file plays (ms), counted by decoding it whole: what a container says can be a
+/// guess (a VBR MP3 without a header). Opus and WebM only by their container. An error when it
+/// doesn't decode.
+pub fn counted_ms(path: &Path) -> Result<Option<u64>, String> {
+    if container_only(path) {
+        return Ok(length_ms(path));
+    }
     let mut decoding = open(path)?;
     let mut samples = Vec::new();
     let mut ms = 0f64;

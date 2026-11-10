@@ -5188,6 +5188,9 @@ pub struct SongDownload {
     pub replacing: bool,
     /// What Check downloads found wrong with a downloaded song (M46.49).
     pub problem: Option<SongDownloadProblem>,
+    /// A saved song taken off the Downloads list: it stays saved (Library → Downloaded) and plays
+    /// offline, but the list leaves it out.
+    pub unlisted: bool,
     /// Its place in the queue (unix ms): queued songs download earliest first.
     pub queued_at: f64,
     /// When it finished, or stopped with an error (unix ms).
