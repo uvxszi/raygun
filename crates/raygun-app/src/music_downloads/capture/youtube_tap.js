@@ -35,8 +35,13 @@
 
   /** The sound's own rate; a graph context runs at this times the speed. */
   var SOUND_RATE = 48000;
-  /** Frames per processor callback. */
-  var BLOCK = 8192;
+  /** Frames per processor callback (a sixth of a second at 96 kHz). */
+  var BLOCK = 16384;
+  /**
+   * A block whose time says it doesn't follow on from the one before by more than this share of
+   * a block was dropped or the page fell far behind; less is the page answering late.
+   */
+  var RESYNC = 0.75;
   /** A muted tap that heard only zeros for this long of playing hears nothing, ms. */
   var SILENT_MS = 12000;
   /** After `ended`, the sound still on its way is waited for this long at most, ms. */
@@ -167,10 +172,11 @@
     var input = event.inputBuffer;
     var rate = input.sampleRate;
     var frames = input.length;
-    // The block's frames came in the two blocks' time before the one it plays at; consecutive
-    // blocks follow on from each other unless the page fell behind.
+    // The block's frames came in the two blocks' time before the one it plays at (as the page
+    // hears of it: a late answer looks later). Consecutive blocks follow on from each other
+    // unless one was dropped.
     var start = event.playbackTime - (2 * frames - 128) / rate;
-    if (tap.blockEnd !== null && Math.abs(start - tap.blockEnd) < frames / 2 / rate) {
+    if (tap.blockEnd !== null && Math.abs(start - tap.blockEnd) < (RESYNC * frames) / rate) {
       start = tap.blockEnd;
     }
     var end = start + frames / rate;

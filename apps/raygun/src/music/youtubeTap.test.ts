@@ -9,7 +9,7 @@ import script from '../../../../crates/raygun-app/src/music_downloads/capture/yo
 const HOST = 'http://localhost:4000';
 const TOP = 'http://tauri.localhost';
 const RATE = 96_000;
-const BLOCK = 8192;
+const BLOCK = 16_384;
 
 type Listener = (event: { type: string }) => void;
 
