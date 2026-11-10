@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { fromOnlineTrack } from '../collections/useCollections';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
-import { useCoverSheetStore } from '../music/coverSheetStore';
+import { useCoverHold } from '../music/useCoverHold';
 import { ArtistLinks } from '../music/ArtistLinks';
 import { downloadSongs } from '../music/useSongDownloads';
 import { OnlineTrackRow } from '../search/OnlineTrackRow';
@@ -65,6 +65,11 @@ export const MusicAlbumPage: FC = () => {
   );
   // Edit album (M46.30): its title and cover over what the source said.
   const [editing, setEditing] = useState(false);
+  const coverUrl = info?.artworkUrl ?? tracks[0]?.artworkUrl ?? null;
+  const cover = coverUrl
+    ? { url: coverUrl, title: [info?.artist, info?.title].filter(Boolean).join(' - ') }
+    : null;
+  const coverHold = useCoverHold({ cover });
   const play = (shuffle: boolean) => {
     if (tracks.length === 0) return;
     const start = shuffle ? tracks[Math.floor(Math.random() * tracks.length)] : tracks[0];
@@ -115,24 +120,17 @@ export const MusicAlbumPage: FC = () => {
         </Sheet>
       )}
       <header className="flex flex-col items-center gap-4 sm:flex-row sm:items-end sm:gap-6">
-        {/* The cover large, to save as an image (M46.26). */}
+        {/* Held or right-clicked, the cover shows large, to save as an image (M46.26). */}
         <button
           type="button"
           aria-label={t('cover.open')}
-          disabled={!(info?.artworkUrl ?? tracks[0]?.artworkUrl)}
-          onClick={() => {
-            const url = info?.artworkUrl ?? tracks[0]?.artworkUrl;
-            if (url) {
-              useCoverSheetStore.getState().open({
-                url,
-                title: [info?.artist, info?.title].filter(Boolean).join(' - '),
-              });
-            }
-          }}
-          className="shrink-0 cursor-zoom-in disabled:cursor-default"
+          title={cover ? t('cover.holdHint') : undefined}
+          disabled={!cover}
+          {...coverHold.props}
+          className="cover-hold shrink-0"
         >
           <Artwork
-            url={info?.artworkUrl ?? tracks[0]?.artworkUrl ?? null}
+            url={coverUrl}
             className="size-40 rounded-lg shadow-xl sm:size-48"
             iconSize={56}
           />

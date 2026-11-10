@@ -264,7 +264,11 @@ describe('Player bar', () => {
       within(AppShellWrapper.miniPlayer.element).getByRole('button', { name: 'Now playing view' }),
     );
     const panel = screen.getByRole('complementary', { name: 'Now playing' });
-    await user.click(within(panel).getByRole('button', { name: 'Show the cover large' }));
+    // A right-click on the artwork opens it (a click doesn't: music/useCoverHold).
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: within(panel).getByRole('button', { name: 'Show the cover large' }),
+    });
     const sheet = await screen.findByTestId('cover-sheet');
     await user.click(within(sheet).getByRole('button', { name: 'PNG' }));
     await user.click(within(sheet).getByRole('button', { name: 'Save image' }));

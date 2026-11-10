@@ -188,40 +188,15 @@ export const PlayerSheet: FC = () => {
             actions={
               <>
                 <IncognitoBadge className="mr-1" />
+                {/* On a phone the lyrics' toggle sits with the controls (TextToggle). */}
                 {item && layout === 'landscape' && (
-                  <>
-                    <ViewToggle
-                      target="lyrics"
-                      view={view}
-                      onView={setView}
-                      label={spoken ? t('captions.title') : t('player.lyrics')}
-                      icon={
-                        spoken ? (
-                          <Subtitles aria-hidden size={20} />
-                        ) : (
-                          <MicVocal aria-hidden size={20} />
-                        )
-                      }
-                    />
-                    <ViewToggle
-                      target="queue"
-                      view={view}
-                      onView={setView}
-                      label={t('player.upNextView')}
-                      icon={<ListMusic aria-hidden size={20} />}
-                    />
-                  </>
-                )}
-                {item && layout === 'stacked' && view !== 'artwork' && (
-                  <button
-                    type="button"
-                    aria-label={t('player.showArtwork')}
-                    aria-pressed
-                    onClick={() => setView('artwork')}
-                    className="text-primary grid size-[min(2.75rem,11cqw)] place-items-center rounded-full"
-                  >
-                    <ImageIcon aria-hidden size={22} />
-                  </button>
+                  <ViewToggle
+                    target="queue"
+                    view={view}
+                    onView={setView}
+                    label={t('player.upNextView')}
+                    icon={<ListMusic aria-hidden size={20} />}
+                  />
                 )}
                 <PlaybackExtras spoken={spoken} className="h-[min(2.75rem,11cqw)]" />
                 <SoundButton className="size-[min(2.75rem,11cqw)]" />
@@ -352,8 +327,16 @@ const ViewToggle: FC<{
   );
 };
 
-/** The cover or the video, sized by `fill` (its own column) or by the room the controls leave. */
-const Media: FC<{ item: QueueItem | undefined; fill?: boolean }> = ({ item, fill = false }) => {
+/**
+ * The cover or the video, sized by `fill` (its own column) or by the room the controls leave. On
+ * a phone a tap on the cover shows the lyrics (`onTap`).
+ */
+const Media: FC<{
+  item: QueueItem | undefined;
+  fill?: boolean;
+  onTap?: () => void;
+  tapLabel?: string;
+}> = ({ item, fill = false, onTap, tapLabel }) => {
   const sheetOpen = usePlayerUiStore((state) => state.sheetOpen);
   if (!item) return null;
   return (
@@ -363,6 +346,8 @@ const Media: FC<{ item: QueueItem | undefined; fill?: boolean }> = ({ item, fill
       videoClassName={`mx-auto rounded-2xl bg-black ${fill ? 'player-video-fill' : 'player-video'}`}
       artworkClassName={`mx-auto rounded-2xl shadow-xl ${fill ? 'player-cover-fill' : 'player-cover'}`}
       iconSize={96}
+      onTap={onTap}
+      tapLabel={tapLabel}
     />
   );
 };
@@ -371,25 +356,161 @@ const Media: FC<{ item: QueueItem | undefined; fill?: boolean }> = ({ item, fill
 const TextView: FC<{ item: QueueItem; spoken: SpokenItem | null }> = ({ item, spoken }) =>
   spoken ? <CaptionsView spoken={spoken} /> : <LyricsView item={item} />;
 
-const Stacked: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
+/** Whatever a tap means something on: a tap anywhere else in the lyrics shows the cover again. */
+const TAPPABLE =
+  'button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="slider"], [role="tab"], [role="dialog"], [role="menu"]';
+
+/**
+ * A tap on the lyrics' empty space: not on a line or one of their buttons, not in a menu they
+ * opened, and not while their text is being selected.
+ */
+const tappedEmptySpace = (event: MouseEvent<HTMLElement>) => {
+  const target = event.target;
+  const area = event.currentTarget;
+  if (!(target instanceof Element) || !area.contains(target)) return false;
+  const control = target.closest(TAPPABLE);
+  if (control && area.contains(control)) return false;
+  if (usePlayerUiStore.getState().lyricsSelectable) return false;
+  return !window.getSelection()?.toString();
+};
+
+/**
+ * The lyrics (or the queue) where the cover was on a phone: a tap on the lyrics' empty space shows
+ * the cover again.
+ */
+const TextPane: FC<{
+  item: QueueItem;
+  spoken: SpokenItem | null;
+  view: SheetView;
+  setView: (view: SheetView) => void;
+  className: string;
+}> = ({ item, spoken, view, setView, className }) => {
+  const upNext = useUpNext();
+  return (
+    <div
+      onClick={(event) => {
+        if (view === 'lyrics' && tappedEmptySpace(event)) setView('artwork');
+      }}
+      className={className}
+    >
+      {view === 'lyrics' ? (
+        <TextView item={item} spoken={spoken} />
+      ) : (
+        <QueuePane item={item} items={upNext} />
+      )}
+    </div>
+  );
+};
+
+/** The cover and the lyrics trade places on a phone (a short cross-fade): `show` says which. */
+const SWAP_TIMING = { duration: 0.3, ease: [0.2, 0.8, 0.2, 1] } as const;
+const SWAP_IN = {
+  cover: {
+    initial: { opacity: 0, scale: 0.96 },
+    animate: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, scale: 0.96 },
+  },
+  text: {
+    initial: { opacity: 0, y: 16 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: 16 },
+  },
+} as const;
+
+const Swap: FC<{ show: 'cover' | 'text'; className: string; children: ReactNode }> = ({
+  show,
+  className,
+  children,
+}) => (
+  // The one going out leaves the flow at once and fades where it was, under the one coming in.
+  <AnimatePresence mode="popLayout" initial={false}>
+    <motion.div key={show} {...SWAP_IN[show]} transition={SWAP_TIMING} className={className}>
+      {children}
+    </motion.div>
+  </AnimatePresence>
+);
+
+/**
+ * On a phone: what the cover's place shows, beside the download button. From the cover, the
+ * lyrics (captions for spoken items); from the lyrics or the queue, the cover again.
+ */
+const TextToggle: FC<{
+  view: SheetView;
+  spoken: boolean;
+  setView: (view: SheetView) => void;
+}> = ({ view, spoken, setView }) => {
+  const { t } = useTranslation();
+  const covered = view !== 'artwork';
+  return (
+    <button
+      type="button"
+      aria-label={
+        covered ? t('player.showArtwork') : t(spoken ? 'player.showCaptions' : 'player.showLyrics')
+      }
+      onClick={() => setView(covered ? 'artwork' : 'lyrics')}
+      className={`grid size-11 shrink-0 place-items-center rounded-full ${
+        covered ? 'text-primary' : 'text-muted hover:text-foreground'
+      }`}
+    >
+      {covered ? (
+        <ImageIcon aria-hidden size={22} />
+      ) : spoken ? (
+        <Subtitles aria-hidden size={22} />
+      ) : (
+        <MicVocal aria-hidden size={22} />
+      )}
+    </button>
+  );
+};
+
+const Stacked: FC<LayoutParts> = (parts) => {
+  const { item, view } = parts;
+  return item && view !== 'artwork' ? (
+    <Swap show="text" className="flex min-h-0 w-full flex-1 flex-col">
+      <StackedText {...parts} item={item} />
+    </Swap>
+  ) : (
+    <Swap show="cover" className="flex min-h-0 w-full flex-1 flex-col">
+      <StackedCover {...parts} />
+    </Swap>
+  );
+};
+
+/**
+ * The lyrics or the queue full screen above smaller controls, clear of the gesture bar with the
+ * room the cover's view leaves under its controls.
+ */
+const StackedText: FC<LayoutParts & { item: QueueItem }> = ({
+  item,
+  spoken,
+  view,
+  setView,
+  onScrub,
+}) => (
+  <div
+    className={`player-column flex min-h-0 w-full flex-1 flex-col gap-4 pt-3 pb-[clamp(1.25rem,4svh,2.5rem)] [--player-column-base:44rem] ${GUTTER}`}
+  >
+    <TextPane
+      item={item}
+      spoken={spoken}
+      view={view}
+      setView={setView}
+      className="flex min-h-0 flex-1 flex-col"
+    />
+    <Controls
+      item={item}
+      spoken={spoken}
+      onScrub={onScrub}
+      compact
+      toggle={<TextToggle view={view} spoken={spoken !== null} setView={setView} />}
+    />
+  </div>
+);
+
+const StackedCover: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
+  const { t } = useTranslation();
   const upNext = useUpNext();
   const { containerRef, contentRef, coverRef } = useCoverFit();
-  if (view !== 'artwork' && item) {
-    return (
-      <div
-        className={`player-column flex min-h-0 w-full flex-1 flex-col gap-4 pt-3 [--player-column-base:44rem] ${GUTTER}`}
-      >
-        <div className="flex min-h-0 flex-1 flex-col">
-          {view === 'lyrics' ? (
-            <TextView item={item} spoken={spoken} />
-          ) : (
-            <QueuePane item={item} items={upNext} />
-          )}
-        </div>
-        <Controls item={item} spoken={spoken} onScrub={onScrub} compact />
-      </div>
-    );
-  }
   return (
     <div
       ref={containerRef}
@@ -399,7 +520,11 @@ const Stacked: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
       <div className="player-column flex flex-col [--player-column-base:44rem]">
         <div ref={contentRef} className="flex shrink-0 flex-col items-center gap-4 pt-4">
           <div ref={coverRef} className="flex w-full justify-center">
-            <Media item={item} />
+            <Media
+              item={item}
+              onTap={() => setView('lyrics')}
+              tapLabel={t(spoken ? 'player.coverToCaptions' : 'player.coverToLyrics')}
+            />
           </div>
           {item && (
             <div className="flex w-full min-w-0 items-center justify-center gap-2">
@@ -407,7 +532,12 @@ const Stacked: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
               <UpNextPill next={upNext[0]} onOpen={() => setView('queue')} />
             </div>
           )}
-          <Controls item={item} spoken={spoken} onScrub={onScrub} />
+          <Controls
+            item={item}
+            spoken={spoken}
+            onScrub={onScrub}
+            toggle={item && <TextToggle view={view} spoken={spoken !== null} setView={setView} />}
+          />
         </div>
         {item && <PlayerCards item={item} spoken={spoken} onLyrics={() => setView('lyrics')} />}
       </div>
@@ -415,22 +545,45 @@ const Stacked: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
   );
 };
 
-const Landscape: FC<LayoutParts> = ({ item, spoken, view, onScrub }) => {
-  const upNext = useUpNext();
+const Landscape: FC<LayoutParts> = ({ item, spoken, view, setView, onScrub }) => {
+  const { t } = useTranslation();
+  const covered = item !== undefined && view !== 'artwork';
   return (
     <div className={`flex min-h-0 flex-1 gap-[min(2rem,4vw)] pt-2 ${GUTTER}`}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center [container-type:size]">
-        {view === 'artwork' || !item ? (
-          <Media item={item} fill />
-        ) : view === 'lyrics' ? (
-          <TextView item={item} spoken={spoken} />
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col [container-type:size]">
+        {item && covered ? (
+          <Swap show="text" className="flex min-h-0 w-full flex-1 flex-col">
+            <TextPane
+              item={item}
+              spoken={spoken}
+              view={view}
+              setView={setView}
+              className="flex min-h-0 w-full flex-1 flex-col"
+            />
+          </Swap>
         ) : (
-          <QueuePane item={item} items={upNext} />
+          <Swap
+            show="cover"
+            className="flex min-h-0 w-full flex-1 flex-col items-center justify-center"
+          >
+            <Media
+              item={item}
+              fill
+              onTap={() => setView('lyrics')}
+              tapLabel={t(spoken ? 'player.coverToCaptions' : 'player.coverToLyrics')}
+            />
+          </Swap>
         )}
       </div>
       <div className="no-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <div className="my-auto py-2">
-          <Controls item={item} spoken={spoken} onScrub={onScrub} compact={view !== 'artwork'} />
+          <Controls
+            item={item}
+            spoken={spoken}
+            onScrub={onScrub}
+            compact={covered}
+            toggle={item && <TextToggle view={view} spoken={spoken !== null} setView={setView} />}
+          />
         </div>
       </div>
     </div>
@@ -526,13 +679,15 @@ type ControlsProps = {
   onScrub: (scrubbing: boolean) => void;
   /** Smaller, under the lyrics or the queue, so they get the room. */
   compact?: boolean;
+  /** Before the song's buttons: on a phone, the lyrics' toggle (TextToggle). */
+  toggle?: ReactNode;
 };
 
 /**
  * Title, seek bar and buttons: the same in every layout. Sizes follow its own width (a
  * container), so five buttons always fit in a row, whatever the interface size.
  */
-const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false }) => {
+const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false, toggle }) => {
   const { t } = useTranslation();
   const note = useSourceNote(item);
   const error = usePlayerSelect((state) => (state?.status === 'error' ? state.error : null));
@@ -593,6 +748,7 @@ const Controls: FC<ControlsProps> = ({ item, spoken, onScrub, compact = false })
           )}
           {error && <SourceIssue>{error}</SourceIssue>}
         </div>
+        {toggle}
         {item && !spoken && <FavoriteButton item={item} download />}
         {item && <MoreButton item={item} spoken={spoken} />}
       </div>

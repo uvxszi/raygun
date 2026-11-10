@@ -72,6 +72,14 @@ const stopTimer = () => {
 /** Whether the shared timer runs now (tests). */
 export const ticking = () => timer !== null;
 
+/**
+ * Moves every live value on now, between the timer's beats: a lyric line then starts on its time
+ * rather than up to a beat late. Nothing happens while the timer is stopped.
+ */
+export const tickNow = () => {
+  if (timer !== null) tick();
+};
+
 const subscribeTicks = (listener: () => void) => {
   listeners.add(listener);
   stopFollowing ??= onAppActiveChange((active) => {

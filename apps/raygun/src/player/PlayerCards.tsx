@@ -1,22 +1,23 @@
 import { commands } from '@raygun/bindings';
-import type { QueueItem, SpokenItem } from '@raygun/bindings';
+import type { LyricLine, QueueItem, SpokenItem } from '@raygun/bindings';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ExternalLink, Maximize2, UserRound } from 'lucide-react';
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { creditedArtists } from '../music/artists';
 import { Sheet } from '../shell/Sheet';
 import { CaptionsView } from './CaptionsView';
-import { currentLine, trackQueryFor, useLyricsFor } from './lyricsQuery';
+import { trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { artistFacts, shownCredits, useArtistInfo, useSongCredits } from './musicInfo';
 import { useLyricsLook } from './playerView';
-import { useLiveValue } from './useLivePosition';
-import { usePlayerTiming } from './usePlayback';
+import { useCurrentLine } from './useFollowLine';
 
 /** Lines of lyrics the card shows. */
 const PREVIEW_LINES = 5;
+
+const NO_LINES: LyricLine[] = [];
 
 /** Credit roles the card shows before "Show all". */
 const CREDITS_SHOWN = 3;
@@ -86,11 +87,11 @@ const LyricsCard: FC<{ item: QueueItem; onOpen: () => void }> = ({ item, onOpen 
   const heading = useId();
   const lyrics = useLyricsFor(trackQueryFor(item));
   const { style } = useLyricsLook();
-  const synced = lyrics.data?.synced ?? [];
+  const synced = lyrics.data?.synced ?? NO_LINES;
   const offsetMs = lyrics.data?.offsetMs ?? 0;
   // Follows the playhead, re-rendering only as a line starts.
-  const timing = usePlayerTiming();
-  const current = useLiveValue(timing, (position) => currentLine(synced, position, offsetMs));
+  const starts = useMemo(() => synced.map((line) => line.timeMs + offsetMs), [synced, offsetMs]);
+  const current = useCurrentLine(starts);
   // Synced lyrics show from the line playing; plain ones from the top.
   const start = Math.max(0, current);
   const lines =

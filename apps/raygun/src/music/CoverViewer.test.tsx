@@ -77,7 +77,11 @@ describe('Cover viewer', () => {
     const page = await screen.findByTestId('manga-title-page');
     await within(page).findByRole('heading', { name: 'Frieren' });
 
-    await user.click(within(page).getByRole('button', { name: 'Show the cover large' }));
+    // A plain click leaves it; a right-click opens it.
+    const cover = within(page).getByRole('button', { name: 'Show the cover large' });
+    await user.click(cover);
+    expect(screen.queryByTestId('cover-sheet')).not.toBeInTheDocument();
+    await user.pointer({ keys: '[MouseRight]', target: cover });
     const sheet = await screen.findByTestId('cover-sheet');
     expect(commands.coverVersions).toHaveBeenCalledWith(COVER);
     const picture = await within(sheet).findByRole('img', { name: 'Frieren' });
