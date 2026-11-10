@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { FC, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
+import type { CSSProperties, FC, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PlaylistCover } from '../collections/PlaylistCover';
@@ -47,6 +47,8 @@ import { useQuickAccessItems } from './useQuickAccessItems';
 
 /** A row's height in rem: a 2.5 rem cover with its padding, and the gap under it. */
 const ROW_REM = 3.375;
+/** What a row adds to its cover's size (rem): its padding and the gap under it. */
+const ROW_EXTRA_REM = ROW_REM - 2.5;
 
 const KIND_ICON: Record<string, LucideIcon> = {
   playlist: ListMusic,
@@ -69,19 +71,23 @@ export const PinArt: FC<{
   /** A website pin's site: its icon. */
   website?: Website;
   className: string;
-}> = ({ pin, playlist, website, className }) => {
+  /** The icons' size (px) in a tile without a picture; 16 unless the tile is larger. */
+  iconSize?: number;
+}> = ({ pin, playlist, website, className, iconSize = 16 }) => {
+  // The fixed tiles' icons keep their sizes to each other.
+  const scaled = (size: number) => Math.round((size * iconSize) / 16);
   const fixed: Record<string, { colour: string; icon: ReactNode }> = {
     favorites: {
       colour: 'from-primary/80 to-primary/30 bg-gradient-to-br text-background',
-      icon: <Heart aria-hidden size={16} fill="currentColor" />,
+      icon: <Heart aria-hidden size={scaled(16)} fill="currentColor" />,
     },
     downloaded: {
       colour: 'bg-sky-500 text-white',
-      icon: <ArrowDown aria-hidden size={18} strokeWidth={3} />,
+      icon: <ArrowDown aria-hidden size={scaled(18)} strokeWidth={3} />,
     },
     localFiles: {
       colour: 'bg-emerald-500 text-white',
-      icon: <Folder aria-hidden size={17} fill="currentColor" />,
+      icon: <Folder aria-hidden size={scaled(17)} fill="currentColor" />,
     },
   };
   const special = fixed[pin.kind];
@@ -97,7 +103,12 @@ export const PinArt: FC<{
   if (pin.kind === 'website') {
     return (
       <span className={`grid shrink-0 place-items-center ${className}`}>
-        <LetterAvatar name={website?.name ?? ''} logo={website?.icon} />
+        {/* The larger avatar (4 rem) once the tile holds it. */}
+        <LetterAvatar
+          name={website?.name ?? ''}
+          logo={website?.icon}
+          size={iconSize >= 26 ? 'lg' : 'md'}
+        />
       </span>
     );
   }
@@ -123,7 +134,7 @@ export const PinArt: FC<{
         fallback={{ kind: 'artist', name: pin.name }}
         icon={UserRound}
         className={`shrink-0 rounded-full ${className}`}
-        iconSize={16}
+        iconSize={iconSize}
       />
     );
   }
@@ -132,7 +143,7 @@ export const PinArt: FC<{
       <Artwork
         url={pin.artworkUrl}
         className={`shrink-0 ${pin.kind === 'artist' ? 'rounded-full' : 'rounded-md'} ${className}`}
-        iconSize={16}
+        iconSize={iconSize}
       />
     );
   }
@@ -141,7 +152,7 @@ export const PinArt: FC<{
     <span
       className={`bg-background text-muted grid shrink-0 place-items-center rounded-md ${className}`}
     >
-      <Icon aria-hidden size={16} />
+      <Icon aria-hidden size={iconSize} />
     </span>
   );
 };
@@ -154,12 +165,17 @@ type RowProps = {
   narrow: boolean;
   /** In the phone's drawer: opening one takes the drawer's place in history; ⋮ opens its menu. */
   drawer: boolean;
+  /** The cover's size in px when the drawer sizes it (else 2.5 rem). */
+  cover?: number;
   onMenu: (anchor: HTMLElement) => void;
   /** A website opens in the built-in browser instead of a page. */
   onOpenSite: (id: string) => void;
 };
 
-/** One item: its cover and name, a link to its page; a right click or a hold opens its menu. */
+/**
+ * One item: its cover and name, a link to its page; a right click or a hold opens its menu. With
+ * a cover the drawer sized, the name gets two lines, or one above what it's by.
+ */
 const Row: FC<RowProps> = ({
   item,
   name,
@@ -167,6 +183,7 @@ const Row: FC<RowProps> = ({
   website,
   narrow,
   drawer,
+  cover,
   onMenu,
   onOpenSite,
 }) => {
@@ -178,17 +195,39 @@ const Row: FC<RowProps> = ({
     event.stopPropagation();
     onMenu(event.currentTarget);
   };
+  const byline = cover && item.subtitle ? item.subtitle : null;
   const content = (
     <>
-      <PinArt pin={item} playlist={playlist} website={website} className="size-10" />
-      {!narrow && <span className="text-foreground min-w-0 flex-1 truncate text-sm">{name}</span>}
+      <PinArt
+        pin={item}
+        playlist={playlist}
+        website={website}
+        className={cover ? 'size-[var(--pin-cover)]' : 'size-10'}
+        iconSize={cover ? Math.max(16, Math.round(cover * 0.4)) : undefined}
+      />
+      {!narrow &&
+        (cover ? (
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span
+              className={`text-foreground text-[0.9375rem] leading-snug wrap-anywhere ${byline ? 'truncate' : 'line-clamp-2'}`}
+            >
+              {name}
+            </span>
+            {byline && <span className="truncate text-xs">{byline}</span>}
+          </span>
+        ) : (
+          <span className="text-foreground min-w-0 flex-1 truncate text-sm">{name}</span>
+        ))}
       {!narrow && item.pinned && (
         <Pin aria-hidden size={13} className="text-primary shrink-0 rotate-45" />
       )}
     </>
   );
   return (
-    <div className="flex items-center">
+    <div
+      className="flex items-center"
+      style={cover ? ({ '--pin-cover': `${cover}px` } as CSSProperties) : undefined}
+    >
       {item.kind === 'website' && item.search.site ? (
         <button
           type="button"
@@ -254,13 +293,15 @@ const rootFontPx = () =>
  * on top in the order they're dragged into; the audio library follows by itself, the most
  * recently played from first (Rust's `quick_access`), drawn only near the screen so a big library
  * costs nothing off it. A right click (a hold, or ⋮ in the drawer) opens an item's menu: Pin or
- * Unpin, and Remove from library for what can leave it.
+ * Unpin, and Remove from library for what can leave it. The phone's drawer sizes the covers from
+ * its width (`cover`, px); the side rail's are 2.5 rem.
  */
-export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }> = ({
-  narrow,
-  shown,
-  drawer = false,
-}) => {
+export const RailPins: FC<{
+  narrow: boolean;
+  shown: boolean;
+  drawer?: boolean;
+  cover?: number;
+}> = ({ narrow, shown, drawer = false, cover }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { rail, quick, top, rest, playlistOf, siteOf, nameOf, menuItems } =
@@ -281,8 +322,10 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }>
   const [scrollMargin, setScrollMargin] = useState(0);
   useLayoutEffect(() => {
     setScrollMargin(list.current?.offsetTop ?? 0);
-  }, [top.length, rest.length, narrow]);
-  const rowPx = Math.round(ROW_REM * rootFontPx());
+  }, [top.length, rest.length, narrow, cover]);
+  const rowPx = Math.round(
+    cover === undefined ? ROW_REM * rootFontPx() : cover + ROW_EXTRA_REM * rootFontPx(),
+  );
   // The app doesn't use the React Compiler, so the rule's memoization concern doesn't apply.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -309,6 +352,7 @@ export const RailPins: FC<{ narrow: boolean; shown: boolean; drawer?: boolean }>
     website: siteOf(item),
     narrow,
     drawer,
+    cover,
     onMenu: (anchor) => setMenu({ item, anchor }),
     onOpenSite: (id) => openSite.mutate(id),
   });

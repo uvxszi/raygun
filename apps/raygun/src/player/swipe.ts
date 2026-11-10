@@ -31,6 +31,57 @@ const DISMISS_VELOCITY = 500;
 export const sheetDismissed = (offset: { y: number }, velocity: { y: number }) =>
   offset.y > DISMISS_DISTANCE || velocity.y > DISMISS_VELOCITY;
 
+/** A drag left held longer than this (ms) lets the player's live values go anyway. */
+export const SHEET_HOLD_LIMIT_MS = 10_000;
+
+/**
+ * The full player's drag and slide, frame by frame only a transform of the sheet (its own layer,
+ * `will-change`): from a drag's start until the sheet is back in place, and from the moment it
+ * starts sliding away until it has gone, the live values in it (seek bar, lyrics, progress) hold
+ * where they are (`hold`, which returns what lets them go), so no frame re-renders anything. The
+ * sheet's motion calls each step: `start` as a drag starts, `end` as it's let go (saying whether
+ * that closes the player), `settled` once it's back in place, `leaving` as it starts sliding away
+ * (however it was closed), `gone` once it has, or is taken down.
+ */
+export const sheetDrag = (hold: () => () => void) => {
+  let release: (() => void) | null = null;
+  let closing = false;
+  let limit: ReturnType<typeof setTimeout> | undefined;
+  const letGo = () => {
+    clearTimeout(limit);
+    const held = release;
+    release = null;
+    closing = false;
+    held?.();
+  };
+  const holdNow = () => {
+    if (release) return;
+    release = hold();
+    limit = setTimeout(letGo, SHEET_HOLD_LIMIT_MS);
+  };
+  return {
+    start: holdNow,
+    /** Let go: far or fast enough closes the player, and the values hold until it has gone. */
+    end: (offset: { y: number }, velocity: { y: number }) => {
+      const dismissed = sheetDismissed(offset, velocity);
+      if (dismissed) closing = true;
+      return dismissed;
+    },
+    settled: () => {
+      if (!closing) letGo();
+    },
+    leaving: () => {
+      holdNow();
+      closing = true;
+    },
+    gone: letGo,
+    /** Whether the live values are held for it now. */
+    holding: () => release !== null,
+  };
+};
+
+export type SheetDrag = ReturnType<typeof sheetDrag>;
+
 /** A press on the player's handle moving less than this (px) ... */
 const TAP_SLOP = 8;
 /** ... and let go sooner than this (ms) is a tap: it closes the player. */

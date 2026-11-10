@@ -1,24 +1,17 @@
 import type { SongDownload } from '@raygun/bindings';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { FC } from 'react';
 
-import { bindingsMock, emitEvent } from '../test/bindingsMock';
+import { bindingsMock } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { RecordingHost } from './RecordingHost';
 import { recordingsOf } from './songDownloadState';
-import { useSongDownloadSync } from './useSongDownloads';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
-
-/** The card, with the shell's one listener for download changes. */
-const Shell: FC = () => {
-  useSongDownloadSync();
-  return <RecordingHost />;
-};
+const keep = () => {};
 
 const download = (
   id: string,
@@ -76,7 +69,7 @@ describe('RecordingHost', () => {
         download('4', 'Elsewhere', 'queued', { kind: 'file' }),
       ]),
     );
-    renderWithProviders(<RecordingHost />);
+    renderWithProviders(<RecordingHost onMinimize={keep} />);
 
     const card = await screen.findByRole('region', { name: 'Recording 3 songs' });
     expect(card).toHaveTextContent('Recording Ballad · 42%');
@@ -109,32 +102,30 @@ describe('RecordingHost', () => {
         }),
       ]),
     );
-    renderWithProviders(<RecordingHost />);
+    renderWithProviders(<RecordingHost onMinimize={keep} />);
 
     const card = await screen.findByRole('region', { name: 'Recording 1 song' });
     expect(card).toHaveTextContent('Waits until Raygun is open');
     expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
-  it('can be put away until another song is added to record', async () => {
+  it('is minimized from its own button (the dock keeps it as a round button)', async () => {
     const user = userEvent.setup();
+    const minimize = vi.fn();
     commands.songDownloads.mockResolvedValue(ok([download('1', 'Ballad', 'downloading')]));
-    renderWithProviders(<Shell />);
+    renderWithProviders(<RecordingHost onMinimize={minimize} />);
 
     const card = await screen.findByRole('region', { name: 'Recording 1 song' });
-    await user.click(within(card).getByRole('button', { name: 'Hide' }));
-    expect(screen.queryByRole('region')).not.toBeInTheDocument();
-
-    // Another song to record: the card is back, with both.
-    emitEvent('songDownloadProgressEvent', download('2', 'Chorus', 'queued', { queuedAt: 5 }));
-    expect(await screen.findByRole('region', { name: 'Recording 2 songs' })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument();
+    await user.click(within(card).getByRole('button', { name: 'Minimize' }));
+    expect(minimize).toHaveBeenCalledTimes(1);
   });
 
   it('draws nothing while no song is to be recorded', async () => {
     commands.songDownloads.mockResolvedValue(
       ok([download('1', 'Ballad', 'queued', { kind: 'file' })]),
     );
-    renderWithProviders(<RecordingHost />);
+    renderWithProviders(<RecordingHost onMinimize={keep} />);
     await vi.waitFor(() => expect(commands.songDownloads).toHaveBeenCalled());
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
   });

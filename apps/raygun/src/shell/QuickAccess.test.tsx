@@ -107,6 +107,26 @@ describe('Phones (no side panel, quick access)', () => {
     );
   });
 
+  it('sizes its covers from its width: large beside the names, the whole width without', async () => {
+    setScreen(393, 851);
+    const user = userEvent.setup();
+    withSettings(DEFAULT_SETTINGS);
+    await AppShellWrapper.mount('/');
+    await user.click(await screen.findByTestId('quick-access-button'));
+    const cover = (name: string) =>
+      within(drawer())
+        .getByRole('link', { name: new RegExp(name) })
+        .parentElement?.style.getPropertyValue('--pin-cover');
+    // jsdom's window is 1024 px wide: an 18 rem drawer, its list 17 rem, a cover a fifth of it,
+    // the name beside it in two lines' room.
+    await waitFor(() => expect(cover('Road trip')).toBe('57px'));
+    expect(cover('Favorites')).toBe('57px');
+
+    // Covers only: as wide as the 5.5 rem drawer holds.
+    await user.click(within(drawer()).getByRole('button', { name: 'Show icons only' }));
+    await waitFor(() => expect(cover('Road trip')).toBe('68px'));
+  });
+
   it("shows a followed artist's picture, or one found elsewhere when it's missing or fails", async () => {
     setScreen(393, 851);
     const user = userEvent.setup();

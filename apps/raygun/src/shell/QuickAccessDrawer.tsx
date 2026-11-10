@@ -2,13 +2,20 @@ import { useRouterState } from '@tanstack/react-router';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { PanInfo } from 'motion/react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { usePlayerUiStore } from '../player/playerUiStore';
 import { useBackLayer } from './backLayers';
+import {
+  DRAWER_NARROW_REM,
+  DRAWER_WIDE_REM,
+  DRAWER_WIDE_VW,
+  drawerCover,
+  drawerListWidth,
+} from './drawerSizes';
 import { useQuickAccessShown, useQuickAccessStore } from './quickAccessStore';
 import { RailPins } from './RailPins';
 import { swipeScrollsRow } from './useDragScroll';
@@ -64,12 +71,42 @@ const useEdgePull = (enabled: boolean, open: () => void) => {
   }, [enabled, open]);
 };
 
+/** The root font size in px: the drawer is sized in rem, and phones scale it (Interface size). */
+const rootFontPx = () =>
+  Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+
+/**
+ * How large the drawer's covers are (px), from its list's width: measured once it's laid out
+ * (a turned phone, a cutout's inset), and until then as the drawer's width says. A measure taken
+ * in the other mode (names shown or not) isn't used.
+ */
+const useDrawerCover = (expanded: boolean) => {
+  const [list, setList] = useState<HTMLElement | null>(null);
+  const [measured, setMeasured] = useState<{ expanded: boolean; width: number } | null>(null);
+  useEffect(() => {
+    if (!list || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width ?? 0;
+      if (width > 0) setMeasured({ expanded, width });
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [list, expanded]);
+  const rem = rootFontPx();
+  const width =
+    measured?.expanded === expanded
+      ? measured.width
+      : drawerListWidth(expanded, window.innerWidth, rem);
+  return { listRef: setList, cover: drawerCover(expanded, width, rem) };
+};
+
 /**
  * Quick access on phones: the sidebar's list (M46.29) in a drawer from the right, opened by
  * Raygun's icon in the top bar or a drag in from the right edge: pins on top, then the audio
  * library by itself; a hold or ⋮ opens an item's menu. Compact shows covers only, expanded their
- * names too (`Settings::rail.drawerExpanded`). Tapping outside, swiping it back, Back and opening
- * an item close it.
+ * names too (`Settings::rail.drawerExpanded`). Covers are sized from the drawer's width: compact,
+ * as wide as it is; expanded, large beside names that keep two lines. Tapping outside, swiping it
+ * back, Back and opening an item close it.
  */
 export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
   const { t } = useTranslation();
@@ -79,6 +116,7 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
   const playerOpen = usePlayerUiStore((state) => state.sheetOpen);
   const rail = useRail();
   const expanded = rail.prefs.drawerExpanded ?? true;
+  const { listRef, cover } = useDrawerCover(expanded);
   const visible = open && shown && !blocked;
   const close = useCallback(() => setOpen(false), [setOpen]);
   const openDrawer = useCallback(() => setOpen(true), [setOpen]);
@@ -136,7 +174,11 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'tween', ease: 'easeOut', duration: 0.22 }}
-            style={{ width: expanded ? 'min(18rem, 82vw)' : '5.5rem' }}
+            style={{
+              width: expanded
+                ? `min(${DRAWER_WIDE_REM}rem, ${DRAWER_WIDE_VW}vw)`
+                : `${DRAWER_NARROW_REM}rem`,
+            }}
             className="bg-surface absolute inset-y-0 right-0 flex flex-col overflow-hidden rounded-l-3xl pt-[max(0.75rem,env(safe-area-inset-top))] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] shadow-2xl shadow-black/40"
           >
             <div
@@ -163,6 +205,7 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
               </button>
             </div>
             <nav
+              ref={listRef}
               aria-label={t('rail.library')}
               // A pin's page replaces the drawer's history entry; then the drawer goes.
               onClick={(event) => {
@@ -170,7 +213,7 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
               }}
               className={`flex min-h-0 flex-1 flex-col gap-1 pb-3 ${expanded ? 'px-2' : 'px-1'}`}
             >
-              <RailPins narrow={!expanded} shown drawer />
+              <RailPins narrow={!expanded} shown drawer cover={cover} />
             </nav>
           </motion.div>
         </motion.div>

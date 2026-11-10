@@ -10,9 +10,12 @@ export type Toast = {
   bottom: number;
 };
 
-/** The space taken at the bottom by the player bar and the tabs, so the toast sits above them. */
+/**
+ * The space taken at the bottom by the recording bar, the player bar and the tabs, so the toast
+ * sits above them.
+ */
 const bottomBars = () => {
-  const tops = ['mini-player', 'bottom-tabs']
+  const tops = ['download-dock', 'mini-player', 'bottom-tabs']
     .map((id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top)
     .filter((top): top is number => top !== undefined && top > 0);
   return tops.length > 0 ? Math.max(0, window.innerHeight - Math.min(...tops)) : 0;
