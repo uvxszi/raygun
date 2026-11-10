@@ -102,6 +102,23 @@
     content: Object.freeze({
       showNsfw: () => native.showNsfw() === true,
     }),
+    // YouTube through its own web API, answered in Rust (`youtube`); the extension's network
+    // permissions apply. Converted Nuclear plugins reach it as `api.Ytdlp`.
+    youtube: Object.freeze({
+      search: async (query, limit) =>
+        unwrap(await native.youtubeSearch(String(query ?? ''), Number(limit) || 0)),
+      stream: async (video, options) =>
+        unwrap(
+          await native.youtubeStream(
+            String(video ?? ''),
+            JSON.stringify({
+              targetKbps: typeof options?.targetKbps === 'number' ? options.targetKbps : null,
+              decodable: options?.decodable === true,
+            }),
+          ),
+        ),
+      playlist: async (playlist) => unwrap(await native.youtubePlaylist(String(playlist ?? ''))),
+    }),
     providers: Object.freeze({
       register: (provider) => {
         const { kind, id, name, searchPill } = provider ?? {};

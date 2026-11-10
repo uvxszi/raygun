@@ -287,12 +287,15 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     );
     updates.start();
     app.manage(updates);
-    // yt-dlp (M46.47): YouTube downloads on desktop, and songs YouTube's own files didn't give.
-    app.manage(crate::ytdlp::YtDlpService::new(
+    // yt-dlp (M46.47): YouTube downloads on desktop, and songs YouTube's own files didn't give;
+    // also what extensions' `raygun.youtube` falls back to.
+    let ytdlp = crate::ytdlp::YtDlpService::new(
         app.handle().clone(),
         paths.root(),
         raygun_net::http_client()?,
-    ));
+    );
+    crate::ytdlp::answer_for_extensions(&ytdlp);
+    app.manage(ytdlp);
     // Tier 2: running a Mihon extension's own code (`Settings::run_source_code`). The host jar
     // ships beside the tools folder; the JRE and dex2jar are fetched on first use.
     app.manage(crate::mihon_container::MihonContainer::new(

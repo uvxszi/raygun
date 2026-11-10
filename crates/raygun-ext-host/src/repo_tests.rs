@@ -538,10 +538,15 @@ fn reads_nuclears_plugin_registry_as_a_repository() {
               "addedAt": "2026-01-01T00:00:00Z" },
             { "id": "nuclear-plugin-bandcamp", "name": "Bandcamp", "repo": "x/y", "category": "streaming",
               "downloadUrl": "https://example.org/b.zip", "sha256": "AB".repeat(32), "addedAt": "2026-01-01T00:00:00Z" },
-            { "id": "nuclear-plugin-dash", "name": "Dash", "repo": "x/y", "categories": ["dashboard"],
-              "downloadUrl": "https://example.org/d.zip", "addedAt": "2026-01-01T00:00:00Z" },
+            { "id": "nuclear-plugin-queue", "name": "Queue", "repo": "x/y", "categories": ["queue"],
+              "downloadUrl": "https://example.org/q.zip", "addedAt": "2026-01-01T00:00:00Z" },
             { "id": "nuclear-plugin-nozip", "name": "No zip", "repo": "x/y", "categories": ["metadata"],
               "addedAt": "2026-01-01T00:00:00Z" },
+            { "id": "nuclear-plugin-youtube-playlists", "name": "YouTube Playlists", "repo": "x/y",
+              "category": "other", "categories": ["playlists"],
+              "downloadUrl": "https://example.org/p.zip", "addedAt": "2026-01-01T00:00:00Z" },
+            { "id": "nuclear-plugin-dash", "name": "Dash", "repo": "x/y", "categories": ["dashboard"],
+              "downloadUrl": "https://example.org/d.zip", "addedAt": "2026-01-01T00:00:00Z" },
         ],
     });
     let index = repo::parse_index(&registry.to_string()).unwrap();
@@ -549,13 +554,18 @@ fn reads_nuclears_plugin_registry_as_a_repository() {
     let ids: Vec<_> = index
         .extensions
         .iter()
-        .map(|entry| entry.id.as_str())
+        .map(|entry| (entry.id.as_str(), entry.provides.join(",")))
         .collect();
     assert_eq!(
         ids,
         vec![
-            "nuclear.nuclear-plugin-lrclib",
-            "nuclear.nuclear-plugin-bandcamp"
+            ("nuclear.nuclear-plugin-lrclib", "lyrics".to_owned()),
+            ("nuclear.nuclear-plugin-bandcamp", "music.stream".to_owned()),
+            (
+                "nuclear.nuclear-plugin-youtube-playlists",
+                "music.metadata".to_owned()
+            ),
+            ("nuclear.nuclear-plugin-dash", "music.charts".to_owned()),
         ],
         "plugins Raygun can't run, or without a download, are left out"
     );

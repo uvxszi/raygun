@@ -132,6 +132,19 @@ export const language = () => LANGUAGES[raygun.settings.get<string>('language') 
 Whether NSFW (18+) content is shown; off by default. While it is off, leave adult titles out, or
 mark them `nsfw: true` and Raygun hides them.
 
+## `raygun.youtube`
+
+YouTube through its own web API, answered by Raygun; on desktop yt-dlp answers what that API
+doesn't. Converted Nuclear plugins reach it as their `Ytdlp` API. The requests go out as the
+extension's own, so its `permissions.net` must name `www.youtube.com`, `music.youtube.com` and
+`*.googlevideo.com`.
+
+| Call                           | What it gives                                                                                                     |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `search(query, limit?)`        | Songs, then music videos, from YouTube Music (10 without a limit, at most 50).                                    |
+| `stream(video, options?)`      | A video's audio (an id or an address), checked to play to its end, with the `headers` to send; `targetKbps` and `decodable` (AAC over Opus) pick the format. |
+| `playlist(playlist)`           | Every video of a playlist (an id or an address with `list=`).                                                     |
+
 ## `raygun.log` and `console`
 
 `raygun.log.debug`, `info`, `warn` and `error` (and `console.log`, `info`, `debug`, `warn`,

@@ -1,8 +1,10 @@
 // A NuclearPluginAPI built on Raygun's host API (shape from Nuclear's plugin-sdk, AGPL-3.0).
-// Http, Logger, Settings and Providers work; every other domain is a stub that says so.
+// Http, Logger, Settings, Providers and Ytdlp (YouTube, over `raygun.youtube`) work; every other
+// domain is a stub that says so.
 import { HeadersPolyfill, ResponsePolyfill } from './polyfills';
 import type { NuclearProvider, PluginInfo } from './nuclear-types';
 import { KIND_MAP, wrapProvider } from './providers';
+import { createYtdlp } from './ytdlp';
 
 /** Domains Raygun doesn't offer to Nuclear plugins yet; calling into them throws. */
 export const STUBBED_DOMAINS = [
@@ -15,7 +17,6 @@ export const STUBBED_DOMAINS = [
   'Events',
   'Shell',
   'Navigation',
-  'Ytdlp',
   'Metadata',
   'Streaming',
   'Lyrics',
@@ -167,6 +168,7 @@ export const createApi = (plugin: PluginInfo) => {
     Logger,
     Settings: lenient('Settings', Settings),
     Providers: lenient('Providers', Providers),
+    Ytdlp: lenient('Ytdlp', createYtdlp()),
   };
   for (const domain of STUBBED_DOMAINS) api[domain] = unsupported(domain);
   return api;

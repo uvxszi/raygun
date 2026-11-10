@@ -561,6 +561,48 @@ impl YtDlpService {
     fn changed(&self, id: &str) {
         let _ = YtDlpEvent(id.to_owned()).emit(&self.app);
     }
+
+    // ---- YouTube for extensions ----
+
+    /// Runs yt-dlp with `args` (fetched first when it isn't here) and hands back what it printed.
+    pub async fn print(self: &Arc<Self>, args: Vec<String>) -> Result<String, String> {
+        // Fetched apart from the caller, so a lookup that stops waiting doesn't stop the fetch.
+        let service = self.clone();
+        let program = tauri::async_runtime::spawn(async move { service.ready().await })
+            .await
+            .map_err(|error| error.to_string())??;
+        let output = command(&program)
+            .args(&args)
+            .output()
+            .await
+            .map_err(|error| format!("yt-dlp didn't start: {error}"))?;
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        }
+        let errors = String::from_utf8_lossy(&output.stderr);
+        Err(errors
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("ERROR:"))
+            .next_back()
+            .map(|line| line.trim().to_owned())
+            .unwrap_or_else(|| format!("yt-dlp stopped ({})", output.status)))
+    }
+}
+
+/// Lets extensions' `raygun.youtube` (converted Nuclear plugins' `Ytdlp`) ask yt-dlp what
+/// YouTube's own API didn't answer: desktop only.
+pub fn answer_for_extensions(service: &Arc<YtDlpService>) {
+    if !supported() {
+        return;
+    }
+    let service = Arc::downgrade(service);
+    raygun_ext_host::youtube::set_ytdlp(Arc::new(move |args| {
+        let service = service.clone();
+        Box::pin(async move {
+            let service = service.upgrade().ok_or("yt-dlp has stopped")?;
+            service.print(args).await
+        })
+    }));
 }
 
 /// Runs yt-dlp, handing each progress line's numbers to `progress` as it reads, until it ends or

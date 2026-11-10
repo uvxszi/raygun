@@ -1,0 +1,178 @@
+{
+  "responseContext": {},
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "selected": true,
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "itemSectionRenderer": {
+                      "contents": [
+                        {
+                          "lockupViewModel": {
+                            "contentImage": {
+                              "thumbnailViewModel": {
+                                "image": {
+                                  "sources": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/imBlPXbAv6E/hqdefault.jpg?sqp=one",
+                                      "width": 168,
+                                      "height": 94
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/vi/imBlPXbAv6E/hqdefault.jpg?sqp=two",
+                                      "width": 336,
+                                      "height": 188
+                                    }
+                                  ]
+                                },
+                                "overlays": [
+                                  {
+                                    "thumbnailBottomOverlayViewModel": {
+                                      "badges": [
+                                        {
+                                          "thumbnailBadgeViewModel": {
+                                            "text": "4:20",
+                                            "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "metadata": {
+                              "lockupMetadataViewModel": {
+                                "title": {
+                                  "content": "Daft Punk - Infinity Repeating (2013 Demo) (feat. Julian Casablancas+The Voidz)"
+                                },
+                                "metadata": {
+                                  "contentMetadataViewModel": {
+                                    "metadataRows": [
+                                      { "metadataParts": [{ "text": { "content": "Daft Punk" } }] },
+                                      {
+                                        "metadataParts": [
+                                          { "text": { "content": "15M views" } },
+                                          { "text": { "content": "3 years ago" } }
+                                        ]
+                                      }
+                                    ],
+                                    "delimiter": " • "
+                                  }
+                                }
+                              }
+                            },
+                            "contentId": "imBlPXbAv6E",
+                            "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+                          }
+                        },
+                        {
+                          "lockupViewModel": {
+                            "contentImage": {
+                              "thumbnailViewModel": {
+                                "image": {
+                                  "sources": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/A2VpR8HahKc/hqdefault.jpg?sqp=three",
+                                      "width": 336,
+                                      "height": 188
+                                    }
+                                  ]
+                                },
+                                "overlays": [
+                                  {
+                                    "thumbnailBottomOverlayViewModel": {
+                                      "badges": [
+                                        { "thumbnailBadgeViewModel": { "text": "1:02:03" } }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "metadata": {
+                              "lockupMetadataViewModel": {
+                                "title": { "content": "Harder, Better, Faster, Stronger" },
+                                "metadata": {
+                                  "contentMetadataViewModel": {
+                                    "metadataRows": [
+                                      {
+                                        "metadataParts": [
+                                          { "text": { "content": "Daft Punk - Topic" } }
+                                        ]
+                                      },
+                                      { "metadataParts": [{ "text": { "content": "1.2M views" } }] }
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "contentId": "A2VpR8HahKc",
+                            "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+                          }
+                        },
+                        {
+                          "lockupViewModel": {
+                            "metadata": {
+                              "lockupMetadataViewModel": {
+                                "title": { "content": "A playlist inside" }
+                              }
+                            },
+                            "contentId": "PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG",
+                            "contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST"
+                          }
+                        },
+                        {
+                          "continuationItemViewModel": {
+                            "continuationCommand": {
+                              "innertubeCommand": {
+                                "continuationCommand": {
+                                  "token": "ITEMS-PAGE-2",
+                                  "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "continuationItemViewModel": {
+                      "continuationCommand": {
+                        "innertubeCommand": {
+                          "continuationCommand": {
+                            "token": "SECTIONS-PAGE-2",
+                            "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "header": {
+    "playlistHeaderRenderer": {
+      "playlistId": "PLSbDLF8wQ3oIkmgwFI3HmEYV-qhLwLVHx",
+      "title": { "simpleText": "Daft Punk - Mix Clips | Vevo Playlist" },
+      "ownerText": { "runs": [{ "text": "Daft Punk" }] }
+    }
+  },
+  "metadata": {
+    "playlistMetadataRenderer": {
+      "title": "Daft Punk - Mix Clips | Vevo Playlist",
+      "description": "All the official music videos."
+    }
+  }
+}

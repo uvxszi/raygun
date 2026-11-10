@@ -759,6 +759,57 @@ export type HtmlElement = {
   select(selector: string): HtmlElement[];
 };
 
+/** A picture of a YouTube video. */
+export type YouTubeThumbnail = { url: string; width: number | null; height: number | null };
+
+/** A video a YouTube search or playlist found. */
+export type YouTubeVideo = {
+  id: string;
+  title: string;
+  /** A song's artists, else the channel that uploaded it ("… - Topic" by the artist's name). */
+  channel: string | null;
+  album: string | null;
+  durationMs: number | null;
+  /** The largest picture. */
+  thumbnailUrl: string | null;
+  thumbnails: YouTubeThumbnail[];
+  /** `song`: YouTube Music's own audio of a song. */
+  kind: 'song' | 'video';
+};
+
+/** A YouTube video's audio stream, checked to play to its end. */
+export type YouTubeStream = {
+  url: string;
+  /** Send these with it (the player and downloads do, as a `url` source's `headers`). */
+  headers: Record<string, string>;
+  /** Unix milliseconds after which the address stops working. */
+  expiresAt: number | null;
+  mimeType: string | null;
+  /** `webm` or `m4a`. */
+  container: string | null;
+  /** `opus` or `mp4a.40.2`. */
+  codec: string | null;
+  bitrateKbps: number | null;
+  contentLength: number | null;
+  durationMs: number | null;
+  title: string | null;
+  channel: string | null;
+  album: string | null;
+  artists: string[];
+  /** `YYYYMMDD`, when known. */
+  uploadDate: string | null;
+  /** What gave it: one of YouTube's app clients, or `yt-dlp`. */
+  client: string;
+};
+
+/** A YouTube playlist and its videos, in order. */
+export type YouTubePlaylist = {
+  id: string;
+  title: string;
+  author: string | null;
+  videos: YouTubeVideo[];
+};
+
 /**
  * The `raygun` global: everything an extension can reach. Extensions run in QuickJS, not a
  * browser or Node: there is no `fetch`, `URL`, `setTimeout`, `require` or DOM.
@@ -807,6 +858,26 @@ export type RaygunApi = {
      * results out (or mark them `nsfw`, and the app hides them).
      */
     showNsfw(): boolean;
+  };
+  /**
+   * YouTube through its own web API, answered by Raygun (on desktop yt-dlp answers what it
+   * can't). Requests go out as the extension's: its `permissions.net` must name
+   * `www.youtube.com`, `music.youtube.com` and `*.googlevideo.com`. Converted Nuclear plugins
+   * reach it as their `Ytdlp` API. Each rejects with a plain sentence when YouTube won't answer.
+   */
+  youtube: {
+    /** Songs, then music videos, from YouTube Music (10 without a limit, at most 50). */
+    search(query: string, limit?: number): Promise<YouTubeVideo[]>;
+    /**
+     * A video's audio (an id or a YouTube address): the format nearest `targetKbps` (the best
+     * without one), AAC over Opus when `decodable`.
+     */
+    stream(
+      video: string,
+      options?: { targetKbps?: number | null; decodable?: boolean },
+    ): Promise<YouTubeStream>;
+    /** A playlist's videos (an id or an address with `list=`), every page of them. */
+    playlist(playlist: string): Promise<YouTubePlaylist>;
   };
   providers: {
     /**

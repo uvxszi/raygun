@@ -10,6 +10,8 @@ export const CATEGORY_KINDS: Record<string, string> = {
   // M46.23: dashboards' top songs as charts, discovery as song radios.
   dashboard: 'music.charts',
   discovery: 'music.recommend',
+  // Playlists by address: Search finds one when its address is typed.
+  playlists: 'music.metadata',
 };
 
 /** API domains the shim stubs (keep in step with shim/api.ts). */
@@ -23,11 +25,16 @@ const STUBBED_DOMAINS = [
   'Events',
   'Shell',
   'Navigation',
-  'Ytdlp',
   'Metadata',
   'Streaming',
   'Lyrics',
 ];
+
+/**
+ * What the `Ytdlp` API reaches on a plugin's behalf (raygun.youtube asks with the plugin's own
+ * permissions): YouTube's API and its media servers.
+ */
+const YTDLP_HOSTS = ['www.youtube.com', 'music.youtube.com', '*.googlevideo.com'];
 
 const ENTRY_CANDIDATES = [
   'index.ts',
@@ -48,7 +55,10 @@ export type CompatReport = {
   stubbedApis: string[];
   /** UI modules the plugin imports; they're inert here. */
   uiImports: string[];
-  /** Hosts found in the source; they become the extension's network permissions. */
+  /**
+   * Hosts found in the source, and YouTube's when it uses `Ytdlp`; they become the extension's
+   * network permissions.
+   */
   hosts: string[];
   modules: number;
 };
@@ -89,7 +99,7 @@ const slug = (name: string) =>
  * plugins converted by an older one as updates (M46.9.1); keep `CONVERTER_VERSION` in
  * `raygun-ext-host::nuclear` equal to it.
  */
-export const CONVERTER_VERSION = 3;
+export const CONVERTER_VERSION = 4;
 
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
@@ -153,12 +163,13 @@ export const convertPlugin = (files: Record<string, string>, shimSource: string)
       code.flatMap((source) =>
         [
           ...source.matchAll(
-            /\bkind\s*:\s*['"](metadata|streaming|lyrics|dashboard|discovery)['"]/g,
+            /\bkind\s*:\s*['"](metadata|streaming|lyrics|dashboard|discovery|playlists)['"]/g,
           ),
         ].map(([, kind]) => kind as string),
       ),
     ),
   ];
+  const usesYtdlp = code.some((source) => /\.Ytdlp\s*\./.test(source));
   const report: CompatReport = {
     supported: [
       ...new Set(
@@ -178,7 +189,7 @@ export const convertPlugin = (files: Record<string, string>, shimSource: string)
         ),
       ),
     ].sort(),
-    hosts: findHosts(code),
+    hosts: [...new Set([...findHosts(code), ...(usesYtdlp ? YTDLP_HOSTS : [])])].sort(),
     modules: Object.keys(sources).length,
   };
   if (report.supported.length === 0) {

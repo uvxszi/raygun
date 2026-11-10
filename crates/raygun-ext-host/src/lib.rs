@@ -28,6 +28,7 @@ pub mod servers;
 pub mod shosetsu;
 mod storage;
 pub mod video;
+pub mod youtube;
 
 #[cfg(test)]
 mod fixture_tests;

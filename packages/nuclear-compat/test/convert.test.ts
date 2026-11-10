@@ -88,6 +88,8 @@ const pluginFiles = (pkg: object = PACKAGE): Record<string, string> => ({
 /** A registered provider; its methods are called directly in these tests. */
 type Registered = Pick<Provider, 'kind' | 'id' | 'name'> & {
   search(args: unknown): Promise<unknown>;
+  searchPlaylists(args: unknown): Promise<unknown>;
+  playlist(args: unknown): Promise<unknown>;
   candidates(args: unknown): Promise<unknown>;
   resolve(args: unknown): Promise<unknown>;
   lyrics(args: unknown): Promise<unknown>;
@@ -97,7 +99,11 @@ type Registered = Pick<Provider, 'kind' | 'id' | 'name'> & {
 };
 
 /** Runs a converted bundle with a fake `raygun` global; resolves with the registered providers. */
-const runBundle = async (bundle: string, responses: Record<string, unknown> = {}) => {
+const runBundle = async (
+  bundle: string,
+  responses: Record<string, unknown> = {},
+  youtube: Record<string, unknown> = {},
+) => {
   const providers: Registered[] = [];
   const storage = new Map<string, unknown>();
   const requests: { url: string; headers: Record<string, string> }[] = [];
@@ -108,6 +114,7 @@ const runBundle = async (bundle: string, responses: Record<string, unknown> = {}
       get: (key: string) => storage.get(key) ?? null,
       set: (key: string, value: unknown) => storage.set(key, value),
     },
+    youtube,
     providers: { register: (provider: Registered) => providers.push(provider) },
     http: {
       fetch: async (url: string, init: { headers: Record<string, string> }) => {
@@ -146,7 +153,7 @@ describe('convertPlugin', () => {
     });
     expect(report).toEqual({
       supported: ['music.metadata', 'music.stream', 'lyrics'],
-      unsupportedCategories: ['playlists'],
+      unsupportedCategories: [],
       stubbedApis: [],
       uiImports: [],
       hosts: ['api.sample.org', 'cdn.sample.org', 'img.sample.org'],
@@ -279,13 +286,215 @@ describe('convertPlugin', () => {
     expect(songs.tracks[0]?.title).toBe('Nina 5');
   });
 
+  it("answers Nuclear's Ytdlp from raygun.youtube, keeping what Nuclear's shapes drop", async () => {
+    // A streaming and playlists plugin in the style of Nuclear's YouTube ones.
+    const files: Record<string, string> = {
+      'tube/package.json': JSON.stringify({
+        name: 'nuclear-plugin-tube',
+        version: '1.0.0',
+        main: 'index.ts',
+        nuclear: { displayName: 'Tube', categories: ['streaming', 'playlists'] },
+      }),
+      'tube/index.ts': `
+        import type { NuclearPluginAPI } from '@nuclearplayer/plugin-sdk';
+        const WATCH = 'https://www.youtube.com/watch?v=';
+        export default {
+          onEnable(api: NuclearPluginAPI) {
+            api.Providers.register({
+              id: 'tube', kind: 'streaming', name: 'Tube',
+              async searchForTrack(artist: string, title: string) {
+                const found = await api.Ytdlp.search(artist + ' ' + title);
+                return found.map((result) => ({
+                  id: result.id, title: result.title, failed: false,
+                  durationMs: result.duration ? result.duration * 1000 : undefined,
+                  source: { provider: 'tube', id: result.id },
+                }));
+              },
+              async getStreamUrl(id: string) {
+                const info = await api.Ytdlp.getStream(WATCH + id);
+                return { url: info.stream_url, protocol: 'https', source: { provider: 'tube', id } };
+              },
+            });
+            api.Providers.register({
+              id: 'tube-lists', kind: 'playlists', name: 'Tube lists',
+              matchesUrl: (url: string) => new URL(url).searchParams.has('list'),
+              async fetchPlaylistByUrl(url: string) {
+                const info = await api.Ytdlp.getPlaylist(url);
+                return {
+                  id: 'tube-' + info.id, name: info.title, isReadOnly: true,
+                  origin: { provider: 'tube', id: info.id, url },
+                  items: info.entries.map((entry) => ({
+                    id: entry.id,
+                    track: {
+                      title: entry.title,
+                      artists: [{ name: entry.channel, roles: ['main'] }],
+                      durationMs: entry.duration * 1000,
+                      artwork: { items: entry.thumbnails.map((thumb) => ({ ...thumb, purpose: 'thumbnail' })) },
+                      source: { provider: 'tube', id: entry.id },
+                    },
+                  })),
+                };
+              },
+            });
+          },
+        };`,
+    };
+    const { report, manifest, bundle } = convertPlugin(files, shim);
+    expect(report.stubbedApis).toEqual([]);
+    expect(report.supported).toEqual(['music.stream', 'music.metadata']);
+    // What `Ytdlp` reaches on the plugin's behalf.
+    expect(manifest.permissions).toEqual({
+      net: ['*.googlevideo.com', 'music.youtube.com', 'www.youtube.com'],
+    });
+
+    const asked: unknown[][] = [];
+    const STREAM = 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=251';
+    const LIST = 'https://www.youtube.com/playlist?list=PLSbDLF8wQ3oIkmgwFI3HmEYV-qhLwLVHx';
+    const { providers } = await runBundle(
+      bundle,
+      {},
+      {
+        search: async (query: string, limit?: number) => {
+          asked.push(['search', query, limit]);
+          return [
+            {
+              id: 'wU26xVT_vBU',
+              title: 'One More Time (Radio Edit)',
+              channel: 'Daft Punk',
+              album: 'One More Time',
+              durationMs: 321_000,
+              thumbnailUrl: 'https://i.ytimg.com/vi/wU26xVT_vBU/hqdefault.jpg',
+              thumbnails: [],
+              kind: 'song',
+            },
+          ];
+        },
+        stream: async (video: string, options: unknown) => {
+          asked.push(['stream', video, options]);
+          return {
+            url: STREAM,
+            headers: { 'User-Agent': 'com.google.visionos.youtube/1.04' },
+            expiresAt: 1_900_000_000_000,
+            mimeType: 'audio/webm; codecs="opus"',
+            container: 'webm',
+            codec: 'opus',
+            bitrateKbps: 150,
+            contentLength: 5_319_766,
+            durationMs: 320_000,
+            title: 'One More Time (Radio Edit)',
+            channel: 'Daft Punk',
+            album: null,
+            artists: ['Daft Punk'],
+            uploadDate: null,
+            client: 'VISIONOS',
+          };
+        },
+        playlist: async (playlist: string) => {
+          asked.push(['playlist', playlist]);
+          return {
+            id: 'PLSbDLF8wQ3oIkmgwFI3HmEYV-qhLwLVHx',
+            title: 'Mix Clips',
+            author: 'Daft Punk',
+            videos: [
+              {
+                id: 'FGBhQbmPwH8',
+                title: 'One More Time',
+                channel: 'Daft Punk',
+                album: null,
+                durationMs: 322_000,
+                thumbnailUrl: 'https://i.ytimg.com/vi/FGBhQbmPwH8/hqdefault.jpg',
+                thumbnails: [
+                  { url: 'https://i.ytimg.com/vi/FGBhQbmPwH8/mq.jpg', width: 320, height: 180 },
+                  {
+                    url: 'https://i.ytimg.com/vi/FGBhQbmPwH8/hqdefault.jpg',
+                    width: 480,
+                    height: 360,
+                  },
+                ],
+                kind: 'video',
+              },
+            ],
+          };
+        },
+      },
+    );
+    const streams = providers.find((provider) => provider.kind === 'music.stream') as Registered;
+    const lists = providers.find((provider) => provider.kind === 'music.metadata') as Registered;
+    expect(lists.id).toBe('tube-lists');
+
+    // Candidates are named by the channel the search gave, so the resolver can match them.
+    expect(
+      await streams.candidates({
+        title: 'One More Time',
+        artist: 'Daft Punk',
+        album: null,
+        durationMs: null,
+        limit: 5,
+      }),
+    ).toEqual({
+      candidates: [
+        {
+          id: 'wU26xVT_vBU',
+          title: 'One More Time (Radio Edit)',
+          artist: 'Daft Punk',
+          durationMs: 321_000,
+          quality: null,
+          source: null,
+        },
+      ],
+    });
+    // What the stream is for reaches YouTube; its headers and expiry come back.
+    expect(await streams.resolve({ id: 'wU26xVT_vBU', targetKbps: 128, decodable: true })).toEqual({
+      source: {
+        kind: 'url',
+        url: STREAM,
+        headers: { 'User-Agent': 'com.google.visionos.youtube/1.04' },
+      },
+      expiresAt: 1_900_000_000_000,
+    });
+    expect(asked[1]).toEqual([
+      'stream',
+      'https://www.youtube.com/watch?v=wU26xVT_vBU',
+      { targetKbps: 128, decodable: true },
+    ]);
+
+    // Playlists by address: anything else finds nothing, without asking YouTube.
+    expect(await lists.search({ query: 'one more time', limit: 5 })).toEqual({ tracks: [] });
+    expect(
+      await lists.searchPlaylists({ query: 'https://example.com/x', limit: 5, featured: false }),
+    ).toEqual({ playlists: [] });
+    const card = {
+      id: LIST,
+      title: 'Mix Clips',
+      author: 'Daft Punk',
+      artworkUrl: 'https://i.ytimg.com/vi/FGBhQbmPwH8/hqdefault.jpg',
+      trackCount: 1,
+      featured: false,
+    };
+    expect(await lists.searchPlaylists({ query: ` ${LIST} `, limit: 5, featured: false })).toEqual({
+      playlists: [card],
+    });
+    const song = {
+      id: 'FGBhQbmPwH8',
+      title: 'One More Time',
+      artist: 'Daft Punk',
+      album: null,
+      durationMs: 322_000,
+      artworkUrl: 'https://i.ytimg.com/vi/FGBhQbmPwH8/hqdefault.jpg',
+    };
+    expect(await lists.playlist({ id: LIST })).toEqual({ playlist: card, tracks: [song] });
+    expect(await lists.search({ query: LIST, limit: 5 })).toEqual({ tracks: [song] });
+    // Read once for the card, its page and the search.
+    expect(asked.filter(([call]) => call === 'playlist')).toEqual([['playlist', LIST]]);
+  });
+
   it('rejects plugins Raygun has nothing to run for', () => {
-    const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['playlists', 'queue'] } });
+    const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['queue', 'shell'] } });
     // Its code registers nothing Raygun runs either.
     files['sample-1.2.3/src/index.ts'] =
       `export default { onEnable(api) { api.Logger.info('hi'); } };`;
     expect(() => convertPlugin(files, shim)).toThrow(
-      "Raygun can't run this Nuclear plugin yet: it provides playlists, queue",
+      "Raygun can't run this Nuclear plugin yet: it provides queue, shell",
     );
     expect(() => convertPlugin({ 'x/readme.md': '' }, shim)).toThrow('there is no package.json');
   });

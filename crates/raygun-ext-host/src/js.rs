@@ -631,7 +631,7 @@ fn install_natives<'js>(ctx: &Ctx<'js>, shared: Rc<Shared>) -> rquickjs::Result<
         Function::new(ctx.clone(), move || s.content.show_nsfw())?,
     )?;
 
-    let s = shared;
+    let s = shared.clone();
     native.set(
         "registerProvider",
         Function::new(ctx.clone(), move |meta: String| match register(&s, &meta) {
@@ -640,7 +640,108 @@ fn install_natives<'js>(ctx: &Ctx<'js>, shared: Rc<Shared>) -> rquickjs::Result<
         })?,
     )?;
 
+    install_youtube(ctx, &native, &shared)?;
     ctx.globals().set("__rg", native)
+}
+
+/// `raygun.youtube` (the host side of Nuclear's `Ytdlp`): YouTube asked through the extension's
+/// own fetch, so its permissions apply. Each answers a JSON envelope.
+fn install_youtube<'js>(
+    ctx: &Ctx<'js>,
+    native: &Object<'js>,
+    shared: &Rc<Shared>,
+) -> rquickjs::Result<()> {
+    use crate::youtube::{StreamPrefs, YouTube};
+
+    let envelope = |result: Result<String, String>| match result {
+        Ok(json) => format!("{{\"value\":{json}}}"),
+        Err(message) => err(message),
+    };
+    let s = shared.clone();
+    native.set(
+        "youtubeSearch",
+        Function::new(
+            ctx.clone(),
+            Async(move |query: String, limit: f64| {
+                let s = s.clone();
+                async move {
+                    let limit = (limit.is_finite() && limit >= 1.0).then_some(limit as usize);
+                    let found = YouTube::shared()
+                        .search(&ExtensionHttp(s.clone()), &query, limit)
+                        .await;
+                    s.restart_budget();
+                    envelope(found.and_then(|found| to_json(&found)))
+                }
+            }),
+        )?,
+    )?;
+    let s = shared.clone();
+    native.set(
+        "youtubeStream",
+        Function::new(
+            ctx.clone(),
+            Async(move |video: String, options: String| {
+                let s = s.clone();
+                async move {
+                    let prefs: StreamPrefs = serde_json::from_str(&options).unwrap_or_default();
+                    let found = YouTube::shared()
+                        .stream(&ExtensionHttp(s.clone()), &video, prefs)
+                        .await;
+                    s.restart_budget();
+                    envelope(found.and_then(|found| to_json(&found)))
+                }
+            }),
+        )?,
+    )?;
+    let s = shared.clone();
+    native.set(
+        "youtubePlaylist",
+        Function::new(
+            ctx.clone(),
+            Async(move |playlist: String| {
+                let s = s.clone();
+                async move {
+                    let found = YouTube::shared()
+                        .playlist(&ExtensionHttp(s.clone()), &playlist)
+                        .await;
+                    s.restart_budget();
+                    envelope(found.and_then(|found| to_json(&found)))
+                }
+            }),
+        )?,
+    )?;
+    Ok(())
+}
+
+fn to_json(value: &impl serde::Serialize) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|error| error.to_string())
+}
+
+/// The extension's own fetch, for the YouTube module.
+struct ExtensionHttp(Rc<Shared>);
+
+impl crate::youtube::Http for ExtensionHttp {
+    async fn send(
+        &self,
+        request: crate::youtube::Request,
+    ) -> Result<crate::youtube::Response, String> {
+        let headers: BTreeMap<&str, &str> = request
+            .headers
+            .iter()
+            .map(|(name, value)| (*name, value.as_str()))
+            .collect();
+        let options = json!({
+            "method": request.method,
+            "headers": headers,
+            "body": request.body,
+        })
+        .to_string();
+        let response = fetch(&self.0, &request.url, &options).await?;
+        Ok(crate::youtube::Response {
+            status: response.status,
+            body: response.body,
+        })
+    }
 }
 
 /// Provider kinds Nuclear plugins become (`CATEGORY_KINDS` in nuclear-compat).

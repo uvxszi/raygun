@@ -280,6 +280,9 @@ Android music players (ViMusic forks, Kotlin, GPL-3.0). What they draw on:
     - ANDROID_MUSIC: wants a sign-in. TVHTML5: wants the player JavaScript's signature timestamp.
     - Without visitor data every client got "Sign in to confirm you're not a bot".
   - googlevideo sends a request without `Range` at about playback speed and cut it off at 99 %; any range (`bytes=0-` too) arrives at full speed (6 MB in 0.3 s).
+  - Measured again on 2026-11-10 (Nuclear's YouTube plugins, `raygun-ext-host::youtube`): ANDROID_VR 1.65.10 and IOS 20.10.4 answer `player` with plain addresses whose ranges ending below about 1 MiB answer 206 while any byte past it answers 403 (what a missing proof-of-origin token does); a two-byte check at the start passes, one at the file's end (`clen`) tells them apart. VISIONOS 1.04 plays whole files; ANDROID 21.03 gives ciphered formats only; ANDROID_VR 1.61.48 asks to sign in.
+  - youtube.com's playlist pages (`browse` `VL<id>`) list `lockupViewModel` cards now (100 a page) and end with a `continuationItemViewModel`; a further page needs the session's visitor data in the context, or YouTube answers the first page again. A playlist's own items come before a "more playlists" section, which has a token of its own. Mixes (`RD…`) have no page: `next` with `playlistId` lists them in its panel.
+  - YouTube Music spells names in the search's `hl`: 米津玄師 is "Kenshi Yonezu" and 아이유 "IU" in English, so a search in Han, kana or Hangul goes out as `ja`/`ko`, or the song no longer matches its artist.
   - Raygun no longer ships a YouTube extension (v1.2.0). The app still follows the `audio:<video>` candidates of an installed one's `music.stream` provider (`resolver::YOUTUBE_STREAMS`), and keeps the embed as the fallback.
 - **Discord:** Kizzy (`modules/kizzy`), with a personal account token. Raygun doesn't (M46.36).
 
