@@ -9,7 +9,7 @@ pub mod taste;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use raygun_db::collections::{self, TrackFields};
 use raygun_model::{
@@ -51,6 +51,17 @@ struct Stored {
 pub struct MadeForYouService {
     app: AppHandle,
     making: AtomicBool,
+    /// When the last making ended with nothing made (ms; 0 = never). Visits don't start
+    /// another one before `RETRY_AFTER_MS`, or the event they answer would start it again.
+    came_up_empty_at: AtomicI64,
+}
+
+/// How long visits wait after a making that made nothing; a refresh doesn't wait.
+const RETRY_AFTER_MS: i64 = 30 * 60 * 1000;
+
+/// Whether a visit (not a refresh) may start a making, given when the last one came up empty.
+fn may_retry(came_up_empty_at: i64, now: i64) -> bool {
+    came_up_empty_at == 0 || now - came_up_empty_at >= RETRY_AFTER_MS
 }
 
 fn now_ms() -> i64 {
@@ -177,6 +188,7 @@ impl MadeForYouService {
         Arc::new(Self {
             app,
             making: AtomicBool::new(false),
+            came_up_empty_at: AtomicI64::new(0),
         })
     }
 
@@ -198,7 +210,9 @@ impl MadeForYouService {
     pub async fn overview(self: &Arc<Self>, refresh: bool, utc_offset_minutes: i32) -> MadeForYou {
         let stored = self.stored().await;
         let today = local_day(now_ms(), utc_offset_minutes);
-        if refresh || stored.as_ref().is_none_or(|stored| stored.day != today) {
+        let stale = stored.as_ref().is_none_or(|stored| stored.day != today);
+        let waiting = !may_retry(self.came_up_empty_at.load(Ordering::SeqCst), now_ms());
+        if refresh || (stale && !waiting) {
             self.start(utc_offset_minutes);
         }
         let making = self.making.load(Ordering::SeqCst);
@@ -285,8 +299,10 @@ impl MadeForYouService {
                 // so the last mixes stay and the next visit tries again.
                 Ok(stored) if stored.mixes.is_empty() && stored.stats.songs_known > 0 => {
                     tracing::warn!("no mixes made; the sources may not have answered");
+                    service.came_up_empty_at.store(now_ms(), Ordering::SeqCst);
                 }
                 Ok(stored) => {
+                    service.came_up_empty_at.store(0, Ordering::SeqCst);
                     tracing::info!(mixes = stored.mixes.len(), "made for you");
                     match serde_json::to_string(&stored) {
                         Ok(json) => {
@@ -631,6 +647,13 @@ impl MadeForYouService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visits_wait_after_a_making_that_made_nothing() {
+        assert!(may_retry(0, 1_000));
+        assert!(!may_retry(1_000, 1_000 + RETRY_AFTER_MS - 1));
+        assert!(may_retry(1_000, 1_000 + RETRY_AFTER_MS));
+    }
 
     fn track(title: &str, artist: &str) -> OnlineTrack {
         OnlineTrack {
