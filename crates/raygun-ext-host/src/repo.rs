@@ -283,11 +283,8 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
     }
 }
 
-/// The name of the official Shosetsu repository.
-pub const SHOSETSU_REPO_NAME: &str = "Shosetsu extensions";
-
-/// A name for a repository whose index gives none (Shosetsu's): Shosetsu's own repository by its
-/// name; one a hosting service serves by its project's name (`raw.githubusercontent.com/<owner>/
+/// A name for a repository whose index gives none (Shosetsu's): one a hosting service serves by
+/// its project's name (`raw.githubusercontent.com/<owner>/
 /// <project>/…`, jsDelivr's `gh/<owner>/<project>@<ref>/…`, `gitlab.com/<group>/<project>/-/raw/…`,
 /// `<owner>.github.io/<project>/…`); anything else by its host, and a local index by its folder.
 pub fn default_name(url: &Url) -> String {
@@ -327,14 +324,8 @@ pub fn default_name(url: &Url) -> String {
             None => (None, None),
         },
     };
-    if owner
-        .as_deref()
-        .is_some_and(|owner| owner.eq_ignore_ascii_case("shosetsuorg"))
-    {
-        return SHOSETSU_REPO_NAME.to_owned();
-    }
     match (project.filter(|project| !project.is_empty()), url.port()) {
-        // `keiyoushi/extensions` says whose it is only by its owner.
+        // `<owner>/extensions` says whose it is only by its owner.
         (Some(project), _) if GENERIC_PROJECTS.contains(&project.to_ascii_lowercase().as_str()) => {
             owner.filter(|owner| !owner.is_empty()).unwrap_or(project)
         }

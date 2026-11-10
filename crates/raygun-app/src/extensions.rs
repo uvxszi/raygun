@@ -2658,7 +2658,7 @@ mod tests {
             libraries: Vec::new(),
         };
         let shosetsu = "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json";
-        assert_eq!(repo_name(&index(""), shosetsu), "Shosetsu extensions");
+        assert_eq!(repo_name(&index(""), shosetsu), "shosetsuorg");
         // Another Shosetsu repository isn't presented as Shosetsu's.
         assert_eq!(
             repo_name(

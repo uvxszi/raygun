@@ -731,7 +731,7 @@ describe('Extensions', () => {
         { url: REPO.url, name: 'Paraline', description: 'Official.', added: true },
         {
           url: 'https://example.org/s/index.json',
-          name: 'Shosetsu extensions',
+          name: 'Novel sources',
           description: 'Novel sources.',
           added: false,
         },
@@ -742,8 +742,8 @@ describe('Extensions', () => {
     expect(await screen.findByText(/^Nothing here yet/)).toBeInTheDocument();
     const official = await screen.findByRole('listitem', { name: 'Paraline' });
     expect(within(official).getByText('Added')).toBeInTheDocument();
-    const shosetsu = screen.getByRole('listitem', { name: 'Shosetsu extensions' });
-    await user.click(within(shosetsu).getByRole('button', { name: 'Add Shosetsu extensions' }));
+    const shosetsu = screen.getByRole('listitem', { name: 'Novel sources' });
+    await user.click(within(shosetsu).getByRole('button', { name: 'Add Novel sources' }));
     expect(commands.extensionRepoAdd).toHaveBeenCalledWith('https://example.org/s/index.json');
     expect(
       screen.getByText(/doesn’t review extensions from other repositories/),

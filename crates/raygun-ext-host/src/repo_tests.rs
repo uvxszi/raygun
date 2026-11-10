@@ -286,13 +286,13 @@ fn shosetsu_indexes_are_named_after_their_address() {
     assert_eq!(repo::parse_index(&index.to_string()).unwrap().name, "");
 
     let name = |url: &str| repo::default_name(&url.parse().unwrap());
-    // Only Shosetsu's own repository reads as Shosetsu's, from any of its addresses.
+    // A generic project is named by its owner, from any of the hosting service's addresses.
     for official in [
         "https://gitlab.com/shosetsuorg/extensions/-/raw/dev/index.json",
         "https://shosetsuorg.gitlab.io/extensions/index.json",
         "https://raw.githubusercontent.com/shosetsuorg/extensions/dev/index.json",
     ] {
-        assert_eq!(name(official), repo::SHOSETSU_REPO_NAME, "{official}");
+        assert_eq!(name(official), "shosetsuorg", "{official}");
     }
     assert_eq!(
         name("https://raw.githubusercontent.com/someone/novel-sources/main/shosetsu/index.json"),
