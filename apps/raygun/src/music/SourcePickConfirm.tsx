@@ -17,6 +17,8 @@ type SourcePickConfirmProps = {
   sourceName: string | undefined;
   confirmLabel: string;
   busy: boolean;
+  /** Only the details are taken (the source Raygun found itself): the boxes are on, no switch. */
+  detailsOnly?: boolean;
   /** The details to take from the source (none when the switch is off). */
   onConfirm: (ticked: ReadonlySet<DetailField>) => void;
   onBack: () => void;
@@ -33,6 +35,7 @@ export const SourcePickConfirm: FC<SourcePickConfirmProps> = ({
   sourceName,
   confirmLabel,
   busy,
+  detailsOnly = false,
   onConfirm,
   onBack,
 }) => {
@@ -43,7 +46,9 @@ export const SourcePickConfirm: FC<SourcePickConfirmProps> = ({
   });
   const offered = differences(song, track);
   const [chosen, setChosen] = useState<boolean | null>(null);
-  const using = chosen ?? (status.data ? status.data.imported || status.data.unavailable : false);
+  const using =
+    detailsOnly ||
+    (chosen ?? (status.data ? status.data.imported || status.data.unavailable : false));
   const [unticked, setUnticked] = useState<ReadonlySet<DetailField>>(new Set());
   const ticked = new Set(
     offered.map((difference) => difference.field).filter((field) => !unticked.has(field)),
@@ -96,21 +101,23 @@ export const SourcePickConfirm: FC<SourcePickConfirmProps> = ({
           );
         })}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={using}
-        onClick={() => setChosen(!using)}
-        className="flex items-center justify-between gap-3 text-left text-sm"
-      >
-        {t('sourcePicker.useDetails')}
-        <span
-          aria-hidden
-          className={`flex h-5 w-9 items-center rounded-full p-0.5 transition ${using ? 'bg-primary justify-end' : 'bg-background justify-start'}`}
+      {!detailsOnly && (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={using}
+          onClick={() => setChosen(!using)}
+          className="flex items-center justify-between gap-3 text-left text-sm"
         >
-          <span className="bg-foreground size-4 rounded-full" />
-        </span>
-      </button>
+          {t('sourcePicker.useDetails')}
+          <span
+            aria-hidden
+            className={`flex h-5 w-9 items-center rounded-full p-0.5 transition ${using ? 'bg-primary justify-end' : 'bg-background justify-start'}`}
+          >
+            <span className="bg-foreground size-4 rounded-full" />
+          </span>
+        </button>
+      )}
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -121,7 +128,7 @@ export const SourcePickConfirm: FC<SourcePickConfirmProps> = ({
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || (detailsOnly && ticked.size === 0)}
           onClick={() => onConfirm(using ? ticked : new Set())}
           className="bg-primary text-background rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
         >

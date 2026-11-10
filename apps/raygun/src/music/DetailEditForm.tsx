@@ -3,7 +3,7 @@ import type { DetailEdit, DetailTarget } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImagePlus, LoaderCircle, RotateCcw, Search } from 'lucide-react';
 import { useRef, useState } from 'react';
-import type { FC } from 'react';
+import type { FC, KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
@@ -170,9 +170,42 @@ export const DetailEditForm: FC<{
   );
 };
 
+/** The names a cover search goes by: a song's title and artist, an album's, an artist's name. */
+type CoverNames = { title: string; artist: string };
+
+const namesOf = (target: DetailTarget): CoverNames | null => {
+  switch (target.kind) {
+    case 'song':
+      return { title: target.query.title, artist: target.query.artist ?? '' };
+    case 'album':
+      return { title: target.album, artist: target.artist ?? '' };
+    case 'artist':
+      return { title: target.name, artist: '' };
+    case 'playlist':
+      return null;
+  }
+};
+
+/** `target` searched by other names (its edit stays under its own). */
+const searchedAs = (target: DetailTarget, names: CoverNames): DetailTarget => {
+  const title = names.title.trim();
+  const artist = names.artist.trim() || null;
+  switch (target.kind) {
+    case 'song':
+      return { kind: 'song', query: { ...target.query, title, artist } };
+    case 'album':
+      return { kind: 'album', album: title, artist };
+    case 'artist':
+      return { kind: 'artist', name: title };
+    case 'playlist':
+      return target;
+  }
+};
+
 /**
  * Covers from the music sources (M46.36): when one doesn't load, or the user prefers another
- * source's picture. Asked only on request, since it searches every source.
+ * source's picture. Asked only on request, since it searches every source; the names it searches
+ * by show above the covers, to change and search again (a misspelt title finds nothing).
  */
 const SourceCovers: FC<{
   target: DetailTarget;
@@ -180,18 +213,20 @@ const SourceCovers: FC<{
   onPick: (url: string) => void;
 }> = ({ target, picked, onPick }) => {
   const { t } = useTranslation();
-  const [asked, setAsked] = useState(false);
+  const [names, setNames] = useState(() => namesOf(target));
+  const [asked, setAsked] = useState<DetailTarget | null>(null);
   const options = useQuery({
-    queryKey: ['detailCoverOptions', JSON.stringify(target)],
-    queryFn: () => unwrapResult(commands.detailCoverOptions(target)),
-    enabled: asked,
+    queryKey: ['detailCoverOptions', JSON.stringify(asked)],
+    queryFn: () => unwrapResult(commands.detailCoverOptions(asked ?? target)),
+    enabled: asked !== null,
     staleTime: 10 * 60_000,
   });
+  const search = () => setAsked(names ? searchedAs(target, names) : target);
   if (!asked) {
     return (
       <button
         type="button"
-        onClick={() => setAsked(true)}
+        onClick={search}
         className="bg-background flex items-center gap-1.5 self-start rounded-full px-3 py-1.5 text-sm"
       >
         <Search aria-hidden size={15} />
@@ -199,48 +234,101 @@ const SourceCovers: FC<{
       </button>
     );
   }
-  if (options.isPending) {
-    return (
-      <p className="text-muted flex items-center gap-2 text-sm">
-        <LoaderCircle aria-hidden size={15} className="animate-spin" />
-        {t('details.coverFinding')}
-      </p>
-    );
-  }
+  // Inside the details form: Enter searches here rather than saving the details.
+  const onEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (names?.title.trim()) search();
+  };
   const list = options.data ?? [];
-  if (list.length === 0) {
-    return <p className="text-muted text-sm">{t('details.coverNone')}</p>;
-  }
   return (
     <div className="flex flex-col gap-2">
       <span className="text-muted text-xs font-semibold uppercase">
         {t('details.coverSources')}
       </span>
-      <ul
-        data-testid="source-covers"
-        className="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2 overflow-y-auto"
-      >
-        {list.map((option) => {
-          const label = [option.source, option.of].filter(Boolean).join(' · ');
-          return (
-            <li key={option.url}>
-              <button
-                type="button"
-                aria-pressed={picked === option.url}
-                aria-label={t('details.coverFrom', { source: label })}
-                title={label}
-                onClick={() => onPick(option.url)}
-                className={`flex w-full flex-col gap-1 rounded-lg p-1 text-left ${picked === option.url ? 'ring-primary ring-2' : 'hover:bg-background'}`}
-              >
-                <Artwork url={option.url} className="w-full rounded-md" iconSize={20} />
-                <span className="text-muted truncate text-[calc(0.625rem*var(--text-scale,1))]">
-                  {option.source}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      {names && (
+        <div
+          role="search"
+          aria-label={t('details.coverSearch')}
+          className="flex flex-wrap items-center gap-2"
+        >
+          <TextField
+            value={names.title}
+            onChange={(title) => setNames({ ...names, title })}
+            onKeyDown={onEnter}
+            aria-label={
+              target.kind === 'song'
+                ? t('details.coverSearchSong')
+                : target.kind === 'album'
+                  ? t('details.coverSearchAlbum')
+                  : t('details.coverSearchName')
+            }
+            placeholder={
+              target.kind === 'song'
+                ? t('details.songTitle')
+                : target.kind === 'album'
+                  ? t('details.albumTitle')
+                  : t('details.artistName')
+            }
+            className="bg-background flex-1 basis-36 rounded-xl pr-1 pl-3"
+            inputClassName="py-1.5 text-sm"
+          />
+          {target.kind !== 'artist' && (
+            <TextField
+              value={names.artist}
+              onChange={(artist) => setNames({ ...names, artist })}
+              onKeyDown={onEnter}
+              aria-label={t('details.coverSearchArtist')}
+              placeholder={t('details.artist')}
+              className="bg-background flex-1 basis-28 rounded-xl pr-1 pl-3"
+              inputClassName="py-1.5 text-sm"
+            />
+          )}
+          <button
+            type="button"
+            disabled={!names.title.trim() || options.isFetching}
+            onClick={search}
+            className="bg-primary text-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
+          >
+            <Search aria-hidden size={14} />
+            {t('details.coverSearchAgain')}
+          </button>
+        </div>
+      )}
+      {options.isPending ? (
+        <p className="text-muted flex items-center gap-2 text-sm">
+          <LoaderCircle aria-hidden size={15} className="animate-spin" />
+          {t('details.coverFinding')}
+        </p>
+      ) : list.length === 0 ? (
+        <p className="text-muted text-sm">{t('details.coverNone')}</p>
+      ) : (
+        <ul
+          data-testid="source-covers"
+          className="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2 overflow-y-auto"
+        >
+          {list.map((option) => {
+            const label = [option.source, option.of].filter(Boolean).join(' · ');
+            return (
+              <li key={option.url}>
+                <button
+                  type="button"
+                  aria-pressed={picked === option.url}
+                  aria-label={t('details.coverFrom', { source: label })}
+                  title={label}
+                  onClick={() => onPick(option.url)}
+                  className={`flex w-full flex-col gap-1 rounded-lg p-1 text-left ${picked === option.url ? 'ring-primary ring-2' : 'hover:bg-background'}`}
+                >
+                  <Artwork url={option.url} className="w-full rounded-md" iconSize={20} />
+                  <span className="text-muted truncate text-[calc(0.625rem*var(--text-scale,1))]">
+                    {option.source}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 };

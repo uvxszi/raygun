@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { currentLine, useLyricsFor } from '../player/lyricsQuery';
 import { useLivePosition } from '../player/useLivePosition';
 import { sendControl, useNowPlaying } from '../player/usePlayback';
-import { formatTrim, parseTrim } from './format';
+import { formatOffset, formatTrim, parseOffset, parseTrim } from './format';
 import { LyricsSources } from './LyricsSources';
 import type { FullSongEdit } from './soundPrefs';
 
@@ -17,9 +17,52 @@ const OFFSET_STEP = 100;
 const sameSong = (left: TrackQuery, right: { title: string; artist: string | null }) =>
   left.title === right.title && (left.artist ?? '') === (right.artist ?? '');
 
-/** `+0.4 s`, `−1.2 s`. */
-const formatOffset = (ms: number) =>
-  `${ms > 0 ? '+' : ms < 0 ? '−' : ''}${(Math.abs(ms) / 1000).toFixed(1)} s`;
+/** The offset as a field between − and +: typed seconds apply on Enter or when it's left. */
+const OffsetField: FC<{ offset: number; onChange: (ms: number) => void }> = ({
+  offset,
+  onChange,
+}) => {
+  const { t } = useTranslation();
+  // What's typed, while it's being typed; the offset itself otherwise.
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const ms = parseOffset(draft);
+    setDraft(null);
+    if (ms !== null && ms !== offset) onChange(ms);
+  };
+  return (
+    <span className="bg-background flex items-center rounded-full pr-3 pl-1">
+      <input
+        type="text"
+        data-testid="lyrics-offset"
+        aria-label={t('lyricsEdit.offsetSeconds')}
+        value={draft ?? formatOffset(offset)}
+        onChange={(event) => setDraft(event.target.value)}
+        onFocus={(event) => event.currentTarget.select()}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit();
+          } else if (event.key === 'Escape' && draft !== null) {
+            // Back to the offset as it was; the sheet stays open.
+            event.stopPropagation();
+            setDraft(null);
+          }
+        }}
+        aria-invalid={draft !== null && parseOffset(draft) === null}
+        autoComplete="off"
+        spellCheck={false}
+        enterKeyHint="done"
+        className="w-16 bg-transparent py-1.5 text-center text-sm tabular-nums outline-none aria-invalid:text-red-500"
+      />
+      <span aria-hidden className="text-muted text-sm">
+        s
+      </span>
+    </span>
+  );
+};
 
 /** Lines as the person edits them: times as typed, so a half-typed time isn't lost. */
 type Draft = { time: string; text: string }[];
@@ -260,9 +303,7 @@ export const LyricsEditor: FC<{
         >
           <Minus aria-hidden size={14} />
         </button>
-        <span data-testid="lyrics-offset" className="w-16 text-center text-sm tabular-nums">
-          {formatOffset(offset)}
-        </span>
+        <OffsetField offset={offset} onChange={setOffset} />
         <button
           type="button"
           aria-label={t('lyricsEdit.later')}

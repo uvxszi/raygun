@@ -96,6 +96,37 @@ async fn playlists_append_move_and_remove_items() {
 }
 
 #[tokio::test]
+async fn playlist_lengths_count_the_lengths_raygun_learned() {
+    let temp = TempDir::new().unwrap();
+    let db = open(&temp).await;
+    let id = create_playlist(&db, "Road trip", 1).await.unwrap();
+    let unknown = |key: &str| TrackFields {
+        duration_ms: None,
+        ..track(key)
+    };
+    add_to_playlist(
+        &db,
+        &id,
+        &[track("a|one"), unknown("a|two"), unknown("a|three")],
+        2,
+    )
+    .await
+    .unwrap();
+    // Two learned: one length, one lookup that found none.
+    crate::track_durations::put_many(&db, &[("a|two".into(), 200_000)], "playback", true, 3)
+        .await
+        .unwrap();
+    crate::track_durations::put_miss(&db, "a|three", 4)
+        .await
+        .unwrap();
+
+    let listed = playlist(&db, &id).await.unwrap().unwrap();
+    assert_eq!((listed.known_ms, listed.known_count), (380_000, 2));
+    let all = playlists(&db).await.unwrap();
+    assert_eq!((all[0].known_ms, all[0].known_count), (380_000, 2));
+}
+
+#[tokio::test]
 async fn moves_renumber_when_positions_run_out_of_room() {
     let temp = TempDir::new().unwrap();
     let db = open(&temp).await;

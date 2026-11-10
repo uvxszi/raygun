@@ -318,6 +318,7 @@ export const bindingsMock = {
     detailEdit: vi.fn(),
     trackAssignSource: vi.fn(),
     trackUseSource: vi.fn(),
+    trackFoundSource: vi.fn(),
     trackImportStatus: vi.fn(),
     spokenItem: vi.fn(),
     captions: vi.fn(),
@@ -1045,6 +1046,7 @@ export const seedBindings = () => {
   commands.tracksUnavailable.mockResolvedValue(ok([]));
   commands.trackAssignSource.mockResolvedValue(ok(null));
   commands.trackUseSource.mockResolvedValue(ok(null));
+  commands.trackFoundSource.mockResolvedValue(ok(null));
   commands.trackImportStatus.mockResolvedValue(ok({ imported: false, unavailable: false }));
   commands.spokenItem.mockResolvedValue(ok(null));
   commands.captionsTranscribe.mockResolvedValue(ok(null));

@@ -10,6 +10,30 @@ export const formatTrim = (ms: number) => {
   return `${formatTime(ms)}.${tenths}`;
 };
 
+/** The furthest a lyrics offset moves the lines either way, ms. */
+const MAX_OFFSET_MS = 600_000;
+
+/** A lyrics offset as its field shows it, in seconds: `+0.4`, `-1.25`, `0.0`. */
+export const formatOffset = (ms: number) => {
+  const seconds = (Math.abs(ms) / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '.0');
+  return `${ms > 0 ? '+' : ms < 0 ? '-' : ''}${seconds}`;
+};
+
+/**
+ * A typed lyrics offset in ms: seconds with decimals (`1.5`, `-0.25`, `+2`, `1,5`, `0.4 s`) or
+ * milliseconds (`250 ms`), kept within ten minutes either way; null when it isn't one.
+ */
+export const parseOffset = (text: string): number | null => {
+  const match = /^([+\-−]?)\s*(\d+(?:[.,]\d*)?|[.,]\d+)\s*(ms|s)?$/i.exec(text.trim());
+  if (!match) return null;
+  const [, sign = '', amount = '', unit = 's'] = match;
+  const value = Number(amount.replace(',', '.'));
+  if (!Number.isFinite(value)) return null;
+  const ms = Math.round(unit.toLowerCase() === 'ms' ? value : value * 1000);
+  const signed = sign === '+' || sign === '' ? ms : -ms;
+  return Math.max(-MAX_OFFSET_MS, Math.min(MAX_OFFSET_MS, signed));
+};
+
 /** Reads `1:23`, `1:23.4`, `83.4` or `1:02:03` as ms; null when it isn't a time. */
 export const parseTrim = (text: string): number | null => {
   const trimmed = text.trim();

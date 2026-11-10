@@ -2,7 +2,7 @@ import { commands } from '@raygun/bindings';
 import type { PlaylistDetail, PlaylistItem } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { ArrowDown, ArrowUp, ImageIcon, Pencil, Trash2, X } from 'lucide-react';
+import { ImageIcon, Pencil, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -24,7 +24,6 @@ import {
   COLLECTIONS,
   playCollection,
   useDeletePlaylist,
-  useMovePlaylistItem,
   usePlaylist,
   useRemovePlaylistItem,
   useRenamePlaylist,
@@ -35,45 +34,23 @@ import { usePlayContext } from '../music/playContext';
 const ICON_BUTTON =
   'text-muted grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-30';
 
-/** Up, down and remove for one item while editing. */
-const EditControls: FC<{ items: PlaylistItem[]; index: number }> = ({ items, index }) => {
+/**
+ * Remove for one item while editing; the table puts its up and down buttons beside it (a hold
+ * moves the song to the top or the bottom).
+ */
+const RemoveItem: FC<{ item: PlaylistItem }> = ({ item }) => {
   const { t } = useTranslation();
-  const move = useMovePlaylistItem();
   const remove = useRemovePlaylistItem();
-  const item = items[index] as PlaylistItem;
-  const title = item.track.title;
-  const busy = move.isPending || remove.isPending;
   return (
-    <span className="flex">
-      <button
-        type="button"
-        aria-label={t('collections.moveUp', { title })}
-        disabled={busy || index === 0}
-        onClick={() => move.mutate({ itemId: item.id, beforeItemId: items[index - 1]?.id ?? null })}
-        className={ICON_BUTTON}
-      >
-        <ArrowUp aria-hidden size={18} />
-      </button>
-      <button
-        type="button"
-        aria-label={t('collections.moveDown', { title })}
-        disabled={busy || index === items.length - 1}
-        // Before the item after next, or to the end when the next one is last.
-        onClick={() => move.mutate({ itemId: item.id, beforeItemId: items[index + 2]?.id ?? null })}
-        className={ICON_BUTTON}
-      >
-        <ArrowDown aria-hidden size={18} />
-      </button>
-      <button
-        type="button"
-        aria-label={t('collections.remove', { title })}
-        disabled={busy}
-        onClick={() => remove.mutate(item.id)}
-        className={ICON_BUTTON}
-      >
-        <X aria-hidden size={18} />
-      </button>
-    </span>
+    <button
+      type="button"
+      aria-label={t('collections.remove', { title: item.track.title })}
+      disabled={remove.isPending}
+      onClick={() => remove.mutate(item.id)}
+      className={ICON_BUTTON}
+    >
+      <X aria-hidden size={18} />
+    </button>
   );
 };
 
@@ -328,12 +305,10 @@ export const PlaylistPage: FC = () => {
           }
           actions={
             editing
-              ? (row) => (
-                  <EditControls
-                    items={detail.items}
-                    index={detail.items.findIndex((item) => item.id === row.rowKey)}
-                  />
-                )
+              ? (row) => {
+                  const item = detail.items.find((each) => each.id === row.rowKey);
+                  return item ? <RemoveItem item={item} /> : null;
+                }
               : undefined
           }
         />

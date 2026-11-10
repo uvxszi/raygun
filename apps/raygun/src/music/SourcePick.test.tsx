@@ -96,6 +96,64 @@ describe('Choosing a source', () => {
     expect(commands.trackAssignSource).not.toHaveBeenCalled();
   });
 
+  it('takes the details of the source Raygun found by itself, keeping its stream', async () => {
+    const user = userEvent.setup();
+    const found: OnlineTrack = {
+      externalId: 'ia:7',
+      title: 'Song',
+      artist: 'Artist',
+      album: 'Album',
+      durationMs: 200_000,
+      artworkUrl: 'https://img.example/found.jpg',
+      source: null,
+      explicit: false,
+    };
+    commands.trackFoundSource.mockResolvedValue(
+      ok({
+        providerId: 'dev.example.archive/stream',
+        providerName: 'Archive',
+        track: found,
+        points: 0,
+      }),
+    );
+    await AppShellWrapper.mount('/library?view=playlists');
+    act(() => useSourcePickerStore.getState().open(SONG));
+    const picker = await screen.findByTestId('source-picker');
+    const card = await within(picker).findByTestId('found-source');
+    expect(commands.trackFoundSource).toHaveBeenCalledWith(SONG);
+    expect(card).toHaveTextContent('Raygun plays it from Archive');
+    expect(card).toHaveTextContent('Artist · Album');
+    await user.click(within(card).getByRole('button', { name: 'Use details from Archive' }));
+
+    // Every detail that differs is ticked, with no switch: details are all it takes.
+    const confirm = await within(picker).findByTestId('source-pick-confirm');
+    expect(within(confirm).queryByRole('switch')).not.toBeInTheDocument();
+    expect(within(confirm).getByRole('checkbox', { name: 'Title' })).toBeChecked();
+    await user.click(within(confirm).getByRole('checkbox', { name: 'Album' }));
+    await user.click(within(confirm).getByRole('button', { name: 'Use these details' }));
+    expect(commands.trackUseSource).toHaveBeenCalledWith(SONG, found, {
+      assign: false,
+      sourceName: 'Archive',
+      title: true,
+      artist: true,
+      album: false,
+      cover: true,
+    });
+    // Its names were taken, not typed: nothing more is renamed.
+    expect(commands.detailEditSet).not.toHaveBeenCalled();
+    expect(
+      await within(picker).findByText('The song shows the details from Archive now.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no found source until one played the song', async () => {
+    await AppShellWrapper.mount('/library?view=playlists');
+    act(() => useSourcePickerStore.getState().open(SONG));
+    const picker = await screen.findByTestId('source-picker');
+    await within(picker).findByRole('button', { name: 'Use this' });
+    expect(within(picker).queryByTestId('found-source')).not.toBeInTheDocument();
+  });
+
   it('keeps the names of a song that came from elsewhere unless asked', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/library?view=playlists');

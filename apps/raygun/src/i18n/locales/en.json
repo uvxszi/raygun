@@ -3431,7 +3431,9 @@
     "sortButton": "Sort and view: {{sort}}",
     "resizeColumn": "Drag to resize {{name}}",
     "selectAll": "Select all",
-    "dragRow": "Drag to move {{title}}"
+    "dragRow": "Drag to move {{title}}",
+    "holdToTop": "Hold to move to the top",
+    "holdToBottom": "Hold to move to the bottom"
   },
   "rail": {
     "library": "Your library",
@@ -3758,6 +3760,10 @@
     "fromSource": "From {{source}}",
     "fromPick": "From your pick",
     "useDetails": "Use these details",
+    "foundTitle": "The source Raygun found",
+    "foundOn": "Raygun plays it from {{source}}",
+    "useFoundDetails": "Use details from {{source}}",
+    "usedDetails": "The song shows the details from {{source}} now.",
     "fields": {
       "title": "Title",
       "artist": "Artist",
@@ -3868,7 +3874,13 @@
     "coverFinding": "Looking in your sources…",
     "coverNone": "Your sources had no other covers for this.",
     "coverSources": "From your sources",
-    "coverFrom": "Use the cover from {{source}}"
+    "coverFrom": "Use the cover from {{source}}",
+    "coverSearch": "Names to find covers by",
+    "coverSearchSong": "Song title to search for",
+    "coverSearchAlbum": "Album title to search for",
+    "coverSearchName": "Name to search for",
+    "coverSearchArtist": "Artist to search for",
+    "coverSearchAgain": "Search"
   },
   "cover": {
     "title": "Cover",
@@ -4148,6 +4160,7 @@
     "fix": "Fix the lyrics",
     "add": "Add lyrics",
     "offset": "Timing",
+    "offsetSeconds": "Timing in seconds",
     "earlier": "Show the lines earlier",
     "later": "Show the lines later",
     "resetOffset": "Reset",

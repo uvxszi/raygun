@@ -156,6 +156,33 @@ export const dragOrder = (
   return rest;
 };
 
+/** Where a row's arrow buttons move it: a tap moves it one place, a hold all the way. */
+export type RowMove = 'up' | 'down' | 'top' | 'bottom';
+
+/**
+ * The whole list after shown row `index` moves by its arrow buttons: one place among the shown
+ * rows (as a drop on the row above or below would), or to the very top or bottom of the list.
+ * `sorted` is the whole list as sorted, filters left out; nothing changes when the row is
+ * already there.
+ */
+export const moveOrder = (
+  sorted: TableTrack[],
+  shown: TableTrack[],
+  index: number,
+  move: RowMove,
+): TableTrack[] => {
+  const moved = shown[index];
+  if (!moved) return sorted;
+  if (move === 'up') return dragOrder(sorted, shown, index, index - 1);
+  if (move === 'down') return dragOrder(sorted, shown, index, index + 1);
+  const rest = sorted.filter((row) => row.rowKey !== moved.rowKey);
+  return move === 'top' ? [moved, ...rest] : [...rest, moved];
+};
+
+/** Whether two lists hold the same rows in the same order. */
+export const sameOrder = (left: TableTrack[], right: TableTrack[]) =>
+  left.length === right.length && left.every((row, at) => row.rowKey === right[at]?.rowKey);
+
 /** Rows whose title, artist or album hold every word of `filter`. */
 export const filterTracks = (tracks: TableTrack[], filter: string): TableTrack[] => {
   const words = filter.toLocaleLowerCase().split(/\s+/).filter(Boolean);

@@ -808,6 +808,30 @@ impl ExtensionHost {
             .collect()
     }
 
+    /// [`Self::search_music`] asking only the `music.metadata` providers of one extension (the
+    /// catalogue of a source Raygun streamed a song from).
+    pub async fn search_music_of(
+        &self,
+        extension_id: &str,
+        query: &str,
+        limit: u32,
+    ) -> Vec<ProviderSearchResult> {
+        let providers: Vec<ProviderInfo> = self
+            .providers(MUSIC_METADATA)
+            .await
+            .into_iter()
+            .filter(|provider| provider.extension_id == extension_id)
+            .collect();
+        if providers.is_empty() {
+            return Vec::new();
+        }
+        fanout::collect(self.search_asks(providers, query, limit))
+            .await
+            .into_iter()
+            .map(search_result)
+            .collect()
+    }
+
     /// [`Self::search_music`] for a search someone watches: each provider's answer goes to
     /// `report` as soon as it comes (with how many providers were asked), so the first answers
     /// show before the slowest provider's. The fan-out's order, limits and resting apply; the

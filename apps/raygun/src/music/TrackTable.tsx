@@ -40,6 +40,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -55,6 +56,7 @@ import { Artwork } from '../library/Artwork';
 import { formatTime } from '../player/formatTime';
 import { Sheet } from '../shell/Sheet';
 import { TextField } from '../shell/TextField';
+import { showToast } from '../shell/toastStore';
 import { useCoarsePointer, useWideScreen } from '../shell/useWideScreen';
 import { useDragScroll } from '../shell/useDragScroll';
 import { ArtistLinks } from './ArtistLinks';
@@ -63,12 +65,15 @@ import {
   SORT_KEYS,
   dragOrder,
   filterTracks,
+  moveOrder,
+  sameOrder,
   sortTracks,
   useTableView,
 } from './tableView';
 import { useTagsFor } from './useDiscovery';
 import { downloadSongs, useDownloadedKeys, useDownloadingKeys } from './useSongDownloads';
-import type { TableReorder, TableTrack, TableView, TrackTableKind } from './tableView';
+import type { RowMove, TableReorder, TableTrack, TableView, TrackTableKind } from './tableView';
+import { RowMoveButtons } from './RowMoveButtons';
 import { useSortRequest } from './sortRequest';
 import { useSourcePickerStore } from './sourcePickerStore';
 import { useTrackLengths } from './useTrackLengths';
@@ -373,13 +378,13 @@ export const TrackTable: FC<TrackTableProps> = ({
   // Widths while a divider is dragged; saved when it's let go.
   const headerRow = useRef<HTMLDivElement>(null);
   const [liveWidths, setLiveWidths] = useState<Partial<Record<TrackColumnId, number>> | null>(null);
-  // The first column holds the grip too when rows move.
+  // The first column holds the grip too when rows move, the last their arrows.
   const template = `${reorderable ? '3.25rem' : '2.5rem'} minmax(12rem, 1.6fr) ${columns
     .map((column) => {
       const width = liveWidths?.[column.id] ?? column.width;
       return width > 0 ? `${width}px` : COLUMN_TRACKS[column.id];
     })
-    .join(' ')} 5.5rem`;
+    .join(' ')} ${reorderable ? '7.5rem' : '5.5rem'}`;
   /** Every shown column's width now, so only the title column gives or takes space. */
   const measured = () => {
     const widths: Partial<Record<TrackColumnId, number>> = {};
@@ -431,6 +436,7 @@ export const TrackTable: FC<TrackTableProps> = ({
     [chosen, kind, savedSongs],
   );
   const client = useQueryClient();
+  // The selection's actions answer in notes (toasts), so its bar stays one row.
   const favorite = useMutation({
     mutationFn: ({ rows, on }: { rows: TableTrack[]; on: boolean }) =>
       unwrapResult(
@@ -439,6 +445,7 @@ export const TrackTable: FC<TrackTableProps> = ({
           on,
         ),
       ),
+    onError: (error) => showToast(error.message),
     onSettled: () => client.invalidateQueries({ queryKey: [COLLECTIONS] }),
   });
   // Saved or on their way already: left out of the selection's Download (M46.46).
@@ -458,7 +465,38 @@ export const TrackTable: FC<TrackTableProps> = ({
           })),
         ),
       ),
+    onSuccess: (_, rows) => showToast(t('lyricsEdit.transcribeQueued', { count: rows.length })),
+    onError: (error) => showToast(error.message),
   });
+  const selectionActions = useDragScroll<HTMLDivElement>();
+  /** One of the selection's actions: its icon and words, or on a phone its icon alone. */
+  const barAction = ({
+    label,
+    Icon,
+    onClick,
+    disabled = false,
+    accent = false,
+  }: {
+    label: string;
+    Icon: LucideIcon;
+    onClick: () => void;
+    disabled?: boolean;
+    accent?: boolean;
+  }) => (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`hover:bg-background flex shrink-0 items-center gap-1.5 rounded-full text-sm disabled:opacity-40 ${
+        wide ? 'px-3 py-1.5' : 'size-9 justify-center'
+      } ${accent ? 'text-primary' : ''}`}
+    >
+      <Icon aria-hidden size={wide ? 14 : 18} />
+      {wide && <span className="whitespace-nowrap">{label}</span>}
+    </button>
+  );
 
   /** Puts a row in the selection or takes it out; with Shift, adds the range from the last pick. */
   const pick = (event: MouseEvent, index: number) => {
@@ -495,18 +533,30 @@ export const TrackTable: FC<TrackTableProps> = ({
     const to = view.columns.findIndex((column) => column.id === over.id);
     set({ columns: arrayMove(view.columns, from, to) });
   };
-  // A dropped row (M46.44): what's shown becomes the order, whatever the sort was.
-  const onRowDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!onReorder || !reorderable || !over || active.id === over.id) return;
-    const from = shown.findIndex((track) => track.rowKey === active.id);
-    const to = shown.findIndex((track) => track.rowKey === over.id);
-    const moved = shown[from];
-    if (!moved || to < 0) return;
-    const order = dragOrder(sortTracks(tracks, view), shown, from, to);
+  /**
+   * Keeps `order` (the whole list, `moved` in its new place): one move in a list shown in its own
+   * order, else the shown order becomes the custom order, whatever the sort was (M46.44).
+   */
+  const reorderTo = (order: TableTrack[], moved: TableTrack) => {
+    if (!onReorder || !reorderable || sameOrder(order, sortTracks(tracks, view))) return;
     const at = order.findIndex((track) => track.rowKey === moved.rowKey);
     const whole = view.sort !== 'custom' || view.descending;
     onReorder({ order, moved, before: order[at + 1] ?? null, whole });
     if (whole) set({ sort: 'custom', descending: false });
+  };
+  // A dropped row.
+  const onRowDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const from = shown.findIndex((track) => track.rowKey === active.id);
+    const to = shown.findIndex((track) => track.rowKey === over.id);
+    const moved = shown[from];
+    if (!moved || to < 0) return;
+    reorderTo(dragOrder(sortTracks(tracks, view), shown, from, to), moved);
+  };
+  // A row's arrow buttons: one place, or held, to the top or the bottom.
+  const moveRow = (index: number, move: RowMove) => {
+    const moved = shown[index];
+    if (moved) reorderTo(moveOrder(sortTracks(tracks, view), shown, index, move), moved);
   };
   const selectAll = () => setSelected(new Set(shown.map((track) => track.rowKey)));
   // The toolbar's Select all, pressed again, clears the selection and closes its bar (M46.46).
@@ -698,111 +748,74 @@ export const TrackTable: FC<TrackTableProps> = ({
         </div>
       </div>
       {chosen.length > 0 && (
+        // One row as wide as the list, held under the screen's top bar (`TopBar`, 3.5rem) while
+        // the list scrolls; actions that don't fit scroll sideways. Phones show their icons.
         <div
           role="toolbar"
           aria-label={t('tracks.selection')}
-          className="bg-surface motion-pop sticky top-0 z-10 flex flex-wrap items-center gap-1 rounded-2xl px-3 py-2 shadow-lg shadow-black/20"
+          data-testid="track-selection-bar"
+          className="bg-surface motion-pop sticky top-14 z-20 flex w-full min-w-0 items-center gap-1 rounded-2xl p-1 shadow-lg shadow-black/20"
         >
-          <span className="flex-1 text-sm font-medium">
-            {t('tracks.selected', { count: chosen.length })}
-          </span>
-          {chosen.length < shown.length && (
-            <button
-              type="button"
-              onClick={selectAll}
-              className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
-            >
-              <ListChecks aria-hidden size={14} /> {t('tracks.selectAll')}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onPlay(chosen, 0)}
-            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
-          >
-            <Play aria-hidden size={14} /> {t('menu.play')}
-          </button>
-          <button
-            type="button"
-            onClick={() => queue(true)}
-            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
-          >
-            <ListStart aria-hidden size={14} /> {t('menu.playNext')}
-          </button>
-          <button
-            type="button"
-            onClick={() => queue(false)}
-            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
-          >
-            <ListEnd aria-hidden size={14} /> {t('menu.addToQueue')}
-          </button>
-          {kind !== 'favorites' && (
-            <button
-              type="button"
-              disabled={favorite.isPending}
-              onClick={() => favorite.mutate({ rows: chosen, on: !allFavorite })}
-              className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
-            >
-              {allFavorite ? <HeartOff aria-hidden size={14} /> : <Heart aria-hidden size={14} />}{' '}
-              {allFavorite ? t('tracks.unfavorite') : t('tracks.favorite')}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={toDownload.length === 0}
-            onClick={() => void downloadSongs(toDownload.map((track) => track.input))}
-            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm disabled:opacity-40"
-          >
-            <Download aria-hidden size={14} />{' '}
-            {toDownload.length === 0
-              ? t('songs.allDownloaded')
-              : toDownload.length === chosen.length
-                ? t('songs.downloadSelected')
-                : t('songs.downloadSome', { count: toDownload.length })}
-          </button>
-          <button
-            type="button"
-            disabled={transcribe.isPending}
-            onClick={() => transcribe.mutate(chosen)}
-            className="hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
-          >
-            <AudioLines aria-hidden size={14} /> {t('lyricsEdit.transcribeSelected')}
-          </button>
-          {onRemove && (
-            <button
-              type="button"
-              onClick={() => {
-                onRemove(chosen);
-                setSelected(new Set());
-              }}
-              className="text-primary hover:bg-background flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm"
-            >
-              <Trash2 aria-hidden size={14} /> {t('tracks.remove')}
-            </button>
-          )}
-          {transcribe.isSuccess && (
-            <span role="status" className="text-muted w-full px-3 text-xs">
-              {t('lyricsEdit.transcribeQueued', { count: transcribe.variables.length })}
-            </span>
-          )}
-          {favorite.error && (
-            <span role="alert" className="text-primary w-full px-3 text-xs">
-              {favorite.error.message}
-            </span>
-          )}
-          {transcribe.error && (
-            <span role="alert" className="text-primary w-full px-3 text-xs">
-              {transcribe.error.message}
-            </span>
-          )}
           <button
             type="button"
             aria-label={t('tracks.clearSelection')}
+            title={t('tracks.clearSelection')}
             onClick={() => setSelected(new Set())}
-            className="text-muted hover:text-foreground grid size-8 place-items-center rounded-full"
+            className="text-muted hover:text-foreground grid size-9 shrink-0 place-items-center rounded-full"
           >
-            <X aria-hidden size={16} />
+            <X aria-hidden size={18} />
           </button>
+          <span aria-live="polite" className="shrink-0 pr-1 text-sm font-medium">
+            {t('tracks.selected', { count: chosen.length })}
+          </span>
+          <div
+            ref={selectionActions}
+            className="ml-auto flex min-w-0 items-center gap-0.5 no-scrollbar overflow-x-auto"
+          >
+            {chosen.length < shown.length &&
+              barAction({ label: t('tracks.selectAll'), Icon: ListChecks, onClick: selectAll })}
+            {barAction({ label: t('menu.play'), Icon: Play, onClick: () => onPlay(chosen, 0) })}
+            {barAction({ label: t('menu.playNext'), Icon: ListStart, onClick: () => queue(true) })}
+            {barAction({
+              label: t('menu.addToQueue'),
+              Icon: ListEnd,
+              onClick: () => queue(false),
+            })}
+            {kind !== 'favorites' &&
+              barAction({
+                label: allFavorite ? t('tracks.unfavorite') : t('tracks.favorite'),
+                Icon: allFavorite ? HeartOff : Heart,
+                disabled: favorite.isPending,
+                onClick: () => favorite.mutate({ rows: chosen, on: !allFavorite }),
+              })}
+            {barAction({
+              label:
+                toDownload.length === 0
+                  ? t('songs.allDownloaded')
+                  : toDownload.length === chosen.length
+                    ? t('songs.downloadSelected')
+                    : t('songs.downloadSome', { count: toDownload.length }),
+              Icon: Download,
+              disabled: toDownload.length === 0,
+              onClick: () => void downloadSongs(toDownload.map((track) => track.input)),
+            })}
+            {barAction({
+              label: t('lyricsEdit.transcribeSelected'),
+              Icon: AudioLines,
+              disabled: transcribe.isPending,
+              onClick: () => transcribe.mutate(chosen),
+            })}
+            {onRemove &&
+              barAction({
+                label: t('tracks.remove'),
+                Icon: Trash2,
+                accent: true,
+                onClick: () => {
+                  onRemove(chosen);
+                  setSelected(new Set());
+                },
+              })}
+          </div>
         </div>
       )}
       <div
@@ -1050,20 +1063,28 @@ export const TrackTable: FC<TrackTableProps> = ({
                           className="flex items-center justify-end gap-0.5"
                           onClick={(event) => event.stopPropagation()}
                         >
+                          {reorderable && (
+                            <RowMoveButtons
+                              title={track.title}
+                              first={index === 0}
+                              last={index === shown.length - 1}
+                              onMove={(move) => moveRow(index, move)}
+                            />
+                          )}
                           {actions ? (
                             actions(track, index)
                           ) : (
                             <>
                               {/* Shown on hover: a touch screen has none, so the row's menu
                                   saves there instead of a button no one can see. */}
-                              {!touch && (
+                              {!touch && !reorderable && (
                                 <SaveButton
                                   track={track.input}
                                   compact
                                   className="opacity-0 group-hover:opacity-100 focus:opacity-100"
                                 />
                               )}
-                              {!wide && track.durationMs ? (
+                              {!wide && !reorderable && track.durationMs ? (
                                 <span className="text-muted pr-1 text-xs tabular-nums">
                                   {formatTime(track.durationMs)}
                                 </span>

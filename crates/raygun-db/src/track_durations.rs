@@ -40,6 +40,18 @@ pub async fn get_many(db: &Db, keys: &[String]) -> Result<Vec<(String, Stored)>,
     Ok(found)
 }
 
+/// The lengths known for `keys` (lookups that found none left out), by key.
+pub async fn lengths(
+    db: &Db,
+    keys: &[String],
+) -> Result<std::collections::HashMap<String, i64>, DbError> {
+    Ok(get_many(db, keys)
+        .await?
+        .into_iter()
+        .filter_map(|(key, stored)| Some((key, stored.duration_ms.filter(|ms| *ms > 0)?)))
+        .collect())
+}
+
 /// Stores lengths learned together: `(key, ms)`. A known length is replaced only by playback's
 /// (`replace`), and a remembered miss always gives way.
 pub async fn put_many(
@@ -152,5 +164,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![("a|one", Some(201_000)), ("a|two", Some(180_000))]
         );
+        // Known lengths only: a miss isn't one.
+        put_miss(&db, "a|three", 6).await.unwrap();
+        let known = lengths(&db, &["a|one".into(), "a|three".into(), "a|four".into()])
+            .await
+            .unwrap();
+        assert_eq!(known.len(), 1);
+        assert_eq!(known.get("a|one"), Some(&201_000));
     }
 }

@@ -413,6 +413,18 @@ impl ExtensionService {
         self.host.search_music(query, SEARCH_LIMIT).await
     }
 
+    /// [`Self::search`] in one extension's catalogue only (the source a song streamed from).
+    pub async fn search_of(&self, extension_id: &str, query: &str) -> Vec<ProviderSearchResult> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let _ready = self.loading.read().await;
+        self.host
+            .search_music_of(extension_id, query, SEARCH_LIMIT)
+            .await
+    }
+
     /// [`Self::search`] for Search itself: each source's answer goes to `report` as it comes,
     /// with how many sources were asked; the answers come back in that order. A source whose
     /// search fails or finds nothing answers from its charts, as `listings` allows.
@@ -779,6 +791,17 @@ impl ExtensionService {
                 .record(provider_id, answer.as_ref().map(|_| ()), started.elapsed());
         }
         answer
+    }
+
+    /// The stream sources searches use now: not turned off, nor left out as 18+.
+    pub async fn stream_provider_ids(&self) -> std::collections::HashSet<String> {
+        let _ready = self.loading.read().await;
+        self.host
+            .providers(raygun_ext_host::MUSIC_STREAM)
+            .await
+            .into_iter()
+            .map(|provider| provider.id)
+            .collect()
     }
 
     /// Whether a source sits out after failing again and again lately: it isn't asked meanwhile.
