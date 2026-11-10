@@ -72,6 +72,33 @@ describe('The saved query cache packed as JSON', () => {
     expect(back.nested[0]?.more.get(1)).toEqual(new Set([2]));
   });
 
+  it('writes an unchanged answer out once, while the rest of its query follows', () => {
+    let reads = 0;
+    const answer = {
+      get titles() {
+        reads += 1;
+        return Array.from({ length: 3 }, (_, index) => ({ title: `Song ${index}`, at: index }));
+      },
+    };
+    const first = query('["collections","favorites"]', answer);
+    expect(roundTrip(stateOf(first)).queries[0]?.state.data).toEqual({
+      titles: answer.titles,
+    });
+    reads = 0;
+
+    // Saved again with a newer fetch: the same answer object, so its JSON is reused.
+    const later = { ...first, state: { ...first.state, dataUpdateCount: 2, dataUpdatedAt: 950 } };
+    const [back] = roundTrip(stateOf(later)).queries;
+    expect(reads).toBe(0);
+    expect(back?.state.dataUpdateCount).toBe(2);
+    expect(back?.state.dataUpdatedAt).toBe(950);
+    expect(back?.state.data).toEqual({ titles: answer.titles });
+
+    // A new answer is written out again.
+    const changed = query('["collections","favorites"]', { titles: [] });
+    expect(roundTrip(stateOf(changed)).queries[0]?.state.data).toEqual({ titles: [] });
+  });
+
   it('leaves out answers JSON would change, and keeps the rest', () => {
     class Track {
       title = 'Song';

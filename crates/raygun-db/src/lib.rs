@@ -179,6 +179,44 @@ pub async fn local_value(db: &Db, key: &str) -> Result<Option<String>, DbError> 
     }
 }
 
+/// Every device-local value whose key starts with `prefix`, by key, in one query (lists that keep
+/// one value per item, such as installed extensions' icons, read them all at once). Damaged
+/// values are left out.
+pub async fn local_values_with_prefix(
+    db: &Db,
+    prefix: &str,
+) -> Result<std::collections::HashMap<String, String>, DbError> {
+    // Keys between the prefix and the prefix with its last character's successor: the primary
+    // key's index answers it without reading the whole table.
+    let mut end: Vec<char> = prefix.chars().collect();
+    let rows = match end.pop().and_then(|last| char::from_u32(last as u32 + 1)) {
+        Some(next) => {
+            end.push(next);
+            sqlx::query("SELECT key, value FROM local_meta WHERE key >= ?1 AND key < ?2")
+                .bind(prefix)
+                .bind(end.into_iter().collect::<String>())
+                .fetch_all(db.pool())
+                .await?
+        }
+        None => {
+            sqlx::query("SELECT key, value FROM local_meta WHERE substr(key, 1, ?2) = ?1")
+                .bind(prefix)
+                .bind(prefix.chars().count() as i64)
+                .fetch_all(db.pool())
+                .await?
+        }
+    };
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let key: String = row.get("key");
+            let stored: String = row.get("value");
+            let value = packed::unpack(&stored)?.into_owned();
+            key.starts_with(prefix).then_some((key, value))
+        })
+        .collect())
+}
+
 /// Stores a device-local value, replacing any earlier one.
 pub async fn set_local_value(db: &Db, key: &str, value: &str) -> Result<(), DbError> {
     sqlx::query(

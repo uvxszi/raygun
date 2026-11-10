@@ -1,15 +1,36 @@
 import { useMemo, useState } from 'react';
 
+/** Texts made searchable lately: long lists ask again for the same names on every keystroke. */
+const SEEN = new Map<string, string>();
+const SEEN_MAX = 20_000;
+
 /** Lower case without accents, so "Pokémon" matches "pokemon". */
-export const searchable = (text: string) =>
-  text
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase();
+export const searchable = (text: string) => {
+  let found = SEEN.get(text);
+  if (found === undefined) {
+    found = text
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase();
+    if (SEEN.size >= SEEN_MAX) SEEN.clear();
+    SEEN.set(text, found);
+  }
+  return found;
+};
+
+/** The last query's words: a list asks with the same query for each of its rows. */
+let lastQuery: { query: string; words: string[] } = { query: '', words: [] };
+
+const wordsOf = (query: string) => {
+  if (lastQuery.query !== query) {
+    lastQuery = { query, words: searchable(query).split(/\s+/).filter(Boolean) };
+  }
+  return lastQuery.words;
+};
 
 /** Whether every word of `query` appears in one of `fields` (M46.35: searchable lists). */
 export const matchesSearch = (query: string, fields: (string | null | undefined)[]) => {
-  const words = searchable(query).split(/\s+/).filter(Boolean);
+  const words = wordsOf(query);
   if (words.length === 0) return true;
   const haystack = searchable(fields.filter(Boolean).join(' '));
   return words.every((word) => haystack.includes(word));

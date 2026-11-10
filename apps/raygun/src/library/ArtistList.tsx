@@ -3,14 +3,21 @@ import { Link } from '@tanstack/react-router';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { VirtualRows } from '../shell/VirtualRows';
 import { Artwork } from './Artwork';
 
+/** The device's artists; a library of thousands draws only the ones near the screen. */
 export const ArtistList: FC<{ artists: LibraryArtist[] }> = ({ artists }) => {
   const { t } = useTranslation();
   return (
-    <ul data-testid="artist-list" className="flex flex-col">
-      {artists.map((artist) => (
-        <li key={artist.name}>
+    <VirtualRows
+      items={artists}
+      keyOf={(artist) => artist.name}
+      rowRem={4}
+      data-testid="artist-list"
+      className="flex flex-col"
+      renderRow={(artist, _index, row) => (
+        <li {...row}>
           <Link
             to="/library/artist"
             search={{ name: artist.name }}
@@ -28,7 +35,7 @@ export const ArtistList: FC<{ artists: LibraryArtist[] }> = ({ artists }) => {
             </span>
           </Link>
         </li>
-      ))}
-    </ul>
+      )}
+    />
   );
 };

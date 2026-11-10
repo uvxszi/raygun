@@ -17,6 +17,9 @@ export const LetterAvatar: FC<{
     <img
       src={logo}
       alt=""
+      // Long lists (a repository's thousands of entries) fetch only the icons coming into view.
+      loading="lazy"
+      decoding="async"
       onError={() => setFailed(logo)}
       className={`bg-surface shrink-0 object-contain ${SIZES[size]}`}
     />

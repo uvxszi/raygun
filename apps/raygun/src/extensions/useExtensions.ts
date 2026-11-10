@@ -78,24 +78,17 @@ export const useMihonApk = () =>
       unwrapResult(commands.extensionMihonApk(repoId, id)),
   });
 
-const MIHON_RUNTIME = ['mihon-runtime'];
+export const MIHON_RUNTIME = ['mihon-runtime'];
 
-/** Whether this device can run a Mihon extension's own code, kept fresh by `MihonRuntimeEvent`. */
-export const useMihonRuntime = () => {
-  const client = useQueryClient();
-  useEffect(() => {
-    const unlisten = events.mihonRuntimeEvent.listen((event) => {
-      client.setQueryData(MIHON_RUNTIME, event.payload);
-    });
-    return () => {
-      void unlisten.then((off) => off());
-    };
-  }, [client]);
-  return useQuery({
+/**
+ * Whether this device can run a Mihon extension's own code, kept fresh by `MihonRuntimeEvent`
+ * (followed once for the app, in `shell/useLiveInvalidation`).
+ */
+export const useMihonRuntime = () =>
+  useQuery({
     queryKey: MIHON_RUNTIME,
     queryFn: () => unwrapResult(commands.mihonRuntimeState()),
   });
-};
 
 /** Fetches the Mihon runtime's tools (desktop: a JRE and dex2jar). */
 export const useMihonRuntimeSetup = () =>
@@ -124,11 +117,17 @@ export const useReloadExtensions = () => {
   });
 };
 
+/**
+ * Every repository's extensions. Whatever changes it (installs, repositories, reloads, 18+
+ * marks) reads it again; otherwise a large catalogue (thousands of entries) isn't asked for again
+ * each time a screen showing it opens, such as switching to the Extensions tab and back.
+ */
 export const useCatalog = (enabled = true) =>
   useQuery({
     queryKey: CATALOG,
     queryFn: () => unwrapResult(commands.extensionCatalog(false)),
     enabled,
+    staleTime: 60_000,
   });
 
 /** Re-fetches every repository index, bypassing the cache. */

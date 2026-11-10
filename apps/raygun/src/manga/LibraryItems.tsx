@@ -42,7 +42,11 @@ type ItemProps = {
   moreItems?: (entry: MangaLibraryEntry) => MenuItem[];
   /** The title is in the library: Downloads lists titles kept out of it too. */
   inLibrary: boolean;
+  /** Builds a title's menu: asked for once by the list, not by each of its thousands of titles. */
+  titleMenu: TitleCardMenu;
 };
+
+type TitleCardMenu = ReturnType<typeof useTitleCardMenu>;
 
 const Badges: FC<{ entry: MangaLibraryEntry; medium: Medium; badges: BadgeChoice }> = ({
   entry,
@@ -138,6 +142,7 @@ const LibraryItem: FC<ItemProps> = ({
   onContinue,
   moreItems,
   inLibrary,
+  titleMenu,
 }) => {
   const link =
     medium === 'video'
@@ -145,7 +150,6 @@ const LibraryItem: FC<ItemProps> = ({
       : { to: ROUTES[medium].title, search: { source: entry.sourceId, id: entry.remoteId } };
   const continueShown = showContinue && entry.unread > 0 && !selecting;
   const { t } = useTranslation();
-  const titleMenu = useTitleCardMenu();
   // The title's full menu, with Select first, then what the list adds (its groups, downloads).
   const menu = (): MenuItem[] => {
     const items = titleMenu({
@@ -303,6 +307,7 @@ export const LibraryItems: FC<{
   inLibrary = () => true,
 }) => {
   const settings = useSettings().data;
+  const titleMenu = useTitleCardMenu();
   const selecting = selected.size > 0;
   const badges: BadgeChoice = {
     local: display.localBadge,
@@ -339,6 +344,7 @@ export const LibraryItems: FC<{
         onContinue={onContinue}
         moreItems={moreItems}
         inLibrary={inLibrary(entry)}
+        titleMenu={titleMenu}
       />
     </li>
   );

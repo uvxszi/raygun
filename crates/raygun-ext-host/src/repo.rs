@@ -584,13 +584,20 @@ pub fn read_index(json: &str) -> Result<(RepoIndex, PackageFormat), RepoError> {
     if let Ok(index) = serde_json::from_str::<ShosetsuIndex>(json) {
         return Ok((from_shosetsu(index), PackageFormat::Shosetsu));
     }
-    if let Some(index) = crate::miru::index::parse(json) {
+    // Miru's, LNReader's and Mihon's legacy indexes are lists, the others objects. Each of their
+    // readers builds the whole document first, so they're only asked about a list: a store's
+    // index of thousands of entries was built three times over before being read.
+    let list = json
+        .trim_start_matches('\u{feff}')
+        .trim_start()
+        .starts_with('[');
+    if list && let Some(index) = crate::miru::index::parse(json) {
         return Ok((index, PackageFormat::Miru));
     }
-    if let Some(index) = crate::lnreader::index::parse(json) {
+    if list && let Some(index) = crate::lnreader::index::parse(json) {
         return Ok((index, PackageFormat::LnReader));
     }
-    if let Some(index) = crate::mihon::parse(json) {
+    if list && let Some(index) = crate::mihon::parse(json) {
         return Ok((index, PackageFormat::Mihon));
     }
     let mut index: RepoIndex = serde_json::from_str(json).map_err(|error| {

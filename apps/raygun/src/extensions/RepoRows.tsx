@@ -2,7 +2,7 @@ import { commands } from '@raygun/bindings';
 import type { ExtensionRepo, RepoCatalog } from '@raygun/bindings';
 import { useQueries } from '@tanstack/react-query';
 import { Check, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,8 @@ import { unwrapResult } from '../lib/commandResult';
 import { AdultMark } from '../shell/AdultMark';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { SourceIssue } from '../shell/SourceIssue';
+import { rowsEqual } from '../shell/windowedRows';
+import type { RowProps } from '../shell/windowedRows';
 import { repoFormat } from './catalogFilters';
 import { useContentRating } from './contentRating';
 import { RatingHint } from './RatingHint';
@@ -29,18 +31,24 @@ const previewOptions = (url: string) => ({
  * format it is, what it holds, why it couldn't be read, and removal, which takes a second tap so
  * a stray one can't drop it.
  */
-export const RepoRow: FC<{ repo: ExtensionRepo; listing: RepoCatalog | undefined }> = ({
-  repo,
-  listing,
-}) => {
+export const RepoRow = memo<{
+  repo: ExtensionRepo;
+  listing: RepoCatalog | undefined;
+  row: RowProps;
+}>(({ repo, listing, row }) => {
   const { t } = useTranslation();
   const removeRepo = useRemoveRepo();
   const rating = useContentRating();
   const [removing, setRemoving] = useState(false);
   const mark = rating.markOf('repositories', repo.id);
-  const format = listing && !listing.error ? repoFormat(listing.entries) : null;
+  // A store's thousands of entries are read once, not each time the page is drawn.
+  const format = useMemo(
+    () => (listing && !listing.error ? repoFormat(listing.entries) : null),
+    [listing],
+  );
   return (
     <li
+      {...row}
       data-testid="repo-row"
       aria-label={repo.name}
       className="bg-surface flex items-center gap-3 rounded-xl px-4 py-3"
@@ -97,7 +105,7 @@ export const RepoRow: FC<{ repo: ExtensionRepo; listing: RepoCatalog | undefined
       />
     </li>
   );
-};
+}, rowsEqual);
 
 /** Well-known repositories not added yet, with what each would bring, added with one tap. */
 export const SuggestedRepos: FC = () => {
