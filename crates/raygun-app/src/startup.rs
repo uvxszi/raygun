@@ -144,6 +144,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             paths.exports(),
             paths.cache(raygun_paths::CacheKind::Share),
         ),
+        paths.cache(raygun_paths::CacheKind::Convert),
     )?));
     let podcasts = std::sync::Arc::new(crate::podcasts::PodcastService::new(
         app.handle().clone(),

@@ -1,7 +1,8 @@
 //! Matroska: read with `matroska-demuxer`; written here. The writer knows every size from the
 //! plan, so the file goes out front to back: the EBML header, the segment (its size given) with
 //! a seek head, info and tracks, clusters that start at the video's key frames, and cues at the
-//! end pointing at those clusters.
+//! end pointing at those clusters. Subtitle files go in as text tracks (`S_TEXT/UTF8`), each cue
+//! a block group at the start of the cluster it falls in.
 
 use std::fs::File;
 use std::io::{BufReader, Write};
@@ -27,6 +28,8 @@ enum Timing {
 pub struct MkvDemux {
     file: MatroskaFile<BufReader<File>>,
     tracks: Vec<Track>,
+    /// Streams left out (codecs Raygun can't carry): picture or not, and the codec.
+    skipped: Vec<(bool, String)>,
     /// Each track's Matroska number and timing.
     numbers: Vec<u64>,
     timings: Vec<Timing>,
@@ -43,7 +46,9 @@ impl MkvDemux {
         let mut tracks = Vec::new();
         let mut numbers = Vec::new();
         let mut timings = Vec::new();
+        let mut skipped = Vec::new();
         for entry in file.tracks() {
+            let left_out = |video: bool| (video, codec_name(entry.codec_id()));
             if entry
                 .content_encodings()
                 .is_some_and(|list| !list.is_empty())
@@ -69,7 +74,10 @@ impl MkvDemux {
                         }
                         ("V_VP9", _) => Codec::Vp9,
                         ("V_AV1", Some(private)) => Codec::Av1(private),
-                        _ => continue,
+                        _ => {
+                            skipped.push(left_out(true));
+                            continue;
+                        }
                     };
                     // Block timestamps are in the file's scale (milliseconds, usually).
                     let timescale = (1_000_000_000 / scale.max(1)).clamp(1, u64::from(u32::MAX));
@@ -116,9 +124,15 @@ impl MkvDemux {
                         "A_EAC3" => Codec::Eac3,
                         "A_OPUS" => match private {
                             Some(head) => Codec::Opus(head),
-                            None => continue,
+                            None => {
+                                skipped.push(left_out(false));
+                                continue;
+                            }
                         },
-                        _ => continue,
+                        _ => {
+                            skipped.push(left_out(false));
+                            continue;
+                        }
                     };
                     let rate = match &codec {
                         Codec::Opus(_) => 48_000,
@@ -146,11 +160,30 @@ impl MkvDemux {
         Ok(Self {
             file,
             tracks,
+            skipped,
             numbers,
             timings,
             scale,
             frame: Frame::default(),
         })
+    }
+}
+
+/// A Matroska codec ID by FFmpeg's name for the codec, for one Raygun can't carry.
+fn codec_name(id: &str) -> String {
+    match id {
+        "V_VP8" => "vp8".into(),
+        "V_THEORA" => "theora".into(),
+        "V_MPEG1" => "mpeg1video".into(),
+        "V_MPEG2" => "mpeg2video".into(),
+        "V_MPEG4/ISO/ASP" | "V_MPEG4/ISO/SP" | "V_MPEG4/ISO/AP" => "mpeg4".into(),
+        "A_VORBIS" => "vorbis".into(),
+        "A_FLAC" => "flac".into(),
+        "A_DTS" => "dts".into(),
+        "A_TRUEHD" => "truehd".into(),
+        "A_ALAC" => "alac".into(),
+        id if id.starts_with("A_PCM") => "pcm".into(),
+        id => id.to_lowercase(),
     }
 }
 
@@ -243,6 +276,16 @@ impl Demux for MkvDemux {
 
     fn tracks(&self) -> &[Track] {
         &self.tracks
+    }
+
+    fn seconds(&self) -> Option<f64> {
+        // In the file's timestamp scale.
+        let units = self.file.info().duration()?;
+        (units > 0.0).then(|| units * self.scale as f64 / 1_000_000_000.0)
+    }
+
+    fn skipped(&self) -> Vec<(bool, String)> {
+        self.skipped.clone()
     }
 }
 
@@ -384,6 +427,81 @@ fn track_entry(number: u64, track: &Track) -> Vec<u8> {
     element(0xAE, &body)
 }
 
+/// A subtitle track written with the picture and sound: SubRip-style text cues.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextTrack {
+    /// ISO 639 code, when known.
+    pub language: Option<String>,
+    /// Start and end (ms from the video's start) and text, in order.
+    pub cues: Vec<(i64, i64, String)>,
+}
+
+/// One subtitle cue placed in a cluster: its track number, time from the cluster's, length (ms)
+/// and text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Placed {
+    track: u64,
+    relative: i64,
+    length: u64,
+    text: Vec<u8>,
+}
+
+impl Placed {
+    /// Its block group, ready to write.
+    fn element(&self) -> Vec<u8> {
+        let mut block = block_header(self.track, self.relative, false).to_vec();
+        // Block (not SimpleBlock) flags: none.
+        block[3] = 0;
+        block.extend_from_slice(&self.text);
+        let mut group = element(0xA1, &block);
+        group.extend(unsigned(0x9B, self.length));
+        element(0xA0, &group)
+    }
+}
+
+/// Each cluster's subtitle cues: a cue goes in the last cluster starting at or before it (the
+/// first one for earlier cues); one too far from any cluster's time for a block's 16-bit offset
+/// is left out.
+fn place_cues(clusters: &[Cluster], texts: &[TextTrack], first_track: u64) -> Vec<Vec<Placed>> {
+    let mut placed: Vec<Vec<Placed>> = vec![Vec::new(); clusters.len()];
+    if clusters.is_empty() {
+        return placed;
+    }
+    for (index, text) in texts.iter().enumerate() {
+        for (start, end, words) in &text.cues {
+            let at = clusters
+                .partition_point(|cluster| cluster.time <= *start)
+                .saturating_sub(1);
+            let relative = start - clusters[at].time;
+            if !(i64::from(i16::MIN)..=i64::from(i16::MAX)).contains(&relative) {
+                continue;
+            }
+            placed[at].push(Placed {
+                track: first_track + index as u64,
+                relative,
+                length: (end - start).max(1) as u64,
+                text: words.as_bytes().to_vec(),
+            });
+        }
+    }
+    placed
+}
+
+fn text_entry(number: u64, track: &TextTrack) -> Vec<u8> {
+    let mut body = unsigned(0xD7, number);
+    body.extend(unsigned(0x73C5, number));
+    body.extend(unsigned(0x83, 0x11));
+    body.extend(unsigned(0x9C, 0));
+    // Shown when chosen, not by default.
+    body.extend(unsigned(0x88, 0));
+    body.extend(text(
+        0x0022_B59C,
+        track.language.as_deref().unwrap_or("und"),
+    ));
+    body.extend(text(0x86, "S_TEXT/UTF8"));
+    element(0xAE, &body)
+}
+
 /// One cluster: which packets (a run of the plan's sequence) and its time.
 #[derive(Debug, Clone)]
 struct Cluster {
@@ -457,8 +575,14 @@ fn block_header(track: u64, relative: i64, key: bool) -> [u8; 4] {
     ]
 }
 
-/// Writes the plan's tracks as Matroska.
-pub fn write(source: &Source, plan: &Plan, out: &mut dyn Write, cancel: &AtomicBool) -> Result<()> {
+/// Writes the plan's tracks as Matroska, with `texts` as subtitle tracks after them.
+pub fn write(
+    source: &Source,
+    plan: &Plan,
+    out: &mut dyn Write,
+    cancel: &AtomicBool,
+    texts: &[TextTrack],
+) -> Result<()> {
     let (times, mut clusters) = layout(plan);
     let mut sizes = Vec::with_capacity(plan.sequence.len());
     let mut keys = Vec::with_capacity(plan.sequence.len());
@@ -469,8 +593,13 @@ pub fn write(source: &Source, plan: &Plan, out: &mut dyn Write, cancel: &AtomicB
         sizes.push(u64::from(sample.size));
         keys.push(sample.key || !plan.tracks[usize::from(entry)].is_video());
     }
-    for cluster in &mut clusters {
+    let placed: Vec<Vec<Vec<u8>>> = place_cues(&clusters, texts, plan.tracks.len() as u64 + 1)
+        .into_iter()
+        .map(|cues| cues.iter().map(Placed::element).collect())
+        .collect();
+    for (cluster, cues) in clusters.iter_mut().zip(&placed) {
         let mut body = unsigned(TIMESTAMP, cluster.time.max(0) as u64).len() as u64;
+        body += cues.iter().map(|cue| cue.len() as u64).sum::<u64>();
         for size in &sizes[cluster.first..cluster.first + cluster.count] {
             let block = 4 + size;
             body += 1 + size_bytes(block).len() as u64 + block;
@@ -484,12 +613,15 @@ pub fn write(source: &Source, plan: &Plan, out: &mut dyn Write, cancel: &AtomicB
     info.extend(text(0x4D80, "Raygun"));
     info.extend(text(0x5741, "Raygun"));
     let info = element(INFO, &info);
-    let tracks: Vec<u8> = plan
+    let mut tracks: Vec<u8> = plan
         .tracks
         .iter()
         .enumerate()
         .flat_map(|(index, planned)| track_entry(index as u64 + 1, &planned.track))
         .collect();
+    for (index, text) in texts.iter().enumerate() {
+        tracks.extend(text_entry((plan.tracks.len() + index) as u64 + 1, text));
+    }
     let tracks = element(TRACKS, &tracks);
     let seek_entry = |id: u32, position: u64| {
         let mut body = element(SEEK_ID, &id_bytes(id));
@@ -576,6 +708,9 @@ pub fn write(source: &Source, plan: &Plan, out: &mut dyn Write, cancel: &AtomicB
             out.write_all(&id_bytes(CLUSTER))?;
             out.write_all(&size_bytes(cluster.body))?;
             out.write_all(&unsigned(TIMESTAMP, cluster.time.max(0) as u64))?;
+            for cue in &placed[cluster_at] {
+                out.write_all(cue)?;
+            }
             cluster_at += 1;
         }
         let cluster = &clusters[cluster_at - 1];

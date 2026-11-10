@@ -58,7 +58,8 @@ impl Target {
         }
     }
 
-    fn audio_only(self) -> bool {
+    /// The sound alone.
+    pub fn audio_only(self) -> bool {
         matches!(self, Self::M4a | Self::Mp3 { .. })
     }
 }
@@ -196,6 +197,16 @@ pub struct Packet {
 pub trait Demux {
     fn next(&mut self) -> Result<Option<Packet>>;
     fn tracks(&self) -> &[Track];
+
+    /// How long the source plays, when its container says.
+    fn seconds(&self) -> Option<f64> {
+        None
+    }
+
+    /// Streams left out because Raygun can't carry their codec: picture or not, and the codec.
+    fn skipped(&self) -> Vec<(bool, String)> {
+        Vec::new()
+    }
 }
 
 /// One segment of a saved HLS stream, decrypted.
@@ -517,15 +528,30 @@ pub(crate) fn check_cancel(cancel: &AtomicBool, count: usize) -> Result<()> {
 pub struct Probe {
     pub video: Option<Codec>,
     pub audio: Option<Codec>,
+    /// The first picture stream's size and frame rate.
+    pub width: u32,
+    pub height: u32,
+    pub fps: Option<f64>,
+    /// The first sound stream's channels.
+    pub channels: u8,
+    /// How long it plays, when its container or playlist says.
+    pub seconds: Option<f64>,
+    /// Streams Raygun's own reader leaves out (a codec it can't carry): picture or not, and
+    /// the codec.
+    pub skipped: Vec<(bool, String)>,
 }
 
 /// Packets read at most while probing.
 const PROBE_PACKETS: usize = 2000;
+/// Picture frames whose times give the frame rate.
+const RATE_FRAMES: usize = 48;
 
 /// What a source holds, from its first packets.
 pub fn probe(source: &Source) -> Result<Probe> {
     let mut demux = source.open()?;
     let mut found = Probe::default();
+    let mut video_track = None;
+    let mut frame_times: Vec<i64> = Vec::new();
     for _ in 0..PROBE_PACKETS {
         let Some(packet) = demux.next()? else {
             break;
@@ -533,77 +559,61 @@ pub fn probe(source: &Source) -> Result<Probe> {
         let Some(track) = demux.tracks().get(packet.track) else {
             continue;
         };
-        let slot = if track.codec.is_video() {
-            &mut found.video
-        } else {
-            &mut found.audio
-        };
-        if slot.is_none() {
-            *slot = Some(track.codec.clone());
+        if track.codec.is_video() {
+            if found.video.is_none() {
+                found.video = Some(track.codec.clone());
+                found.width = track.width;
+                found.height = track.height;
+                video_track = Some(packet.track);
+            }
+            if video_track == Some(packet.track) && frame_times.len() < RATE_FRAMES {
+                frame_times.push(packet.pts);
+            }
+        } else if found.audio.is_none() {
+            found.audio = Some(track.codec.clone());
+            found.channels = track.channels;
         }
-        if found.video.is_some() && found.audio.is_some() {
+        if found.audio.is_some() && found.video.is_some() && frame_times.len() >= RATE_FRAMES {
             break;
         }
     }
+    if let Some(track) = video_track.and_then(|index| demux.tracks().get(index)) {
+        found.fps = frame_rate(&frame_times, track.timescale);
+    }
+    found.seconds = match source {
+        Source::Hls { video, .. } => video.seconds(),
+        Source::File(_) => demux.seconds(),
+    };
+    found.skipped = demux.skipped();
     Ok(found)
 }
 
-/// Why `target` can't hold what `probe` found, if so.
-pub fn refusal(probe: &Probe, target: Target) -> Option<String> {
-    let audio = probe.audio.as_ref();
-    let video = probe.video.as_ref();
-    match target {
-        Target::M4a => match audio {
-            None => Some("This video has no sound to save".into()),
-            Some(Codec::Aac(_)) => None,
-            Some(codec) => Some(format!(
-                "Its sound is {}, which M4A can't hold: choose MP3",
-                codec.name()
-            )),
-        },
-        Target::Mp3 { .. } => match audio {
-            None => Some("This video has no sound to save".into()),
-            Some(Codec::Aac(config))
-                if codec::parse_audio_config(config)
-                    .is_some_and(|(_, _, channels)| channels <= 2) =>
-            {
-                None
-            }
-            Some(Codec::MpegAudio { layer: 3, .. }) => None,
-            Some(codec) => Some(format!(
-                "Its sound is {}, which Raygun can't turn into MP3",
-                codec.name()
-            )),
-        },
-        Target::Mp4 => {
-            if video.is_none() && audio.is_none() {
-                return Some("No video or sound was found in it".into());
-            }
-            if let Some(codec) = video.filter(|codec| !mp4::holds(codec)) {
-                return Some(format!(
-                    "Its picture is {}, which MP4 can't hold here: choose MKV",
-                    codec.name()
-                ));
-            }
-            audio.filter(|codec| !mp4::holds(codec)).map(|codec| {
-                format!(
-                    "Its sound is {}, which MP4 can't hold here: choose MKV",
-                    codec.name()
-                )
-            })
-        }
-        Target::Mkv => {
-            (video.is_none() && audio.is_none()).then(|| "No video or sound was found in it".into())
-        }
+/// Frames per second from frames' shown times (in any order): the commonest gap between them.
+fn frame_rate(times: &[i64], timescale: u32) -> Option<f64> {
+    let mut sorted = times.to_vec();
+    sorted.sort_unstable();
+    let mut gaps: Vec<i64> = sorted
+        .windows(2)
+        .map(|pair| pair[1] - pair[0])
+        .filter(|gap| *gap > 0)
+        .collect();
+    if gaps.len() < 4 {
+        return None;
     }
+    gaps.sort_unstable();
+    let middle = gaps[gaps.len() / 2];
+    let fps = f64::from(timescale.max(1)) / middle as f64;
+    (1.0..=480.0).contains(&fps).then_some(fps)
 }
 
-/// Converts `source` into `target`, written to `out` front to back.
-pub fn convert(
+/// Converts `source` into `target`, written to `out` front to back, with `texts` as subtitle tracks
+/// (Matroska only; other targets leave them out).
+pub fn convert_with(
     source: &Source,
     target: Target,
     out: &mut dyn std::io::Write,
     cancel: &AtomicBool,
+    texts: &[matroska::TextTrack],
 ) -> Result<()> {
     if let Target::Mp3 { kbps } = target {
         return mp3::write(source, kbps, out, cancel);
@@ -615,7 +625,7 @@ pub fn convert(
         ));
     }
     match target {
-        Target::Mkv => matroska::write(source, &plan, out, cancel),
+        Target::Mkv => matroska::write(source, &plan, out, cancel, texts),
         _ => {
             for track in &plan.tracks {
                 if !mp4::holds(&track.track.codec)

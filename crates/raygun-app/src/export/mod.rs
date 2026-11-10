@@ -11,6 +11,7 @@
 
 pub mod book;
 pub mod cbz;
+pub mod convert;
 pub mod covers;
 pub mod names;
 pub mod output;
@@ -62,6 +63,8 @@ pub struct ExportService {
     jobs: Mutex<Vec<Job>>,
     /// What each downloaded video holds (by download), read once for the export sheet's plans.
     probes: video::Probes,
+    /// Where videos are converted before they're copied out (the cache's `convert/`).
+    convert_dir: PathBuf,
 }
 
 struct Job {
@@ -84,6 +87,8 @@ struct Planned {
     videos: Vec<video::Missing>,
     files: u32,
     problem: Option<String>,
+    /// Videos: what each format does with the downloaded episodes.
+    conversions: Vec<raygun_model::ExportConversion>,
 }
 
 /// The folder (and its sub-folders) where a medium's files go.
@@ -187,13 +192,20 @@ fn pick<'a>(
 }
 
 impl ExportService {
-    pub fn new(app: AppHandle, outputs: Outputs) -> Result<Self, reqwest::Error> {
+    pub fn new(
+        app: AppHandle,
+        outputs: Outputs,
+        convert_dir: PathBuf,
+    ) -> Result<Self, reqwest::Error> {
+        // Conversions a closed app left half done.
+        let _ = std::fs::remove_dir_all(&convert_dir);
         Ok(Self {
             app,
             outputs,
             client: raygun_net::http_client()?,
             jobs: Mutex::new(Vec::new()),
             probes: video::Probes::default(),
+            convert_dir,
         })
     }
 
@@ -333,6 +345,7 @@ impl ExportService {
             videos: Vec::new(),
             files,
             problem,
+            conversions: Vec::new(),
         })
     }
 
@@ -348,6 +361,7 @@ impl ExportService {
             missing: (planned.missing.len() + planned.videos.len()) as u32,
             files: planned.files,
             problem: planned.problem,
+            conversions: planned.conversions,
         })
     }
 
@@ -389,6 +403,7 @@ impl ExportService {
             skipped_pages: 0,
             message: None,
             started_at: now_ms() as f64,
+            progress: None,
         };
         let cancel = Arc::new(AtomicBool::new(false));
         {
@@ -1072,6 +1087,7 @@ impl ExportService {
             skipped_pages: 0,
             message: Some(message),
             started_at: now_ms() as f64,
+            progress: None,
         };
         self.jobs.lock().expect("export jobs poisoned").insert(
             0,

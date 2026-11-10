@@ -41,6 +41,38 @@ export const useExportPlan = (request: ExportRequest | null) =>
     enabled: request !== null,
   });
 
+const FFMPEG_STATUS = ['ytdlp', 'status'] as const;
+
+/**
+ * FFmpeg for re-encoding videos on a computer (fetched as for YouTube downloads), followed while
+ * `wanted`: its fetch reports progress, and the plan is worked out again once it's there.
+ */
+export const useExportFfmpeg = (wanted: boolean) => {
+  const client = useQueryClient();
+  useEffect(() => {
+    if (!wanted) return;
+    const unlisten = events.ytDlpEvent.listen(({ payload }) => {
+      if (!payload) void client.invalidateQueries({ queryKey: FFMPEG_STATUS });
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, [client, wanted]);
+  const status = useQuery({
+    queryKey: FFMPEG_STATUS,
+    queryFn: () => unwrapResult(commands.ytdlpStatus()),
+    enabled: wanted,
+  });
+  const install = useMutation({
+    mutationFn: () => unwrapResult(commands.ytdlpInstallFfmpeg()),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: FFMPEG_STATUS });
+      void client.invalidateQueries({ queryKey: [...EXPORTS, 'plan'] });
+    },
+  });
+  return { status, install };
+};
+
 const LAST_FOLDER = [...EXPORTS, 'lastFolder'] as const;
 
 /** The folder last chosen in the export sheet, offered there again. */

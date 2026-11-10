@@ -5250,7 +5250,7 @@ pub struct SongCaptureReport {
 
 /// yt-dlp on this device (M46.47): YouTube downloads on desktop, and songs YouTube's own audio
 /// files didn't give.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct YtDlpStatus {
     /// Desktop only: phones have no yt-dlp.
@@ -5261,6 +5261,8 @@ pub struct YtDlpStatus {
     pub ffmpeg: bool,
     /// yt-dlp or FFmpeg is being fetched now.
     pub installing: bool,
+    /// How far the fetch is, 0 to 1, when its size is known.
+    pub progress: Option<f64>,
     /// Why the last fetch failed.
     pub message: Option<String>,
 }
@@ -6397,11 +6399,11 @@ pub enum ExportFormat {
     /// Videos: each downloaded episode as one file in the format it downloaded in (an HLS
     /// stream's segments joined: MPEG-TS or fragmented MP4).
     Video,
-    /// Videos: MP4, packets copied (no re-encoding).
+    /// Videos: MP4 with H.264 and AAC, copied when they're that already, else re-encoded.
     Mp4,
-    /// Videos: Matroska, packets copied.
+    /// Videos: Matroska, streams copied (re-encoded only where a phone can't carry them).
     Mkv,
-    /// Videos: the sound alone, AAC in an M4A file.
+    /// Videos: the sound alone, AAC in an M4A file (re-encoded unless it is AAC).
     M4a,
     /// Videos: the sound alone as MP3 (encoded unless it is MP3 already).
     Mp3,
@@ -6470,6 +6472,27 @@ pub struct ExportPlan {
     pub files: u32,
     /// Why it can't run as asked, if so (e.g. a video stream with separate audio).
     pub problem: Option<String>,
+    /// Videos: what each format does with the episodes downloaded so far.
+    pub conversions: Vec<ExportConversion>,
+}
+
+/// What a video format does with the episodes already downloaded: streams copied as they are, or
+/// re-encoded (the picture to H.264, the sound to AAC or MP3) where the format can't hold them as a
+/// file every player plays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportConversion {
+    pub format: ExportFormat,
+    /// The picture is re-encoded, for at least one episode.
+    pub video: bool,
+    /// The sound is re-encoded, for at least one episode.
+    pub audio: bool,
+    /// What's re-encoded from, as people know the codecs ("VP9", "Opus").
+    pub from: Vec<String>,
+    /// About how long writing the files takes, in seconds (when the lengths are known).
+    pub seconds: Option<u32>,
+    /// Re-encoding needs FFmpeg, which isn't on this computer yet.
+    pub needs_ffmpeg: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -6508,6 +6531,8 @@ pub struct ExportJob {
     pub skipped_pages: u32,
     pub message: Option<String>,
     pub started_at: f64,
+    /// How far the file being converted is, 0 to 1 (videos re-encoded or copied into a format).
+    pub progress: Option<f64>,
 }
 
 /// A page of the manga reader, by its proxy URL.

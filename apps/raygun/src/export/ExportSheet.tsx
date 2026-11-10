@@ -1,5 +1,6 @@
-import type { ExportFormat, ExportRequest, ExportScope } from '@raygun/bindings';
+import type { ExportConversion, ExportFormat, ExportRequest, ExportScope } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
+import type { TFunction } from 'i18next';
 import { Check, CircleCheck, FolderOpen } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
@@ -11,6 +12,7 @@ import { Sheet } from '../shell/Sheet';
 import { withSave } from './saveDefaults';
 import { SourceIssue } from '../shell/SourceIssue';
 import {
+  useExportFfmpeg,
   useExportPlan,
   useLastExportFolder,
   useLastExportFormat,
@@ -87,6 +89,36 @@ const Group: FC<{ label: string; children: ReactNode }> = ({ label, children }) 
 const seasonName = (season: number | null, specials: string, named: (n: number) => string) =>
   season === null || season === 0 ? specials : named(season);
 
+/** How long converting takes, in words ("about 4 minutes"). */
+const timeText = (t: TFunction, seconds: number) => {
+  if (seconds < 60) return t('export.convert.underMinute');
+  if (seconds < 3600) return t('export.convert.minutes', { count: Math.ceil(seconds / 60) });
+  return t('export.convert.hours', { count: Math.round(seconds / 3600) });
+};
+
+/**
+ * What a video format does with the downloaded episodes: nothing re-encoded, or which streams are
+ * re-encoded (from which codecs) and about how long it takes.
+ */
+const conversionText = (t: TFunction, conversion: ExportConversion) => {
+  const what =
+    conversion.video && conversion.audio
+      ? 'both'
+      : conversion.video
+        ? 'picture'
+        : conversion.audio
+          ? 'sound'
+          : null;
+  if (!what) return t('export.convert.copies');
+  const text =
+    conversion.from.length > 0
+      ? t(`export.convert.${what}From`, { from: conversion.from.join(', ') })
+      : t(`export.convert.${what}`);
+  return conversion.seconds === null
+    ? text
+    : t('export.convert.estimate', { what: text, time: timeText(t, conversion.seconds) });
+};
+
 /** The chapters or episodes a scope takes, as the sheet ticks them. */
 const unitsIn = (
   units: Unit[],
@@ -121,7 +153,9 @@ const unitsIn = (
 /**
  * Export a title (or a selection) as files to keep (M46.1): which chapters or episodes (all, a
  * range, or ticked ones), in what format, and where. Videos convert to MP4 or MKV, or keep only
- * their sound; the last format used is offered first. It says first how many must download,
+ * their sound; every format takes every video, and each says whether it re-encodes the downloaded
+ * episodes (and about how long that takes) or copies them. Re-encoding on a computer needs FFmpeg,
+ * fetched here. The last format used is offered first. It says first how many must download,
  * which then go through the normal queue (episodes find their own links).
  */
 export const ExportSheet: FC<{
@@ -195,6 +229,13 @@ export const ExportSheet: FC<{
   };
   const plan = useExportPlan(request);
   const problem = plan.data?.problem ?? (plan.isError ? plan.error.message : null);
+  // Videos: what each format does with the downloaded episodes.
+  const conversionOf = (value: ExportFormat) =>
+    video ? plan.data?.conversions.find((conversion) => conversion.format === value) : undefined;
+  const needsFfmpeg = conversionOf(format ?? 'mp4')?.needsFfmpeg ?? false;
+  const ffmpeg = useExportFfmpeg(needsFfmpeg);
+  const fetching = ffmpeg.install.isPending || (ffmpeg.status.data?.installing ?? false);
+  const fetched = ffmpeg.status.data?.progress ?? null;
 
   if (start.isSuccess) {
     return (
@@ -358,18 +399,68 @@ export const ExportSheet: FC<{
         )}
         {formats.length > 1 && (
           <Group label={t('export.format')}>
-            {formats.map((value) => (
-              <Radio
-                key={value}
-                name={t(`export.formats.${value}`)}
-                checked={format === value}
-                onPick={() => setFormat(value)}
-              >
-                {t(`export.formats.${value}`)}
-                <span className="text-muted text-xs">{t(`export.formatHints.${value}`)}</span>
-              </Radio>
-            ))}
+            {formats.map((value) => {
+              const conversion = conversionOf(value);
+              return (
+                <Radio
+                  key={value}
+                  name={t(`export.formats.${value}`)}
+                  checked={format === value}
+                  onPick={() => setFormat(value)}
+                >
+                  {t(`export.formats.${value}`)}
+                  <span className="text-muted text-xs">{t(`export.formatHints.${value}`)}</span>
+                  {conversion && (
+                    <span
+                      data-testid={`conversion-${value}`}
+                      className={`text-xs ${conversion.video || conversion.audio ? 'text-primary' : 'text-muted'}`}
+                    >
+                      {conversionText(t, conversion)}
+                    </span>
+                  )}
+                </Radio>
+              );
+            })}
           </Group>
+        )}
+        {needsFfmpeg && (
+          <div className="bg-background flex flex-col gap-2 rounded-xl p-3 text-xs">
+            <p className="text-muted">{t('export.convert.needsFfmpeg')}</p>
+            <button
+              type="button"
+              disabled={fetching}
+              onClick={() => ffmpeg.install.mutate()}
+              className="bg-primary text-background self-start rounded-full px-4 py-2 font-semibold disabled:opacity-50"
+            >
+              {fetching
+                ? fetched === null
+                  ? t('export.convert.gettingFfmpeg')
+                  : t('export.convert.gettingFfmpegPercent', {
+                      percent: Math.floor(fetched * 100),
+                    })
+                : t('export.convert.getFfmpeg')}
+            </button>
+            {fetching && fetched !== null && (
+              <div
+                role="progressbar"
+                aria-label={t('export.convert.gettingFfmpeg')}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.floor(fetched * 100)}
+                className="bg-surface h-1.5 overflow-hidden rounded-full"
+              >
+                <div
+                  className="bg-primary h-full origin-left transition-transform"
+                  style={{ transform: `scaleX(${fetched})` }}
+                />
+              </div>
+            )}
+            {ffmpeg.install.isError && (
+              <SourceIssue compact title={t('export.convert.ffmpegFailed')}>
+                {ffmpeg.install.error.message}
+              </SourceIssue>
+            )}
+          </div>
         )}
         <Group label={t('export.destination')}>
           <Radio
@@ -451,7 +542,7 @@ export const ExportSheet: FC<{
           </button>
           <button
             type="button"
-            disabled={!plan.data || Boolean(problem) || start.isPending}
+            disabled={!plan.data || Boolean(problem) || needsFfmpeg || start.isPending}
             onClick={() => start.mutate(request)}
             className="bg-primary text-background rounded-full px-5 py-2.5 font-semibold disabled:opacity-50"
           >

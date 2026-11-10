@@ -67,6 +67,7 @@ const job = (overrides: Partial<ExportJob>): ExportJob => ({
   skippedPages: 0,
   message: null,
   startedAt: 0,
+  progress: null,
   ...overrides,
 });
 
@@ -85,8 +86,20 @@ describe('Exports', () => {
       Promise.resolve(
         ok(
           request.destination === 'share' && request.format === 'cbz'
-            ? { chapters: 3, missing: 1, files: 3, problem: 'Sharing sends one file' }
-            : { chapters: 3, missing: 1, files: request.format === 'pdf' ? 1 : 3, problem: null },
+            ? {
+                chapters: 3,
+                missing: 1,
+                files: 3,
+                problem: 'Sharing sends one file',
+                conversions: [],
+              }
+            : {
+                chapters: 3,
+                missing: 1,
+                files: request.format === 'pdf' ? 1 : 3,
+                problem: null,
+                conversions: [],
+              },
         ),
       ),
     );
@@ -159,7 +172,9 @@ describe('Exports', () => {
         ],
       }),
     );
-    commands.exportPlan.mockResolvedValue(ok({ chapters: 2, missing: 0, files: 2, problem: null }));
+    commands.exportPlan.mockResolvedValue(
+      ok({ chapters: 2, missing: 0, files: 2, problem: null, conversions: [] }),
+    );
     await AppShellWrapper.mount(`/manga/title?source=${encodeURIComponent(SOURCE)}&id=m1`);
     const page = await screen.findByTestId('manga-title-page');
     await user.click(await within(page).findByRole('button', { name: 'Export' }));
@@ -206,7 +221,9 @@ describe('Exports', () => {
   it('saves to a folder chosen on the spot, offered again next time', async () => {
     const user = userEvent.setup();
     commands.mangaTitle.mockResolvedValue(ok(TITLE));
-    commands.exportPlan.mockResolvedValue(ok({ chapters: 3, missing: 0, files: 3, problem: null }));
+    commands.exportPlan.mockResolvedValue(
+      ok({ chapters: 3, missing: 0, files: 3, problem: null, conversions: [] }),
+    );
     commands.exportStart.mockResolvedValue(ok(job({})));
     commands.settingsGet.mockResolvedValue(
       ok({

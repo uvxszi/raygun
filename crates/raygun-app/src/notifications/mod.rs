@@ -925,12 +925,14 @@ fn exports(app: &AppHandle) -> Vec<Download> {
                 subtitle: (phase == Phase::Running).then(|| {
                     match job.state {
                         ExportState::Downloading => "Downloading chapters",
+                        _ if job.progress.is_some() => "Converting",
                         _ => "Writing",
                     }
                     .to_owned()
                 }),
                 phase,
-                done: f64::from(job.downloaded + job.written),
+                // A video being converted counts its share of the file it's on.
+                done: f64::from(job.downloaded + job.written) + job.progress.unwrap_or(0.0),
                 total: (total > 0).then(|| f64::from(total)),
                 unit: Unit::Chapters,
                 bytes: None,

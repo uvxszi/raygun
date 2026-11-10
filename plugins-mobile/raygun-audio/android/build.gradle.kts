@@ -35,6 +35,8 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.11.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.11.1")
+    // Video exports re-encoded to H.264 and AAC with the phone's own encoders (VideoConvert).
+    implementation("androidx.media3:media3-transformer:1.11.1")
     implementation(project(":tauri-android"))
     // Tauri's own JSON mapper, for the commands Rust runs without the activity (DirectCalls);
     // tauri-android ships it at run time.

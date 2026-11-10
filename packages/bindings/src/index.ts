@@ -1400,11 +1400,11 @@ export const commands = {
  *  stream's segments joined: MPEG-TS or fragmented MP4).
  */
 "video" | 
-/**  Videos: MP4, packets copied (no re-encoding). */
+/**  Videos: MP4 with H.264 and AAC, copied when they're that already, else re-encoded. */
 "mp4" | 
-/**  Videos: Matroska, packets copied. */
+/**  Videos: Matroska, streams copied (re-encoded only where a phone can't carry them). */
 "mkv" | 
-/**  Videos: the sound alone, AAC in an M4A file. */
+/**  Videos: the sound alone, AAC in an M4A file (re-encoded unless it is AAC). */
 "m4a" | 
 /**  Videos: the sound alone as MP3 (encoded unless it is MP3 already). */
 "mp3" | null, string>(__TAURI_INVOKE("export_last_format", { medium })),
@@ -2867,6 +2867,25 @@ export type EpisodeSort =
 /**  Started ones, then the rest not played, then the played. */
 "unplayed";
 
+/**
+ *  What a video format does with the episodes already downloaded: streams copied as they are, or
+ *  re-encoded (the picture to H.264, the sound to AAC or MP3) where the format can't hold them as a
+ *  file every player plays.
+ */
+export type ExportConversion = {
+	format: ExportFormat,
+	/**  The picture is re-encoded, for at least one episode. */
+	video: boolean,
+	/**  The sound is re-encoded, for at least one episode. */
+	audio: boolean,
+	/**  What's re-encoded from, as people know the codecs ("VP9", "Opus"). */
+	from: string[],
+	/**  About how long writing the files takes, in seconds (when the lengths are known). */
+	seconds: number | null,
+	/**  Re-encoding needs FFmpeg, which isn't on this computer yet. */
+	needsFfmpeg: boolean,
+};
+
 /**  Where an export's files go. */
 export type ExportDestination = 
 /**  `Download/Raygun/`. */
@@ -2904,11 +2923,11 @@ export type ExportFormat =
  *  stream's segments joined: MPEG-TS or fragmented MP4).
  */
 "video" | 
-/**  Videos: MP4, packets copied (no re-encoding). */
+/**  Videos: MP4 with H.264 and AAC, copied when they're that already, else re-encoded. */
 "mp4" | 
-/**  Videos: Matroska, packets copied. */
+/**  Videos: Matroska, streams copied (re-encoded only where a phone can't carry them). */
 "mkv" | 
-/**  Videos: the sound alone, AAC in an M4A file. */
+/**  Videos: the sound alone, AAC in an M4A file (re-encoded unless it is AAC). */
 "m4a" | 
 /**  Videos: the sound alone as MP3 (encoded unless it is MP3 already). */
 "mp3";
@@ -2936,6 +2955,8 @@ export type ExportJob = {
 	skippedPages: number,
 	message: string | null,
 	startedAt: number | null,
+	/**  How far the file being converted is, 0 to 1 (videos re-encoded or copied into a format). */
+	progress: number | null,
 };
 
 /**  What an export would do, shown before it starts. */
@@ -2947,6 +2968,8 @@ export type ExportPlan = {
 	files: number,
 	/**  Why it can't run as asked, if so (e.g. a video stream with separate audio). */
 	problem: string | null,
+	/**  Videos: what each format does with the episodes downloaded so far. */
+	conversions: ExportConversion[],
 };
 
 export type ExportRequest = {
@@ -7037,6 +7060,8 @@ export type YtDlpStatus = {
 	ffmpeg: boolean,
 	/**  yt-dlp or FFmpeg is being fetched now. */
 	installing: boolean,
+	/**  How far the fetch is, 0 to 1, when its size is known. */
+	progress: number | null,
 	/**  Why the last fetch failed. */
 	message: string | null,
 };

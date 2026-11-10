@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
-use mp4_atom::{Atom, Codec as Entry, Moof, Moov, StszSamples, Trak, Trex};
+use mp4_atom::{Atom, Codec as Entry, FourCC, Moof, Moov, StszSamples, Trak, Trex};
 
 use super::codec::{self, Ac3};
 use super::{Codec, Demux, Error, Packet, Result, Segments, Track};
@@ -51,6 +51,10 @@ enum Input<'a> {
 
 pub struct Mp4Demux<'a> {
     tracks: Vec<Track>,
+    /// Streams left out (codecs Raygun can't carry): picture or not, and the codec.
+    skipped: Vec<(bool, String)>,
+    /// How long the movie plays, when it says.
+    seconds: Option<f64>,
     infos: Vec<Info>,
     by_id: HashMap<u32, usize>,
     /// Where a track's next fragment starts decoding when it has no `tfdt`.
@@ -292,13 +296,44 @@ fn shift_of(trak: &Trak, movie_timescale: u32) -> i64 {
     delay
 }
 
+/// A sample entry's codec by FFmpeg's name for it, for one Raygun can't carry.
+fn entry_name(entry: &Entry) -> String {
+    match entry {
+        Entry::Vp08(_) => "vp8".into(),
+        Entry::Flac(_) => "flac".into(),
+        Entry::Jpeg(_) => "mjpeg".into(),
+        Entry::Samr(_) => "amr_nb".into(),
+        Entry::Mp4a(_) => "mpeg4 audio".into(),
+        Entry::Ipcm(_)
+        | Entry::Fpcm(_)
+        | Entry::Sowt(_)
+        | Entry::Twos(_)
+        | Entry::Lpcm(_)
+        | Entry::In24(_)
+        | Entry::In32(_)
+        | Entry::Fl32(_)
+        | Entry::Fl64(_)
+        | Entry::S16l(_) => "pcm".into(),
+        Entry::Unknown(kind, _) => kind.to_string().trim().to_lowercase(),
+        _ => "unknown".into(),
+    }
+}
+
 impl<'a> Mp4Demux<'a> {
     fn with(moov: &Moov, input: Input<'a>) -> Self {
         let mut tracks = Vec::new();
         let mut infos = Vec::new();
         let mut by_id = HashMap::new();
+        let mut skipped = Vec::new();
         for trak in &moov.trak {
             let Some(track) = track_of(trak) else {
+                let handler = trak.mdia.hdlr.handler;
+                let video = handler == FourCC::new(b"vide");
+                if (video || handler == FourCC::new(b"soun"))
+                    && let Some(entry) = trak.mdia.minf.stbl.stsd.codecs.first()
+                {
+                    skipped.push((video, entry_name(entry)));
+                }
                 continue;
             };
             let id = trak.tkhd.track_id;
@@ -313,8 +348,15 @@ impl<'a> Mp4Demux<'a> {
                     .cloned(),
             });
         }
+        let timescale = f64::from(moov.mvhd.timescale.max(1));
+        let length = match moov.mvex.as_ref().and_then(|mvex| mvex.mehd.as_ref()) {
+            Some(mehd) => mehd.fragment_duration,
+            None => moov.mvhd.duration,
+        };
         Self {
             tracks,
+            skipped,
+            seconds: (length > 0).then(|| length as f64 / timescale),
             infos,
             by_id,
             next_decode: HashMap::new(),
@@ -644,5 +686,13 @@ impl Demux for Mp4Demux<'_> {
 
     fn tracks(&self) -> &[Track] {
         &self.tracks
+    }
+
+    fn seconds(&self) -> Option<f64> {
+        self.seconds
+    }
+
+    fn skipped(&self) -> Vec<(bool, String)> {
+        self.skipped.clone()
     }
 }

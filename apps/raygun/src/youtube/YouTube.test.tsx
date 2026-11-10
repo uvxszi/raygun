@@ -29,7 +29,14 @@ describe('YouTube addresses (M46.47)', () => {
     const user = userEvent.setup();
     commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
     commands.ytdlpStatus.mockResolvedValue(
-      ok({ supported: true, version: null, ffmpeg: false, installing: false, message: null }),
+      ok({
+        supported: true,
+        version: null,
+        ffmpeg: false,
+        installing: false,
+        progress: null,
+        message: null,
+      }),
     );
     await AppShellWrapper.mount(`/browse?tab=search&q=${encodeURIComponent(ADDRESS)}`);
 
@@ -95,7 +102,14 @@ describe('YouTube addresses (M46.47)', () => {
     const user = userEvent.setup();
     commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
     commands.ytdlpStatus.mockResolvedValue(
-      ok({ supported: true, version: '2026.10.1', ffmpeg: true, installing: false, message: null }),
+      ok({
+        supported: true,
+        version: '2026.10.1',
+        ffmpeg: true,
+        installing: false,
+        progress: null,
+        message: null,
+      }),
     );
     const failed = {
       id: 'job',

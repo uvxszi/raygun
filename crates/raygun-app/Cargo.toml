@@ -99,9 +99,13 @@ fontdb = { version = "0.24", default-features = false, features = ["std", "fs", 
 # The browser-check window sends the checked request's body as a memory stream (`Win32_UI_Shell`).
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
-# Windows' OCR reads screenshots for importing songs (M46.21).
+# Windows' OCR reads screenshots for importing songs (M46.21). Media Foundation checks that a
+# converted video opens and decodes in Windows' own players.
 windows = { version = "0.62", features = [
+    "Win32_Media_MediaFoundation",
     "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
     "Win32_UI_Shell",
     "Foundation",
     "Foundation_Collections",
