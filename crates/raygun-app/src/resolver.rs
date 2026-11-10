@@ -46,6 +46,22 @@ const OTHER_SOURCES: usize = 6;
 /// in the embed. Without it a YouTube item plays in the embed.
 pub const YOUTUBE_STREAMS: &str = "dev.raygun.youtube/stream";
 const YOUTUBE_AUDIO: &str = "audio:";
+/// Nuclear's YouTube plugin's stream provider: its candidates are plain video ids, answered with
+/// the video's own audio file by the host's YouTube API. It answers for a video's audio when the
+/// YouTube extension isn't installed.
+pub const NUCLEAR_YOUTUBE_STREAMS: &str = "nuclear.nuclear-plugin-youtube/youtube";
+
+/// Which provider asks for a YouTube video's own audio file, and with which candidate: the
+/// YouTube extension's `audio:<video>` when it's listed (or when neither is: its error says so),
+/// else Nuclear's YouTube plugin's `<video>`.
+fn youtube_audio_call(listed: &[String], video_id: &str) -> (&'static str, String) {
+    let has = |id: &str| listed.iter().any(|listed| listed == id);
+    if has(NUCLEAR_YOUTUBE_STREAMS) && !has(YOUTUBE_STREAMS) {
+        (NUCLEAR_YOUTUBE_STREAMS, video_id.to_owned())
+    } else {
+        (YOUTUBE_STREAMS, format!("{YOUTUBE_AUDIO}{video_id}"))
+    }
+}
 
 /// What "via …" says for a provider no installed extension lists: YouTube's embed (no YouTube
 /// extension installed), or a remembered pick of an extension removed since. Its extension's own
@@ -549,11 +565,7 @@ impl ResolverService {
                     return Some(pick(audio, source, expires_at, true));
                 }
                 _ if failed_lately && !exclusions.deep => {}
-                _ => match self
-                    .extensions()
-                    .resolve_stream(YOUTUBE_STREAMS, &audio.candidate_id, using)
-                    .await
-                {
+                _ => match self.resolve_youtube_audio(video_id, using).await {
                     // The same stream that failed just now: on to the embed.
                     Ok(stream) if exclusions.failed_sources.contains(&stream.source) => {}
                     Ok(stream) => {
@@ -594,12 +606,26 @@ impl ResolverService {
         video_id: &str,
         using: StreamUse,
     ) -> Result<ResolvedStream, String> {
+        self.resolve_youtube_audio(video_id, using).await
+    }
+
+    /// Asks the installed YouTube source for a video's own audio file ([`youtube_audio_call`]).
+    async fn resolve_youtube_audio(
+        &self,
+        video_id: &str,
+        using: StreamUse,
+    ) -> Result<ResolvedStream, String> {
+        let listed: Vec<String> = self
+            .extensions()
+            .list()
+            .await
+            .into_iter()
+            .flat_map(|extension| extension.providers)
+            .map(|provider| provider.id)
+            .collect();
+        let (provider, candidate) = youtube_audio_call(&listed, video_id);
         self.extensions()
-            .resolve_stream(
-                YOUTUBE_STREAMS,
-                &format!("{YOUTUBE_AUDIO}{video_id}"),
-                using,
-            )
+            .resolve_stream(provider, &candidate, using)
             .await
     }
 
@@ -857,6 +883,26 @@ fn to_try(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_videos_audio_comes_from_whichever_youtube_source_is_installed() {
+        let listed = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            youtube_audio_call(&listed(&[YOUTUBE_STREAMS]), "abc"),
+            (YOUTUBE_STREAMS, "audio:abc".to_owned())
+        );
+        assert_eq!(
+            youtube_audio_call(&listed(&[NUCLEAR_YOUTUBE_STREAMS]), "abc"),
+            (NUCLEAR_YOUTUBE_STREAMS, "abc".to_owned())
+        );
+        // Both: the YouTube extension's, which also knows embeds.
+        assert_eq!(
+            youtube_audio_call(&listed(&[NUCLEAR_YOUTUBE_STREAMS, YOUTUBE_STREAMS]), "abc").0,
+            YOUTUBE_STREAMS
+        );
+        // Neither: the YouTube extension's call, whose error says it isn't there.
+        assert_eq!(youtube_audio_call(&[], "abc").0, YOUTUBE_STREAMS);
+    }
+
     use super::*;
 
     fn candidate(id: &str, title: &str) -> Candidate {
