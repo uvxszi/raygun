@@ -327,10 +327,14 @@ fn read_answer(answer: Value) -> Result<Value, String> {
 }
 
 fn command(java: &Path) -> tokio::process::Command {
-    let mut command = tokio::process::Command::new(java);
     #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    command
+    {
+        let mut command = tokio::process::Command::new(java);
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        command
+    }
+    #[cfg(not(windows))]
+    tokio::process::Command::new(java)
 }
 
 #[cfg(test)]
