@@ -1,6 +1,8 @@
 import { dehydrate, hydrate } from '@tanstack/react-query';
 import type { DehydratedState, Query, QueryClient } from '@tanstack/react-query';
 
+import { canCompress, gunzipText, gzipText, packQueries, unpackQueries } from './cachePack';
+
 const DB_NAME = 'raygun-cache';
 const STORE = 'queries';
 const RECORD = 'client';
@@ -42,9 +44,32 @@ const VOLATILE = new Set([
   // What to continue watching and the history follow the player, which saves after this cache
   // does: a restored answer would show an episode left behind.
   'watch',
+  // Whether this start shows What's new: a restored answer showed notes already seen.
+  'appWhatsNew',
 ]);
 
-type Saved = { build: string; savedAt: number; state: DehydratedState };
+/**
+ * What's kept in IndexedDB: the answers as gzipped JSON (shell/cachePack), or as they are where
+ * the browser can't compress (and as earlier versions kept them, which still read).
+ */
+export type Saved = { build: string; savedAt: number } & (
+  { packed: Uint8Array<ArrayBuffer>; tagged: string[] } | { state: DehydratedState }
+);
+
+/** `state` as it's kept: compressed where the browser can. */
+export const toSaved = async (
+  state: DehydratedState,
+  build: string,
+  savedAt: number,
+): Promise<Saved> => {
+  if (!canCompress()) return { build, savedAt, state };
+  const { json, tagged } = packQueries(state);
+  return { build, savedAt, packed: await gzipText(json), tagged };
+};
+
+/** The answers in `saved`, whichever way they were kept. */
+export const fromSaved = async (saved: Saved): Promise<DehydratedState> =>
+  'packed' in saved ? unpackQueries(await gunzipText(saved.packed), saved.tagged) : saved.state;
 
 /** Builds differ in what answers look like, so each starts from its own saved cache. */
 const BUILD = typeof __RAYGUN_BUILD__ === 'string' ? __RAYGUN_BUILD__ : 'dev';
@@ -143,10 +168,15 @@ export const restoreQueryCache = async (client: QueryClient) => {
   const timeout = new Promise<undefined>((resolve) =>
     setTimeout(() => resolve(undefined), RESTORE_WAIT_MS),
   );
+  const saved = async () => {
+    const found = await read();
+    if (!found || found.build !== BUILD || Date.now() - found.savedAt > MAX_AGE_MS) return;
+    return fromSaved(found);
+  };
   try {
-    const saved = await Promise.race([read(), timeout]);
-    if (!saved || saved.build !== BUILD || Date.now() - saved.savedAt > MAX_AGE_MS) return;
-    hydrate(client, saved.state);
+    const state = await Promise.race([saved(), timeout]);
+    if (!state) return;
+    hydrate(client, state);
     // Old answers show until new ones come; none counts as fresh, whatever its staleTime.
     void client.invalidateQueries({ refetchType: 'none' });
   } catch {
@@ -161,8 +191,11 @@ export const restoreQueryCache = async (client: QueryClient) => {
 export const persistQueryCache = (client: QueryClient) => {
   if (typeof indexedDB === 'undefined') return () => {};
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Compressing takes a moment: a save that finishes after a later one started isn't written.
+  let latest = 0;
   const save = () => {
     timer = undefined;
+    const turn = ++latest;
     const kept = new Set(
       client
         .getQueryCache()
@@ -181,9 +214,11 @@ export const persistQueryCache = (client: QueryClient) => {
     } catch {
       return;
     }
-    void write({ build: BUILD, savedAt: Date.now(), state }).catch(() => {
-      // Full or blocked storage: the next start just loads as before.
-    });
+    void toSaved(state, BUILD, Date.now())
+      .then((saved) => (turn === latest ? write(saved) : undefined))
+      .catch(() => {
+        // Full or blocked storage: the next start just loads as before.
+      });
   };
   const later = () => {
     timer ??= setTimeout(save, SAVE_EVERY_MS);

@@ -453,3 +453,64 @@ async fn local_values_round_trip_and_never_touch_synced_settings() {
     );
     assert!(settings::load(&db).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn long_local_values_are_kept_compressed_and_old_ones_still_read() {
+    let dir = TempDir::new().unwrap();
+    let db = open_in(dir.path()).await;
+    let stored = |key: &'static str| {
+        let pool = db.pool().clone();
+        async move {
+            sqlx::query_scalar::<_, String>("SELECT value FROM local_meta WHERE key = ?1")
+                .bind(key)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    let songs: Vec<String> = (0..150)
+        .map(|n| {
+            format!(
+                r#"{{"title":"Song {n}","artist":"Artist {}","durationMs":{}}}"#,
+                n % 9,
+                200_000 + n
+            )
+        })
+        .collect();
+    let mixes = format!(r#"{{"day":"2026-11-09","songs":[{}]}}"#, songs.join(","));
+    set_local_value(&db, "music.madeForYou", &mixes)
+        .await
+        .unwrap();
+    assert!(stored("music.madeForYou").await.len() * 4 < mixes.len());
+    assert_eq!(
+        local_value(&db, "music.madeForYou").await.unwrap(),
+        Some(mixes.clone())
+    );
+
+    // Short ones stay as they are, for anything that reads them in SQL (the clock).
+    set_local_value(&db, "updates.notesShown", "1.3.1")
+        .await
+        .unwrap();
+    assert_eq!(stored("updates.notesShown").await, "1.3.1");
+
+    // Written plain by an earlier version.
+    sqlx::query("INSERT INTO local_meta (key, value) VALUES ('playback.last', ?1)")
+        .bind(&mixes)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        local_value(&db, "playback.last").await.unwrap(),
+        Some(mixes)
+    );
+
+    sqlx::query("INSERT INTO local_meta (key, value) VALUES ('broken', ?1)")
+        .bind("\u{1}z1:not deflate")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    assert!(matches!(
+        local_value(&db, "broken").await,
+        Err(DbError::Damaged { key }) if key == "broken"
+    ));
+}

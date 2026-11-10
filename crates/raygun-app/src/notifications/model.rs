@@ -77,6 +77,31 @@ impl Kind {
         }
     }
 
+    /// What one is called, for a download that has no title of its own.
+    fn noun(self) -> &'static str {
+        match self {
+            Kind::Songs => "Song",
+            Kind::Videos => "Video",
+            Kind::Chapters => "Chapter",
+            Kind::Podcasts => "Episode",
+            Kind::Exports => "Export",
+            Kind::Models => "AI model",
+            Kind::Update => "Raygun update",
+            Kind::YtDlp => "YouTube download",
+            Kind::Files => "File",
+            Kind::Extensions => "Extensions",
+        }
+    }
+
+    /// What a running one is doing, when nothing else says.
+    fn doing(self) -> &'static str {
+        match self {
+            Kind::Exports => "Exporting",
+            Kind::Extensions => "Installing",
+            _ => "Downloading",
+        }
+    }
+
     /// "3 songs", "1 video".
     fn count(self, count: usize) -> String {
         let (one, many) = match self {
@@ -176,6 +201,15 @@ impl Download {
         key(self.kind, &self.id)
     }
 
+    /// This download with a title to show: its own, or what its kind is called.
+    fn named(&self) -> Download {
+        let mut named = self.clone();
+        if named.title.trim().is_empty() {
+            named.title = self.kind.noun().to_owned();
+        }
+        named
+    }
+
     fn fraction(&self) -> Option<f64> {
         match (self.unit, self.total) {
             (Unit::Fraction, _) => Some(self.done.clamp(0.0, 1.0)),
@@ -257,6 +291,45 @@ pub struct Update {
     pub started: Vec<String>,
 }
 
+impl Shown {
+    /// A line left blank says something general instead.
+    fn fill_blanks(&mut self) {
+        if self.title.trim().is_empty() {
+            self.title = "Downloads".into();
+        }
+        if self.text.trim().is_empty() {
+            self.text = if self.ongoing {
+                "Downloading"
+            } else {
+                "In Downloads"
+            }
+            .into();
+        }
+    }
+}
+
+impl Update {
+    /// No notification goes out with a blank title or text (Android shows it empty).
+    fn fill_blanks(&mut self) {
+        for shown in self
+            .plan
+            .summary
+            .iter_mut()
+            .chain(self.plan.items.iter_mut())
+        {
+            shown.fill_blanks();
+        }
+        if let Some(finished) = &mut self.finished {
+            if finished.title.trim().is_empty() {
+                finished.title = "Downloads finished".into();
+            }
+            if finished.text.trim().is_empty() {
+                finished.text = "See them in Downloads".into();
+            }
+        }
+    }
+}
+
 /// A plan that hasn't changed is sent again this often while anything shows: the notifications
 /// time out on their own unless refreshed, so a Raygun that was killed leaves none behind, ms.
 pub const RESEND_MS: f64 = 60_000.0;
@@ -320,6 +393,15 @@ impl Tracker {
 
     /// Takes every download as the services report them now.
     pub fn update(&mut self, now_ms: f64, downloads: &[Download]) -> Update {
+        // Android shows a notification without a title or text as an empty one: every download
+        // is named (by its kind when it has no title), and every line says something.
+        let named: Vec<Download> = downloads.iter().map(Download::named).collect();
+        let mut update = self.update_named(now_ms, &named);
+        update.fill_blanks();
+        update
+    }
+
+    fn update_named(&mut self, now_ms: f64, downloads: &[Download]) -> Update {
         let started = self.started(downloads);
         for download in downloads {
             self.learn(now_ms, download);
@@ -629,7 +711,10 @@ impl Tracker {
         let speed = self.speed(download);
         let left = self.left(download);
         let amount = amount_text(download);
-        let text = join([download.subtitle.clone(), amount]);
+        let mut text = join([download.subtitle.clone(), amount]);
+        if text.is_empty() {
+            text = download.kind.doing().to_owned();
+        }
         let info = Some(join([speed.map(speed_text), left.map(left_text)]))
             .filter(|info| !info.is_empty());
         let key = download.key();
@@ -699,11 +784,23 @@ fn finish(batch: u64, ended: &[Download]) -> Option<Finished> {
             }
         }
         (None, Some(installs)) => {
+            let failed = installs.phase == Phase::Failed;
             finished = Some(Finished {
                 batch,
                 title: installs.title.clone(),
-                text: installs.subtitle.clone().unwrap_or_default(),
-                failed: installs.phase == Phase::Failed,
+                text: installs
+                    .subtitle
+                    .clone()
+                    .filter(|text| !text.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        if failed {
+                            "Try it again from Extensions"
+                        } else {
+                            "Ready to use"
+                        }
+                        .to_owned()
+                    }),
+                failed,
                 actions: if installs.abilities.retry {
                     vec![Action {
                         id: "retry",
@@ -1001,10 +1098,14 @@ pub fn extension_installs(status: &raygun_model::ExtensionInstallStatus) -> Opti
         };
         if status.total == 1 {
             let only = batch.first()?;
+            let name = match only.name.trim() {
+                "" => "Extension",
+                name => name,
+            };
             return Some(Download {
                 title: match only.state {
-                    State::Failed => format!("{} didn't install", only.name),
-                    _ => format!("{} installed", only.name),
+                    State::Failed => format!("{name} didn't install"),
+                    _ => format!("{name} installed"),
                 },
                 subtitle: only.error.clone(),
                 ..installs_download(status, phase, String::new(), None, route)

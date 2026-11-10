@@ -13,6 +13,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.AuxEffectInfo
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -22,6 +23,26 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+
+/**
+ * Media3's notification with both lines filled. An item without a title or artist (a stream that
+ * named nothing, a song Rust is still finding, the mirror before Rust says what plays) would
+ * otherwise post an empty notification; this one always says what runs.
+ */
+@UnstableApi
+private class RaygunNotificationProvider(
+    context: Context,
+    /** Whether the session's player plays or is about to. */
+    private val playing: () -> Boolean,
+) : DefaultMediaNotificationProvider(context) {
+    override fun getNotificationContentTitle(metadata: MediaMetadata): CharSequence =
+        firstText(metadata.title, metadata.displayTitle)
+            ?: if (playing()) "Playing music" else "Music paused"
+
+    override fun getNotificationContentText(metadata: MediaMetadata): CharSequence =
+        firstText(metadata.artist, metadata.albumArtist, metadata.subtitle, metadata.albumTitle, metadata.station)
+            ?: "Raygun"
+}
 
 /**
  * The locks a player holds while it plays: a song from a file (or the proxy's `/local/` route)
@@ -167,7 +188,8 @@ class RaygunPlaybackService : MediaSessionService() {
         // Raygun's mark as the small icon. Media3's own default (a play button in a circle) is a
         // values alias that a drawable of the same name doesn't reliably replace, so it's named.
         setMediaNotificationProvider(
-            DefaultMediaNotificationProvider.Builder(this).build().apply { setSmallIcon(R.drawable.ic_stat_raygun) },
+            RaygunNotificationProvider(this) { session?.player?.playWhenReady == true }
+                .apply { setSmallIcon(R.drawable.ic_stat_raygun) },
         )
         val builder = MediaSession.Builder(this, shown[0])
         // Tapping the notification opens the full player.

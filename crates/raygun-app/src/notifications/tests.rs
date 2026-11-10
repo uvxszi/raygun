@@ -744,6 +744,96 @@ fn a_click_on_a_notification_opens_the_route_it_carries() {
     );
 }
 
+/// Every line of every notification in `update` says something.
+fn assert_nothing_blank(update: &Update) {
+    for shown in update.plan.summary.iter().chain(update.plan.items.iter()) {
+        assert!(!shown.title.trim().is_empty(), "a title in {shown:?}");
+        assert!(!shown.text.trim().is_empty(), "a text in {shown:?}");
+    }
+    if let Some(finished) = &update.finished {
+        assert!(!finished.title.trim().is_empty(), "{finished:?}");
+        assert!(!finished.text.trim().is_empty(), "{finished:?}");
+    }
+}
+
+#[test]
+fn downloads_without_a_title_or_progress_still_say_what_they_are() {
+    let untitled = |id: &str, phase: Phase| Download {
+        title: " ".into(),
+        subtitle: None,
+        total: None,
+        ..song(id, phase, 0.0)
+    };
+    let mut tracker = Tracker::default();
+    let update = tracker.update(0.0, &[untitled("a", Phase::Running)]);
+    assert_nothing_blank(&update);
+    let summary = update.plan.summary.unwrap();
+    assert_eq!(summary.title, "Song");
+    assert_eq!(summary.text, "Downloading");
+
+    // Several, one paused, one held by battery saver.
+    let update = tracker.update(
+        1_000.0,
+        &[
+            untitled("a", Phase::Running),
+            untitled("b", Phase::Running),
+            Download {
+                title: String::new(),
+                ..chapter("1", Phase::Paused, 0.0)
+            },
+            untitled("c", Phase::Held),
+        ],
+    );
+    assert_nothing_blank(&update);
+    assert!(update.plan.items.iter().any(|item| item.text == "Chapter"));
+
+    // The batch ends: one saved, one failed without a reason.
+    let update = tracker.update(
+        2_000.0,
+        &[untitled("a", Phase::Done), untitled("b", Phase::Failed)],
+    );
+    assert_nothing_blank(&update);
+    let finished = update.finished.unwrap();
+    assert_eq!(finished.title, "1 downloaded, 1 didn't");
+    assert_eq!(finished.text, "Not downloaded: Song");
+}
+
+#[test]
+fn a_lone_extension_install_that_worked_says_so() {
+    use raygun_model::ExtensionInstallState as State;
+    let mut tracker = Tracker::default();
+    tracker.update(
+        0.0,
+        &[extension_installs(&installs(&[State::Installing], true)).unwrap()],
+    );
+    let update = tracker.update(
+        1_000.0,
+        &[extension_installs(&installs(&[State::Done], false)).unwrap()],
+    );
+    assert_nothing_blank(&update);
+    let finished = update.finished.unwrap();
+    assert_eq!(finished.title, "Ext 0 installed");
+    assert_eq!(finished.text, "Ready to use");
+}
+
+#[test]
+fn notices_say_something_on_both_lines_or_arent_shown() {
+    let notice = |title: &str, text: &str| super::Notice {
+        id: 1,
+        channel: &super::RELEASES,
+        title: title.into(),
+        text: text.into(),
+        route: "/".into(),
+    };
+    let filled = notice("New from Nina Simone", " ").filled().unwrap();
+    assert_eq!(filled.title, "New from Nina Simone");
+    assert_eq!(filled.text, "Releases from artists you follow");
+    let filled = notice("", "Little Girl Blue").filled().unwrap();
+    assert_eq!(filled.title, "New releases");
+    assert_eq!(filled.text, "Little Girl Blue");
+    assert!(notice(" ", "").filled().is_none());
+}
+
 #[test]
 fn notices_tell_the_plugin_their_channel_and_route() {
     let notice = super::Notice {
