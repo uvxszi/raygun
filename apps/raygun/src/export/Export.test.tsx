@@ -144,6 +144,65 @@ describe('Exports', () => {
     expect(await screen.findByTestId('downloads-page')).toBeInTheDocument();
   });
 
+  it('ticks the chapters to export: all, a range, or chosen ones', async () => {
+    const user = userEvent.setup();
+    commands.mangaTitle.mockResolvedValue(
+      ok({
+        ...TITLE,
+        chapters: [
+          chapter('c3', 'Chapter 3'),
+          { ...chapter('c2', 'Chapter 2'), read: true },
+          {
+            ...chapter('c1', 'Chapter 1'),
+            download: { state: 'done', pagesDone: 1, pagesTotal: 1, error: null },
+          },
+        ],
+      }),
+    );
+    commands.exportPlan.mockResolvedValue(ok({ chapters: 2, missing: 0, files: 2, problem: null }));
+    await AppShellWrapper.mount(`/manga/title?source=${encodeURIComponent(SOURCE)}&id=m1`);
+    const page = await screen.findByTestId('manga-title-page');
+    await user.click(await within(page).findByRole('button', { name: 'Export' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Export' });
+    const list = within(sheet).getByRole('list', { name: 'Chapters to export' });
+    const box = (name: string) => within(list).getByRole('checkbox', { name: new RegExp(name) });
+    // In reading order, all ticked at first.
+    expect(
+      within(list)
+        .getAllByRole('checkbox')
+        .map((item) => item.textContent),
+    ).toEqual(['Chapter 1', 'Chapter 2', 'Chapter 3']);
+    expect(box('Chapter 2')).toHaveAttribute('aria-checked', 'true');
+
+    // Unread ones tick what they take.
+    await user.click(within(sheet).getByRole('radio', { name: 'Unread chapters' }));
+    expect(box('Chapter 2')).toHaveAttribute('aria-checked', 'false');
+    await vi.waitFor(() => expect(lastRequest().scope).toEqual({ kind: 'unread' }));
+
+    // Ticking a box makes the list one's own.
+    await user.click(box('Chapter 3'));
+    expect(within(sheet).getByRole('radio', { name: 'Chosen chapters' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await vi.waitFor(() => expect(lastRequest().scope).toEqual({ kind: 'chosen', ids: ['c1'] }));
+    await user.click(within(sheet).getByRole('button', { name: 'Tick all' }));
+    await vi.waitFor(() =>
+      expect(lastRequest().scope).toEqual({ kind: 'chosen', ids: ['c1', 'c2', 'c3'] }),
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Clear' }));
+    await vi.waitFor(() => expect(lastRequest().scope).toEqual({ kind: 'chosen', ids: [] }));
+
+    // A range from–to ticks what's between.
+    await user.click(within(sheet).getByRole('radio', { name: 'From one chapter to another' }));
+    await user.selectOptions(within(sheet).getByRole('combobox', { name: 'From' }), 'c2');
+    expect(box('Chapter 1')).toHaveAttribute('aria-checked', 'false');
+    expect(box('Chapter 3')).toHaveAttribute('aria-checked', 'true');
+    await vi.waitFor(() =>
+      expect(lastRequest().scope).toEqual({ kind: 'range', from: 'c2', to: 'c3' }),
+    );
+  });
+
   it('saves to a folder chosen on the spot, offered again next time', async () => {
     const user = userEvent.setup();
     commands.mangaTitle.mockResolvedValue(ok(TITLE));
@@ -230,7 +289,12 @@ describe('Exports', () => {
     const card = await screen.findByRole('listitem', { name: 'Frieren' });
     expect(card).toHaveTextContent('CBZ · Writing 1 of 3');
     expect(within(card).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1');
+    // Stopping asks first; the files already saved stay.
     await user.click(within(card).getByRole('button', { name: 'Cancel Frieren' }));
+    const ask = await screen.findByRole('dialog', { name: 'Stop this export?' });
+    expect(ask).toHaveTextContent('Files it already saved stay where they are.');
+    expect(commands.exportCancel).not.toHaveBeenCalled();
+    await user.click(within(ask).getByRole('button', { name: 'Stop' }));
     expect(commands.exportCancel).toHaveBeenCalledWith('j1');
 
     emitEvent(

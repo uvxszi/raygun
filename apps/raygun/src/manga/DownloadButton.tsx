@@ -3,6 +3,7 @@ import { CircleAlert, CircleCheck, Clock, Download } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { StopDownloadButton } from '../downloads/StopDownload';
 import { ConfirmButton } from '../shell/ConfirmButton';
 import { useDownloadChapters, useRemoveDownloads } from './useManga';
 
@@ -36,8 +37,8 @@ export const ProgressRing: FC<{ fraction: number }> = ({ fraction }) => {
 };
 
 /**
- * A chapter's download control: download, then queued or a progress ring (tap to cancel), then a
- * check (tap twice to delete the files); a failed download retries on tap.
+ * A chapter's download control: download, then queued or a progress ring (tap to stop, asked
+ * first), then a check (tap twice to delete the files); a failed download retries on tap.
  */
 export const DownloadButton: FC<{ chapter: MangaChapterInfo }> = ({ chapter }) => {
   const { t } = useTranslation();
@@ -63,15 +64,15 @@ export const DownloadButton: FC<{ chapter: MangaChapterInfo }> = ({ chapter }) =
     const { pagesDone, pagesTotal } = chapter.download ?? { pagesDone: 0, pagesTotal: null };
     const percent = pagesTotal ? Math.round((pagesDone / pagesTotal) * 100) : 0;
     return (
-      <button
-        type="button"
-        aria-label={
+      <StopDownloadButton
+        label={
           state === 'queued'
             ? t('manga.cancelQueued', { name: chapter.name })
             : t('manga.cancelDownloading', { name: chapter.name, percent })
         }
+        name={chapter.name}
         disabled={busy}
-        onClick={() => remove.mutate([chapter.id])}
+        onStop={() => remove.mutate([chapter.id])}
         className={`${base} text-muted`}
       >
         {state === 'queued' ? (
@@ -79,7 +80,7 @@ export const DownloadButton: FC<{ chapter: MangaChapterInfo }> = ({ chapter }) =
         ) : (
           <ProgressRing fraction={pagesTotal ? pagesDone / pagesTotal : 0} />
         )}
-      </button>
+      </StopDownloadButton>
     );
   }
   return (

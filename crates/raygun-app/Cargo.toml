@@ -62,6 +62,10 @@ zune-jpegxl = "0.5"
 zune-core = "0.5"
 aes = "0.8"
 cbc = "0.1"
+# Video exports in other formats: MP4 boxes read and written, Matroska files read (packets are
+# copied, never re-encoded; MPEG-TS and the Matroska writer are Raygun's own).
+mp4-atom = "0.17"
+matroska-demuxer = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
 # Music downloads (M46.10): decoding to save as WAV or FLAC, and tags on saved files.
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac", "isomp4", "mkv", "flac", "ogg", "vorbis", "wav", "pcm", "opt-simd"] }

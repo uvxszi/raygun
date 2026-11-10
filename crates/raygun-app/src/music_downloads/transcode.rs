@@ -105,7 +105,7 @@ pub(crate) fn open_source(
 
 impl Decoding {
     /// The next decoded piece, interleaved, at 16 bits; `None` at the end.
-    fn next(&mut self, samples: &mut Vec<i16>) -> Result<Option<()>, String> {
+    pub(crate) fn next(&mut self, samples: &mut Vec<i16>) -> Result<Option<()>, String> {
         loop {
             let packet = match self.format.next_packet() {
                 Ok(Some(packet)) => packet,
@@ -269,75 +269,116 @@ fn lame_bitrate(kbps: u32) -> mp3lame_encoder::Bitrate {
 fn write_mp3(decoding: &mut Decoding, path: &Path, kbps: u32) -> Result<(), String> {
     use std::io::Write;
 
-    use mp3lame_encoder::{Builder, FlushNoGap, InterleavedPcm, MonoPcm, Quality};
-
-    let failed = |error: &dyn std::fmt::Display| format!("the MP3 encoder failed ({error})");
     let mut samples = Vec::new();
     // The first piece fixes the rate and channels.
     let first = decoding.next(&mut samples)?;
-    let channels = decoding.channels.max(1);
-    let mono = channels == 1;
-    let mut builder = Builder::new().ok_or("the MP3 encoder didn't start")?;
-    builder
-        .set_num_channels(if mono { 1 } else { 2 })
-        .map_err(|error| failed(&error))?;
-    builder
-        .set_sample_rate(decoding.rate)
-        .map_err(|error| failed(&error))?;
-    builder
-        .set_brate(lame_bitrate(kbps))
-        .map_err(|error| failed(&error))?;
-    // LAME's recommended quality for its speed.
-    builder
-        .set_quality(Quality::NearBest)
-        .map_err(|error| failed(&error))?;
-    // The VBR/Info frame would have to be written back over the file's start.
-    builder
-        .set_to_write_vbr_tag(false)
-        .map_err(|error| failed(&error))?;
-    let mut encoder = builder.build().map_err(|error| failed(&error))?;
+    let mut encoder = Mp3Encoder::new(decoding.rate, decoding.channels, kbps)?;
     let file = File::create(path).map_err(|error| error.to_string())?;
     let mut out = std::io::BufWriter::new(file);
-    let mut encoded = Vec::new();
-    let mut pair = Vec::new();
     if first.is_some() {
         loop {
-            encoded.clear();
-            if mono {
-                encoded.reserve(mp3lame_encoder::max_required_buffer_size(samples.len()));
-                encoder
-                    .encode_to_vec(MonoPcm(samples.as_slice()), &mut encoded)
-                    .map_err(|error| failed(&error))?;
-            } else {
-                let frames: &[i16] = if channels == 2 {
-                    &samples
-                } else {
-                    pair.clear();
-                    pair.extend(
-                        samples
-                            .chunks_exact(channels)
-                            .flat_map(|frame| [frame[0], frame[1]]),
-                    );
-                    &pair
-                };
-                encoded.reserve(mp3lame_encoder::max_required_buffer_size(frames.len() / 2));
-                encoder
-                    .encode_to_vec(InterleavedPcm(frames), &mut encoded)
-                    .map_err(|error| failed(&error))?;
-            }
-            out.write_all(&encoded).map_err(|error| error.to_string())?;
+            encoder.encode(&samples, &mut out)?;
             if decoding.next(&mut samples)?.is_none() {
                 break;
             }
         }
     }
-    encoded.clear();
-    encoded.reserve(7200);
-    encoder
-        .flush_to_vec::<FlushNoGap>(&mut encoded)
-        .map_err(|error| failed(&error))?;
-    out.write_all(&encoded).map_err(|error| error.to_string())?;
+    encoder.finish(&mut out)?;
     out.flush().map_err(|error| error.to_string())
+}
+
+/// LAME at a constant bitrate, fed interleaved 16-bit samples (exported videos' sound too).
+pub(crate) struct Mp3Encoder {
+    encoder: mp3lame_encoder::Encoder,
+    channels: usize,
+    encoded: Vec<u8>,
+    pair: Vec<i16>,
+}
+
+fn lame_failed(error: &dyn std::fmt::Display) -> String {
+    format!("the MP3 encoder failed ({error})")
+}
+
+impl Mp3Encoder {
+    pub(crate) fn new(rate: u32, channels: usize, kbps: u32) -> Result<Self, String> {
+        use mp3lame_encoder::{Builder, Quality};
+
+        let channels = channels.max(1);
+        let mut builder = Builder::new().ok_or("the MP3 encoder didn't start")?;
+        builder
+            .set_num_channels(if channels == 1 { 1 } else { 2 })
+            .map_err(|error| lame_failed(&error))?;
+        builder
+            .set_sample_rate(rate)
+            .map_err(|error| lame_failed(&error))?;
+        builder
+            .set_brate(lame_bitrate(kbps))
+            .map_err(|error| lame_failed(&error))?;
+        // LAME's recommended quality for its speed.
+        builder
+            .set_quality(Quality::NearBest)
+            .map_err(|error| lame_failed(&error))?;
+        // The VBR/Info frame would have to be written back over the file's start.
+        builder
+            .set_to_write_vbr_tag(false)
+            .map_err(|error| lame_failed(&error))?;
+        Ok(Self {
+            encoder: builder.build().map_err(|error| lame_failed(&error))?,
+            channels,
+            encoded: Vec::new(),
+            pair: Vec::new(),
+        })
+    }
+
+    /// Encodes interleaved samples (as many channels as it was made with).
+    pub(crate) fn encode(
+        &mut self,
+        samples: &[i16],
+        out: &mut impl std::io::Write,
+    ) -> Result<(), String> {
+        use mp3lame_encoder::{InterleavedPcm, MonoPcm};
+
+        self.encoded.clear();
+        if self.channels == 1 {
+            self.encoded
+                .reserve(mp3lame_encoder::max_required_buffer_size(samples.len()));
+            self.encoder
+                .encode_to_vec(MonoPcm(samples), &mut self.encoded)
+                .map_err(|error| lame_failed(&error))?;
+        } else {
+            let frames: &[i16] = if self.channels == 2 {
+                samples
+            } else {
+                self.pair.clear();
+                self.pair.extend(
+                    samples
+                        .chunks_exact(self.channels)
+                        .flat_map(|frame| [frame[0], frame[1]]),
+                );
+                &self.pair
+            };
+            self.encoded
+                .reserve(mp3lame_encoder::max_required_buffer_size(frames.len() / 2));
+            self.encoder
+                .encode_to_vec(InterleavedPcm(frames), &mut self.encoded)
+                .map_err(|error| lame_failed(&error))?;
+        }
+        out.write_all(&self.encoded)
+            .map_err(|error| error.to_string())
+    }
+
+    /// The last frames.
+    pub(crate) fn finish(mut self, out: &mut impl std::io::Write) -> Result<(), String> {
+        use mp3lame_encoder::FlushNoGap;
+
+        self.encoded.clear();
+        self.encoded.reserve(7200);
+        self.encoder
+            .flush_to_vec::<FlushNoGap>(&mut self.encoded)
+            .map_err(|error| lame_failed(&error))?;
+        out.write_all(&self.encoded)
+            .map_err(|error| error.to_string())
+    }
 }
 
 fn write_wav(decoding: &mut Decoding, path: &Path) -> Result<(), String> {

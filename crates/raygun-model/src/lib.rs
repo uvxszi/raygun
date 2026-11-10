@@ -254,6 +254,8 @@ pub struct Settings {
     pub resume_on_start: bool,
     /// Downloads keep going while battery saver is on; off, they wait for it to end.
     pub downloads_in_battery_saver: bool,
+    /// How many downloads the desktop bar's Downloads popover lists, latest first (5 to 100).
+    pub downloads_popover: u32,
     /// How good songs sound against the data they use, streaming and downloading.
     pub audio_quality: AudioQualityPrefs,
     /// What the desktop sidebar shows and in what order (M46.29).
@@ -2599,6 +2601,7 @@ impl Default for Settings {
             keep_music_playing: false,
             resume_on_start: true,
             downloads_in_battery_saver: false,
+            downloads_popover: 20,
             audio_quality: AudioQualityPrefs::default(),
             rail: RailPrefs::default(),
         }
@@ -2661,6 +2664,7 @@ impl Settings {
             SettingChange::KeepMusicPlaying(on) => self.keep_music_playing = on,
             SettingChange::ResumeOnStart(on) => self.resume_on_start = on,
             SettingChange::DownloadsInBatterySaver(on) => self.downloads_in_battery_saver = on,
+            SettingChange::DownloadsPopover(count) => self.downloads_popover = count,
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
@@ -2756,6 +2760,7 @@ pub enum SettingChange {
     KeepMusicPlaying(bool),
     ResumeOnStart(bool),
     DownloadsInBatterySaver(bool),
+    DownloadsPopover(u32),
     AudioQuality(AudioQualityPrefs),
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
@@ -2823,6 +2828,7 @@ impl SettingChange {
             Self::KeepMusicPlaying(_) => "keepMusicPlaying",
             Self::ResumeOnStart(_) => "resumeOnStart",
             Self::DownloadsInBatterySaver(_) => "downloadsInBatterySaver",
+            Self::DownloadsPopover(_) => "downloadsPopover",
             Self::AudioQuality(_) => "audioQuality",
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
@@ -2866,6 +2872,10 @@ impl SettingChange {
                 Err("Lyrics can be kept for at most ten years".into())
             }
             Self::LyricsCache(_) => Ok(()),
+            Self::DownloadsPopover(count) if !(5..=100).contains(count) => {
+                Err("The Downloads list shows 5 to 100 items".into())
+            }
+            Self::DownloadsPopover(_) => Ok(()),
             Self::BrowseStartTab(tab) => browse_tab_known(tab),
             Self::LyricsTranslation(prefs) => {
                 let language = prefs.language.trim();
@@ -6384,8 +6394,17 @@ pub enum ExportFormat {
     Epub,
     /// Novels: one text file.
     Text,
-    /// Videos: each downloaded episode as one video file.
+    /// Videos: each downloaded episode as one file in the format it downloaded in (an HLS
+    /// stream's segments joined: MPEG-TS or fragmented MP4).
     Video,
+    /// Videos: MP4, packets copied (no re-encoding).
+    Mp4,
+    /// Videos: Matroska, packets copied.
+    Mkv,
+    /// Videos: the sound alone, AAC in an M4A file.
+    M4a,
+    /// Videos: the sound alone as MP3 (encoded unless it is MP3 already).
+    Mp3,
 }
 
 /// Which chapters or episodes of each title an export takes.
@@ -8174,6 +8193,15 @@ pub struct VideoDownloadItem {
     pub done_parts: u32,
     pub total_parts: Option<u32>,
     pub error: Option<String>,
+    /// The title's source and id there, to open its page.
+    pub source_id: Option<String>,
+    pub remote_id: Option<String>,
+    /// The episode's stored id (for exporting it), when the title is stored.
+    pub episode_id: Option<String>,
+    /// Marked watched.
+    pub watched: bool,
+    /// When it finished, else when it was queued (unix ms).
+    pub at: f64,
 }
 
 /// The video downloads, newest first.
@@ -8250,5 +8278,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(missing.indent, 0);
+    }
+
+    #[test]
+    fn the_bars_downloads_list_shows_five_to_a_hundred() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.downloads_popover, 20);
+        assert!(SettingChange::DownloadsPopover(4).validate().is_err());
+        assert!(SettingChange::DownloadsPopover(101).validate().is_err());
+        let change = SettingChange::DownloadsPopover(35);
+        assert!(change.validate().is_ok());
+        assert_eq!(change.key(), "downloadsPopover");
+        settings.apply(change);
+        assert_eq!(settings.downloads_popover, 35);
     }
 }

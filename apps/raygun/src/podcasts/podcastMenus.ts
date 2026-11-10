@@ -115,7 +115,13 @@ export const episodeMenu = (
             onSelect: actions.removeDownload,
           }
         : (state === 'downloading' || state === 'queued') && actions.cancelDownload
-          ? { label: t('podcasts.cancelDownload'), icon: CircleX, onSelect: actions.cancelDownload }
+          ? {
+              label: t('podcasts.cancelDownload'),
+              icon: CircleX,
+              // Stopping asks first, as every download's ring does.
+              confirm: t('downloads.stop.ask', { name: episode.title }),
+              onSelect: actions.cancelDownload,
+            }
           : { label: t('podcasts.download'), icon: Download, onSelect: actions.download },
     ],
     edit: [

@@ -1,6 +1,7 @@
 import type { TrackInput } from '@raygun/bindings';
 import { create } from 'zustand';
 
+import type { ExportEpisode } from '../export/ExportSheet';
 import type { Medium } from '../manga/medium';
 
 /** Songs to add to a playlist from a card's menu: an album's, a mix's, a playlist's. */
@@ -16,8 +17,16 @@ export type DetailsToEdit =
   | { kind: 'album'; title: string; artist: string | null; artworkUrl: string | null }
   | { kind: 'artist'; name: string; artworkUrl: string | null };
 
-/** A stored comic, book or video to export, from a card's menu. */
-export type TitleToExport = { medium: Medium; titleId: string };
+/**
+ * A stored comic, book or video to export, from a card's menu; a downloaded episode's menu gives
+ * `only` that episode (and `episodes` naming it).
+ */
+export type TitleToExport = {
+  medium: Medium;
+  titleId: string;
+  episodes?: ExportEpisode[];
+  only?: string[];
+};
 
 /** The artists of a song or an album to pick one of (Go to artists). */
 export type ArtistsToPick = {

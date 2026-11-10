@@ -202,7 +202,16 @@ export const MenuSheets: FC = () => {
   if (adding) return <AddSongsSheet songs={adding} onClose={close} />;
   if (editing) return <EditDetailsSheet details={editing} onClose={close} />;
   if (exporting) {
-    return <ExportSheet medium={exporting.medium} titleIds={[exporting.titleId]} onClose={close} />;
+    return (
+      <ExportSheet
+        medium={exporting.medium}
+        titleIds={[exporting.titleId]}
+        episodes={exporting.episodes}
+        initialEpisodes={exporting.only}
+        fixed={Boolean(exporting.only)}
+        onClose={close}
+      />
+    );
   }
   if (artists) return <ArtistsSheet artists={artists} onClose={close} />;
   return null;

@@ -184,7 +184,7 @@ export const DownloadSongButton: FC<{
                 : found.replacing
                   ? t('songs.button.againTitle')
                   : busy
-                    ? t('songs.button.cancelTitle')
+                    ? t('downloads.stop.title')
                     : t('songs.button.failedTitle')}
             </p>
             {state === 'done' && (
@@ -227,7 +227,13 @@ export const DownloadSongButton: FC<{
             )}
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={close} className={`${BUTTON} bg-background`}>
-                {t(state === 'done' || busy ? 'songs.button.keep' : 'collections.cancel')}
+                {t(
+                  busy
+                    ? 'downloads.stop.keep'
+                    : state === 'done'
+                      ? 'songs.button.keep'
+                      : 'collections.cancel',
+                )}
               </button>
               {state === 'done' && !found.problem && (
                 <button
@@ -289,7 +295,7 @@ export const DownloadSongButton: FC<{
                 {found.replacing
                   ? t('songs.button.stopAgain')
                   : busy
-                    ? t('songs.button.cancel')
+                    ? t('downloads.stop.stop')
                     : t('songs.button.remove')}
               </button>
             </div>

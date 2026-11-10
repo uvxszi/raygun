@@ -16,6 +16,7 @@ pub mod names;
 pub mod output;
 pub mod pages;
 pub mod pdf;
+pub mod remux;
 pub mod video;
 
 #[cfg(test)]
@@ -59,6 +60,8 @@ pub struct ExportService {
     outputs: Outputs,
     client: reqwest::Client,
     jobs: Mutex<Vec<Job>>,
+    /// What each downloaded video holds (by download), read once for the export sheet's plans.
+    probes: video::Probes,
 }
 
 struct Job {
@@ -121,6 +124,11 @@ pub fn place_for_request(prefs: &SavePrefs, request: &ExportRequest) -> Result<P
 /// `local_meta` key of the folder last chosen in the export sheet.
 const LAST_FOLDER: &str = "export.lastFolder";
 
+/// `local_meta` key of the format last exported to, per medium.
+fn last_format_key(medium: &str) -> String {
+    format!("export.lastFormat.{medium}")
+}
+
 fn formats_for(medium: &str) -> &'static [ExportFormat] {
     match medium {
         "manga" => &[
@@ -130,7 +138,13 @@ fn formats_for(medium: &str) -> &'static [ExportFormat] {
             ExportFormat::Images,
         ],
         "novel" => &[ExportFormat::Epub, ExportFormat::Text],
-        "video" => &[ExportFormat::Video],
+        "video" => &[
+            ExportFormat::Mp4,
+            ExportFormat::Mkv,
+            ExportFormat::Video,
+            ExportFormat::M4a,
+            ExportFormat::Mp3,
+        ],
         _ => &[],
     }
 }
@@ -179,6 +193,7 @@ impl ExportService {
             outputs,
             client: raygun_net::http_client()?,
             jobs: Mutex::new(Vec::new()),
+            probes: video::Probes::default(),
         })
     }
 
@@ -221,6 +236,25 @@ impl ExportService {
         Ok(old.map(|old| old.uri).filter(|uri| *uri != folder.uri))
     }
 
+    /// The format last exported to for `medium`, offered first next time.
+    pub async fn last_format(&self, medium: &str) -> Option<ExportFormat> {
+        raygun_db::local_value(&self.db(), &last_format_key(medium))
+            .await
+            .ok()
+            .flatten()
+            .and_then(|value| serde_json::from_str(&value).ok())
+            .filter(|format| formats_for(medium).contains(format))
+    }
+
+    async fn remember_format(&self, medium: &str, format: ExportFormat) {
+        if let Ok(value) = serde_json::to_string(&format)
+            && let Err(error) =
+                raygun_db::set_local_value(&self.db(), &last_format_key(medium), &value).await
+        {
+            tracing::warn!(%error, "could not remember the export format");
+        }
+    }
+
     async fn save_prefs(&self) -> SavePrefs {
         crate::settings::load(&self.db())
             .await
@@ -233,7 +267,7 @@ impl ExportService {
             return Err("That format doesn't fit this kind of title".into());
         }
         if request.medium == "video" {
-            return video::plan(&self.app, request).await;
+            return video::plan(self, request).await;
         }
         let db = self.db();
         let downloads = self.downloads();
@@ -325,6 +359,7 @@ impl ExportService {
         }
         let prefs = self.save_prefs().await;
         let place = place_for_request(&prefs, &request)?;
+        self.remember_format(&request.medium, request.format).await;
         let label = match planned.titles.as_slice() {
             [only] => only.title.fields.title.clone(),
             many => format!("{} titles", many.len()),
@@ -501,13 +536,32 @@ impl ExportService {
                             .await?,
                     ]
                 }
-                ExportFormat::Video => {
-                    video::write(self, id, &chosen.title, &chosen.units, &place, cancel).await?
+                ExportFormat::Video
+                | ExportFormat::Mp4
+                | ExportFormat::Mkv
+                | ExportFormat::M4a
+                | ExportFormat::Mp3 => {
+                    video::write(
+                        self,
+                        id,
+                        &chosen.title,
+                        &chosen.units,
+                        request.format,
+                        &place,
+                        cancel,
+                    )
+                    .await?
                 }
             };
             for file in saved {
                 if let Some(path) = file.path {
-                    shared.push((path, mime_for(request.format), file.shown.clone()));
+                    // A video may have been kept in its own format (one its target can't hold).
+                    let mime = if request.medium == "video" {
+                        video::mime_of(&file.shown)
+                    } else {
+                        mime_for(request.format)
+                    };
+                    shared.push((path, mime, file.shown.clone()));
                 }
                 self.update(id, |job| job.files.push(file.shown));
             }
@@ -886,6 +940,10 @@ fn mime_for(format: ExportFormat) -> &'static str {
         ExportFormat::Text => TEXT_MIME,
         ExportFormat::Images => "image/*",
         ExportFormat::Video => "video/*",
+        ExportFormat::Mp4 => "video/mp4",
+        ExportFormat::Mkv => "video/x-matroska",
+        ExportFormat::M4a => "audio/mp4",
+        ExportFormat::Mp3 => "audio/mpeg",
     }
 }
 

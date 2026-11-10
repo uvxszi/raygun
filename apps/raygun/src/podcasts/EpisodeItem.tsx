@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { StopDownloadButton } from '../downloads/StopDownload';
 import { SelectCircle } from '../select/SelectCircle';
 import { usePickPress } from '../select/usePickPress';
 import type { PickState } from '../select/usePickPress';
@@ -192,11 +193,11 @@ export const EpisodeItem: FC<{
             idleClassName={ICON_BUTTON}
           />
         ) : downloadState === 'downloading' || downloadState === 'queued' ? (
-          <button
-            type="button"
-            aria-label={t('podcasts.cancelDownload')}
+          <StopDownloadButton
+            label={t('podcasts.cancelDownload')}
+            name={episode.title}
             disabled={cancel.isPending}
-            onClick={() => cancel.mutate(episode.id)}
+            onStop={() => cancel.mutate(episode.id)}
             className={`${ICON_BUTTON} text-primary`}
           >
             {downloadState === 'queued' ? (
@@ -204,7 +205,7 @@ export const EpisodeItem: FC<{
             ) : (
               <LoaderCircle aria-hidden size={16} className="animate-spin" />
             )}
-          </button>
+          </StopDownloadButton>
         ) : (
           <button
             type="button"

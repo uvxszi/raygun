@@ -317,6 +317,11 @@ describe('Podcasts', () => {
     const two = within(page).getByRole('listitem', { name: 'Episode Two' });
     expect(within(two).getByText(/Waiting to download/)).toBeInTheDocument();
     await user.click(within(two).getByRole('button', { name: 'Cancel download' }));
+    // Stopping asks first, beside the button.
+    expect(commands.podcastCancelDownload).not.toHaveBeenCalled();
+    const ask = await screen.findByRole('dialog', { name: 'Stop this download?' });
+    expect(ask).toHaveTextContent('What “Episode Two” saved so far is deleted.');
+    await user.click(within(ask).getByRole('button', { name: 'Stop' }));
     expect(commands.podcastCancelDownload).toHaveBeenCalledWith('e2');
   });
 });

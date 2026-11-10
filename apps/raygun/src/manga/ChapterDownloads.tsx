@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { StopDownloadButton } from '../downloads/StopDownload';
 import {
   useDownloadChapters,
   useMangaDownloads,
@@ -47,15 +48,27 @@ const DownloadRow: FC<{ item: MangaDownloadItem; paused: boolean }> = ({ item, p
             <RotateCw aria-hidden size={18} />
           </button>
         )}
-        <button
-          type="button"
-          aria-label={t('manga.cancelDownload', { name: label })}
-          disabled={remove.isPending}
-          onClick={() => remove.mutate([item.chapterId])}
-          className="text-muted grid size-9 place-items-center rounded-full"
-        >
-          <X aria-hidden size={18} />
-        </button>
+        {state === 'failed' ? (
+          <button
+            type="button"
+            aria-label={t('manga.cancelDownload', { name: label })}
+            disabled={remove.isPending}
+            onClick={() => remove.mutate([item.chapterId])}
+            className="text-muted grid size-9 place-items-center rounded-full"
+          >
+            <X aria-hidden size={18} />
+          </button>
+        ) : (
+          <StopDownloadButton
+            label={t('manga.cancelDownload', { name: label })}
+            name={label}
+            disabled={remove.isPending}
+            onStop={() => remove.mutate([item.chapterId])}
+            className="text-muted grid size-9 place-items-center rounded-full"
+          >
+            <X aria-hidden size={18} />
+          </StopDownloadButton>
+        )}
       </div>
       {state === 'downloading' && (
         <div

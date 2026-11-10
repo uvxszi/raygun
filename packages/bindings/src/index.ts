@@ -1355,6 +1355,8 @@ export const commands = {
 	resumeOnStart: boolean,
 	/**  Downloads keep going while battery saver is on; off, they wait for it to end. */
 	downloadsInBatterySaver: boolean,
+	/**  How many downloads the desktop bar's Downloads popover lists, latest first (5 to 100). */
+	downloadsPopover: number,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
@@ -1379,6 +1381,33 @@ export const commands = {
 	uri: string,
 	name: string,
 } | null, string>(__TAURI_INVOKE("export_last_folder")),
+	/**  The format last exported to for `medium` (`manga`, `novel`, `video`), offered first. */
+	exportLastFormat: (medium: string) => typedError<
+/**  Manga: one CBZ (with ComicInfo.xml) per chapter. */
+"cbz" | 
+/**  Manga: one PDF for everything chosen, a bookmark per chapter. */
+"pdf" | 
+/**  Manga: one PDF per chapter. */
+"pdfPerChapter" | 
+/**  Manga: a folder of page images per chapter. */
+"images" | 
+/**  Novels: one EPUB book. */
+"epub" | 
+/**  Novels: one text file. */
+"text" | 
+/**
+ *  Videos: each downloaded episode as one file in the format it downloaded in (an HLS
+ *  stream's segments joined: MPEG-TS or fragmented MP4).
+ */
+"video" | 
+/**  Videos: MP4, packets copied (no re-encoding). */
+"mp4" | 
+/**  Videos: Matroska, packets copied. */
+"mkv" | 
+/**  Videos: the sound alone, AAC in an M4A file. */
+"m4a" | 
+/**  Videos: the sound alone as MP3 (encoded unless it is MP3 already). */
+"mp3" | null, string>(__TAURI_INVOKE("export_last_format", { medium })),
 	exportCancel: (id: string) => __TAURI_INVOKE<void>("export_cancel", { id }),
 	/**  Takes a finished export off the list. */
 	exportDismiss: (id: string) => __TAURI_INVOKE<void>("export_dismiss", { id }),
@@ -1576,6 +1605,8 @@ export const commands = {
 	videoDownloadRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_remove", { id })),
 	/**  Plays a download (from the device once it's finished). */
 	videoDownloadPlay: (id: string) => typedError<null, string>(__TAURI_INVOKE("video_download_play", { id })),
+	/**  Marks a downloaded video watched or not. */
+	videoDownloadSetWatched: (id: string, watched: boolean) => typedError<null, string>(__TAURI_INVOKE("video_download_set_watched", { id, watched })),
 	videoDownloadsSetPaused: (paused: boolean) => typedError<null, string>(__TAURI_INVOKE("video_downloads_set_paused", { paused })),
 	/**
 	 *  Watches a video source's stored title: the player opens at once on `episode_id` (the source's
@@ -2868,8 +2899,19 @@ export type ExportFormat =
 "epub" | 
 /**  Novels: one text file. */
 "text" | 
-/**  Videos: each downloaded episode as one video file. */
-"video";
+/**
+ *  Videos: each downloaded episode as one file in the format it downloaded in (an HLS
+ *  stream's segments joined: MPEG-TS or fragmented MP4).
+ */
+"video" | 
+/**  Videos: MP4, packets copied (no re-encoding). */
+"mp4" | 
+/**  Videos: Matroska, packets copied. */
+"mkv" | 
+/**  Videos: the sound alone, AAC in an M4A file. */
+"m4a" | 
+/**  Videos: the sound alone as MP3 (encoded unless it is MP3 already). */
+"mp3";
 
 /**  One export job, as Downloads → Exports lists it. */
 export type ExportJob = {
@@ -5302,7 +5344,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5458,6 +5500,8 @@ export type Settings = {
 	resumeOnStart: boolean,
 	/**  Downloads keep going while battery saver is on; off, they wait for it to end. */
 	downloadsInBatterySaver: boolean,
+	/**  How many downloads the desktop bar's Downloads popover lists, latest first (5 to 100). */
+	downloadsPopover: number,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
@@ -6598,6 +6642,15 @@ export type VideoDownloadItem = {
 	doneParts: number,
 	totalParts: number | null,
 	error: string | null,
+	/**  The title's source and id there, to open its page. */
+	sourceId: string | null,
+	remoteId: string | null,
+	/**  The episode's stored id (for exporting it), when the title is stored. */
+	episodeId: string | null,
+	/**  Marked watched. */
+	watched: boolean,
+	/**  When it finished, else when it was queued (unix ms). */
+	at: number | null,
 };
 
 /**  The video downloads, newest first. */

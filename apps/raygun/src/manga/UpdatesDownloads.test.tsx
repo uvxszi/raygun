@@ -156,7 +156,16 @@ describe('Manga updates and downloads', () => {
       within(failed).getByRole('button', { name: 'Retry downloading Frieren · Chapter 2' }),
     );
     expect(commands.mangaDownload).toHaveBeenCalledWith(['c2']);
+    // Stopping asks first; keeping it changes nothing.
     await user.click(within(running).getByRole('button', { name: 'Cancel Frieren · Chapter 1' }));
+    let ask = await screen.findByRole('dialog', { name: 'Stop this download?' });
+    expect(ask).toHaveTextContent('What “Frieren · Chapter 1” saved so far is deleted.');
+    await user.click(within(ask).getByRole('button', { name: 'Keep downloading' }));
+    expect(screen.queryByRole('dialog', { name: 'Stop this download?' })).not.toBeInTheDocument();
+    expect(commands.mangaRemoveDownloads).not.toHaveBeenCalled();
+    await user.click(within(running).getByRole('button', { name: 'Cancel Frieren · Chapter 1' }));
+    ask = await screen.findByRole('dialog', { name: 'Stop this download?' });
+    await user.click(within(ask).getByRole('button', { name: 'Stop' }));
     expect(commands.mangaRemoveDownloads).toHaveBeenCalledWith(['c1']);
 
     commands.mangaDownloads.mockClear();
