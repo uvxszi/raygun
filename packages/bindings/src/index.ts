@@ -1423,6 +1423,11 @@ export const commands = {
 	storageUsage: () => typedError<StorageUsage[], string>(__TAURI_INVOKE("storage_usage")),
 	/**  Empties one cache; returns the new sizes. */
 	storageClear: (area: StorageArea) => typedError<StorageUsage[], string>(__TAURI_INVOKE("storage_clear", { area })),
+	/**
+	 *  What Raygun keeps about songs: how many songs it keeps facts for and how many covers found
+	 *  at other sources it remembers (Settings → Data → Storage).
+	 */
+	songMemoryUsage: () => typedError<SongMemoryUsage, string>(__TAURI_INVOKE("song_memory_usage")),
 	websiteList: () => typedError<Website[], string>(__TAURI_INVOKE("website_list")),
 	/**  Adds a site by its address (`example.com` is enough); the name defaults to its host. */
 	websiteAdd: (name: string | null, url: string) => typedError<Website, string>(__TAURI_INVOKE("website_add", { name, url })),
@@ -2238,7 +2243,15 @@ export type BulkResult = {
 	failed: BulkFailure[],
 };
 
-/**  Image cache limits and refreshing. One stored row; missing fields keep their defaults. */
+/**
+ *  Image cache limits and refreshing, and how long what Raygun learned about songs is kept. One
+ *  stored row; missing fields keep their defaults.
+ * 
+ *  What's kept of a song goes in tiers, by one recency (when it was last played or seen): its
+ *  cover picture first (the cover cache's least recently used, past `cover_cache_mb`), then the
+ *  record of which source gave its cover (past `cover_source_songs`), then everything else
+ *  (the stream that played it, its length, its lyrics: after `song_facts_days`).
+ */
 export type CachePrefs = {
 	/**  Covers, posters, thumbnails and icons. Library covers count but are never removed. */
 	coverCacheMb?: number,
@@ -2247,6 +2260,16 @@ export type CachePrefs = {
 	coverRefreshDays?: number,
 	/**  The page cache is emptied each time the app starts (Mihon's option). */
 	clearPagesOnStart?: boolean,
+	/**
+	 *  Where covers came from is kept for this many songs, the most recently played or seen
+	 *  first; songs in the library keep theirs.
+	 */
+	coverSourceSongs?: number,
+	/**
+	 *  A song's other kept facts go this many days after it was last played or seen; 0 keeps
+	 *  them.
+	 */
+	songFactsDays?: number,
 };
 
 /**  One caption line, timed in milliseconds. */
@@ -4694,6 +4717,11 @@ export type PlaylistSummary = {
 	itemCount: number,
 	/**  Up to four distinct artworks of the first items, for the cover. */
 	artworkUrls: string[],
+	/**
+	 *  The songs `artwork_urls` are the covers of, in the same order: one that fails to load is
+	 *  looked for at other sources (`cover_fallback`), as in song lists.
+	 */
+	artworkSongs?: TrackQuery[] | null,
 	/**  The cover the user picked (M46.45), shown instead of the artworks. */
 	coverUrl: string | null,
 	/**  How long the items with a known length play together. */
@@ -5748,6 +5776,17 @@ export type SongEdit = {
 	lyricsOffsetMs?: number,
 	/**  Lyrics that replace the sources'. */
 	lyrics?: EditedLyrics | null,
+};
+
+/**
+ *  What Raygun keeps about songs (Settings → Data → Storage): how many songs it keeps facts for
+ *  and how many covers found at other sources it remembers.
+ */
+export type SongMemoryUsage = {
+	/**  Songs with anything kept about them (a stream that played, a length, lyrics, a cover). */
+	songs: number,
+	/**  Covers found at other sources, with the source that gave each. */
+	coverSources: number,
 };
 
 /**  What saving songs as files did (M46.10). */

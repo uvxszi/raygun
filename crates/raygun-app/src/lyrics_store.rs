@@ -275,20 +275,38 @@ impl LyricsStore {
         if prefs.forget_after_days == 0 {
             return Ok(0);
         }
-        let db = self.db();
         let before = now_ms() - i64::from(prefs.forget_after_days) * DAY_MS;
+        let stale = store::stale(&self.db(), before).await.map_err(to_message)?;
+        self.forget_unless_kept(&prefs, stale).await
+    }
+
+    /// Forgets the kept lyrics and transcriptions of songs not played or seen for very long
+    /// (what's kept of songs, `song_memory`) as the lyrics settings allow: none while lyrics are
+    /// never forgotten, and the places the settings keep stay.
+    pub async fn forget_unplayed(&self, keys: &[String]) -> Result<usize, String> {
+        let prefs = crate::settings::load(&self.db())
+            .await
+            .map_err(to_message)?
+            .lyrics_cache;
+        if prefs.forget_after_days == 0 {
+            return Ok(0);
+        }
+        self.forget_unless_kept(&prefs, keys.to_vec()).await
+    }
+
+    async fn forget_unless_kept(
+        &self,
+        prefs: &raygun_model::LyricsCachePrefs,
+        keys: Vec<String>,
+    ) -> Result<usize, String> {
+        let db = self.db();
         let places = self.places().await?;
         let kept = |key: &str| {
             (prefs.keep_favorites && places.favorites.contains(key))
                 || (prefs.keep_downloaded && places.downloaded.contains(key))
                 || (prefs.keep_local && places.local.contains(key))
         };
-        let stale: Vec<String> = store::stale(&db, before)
-            .await
-            .map_err(to_message)?
-            .into_iter()
-            .filter(|key| !kept(key))
-            .collect();
+        let stale: Vec<String> = keys.into_iter().filter(|key| !kept(key)).collect();
         for key in &stale {
             raygun_db::captions::clear(&db, &format!("song:{key}"))
                 .await

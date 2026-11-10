@@ -65,7 +65,7 @@ export const PinArt: FC<{
   /** `name` lets an artist without a picture of their own show one another source has. */
   pin: Pick<RailPin, 'kind' | 'artworkUrl'> & { artworkUrls?: string[]; name?: string };
   /** A playlist pin's playlist: its cover now, not the one it had when pinned (M46.45). */
-  playlist?: Pick<PlaylistSummary, 'artworkUrls' | 'coverUrl'>;
+  playlist?: Pick<PlaylistSummary, 'artworkUrls' | 'artworkSongs' | 'coverUrl'>;
   /** A website pin's site: its icon. */
   website?: Website;
   className: string;
@@ -104,12 +104,13 @@ export const PinArt: FC<{
   const mosaic =
     playlist ??
     (pin.kind === 'playlist' && (pin.artworkUrls?.length ?? 0) > 0
-      ? { artworkUrls: pin.artworkUrls ?? [], coverUrl: pin.artworkUrl }
+      ? { artworkUrls: pin.artworkUrls ?? [], artworkSongs: null, coverUrl: pin.artworkUrl }
       : undefined);
   if (mosaic) {
     return (
       <PlaylistCover
         artworkUrls={mosaic.artworkUrls}
+        artworkSongs={mosaic.artworkSongs}
         coverUrl={mosaic.coverUrl}
         className={`shrink-0 rounded-md ${className}`}
       />

@@ -80,6 +80,7 @@ export const MergePlaylistsSheet: FC<{ picked: string[]; onClose: () => void }> 
                   </span>
                   <PlaylistCover
                     artworkUrls={playlist.artworkUrls}
+                    artworkSongs={playlist.artworkSongs}
                     coverUrl={playlist.coverUrl}
                     className="size-10 shrink-0 rounded"
                   />

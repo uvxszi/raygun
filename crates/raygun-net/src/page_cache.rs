@@ -2,6 +2,7 @@
 //! proxy's token, written atomically, and the least recently used ones are removed once the folder
 //! grows past its cap.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -98,6 +99,12 @@ pub(crate) fn touch(path: &Path) {
 
 /// Removes the least recently used files until the folder is under 90% of `max_bytes`.
 pub(crate) fn evict(dir: &Path, max_bytes: u64) {
+    evict_sparing(dir, max_bytes, &HashSet::new());
+}
+
+/// [`evict`], leaving the files named in `spared` (covers in use) where they are; they still
+/// count toward the size.
+pub(crate) fn evict_sparing(dir: &Path, max_bytes: u64, spared: &HashSet<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -124,6 +131,12 @@ pub(crate) fn evict(dir: &Path, max_bytes: u64) {
     for (_, size, path) in files {
         if total <= target {
             break;
+        }
+        let in_use = path
+            .file_name()
+            .is_some_and(|name| spared.contains(name.to_string_lossy().as_ref()));
+        if in_use {
+            continue;
         }
         if std::fs::remove_file(&path).is_ok() {
             total -= size;

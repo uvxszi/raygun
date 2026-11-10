@@ -118,6 +118,7 @@ export const MusicOverview: FC<{
                 cover={
                   <PlaylistCover
                     artworkUrls={playlist.artworkUrls}
+                    artworkSongs={playlist.artworkSongs}
                     coverUrl={playlist.coverUrl}
                     className="aspect-square w-full rounded-lg"
                   />

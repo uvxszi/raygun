@@ -162,6 +162,7 @@ const AudioRow: FC = () => {
             />
             <PlaylistCover
               artworkUrls={playlist.artworkUrls}
+              artworkSongs={playlist.artworkSongs}
               coverUrl={playlist.coverUrl}
               className="aspect-square w-full rounded-xl"
             />

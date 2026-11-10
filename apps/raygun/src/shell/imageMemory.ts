@@ -8,11 +8,14 @@ const shown = new Set<string>();
 /** At most this many addresses are remembered; the oldest go first. */
 const KEPT = 2000;
 
-/** `<img>` loading attributes for `url`, and the `onLoad` that remembers it. */
-export const imageLoading = (url: string) => {
+/**
+ * `<img>` loading attributes for `url`, and the `onLoad` that remembers it. `eager` loads it now
+ * even the first time (a picture whose place decided it's about to be seen).
+ */
+export const imageLoading = (url: string, eager = false) => {
   const known = shown.has(url);
   return {
-    loading: known ? ('eager' as const) : ('lazy' as const),
+    loading: known || eager ? ('eager' as const) : ('lazy' as const),
     decoding: known ? ('sync' as const) : ('async' as const),
     onLoad: () => {
       if (shown.has(url)) return;

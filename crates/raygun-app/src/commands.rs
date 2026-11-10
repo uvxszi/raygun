@@ -4894,6 +4894,16 @@ pub fn export_jobs(
     exports.jobs()
 }
 
+/// What Raygun keeps about songs: how many songs it keeps facts for and how many covers found
+/// at other sources it remembers (Settings → Data → Storage).
+#[tauri::command]
+#[specta::specta]
+pub async fn song_memory_usage(
+    memory: tauri::State<'_, Arc<crate::song_memory::SongMemory>>,
+) -> Result<raygun_model::SongMemoryUsage, String> {
+    memory.usage().await
+}
+
 /// What Raygun stores: each cache with its size and limit, music artwork and downloads (M46.2).
 #[tauri::command]
 #[specta::specta]

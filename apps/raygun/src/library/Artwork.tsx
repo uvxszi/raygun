@@ -20,6 +20,8 @@ type ArtworkProps = {
   fallback?: DetailTarget | null;
   /** The placeholder's icon (a disc unless it's someone, say). */
   icon?: LucideIcon;
+  /** Load it now rather than when the browser thinks it's near (a cover made of four). */
+  eager?: boolean;
 };
 
 /** Album art, or a placeholder when there is none or it fails to load. */
@@ -29,6 +31,7 @@ export const Artwork: FC<ArtworkProps> = ({
   iconSize = 32,
   fallback,
   icon: Icon = Disc3,
+  eager = false,
 }) => {
   // Remembered per address: a new address (a picked cover) is tried at once.
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
@@ -56,7 +59,7 @@ export const Artwork: FC<ArtworkProps> = ({
       src={shown}
       data-testid="artwork-image"
       alt=""
-      {...imageLoading(shown)}
+      {...imageLoading(shown, eager)}
       onError={() => setFailedUrls((failed) => [...failed, shown])}
       className={`bg-surface aspect-square object-cover ${className}`}
     />

@@ -686,7 +686,8 @@ pub async fn list(app: &AppHandle, names: QuickAccessNames) -> Result<QuickAcces
 /// A cover address quick access saved (a pin's, a followed artist's) as a link to show: a
 /// source's through the cover cache, kept there whatever its size limit ([`kept_tokens`]); one of
 /// the proxy's own links from an earlier start at this run's address, where its copy on disk is.
-fn shown_cover(images: &raygun_net::ImageLinks, url: &str) -> String {
+/// Playlists' covers made of their songs' show the same way.
+pub(crate) fn shown_cover(images: &raygun_net::ImageLinks, url: &str) -> String {
     let relinked = images.relink(&images.original(url));
     if images.is_remote(&relinked) {
         images.kept_cover(&relinked, &BTreeMap::new())
