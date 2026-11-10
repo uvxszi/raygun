@@ -1,8 +1,8 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { bindingsMock } from '../test/bindingsMock';
+import { bindingsMock, emitEvent } from '../test/bindingsMock';
 import { creditedArtists } from './artists';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -83,6 +83,32 @@ describe('Artists', () => {
       expect.arrayContaining([expect.objectContaining({ title: 'Happy' })]),
       0,
     );
+  });
+
+  it('shows a page asked again in the background once Rust says it changed', async () => {
+    commands.musicArtistInfo.mockResolvedValue(ok(null));
+    await AppShellWrapper.mount('/artist?name=Daft+Punk');
+    await screen.findByTestId('music-artist-page');
+    await vi.waitFor(() => expect(commands.musicArtistInfo).toHaveBeenCalledTimes(1));
+
+    commands.musicArtistInfo.mockResolvedValue(
+      ok({
+        name: 'Daft Punk',
+        kind: 'Group',
+        bio: 'Daft Punk were a French electronic music duo.',
+        imageUrl: null,
+        url: null,
+        origin: null,
+        active: null,
+        members: [],
+        providerName: 'MusicBrainz',
+      }),
+    );
+    // Another artist's page changing leaves this one be.
+    act(() => emitEvent('artistProfileEvent', 'Air'));
+    act(() => emitEvent('artistProfileEvent', 'daft punk'));
+    expect(await screen.findByTestId('artist-about')).toHaveTextContent('French electronic');
+    expect(commands.musicArtistInfo).toHaveBeenCalledTimes(2);
   });
 
   it("tells the artist's story from open databases", async () => {

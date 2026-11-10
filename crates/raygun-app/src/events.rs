@@ -128,6 +128,11 @@ pub struct VideoSubtitlesEvent(pub String);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ArtistReleasesEvent;
 
+/// An artist's kept page (popular songs, facts, releases or events) was asked again in the
+/// background and changed; carries the artist's name.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct ArtistProfileEvent(pub String);
+
 /// A Local Files folder was added, scanned or removed; carries its id (M46.27).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct LocalFilesEvent(pub String);

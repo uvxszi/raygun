@@ -40,7 +40,8 @@ import type { MenuItem } from '../shell/contextMenuStore';
 import { showToast } from '../shell/toastStore';
 import { usePinMenuItem } from '../shell/usePinMenuItem';
 import { creditedArtists } from './artists';
-import { sameArtist, useFollowActions, useFollowedArtists } from './follows';
+import { sameArtist, useFollowActions, useFollowedArtists, useIsFollowed } from './follows';
+import { goToArtistsItem } from './goToArtists';
 import {
   feedKey,
   hideArtistItem,
@@ -50,7 +51,7 @@ import {
   useHideActions,
 } from './hidden';
 import type { HideTarget } from './hidden';
-import { buildMenu, copyText, nameWith } from './mediaMenu';
+import { buildMenu, copyText } from './mediaMenu';
 import { useMenuSheetsStore } from './menuSheetsStore';
 import { mixTitle } from './useMadeForYou';
 import { downloadSongs } from './useSongDownloads';
@@ -122,12 +123,6 @@ const downloadItem = (t: TFunction, songs: Songs): MenuItem => ({
     }),
 });
 
-const copyNameItem = (t: TFunction, name: string, by?: string | null): MenuItem => ({
-  label: t('menu.copyName'),
-  icon: Copy,
-  onSelect: () => copyText(nameWith(name, by)),
-});
-
 /** Plays `tracks` from the first, or from a random one. */
 const playOnline = (tracks: OnlineTrack[], shuffle: boolean) => {
   if (tracks.length === 0) return Promise.reject(new Error('no songs'));
@@ -177,6 +172,7 @@ export const useAlbumMenuItems = () => {
   const pinItems = usePinMenuItem();
   const hidden = useHidden();
   const hideActions = useHideActions();
+  const followed = useIsFollowed();
   return (album: AlbumRef, options: CardMenuOptions = {}): MenuItem[] => {
     const page = albumPage(album);
     const provider = album.provider?.id;
@@ -204,11 +200,13 @@ export const useAlbumMenuItems = () => {
       heading: { label: album.title, subtitle: album.artist, artworkUrl: album.artworkUrl },
       play: playItems(t, songs, true),
       save: [addToPlaylistItem(t, songs)],
-      goTo: artists.map((artist) => ({
-        label: t('menu.goToArtist', { name: artist }),
-        icon: UserRound,
-        onSelect: () => void navigate({ to: '/artist', search: { name: artist } }),
-      })),
+      goTo: [
+        goToArtistsItem(
+          t,
+          artists,
+          (artist) => void navigate({ to: '/artist', search: { name: artist } }),
+        ),
+      ],
       keep: [
         online && downloadItem(t, songs),
         ...pinItems({
@@ -219,7 +217,6 @@ export const useAlbumMenuItems = () => {
           artworkUrl: album.artworkUrl,
         }),
       ],
-      share: [copyNameItem(t, album.title, album.artist)],
       edit: [
         {
           label: t('details.editAlbum'),
@@ -234,7 +231,9 @@ export const useAlbumMenuItems = () => {
         },
       ],
       hide: [
-        artists[0] && hideArtistItem(artists[0], hidden, hideActions, t),
+        artists[0] &&
+          (!artists.some(followed) || hidden.hidesArtist(artists[0])) &&
+          hideArtistItem(artists[0], hidden, hideActions, t),
         options.notInterested &&
           notInterestedItem(
             pageTarget('album', page, album.title, album.artist, album.artworkUrl),
@@ -309,7 +308,6 @@ export const useArtistMenuItems = () => {
           onSelect: () => void navigate({ to: '/artist', search: { name } }),
         },
       ],
-      share: [copyNameItem(t, name)],
       edit: [
         {
           label: t('details.editArtist'),
@@ -320,7 +318,10 @@ export const useArtistMenuItems = () => {
               .editDetails({ kind: 'artist', name, artworkUrl: artist.imageUrl ?? null }),
         },
       ],
-      hide: [hideArtistItem(name, hidden, hideActions, t), ...(options.hide ?? [])],
+      hide: [
+        (!isFollowed || hidden.hidesArtist(name)) && hideArtistItem(name, hidden, hideActions, t),
+        ...(options.hide ?? []),
+      ],
     });
   };
 };
@@ -390,7 +391,6 @@ export const useSourcePlaylistMenuItems = () => {
           artworkUrl: playlist.artworkUrl,
         }),
       ],
-      share: [copyNameItem(t, playlist.title, playlist.author)],
       hide: [
         options.notInterested &&
           notInterestedItem(
@@ -451,7 +451,6 @@ export const useMixMenuItems = () => {
           artworkUrl: artwork,
         }),
       ],
-      share: [copyNameItem(t, title)],
       hide: [
         options.notInterested &&
           notInterestedItem(pageTarget('mix', page, title, null, artwork), hideActions, t),
@@ -527,7 +526,6 @@ export const usePodcastMenuItems = () => {
           })
         : [],
       share: [
-        copyNameItem(t, podcast.title),
         podcast.feedUrl && {
           label: t('podcasts.menu.copyFeed'),
           icon: Copy,
@@ -640,7 +638,6 @@ export const useBookMenuItems = () => {
           })
         : [],
       share: [
-        copyNameItem(t, book.title, book.author),
         book.feedUrl && {
           label: t('podcasts.menu.copyFeed'),
           icon: Copy,
@@ -801,7 +798,6 @@ export const useContextMenuItems = () => {
               artworkUrl: context.artworkUrl,
             }),
           ],
-          share: [copyNameItem(t, context.name)],
           hide: [remove],
         });
       }
@@ -819,7 +815,6 @@ export const useContextMenuItems = () => {
             name: context.name,
             artworkUrl: context.artworkUrl,
           }),
-          share: [copyNameItem(t, context.name, context.subtitle)],
           hide: [remove],
         });
     }

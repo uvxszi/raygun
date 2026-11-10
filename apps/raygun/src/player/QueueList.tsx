@@ -393,7 +393,7 @@ const QueueRow: FC<{ item: QueueItem; dragged: boolean; first: boolean; actions:
       // The song's own menu, less Play next and Add to queue, which would queue it again.
       const again = new Set([t('menu.playNext'), t('menu.addToQueue')]);
       const own: MenuItem[] = [
-        { kind: 'heading', label: item.title },
+        { kind: 'heading', label: item.title, subtitle: item.artist },
         { label: t('menu.play'), icon: Play, onSelect: play },
         ...(first
           ? []

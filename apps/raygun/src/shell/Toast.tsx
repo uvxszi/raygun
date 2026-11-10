@@ -8,8 +8,8 @@ import { useToastStore } from './toastStore';
 const SHOWN_MS = 6_000;
 
 /**
- * The toast host: one note at a time at the bottom, above the player bar and tabs, gone after a
- * few seconds or with Undo.
+ * The toast host: one note at a time at the bottom, above the player bar and tabs and over open
+ * menus and sheets (a menu's Copied), gone after a few seconds or with Undo.
  */
 export const ToastHost: FC = () => {
   const { t } = useTranslation();
@@ -25,7 +25,7 @@ export const ToastHost: FC = () => {
   if (!toast) return null;
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 z-[85] flex justify-center px-4 pb-3"
+      className="pointer-events-none fixed inset-x-0 z-[95] flex justify-center px-4 pb-3"
       style={{ bottom: toast.bottom }}
     >
       <div

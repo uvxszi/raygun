@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 
 import { savesIn, useSavedSongs } from '../collections/savedSongs';
 import type { MenuItem } from '../shell/contextMenuStore';
+import { creditedArtists } from './artists';
+import { useIsFollowed } from './follows';
 import { useHidden, useHideActions } from './hidden';
 import { keysOf } from './trackKey';
 import { trackMenu } from './trackMenu';
@@ -27,17 +29,21 @@ export const useTrackMenuItems = () => {
   const saved = useSavedSongs();
   const hidden = useHidden();
   const hideActions = useHideActions();
+  const followed = useIsFollowed();
   return (track: TrackInput, extras: TrackMenuExtras, at: { x: number; y: number }): MenuItem[] => {
     // A download made under the title with or without its " - Remastered" (M46.48).
     const keys = keysOf(track.title, track.artist);
+    // Under whatever names it was saved (M46.48).
+    const saves = saved.data ? savesIn(saved.data, track) : null;
     return trackMenu(track, {
       t,
       client,
       navigate: (target) => void navigate(target as never),
       at,
       downloaded: keys.some((key) => downloaded.has(key)),
-      // Under whatever names it was favorited (M46.48).
-      favorite: saved.data ? savesIn(saved.data, track).favorite : false,
+      favorite: saves?.favorite ?? false,
+      inPlaylist: (saves?.playlistIds.length ?? 0) > 0,
+      artistFollowed: creditedArtists(track.artist).some(followed),
       hidden,
       hideActions,
       ...extras,

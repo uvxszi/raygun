@@ -211,7 +211,7 @@ pub struct ExtensionService {
     http: reqwest::Client,
     extensions_dir: PathBuf,
     storage_dir: PathBuf,
-    /// Artist facts and song credits already asked for (M46.14); `None` = nobody knew.
+    /// Song credits already asked for (M46.14); `None` = nobody knew.
     info_cache: Mutex<InfoCache>,
     /// Held for writing while extensions (re)load, so calls wait instead of seeing a partial set.
     loading: Arc<RwLock<()>>,
@@ -225,10 +225,9 @@ pub struct ExtensionService {
     mihon_stores: Mutex<HashMap<String, (reqwest::Url, Arc<mihon::Store>)>>,
 }
 
-/// What `music.info` providers answered this run (M46.14).
+/// What `music.info` providers answered this run about songs (M46.14).
 #[derive(Default)]
 struct InfoCache {
-    artists: HashMap<String, Option<raygun_model::ArtistInfo>>,
     credits: HashMap<String, Option<raygun_model::SongCredits>>,
 }
 
@@ -650,22 +649,11 @@ impl ExtensionService {
     }
 
     /// Every chart source's charts (M46.9).
-    /// What open databases say about an artist (M46.14), remembered for this run.
+    /// What open databases say about an artist (M46.14), asked now: the artist's page keeps it
+    /// (`artist_profiles`).
     pub async fn artist_info(&self, name: &str) -> Option<raygun_model::ArtistInfo> {
-        let key = name.trim().to_lowercase();
-        if let Some(known) = self.info_cache.lock().unwrap().artists.get(&key) {
-            return known.clone();
-        }
-        let info = {
-            let (_ready, host) = self.ready().await;
-            host.artist_info(name.trim()).await
-        };
-        self.info_cache
-            .lock()
-            .unwrap()
-            .artists
-            .insert(key, info.clone());
-        info
+        let (_ready, host) = self.ready().await;
+        host.artist_info(name.trim()).await
     }
 
     /// Who made a song (M46.14), remembered for this run.

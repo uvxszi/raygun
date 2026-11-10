@@ -6,6 +6,7 @@
 mod ai;
 mod aniskip;
 mod app_window;
+mod artist_profiles;
 mod background;
 mod backup;
 mod browser_check;
@@ -606,6 +607,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LyricsTranslationEvent,
             events::VideoSubtitlesEvent,
             events::ArtistReleasesEvent,
+            events::ArtistProfileEvent,
             events::SettingsChangedEvent,
             events::QuickAccessChangedEvent,
             events::IncognitoEvent,

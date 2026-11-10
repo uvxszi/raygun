@@ -318,6 +318,27 @@ impl ImageLinks {
             .unwrap_or_else(|| (url.to_owned(), BTreeMap::new()))
     }
 
+    /// One of this proxy's links from an earlier start (another port) at this run's address, so
+    /// a link saved then still finds its copy on disk; other URLs as they are.
+    pub fn relink(&self, url: &str) -> String {
+        let Some(rest) = ["http://127.0.0.1:", "http://localhost:"]
+            .iter()
+            .find_map(|origin| url.strip_prefix(origin))
+        else {
+            return url.to_owned();
+        };
+        let Some((port, path)) = rest.split_once('/') else {
+            return url.to_owned();
+        };
+        let ours = ["cover/", "image/", "art/", "local/"]
+            .iter()
+            .any(|route| path.starts_with(route));
+        if !ours || port.parse::<u16>().is_err() {
+            return url.to_owned();
+        }
+        format!("http://{}/{path}", self.address)
+    }
+
     /// Whether `url` is a remote address this proxy can cache (not already one of its own).
     pub fn is_remote(&self, url: &str) -> bool {
         (url.starts_with("https://") || url.starts_with("http://"))

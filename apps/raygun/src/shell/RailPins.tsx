@@ -74,7 +74,8 @@ const KIND_ICON: Record<string, LucideIcon> = {
 
 /** A pin's tile: the fixed ones coloured (Favorites red, Downloaded blue, Local files green). */
 export const PinArt: FC<{
-  pin: Pick<RailPin, 'kind' | 'artworkUrl'> & { artworkUrls?: string[] };
+  /** `name` lets an artist without a picture of their own show one another source has. */
+  pin: Pick<RailPin, 'kind' | 'artworkUrl'> & { artworkUrls?: string[]; name?: string };
   /** A playlist pin's playlist: its cover now, not the one it had when pinned (M46.45). */
   playlist?: Pick<PlaylistSummary, 'artworkUrls' | 'coverUrl'>;
   /** A website pin's site: its icon. */
@@ -123,6 +124,18 @@ export const PinArt: FC<{
         artworkUrls={mosaic.artworkUrls}
         coverUrl={mosaic.coverUrl}
         className={`shrink-0 rounded-md ${className}`}
+      />
+    );
+  }
+  // An artist's picture that's missing or fails is looked for elsewhere (M46.40), by name.
+  if (pin.kind === 'artist' && pin.name) {
+    return (
+      <Artwork
+        url={pin.artworkUrl}
+        fallback={{ kind: 'artist', name: pin.name }}
+        icon={UserRound}
+        className={`shrink-0 rounded-full ${className}`}
+        iconSize={16}
       />
     );
   }

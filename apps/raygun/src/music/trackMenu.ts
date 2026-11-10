@@ -2,7 +2,6 @@ import { commands } from '@raygun/bindings';
 import type { TrackInput } from '@raygun/bindings';
 import type { QueryClient } from '@tanstack/react-query';
 import {
-  Copy,
   Disc3,
   Download,
   Heart,
@@ -19,7 +18,6 @@ import {
   Search,
   SearchCheck,
   Trash2,
-  UserRound,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -30,6 +28,7 @@ import type { MenuItem } from '../shell/contextMenuStore';
 import { useSongEditStore } from '../sound/songEditStore';
 import { creditedArtists } from './artists';
 import { coverTitle, useCoverSheetStore } from './coverSheetStore';
+import { goToArtistsItem } from './goToArtists';
 import { hideArtistItem, notInterestedItem, songTarget } from './hidden';
 import type { HiddenFilter, HideActions } from './hidden';
 import { buildMenu, copyText } from './mediaMenu';
@@ -70,6 +69,10 @@ type TrackMenuOptions = {
   hideActions?: HideActions;
   /** Shown in one of Home's rows: Not interested takes it out of them. */
   notInterested?: boolean;
+  /** The song is in one of the user's playlists. */
+  inPlaylist?: boolean;
+  /** One of its artists is followed. */
+  artistFollowed?: boolean;
 };
 
 /** The song's own page on the web, when its source has one. */
@@ -114,10 +117,14 @@ const removeDownload = async (track: TrackInput, client: QueryClient) => {
 /**
  * A song's menu (M46.8), in the order every music menu keeps (`buildMenu`): play it, play it
  * next or last; add it to a playlist or Favorites; go to its album or artists; download it; copy
- * its link or name; edit it; don't show its artist, or (in Home's rows) say Not interested.
+ * its link; edit it; don't show its artist, or (in Home's rows) say Not interested. Its title and
+ * artists, at the top, copy when held.
  */
 export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuItem[] => {
   const { t, navigate, client, at, onPlay, playlistItemId, favorite, downloaded } = options;
+  // A song the user keeps (in a playlist, a favorite, by a followed artist) never offers hiding
+  // its artist; an artist hidden already can still be shown again.
+  const kept = Boolean(favorite || playlistItemId || options.inPlaylist || options.artistFollowed);
   const refresh = () => void client.invalidateQueries({ queryKey: [COLLECTIONS] });
   const name = [track.artist, track.title].filter(Boolean).join(' – ');
   const artists = creditedArtists(track.artist);
@@ -176,11 +183,12 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
         icon: Disc3,
         onSelect: () => void goToAlbum(track, navigate),
       },
-      ...artists.map((artist) => ({
-        label: t('menu.goToArtist', { name: artist }),
-        icon: UserRound,
-        onSelect: () => navigate({ to: '/artist', search: { name: artist } }),
-      })),
+      goToArtistsItem(
+        t,
+        artists,
+        (artist) => navigate({ to: '/artist', search: { name: artist } }),
+        () => pointAnchor(at.x, at.y),
+      ),
       {
         label: t('menu.findSong'),
         icon: Search,
@@ -202,15 +210,7 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
             onSelect: () => void unwrapResult(commands.songsDownload([track])),
           },
     ],
-    share: [
-      link && { label: t('menu.copySongLink'), icon: Link2, onSelect: () => copyText(link) },
-      { label: t('menu.copyTitle'), icon: Copy, onSelect: () => copyText(track.title) },
-      track.artist && {
-        label: t('menu.copyArtist'),
-        icon: Copy,
-        onSelect: () => copyText(track.artist as string),
-      },
-    ],
+    share: [link && { label: t('menu.copySongLink'), icon: Link2, onSelect: () => copyText(link) }],
     edit: [
       {
         label: t('details.editSong'),
@@ -241,7 +241,9 @@ export const trackMenu = (track: TrackInput, options: TrackMenuOptions): MenuIte
     hide:
       hidden && hideActions
         ? [
-            artists[0] && hideArtistItem(artists[0], hidden, hideActions, t),
+            artists[0] &&
+              (!kept || hidden.hidesArtist(artists[0])) &&
+              hideArtistItem(artists[0], hidden, hideActions, t),
             options.notInterested && notInterestedItem(songTarget(track), hideActions, t),
           ]
         : [],

@@ -23,6 +23,7 @@ import { OnlineTrackRow } from '../search/OnlineTrackRow';
 import { playResults } from '../search/useOnlineSearch';
 import { Sheet } from '../shell/Sheet';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+import { useLate } from '../shell/useLate';
 import { DetailEditForm } from '../music/DetailEditForm';
 import { useDetailEdit } from '../music/useDetailEdit';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -59,6 +60,8 @@ export const MusicArtistPage: FC = () => {
     staleTime: 10 * 60_000,
   });
   const info = useArtistInfo(name || undefined);
+  // The page comes from what was kept at once; a spinner shows only when it has to be asked for.
+  const slow = useLate(overview.isPending && name !== '');
   const favorites = useFavorites();
   const [more, setMore] = useState(false);
   const popular = overview.data?.popular ?? [];
@@ -178,7 +181,7 @@ export const MusicArtistPage: FC = () => {
         {/* Following pins the artist to quick access (M46.42), in place of a pin button. */}
         {name && <FollowButton name={name} imageUrl={picture} />}
       </div>
-      {overview.isPending && name !== '' && (
+      {slow && (
         <LoaderCircle aria-label={t('artist.loading')} className="text-muted animate-spin" />
       )}
       {overview.error && <SourceIssue>{overview.error.message}</SourceIssue>}

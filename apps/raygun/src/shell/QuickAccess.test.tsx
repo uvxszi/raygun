@@ -107,6 +107,40 @@ describe('Phones (no side panel, quick access)', () => {
     );
   });
 
+  it("shows a followed artist's picture, or one found elsewhere when it's missing or fails", async () => {
+    setScreen(393, 851);
+    const user = userEvent.setup();
+    withSettings(DEFAULT_SETTINGS);
+    commands.artistsFollowed.mockResolvedValue(
+      ok([
+        {
+          name: 'Daft Punk',
+          imageUrl: 'http://127.0.0.1:1/cover/daft',
+          followedAt: 2,
+          alerts: false,
+        },
+        { name: 'Air', imageUrl: null, followedAt: 1, alerts: false },
+      ]),
+    );
+    commands.coverFallback.mockImplementation(async (target) =>
+      ok(target.kind === 'artist' ? `http://127.0.0.1:1/cover/${target.name}` : null),
+    );
+    await AppShellWrapper.mount('/');
+    await user.click(await screen.findByTestId('quick-access-button'));
+    const picture = (name: string) =>
+      within(within(drawer()).getByRole('link', { name })).getByTestId('artwork-image');
+    await waitFor(() =>
+      expect(picture('Air')).toHaveAttribute('src', 'http://127.0.0.1:1/cover/Air'),
+    );
+    expect(picture('Daft Punk')).toHaveAttribute('src', 'http://127.0.0.1:1/cover/daft');
+    expect(commands.coverFallback).not.toHaveBeenCalledWith({ kind: 'artist', name: 'Daft Punk' });
+
+    fireEvent.error(picture('Daft Punk'));
+    await waitFor(() =>
+      expect(picture('Daft Punk')).toHaveAttribute('src', 'http://127.0.0.1:1/cover/Daft Punk'),
+    );
+  });
+
   it('opens from the right edge, and a pin opens its page and closes it', async () => {
     setScreen(393, 851);
     const user = userEvent.setup();

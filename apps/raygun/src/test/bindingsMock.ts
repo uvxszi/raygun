@@ -96,6 +96,7 @@ type EventPayloads = {
   quickAccessChangedEvent: string;
   incognitoEvent: IncognitoStatus;
   artistReleasesEvent: null;
+  artistProfileEvent: string;
   exportEvent: ExportJob | null;
   videoPlayerEvent: VideoPlayerMessage;
   videoSubtitlesEvent: string;
@@ -786,6 +787,7 @@ export const bindingsMock = {
     quickAccessChangedEvent: makeEvent('quickAccessChangedEvent'),
     incognitoEvent: makeEvent('incognitoEvent'),
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
+    artistProfileEvent: makeEvent('artistProfileEvent'),
     exportEvent: makeEvent('exportEvent'),
     videoPlayerEvent: makeEvent('videoPlayerEvent'),
     videoSubtitlesEvent: makeEvent('videoSubtitlesEvent'),

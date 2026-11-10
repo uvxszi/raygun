@@ -111,8 +111,9 @@ describe('Item menus', () => {
     await user.click(more);
     const actions = await screen.findByTestId('track-more-actions');
     expect(within(actions).queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
-    expect(within(actions).getByRole('button', { name: 'Copy title' })).toBeInTheDocument();
-    expect(within(actions).getByRole('button', { name: 'Copy artist' })).toBeInTheDocument();
+    // The title and the artist copy when held, at the top, instead of rows of their own.
+    expect(within(actions).queryByRole('button', { name: 'Copy title' })).not.toBeInTheDocument();
+    expect(within(actions).getByRole('button', { name: 'Go to artist' })).toBeInTheDocument();
     // It asks first, in the row's place; a second tap removes it.
     await user.click(within(actions).getByRole('button', { name: 'Remove from downloads' }));
     expect(commands.songDownloadRemove).not.toHaveBeenCalled();
