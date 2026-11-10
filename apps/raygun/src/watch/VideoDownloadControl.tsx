@@ -3,6 +3,7 @@ import { CircleAlert, CircleCheck, Clock, Download } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { StopDownloadButton } from '../downloads/StopDownload';
 import { ProgressRing } from '../manga/DownloadButton';
 import { ConfirmButton } from '../shell/ConfirmButton';
 import { downloadShare, useRemoveVideoDownload, useRetryVideoDownload } from './useVideoLibrary';
@@ -11,8 +12,8 @@ const BASE = 'grid size-9 shrink-0 place-items-center rounded-full disabled:opac
 
 /**
  * An episode's or film's download control (Aniyomi's): download (which first asks for a link),
- * then queued or a progress ring (tap to cancel), then a check (tap twice to delete); a failed one
- * retries on tap.
+ * then queued or a progress ring (tap to stop, asked first), then a check (tap twice to delete); a
+ * failed one retries on tap.
  */
 export const VideoDownloadControl: FC<{
   item: VideoDownloadItem | undefined;
@@ -42,19 +43,19 @@ export const VideoDownloadControl: FC<{
   if (item && (state === 'queued' || state === 'downloading')) {
     const share = downloadShare(item) ?? 0;
     return (
-      <button
-        type="button"
-        aria-label={
+      <StopDownloadButton
+        label={
           state === 'queued'
             ? t('watch.cancelQueued', { name })
             : t('watch.cancelDownloading', { name, percent: Math.round(share * 100) })
         }
+        name={name}
         disabled={busy}
-        onClick={() => remove.mutate(item.id)}
+        onStop={() => remove.mutate(item.id)}
         className={`${BASE} text-muted`}
       >
         {state === 'queued' ? <Clock aria-hidden size={18} /> : <ProgressRing fraction={share} />}
-      </button>
+      </StopDownloadButton>
     );
   }
   if (item && state === 'failed') {

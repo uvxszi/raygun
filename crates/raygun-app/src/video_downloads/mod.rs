@@ -610,33 +610,86 @@ impl VideoDownloadService {
         crate::video::play(&self.app, request).await
     }
 
-    /// Every download, newest first.
+    /// Every download, newest first, with its title's page and whether it was watched.
     pub async fn list(&self) -> Result<VideoDownloads, String> {
-        let rows = store::all(&self.db()).await.map_err(to_message)?;
+        let db = self.db();
+        let rows = store::all(&db).await.map_err(to_message)?;
+        let keys: Vec<String> = rows.iter().map(|row| row.download.key.clone()).collect();
+        let watched: HashSet<String> = raygun_db::video::progress_for_keys(&db, &keys)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .filter(|progress| progress.watched_at.is_some())
+            .map(|progress| progress.entry.key)
+            .collect();
+        // Each stored title once: its source, id and which episode has which key.
+        let mut titles: std::collections::HashMap<String, Option<TitleInfo>> =
+            std::collections::HashMap::new();
+        for title_id in rows.iter().filter_map(|row| row.download.title_id.clone()) {
+            if titles.contains_key(&title_id) {
+                continue;
+            }
+            let info = title_info(&db, &title_id).await;
+            titles.insert(title_id, info);
+        }
         Ok(VideoDownloads {
             paused: self.paused.load(Ordering::SeqCst),
             items: rows
                 .into_iter()
-                .map(|row| VideoDownloadItem {
-                    state: DownloadState::parse(&row.state),
-                    done_bytes: row.done_bytes as f64,
-                    total_bytes: row.total_bytes.map(|total| total as f64),
-                    done_parts: row.done_parts.max(0) as u32,
-                    total_parts: row.total_parts.map(|total| total.max(0) as u32),
-                    error: row.error,
-                    poster: row
+                .map(|row| {
+                    let title = row
                         .download
-                        .poster
-                        .as_deref()
-                        .map(|url| self.images.cover(url, &Default::default())),
-                    id: row.id,
-                    key: row.download.key,
-                    title_id: row.download.title_id,
-                    title: row.download.title,
-                    subtitle: row.download.subtitle,
+                        .title_id
+                        .as_ref()
+                        .and_then(|id| titles.get(id))
+                        .and_then(Option::as_ref);
+                    VideoDownloadItem {
+                        state: DownloadState::parse(&row.state),
+                        done_bytes: row.done_bytes as f64,
+                        total_bytes: row.total_bytes.map(|total| total as f64),
+                        done_parts: row.done_parts.max(0) as u32,
+                        total_parts: row.total_parts.map(|total| total.max(0) as u32),
+                        error: row.error,
+                        poster: row
+                            .download
+                            .poster
+                            .as_deref()
+                            .map(|url| self.images.cover(url, &Default::default())),
+                        source_id: title.map(|title| title.source_id.clone()),
+                        remote_id: title.map(|title| title.remote_id.clone()),
+                        episode_id: title
+                            .and_then(|title| title.episodes.get(&row.download.key).cloned()),
+                        watched: watched.contains(&row.download.key),
+                        at: row.finished_at.unwrap_or(row.queued_at) as f64,
+                        id: row.id,
+                        key: row.download.key,
+                        title_id: row.download.title_id,
+                        title: row.download.title,
+                        subtitle: row.download.subtitle,
+                    }
                 })
                 .collect(),
         })
+    }
+
+    /// Marks a downloaded video watched or not, as its title page would.
+    pub async fn set_watched(&self, id: &str, watched: bool) -> Result<(), String> {
+        let db = self.db();
+        let row = store::get(&db, id)
+            .await
+            .map_err(to_message)?
+            .ok_or("The download is gone")?;
+        let entry = raygun_db::video::VideoEntry {
+            key: row.download.key,
+            title: row.download.title,
+            subtitle: row.download.subtitle,
+            poster: row.download.poster,
+            // Nothing was played, so there's no link to replay.
+            request: "{}".into(),
+        };
+        crate::video::mark(&db, &entry, watched).await?;
+        self.changed("");
+        Ok(())
     }
 
     /// The saved copy of what plays under `key`, when it's downloaded and still on disk. A
@@ -1078,6 +1131,32 @@ impl Job<'_> {
 
 fn network_failure(error: reqwest::Error) -> Failure {
     Failure::Error(format!("The download broke off ({error})"))
+}
+
+/// A stored title's source and id there, and its episodes' stored ids by their keys.
+struct TitleInfo {
+    source_id: String,
+    remote_id: String,
+    episodes: std::collections::HashMap<String, String>,
+}
+
+async fn title_info(db: &raygun_db::Db, title_id: &str) -> Option<TitleInfo> {
+    let title = raygun_db::titles::title(db, title_id).await.ok()??;
+    let units = raygun_db::titles::units(db, title_id).await.ok()?;
+    let episodes = units
+        .iter()
+        .map(|unit| {
+            (
+                crate::video_library::unit_key(&title, &unit.fields.remote_id),
+                unit.id.clone(),
+            )
+        })
+        .collect();
+    Some(TitleInfo {
+        source_id: title.fields.source_id,
+        remote_id: title.fields.remote_id,
+        episodes,
+    })
 }
 
 /// `.mp4`, `.mkv`, `.webm`... from the URL when it's a video container; `.mp4` otherwise.

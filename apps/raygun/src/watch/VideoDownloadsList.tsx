@@ -1,9 +1,10 @@
-import { commands } from '@raygun/bindings';
 import type { VideoDownloadItem } from '@raygun/bindings';
-import { Clapperboard, Pause, Play, RotateCw, Sparkles, Trash2, X } from 'lucide-react';
+import { Clapperboard, Pause, Play, RotateCw, Trash2, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useVideoDownloadMenu, videoName } from '../downloads/downloadMenus';
+import { StopDownloadButton } from '../downloads/StopDownload';
 import { useCaptions } from '../player/spoken';
 import { ConfirmButton } from '../shell/ConfirmButton';
 import type { MenuItem } from '../shell/contextMenuStore';
@@ -68,20 +69,15 @@ const Row: FC<{ item: VideoDownloadItem; paused: boolean }> = ({ item, paused })
   const play = usePlayVideoDownload();
   const retry = useRetryVideoDownload();
   const remove = useRemoveVideoDownload();
-  const name = [item.title, item.subtitle].filter(Boolean).join(' · ');
+  const videoMenu = useVideoDownloadMenu();
+  const name = videoName(item);
   const share = downloadShare(item);
   const running = item.state === 'queued' || item.state === 'downloading';
   // AI subtitles for a saved video, made offline from its menu (M46.33).
   const captions = useCaptions(item.key);
   const transcribing = captions.data?.running ?? false;
-  const menu = (): MenuItem[] => [
-    { kind: 'heading', label: name },
-    {
-      label: t('downloads.makeSubtitles'),
-      icon: Sparkles,
-      onSelect: () => void commands.captionsVideoMake(item.key),
-    },
-  ];
+  // The whole menu, as the desktop bar's Downloads has it.
+  const menu = (): MenuItem[] => videoMenu(item, paused);
   return (
     <li
       data-testid="video-download-row"
@@ -135,27 +131,27 @@ const Row: FC<{ item: VideoDownloadItem; paused: boolean }> = ({ item, paused })
             <RotateCw aria-hidden size={18} />
           </button>
         )}
-        {item.state === 'done' && <MenuButton label={t('menu.options', { name })} items={menu} />}
-        {running && (item.doneBytes ?? 0) === 0 ? (
-          // Nothing saved yet: nothing to lose.
-          <button
-            type="button"
-            aria-label={t('watch.cancelDownload', { name })}
+        {running ? (
+          // Stopping asks first, as every download's ring does.
+          <StopDownloadButton
+            label={t('watch.cancelDownload', { name })}
+            name={name}
             disabled={remove.isPending}
-            onClick={() => remove.mutate(item.id)}
+            onStop={() => remove.mutate(item.id)}
             className={`${ICON} text-muted`}
           >
             <X aria-hidden size={18} />
-          </button>
+          </StopDownloadButton>
         ) : (
           <ConfirmButton
-            label={t(running ? 'watch.cancelDownload' : 'watch.deleteDownload', { name })}
-            confirm={t(running ? 'watch.cancelConfirm' : 'watch.deleteConfirm')}
-            icon={running ? X : Trash2}
+            label={t('watch.deleteDownload', { name })}
+            confirm={t('watch.deleteConfirm')}
+            icon={Trash2}
             disabled={remove.isPending}
             onConfirm={() => remove.mutate(item.id)}
           />
         )}
+        <MenuButton label={t('menu.options', { name })} items={menu} />
       </div>
       {item.state === 'downloading' && (
         <div

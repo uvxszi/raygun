@@ -180,6 +180,22 @@ export const useWatchStremio = () =>
 export const usePlayVideoDownload = () =>
   useMutation({ mutationFn: (id: string) => unwrapResult(commands.videoDownloadPlay(id)) });
 
+/** Marks a downloaded video watched or not: its title page and Continue watching follow. */
+export const useSetVideoDownloadWatched = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, watched }: { id: string; watched: boolean }) =>
+      unwrapResult(commands.videoDownloadSetWatched(id, watched)),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: DOWNLOADS }),
+        queryClient.invalidateQueries({ queryKey: [VIDEO, 'title'] }),
+        queryClient.invalidateQueries({ queryKey: ['watch'] }),
+        queryClient.invalidateQueries({ queryKey: ['stremio', 'meta'] }),
+      ]),
+  });
+};
+
 /** Saves a video source's title to the library, or takes it out. */
 export const useSetVideoInLibrary = () => {
   const queryClient = useQueryClient();

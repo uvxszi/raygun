@@ -131,6 +131,11 @@ const download = (
   doneParts: 0,
   totalParts: null,
   error: null,
+  sourceId: 'stremio',
+  remoteId: 'series:tt0903747',
+  episodeId: `episode-${id}`,
+  watched: false,
+  at: 0,
   ...extra,
 });
 
@@ -374,7 +379,8 @@ describe('Video library', () => {
         medium: 'video',
         titleIds: ['title-bb'],
         scope: { kind: 'chosen', ids: ['tt0903747:1:2', 'tt0903747:2:1'] },
-        format: 'video',
+        // MP4 unless another format was used last.
+        format: 'mp4',
       }),
     );
   });
@@ -479,12 +485,13 @@ describe('Video library', () => {
       within(failed).getByRole('button', { name: 'Retry downloading Breaking Bad · S1 E3' }),
     );
     expect(commands.videoDownloadRetry).toHaveBeenCalledWith('3');
-    // 50 MB would be lost: cancelling takes a second tap.
+    // Stopping asks first, beside the button.
     await user.click(
       within(running).getByRole('button', { name: 'Cancel the download of Breaking Bad · S1 E2' }),
     );
     expect(commands.videoDownloadRemove).not.toHaveBeenCalled();
-    await user.click(within(running).getByRole('button', { name: 'Cancel' }));
+    const ask = await screen.findByRole('dialog', { name: 'Stop this download?' });
+    await user.click(within(ask).getByRole('button', { name: 'Stop' }));
     expect(commands.videoDownloadRemove).toHaveBeenCalledWith('2');
     // A finished download is deleted the same way.
     await user.click(
@@ -502,6 +509,73 @@ describe('Video library', () => {
     // Comics and books keep their own tabs.
     await user.click(within(page).getByRole('link', { name: 'Comics' }));
     expect(await within(page).findByText('Nothing downloaded yet')).toBeInTheDocument();
+  });
+
+  it('gives a downloaded video its whole menu', async () => {
+    const user = userEvent.setup();
+    commands.videoDownloads.mockResolvedValue(
+      ok({ paused: false, items: [download('1', 'done', { doneBytes: 800 * 1024 ** 2 })] }),
+    );
+    commands.exportPlan.mockResolvedValue(ok({ chapters: 1, missing: 0, files: 1, problem: null }));
+    commands.exportLastFormat.mockResolvedValue(ok('mkv'));
+    await AppShellWrapper.mount('/downloads?tab=videos');
+    const saved = await screen.findByRole('listitem', { name: 'Breaking Bad · S1 E1' });
+    const open = () =>
+      user.click(within(saved).getByRole('button', { name: 'Options for Breaking Bad · S1 E1' }));
+
+    await open();
+    const menu = await screen.findByRole('menu');
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Play',
+      'Mark as watched',
+      'Go to title',
+      'Save as file…',
+      'Share',
+      'Make subtitles with AI',
+      'Delete download',
+    ]);
+    await user.click(within(menu).getByRole('menuitem', { name: 'Mark as watched' }));
+    expect(commands.videoDownloadSetWatched).toHaveBeenCalledWith('1', true);
+
+    // Saving it as a file: the export sheet for this one episode, in the last format used.
+    await open();
+    await user.click(await screen.findByRole('menuitem', { name: 'Save as file…' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Export' });
+    expect(within(sheet).queryByRole('radiogroup', { name: 'Episodes' })).not.toBeInTheDocument();
+    expect(within(sheet).getByRole('radio', { name: 'MKV' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await vi.waitFor(() =>
+      expect(commands.exportPlan).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          medium: 'video',
+          titleIds: ['title-bb'],
+          scope: { kind: 'chosen', ids: ['episode-1'] },
+          format: 'mkv',
+        }),
+      ),
+    );
+    await user.click(within(sheet).getByRole('button', { name: 'Cancel' }));
+
+    // Deleting asks first, in the menu.
+    await open();
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete download' }));
+    expect(commands.videoDownloadRemove).not.toHaveBeenCalled();
+    const ask = await screen.findByRole('alertdialog', {
+      name: 'Delete the download of “Breaking Bad · S1 E1”?',
+    });
+    await user.click(within(ask).getByRole('button', { name: 'Delete download' }));
+    expect(commands.videoDownloadRemove).toHaveBeenCalledWith('1');
+
+    // Go to title opens its page.
+    await open();
+    await user.click(await screen.findByRole('menuitem', { name: 'Go to title' }));
+    expect(await screen.findByTestId('watch-title-page')).toBeInTheDocument();
   });
 
   it('lists new and upcoming episodes in Updates', async () => {

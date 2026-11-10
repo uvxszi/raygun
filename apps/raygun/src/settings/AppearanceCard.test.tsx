@@ -74,6 +74,7 @@ const DEFAULT_SETTINGS: Settings = {
   userAgent: '',
   keepMusicPlaying: false,
   downloadsInBatterySaver: false,
+  downloadsPopover: 20,
   resumeOnStart: true,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   rail: { pins: [], order: 'played', seeded: false },

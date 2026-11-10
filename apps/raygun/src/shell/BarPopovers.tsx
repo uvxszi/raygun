@@ -1,16 +1,27 @@
 import { Link } from '@tanstack/react-router';
-import { ArrowDownToLine, Bell } from 'lucide-react';
+import { ArrowDownToLine, Bell, FileDown } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { POPOVER_DOWNLOADS } from '../downloads/barDownloads';
+import {
+  useChapterDownloadMenu,
+  useFileDownloadMenu,
+  useSongDownloadMenu,
+  useVideoDownloadMenu,
+} from '../downloads/downloadMenus';
 import { chapterUpdateLink } from '../manga/chapterUpdateLink';
 import { MangaCover } from '../manga/MangaCover';
 import { useMangaDownloads, useMangaLiveEvents, useMangaUpdates } from '../manga/useManga';
 import { Artwork } from '../library/Artwork';
-import { useSongDownloads } from '../music/useSongDownloads';
+import { useSongDownloads, useSongDownloadsPaused } from '../music/useSongDownloads';
+import { useSettings } from '../settings/useSettings';
 import { episodeLabel } from '../watch/episodeLabel';
 import { useVideoDownloads, useVideoUpdates, videoTitleLink } from '../watch/useVideoLibrary';
+import { useFileDownloads } from '../websites/useFileDownloads';
+import type { MenuItem } from './contextMenuStore';
+import { MenuButton } from './MenuButton';
 import { Popover } from './Popover';
 
 /** Rows a bar popover shows before Open… (M46.37). */
@@ -126,47 +137,113 @@ const UpdatesPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({ anch
   );
 };
 
-/** Downloads under way first, then the latest done, every kind together (M46.37). */
+/** A download in the bar's list: its row, whether it's under way, and its own menu. */
+type DownloadRow = MiniRow & { busy: boolean; menu: () => MenuItem[] };
+
+/** The downloads, each with its ⋮ (the menu Downloads gives it); the list scrolls. */
+const DownloadList: FC<{ rows: DownloadRow[]; empty: string }> = ({ rows, empty }) => {
+  const { t } = useTranslation();
+  if (rows.length === 0) return <p className="text-muted px-3 py-4 text-sm">{empty}</p>;
+  return (
+    <ul
+      aria-label={t('manga.downloads')}
+      className="flex max-h-[min(60dvh,26rem)] flex-col overflow-y-auto"
+    >
+      {rows.map((row) => (
+        <li
+          key={row.key}
+          data-testid="bar-download"
+          className="hover:bg-background flex items-center gap-3 rounded-lg py-1.5 pr-1 pl-2"
+        >
+          <span className="w-9 shrink-0">{row.picture}</span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-sm font-medium">{row.title}</span>
+            <span className="text-muted truncate text-xs">{row.detail}</span>
+          </span>
+          <MenuButton
+            label={t('downloads.popover.options', { name: row.title })}
+            items={row.menu}
+            className="text-muted hover:text-foreground grid size-8 shrink-0 place-items-center rounded-full"
+            iconSize={16}
+          />
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+/**
+ * Downloads under way first, then the latest, every kind together (M46.37): as many as Settings →
+ * Downloads says (20 at first), each with its own menu (play or open, pause or resume, stop
+ * asked first, try again, show in folder, delete), and Open Downloads under them.
+ */
 const DownloadsPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({
   anchor,
   onClose,
 }) => {
   const { t } = useTranslation();
   useMangaLiveEvents();
+  const shown = useSettings().data?.downloadsPopover ?? POPOVER_DOWNLOADS;
   const songs = useSongDownloads();
+  const songsPaused = useSongDownloadsPaused().data ?? false;
   const chapters = useMangaDownloads();
   const videos = useVideoDownloads();
+  const files = useFileDownloads();
+  const songMenu = useSongDownloadMenu();
+  const chapterMenu = useChapterDownloadMenu();
+  const videoMenu = useVideoDownloadMenu();
+  const fileMenu = useFileDownloadMenu();
   const stateText = (state: string) => t(`barPopover.state.${state}`, { defaultValue: state });
   const busy = (state: string) => state === 'downloading' || state === 'queued';
-  const rows: (MiniRow & { busy: boolean })[] = [
-    ...(songs.data ?? []).map((song, index) => ({
+  const chaptersPaused = chapters.data?.paused ?? false;
+  const videosPaused = videos.data?.paused ?? false;
+  const rows: DownloadRow[] = [
+    ...(songs.data ?? []).map((song) => ({
       key: `s-${song.id}`,
       picture: <Artwork url={song.artworkUrl} className="w-full rounded" iconSize={16} />,
       title: song.title,
       detail: [t('barPopover.song'), song.artist, stateText(song.state)]
         .filter(Boolean)
         .join(' · '),
-      // Newest first already: keep that order among songs.
-      at: -index,
+      at: song.finishedAt ?? song.queuedAt ?? 0,
       busy: busy(song.state),
+      menu: () => songMenu(song, songsPaused),
     })),
     ...(chapters.data?.items ?? []).map((item, index) => ({
       key: `m-${item.chapterId}`,
       picture: <MangaCover url={null} className="w-full rounded" />,
       title: item.title,
       detail: [item.chapter, stateText(item.download.state)].join(' · '),
-      at: -index,
+      // The queue has no times; it's in its own order.
+      at: Number.MAX_SAFE_INTEGER - index,
       busy: busy(item.download.state),
+      menu: () => chapterMenu(item, chaptersPaused),
     })),
-    ...(videos.data?.items ?? []).map((item, index) => ({
+    ...(videos.data?.items ?? []).map((item) => ({
       key: `v-${item.id}`,
       picture: <MangaCover url={item.poster} video className="w-full rounded" />,
       title: item.title,
       detail: [item.subtitle, stateText(item.state)].filter(Boolean).join(' · '),
-      at: -index,
+      at: item.at ?? 0,
       busy: busy(item.state),
+      menu: () => videoMenu(item, videosPaused),
     })),
-  ].sort((a, b) => Number(b.busy) - Number(a.busy) || b.at - a.at);
+    ...(files.data ?? []).map((file) => ({
+      key: `f-${file.id}`,
+      picture: (
+        <span className="bg-background text-primary grid aspect-square w-full place-items-center rounded">
+          <FileDown aria-hidden size={16} />
+        </span>
+      ),
+      title: file.name,
+      detail: [file.site, stateText(file.state)].filter(Boolean).join(' · '),
+      at: file.createdAt ?? 0,
+      busy: busy(file.state),
+      menu: () => fileMenu(file),
+    })),
+  ]
+    .sort((a, b) => Number(b.busy) - Number(a.busy) || b.at - a.at)
+    .slice(0, shown);
   return (
     <Frame
       anchor={anchor}
@@ -175,7 +252,7 @@ const DownloadsPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({
       to="/downloads"
       onClose={onClose}
     >
-      <MiniList rows={rows} empty={t('barPopover.noDownloads')} onOpen={onClose} />
+      <DownloadList rows={rows} empty={t('barPopover.noDownloads')} />
     </Frame>
   );
 };

@@ -111,10 +111,13 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
             <ExportButton
               medium={medium}
               titleIds={[view.id]}
-              // The list is newest first; ranges go in reading order.
-              chapters={[...view.chapters]
-                .reverse()
-                .map((chapter) => ({ id: chapter.id, name: chapter.name }))}
+              // The list is newest first; ranges and boxes go in reading order.
+              chapters={[...view.chapters].reverse().map((chapter) => ({
+                id: chapter.id,
+                name: chapter.name,
+                downloaded: chapter.download?.state === 'done',
+                read: chapter.read,
+              }))}
             />
           </>
         )

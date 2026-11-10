@@ -50,6 +50,13 @@ export const useLastExportFolder = () =>
     queryFn: () => unwrapResult(commands.exportLastFolder()),
   });
 
+/** The format last exported to for a medium (`null` before the first export), offered first. */
+export const useLastExportFormat = (medium: string) =>
+  useQuery({
+    queryKey: [...EXPORTS, 'lastFormat', medium],
+    queryFn: () => unwrapResult(commands.exportLastFormat(medium)),
+  });
+
 /** The system folder picker for one export; `null` when it was closed without a choice. */
 export const usePickExportFolder = () => {
   const queryClient = useQueryClient();
@@ -65,10 +72,13 @@ export const useStartExport = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (request: ExportRequest) => unwrapResult(commands.exportStart(request)),
-    onSuccess: (job) =>
+    onSuccess: (job, request) => {
       queryClient.setQueryData<ExportJob[]>(EXPORTS, (jobs) =>
         jobs?.some((known) => known.id === job.id) ? jobs : [job, ...(jobs ?? [])],
-      ),
+      );
+      // Rust remembers the format: the next sheet offers it first.
+      queryClient.setQueryData([...EXPORTS, 'lastFormat', request.medium], request.format);
+    },
   });
 };
 

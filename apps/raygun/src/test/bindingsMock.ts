@@ -226,6 +226,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keepMusicPlaying: false,
   resumeOnStart: true,
   downloadsInBatterySaver: false,
+  downloadsPopover: 20,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
   rail: RAIL_DEFAULTS,
   transcription: {
@@ -657,6 +658,7 @@ export const bindingsMock = {
     exportStart: vi.fn(),
     exportPickFolder: vi.fn(),
     exportLastFolder: vi.fn(),
+    exportLastFormat: vi.fn(),
     exportCancel: vi.fn(),
     exportDismiss: vi.fn(),
     exportJobs: vi.fn(),
@@ -703,6 +705,7 @@ export const bindingsMock = {
     videoDownloadRetry: vi.fn(),
     videoDownloadRemove: vi.fn(),
     videoDownloadPlay: vi.fn(),
+    videoDownloadSetWatched: vi.fn(),
     videoDownloadsSetPaused: vi.fn(),
     videoSourceWatch: vi.fn(),
     stremioWatch: vi.fn(),
@@ -1448,6 +1451,7 @@ export const seedBindings = () => {
   commands.exportStart.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.exportPickFolder.mockResolvedValue(ok(null));
   commands.exportLastFolder.mockResolvedValue(ok(null));
+  commands.exportLastFormat.mockResolvedValue(ok(null));
   commands.exportCancel.mockResolvedValue(null);
   commands.exportDismiss.mockResolvedValue(null);
   commands.exportJobs.mockResolvedValue([]);
@@ -1498,6 +1502,7 @@ export const seedBindings = () => {
   commands.videoDownloadRetry.mockResolvedValue(ok(null));
   commands.videoDownloadRemove.mockResolvedValue(ok(null));
   commands.videoDownloadPlay.mockResolvedValue(ok(null));
+  commands.videoDownloadSetWatched.mockResolvedValue(ok(null));
   commands.videoDownloadsSetPaused.mockResolvedValue(ok(null));
   commands.videoSourceWatch.mockResolvedValue(ok(null));
   commands.stremioWatch.mockResolvedValue(ok(null));

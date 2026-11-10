@@ -6,8 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { withSave } from '../export/saveDefaults';
 import type { Save } from '../export/saveDefaults';
 import { useFolderState, usePickFolder } from '../export/useExports';
-import { useIsPhone } from '../shell/useIsDesktop';
-import { PrefAction, PrefChoice, PrefGroup, PrefSwitch } from './prefs';
+import { POPOVER_DOWNLOADS, POPOVER_LIMITS } from '../downloads/barDownloads';
+import { useIsDesktop, useIsPhone } from '../shell/useIsDesktop';
+import { PrefAction, PrefChoice, PrefGroup, PrefNumber, PrefSwitch } from './prefs';
 import { Problem } from './Problem';
 import { useSettings, useUpdateSetting } from './useSettings';
 
@@ -25,6 +26,8 @@ export const DownloadSettings: FC = () => {
   const pick = usePickFolder();
   // Only Android reports battery saver (`device_state.rs`).
   const phone = useIsPhone();
+  // The bar's Downloads button is the desktop's.
+  const desktop = useIsDesktop();
   const save = withSave(settings.data?.save);
   const folder = useFolderState(save.location === 'folder' ? save.folderUri : null);
   if (!settings.data) return null;
@@ -97,6 +100,18 @@ export const DownloadSettings: FC = () => {
           title={t('settings.downloadsInBatterySaver')}
           checked={settings.data.downloadsInBatterySaver ?? false}
           onChange={(value) => update.mutate({ key: 'downloadsInBatterySaver', value })}
+        />
+      )}
+      {desktop && (
+        <PrefNumber
+          title={t('downloads.popover.shown')}
+          summary={t('downloads.popover.shownHint')}
+          value={settings.data.downloadsPopover ?? POPOVER_DOWNLOADS}
+          min={POPOVER_LIMITS.min}
+          max={POPOVER_LIMITS.max}
+          defaultValue={POPOVER_DOWNLOADS}
+          format={(count) => t('settings.quickAccess.items', { count })}
+          onChange={(value) => update.mutate({ key: 'downloadsPopover', value })}
         />
       )}
     </PrefGroup>

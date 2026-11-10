@@ -4767,6 +4767,16 @@ pub async fn export_last_folder(
     Ok(exports.last_folder().await)
 }
 
+/// The format last exported to for `medium` (`manga`, `novel`, `video`), offered first.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_last_format(
+    exports: tauri::State<'_, Arc<crate::export::ExportService>>,
+    medium: String,
+) -> Result<Option<raygun_model::ExportFormat>, String> {
+    Ok(exports.last_format(&medium).await)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn export_cancel(exports: tauri::State<'_, Arc<crate::export::ExportService>>, id: String) {
@@ -5722,6 +5732,17 @@ pub async fn video_download_play(
     id: String,
 ) -> Result<(), String> {
     downloads.play(&id).await
+}
+
+/// Marks a downloaded video watched or not.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_download_set_watched(
+    downloads: VideoDownloadsState<'_>,
+    id: String,
+    watched: bool,
+) -> Result<(), String> {
+    downloads.set_watched(&id, watched).await
 }
 
 #[tauri::command]

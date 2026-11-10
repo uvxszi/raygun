@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { StopDownloadButton } from '../downloads/StopDownload';
 import { formatBytes } from '../lib/formatBytes';
 import { EmptyState } from '../shell/EmptyState';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -62,14 +63,14 @@ export const FileDownloadRow: FC<{ file: WebsiteDownload }> = ({ file }) => {
           </span>
         </div>
         {running(file) ? (
-          <button
-            type="button"
-            aria-label={t('downloads.files.cancelOne', { name: file.name })}
-            onClick={() => cancel.mutate(file.id)}
+          <StopDownloadButton
+            label={t('downloads.files.cancelOne', { name: file.name })}
+            name={file.name}
+            onStop={() => cancel.mutate(file.id)}
             className={action}
           >
             {t('export.cancel')}
-          </button>
+          </StopDownloadButton>
         ) : (
           <button
             type="button"

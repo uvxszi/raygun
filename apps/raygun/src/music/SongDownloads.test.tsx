@@ -199,6 +199,10 @@ describe('Song downloads', () => {
     await user.click(
       within(row('Queued song')).getByRole('button', { name: 'Cancel Queued song' }),
     );
+    // Stopping asks first.
+    expect(commands.songDownloadRemove).not.toHaveBeenCalled();
+    const ask = await screen.findByRole('dialog', { name: 'Stop this download?' });
+    await user.click(within(ask).getByRole('button', { name: 'Stop' }));
     expect(commands.songDownloadRemove).toHaveBeenCalledWith('1');
     expect(screen.queryByRole('listitem', { name: 'Queued song' })).not.toBeInTheDocument();
 

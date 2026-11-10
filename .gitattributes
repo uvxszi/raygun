@@ -3,3 +3,4 @@
 *.ico binary
 *.icns binary
 *.bat text eol=crlf
+crates/raygun-app/src/export/remux/fixtures/** binary

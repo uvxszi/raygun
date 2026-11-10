@@ -90,9 +90,9 @@ describe('Downloads beside the Plus (M46.18)', () => {
     );
     await user.click(within(sheet).getByRole('button', { name: 'Downloading' }));
     const progress = await screen.findByTestId('download-confirm');
-    expect(progress).toHaveTextContent('Cancel this download?');
+    expect(progress).toHaveTextContent('Stop this download?');
     expect(progress).toHaveTextContent('Indie Tracks · 50%');
-    await user.click(within(progress).getByRole('button', { name: 'Keep' }));
+    await user.click(within(progress).getByRole('button', { name: 'Keep downloading' }));
 
     // Once it's downloaded the button fills in, and removing it takes a confirmation.
     emitEvent('songDownloadProgressEvent', download('done', { format: 'mp3', fraction: 1 }));

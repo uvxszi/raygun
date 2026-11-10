@@ -38,6 +38,7 @@ import type { CSSProperties, FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TrackMoreButton } from '../collections/TrackMoreButton';
+import { StopDownloadButton } from '../downloads/StopDownload';
 import { Artwork } from '../library/Artwork';
 import { useSettings } from '../settings/useSettings';
 import { ConfirmButton } from '../shell/ConfirmButton';
@@ -257,16 +258,15 @@ const Row: FC<RowProps> = memo(({ item, paused, onSave, onFirst, drag }: RowProp
         </button>
       )}
       {busy ? (
-        <button
-          type="button"
-          aria-label={t(cancelLabel, { title: item.title })}
-          data-hint={t(cancelLabel, { title: item.title })}
+        <StopDownloadButton
+          label={t(cancelLabel, { title: item.title })}
+          name={item.title}
           disabled={remove.isPending}
-          onClick={() => remove.mutate(item.id)}
+          onStop={() => remove.mutate(item.id)}
           className={ICON}
         >
           <X aria-hidden size={18} />
-        </button>
+        </StopDownloadButton>
       ) : (
         <ConfirmButton
           label={t(cancelLabel, { title: item.title })}

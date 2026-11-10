@@ -161,6 +161,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
         },
       },
       { key: 'downloadsInBatterySaver', value: defaults.downloadsInBatterySaver },
+      { key: 'downloadsPopover', value: defaults.downloadsPopover },
     ],
   },
   {

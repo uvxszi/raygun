@@ -41,6 +41,9 @@ describe('Downloads → Files', () => {
     expect(row).toHaveTextContent('archive.org · 512 KB of 2.0 MB · 256 KB/s');
     expect(within(row).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
     await user.click(within(row).getByRole('button', { name: 'Cancel book.pdf' }));
+    expect(commands.websiteDownloadCancel).not.toHaveBeenCalled();
+    const ask = await screen.findByRole('dialog', { name: 'Stop this download?' });
+    await user.click(within(ask).getByRole('button', { name: 'Stop' }));
     expect(commands.websiteDownloadCancel).toHaveBeenCalledWith('f1');
   });
 

@@ -3,6 +3,7 @@ import { FileDown, X } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { StopDownloadButton } from '../downloads/StopDownload';
 import { EmptyState } from '../shell/EmptyState';
 import { useCancelExport, useDismissExport, useExportJobs } from './useExports';
 
@@ -40,14 +41,15 @@ const JobCard: FC<{ job: ExportJob }> = ({ job }) => {
           </span>
         </div>
         {running(job) ? (
-          <button
-            type="button"
-            aria-label={t('export.cancelOne', { name: job.label })}
-            onClick={() => cancel.mutate(job.id)}
+          <StopDownloadButton
+            label={t('export.cancelOne', { name: job.label })}
+            name={job.label}
+            kind="export"
+            onStop={() => cancel.mutate(job.id)}
             className="text-primary shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
           >
             {t('export.cancel')}
-          </button>
+          </StopDownloadButton>
         ) : (
           <button
             type="button"

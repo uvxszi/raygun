@@ -2197,6 +2197,42 @@
     "deleteChaptersAsk": "Delete the downloaded chapters of “{{name}}”?",
     "deleteEpisodes": "Delete downloaded episodes",
     "deleteEpisodesAsk": "Delete the downloaded episodes of “{{name}}”?",
+    "stop": {
+      "title": "Stop this download?",
+      "hint": "What “{{name}}” saved so far is deleted.",
+      "exportTitle": "Stop this export?",
+      "exportHint": "Files it already saved stay where they are.",
+      "keep": "Keep downloading",
+      "keepExport": "Keep exporting",
+      "stop": "Stop",
+      "menu": "Stop download",
+      "ask": "Stop downloading “{{name}}”?"
+    },
+    "video": {
+      "play": "Play",
+      "openTitle": "Go to title",
+      "markWatched": "Mark as watched",
+      "markUnwatched": "Mark as unwatched",
+      "export": "Save as file…",
+      "share": "Share",
+      "sharing": "Getting {{name}} ready to share…",
+      "delete": "Delete download",
+      "deleteAsk": "Delete the download of “{{name}}”?",
+      "failed": "That didn't work"
+    },
+    "popover": {
+      "shown": "Latest downloads in the bar",
+      "shownHint": "How many the Downloads button lists (desktop)",
+      "options": "Options for {{name}}",
+      "showFolder": "Show in folder",
+      "openChapter": "Read",
+      "openTitle": "Go to title",
+      "pause": "Pause downloads",
+      "resume": "Resume downloads",
+      "retry": "Try again",
+      "delete": "Delete download",
+      "deleteAsk": "Delete the download of “{{name}}”?"
+    },
     "files": {
       "tab": "Files",
       "none": "No files from websites yet",
@@ -2452,10 +2488,18 @@
       "allVideo": "All episodes",
       "seasonVideo": "A season",
       "rangeVideo": "From one episode to another",
-      "chosenVideo": "Chosen episodes"
+      "chosenVideo": "Chosen episodes",
+      "chosen": "Chosen chapters"
     },
     "season": "Season",
     "pickEpisodes": "Episodes to export",
+    "pickChapters": "Chapters to export",
+    "tickedChapters_one": "{{count}} chapter ticked",
+    "tickedChapters_other": "{{count}} chapters ticked",
+    "tickedEpisodes_one": "{{count}} episode ticked",
+    "tickedEpisodes_other": "{{count}} episodes ticked",
+    "tickAll": "Tick all",
+    "tickNone": "Clear",
     "from": "From",
     "to": "To",
     "format": "Format",
@@ -2466,7 +2510,11 @@
       "images": "Images",
       "epub": "EPUB",
       "text": "Text",
-      "video": "Video files"
+      "video": "As downloaded",
+      "mp4": "MP4",
+      "mkv": "MKV",
+      "m4a": "M4A, sound only",
+      "mp3": "MP3, sound only"
     },
     "formatHints": {
       "cbz": "One comic file per chapter, with its details",
@@ -2475,7 +2523,11 @@
       "images": "A folder of pages per chapter",
       "epub": "One book for e-readers",
       "text": "One plain text file",
-      "video": "Each episode as one file, its subtitles beside it"
+      "video": "Each episode in the format it downloaded in, its subtitles beside it",
+      "mp4": "Plays almost everywhere. Nothing is re-encoded",
+      "mkv": "Holds any picture and sound. Nothing is re-encoded",
+      "m4a": "The sound alone, as it is",
+      "mp3": "The sound alone, for any player"
     },
     "destination": "Save to",
     "downloads": "Downloads folder",
