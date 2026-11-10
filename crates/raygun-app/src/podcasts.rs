@@ -1745,10 +1745,10 @@ impl DownloadJob {
         watcher.abort();
         let captured = captured.map_err(|error| match error {
             capture::CaptureError::Stopped => Stop::Cancelled,
-            capture::CaptureError::Device(error) | capture::CaptureError::Failed(error) => {
-                Stop::Failed(error)
-            }
-            // Only recordings are interrupted, and episodes are never recorded.
+            capture::CaptureError::Device(error)
+            | capture::CaptureError::Failed(error)
+            | capture::CaptureError::Partial { why: error, .. } => Stop::Failed(error),
+            // Only YouTube's player's captures are interrupted, and episodes never are those.
             capture::CaptureError::Interrupted => Stop::Failed("The capture stopped".into()),
         })?;
         record.received_bytes = tokio::fs::metadata(dir.join(&captured.file))

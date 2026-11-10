@@ -1,97 +1,141 @@
-import { act, screen, within } from '@testing-library/react';
+import type { SongDownload } from '@raygun/bindings';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { FC } from 'react';
 
 import { bindingsMock, emitEvent } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { RecordingHost } from './RecordingHost';
+import { recordingsOf } from './songDownloadState';
+import { useSongDownloadSync } from './useSongDownloads';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
+const ok = <T,>(data: T) => ({ status: 'ok' as const, data });
 const { commands } = bindingsMock;
 
-const EMBED = 'http://localhost:4000/embed/youtube';
+/** The card, with the shell's one listener for download changes. */
+const Shell: FC = () => {
+  useSongDownloadSync();
+  return <RecordingHost />;
+};
 
-const request = (videoId: string | null) => ({
-  session: 's1',
-  downloadId: 'd1',
-  title: 'Ballad',
+const download = (
+  id: string,
+  title: string,
+  state: SongDownload['state'],
+  extra: Partial<SongDownload> = {},
+): SongDownload => ({
+  id,
+  trackKey: `a|${title.toLowerCase()}`,
+  title,
   artist: 'Band',
-  videoId,
-  startMs: 0,
-  embedUrl: EMBED,
+  album: null,
+  durationMs: 200_000,
+  artworkUrl: null,
+  state,
+  kind: 'recording',
+  provider: null,
+  format: null,
+  doneBytes: 0,
+  totalBytes: null,
+  fraction: null,
+  bytesPerSecond: null,
+  etaMs: null,
+  error: null,
+  errorDetail: null,
+  replacing: false,
+  problem: null,
+  queuedAt: 1,
+  finishedAt: null,
+  ...extra,
 });
 
-/** What the embed page in the recording's player says. */
-const reply = (frame: HTMLIFrameElement, data: object) =>
-  act(() => {
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: { raygunEmbed: true, ...data },
-        origin: 'http://localhost:4000',
-        source: frame.contentWindow,
-      }),
-    );
+describe('recordingsOf', () => {
+  it('puts the song recording now first, then the queue in its order', () => {
+    const list = [
+      download('late', 'Late', 'queued', { queuedAt: 9 }),
+      download('file', 'File', 'queued', { kind: 'file' }),
+      download('done', 'Done', 'done'),
+      download('now', 'Now', 'downloading', { queuedAt: 20 }),
+      download('early', 'Early', 'queued', { queuedAt: 2 }),
+      download('stopped', 'Stopped', 'failed'),
+    ];
+    expect(recordingsOf(list).map((item) => item.id)).toEqual(['now', 'early', 'late']);
   });
+});
 
 describe('RecordingHost', () => {
-  it('explains recording and asks to allow it, or not now', async () => {
+  it('shows every song to record in one card, the one recording now with how far it is', async () => {
     const user = userEvent.setup();
+    commands.songDownloads.mockResolvedValue(
+      ok([
+        download('1', 'Ballad', 'downloading', { fraction: 0.42 }),
+        download('2', 'Chorus', 'queued', { queuedAt: 2 }),
+        download('3', 'Anthem', 'queued', { queuedAt: 3 }),
+        download('4', 'Elsewhere', 'queued', { kind: 'file' }),
+      ]),
+    );
     renderWithProviders(<RecordingHost />);
 
-    emitEvent('recordingConsentEvent', { songs: 2 });
-    const ask = await screen.findByTestId('recording-consent');
-    expect(ask).toHaveTextContent('2 songs can only be saved by recording them as they play');
-    expect(ask).toHaveTextContent('turning the volume down or muting doesn’t affect');
-    await user.click(within(ask).getByRole('button', { name: 'Allow recording' }));
-    expect(commands.songRecordingConsent).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId('recording-consent')).not.toBeInTheDocument();
+    const card = await screen.findByRole('region', { name: 'Recording 3 songs' });
+    expect(card).toHaveTextContent('Recording Ballad · 42%');
+    expect(card).toHaveTextContent('silently in the background: keep listening');
+    expect(within(card).getByRole('progressbar', { name: 'Recording progress' })).toHaveAttribute(
+      'aria-valuenow',
+      '42',
+    );
 
-    emitEvent('recordingConsentEvent', { songs: 1 });
-    const again = await screen.findByTestId('recording-consent');
-    expect(again).toHaveTextContent('1 song can only be saved by recording it as it plays');
-    await user.click(within(again).getByRole('button', { name: 'Not now' }));
-    expect(commands.songRecordingDecline).toHaveBeenCalledTimes(1);
-    expect(commands.songRecordingConsent).toHaveBeenCalledTimes(1);
+    await user.click(within(card).getByRole('button', { name: 'Show the songs to record' }));
+    const queue = within(card).getByTestId('recording-queue');
+    expect(
+      within(queue)
+        .getAllByRole('listitem')
+        .map((row) => row.textContent),
+    ).toEqual(['Ballad – Band42%', 'Chorus – BandWaiting', 'Anthem – BandWaiting']);
+
+    // One song, or all of them.
+    await user.click(within(queue).getByRole('button', { name: 'Stop recording Chorus' }));
+    expect(commands.songDownloadCancelRecording).toHaveBeenCalledWith('2');
+    await user.click(within(card).getByRole('button', { name: 'Stop recording' }));
+    expect(commands.songDownloadCancelRecording).toHaveBeenCalledWith(null);
   });
 
-  it('plays the song aloud in a player of its own, reports it, and can stop it', async () => {
-    const user = userEvent.setup();
+  it('says why the queue waits when nothing records yet', async () => {
+    commands.songDownloads.mockResolvedValue(
+      ok([
+        download('1', 'Ballad', 'queued', {
+          error: 'Waits until Raygun is open: it’s recorded in Raygun’s window.',
+        }),
+      ]),
+    );
     renderWithProviders(<RecordingHost />);
 
-    emitEvent('songRecordingEvent', request('abc'));
-    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Recording player"]');
-    expect(frame?.src).toBe(EMBED);
-    const card = await screen.findByTestId('recording-card');
-    expect(card).toHaveTextContent('Recording Ballad');
+    const card = await screen.findByRole('region', { name: 'Recording 1 song' });
+    expect(card).toHaveTextContent('Waits until Raygun is open');
+    expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
+  });
 
-    // The page is ready: it's asked for the video at full volume, and what it does goes to Rust.
-    const posted = vi.spyOn(frame!.contentWindow!, 'postMessage');
-    reply(frame!, { type: 'ready' });
-    expect(posted).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'load', videoId: 'abc', autoplay: true, volume: 1 }),
-      'http://localhost:4000',
+  it('can be put away until another song is added to record', async () => {
+    const user = userEvent.setup();
+    commands.songDownloads.mockResolvedValue(ok([download('1', 'Ballad', 'downloading')]));
+    renderWithProviders(<Shell />);
+
+    const card = await screen.findByRole('region', { name: 'Recording 1 song' });
+    await user.click(within(card).getByRole('button', { name: 'Hide' }));
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
+
+    // Another song to record: the card is back, with both.
+    emitEvent('songDownloadProgressEvent', download('2', 'Chorus', 'queued', { queuedAt: 5 }));
+    expect(await screen.findByRole('region', { name: 'Recording 2 songs' })).toBeInTheDocument();
+  });
+
+  it('draws nothing while no song is to be recorded', async () => {
+    commands.songDownloads.mockResolvedValue(
+      ok([download('1', 'Ballad', 'queued', { kind: 'file' })]),
     );
-    reply(frame!, { type: 'state', state: 'playing', token: 1 });
-    reply(frame!, { type: 'progress', positionMs: 60_000, durationMs: 240_000, token: 1 });
-    expect(commands.songRecordingReport).toHaveBeenCalledWith({
-      session: 's1',
-      event: { type: 'playing' },
-    });
-    expect(commands.songRecordingReport).toHaveBeenCalledWith({
-      session: 's1',
-      event: { type: 'progress', positionMs: 60_000, durationMs: 240_000 },
-    });
-    expect(within(card).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
-
-    await user.click(within(card).getByRole('button', { name: 'Stop recording Ballad' }));
-    expect(commands.songDownloadCancelRecording).toHaveBeenCalledWith('d1');
-
-    // Rust ends the run: the player stops and the card goes.
-    emitEvent('songRecordingEvent', request(null));
-    expect(screen.queryByTestId('recording-card')).not.toBeInTheDocument();
-    expect(posted).toHaveBeenLastCalledWith(
-      expect.objectContaining({ type: 'stop' }),
-      'http://localhost:4000',
-    );
+    renderWithProviders(<RecordingHost />);
+    await vi.waitFor(() => expect(commands.songDownloads).toHaveBeenCalled());
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
   });
 });

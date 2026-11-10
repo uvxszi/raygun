@@ -5074,19 +5074,22 @@ impl SongDownloadState {
 
 /// How a song download is made: a source's file (yt-dlp's copy of a YouTube video included), or a
 /// capture of a stream that plays but gives no file: its pieces joined, or its sound decoded in
-/// the background and encoded (M46.49).
+/// the background and encoded (M46.49). A recording is a song only YouTube's player plays,
+/// captured from a hidden player of its own (M46.52); recordings wait in a queue of their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum SongDownloadKind {
     File,
     Capture,
+    Recording,
 }
 
 impl SongDownloadKind {
     pub fn parse(text: &str) -> Option<Self> {
         match text {
             "file" => Some(Self::File),
-            "capture" | "recording" => Some(Self::Capture),
+            "capture" => Some(Self::Capture),
+            "recording" => Some(Self::Recording),
             _ => None,
         }
     }
@@ -5104,6 +5107,9 @@ pub enum SongDownloadProblemKind {
     SourceChanged,
     /// The song's title or artist changed (Edit details) and the download was made for others.
     DetailsChanged,
+    /// Its file holds too little of the song (M46.52): it streams instead until it's downloaded
+    /// again.
+    Partial,
 }
 
 /// A downloaded song that should download again: what's wrong, what it was and what it is now.
@@ -5111,9 +5117,9 @@ pub enum SongDownloadProblemKind {
 #[serde(rename_all = "camelCase")]
 pub struct SongDownloadProblem {
     pub kind: SongDownloadProblemKind,
-    /// The source or names the download was made from.
+    /// The source or names the download was made from (`partial`: how long the file is, `m:ss`).
     pub was: Option<String>,
-    /// The song's source or names now.
+    /// The song's source or names now (`partial`: how long the song is, `m:ss`).
     pub now: Option<String>,
     /// The file's own error, for More info.
     pub detail: Option<String>,
@@ -5173,9 +5179,11 @@ pub struct SongDownload {
     pub finished_at: Option<f64>,
 }
 
-/// A stream for the desktop app to capture in the background (M46.49): played muted in a hidden
-/// media element at `speed`, its sound reported with `song_capture_report`. A request without a
-/// `url` stops the session.
+/// Something for the webview to capture in the background, its sound reported with
+/// `song_capture_report`: a stream the desktop app plays muted in a hidden media element at `speed`
+/// (M46.49), or a YouTube video (`video_id`, both platforms, M46.52) played in a hidden YouTube
+/// player of its own, whose sound Raygun's tap script reads inside the player's frame. A request
+/// with neither `url` nor `video_id` stops the session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SongCaptureRequest {
@@ -5186,41 +5194,14 @@ pub struct SongCaptureRequest {
     pub format: Option<String>,
     pub from_ms: f64,
     pub speed: f64,
-}
-
-/// A song recorded as it plays (Android): nothing gives a file of it and only YouTube's player
-/// plays it, so the webview plays it aloud in a player of its own while Raygun's own sound is
-/// recorded. The webview reports the player with `song_recording_report`. A request without a
-/// `video_id` stops that player.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SongRecordingRequest {
-    pub session: String,
-    /// The song download it's for, for Cancel.
-    pub download_id: String,
-    pub title: String,
-    pub artist: Option<String>,
+    /// A YouTube video to capture instead of a stream.
     pub video_id: Option<String>,
-    /// Where it plays from.
-    pub start_ms: f64,
-    /// The YouTube embed host page.
-    pub embed_url: String,
-}
-
-/// What the recording's player in the webview did.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SongRecordingReport {
-    pub session: String,
-    pub event: EngineEvent,
-}
-
-/// Songs wait to be recorded as they play: the person is asked to allow recording.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordingConsentRequest {
-    /// How many songs wait.
-    pub songs: u32,
+    /// The YouTube embed host page its player loads in.
+    pub embed_url: Option<String>,
+    /// How the tap hears YouTube's player: `graph` (its sound through Web Audio, at `speed`) or
+    /// `muted` (the player muted, so Android's audio focus stays with Raygun's own player, and its
+    /// sound read from its capture).
+    pub tap_mode: Option<String>,
 }
 
 /// What a background capture reports (M46.49).

@@ -5,9 +5,14 @@
 //! at 2×, its pitch left free, recorded through Web Audio at twice the stream's rate, so the
 //! samples hold the sound at its own pace once read at the context's rate over the speed.
 //!
+//! A YouTube video (M46.52) plays in a hidden YouTube player in the webview instead, on both
+//! platforms, its sound read inside the player's frame ([`super::youtube`]).
+//!
 //! Runs are kept by where they start in the stream. A run that stalls is left behind (the next
 //! starts further on), and what's missing is captured again afterwards with some sound around
-//! it, so the stitched runs overlap and line up.
+//! it, so the stitched runs overlap and line up. A capture asked to keep its runs (a recording,
+//! M46.52) writes down what it has after every run, and the next try goes on from there: only
+//! what's still missing is captured again.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -57,8 +62,8 @@ pub(crate) enum Report {
     Length(f64),
     Ended,
     Failed(String),
-    /// Raygun's player played something else meanwhile: a recording of what Raygun plays would
-    /// hold it, so the capture stops and waits ([`CaptureError::Interrupted`]).
+    /// A hidden YouTube player can't go on now: Raygun's window went (Android), or its tap would
+    /// take the audio focus from Raygun's player, which plays ([`CaptureError::Interrupted`]).
     Interrupted,
 }
 
@@ -71,17 +76,29 @@ pub(crate) enum Player<'a> {
         link: &'a str,
         format: Option<&'a str>,
     },
-    /// A song only YouTube's player plays (Android): played aloud, in real time, in the webview's
-    /// recording player, while Raygun's own sound is recorded ([`super::record`]).
-    Recording {
+    /// A YouTube video, played by a hidden YouTube player of its own in the webview and heard by
+    /// Raygun's tap inside its frame ([`super::youtube`]).
+    YouTube {
         video_id: &'a str,
-        download_id: &'a str,
-        title: &'a str,
-        artist: Option<&'a str>,
+        tap: super::youtube::Tap,
     },
 }
 
-/// Desktop sessions waiting for the webview's reports.
+/// Where a capture's player runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Runner {
+    /// Android's capture player, in the plugin.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    Native,
+    /// The desktop webview's capture player.
+    #[cfg_attr(target_os = "android", allow(dead_code))]
+    Webview,
+    /// A hidden YouTube player in the webview.
+    YouTube,
+}
+
+/// Sessions waiting for the webview's reports (the desktop's capture player, and hidden YouTube
+/// players on both platforms).
 static SESSIONS: LazyLock<Mutex<HashMap<String, mpsc::UnboundedSender<Report>>>> =
     LazyLock::new(Mutex::default);
 
@@ -102,10 +119,73 @@ pub(crate) fn available(app: &AppHandle) -> bool {
 pub(crate) struct Session {
     pub(crate) id: String,
     pub(crate) reports: mpsc::UnboundedReceiver<Report>,
-    /// The task following the player (Android's capture player, or a recording), if any.
+    /// The task following the player (Android's capture player, or the window a hidden YouTube
+    /// player needs), if any.
     pub(crate) poll: Option<tokio::task::JoinHandle<()>>,
-    /// It records what Raygun plays.
-    pub(crate) recording: bool,
+    pub(crate) runner: Runner,
+}
+
+/// Starts a hidden YouTube player in the webview at `from_ms`, its tap reporting with
+/// `song_capture_report`; a watch stops it when it can't go on ([`Report::Interrupted`]).
+async fn start_youtube(
+    app: &AppHandle,
+    video_id: &str,
+    tap: super::youtube::Tap,
+    from_ms: f64,
+) -> Result<Session, String> {
+    use tauri_specta::Event as _;
+
+    let embed_url =
+        super::youtube::embed_url(app).ok_or("Raygun's player isn't ready".to_owned())?;
+    let id = uuid::Uuid::now_v7().simple().to_string();
+    let (sender, reports) = mpsc::unbounded_channel();
+    SESSIONS
+        .lock()
+        .expect("capture sessions poisoned")
+        .insert(id.clone(), sender.clone());
+    super::youtube::hold_webview(app, true).await;
+    let asked = crate::events::SongCaptureEvent(raygun_model::SongCaptureRequest {
+        session: id.clone(),
+        url: None,
+        format: None,
+        from_ms,
+        speed: tap.speed,
+        video_id: Some(video_id.to_owned()),
+        embed_url: Some(embed_url),
+        tap_mode: Some(tap.mode_name().to_owned()),
+    })
+    .emit(app);
+    if let Err(error) = asked {
+        SESSIONS
+            .lock()
+            .expect("capture sessions poisoned")
+            .remove(&id);
+        super::youtube::hold_webview(app, false).await;
+        return Err(error.to_string());
+    }
+    let poll = tokio::spawn(watch_youtube(app.clone(), tap, sender));
+    Ok(Session {
+        id,
+        reports,
+        poll: Some(poll),
+        runner: Runner::YouTube,
+    })
+}
+
+/// Stops a hidden YouTube player when it can't go on: Raygun's window went (and the player with
+/// it), or its tap takes the audio focus and Raygun's player started.
+async fn watch_youtube(
+    app: AppHandle,
+    tap: super::youtube::Tap,
+    sender: mpsc::UnboundedSender<Report>,
+) {
+    loop {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if !super::youtube::can_start(&app, tap) {
+            let _ = sender.send(Report::Interrupted);
+            return;
+        }
+    }
 }
 
 async fn start(
@@ -116,24 +196,8 @@ async fn start(
 ) -> Result<Session, String> {
     let (link, format) = match player {
         Player::Stream { link, format } => (link, format),
-        Player::Recording {
-            video_id,
-            download_id,
-            title,
-            artist,
-        } => {
-            return super::record::start_run(
-                app,
-                super::record::Run {
-                    video_id,
-                    download_id,
-                    title,
-                    artist,
-                    from_ms,
-                    dir,
-                },
-            )
-            .await;
+        Player::YouTube { video_id, tap } => {
+            return start_youtube(app, video_id, tap, from_ms).await;
         }
     };
     let id = uuid::Uuid::now_v7().simple().to_string();
@@ -165,7 +229,7 @@ async fn start(
             id,
             reports,
             poll: Some(poll),
-            recording: false,
+            runner: Runner::Native,
         })
     }
     #[cfg(not(target_os = "android"))]
@@ -184,6 +248,9 @@ async fn start(
             format: format.map(str::to_owned),
             from_ms,
             speed: DESKTOP_SPEED,
+            video_id: None,
+            embed_url: None,
+            tap_mode: None,
         })
         .emit(app)
         .map_err(|error| error.to_string())?;
@@ -191,46 +258,50 @@ async fn start(
             id,
             reports,
             poll: None,
-            recording: false,
+            runner: Runner::Webview,
         })
     }
 }
 
 async fn end_session(app: &AppHandle, session: Session) {
+    use tauri_specta::Event as _;
+
     if let Some(poll) = &session.poll {
         poll.abort();
     }
-    if session.recording {
-        super::record::end_run(app, &session.id).await;
-        drop(session.reports);
-        return;
-    }
-    #[cfg(target_os = "android")]
-    {
-        let (native, id) = (app.clone(), session.id.clone());
-        let _ = tokio::task::spawn_blocking(move || {
-            native
-                .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
-                .capture_stop(&id)
-        })
-        .await;
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        use tauri_specta::Event as _;
-
-        SESSIONS
-            .lock()
-            .expect("capture sessions poisoned")
-            .remove(&session.id);
-        let _ = crate::events::SongCaptureEvent(raygun_model::SongCaptureRequest {
-            session: session.id.clone(),
-            url: None,
-            format: None,
-            from_ms: 0.0,
-            speed: DESKTOP_SPEED,
-        })
-        .emit(app);
+    match session.runner {
+        Runner::Native => {
+            #[cfg(target_os = "android")]
+            {
+                let (native, id) = (app.clone(), session.id.clone());
+                let _ = tokio::task::spawn_blocking(move || {
+                    native
+                        .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                        .capture_stop(&id)
+                })
+                .await;
+            }
+        }
+        Runner::Webview | Runner::YouTube => {
+            SESSIONS
+                .lock()
+                .expect("capture sessions poisoned")
+                .remove(&session.id);
+            let _ = crate::events::SongCaptureEvent(raygun_model::SongCaptureRequest {
+                session: session.id.clone(),
+                url: None,
+                format: None,
+                from_ms: 0.0,
+                speed: 1.0,
+                video_id: None,
+                embed_url: None,
+                tap_mode: None,
+            })
+            .emit(app);
+            if session.runner == Runner::YouTube {
+                super::youtube::hold_webview(app, false).await;
+            }
+        }
     }
     drop(session.reports);
 }
@@ -287,8 +358,9 @@ fn from_webview(report: SongCaptureReport) -> Result<Vec<Report>, String> {
     Ok(messages)
 }
 
-/// One PCM piece an Android player writes (its capture player, or a recording): 16-bit
-/// interleaved samples in `file`, from `start_ms` in the stream, `frames` long so far.
+/// One PCM piece Android's capture player writes: 16-bit interleaved samples in `file`, from
+/// `start_ms` in the stream, `frames` long so far.
+#[cfg(target_os = "android")]
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PieceState {
@@ -299,7 +371,8 @@ pub(crate) struct PieceState {
     pub(crate) frames: u64,
 }
 
-/// An Android player's state, as its status call answers.
+/// Android's capture player's state, as its status call answers.
+#[cfg(target_os = "android")]
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PlayerState {
@@ -312,6 +385,7 @@ pub(crate) struct PlayerState {
 
 /// Sends the sound its pieces gained since they were last read (`read`: frames read per file).
 /// Returns whether any came.
+#[cfg(target_os = "android")]
 pub(crate) fn send_new_sound(
     pieces: &[PieceState],
     read: &mut HashMap<String, u64>,
@@ -516,8 +590,92 @@ pub(crate) struct Stitched {
     pub stream_ms: Option<u64>,
 }
 
+/// What a capture asked to keep its runs has kept so far, next to them in `sound/` (M46.52).
+const KEPT: &str = "kept.json";
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Kept {
+    /// What was captured (a YouTube video, say): runs of something else don't carry over.
+    key: String,
+    rate: u32,
+    channels: u16,
+    length_ms: Option<f64>,
+    /// Runs written so far (the next run's file is numbered after them).
+    count: usize,
+    pieces: Vec<KeptPiece>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KeptPiece {
+    start: u64,
+    frames: u64,
+    file: String,
+}
+
+/// The runs kept in `work` for `key`, as far as their files still hold them. Blocking.
+fn load_kept(work: &Path, key: &str) -> Option<(Coverage, usize, Option<f64>)> {
+    let text = std::fs::read_to_string(work.join(KEPT)).ok()?;
+    let kept: Kept = serde_json::from_str(&text).ok()?;
+    if kept.key != key || kept.rate == 0 {
+        return None;
+    }
+    let mut coverage = Coverage::new(kept.rate, kept.channels);
+    let frame_bytes = u64::from(coverage.channels) * 2;
+    for piece in kept.pieces {
+        let path = work.join(&piece.file);
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let frames = piece.frames.min(meta.len() / frame_bytes);
+        if frames > 0 {
+            coverage.add(Piece {
+                start: piece.start,
+                frames,
+                path,
+            });
+        }
+    }
+    if coverage.pieces.is_empty() {
+        return None;
+    }
+    Some((coverage, kept.count, kept.length_ms))
+}
+
+/// Writes down the runs in `work` for the next try to go on from. Blocking.
+fn save_kept(work: &Path, key: &str, coverage: &Coverage, count: usize, length_ms: Option<f64>) {
+    let kept = Kept {
+        key: key.to_owned(),
+        rate: coverage.rate,
+        channels: coverage.channels,
+        length_ms,
+        count,
+        pieces: coverage
+            .pieces
+            .iter()
+            .filter_map(|piece| {
+                Some(KeptPiece {
+                    start: piece.start,
+                    frames: piece.frames,
+                    file: piece.path.file_name()?.to_string_lossy().into_owned(),
+                })
+            })
+            .collect(),
+    };
+    let saved = serde_json::to_vec(&kept)
+        .map_err(|error| error.to_string())
+        .and_then(|json| std::fs::write(work.join(KEPT), json).map_err(|error| error.to_string()));
+    if let Err(error) = saved {
+        tracing::info!(%error, "couldn't keep what a capture has so far");
+    }
+}
+
 /// Captures the sound `player` plays into `capture.wav` in `dir`, in as many runs as it takes to
-/// cover what plays of it; `share` hears how much is covered.
+/// cover what plays of it; `share` hears how much is covered. With `keep` (what is captured, as a
+/// key), the runs stay in `dir/sound` when it can't finish, and the next capture with that key
+/// goes on from them: one that has some of it but couldn't get the rest ends
+/// [`CaptureError::Partial`].
 pub(crate) async fn capture(
     app: &AppHandle,
     player: Player<'_>,
@@ -525,8 +683,23 @@ pub(crate) async fn capture(
     expected: &Expected,
     share: &(dyn Fn(f64) + Send + Sync),
     stop: &Notify,
+    keep: Option<&str>,
 ) -> Result<Stitched, CaptureError> {
     let work = dir.join("sound");
+    let kept = match keep {
+        Some(key) => {
+            let (work, key) = (work.clone(), key.to_owned());
+            tokio::task::spawn_blocking(move || load_kept(&work, &key))
+                .await
+                .ok()
+                .flatten()
+        }
+        None => None,
+    };
+    if kept.is_none() {
+        // Nothing to go on from: what an earlier try left goes.
+        let _ = tokio::fs::remove_dir_all(&work).await;
+    }
     tokio::fs::create_dir_all(&work)
         .await
         .map_err(|error| CaptureError::Device(error.to_string()))?;
@@ -537,18 +710,89 @@ pub(crate) async fn capture(
         count: 0,
     };
     let mut length_ms: Option<f64> = None;
+    if let Some((coverage, count, length)) = kept {
+        runs.coverage = Some(coverage);
+        runs.count = count;
+        length_ms = length;
+    }
+    let captured = capture_runs(
+        app,
+        Pass {
+            player,
+            dir,
+            expected,
+            share,
+            stop,
+            keep,
+        },
+        &mut runs,
+        &mut length_ms,
+    )
+    .await;
+    if keep.is_none() || captured.is_ok() {
+        let _ = tokio::fs::remove_dir_all(&work).await;
+    }
+    captured
+}
+
+/// What every run of a capture goes by.
+struct Pass<'a> {
+    player: Player<'a>,
+    dir: &'a Path,
+    expected: &'a Expected,
+    share: &'a (dyn Fn(f64) + Send + Sync),
+    stop: &'a Notify,
+    keep: Option<&'a str>,
+}
+
+/// [`capture`]'s runs, from what `runs` already holds.
+async fn capture_runs(
+    app: &AppHandle,
+    pass: Pass<'_>,
+    runs: &mut Runs,
+    length_ms: &mut Option<f64>,
+) -> Result<Stitched, CaptureError> {
+    let Pass {
+        player,
+        dir,
+        expected,
+        share,
+        stop,
+        keep,
+    } = pass;
+    let work = runs.dir.clone();
     let mut ended_at: Option<f64> = None;
     let mut stalls: Vec<f64> = Vec::new();
     let mut last_error: Option<String> = None;
     let (mut from_ms, mut until_ms) = (0.0, None::<f64>);
+    // Kept runs: done when nothing is missing, else the first run goes where something is.
+    if let Some(coverage) = runs.coverage.clone() {
+        let total_ms = length_ms.or(expected.duration_ms.map(|ms| ms as f64));
+        let required = required_frames(&coverage, expected, total_ms);
+        if let Some(total) = total_ms.filter(|total| *total > 0.0) {
+            let to = coverage.frames_at(total);
+            share(coverage.covered_within(0, to) as f64 / to.max(1) as f64);
+        }
+        match coverage.missing(required.0, required.1).first().copied() {
+            None if total_ms.is_some() => {
+                return stitch(dir, coverage, required, total_ms).await;
+            }
+            // How long it is isn't known: on from where it reached.
+            None => from_ms = (coverage.ms_at(last_end(&coverage)) as f64 - MARGIN_MS).max(0.0),
+            Some((gap_start, gap_end)) => {
+                from_ms = (coverage.ms_at(gap_start) as f64 - MARGIN_MS).max(0.0);
+                until_ms = Some(coverage.ms_at(gap_end) as f64 + MARGIN_MS);
+            }
+        }
+    }
     for _ in 0..PASSES {
         let mut session = start(app, player, from_ms, &work)
             .await
-            .map_err(CaptureError::Failed)?;
+            .map_err(|error| partial_or(runs, expected, *length_ms, keep, error))?;
         let end = follow(
             &mut session,
-            &mut runs,
-            &mut length_ms,
+            runs,
+            length_ms,
             until_ms,
             expected,
             share,
@@ -557,6 +801,13 @@ pub(crate) async fn capture(
         .await;
         end_session(app, session).await;
         runs.close()?;
+        if let (Some(key), Some(coverage)) = (keep, runs.coverage.clone()) {
+            let (work, key, count, length) = (work.clone(), key.to_owned(), runs.count, *length_ms);
+            let _ = tokio::task::spawn_blocking(move || {
+                save_kept(&work, &key, &coverage, count, length)
+            })
+            .await;
+        }
         let end = end?;
         let Some(coverage) = runs.coverage.clone() else {
             let why = match end {
@@ -578,21 +829,7 @@ pub(crate) async fn capture(
         let required = required_frames(&coverage, expected, total_ms);
         let Some((gap_start, gap_end)) = coverage.missing(required.0, required.1).first().copied()
         else {
-            let wav = dir.join("capture.wav");
-            let (target, rate) = (wav.clone(), coverage.rate);
-            let to = covered_end(&coverage, required.1);
-            let frames = tokio::task::spawn_blocking(move || {
-                coverage.stitch_padded(0, Some(to), required.0, &target)
-            })
-            .await
-            .map_err(|error| CaptureError::Failed(error.to_string()))?
-            .map_err(CaptureError::Failed)?;
-            let _ = tokio::fs::remove_dir_all(&work).await;
-            return Ok(Stitched {
-                wav,
-                ms: frames * 1000 / u64::from(rate.max(1)),
-                stream_ms: total_ms.map(|ms| ms as u64),
-            });
+            return stitch(dir, coverage, required, total_ms).await;
         };
         let (gap_start, gap_end) = (
             coverage.ms_at(gap_start) as f64,
@@ -602,10 +839,8 @@ pub(crate) async fn capture(
             // It stopped in the part that's missing: past it, unless it stops there every time.
             RunEnd::Stalled(at) if at >= gap_start - MARGIN_MS && at < gap_end => {
                 if stalls.iter().any(|stall| (stall - at).abs() < 2_000.0) {
-                    return Err(CaptureError::Failed(format!(
-                        "The stream stops at {} every time",
-                        clock(at as u64)
-                    )));
+                    let why = format!("The stream stops at {} every time", clock(at as u64));
+                    return Err(partial_or(runs, expected, *length_ms, keep, why));
                 }
                 stalls.push(at);
                 from_ms = at + SKIP_MS;
@@ -617,10 +852,53 @@ pub(crate) async fn capture(
             }
         }
     }
-    let _ = tokio::fs::remove_dir_all(&work).await;
-    Err(CaptureError::Failed(last_error.unwrap_or_else(|| {
-        "The stream kept stopping, so parts of it couldn't be captured".into()
-    })))
+    let why = last_error
+        .unwrap_or_else(|| "The stream kept stopping, so parts of it couldn't be captured".into());
+    Err(partial_or(runs, expected, *length_ms, keep, why))
+}
+
+/// The runs stitched into `capture.wav` in `dir`, over what plays of it (`required`, frames).
+async fn stitch(
+    dir: &Path,
+    coverage: Coverage,
+    required: (u64, u64),
+    total_ms: Option<f64>,
+) -> Result<Stitched, CaptureError> {
+    let wav = dir.join("capture.wav");
+    let (target, rate) = (wav.clone(), coverage.rate);
+    let to = covered_end(&coverage, required.1);
+    let frames = tokio::task::spawn_blocking(move || {
+        coverage.stitch_padded(0, Some(to), required.0, &target)
+    })
+    .await
+    .map_err(|error| CaptureError::Failed(error.to_string()))?
+    .map_err(CaptureError::Failed)?;
+    Ok(Stitched {
+        wav,
+        ms: frames * 1000 / u64::from(rate.max(1)),
+        stream_ms: total_ms.map(|ms| ms as u64),
+    })
+}
+
+/// Why a capture couldn't finish: [`CaptureError::Partial`] when it keeps its runs and has some of
+/// it (the next try goes on from them), else a failure.
+fn partial_or(
+    runs: &Runs,
+    expected: &Expected,
+    length_ms: Option<f64>,
+    keep: Option<&str>,
+    why: String,
+) -> CaptureError {
+    let Some(coverage) = runs.coverage.as_ref().filter(|_| keep.is_some()) else {
+        return CaptureError::Failed(why);
+    };
+    let total_ms = length_ms.or(expected.duration_ms.map(|ms| ms as f64));
+    let (from, to) = required_frames(coverage, expected, total_ms);
+    CaptureError::Partial {
+        covered_ms: coverage.ms_at(coverage.covered_within(from, to)),
+        needed_ms: total_ms.map(|_| coverage.ms_at(to.saturating_sub(from))),
+        why,
+    }
 }
 
 /// `m:ss`.
@@ -718,5 +996,90 @@ async fn follow(
             Report::Failed(error) => return Ok(RunEnd::Failed(error)),
             Report::Interrupted => return Err(CaptureError::Interrupted),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn piece(dir: &Path, name: &str, start: u64, frames: u64) -> Piece {
+        let path = dir.join(name);
+        std::fs::write(&path, vec![1u8; (frames * 4) as usize]).unwrap();
+        Piece {
+            start,
+            frames,
+            path,
+        }
+    }
+
+    #[test]
+    fn a_recording_goes_on_from_the_runs_it_kept() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let work = temp.path();
+        let mut coverage = Coverage::new(48_000, 2);
+        coverage.add(piece(work, "run-1.raw", 0, 48_000));
+        coverage.add(piece(work, "run-2.raw", 96_000, 24_000));
+        save_kept(work, "youtube:abc", &coverage, 2, Some(10_000.0));
+
+        let (kept, count, length) = load_kept(work, "youtube:abc").unwrap();
+        assert_eq!((count, length), (2, Some(10_000.0)));
+        assert_eq!(kept.covered(), vec![(0, 48_000), (96_000, 120_000)]);
+        // What's missing is all that's captured again.
+        let to = kept.frames_at(10_000.0);
+        assert_eq!(kept.missing(0, to), vec![(48_000, 96_000), (120_000, to)]);
+
+        // Another video's runs don't carry over.
+        assert!(load_kept(work, "youtube:other").is_none());
+        // A run whose file was cut short counts for what it holds; one that's gone, not at all.
+        std::fs::write(work.join("run-1.raw"), vec![1u8; 4 * 1_000]).unwrap();
+        std::fs::remove_file(work.join("run-2.raw")).unwrap();
+        let (cut, _, _) = load_kept(work, "youtube:abc").unwrap();
+        assert_eq!(cut.covered(), vec![(0, 1_000)]);
+        std::fs::remove_file(work.join("run-1.raw")).unwrap();
+        assert!(
+            load_kept(work, "youtube:abc").is_none(),
+            "nothing left to go on from"
+        );
+    }
+
+    #[test]
+    fn a_kept_capture_that_missed_parts_says_how_much_it_has() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut coverage = Coverage::new(1_000, 2);
+        coverage.add(piece(temp.path(), "a", 0, 60_000));
+        let runs = Runs {
+            dir: temp.path().to_owned(),
+            coverage: Some(coverage),
+            open: None,
+            count: 1,
+        };
+        let expected = Expected {
+            duration_ms: Some(200_000),
+            start_ms: 0,
+            end_ms: None,
+        };
+        match partial_or(
+            &runs,
+            &expected,
+            Some(180_000.0),
+            Some("youtube:abc"),
+            "x".into(),
+        ) {
+            CaptureError::Partial {
+                covered_ms,
+                needed_ms,
+                why,
+            } => assert_eq!(
+                (covered_ms, needed_ms, why.as_str()),
+                (60_000, Some(180_000), "x")
+            ),
+            other => panic!("{other:?}"),
+        }
+        // A capture that keeps nothing between tries just fails.
+        assert!(matches!(
+            partial_or(&runs, &expected, None, None, "y".into()),
+            CaptureError::Failed(why) if why == "y"
+        ));
     }
 }

@@ -543,7 +543,8 @@ impl PlaybackService {
         self.proxy.register(source)
     }
 
-    /// The YouTube embed host page the player uses (a recording plays songs in one of its own).
+    /// The YouTube embed host page the player uses (a recording captures songs from hidden ones of
+    /// its own, M46.52).
     pub fn youtube_embed_url(&self) -> String {
         self.proxy.youtube_embed_url()
     }

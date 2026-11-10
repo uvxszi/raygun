@@ -3476,17 +3476,18 @@
     "tab": "Music",
     "title": "Downloaded songs",
     "recording": {
-      "askTitle": "Record songs as they play?",
-      "askQuestion_one": "{{count}} song can only be saved by recording it as it plays",
-      "askQuestion_other": "{{count}} songs can only be saved by recording them as they play",
-      "askExplain": "No source gives a file of them: they play in YouTube’s player. Raygun can record them while they play, one at a time and in real time, so a 4-minute song takes 4 minutes. They play aloud; turning the volume down or muting doesn’t affect the recording.",
-      "askAndroid": "Android then asks to let Raygun record audio and capture the screen. Raygun records only its own sound, and stops once no song waits.",
-      "allow": "Allow recording",
-      "notNow": "Not now",
+      "title_one": "Recording {{count}} song",
+      "title_other": "Recording {{count}} songs",
       "now": "Recording {{title}}",
-      "aloud": "playing aloud",
+      "waiting": "Waiting",
+      "partly": "Partly recorded, the rest later",
+      "background": "From YouTube’s player, silently in the background: keep listening.",
       "progress": "Recording progress",
-      "stop": "Stop recording {{title}}"
+      "showQueue": "Show the songs to record",
+      "hideQueue": "Hide the songs to record",
+      "stopAll": "Stop recording",
+      "stop": "Stop recording {{title}}",
+      "hide": "Hide"
     },
     "download": "Download",
     "downloadSelected": "Download",
@@ -3515,7 +3516,8 @@
       "missing": "The file is gone",
       "damaged": "The file is damaged",
       "sourceChanged": "Its source changed: {{change}}",
-      "detailsChanged": "Its details changed: {{change}}"
+      "detailsChanged": "Its details changed: {{change}}",
+      "partial": "Only {{saved}} of {{length}} was saved, so it streams until it’s downloaded again"
     },
     "clearFailed_one": "Remove {{count}} failed",
     "clearFailed_other": "Remove {{count}} failed",
@@ -3601,6 +3603,9 @@
       "capturing": "Capturing",
       "capturingFrom": "Capturing from {{source}}",
       "captured": "Captured",
+      "recording": "Recording from YouTube’s player",
+      "toRecord": "Waiting to be recorded",
+      "recorded": "Recorded",
       "done": "On this device",
       "failed": "Couldn't download"
     },

@@ -4,12 +4,13 @@
 //! time and files by ranges, and kept as they are once they decode to the length expected. Only a
 //! stream that can't be fetched or decoded that way has its sound captured as it decodes
 //! ([`sound`]), and that sound is encoded as FLAC or MP3 at the Downloads quality, tagged, with its
-//! cover. Songs, podcast episodes and audiobook chapters all use it.
+//! cover. Songs, podcast episodes and audiobook chapters all use it. A song only YouTube's player
+//! plays is captured from a hidden YouTube player of its own (M46.52, [`youtube`]).
 
 pub mod bytes;
 pub mod pcm;
-pub mod record;
 pub mod sound;
+pub mod youtube;
 
 use std::path::{Path, PathBuf};
 
@@ -38,9 +39,16 @@ pub enum CaptureError {
     /// It couldn't be written here: nothing else would work either.
     Device(String),
     Failed(String),
-    /// A recording of what Raygun plays had to stop: Raygun's player played something else, or
-    /// the consent to record went away. It waits to be recorded again.
+    /// A hidden YouTube player couldn't go on: Raygun's window went (Android), or its tap would
+    /// take the audio focus from Raygun's player, which plays. It waits to be captured again.
     Interrupted,
+    /// Some of it was captured and kept, not all (M46.52): the next try captures only what's
+    /// missing. `needed_ms` is what plays of it, when its length is known.
+    Partial {
+        covered_ms: u64,
+        needed_ms: Option<u64>,
+        why: String,
+    },
 }
 
 /// A saved capture: the file's name in the folder, how it was made and how long it is.
@@ -139,6 +147,7 @@ pub async fn capture(
         &request.expected,
         &share,
         stop,
+        None,
     )
     .await
     .map_err(|error| match (error, &why) {
@@ -150,48 +159,71 @@ pub async fn capture(
     encode(stitched, request).await
 }
 
-/// Records a song only YouTube's player plays (Android, `request.source` its video): it plays
-/// aloud, in real time, in the webview's recording player while Raygun's own sound is recorded
-/// ([`record`]), once Raygun's player is quiet, and is saved as a captured song is. The person
-/// must have allowed recording ([`record::ready`]).
-pub async fn record(
+/// Captures a song only YouTube's player plays (`request.source` its video) from a hidden YouTube
+/// player of its own ([`youtube`]), beside whatever plays, and saves it as a captured song is.
+/// What it captured is kept between tries: a capture that missed parts ends
+/// [`CaptureError::Partial`], and the next one captures only those.
+pub async fn youtube(
     app: &AppHandle,
     request: Request<'_>,
-    recording: record::Song<'_>,
     progress: Progress<'_>,
     stop: &Notify,
 ) -> Result<Captured, CaptureError> {
     let MediaSource::YouTube { video_id } = request.source else {
         return Err(CaptureError::Failed(
-            "Only YouTube's player's songs are recorded".into(),
+            "Only YouTube's videos are captured from its player".into(),
         ));
     };
-    tokio::fs::create_dir_all(request.dir)
+    let share = |share: f64| progress(0, Some(share.clamp(0.0, 1.0)));
+    progress(0, Some(0.0));
+    let stitched = youtube_sound(
+        app,
+        video_id,
+        request.dir,
+        &request.expected,
+        youtube::Purpose::Song,
+        &share,
+        stop,
+    )
+    .await?;
+    encode(stitched, request).await
+}
+
+/// A YouTube video's sound, captured from a hidden YouTube player into `capture.wav` in `dir`
+/// (the runs kept in `dir/sound` until it's whole), for `purpose`.
+pub async fn youtube_sound(
+    app: &AppHandle,
+    video_id: &str,
+    dir: &Path,
+    expected: &Expected,
+    purpose: youtube::Purpose,
+    share: &(dyn Fn(f64) + Send + Sync),
+    stop: &Notify,
+) -> Result<sound::Stitched, CaptureError> {
+    tokio::fs::create_dir_all(dir)
         .await
         .map_err(|error| CaptureError::Device(error.to_string()))?;
-    record::wait_until_quiet(app, stop).await?;
-    let _turn = tokio::select! {
-        turn = SOUND_TURN.lock() => turn,
-        () = stop.notified() => return Err(CaptureError::Stopped),
-    };
-    progress(0, Some(0.0));
-    let share = |share: f64| progress(0, Some(share.clamp(0.0, 1.0)));
-    let player = sound::Player::Recording {
-        video_id,
-        download_id: recording.download_id,
-        title: recording.title,
-        artist: recording.artist,
-    };
-    let recorded = sound::capture(app, player, request.dir, &request.expected, &share, stop).await;
-    let stitched = match recorded {
-        Ok(stitched) => stitched,
-        Err(error) => {
-            // What was recorded of it doesn't carry over to the next try.
-            let _ = tokio::fs::remove_dir_all(request.dir.join("sound")).await;
-            return Err(error);
+    let key = format!("youtube:{video_id}");
+    loop {
+        let tap = youtube::Tap::for_purpose(purpose);
+        if !youtube::can_start(app, tap) {
+            return Err(CaptureError::Interrupted);
         }
-    };
-    encode(stitched, request).await
+        let _turn = tokio::select! {
+            turn = youtube::TURN.lock() => turn,
+            () = stop.notified() => return Err(CaptureError::Stopped),
+        };
+        let player = sound::Player::YouTube { video_id, tap };
+        match sound::capture(app, player, dir, expected, share, stop, Some(&key)).await {
+            // This webview gives no sound from a muted player: tapped as it plays instead.
+            Err(CaptureError::Failed(error))
+                if error == youtube::SILENT && tap.mode == youtube::TapMode::Muted =>
+            {
+                youtube::note_silent();
+            }
+            captured => return captured,
+        }
+    }
 }
 
 /// A capture's stitched sound checked against the song's length, then saved as FLAC (Best) or
@@ -271,7 +303,8 @@ fn file_name(path: &Path) -> String {
 }
 
 /// Whether a capture of `captured_ms` holds the song: up to the end of what plays of it (its
-/// end trim) or the stream's end, and more than a preview of what its details say it lasts.
+/// end trim) or the stream's end, give or take a second and a half, and at least 90% of what its
+/// details say plays (M46.52: a copy with less isn't played instead of the stream).
 pub fn check_length(
     captured_ms: u64,
     stream_ms: Option<u64>,
@@ -289,8 +322,7 @@ pub fn check_length(
     }
     if let Some(full) = expected.duration_ms.filter(|full| *full > 0) {
         let needed = expected.end_ms.map_or(full, |end| end.min(full));
-        let slack = (needed * 15 / 100).max(3_000);
-        if captured_ms + slack < needed {
+        if !covers_enough(captured_ms, needed) {
             return Err(format!(
                 "It only plays {} of {}, like a preview",
                 clock(captured_ms),
@@ -299,6 +331,12 @@ pub fn check_length(
         }
     }
     Ok(())
+}
+
+/// Whether `saved_ms` of a song is enough to play instead of streaming it: at least 90% of the
+/// `needed_ms` that plays of it.
+pub fn covers_enough(saved_ms: u64, needed_ms: u64) -> bool {
+    saved_ms.saturating_mul(10) >= needed_ms.saturating_mul(9)
 }
 
 /// `m:ss`.
@@ -338,5 +376,18 @@ mod tests {
         let unknown = Expected::default();
         assert!(check_length(10_000, None, &unknown).is_ok());
         assert!(check_length(10_000, Some(60_000), &unknown).is_err());
+        // A whole stream shorter than the song's details: 90% of it is enough, less isn't.
+        assert!(check_length(181_000, Some(181_000), &song).is_ok());
+        assert_eq!(
+            check_length(178_000, Some(178_000), &song).unwrap_err(),
+            "It only plays 2:58 of 3:20, like a preview"
+        );
+    }
+
+    #[test]
+    fn a_copy_plays_instead_of_the_stream_with_nine_tenths_of_it() {
+        assert!(covers_enough(180_000, 200_000));
+        assert!(!covers_enough(179_999, 200_000));
+        assert!(covers_enough(0, 0));
     }
 }
