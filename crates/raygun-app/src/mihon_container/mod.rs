@@ -178,7 +178,7 @@ mod desktop {
 
         /// Stops sidecars that have sat idle, checked each `IDLE`.
         fn sweep_idle(self: Arc<Self>) {
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(IDLE).await;
                     let idle: Vec<Arc<Sidecar>> = {

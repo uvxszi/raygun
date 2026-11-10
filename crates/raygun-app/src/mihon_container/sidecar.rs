@@ -178,7 +178,7 @@ impl Sidecar {
         let stdout = child.stdout.take().expect("piped");
         if let Some(stderr) = child.stderr.take() {
             let package = self.load.package.clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     tracing::debug!(target: "mihon_host", package = %package, "{line}");
@@ -288,7 +288,7 @@ fn reader(
     stdout: tokio::process::ChildStdout,
     waiting: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
 ) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let line = line.trim();
