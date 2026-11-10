@@ -60,30 +60,38 @@ export const useCurrentLine = (starts: readonly number[]) => {
   return current;
 };
 
+type FollowOptions = {
+  /**
+   * Where the line being sung sits: in the middle (the lyrics), or leading at the top of the list's
+   * place (the phone's lyrics card).
+   */
+  place?: 'middle' | 'top';
+  /** Whether the lines scroll by hand; they then stay where they're put for a few seconds. */
+  scrollable?: boolean;
+};
+
 /**
- * Keeps the line being sung in the middle of `container`, as Apple Music's lyrics do: it glides
- * there as the line changes (`lyricsGlide`: a move under way bends toward the newer line), goes
- * there at once where things may not move, and starts there without moving when the lines first
- * show or become others (`linesKey` changes: a new song). After the listener scrolls, the lines
- * stay put for a few seconds. Sizes changing (a turned phone, translations coming in) keep it
- * centred. Put `lineRef` on the current line and `listRef` on the list.
+ * Keeps the line being sung in its place in `container` (the middle, as Apple Music's lyrics do):
+ * it glides there as the line changes (`lyricsGlide`: a move under way bends toward the newer
+ * line), goes there at once where things may not move, and starts there without moving when the
+ * lines first show or become others (`linesKey` changes: a new song). After the listener scrolls,
+ * the lines stay put for a few seconds. Sizes changing (a turned phone, translations coming in)
+ * keep it in place. Put `lineRef` on the current line and `listRef` on the list.
  */
-export const useFollowLine = (
+export const useFollowLine = <
+  Line extends HTMLElement = HTMLButtonElement,
+  List extends HTMLElement = HTMLOListElement,
+>(
   container: RefObject<HTMLElement | null>,
   current: number,
   linesKey: unknown,
+  { place = 'middle', scrollable = true }: FollowOptions = {},
 ) => {
-  const lineRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLOListElement>(null);
+  const lineRef = useRef<Line>(null);
+  const listRef = useRef<List>(null);
   const glide = useRef<Glide | null>(null);
   const heldUntil = useRef(0);
   const placed = useRef<{ key: unknown } | null>(null);
-
-  const centreOf = (box: HTMLElement) => {
-    const line = lineRef.current;
-    // Before the first line, the lines rest at the top.
-    return line ? line.offsetTop - box.clientHeight / 2 + line.offsetHeight / 2 : 0;
-  };
 
   useLayoutEffect(() => {
     const box = container.current;
@@ -96,16 +104,18 @@ export const useFollowLine = (
       moving.stop();
       heldUntil.current = performance.now() + HOLD_AFTER_SCROLL_MS;
     };
-    box.addEventListener('touchstart', stop, { passive: true });
-    box.addEventListener('touchmove', hold, { passive: true });
-    box.addEventListener('wheel', hold, { passive: true });
-    // Sizes changing move the line from the middle: it goes back there.
+    if (scrollable) {
+      box.addEventListener('touchstart', stop, { passive: true });
+      box.addEventListener('touchmove', hold, { passive: true });
+      box.addEventListener('wheel', hold, { passive: true });
+    }
+    // Sizes changing move the line from its place: it goes back there.
     const observer =
       typeof ResizeObserver === 'undefined'
         ? null
         : new ResizeObserver(() => {
             if (!placed.current || performance.now() < heldUntil.current) return;
-            moving.to(centreOf(box));
+            moving.to(spotFor(box, lineRef.current, listRef.current, place));
           });
     observer?.observe(box);
     if (listRef.current) observer?.observe(listRef.current);
@@ -118,7 +128,7 @@ export const useFollowLine = (
       glide.current = null;
       placed.current = null;
     };
-  }, [container]);
+  }, [container, scrollable, place]);
 
   useLayoutEffect(() => {
     const box = container.current;
@@ -128,8 +138,24 @@ export const useFollowLine = (
     placed.current = { key: linesKey };
     if (fresh) heldUntil.current = 0;
     else if (performance.now() < heldUntil.current) return;
-    moving.to(centreOf(box), fresh);
-  }, [current, linesKey, container]);
+    moving.to(spotFor(box, lineRef.current, listRef.current, place), fresh);
+  }, [current, linesKey, container, place]);
 
   return { lineRef, listRef };
+};
+
+/**
+ * Where `box` scrolls to put `line` in its place: its middle in the box's middle, or its top where
+ * the list's top is. Before the first line (none), the lines rest at the top.
+ */
+const spotFor = (
+  box: HTMLElement,
+  line: HTMLElement | null,
+  list: HTMLElement | null,
+  place: 'middle' | 'top',
+) => {
+  if (!line) return 0;
+  return place === 'top'
+    ? line.offsetTop - (list?.offsetTop ?? 0)
+    : line.offsetTop - box.clientHeight / 2 + line.offsetHeight / 2;
 };

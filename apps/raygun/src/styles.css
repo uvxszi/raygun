@@ -336,10 +336,11 @@
       var(--text-scale, 1)
   );
 }
-/* Synced lyrics and captions (player/LyricsView, player/CaptionsView): the line being sung is lit
-   and full size, the others rest dimmer and a little smaller, and a new line eases in as the last
-   eases out while the lines glide to it (player/useFollowLine). Only opacity and transform change,
-   so moving on lays nothing out again. Reduced keeps a short fade; Off changes at once. */
+/* Synced lyrics and captions (player/LyricsView, player/CaptionsView, the lyrics card): the line
+   being sung (`aria-current`, or `data-current` where it isn't a control) is lit and full size,
+   the others rest dimmer and a little smaller, and a new line eases in as the last eases out while
+   the lines glide to it (player/useFollowLine). Only opacity and transform change, so moving on
+   lays nothing out again. Reduced keeps a short fade; Off changes at once. */
 .lyric-line {
   opacity: 0.42;
   transform: scale(var(--lyric-rest-scale, 1));
@@ -348,9 +349,32 @@
 .lyric-line[data-align='center'] {
   transform-origin: center;
 }
-.lyric-line[aria-current] {
+.lyric-line:is([aria-current], [data-current]) {
   opacity: 1;
   transform: scale(1);
+}
+/* The phone player's lyrics card (player/PlayerCards): a window about five lines tall (in the
+   lines' own size) led by the line sung; it glides to the next as it starts, the lines before
+   leaving at the top and the next ones fading in at the bottom. */
+.lyrics-card-window {
+  position: relative;
+  display: block;
+  height: 9.25em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 0.2em,
+    #000 calc(100% - 1.75em),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 0.2em,
+    #000 calc(100% - 1.75em),
+    transparent
+  );
 }
 :root[data-motion='lively'] {
   --lyric-rest-scale: 0.95;

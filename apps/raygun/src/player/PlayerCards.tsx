@@ -2,8 +2,8 @@ import { commands } from '@raygun/bindings';
 import type { LyricLine, QueueItem, SpokenItem } from '@raygun/bindings';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ExternalLink, Maximize2, UserRound } from 'lucide-react';
-import { useId, useMemo, useState } from 'react';
-import type { FC } from 'react';
+import { memo, useId, useMemo, useRef, useState } from 'react';
+import type { FC, Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { creditedArtists } from '../music/artists';
@@ -12,10 +12,10 @@ import { CaptionsView } from './CaptionsView';
 import { trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { artistFacts, shownCredits, useArtistInfo, useSongCredits } from './musicInfo';
 import { useLyricsLook } from './playerView';
-import { useCurrentLine } from './useFollowLine';
+import { useCurrentLine, useFollowLine } from './useFollowLine';
 
-/** Lines of lyrics the card shows. */
-const PREVIEW_LINES = 5;
+/** Lines of plain lyrics the card shows. */
+const PLAIN_LINES = 5;
 
 const NO_LINES: LyricLine[] = [];
 
@@ -88,30 +88,21 @@ const LyricsCard: FC<{ item: QueueItem; onOpen: () => void }> = ({ item, onOpen 
   const lyrics = useLyricsFor(trackQueryFor(item));
   const { style } = useLyricsLook();
   const synced = lyrics.data?.synced ?? NO_LINES;
-  const offsetMs = lyrics.data?.offsetMs ?? 0;
-  // Follows the playhead, re-rendering only as a line starts.
-  const starts = useMemo(() => synced.map((line) => line.timeMs + offsetMs), [synced, offsetMs]);
-  const current = useCurrentLine(starts);
-  // Synced lyrics show from the line playing; plain ones from the top.
-  const start = Math.max(0, current);
-  const lines =
-    synced.length > 0
-      ? synced.slice(start, start + PREVIEW_LINES).map((line, index) => ({
-          key: `${line.timeMs}-${start + index}`,
-          text: line.text || '♪',
-          playing: start + index === current,
-        }))
-      : (lyrics.data?.plain ?? '')
-          .split('\n')
-          .filter((line) => line.trim() !== '')
-          .slice(0, PREVIEW_LINES)
-          .map((text, index) => ({ key: `${index}`, text, playing: false }));
+  const plain = synced.length === 0 ? (lyrics.data?.plain ?? '') : '';
+  const plainLines = useMemo(
+    () =>
+      plain
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .slice(0, PLAIN_LINES),
+    [plain],
+  );
 
   const note = lyrics.isPending
     ? t('player.lyricsLoading')
     : lyrics.error
       ? t('player.cards.lyricsFailed')
-      : lines.length === 0
+      : synced.length === 0 && plainLines.length === 0
         ? t('player.cards.lyricsNone')
         : null;
 
@@ -150,22 +141,75 @@ const LyricsCard: FC<{ item: QueueItem; onOpen: () => void }> = ({ item, onOpen 
         </span>
         <Maximize2 aria-hidden size={18} className="text-muted" />
       </span>
-      <span className="flex flex-col gap-[0.4em] leading-snug font-bold">
-        {lines.map((line) => (
-          <span
-            key={line.key}
-            data-variant="panel"
-            className={`lyric-text line-clamp-2 transition-colors ${
-              line.playing || synced.length === 0 ? 'text-foreground' : 'text-foreground/45'
-            }`}
-          >
-            {line.text}
-          </span>
-        ))}
-      </span>
+      {synced.length > 0 ? (
+        <CardLines lines={synced} offsetMs={lyrics.data?.offsetMs ?? 0} />
+      ) : (
+        // Plain lyrics don't move: their first lines.
+        <span className="flex flex-col gap-[0.4em] leading-snug font-bold">
+          {plainLines.map((text, index) => (
+            <span key={index} data-variant="panel" className="lyric-text line-clamp-2">
+              {text}
+            </span>
+          ))}
+        </span>
+      )}
     </button>
   );
 };
+
+/**
+ * The card's synced lines in a window a few lines tall (styles.css `.lyrics-card-window`), led by
+ * the line sung. As the next one starts the window glides to it as the full lyrics do
+ * (useFollowLine), the line sung easing in (`.lyric-line`) while the one before leaves at the top
+ * and the next ones fade in at the bottom.
+ */
+const CardLines: FC<{ lines: LyricLine[]; offsetMs: number }> = ({ lines, offsetMs }) => {
+  const box = useRef<HTMLSpanElement>(null);
+  // Follows the playhead, re-rendering only as a line starts.
+  const starts = useMemo(() => lines.map((line) => line.timeMs + offsetMs), [lines, offsetMs]);
+  const current = useCurrentLine(starts);
+  const { lineRef, listRef } = useFollowLine<HTMLSpanElement, HTMLSpanElement>(
+    box,
+    current,
+    lines,
+    { place: 'top', scrollable: false },
+  );
+  return (
+    <span
+      ref={box}
+      data-testid="lyrics-card-lines"
+      data-variant="panel"
+      className="lyric-text lyrics-card-window leading-snug font-bold"
+    >
+      <span ref={listRef} className="flex flex-col gap-[0.4em]">
+        {lines.map((line, index) => (
+          <CardLine
+            key={`${line.timeMs}-${index}`}
+            text={line.text || '♪'}
+            playing={index === current}
+            lineRef={index === current ? lineRef : undefined}
+          />
+        ))}
+      </span>
+    </span>
+  );
+};
+
+/** One of the card's lines; it re-renders only when it starts or stops being the one sung. */
+const CardLine: FC<{ text: string; playing: boolean; lineRef?: Ref<HTMLSpanElement> }> = memo(
+  function CardLine({ text, playing, lineRef }) {
+    return (
+      <span
+        ref={lineRef}
+        data-variant="panel"
+        data-current={playing ? '' : undefined}
+        className="lyric-text lyric-line text-foreground line-clamp-2"
+      >
+        {text}
+      </span>
+    );
+  },
+);
 
 /** About the artist (M46.14): also below the desktop side panel's Now playing. */
 export const ArtistCard: FC<{ credit: string | null }> = ({ credit }) => {

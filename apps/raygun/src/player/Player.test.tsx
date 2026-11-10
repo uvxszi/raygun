@@ -438,10 +438,10 @@ describe('Cards under the player', () => {
 
     // The "Up next" pill names the next song.
     expect(within(sheet).getByRole('button', { name: 'Up next' })).toHaveTextContent('Second');
-    // Synced lyrics show from the line playing (the wrapper sits at 1:05).
+    // Synced lyrics lead with the line playing (the wrapper sits at 1:05).
     const lyrics = await within(sheet).findByTestId('lyrics-card');
-    expect(await within(lyrics).findByText('Second line')).toBeInTheDocument();
-    expect(lyrics).not.toHaveTextContent('First line');
+    expect(await within(lyrics).findByText('Second line')).toHaveAttribute('data-current');
+    expect(within(lyrics).getByText('First line')).not.toHaveAttribute('data-current');
     const artist = within(sheet).getByTestId('artist-card');
     expect(await within(artist).findByText('A band from the tests.')).toBeInTheDocument();
     expect(artist).toHaveTextContent('Detroit · 1999–');
@@ -462,6 +462,40 @@ describe('Cards under the player', () => {
     await userEvent.click(within(sheet).getByRole('button', { name: 'Lyrics' }));
     expect(await within(sheet).findByTestId('lyrics-view')).toBeInTheDocument();
     expect(within(sheet).queryByTestId('player-cards')).not.toBeInTheDocument();
+  });
+
+  it('moves the lyrics card on to the next line in place, without swapping its lines', async () => {
+    bindingsMock.commands.lyricsGet.mockResolvedValue(
+      ok({
+        providerName: 'Lyrics Base',
+        synced: [
+          { timeMs: 1_000, text: 'First line' },
+          { timeMs: 60_000, text: 'Second line' },
+          { timeMs: 120_000, text: 'Third line' },
+        ],
+        plain: null,
+      }),
+    );
+    const { emitEvent, IDLE_STATE } = await import('../test/bindingsMock');
+    const sheet = await openPlayer();
+    const card = await within(sheet).findByTestId('lyrics-card-lines');
+    const second = await within(card).findByText('Second line');
+    const third = within(card).getByText('Third line');
+    expect(second).toHaveAttribute('data-current');
+
+    emitEvent('playbackStateEvent', {
+      ...IDLE_STATE,
+      status: 'playing',
+      currentItemId: 'id-Intro',
+      positionMs: 125_000,
+      durationMs: 180_000,
+    });
+
+    // The same lines stay in the window, which glides to the next one as it lights up.
+    await waitFor(() => expect(third).toHaveAttribute('data-current'));
+    expect(second).not.toHaveAttribute('data-current');
+    expect(within(card).getByText('Second line')).toBe(second);
+    expect(within(card).getByText('First line')).toBeInTheDocument();
   });
 
   it('credits the song to its artists when no source knows it', async () => {
