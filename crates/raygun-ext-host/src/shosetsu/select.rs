@@ -798,9 +798,9 @@ impl Parser {
                 let inner = self.argument()?;
                 Condition::Is(Box::new(Selector::parse(&inner)?))
             }
-            "contains" => Condition::Contains(unquote(self.argument()?)),
-            "containsown" => Condition::ContainsOwn(unquote(self.argument()?)),
-            "containsdata" => Condition::ContainsData(unquote(self.argument()?)),
+            "contains" => Condition::Contains(unescape(&unquote(self.argument()?))),
+            "containsown" => Condition::ContainsOwn(unescape(&unquote(self.argument()?))),
+            "containsdata" => Condition::ContainsData(unescape(&unquote(self.argument()?))),
             "matches" => Condition::Matches(regex(self.argument()?)?),
             "matchesown" => Condition::MatchesOwn(regex(self.argument()?)?),
             "eq" => Condition::Eq(index(self.argument()?)?),
@@ -835,6 +835,22 @@ fn nth_fixed(of_type: bool, from_end: bool) -> Condition {
         of_type,
         from_end,
     }
+}
+
+/// Jsoup's `TokenQueue.unescape` for `:contains…(text)`: each backslash escapes the character
+/// after it, and two make one (`containsData(\"6:\[)` looks for `"6:[`).
+fn unescape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut escaped = false;
+    for c in text.chars() {
+        if c == '\\' && !escaped {
+            escaped = true;
+            continue;
+        }
+        escaped = false;
+        out.push(c);
+    }
+    out
 }
 
 /// `an+b`, `odd`, `even` or a number.
@@ -939,6 +955,16 @@ mod tests {
             texts(&html, "div:has(> a[href*=author])"),
             ["Author: Yamada"]
         );
+        // Escapes as Jsoup reads them: `\\` is a backslash, `\"` a quote (a Next.js page's
+        // flight data, as Taiyō looks for it).
+        let flight = Html::parse_document(
+            r#"<script>self.__next_f.push([1,"6:[{\"mediaChapter\":{}}]"])</script><script>other</script>"#,
+        );
+        let scripts =
+            Selector::parse(r#"script:containsData(mediaChapter\\\":):containsData(\"6:\[)"#)
+                .unwrap()
+                .select(flight.tree.root());
+        assert_eq!(scripts.len(), 1);
     }
 
     #[test]

@@ -2644,7 +2644,13 @@
     },
     run: async (value, args, lambda) => (lambda ?? args[0])(value),
     closeQuietly: () => KT.unit,
-    printStackTrace: () => KT.unit,
+    // In the extension's log, as Android's logcat would have it (a failure a source swallows).
+    printStackTrace: (error) => {
+      console.debug(
+        error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : KT.str(error),
+      );
+      return KT.unit;
+    },
     toJsonString: (value) => JSON.stringify(plain(value)),
     toJsonRequestBody: (value) => ({
       isBody: true,
