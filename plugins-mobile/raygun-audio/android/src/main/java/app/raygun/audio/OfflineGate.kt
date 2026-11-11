@@ -83,7 +83,25 @@ class OfflineGateClient(private val inner: WebViewClient) : WebViewClient() {
         view: WebView,
         request: WebResourceRequest,
         error: WebResourceError,
-    ) = inner.onReceivedError(view, request, error)
+    ) {
+        inner.onReceivedError(view, request, error)
+        // Raygun's own page didn't load (wry retries refused connections itself): its error
+        // screen rather than a blank one.
+        if (request.isForMainFrame &&
+            request.url.host == RAYGUN_HOST &&
+            error.errorCode != ERROR_CONNECT &&
+            error.errorCode != ERROR_UNKNOWN &&
+            !OfflineGate.on
+        ) {
+            CrashLog.write(
+                view.context,
+                "page",
+                "Raygun's page couldn't load: ${error.description}",
+                "Address: ${request.url}\nError ${error.errorCode}: ${error.description}\n",
+            )
+            leave(view, "page")
+        }
+    }
 
     override fun onReceivedHttpError(
         view: WebView,
@@ -110,9 +128,39 @@ class OfflineGateClient(private val inner: WebViewClient) : WebViewClient() {
     override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) =
         inner.doUpdateVisitedHistory(view, url, isReload)
 
+    /**
+     * The page's renderer went (it crashed, or the system ended it for memory). wry doesn't handle
+     * it, and unhandled, Android ends Raygun with it: every start again if what the page restores
+     * is what ends it. Handled here: a crash record, Raygun's error screen when it's in front, and
+     * this activity goes (its webview can't be used again); music playing goes on.
+     */
     @androidx.annotation.RequiresApi(26)
-    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean =
-        inner.onRenderProcessGone(view, detail)
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+        CrashLog.rendererGone(view.context, detail)
+        leave(view, "renderer")
+        return true
+    }
+
+    private fun leave(view: WebView, kind: String) {
+        val activity = activityOf(view.context) ?: return
+        if (CrashLog.mainInFront) CrashLog.showErrorScreen(activity, kind)
+        runCatching { (view.parent as? android.view.ViewGroup)?.removeView(view) }
+        activity.finish()
+    }
+
+    private fun activityOf(context: android.content.Context?): android.app.Activity? {
+        var current = context
+        while (current is android.content.ContextWrapper) {
+            if (current is android.app.Activity) return current
+            current = current.baseContext
+        }
+        return null
+    }
+
+    private companion object {
+        /** Where wry serves Raygun's own page on Android. */
+        const val RAYGUN_HOST = "tauri.localhost"
+    }
 
     override fun shouldOverrideKeyEvent(view: WebView, event: KeyEvent): Boolean =
         inner.shouldOverrideKeyEvent(view, event)

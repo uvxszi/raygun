@@ -99,6 +99,11 @@ type Packed = { json: string; tagged: boolean };
  */
 const packedAnswers = new WeakMap<object, Packed>();
 
+/** The longest answer kept, in characters of JSON. */
+export const MAX_ANSWER_CHARS = 512 * 1024;
+/** The most kept in all, in characters of JSON (queries are given newest first). */
+export const MAX_SAVED_CHARS = 8 * 1024 * 1024;
+
 /** Stands for a query's answer while the rest of the query is written. */
 const ANSWER = `~raygun-answer-${Math.random().toString(36).slice(2)}~`;
 
@@ -127,9 +132,16 @@ const packQuery = (query: DehydratedState['queries'][number]): Packed => {
 export const packQueries = (state: DehydratedState): { json: string; tagged: string[] } => {
   const queries: string[] = [];
   const tagged: string[] = [];
+  let total = 0;
   for (const query of state.queries) {
     try {
       const packed = packQuery(query);
+      // A huge answer (a catalogue of every source, a long search) isn't kept, and the cache stops
+      // growing at a size a phone's page restores at once: restoring more ran it out of memory.
+      if (packed.json.length > MAX_ANSWER_CHARS || total + packed.json.length > MAX_SAVED_CHARS) {
+        continue;
+      }
+      total += packed.json.length;
       queries.push(packed.json);
       if (packed.tagged) tagged.push(query.queryHash);
     } catch {

@@ -1625,7 +1625,7 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         val args = invoke.getArgs()
         val plan = args.optJSONObject("plan") ?: JSONObject()
         val finished = args.optJSONObject("finished")
-        main.post { DownloadNotices.show(activity.applicationContext, plan, finished) }
+        main.post { runCatching { DownloadNotices.show(activity.applicationContext, plan, finished) } }
         invoke.resolve()
     }
 
@@ -1633,7 +1633,7 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     @Command
     fun notice(invoke: Invoke) {
         val notice = JSONObject(invoke.getArgs().toString())
-        main.post { Notices.show(activity.applicationContext, notice) }
+        main.post { runCatching { Notices.show(activity.applicationContext, notice) } }
         invoke.resolve()
     }
 
@@ -1674,20 +1674,24 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     }
 
     override fun load(webView: WebView) {
+        // Crash records (also installed by MainActivity, earlier; once a process).
+        CrashLog.install(activity)
         // Rust's commands reach this instance on their own line from now on, with or without an
         // activity (see DirectCalls).
         DirectCalls.plugin = this
         NativeBridge.attach()
         // The browser's process may outlive this one: its reports and downloads find a listener.
         listenToWebsites()
-        takeOpenExtras(activity.intent)
-        takeHandover(activity.intent)
+        // Another app's extras Raygun can't unpack (Android before 13 throws reading them) must
+        // not end every start that intent comes back with.
+        runCatching { takeOpenExtras(activity.intent) }
+        runCatching { takeHandover(activity.intent) }
         DeviceState.start(activity)
     }
 
     override fun onNewIntent(intent: Intent) {
-        takeOpenExtras(intent)
-        takeHandover(intent)
+        runCatching { takeOpenExtras(intent) }
+        runCatching { takeHandover(intent) }
     }
 
     // ---- Settings → Permissions (see Permissions) ----
@@ -1919,7 +1923,7 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
             queued.decrementAndGet()
             val connected = controller
             if (connected != null) {
-                action(connected)
+                safely(action, connected)
                 return@post
             }
             pending.add(action)
@@ -1947,10 +1951,20 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
                 val built = runCatching { future.get() }.getOrNull() ?: return@addListener
                 built.addListener(listener)
                 controller = built
-                pending.toList().forEach { it(built) }
+                val waiting = pending.toList()
                 pending.clear()
+                waiting.forEach { safely(it, built) }
             }, MoreExecutors.directExecutor())
         }
+    }
+
+    /**
+     * Runs a command for the player in a turn of the main loop of its own: an exception there (a
+     * value Rust sent that the player refuses) would end Raygun, so it's logged and dropped.
+     */
+    private fun safely(action: (MediaController) -> Unit, controller: MediaController) {
+        runCatching { action(controller) }
+            .onFailure { error -> android.util.Log.w("Raygun", "a player command failed", error) }
     }
 
     private fun reportProgress(controller: Player) {

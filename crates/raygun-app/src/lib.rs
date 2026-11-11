@@ -20,6 +20,7 @@ mod commands;
 mod connect;
 mod cover_fallback;
 mod cover_search;
+mod crash_log;
 mod details;
 mod device_link;
 mod device_state;
@@ -608,7 +609,18 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::playback_undo_skip,
             commands::sponsorblock_segments,
             commands::tts_report,
-            commands::tts_set_available
+            commands::tts_set_available,
+            crash_log::safe_start_status,
+            crash_log::crash_logs,
+            crash_log::crash_log,
+            crash_log::crash_log_write,
+            crash_log::crash_logs_clear,
+            crash_log::crash_log_save,
+            crash_log::crash_log_share,
+            crash_log::logs_save_all,
+            crash_log::logs_open_folder,
+            crash_log::extension_hold_back,
+            crash_log::app_restart_safe
         ])
         .events(tauri_specta::collect_events![
             events::EngineCommandEvent,

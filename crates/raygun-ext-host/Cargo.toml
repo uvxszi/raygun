@@ -16,7 +16,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
-rquickjs = { version = "0.14", features = ["futures"] }
+# QuickJS's own C asserts are off (NDEBUG), as in its release builds: a failed one aborts the whole
+# app, e.g. a runtime dropped while something still holds one of its objects (reloads drop them).
+rquickjs = { version = "0.14", features = ["futures", "disable-assertions"] }
 # `deterministic` keeps attributes in source order when serialized, as Jsoup and Dart's `html`
 # do; Shosetsu and Miru scripts match patterns against that HTML.
 scraper = { version = "0.24", features = ["deterministic"] }

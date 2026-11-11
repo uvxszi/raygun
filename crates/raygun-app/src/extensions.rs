@@ -333,7 +333,19 @@ impl ExtensionService {
                 }
                 Err(error) => tracing::warn!(%error, "could not read the NSFW setting"),
             }
+            // After a crash: sources at work both times are held back, and a safe start loads one
+            // extension at a time, so a crash while loading names the one that was.
+            let start = loader
+                .app
+                .try_state::<crate::crash_log::SafeStartState>()
+                .map(|state| state.0.clone())
+                .unwrap_or_default();
+            loader
+                .host
+                .set_held_back(crate::crash_log::held_back_now(loader.db(), &start).await);
+            loader.host.set_one_at_a_time(start.active());
             loader.load_all().await;
+            loader.host.set_one_at_a_time(false);
             drop(guard);
             loader.move_former_built_ins().await;
             if cfg!(debug_assertions) {
@@ -402,6 +414,11 @@ impl ExtensionService {
 
     /// Whether NSFW extensions and content are shown (M35).
     /// The sources and providers the user turned off (M46.8): searches and lookups skip them.
+    /// Extensions not to load from the next load on, by id, with what their rows say.
+    pub fn set_held_back(&self, held: HashMap<String, String>) {
+        self.host.set_held_back(held);
+    }
+
     pub fn set_disabled_sources(&self, ids: &[String]) {
         self.host.content().set_disabled(ids);
         self.announce_setup();

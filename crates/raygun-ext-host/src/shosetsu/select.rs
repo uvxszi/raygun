@@ -85,6 +85,8 @@ enum Condition {
 
 impl Selector {
     pub fn parse(text: &str) -> Result<Self, String> {
+        // Nested groups parse, and compounds match, one call deeper each.
+        crate::html::check_selector(text)?;
         let mut parser = Parser {
             chars: text.chars().collect(),
             position: 0,

@@ -49,6 +49,7 @@ import { PermissionPromptHost } from '../permissions/PermissionPrompt';
 import { useNotificationRoutes } from '../permissions/useNotificationRoutes';
 import { ContextMenuHost } from './ContextMenu';
 import { RevealHost } from './RevealHost';
+import { SafeStartNotice } from './SafeStartNotice';
 import { ToastHost } from './Toast';
 import { ControlLabels } from './ControlLabels';
 import { useHorizontalWheel } from './useHorizontalWheel';
@@ -254,6 +255,7 @@ export const AppShell: FC = () => {
         <WhatsNewOnStart />
         <UpdateOffer />
         <PermissionPromptHost />
+        <SafeStartNotice />
         {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}
         <div

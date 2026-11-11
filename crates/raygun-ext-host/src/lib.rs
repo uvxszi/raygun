@@ -1,6 +1,7 @@
 //! Raygun's extension host (ARCHITECTURE §7): manifests, network permissions, the provider
 //! registry and the QuickJS (`js`) runtime with the host API.
 
+pub mod activity;
 pub mod audiobook;
 pub mod browser_check;
 mod content;
@@ -37,6 +38,8 @@ pub mod youtube;
 
 #[cfg(test)]
 mod fixture_tests;
+#[cfg(test)]
+mod hostile_tests;
 #[cfg(test)]
 mod limits_tests;
 #[cfg(test)]

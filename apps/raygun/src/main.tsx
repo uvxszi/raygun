@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import './i18n';
 import { MiniplayerApp } from './miniplayer/MiniplayerApp';
 import { createAppRouter } from './router';
+import { RootErrorBoundary } from './shell/ErrorScreen';
 import { persistQueryCache, restoreQueryCache } from './shell/queryPersist';
 import { SPLASH_LIMIT_MS, hideSplash } from './shell/splash';
 import './styles.css';
@@ -38,13 +39,15 @@ const miniplayer = isMiniplayerWindow();
 const render = () =>
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        {miniplayer ? (
-          <MiniplayerApp />
-        ) : (
-          <RouterProvider router={createAppRouter(createHashHistory())} />
-        )}
-      </QueryClientProvider>
+      <RootErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          {miniplayer ? (
+            <MiniplayerApp />
+          ) : (
+            <RouterProvider router={createAppRouter(createHashHistory())} />
+          )}
+        </QueryClientProvider>
+      </RootErrorBoundary>
     </StrictMode>,
   );
 
@@ -56,8 +59,12 @@ if (miniplayer) {
   render();
 } else {
   setTimeout(() => hideSplash(), SPLASH_LIMIT_MS);
+  // Whatever happens to the saved answers, the page draws.
   void restoreQueryCache(queryClient).finally(() => {
-    persistQueryCache(queryClient);
-    render();
+    try {
+      persistQueryCache(queryClient);
+    } finally {
+      render();
+    }
   });
 }

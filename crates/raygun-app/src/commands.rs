@@ -156,7 +156,19 @@ pub async fn playback_restore(
     app: tauri::AppHandle,
     playback: tauri::State<'_, PlaybackService>,
 ) -> Result<(), String> {
-    playback.restore_last(&app).await;
+    if crate::crash_log::is_safe(&app) {
+        // A safe start: the last queue comes back once this start proved healthy.
+        let later = app.clone();
+        tauri::async_runtime::spawn(async move {
+            use tauri::Manager;
+            tokio::time::sleep(crate::crash_log::HEALTHY_AFTER).await;
+            if let Some(playback) = later.try_state::<PlaybackService>() {
+                playback.restore_last(&later).await;
+            }
+        });
+    } else {
+        playback.restore_last(&app).await;
+    }
     // The UI is up: what another app opened with Raygun before it was goes ahead.
     crate::open_with::ready(&app);
     Ok(())

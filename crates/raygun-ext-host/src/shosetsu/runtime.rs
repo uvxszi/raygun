@@ -32,6 +32,8 @@ use crate::novel::NOVEL_SOURCE;
 
 const PRELUDE: &str = include_str!("prelude.lua");
 const MEMORY_BYTES: usize = 128 * 1024 * 1024;
+/// Each script's thread's stack, as large as an extension lane's.
+const SCRIPT_STACK_BYTES: usize = 8 * 1024 * 1024;
 /// Longest a script may run for one call, waiting on the network included. Scripts that page
 /// through long chapter lists (some pause a second between pages) need a while.
 pub const CALL_BUDGET: Duration = Duration::from_secs(80);
@@ -143,8 +145,11 @@ impl ShosetsuExtension {
             loopback,
             budget,
         };
+        // The selector engine and the DOM walk pages the site sent: a deep one must fail the call,
+        // not overflow the default 2 MiB stack, which ends the whole app.
         std::thread::Builder::new()
             .name(format!("shosetsu {}", manifest.id))
+            .stack_size(SCRIPT_STACK_BYTES)
             .spawn(move || work(&setup, &inbox, ready))
             .map_err(|error| error.to_string())?;
         let loaded = loaded

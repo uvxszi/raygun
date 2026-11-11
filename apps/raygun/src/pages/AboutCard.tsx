@@ -1,11 +1,12 @@
 import { commands } from '@raygun/bindings';
 import type { StorageMode } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Scale } from 'lucide-react';
+import { Bug, FileText, FolderOpen, Scale } from 'lucide-react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PrefAction, PrefGroup } from '../settings/prefs';
+import { PrefAction, PrefGroup, PrefLink } from '../settings/prefs';
 import { Problem } from '../settings/Problem';
 import { useAppUpdate, useAppUpdateActions } from '../updates/useAppUpdate';
 
@@ -42,6 +43,15 @@ export const AboutCard: FC = () => {
   const error = appInfo.error ?? storageInfo.error;
   const app = appInfo.data;
   const storage = storageInfo.data;
+  const [logsNote, setLogsNote] = useState<string | null>(null);
+  // Desktop shows the folder; Android has no file manager for it, so every log goes in a zip.
+  const openLogs = async () => {
+    const android = app?.platform === 'android';
+    const result = android ? await commands.logsSaveAll() : await commands.logsOpenFolder();
+    if (result.status === 'error') setLogsNote(result.error);
+    else if (typeof result.data === 'string')
+      setLogsNote(t('crash.savedIn', { place: result.data }));
+  };
 
   return (
     <div data-testid="about-card">
@@ -78,6 +88,24 @@ export const AboutCard: FC = () => {
             <Problem title={t('settings.aboutFailed')} detail={String(error)} />
           </li>
         )}
+      </PrefGroup>
+      <PrefGroup title={t('crash.logs')}>
+        <PrefLink
+          icon={Bug}
+          title={t('crash.logs')}
+          summary={t('crash.logsSummary')}
+          to="/about/crashes"
+          search={{ id: undefined }}
+        />
+        <PrefAction
+          icon={FolderOpen}
+          title={t('crash.logsFolder')}
+          summary={
+            logsNote ??
+            t(app?.platform === 'android' ? 'crash.logsFolderAndroid' : 'crash.logsFolderDesktop')
+          }
+          onClick={() => void openLogs()}
+        />
       </PrefGroup>
       <PrefGroup title={t('settings.licenses')}>
         <PrefAction

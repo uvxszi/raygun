@@ -36,6 +36,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let guard = init_logging(&paths)?;
     // Days that ended are gzipped, and the oldest go.
     crate::logs::keep_tidy(paths.logs(), LOG_FILES_KEPT);
+    // Crash records, and whether the last start stopped (this one is then a safe start).
+    let safe_start = crate::crash_log::begin(&paths.logs());
+    if safe_start.clear_caches {
+        crate::crash_log::clear_caches(&paths);
+    }
+    app.manage(crate::crash_log::SafeStartState(safe_start));
+    crate::crash_log::settle_later();
     tracing::info!(
         mode = ?paths.mode(),
         root = %paths.root().display(),
@@ -186,7 +193,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.cache(raygun_paths::CacheKind::Captions),
     );
     app.manage(captions.clone());
-    captions.resume_songs();
+    {
+        let captions = captions.clone();
+        crate::crash_log::when_healthy(app.handle(), move || captions.resume_songs());
+    }
     app.manage(crate::local_network::LocalNetwork::new(
         app.handle().clone(),
     ));
@@ -360,7 +370,10 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         paths.downloads().join("files"),
         raygun_net::http_client()?,
     );
-    website_downloads.start();
+    {
+        let website_downloads = website_downloads.clone();
+        crate::crash_log::when_healthy(app.handle(), move || website_downloads.start());
+    }
     app.manage(website_downloads);
     let songs = crate::music_downloads::SongDownloadService::new(
         app.handle().clone(),
@@ -407,11 +420,14 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
 
     // Pick up files added or removed while the app was closed (cheap when nothing changed).
     app.state::<crate::library::LibraryService>().start_scan();
-    downloads.start();
-    discovery.start_tagger();
-    songs.start();
-    video_downloads.start();
-    podcasts.start();
+    // Queues left from the last run; on a safe start, once this start proved healthy.
+    crate::crash_log::when_healthy(app.handle(), move || {
+        downloads.start();
+        discovery.start_tagger();
+        songs.start();
+        video_downloads.start();
+        podcasts.start();
+    });
     crate::device_state::install(app.handle());
     crate::network_mode::install(app.handle());
     crate::tts::install(app.handle());
@@ -584,6 +600,7 @@ fn init_logging(paths: &Paths) -> Result<WorkerGuard, Box<dyn Error>> {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         tracing::error!(thread = ?std::thread::current().name(), "panic: {info}");
+        crate::crash_log::record_panic(info);
         default_hook(info);
     }));
     Ok(guard)
@@ -611,8 +628,15 @@ fn create_main_window(app: &tauri::AppHandle, paths: &Paths) -> Result<(), Box<d
     // The YouTube tap runs in every frame, idle except inside Raygun's own hidden capture
     // players (M46.52); the player script, idle except in YouTube's players in Raygun's embed
     // host page (the audio track, the codec, SponsorBlock's parts on the seek bar).
+    // Whether this is a safe start, known before the page's first script (it skips restoring
+    // the pages it saved).
+    let safe_start = app
+        .try_state::<crate::crash_log::SafeStartState>()
+        .map(|state| state.0.script())
+        .unwrap_or_default();
     WebviewWindowBuilder::from_config(app, &config)?
         .data_directory(paths.webview())
+        .initialization_script(&safe_start)
         .initialization_script_for_all_frames(crate::music_downloads::capture::youtube::TAP_SCRIPT)
         .initialization_script_for_all_frames(crate::youtube_embed::PLAYER_SCRIPT)
         .build()?;

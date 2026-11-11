@@ -128,6 +128,25 @@ const read = async (): Promise<Saved | undefined> => {
   }
 };
 
+/** Deletes the saved answers; saving goes on. */
+const dropSaved = () =>
+  new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase(DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+  });
+
+/** A saved cache larger than this (compressed) isn't restored: a phone's page ran out of memory. */
+export const MAX_RESTORE_BYTES = 4 * 1024 * 1024;
+
+/** What Rust said of this start before the page's first script (`crash_log.rs`). */
+export const safeStart = (): { active: boolean; clearCaches: boolean } => {
+  const said = (window as { __RAYGUN_SAFE_START__?: { active?: unknown; clearCaches?: unknown } })
+    .__RAYGUN_SAFE_START__;
+  return { active: said?.active === true, clearCaches: said?.clearCaches === true };
+};
+
 /** Set by an erase (M46.51): nothing is saved again in this run. */
 let forgotten = false;
 
@@ -169,12 +188,22 @@ const write = async (saved: Saved) => {
  */
 export const restoreQueryCache = async (client: QueryClient) => {
   if (typeof indexedDB === 'undefined') return;
+  // After a crash (a safe start), or when asked to clear caches, nothing comes back: what was
+  // saved may be what ended the last start.
+  if (safeStart().active) {
+    await dropSaved();
+    return;
+  }
   const timeout = new Promise<undefined>((resolve) =>
     setTimeout(() => resolve(undefined), RESTORE_WAIT_MS),
   );
   const saved = async () => {
     const found = await read();
     if (!found || found.build !== BUILD || Date.now() - found.savedAt > MAX_AGE_MS) return;
+    if ('packed' in found && found.packed.byteLength > MAX_RESTORE_BYTES) {
+      await dropSaved();
+      return;
+    }
     return fromSaved(found);
   };
   try {

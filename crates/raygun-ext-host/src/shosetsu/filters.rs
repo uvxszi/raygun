@@ -39,20 +39,28 @@ pub enum Spec {
     Label,
 }
 
+/// How deep groups of filters may nest: a group that holds itself (or nests past this) ends there
+/// rather than recursing until the stack runs out, which ends the whole app.
+const MAX_GROUP_DEPTH: usize = 8;
+
 /// The filters a script declares in `searchFilters`.
 pub fn read(filters: &Table) -> Vec<Spec> {
+    read_at(filters, 0)
+}
+
+fn read_at(filters: &Table, depth: usize) -> Vec<Spec> {
     filters
         .clone()
         .sequence_values::<Value>()
         .filter_map(Result::ok)
         .filter_map(|filter| match filter {
-            Value::Table(filter) => Some(spec(&filter)),
+            Value::Table(filter) => Some(spec(&filter, depth)),
             _ => None,
         })
         .collect()
 }
 
-fn spec(filter: &Table) -> Spec {
+fn spec(filter: &Table, depth: usize) -> Spec {
     let kind: String = filter.get("kind").unwrap_or_default();
     let id: Option<i64> = filter.get("id").ok().flatten();
     let name: String = filter.get("name").unwrap_or_default();
@@ -61,7 +69,9 @@ fn spec(filter: &Table) -> Spec {
             name,
             filters: filter
                 .get::<Table>("filters")
-                .map(|inner| read(&inner))
+                .ok()
+                .filter(|_| depth < MAX_GROUP_DEPTH)
+                .map(|inner| read_at(&inner, depth + 1))
                 .unwrap_or_default(),
         },
         ("text" | "password", Some(id)) => Spec::Text {

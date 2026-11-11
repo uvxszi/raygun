@@ -10,7 +10,10 @@
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
+    <!-- hasFragileUserData: uninstalling asks whether to keep Raygun's data (library, downloads,
+         settings), so a reinstall finds it again. -->
     <application
+        android:hasFragileUserData="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.raygun"

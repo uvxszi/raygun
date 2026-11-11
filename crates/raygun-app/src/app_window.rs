@@ -18,6 +18,10 @@ use tauri::{AppHandle, Manager, RunEvent};
 /// Tauri's run events as the app takes them (the shell's `run` callback). Only Android's window
 /// goes while Raygun carries on; a desktop window closing ends Raygun as Tauri does.
 pub fn on_event(app: &AppHandle, event: RunEvent) {
+    if matches!(event, RunEvent::Exit) {
+        // Ended as it should: the next start isn't a safe one.
+        crate::crash_log::clean_exit();
+    }
     if !cfg!(target_os = "android") {
         return;
     }
