@@ -269,13 +269,13 @@ the themes:
 |---|---|
 | Jsoup | Documents parsed in Rust (the LNReader runtime's document store), Raygun's Jsoup-compatible selectors (`:contains`, `:has`, `:eq`…), Jsoup's `text()` and `ownText()` whitespace rules, `attr("abs:…")`, siblings and parents |
 | OkHttp, `KeiSource`'s client | `raygun.http` with the source's Referer and headers, the accept headers of a page load or an XHR, form bodies, its rate limit; Raygun's own limits beneath (6 requests at once per site, 32 in all) and the extension's cookie jar |
-| Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones and optional sections (`[MMMM][MMM] d, yyyy`), month names in 20 languages, Thai Buddhist years; `DateTimeFormatterBuilder`'s values, fractions, month names and `parseDefaulting`; the ISO formats; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `Instant` as Unix milliseconds |
-| Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…) |
+| Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones and optional sections (`[MMMM][MMM] d, yyyy`), month names in 20 languages, Thai Buddhist years; `DateTimeFormatterBuilder`'s values, fractions, month names and `parseDefaulting`; the ISO formats; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `YearMonth`, `LocalTime`, `Instant` as Unix milliseconds, `WeekFields` |
+| Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…); org.json's `JSONObject`/`JSONArray`; `BigInteger` as JavaScript's `BigInt` |
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
 | Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256` in Rust (`runtime.rs`'s `crypto`) |
 | Keiyoushi's other helpers | `MarkdownDescription.Builder`, `toMarkdown` and `ratingStars` as plain text (Raygun shows descriptions as text), `tryParseZonedDateTime`, `Instant.tryParse`, Jsoup's `attrOrNull`, `selectLast`, `textNodes`, `createElement`, `:containsData` |
 | Android's graphics | `Bitmap`, `BitmapFactory`, `Canvas`, `Matrix`, `Rect`, `Paint`, `Color` over pictures held in Rust (`raygun_net::bitmap`) |
-| Bytes | Answers' bytes as `Uint8Array`s; okio's `Buffer` and `ByteString`, Java's byte streams, `ByteBuffer` |
+| Bytes | Answers' bytes as `Uint8Array`s; okio's `Buffer` and `ByteString`, Java's byte streams, `ByteBuffer`; `GZIPOutputStream`/`DeflaterOutputStream` deflated in Rust |
 | Protobuf | Keiyoushi's `parseAsProto`, `decodeProto`, `toRequestBodyProto`, `encodeProto` over the classes the source declares (`@ProtoNumber`, `@ProtoType`, packed lists, maps, enums by number) |
 | Decrypted answers | Keiyoushi's `response.aesDecrypt(cipher)`, `aesDecryptWithPrependedIv`, okio's `cipherSource`; pictures decrypted this way are fetched through the source |
 
@@ -313,16 +313,15 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 130 | 134 |
-| No theme | 809 | 858 |
-| All | 1524 (96.6%) | 1577 |
+| No theme | 815 | 858 |
+| All | 1530 (97.0%) | 1577 |
 
-The 53 refusals left are one or two extensions each, most of them on what has no stand-in:
+The 47 refusals left are one or two extensions each, most of them on what has no stand-in:
 Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java's key pairs
 (`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
 `zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
 own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
-and zstd; a few on Kotlin the converter doesn't read yet (java.time's `YearMonth`/`LocalTime`/`WeekFields`,
-a class declared in a function). Android's
+and zstd; one on Kotlin the converter doesn't read yet (a class declared in a function). Android's
 `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) is the runtime's text
 layout, so captions and speech bubbles drawn on pictures convert.
 

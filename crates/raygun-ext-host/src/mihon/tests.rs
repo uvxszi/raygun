@@ -2070,6 +2070,159 @@ async fn converted_code_reads_formats_xml_and_java_helpers() {
     );
 }
 
+/// org.json's `JSONObject`, `BigInteger` as JavaScript's `BigInt`, and `GZIPOutputStream` read
+/// back by `GZIPInputStream`.
+#[tokio::test]
+async fn converted_code_reads_org_json_big_numbers_and_gzip() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport org.json.JSONArray\nimport org.json.JSONObject\nimport java.math.BigInteger\nimport java.util.zip.GZIPInputStream\nimport java.util.zip.GZIPOutputStream\nimport java.io.ByteArrayOutputStream",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun JSONObject.stringOrArray(key: String): String? = when (val value = opt(key)) {
+        is String -> value.takeIf { it.isNotBlank() }
+        is JSONArray -> (0 until value.length()).mapNotNull { value.optString(it) }.joinToString(", ")
+        else -> null
+    }
+
+    private fun decoy(size: Int, orderId: Long, sid: Long): Int? {
+        val key = (sid.toBigInteger() * FACTOR).xor(size.toBigInteger() * BigInteger.valueOf(0x85EBCA6BL))
+            .mod(size.toBigInteger())
+        return orderId.toBigInteger().xor(key).takeIf { it in BigInteger.ZERO..<size.toBigInteger() }?.toInt()
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val json = JSONObject("""{"@graph":[{"@type":"Other"},{"@type":"CreativeWorkSeries","genre":["A","B"],"name":"N"}]}""")
+        val graph = json.optJSONArray("@graph")!!
+        val series = (0 until graph.length()).map { graph.optJSONObject(it) }.first { it?.optString("@type") == "CreativeWorkSeries" }!!
+        val packed = ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { it.write("Raygun".toByteArray()) } }.toByteArray()
+        val names = listOf(
+            series.stringOrArray("genre").orEmpty(),
+            series.stringOrArray("name").orEmpty(),
+            BigInteger(1, byteArrayOf(1, 0)).toString(),
+            BigInteger("ff", 16).pow(2).toString(16),
+            (decoy(7, 3L, 12345L) ?: -1).toString(),
+            GZIPInputStream(packed.inputStream()).readBytes().decodeToString(),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }
+
+    companion object {
+        private val FACTOR = BigInteger.valueOf(0x9E3779B1L)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(titles, ["A, B", "N", "256", "fe01", "2", "Raygun"]);
+}
+
+/// java.time's `YearMonth`, `LocalTime`, `WeekFields`, fields and a format's query
+/// (`parse(text, LocalDate::from)`).
+#[tokio::test]
+async fn converted_code_reads_months_times_and_weeks() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport java.time.YearMonth\nimport java.time.LocalTime\nimport java.time.temporal.WeekFields\nimport java.time.temporal.ChronoField",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val months = listOf(YearMonth.of(2024, 3), YearMonth.of(2024, 2))
+        val names = listOf(
+            YearMonth.from(LocalDate.parse("2024-03-15")).toString(),
+            (months[0] > months[1]).toString(),
+            months[1].atEndOfMonth().toString(),
+            LocalDate.parse("2024-01-02").atTime(LocalTime.parse("10:30", DateTimeFormatter.ofPattern("HH:mm"))).toString(),
+            LocalDate.parse("2024-01-07").get(WeekFields.SUNDAY_START.dayOfWeek()).toString(),
+            LocalDate.parse("2024-01-07").get(WeekFields.ISO.dayOfWeek()).toString(),
+            DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH).parse("March 5, 2024", LocalDate::from).toString(),
+            LocalDate.of(2024, 5, 9).get(ChronoField.DAY_OF_YEAR).toString(),
+            "${months[0].year}-${months[0].monthValue}",
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "2024-03",
+            "true",
+            "2024-02-29",
+            "2024-01-02T10:30:00",
+            "1",
+            "7",
+            "2024-03-05",
+            "130",
+            "2024-3",
+        ]
+    );
+}
+
 /// `sequence { yield(…); yieldAll(…) }` read as far as it's asked (Pixiv's `countUp`), and a
 /// property delegated to a `PropertyDelegateProvider` (Project Suki's).
 #[tokio::test]

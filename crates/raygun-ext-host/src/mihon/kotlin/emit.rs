@@ -212,6 +212,16 @@ pub const METHODS: &[&str] = &[
     "minusDays", "plusDays", "minusWeeks", "plusWeeks", "minusMonths", "plusMonths", "minusYears",
     "plusYears", "minusHours", "plusHours", "minusMinutes", "plusMinutes", "minusSeconds",
     "plusSeconds", "getYear", "getMonthValue", "getDayOfMonth", "isBefore", "isAfter", "ofEpochDay",
+    "atTime", "atDay", "atEndOfMonth", "lengthOfMonth", "isLeapYear", "withDayOfMonth",
+    "withMonth", "withYear", "getHour", "getMinute", "getSecond", "getDayOfYear", "dayOfWeek",
+    "weekOfMonth", "weekOfYear", "weekOfWeekBasedYear", "getFirstDayOfWeek",
+    // org.json's `JSONObject`/`JSONArray`, `BigInteger`, compressing streams
+    "opt", "optString", "optInt", "optLong", "optDouble", "optBoolean", "optJSONObject",
+    "optJSONArray", "getJSONObject", "getJSONArray", "isNull", "length", "names", "has",
+    "getDouble", "modPow", "modInverse", "pow", "gcd", "shiftLeft", "shiftRight", "testBit",
+    "setBit", "bitLength", "bitCount", "negate", "abs", "intValue", "longValue", "doubleValue",
+    "add", "subtract", "multiply", "divide", "remainder", "andNot", "toBigIntegerOrNull",
+    "finish",
     "unescapeEntities", "getProperty", "getValue",
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
     "toDuration", "isNegative", "isPositive", "isInfinite", "isFinite", "toNanos", "toMicros",
@@ -2625,6 +2635,12 @@ impl<'a> Gen<'a> {
                                 let call = writer.it_call(lambda, value, name)?;
                                 Ok(format!("(await KT.also({value}, async () => {call}))"))
                             }
+                            // `stream.use { … }`: the block, then the value closed (a
+                            // `GZIPOutputStream` writes what it compressed then).
+                            "use" => {
+                                let call = writer.it_call(lambda, value, name)?;
+                                Ok(format!("(await KT.use({value}, async () => {call}))"))
+                            }
                             "takeIf" => {
                                 let call = writer.it_call(lambda, value, name)?;
                                 Ok(format!("(KT.truthy({call}) ? {value} : null)"))
@@ -3017,7 +3033,7 @@ impl<'a> Gen<'a> {
             "in" => format!("KT.contains({right}, {left})"),
             "!in" => format!("(!KT.contains({right}, {left}))"),
             ".." => format!("KT.range({left}, {right})"),
-            "..<" | "until" => format!("KT.range({left}, ({right}) - 1)"),
+            "..<" | "until" => format!("KT.until({left}, {right})"),
             "downTo" => format!("KT.range({left}, {right}, -1)"),
             "step" => format!("KT.step({left}, {right})"),
             "to" => format!("KT.pair({left}, {right})"),
@@ -3284,7 +3300,8 @@ pub const GLOBALS: &[&str] = &[
     "SoftReference", "WeakReference", "randomUUID", "launch", "Header", "Separator",
     "injectLazy", "AtomicInteger", "AtomicLong", "AtomicBoolean", "AtomicReference",
     "ReentrantLock", "ReentrantReadWriteLock", "sleep", "AutoCloseable", "File", "Dispatcher",
-    "PropertyDelegateProvider",
+    "PropertyDelegateProvider", "JSONObject", "JSONArray", "GZIPOutputStream",
+    "DeflaterOutputStream", "BigInteger",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -3310,5 +3327,6 @@ pub const OBJECTS: &[&str] = &[
     "URLUtil", "Result",
     "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
     "applicationContext", "PreferenceManager", "BuildConfig", "File", "Dns",
-    "DEFAULT_BUFFER_SIZE", "InputType", "SignStyle", "FormatStyle",
+    "DEFAULT_BUFFER_SIZE", "InputType", "SignStyle", "FormatStyle", "YearMonth", "LocalTime",
+    "WeekFields", "BigInteger",
 ];

@@ -144,6 +144,10 @@
     return K.eq(left, right);
   };
   KT.cmp = (left, right) => {
+    if (typeof left === 'bigint' || typeof right === 'bigint') {
+      const [a, b] = [bigIntOf(left), bigIntOf(right)];
+      return a < b ? -1 : a > b ? 1 : 0;
+    }
     if (typeof left === 'string' && typeof right === 'string')
       return left < right ? -1 : left > right ? 1 : 0;
     // Durations and instants by their milliseconds.
@@ -215,6 +219,8 @@
     throw new KotlinError('this value has no parts to destructure');
   };
   KT.range = (from, to, step = 1) => ({ isRange: true, first: from, last: to, step });
+  /// `from until to`, `from..<to`: of numbers or `BigInteger`s.
+  KT.until = (from, to) => KT.range(from, typeof to === 'bigint' ? to - 1n : to - 1);
   KT.step = (range, step) => ({ ...range, step: range.step < 0 ? -step : step });
   KT.iter = (value) => {
     if (value == null) return [];
@@ -248,6 +254,20 @@
     return K.contains(container, item);
   };
   KT.safe = async (value, then) => (value === null || value === undefined ? null : then(value));
+  /// Kotlin's `use`: the block, then the value closed, whatever the block did.
+  KT.use = async (value, block) => {
+    try {
+      return await block();
+    } finally {
+      if (
+        value !== null &&
+        value !== undefined &&
+        typeof value === 'object' &&
+        hasMember(value, 'close')
+      )
+        await KT.m(value, 'close', []);
+    }
+  };
   KT.also = async (value, then) => {
     await then();
     return value;
@@ -385,6 +405,8 @@
     if (typeof value === 'string') return 'string';
     if (typeof value === 'number') return 'number';
     if (typeof value === 'boolean') return 'boolean';
+    // Java's `BigInteger` is JavaScript's own.
+    if (typeof value === 'bigint') return 'bigint';
     if (typeof value === 'function') return 'function';
     if (value instanceof mihon.Elements) return 'elements';
     if (Array.isArray(value)) return 'list';
@@ -730,7 +752,14 @@
     encodeUtf8: (s) => byteString(K.bin.utf8(s)),
     decodeHexToByteString: (s) => byteString(u8Of(fromHex(s))),
     toBigDecimal: (s) => Number(s),
-    toBigInteger: (s) => Number(s),
+    toBigInteger: (s, [radix = 10]) => bigIntOf(s, radix),
+    toBigIntegerOrNull: (s, [radix = 10]) => {
+      try {
+        return bigIntOf(s, radix);
+      } catch {
+        return null;
+      }
+    },
     toULong: (s) => Number(s),
     subSequence: (s, [start, end = s.length]) => s.slice(start, end),
     toBigDecimalOrNull: (s) => toFloat(s),
@@ -1219,7 +1248,7 @@
   /// with or without a fraction, an offset, or a zone's name in brackets.
   const isoFormat = (pattern, offset = 0) => {
     const format = K.dateFormat(pattern).withOffset(offset);
-    format.parse = (text) => {
+    format.read = (text) => {
       if (text === null || text === undefined) return null;
       const plain = KT.str(text)
         .trim()
@@ -1937,6 +1966,122 @@
   const objectAsMap = (name) =>
     MAP[name] ? (o, ...rest) => MAP[name](new Map(Object.entries(o)), ...rest) : null;
 
+  /// Java's `BigInteger` as JavaScript's `BigInt`: text in a radix, bytes (two's complement, or a
+  /// sign and a magnitude as `BigInteger(1, bytes)` reads them).
+  const bigIntOf = (value, radix = 10) => {
+    if (typeof value === 'bigint') return value;
+    if (typeof value === 'number') return BigInt(Math.trunc(value));
+    const text = KT.str(value).trim();
+    const base = Number(radix);
+    const negative = text.startsWith('-');
+    const digits = negative || text.startsWith('+') ? text.slice(1) : text;
+    if (!digits || !/^[0-9a-z]+$/i.test(digits))
+      throw new KotlinError(`For input string: "${text}"`, 'NumberFormatException');
+    let out = 0n;
+    for (const digit of digits.toLowerCase()) {
+      const at = parseInt(digit, 36);
+      if (Number.isNaN(at) || at >= base)
+        throw new KotlinError(`For input string: "${text}"`, 'NumberFormatException');
+      out = out * BigInt(base) + BigInt(at);
+    }
+    return negative ? -out : out;
+  };
+  const bigIntOfBytes = (bytes, signed = true) => {
+    const all = Array.from(u8Of(bytes));
+    let out = 0n;
+    for (const byte of all) out = (out << 8n) | BigInt(byte);
+    return signed && all.length && all[0] & 0x80 ? out - (1n << BigInt(all.length * 8)) : out;
+  };
+  /// `toByteArray()`: the fewest bytes of two's complement that hold the value and its sign.
+  const bigIntBytes = (value) => {
+    let count = 1;
+    while (value < -(1n << BigInt(count * 8 - 1)) || value >= 1n << BigInt(count * 8 - 1))
+      count += 1;
+    const hex = BigInt.asUintN(count * 8, value)
+      .toString(16)
+      .padStart(count * 2, '0');
+    return hex.match(/../g).map((pair) => parseInt(pair, 16));
+  };
+  const modPow = (base, exponent, modulus) => {
+    let result = 1n;
+    let at = ((base % modulus) + modulus) % modulus;
+    for (let rest = exponent; rest > 0n; rest >>= 1n) {
+      if (rest & 1n) result = (result * at) % modulus;
+      at = (at * at) % modulus;
+    }
+    return result;
+  };
+  const modInverse = (value, modulus) => {
+    let [a, m] = [((value % modulus) + modulus) % modulus, modulus];
+    let [x, last] = [0n, 1n];
+    while (m !== 0n) {
+      const quotient = a / m;
+      [a, m] = [m, a - quotient * m];
+      [last, x] = [x, last - quotient * x];
+    }
+    if (a !== 1n) throw new KotlinError('BigInteger not invertible.', 'ArithmeticException');
+    return ((last % modulus) + modulus) % modulus;
+  };
+  const BIGINT = {
+    plus: (b, [other]) => b + bigIntOf(other),
+    add: (b, [other]) => b + bigIntOf(other),
+    minus: (b, [other]) => b - bigIntOf(other),
+    subtract: (b, [other]) => b - bigIntOf(other),
+    times: (b, [other]) => b * bigIntOf(other),
+    multiply: (b, [other]) => b * bigIntOf(other),
+    div: (b, [other]) => b / bigIntOf(other),
+    divide: (b, [other]) => b / bigIntOf(other),
+    rem: (b, [other]) => b % bigIntOf(other),
+    remainder: (b, [other]) => b % bigIntOf(other),
+    mod: (b, [other]) => {
+      const modulus = bigIntOf(other);
+      return ((b % modulus) + modulus) % modulus;
+    },
+    modPow: (b, [exponent, modulus]) => modPow(b, bigIntOf(exponent), bigIntOf(modulus)),
+    modInverse: (b, [modulus]) => modInverse(b, bigIntOf(modulus)),
+    pow: (b, [exponent]) => b ** BigInt(exponent),
+    gcd: (b, [other]) => {
+      let [x, y] = [b < 0n ? -b : b, bigIntOf(other)];
+      if (y < 0n) y = -y;
+      while (y) [x, y] = [y, x % y];
+      return x;
+    },
+    xor: (b, [other]) => b ^ bigIntOf(other),
+    and: (b, [other]) => b & bigIntOf(other),
+    or: (b, [other]) => b | bigIntOf(other),
+    not: (b) => ~b,
+    inv: (b) => ~b,
+    andNot: (b, [other]) => b & ~bigIntOf(other),
+    shl: (b, [bits]) => b << BigInt(bits),
+    shiftLeft: (b, [bits]) => b << BigInt(bits),
+    shr: (b, [bits]) => b >> BigInt(bits),
+    shiftRight: (b, [bits]) => b >> BigInt(bits),
+    testBit: (b, [bit]) => ((b >> BigInt(bit)) & 1n) === 1n,
+    setBit: (b, [bit]) => b | (1n << BigInt(bit)),
+    bitLength: (b) => (b < 0n ? ~b : b).toString(2).replace(/^0$/, '').length,
+    bitCount: (b) => [...(b < 0n ? ~b : b).toString(2)].filter((digit) => digit === '1').length,
+    negate: (b) => -b,
+    unaryMinus: (b) => -b,
+    abs: (b) => (b < 0n ? -b : b),
+    signum: (b) => (b > 0n ? 1 : b < 0n ? -1 : 0),
+    compareTo: (b, [other]) => {
+      const value = bigIntOf(other);
+      return b < value ? -1 : b > value ? 1 : 0;
+    },
+    equals: (b, [other]) => typeof other === 'bigint' && b === other,
+    max: (b, [other]) => (b >= bigIntOf(other) ? b : bigIntOf(other)),
+    min: (b, [other]) => (b <= bigIntOf(other) ? b : bigIntOf(other)),
+    toInt: (b) => Number(BigInt.asIntN(32, b)),
+    intValue: (b) => Number(BigInt.asIntN(32, b)),
+    toLong: (b) => Number(BigInt.asIntN(64, b)),
+    longValue: (b) => Number(BigInt.asIntN(64, b)),
+    toDouble: (b) => Number(b),
+    doubleValue: (b) => Number(b),
+    toBigInteger: (b) => b,
+    toByteArray: (b) => bigIntBytes(b),
+    toString: (b, [radix = 10]) => b.toString(Number(radix)),
+    hashCode: (b) => Number(BigInt.asIntN(32, b)),
+  };
   const NUMBER = {
     // `BigDecimal`s are numbers here.
     stripTrailingZeros: (n) => n,
@@ -1954,7 +2099,7 @@
     toPlainString: (n) => String(n),
     mod: (n, [other]) => ((n % other) + other) % other,
     toBigDecimal: (n) => n,
-    toBigInteger: (n) => n,
+    toBigInteger: (n) => BigInt(Math.trunc(n)),
     toULong: (n) => (n < 0 ? n + 18446744073709551616 : n),
     toUByte: (n) => n & 255,
     toUInt: (n) => Math.trunc(n) >>> 0,
@@ -2216,6 +2361,10 @@
       if (kind === 'string' && name === 'indices') return KT.range(0, value.length - 1);
       throw new KotlinError(`a value has no ${name}`);
     }
+    if (kind === 'bigint') {
+      if (BIGINT[name]) return BIGINT[name](value, []);
+      throw new KotlinError(`a value has no ${name}`);
+    }
     if (kind === 'list' || kind === 'elements') {
       if (LIST[name] && ['size', 'lastIndex', 'indices'].includes(name)) return LIST[name](value);
       if (JSON_PROPS[name]) return JSON_PROPS[name](value);
@@ -2342,7 +2491,14 @@
       typeof receiver[name] === 'function'
     )
       return receiver[name](...args, ...(written ? [written] : []));
-    const table = { string: STRING, list: LIST, elements: LIST, map: MAP, number: NUMBER }[kind];
+    const table = {
+      string: STRING,
+      list: LIST,
+      elements: LIST,
+      map: MAP,
+      number: NUMBER,
+      bigint: BIGINT,
+    }[kind];
     if (table && table[name]) return table[name](receiver, args, lambda, named, type);
     // A map's entries as a list (`map.count { … }`, `map.maxByOrNull { … }`), a text's
     // characters (`text.foldIndexed(0) { … }`).
@@ -6406,7 +6562,145 @@
       },
     };
   };
-  /// Bytes inflated in Rust (`runtime.rs`): Java's `Inflater` (`zlib`, `raw` without its
+  /// Bytes deflated in Rust (`runtime.rs`): `zlib`, `raw` or `gzip`.
+  const deflateBytes = (bytes, format) =>
+    u8Of(fromBase64(crypto({ op: 'deflate', data: K.bin.toBase64(u8Of(bytes)), format })));
+  const compressingStream = (target, format) => {
+    const parts = [];
+    let closed = false;
+    const stream = {
+      __class: 'OutputStream',
+      __classes: ['OutputStream', 'GZIPOutputStream', 'DeflaterOutputStream'],
+      write: (value, offset = 0, count = undefined) => {
+        const bytes = typeof value === 'number' ? [value & 255] : Array.from(u8Of(value));
+        parts.push(...bytes.slice(offset, count === undefined ? undefined : offset + count));
+        return KT.unit;
+      },
+      flush: () => KT.unit,
+      finish: async () => stream.close(),
+      close: async () => {
+        if (closed) return KT.unit;
+        closed = true;
+        await KT.m(target, 'write', [deflateBytes(parts, format)]);
+        return KT.unit;
+      },
+      use: async (lambda) => {
+        try {
+          return await lambda(stream);
+        } finally {
+          await stream.close();
+        }
+      },
+    };
+    return stream;
+  };
+  /// org.json's `JSONObject` and `JSONArray` over parsed JSON: objects and arrays inside come as
+  /// these too, text, numbers and booleans as they are.
+  const orgJsonValue = (value) =>
+    Array.isArray(value)
+      ? orgJsonArray(value)
+      : value && typeof value === 'object'
+        ? orgJsonObject(value)
+        : (value ?? null);
+  const jsonTextOf = (value) =>
+    value === null || value === undefined
+      ? null
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value);
+  const orgJsonObject = (data) => {
+    const found = (key) => {
+      const name = KT.str(key);
+      if (!Object.prototype.hasOwnProperty.call(data, name))
+        throw new KotlinError(`JSONObject["${name}"] not found.`, 'JSONException');
+      return data[name];
+    };
+    const self = {
+      __class: 'JSONObject',
+      __classes: ['JSONObject'],
+      data,
+      opt: (key) => orgJsonValue(data[KT.str(key)]),
+      get: (key) => orgJsonValue(found(key)),
+      has: (key) => Object.prototype.hasOwnProperty.call(data, KT.str(key)),
+      isNull: (key) => data[KT.str(key)] === null || data[KT.str(key)] === undefined,
+      optString: (key, fallback = '') => jsonTextOf(data[KT.str(key)]) ?? fallback,
+      getString: (key) => jsonTextOf(found(key)),
+      optInt: (key, fallback = 0) => Math.trunc(Number(data[KT.str(key)] ?? fallback)),
+      getInt: (key) => Math.trunc(Number(found(key))),
+      optLong: (key, fallback = 0) => Math.trunc(Number(data[KT.str(key)] ?? fallback)),
+      getLong: (key) => Math.trunc(Number(found(key))),
+      optDouble: (key, fallback = NaN) => Number(data[KT.str(key)] ?? fallback),
+      getDouble: (key) => Number(found(key)),
+      optBoolean: (key, fallback = false) => data[KT.str(key)] ?? fallback,
+      getBoolean: (key) => Boolean(found(key)),
+      optJSONObject: (key) => {
+        const value = data[KT.str(key)];
+        return value && typeof value === 'object' && !Array.isArray(value)
+          ? orgJsonObject(value)
+          : null;
+      },
+      getJSONObject: (key) => orgJsonObject(found(key)),
+      optJSONArray: (key) => {
+        const value = data[KT.str(key)];
+        return Array.isArray(value) ? orgJsonArray(value) : null;
+      },
+      getJSONArray: (key) => orgJsonArray(found(key)),
+      keys: () => Object.keys(data),
+      names: () => orgJsonArray(Object.keys(data)),
+      length: () => Object.keys(data).length,
+      put: (key, value) => {
+        data[KT.str(key)] = plain(value && value.data !== undefined ? value.data : value);
+        return self;
+      },
+      remove: (key) => {
+        const value = data[KT.str(key)];
+        delete data[KT.str(key)];
+        return orgJsonValue(value);
+      },
+      toString: () => JSON.stringify(data),
+    };
+    return self;
+  };
+  const orgJsonArray = (data) => {
+    const found = (index) => {
+      if (index < 0 || index >= data.length)
+        throw new KotlinError(`JSONArray[${index}] not found.`, 'JSONException');
+      return data[index];
+    };
+    const self = {
+      __class: 'JSONArray',
+      __classes: ['JSONArray'],
+      data,
+      length: () => data.length,
+      opt: (index) => orgJsonValue(data[index]),
+      get: (index) => orgJsonValue(found(index)),
+      isNull: (index) => data[index] === null || data[index] === undefined,
+      optString: (index, fallback = '') => jsonTextOf(data[index]) ?? fallback,
+      getString: (index) => jsonTextOf(found(index)),
+      optInt: (index, fallback = 0) => Math.trunc(Number(data[index] ?? fallback)),
+      getInt: (index) => Math.trunc(Number(found(index))),
+      optLong: (index, fallback = 0) => Math.trunc(Number(data[index] ?? fallback)),
+      getLong: (index) => Math.trunc(Number(found(index))),
+      optJSONObject: (index) => {
+        const value = data[index];
+        return value && typeof value === 'object' && !Array.isArray(value)
+          ? orgJsonObject(value)
+          : null;
+      },
+      getJSONObject: (index) => orgJsonObject(found(index)),
+      optJSONArray: (index) => (Array.isArray(data[index]) ? orgJsonArray(data[index]) : null),
+      getJSONArray: (index) => orgJsonArray(found(index)),
+      put: (value) => {
+        data.push(plain(value && value.data !== undefined ? value.data : value));
+        return self;
+      },
+      toString: () => JSON.stringify(data),
+      [Symbol.iterator]: function* () {
+        for (const item of data) yield orgJsonValue(item);
+      },
+    };
+    return self;
+  }; /// Bytes inflated in Rust (`runtime.rs`): Java's `Inflater` (`zlib`, `raw` without its
   /// header) and `GZIPInputStream` (`gzip`).
   const inflateBytes = (bytes, format) =>
     u8Of(fromBase64(crypto({ op: 'inflate', data: K.bin.toBase64(u8Of(bytes)), format })));
@@ -7084,6 +7378,29 @@
     // Keiyoushi's `ratingStars(rating, max)`: five stars with halves.
     ratingStars: ([rating, max = 10], named_) => ratingStars(rating, named_?.max ?? max),
     PropertyDelegateProvider: (args, _named, lambda) => delegateProvider(lambda ?? args[0]),
+    // org.json's `JSONObject(text)` and `JSONArray(text)`.
+    JSONObject: ([text]) =>
+      orgJsonObject(
+        text === undefined ? {} : typeof text === 'string' ? JSON.parse(text) : plain(text),
+      ),
+    JSONArray: ([text]) =>
+      orgJsonArray(
+        text === undefined ? [] : typeof text === 'string' ? JSON.parse(text) : plain(text),
+      ),
+    // `GZIPOutputStream(out)`, `DeflaterOutputStream(out)`: what's written, compressed into
+    // `out` once the stream closes.
+    GZIPOutputStream: ([target]) => compressingStream(target, 'gzip'),
+    DeflaterOutputStream: ([target]) => compressingStream(target, 'zlib'),
+    // `BigInteger("ff", 16)`, `BigInteger(1, magnitude)`, `BigInteger(twosComplement)`.
+    BigInteger: ([first, second]) => {
+      const bytesLike = (value) => Array.isArray(value) || value instanceof Uint8Array;
+      if (typeof first === 'number' && bytesLike(second)) {
+        const magnitude = bigIntOfBytes(second, false);
+        return first < 0 ? -magnitude : magnitude;
+      }
+      if (bytesLike(first)) return bigIntOfBytes(first, true);
+      return bigIntOf(first, second ?? 10);
+    },
   };
   /// A coroutine scope: `launch` runs its block (not awaited), `async` a deferred value.
   const coroutineScope = () => ({
@@ -7453,17 +7770,103 @@
       getDayOfWeek: () => dayOfWeek(((new Date(ms).getUTCDay() + 6) % 7) + 1),
       getMonthValue: () => new Date(ms).getUTCMonth() + 1,
       getDayOfMonth: () => new Date(ms).getUTCDate(),
+      getDayOfYear: () =>
+        Math.floor((ms - Date.UTC(new Date(ms).getUTCFullYear(), 0, 1)) / DAY_MS) + 1,
+      getHour: () => new Date(ms).getUTCHours(),
+      getMinute: () => new Date(ms).getUTCMinutes(),
+      getSecond: () => new Date(ms).getUTCSeconds(),
+      lengthOfMonth: () => {
+        const date = new Date(ms);
+        return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+      },
+      isLeapYear: () => {
+        const year = new Date(ms).getUTCFullYear();
+        return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+      },
+      withDayOfMonth: (day) => shift((date) => date.setUTCDate(day)),
+      withMonth: (month) => shift((date) => date.setUTCMonth(month - 1)),
+      withYear: (year) => shift((date) => date.setUTCFullYear(year)),
+      // A date at a time of day (`date.atTime(LocalTime.parse(…))`, `atTime(10, 30)`).
+      atTime: (time, minute = 0, second = 0) =>
+        moment(
+          Math.floor(ms / DAY_MS) * DAY_MS +
+            (time && typeof time === 'object'
+              ? msOf(time.ms ?? 0) % DAY_MS
+              : ((Number(time) * 60 + Number(minute)) * 60 + Number(second)) * 1000),
+          'LocalDateTime',
+        ),
+      // A year-month's days (`YearMonth.atDay(1)`, `atEndOfMonth()`).
+      atDay: (day) => moment(ms + (Number(day) - 1) * DAY_MS, 'LocalDate'),
+      atEndOfMonth: () => moment(ms + (value.lengthOfMonth() - 1) * DAY_MS, 'LocalDate'),
+      // `date.get(ChronoField.YEAR)`, `get(WeekFields.SUNDAY_START.dayOfWeek())`.
+      get: (field) => fieldOf(ms, field),
+      getLong: (field) => fieldOf(ms, field),
       format: (formatter) => formatter.format(value),
       isBefore: (other) => ms < msOf(other.ms ?? other),
       isAfter: (other) => ms > msOf(other.ms ?? other),
       isEqual: (other) => ms === msOf(other.ms ?? other),
-      toString: () =>
-        kind === 'Instant'
-          ? new Date(ms).toISOString()
-          : new Date(ms).toISOString().slice(0, kind === 'LocalDate' ? 10 : 19),
+      toString: () => {
+        const iso = new Date(ms).toISOString();
+        if (kind === 'Instant') return iso;
+        if (kind === 'YearMonth') return iso.slice(0, 7);
+        if (kind === 'LocalTime') return iso.slice(11, iso.slice(17, 19) === '00' ? 16 : 19);
+        return iso.slice(0, kind === 'LocalDate' ? 10 : 19);
+      },
     };
     return value;
   };
+  /// A date's field (`ChronoField`'s names, a `WeekFields` field).
+  const fieldOf = (ms, field) => {
+    const date = new Date(ms);
+    if (field && field.isWeekField) {
+      const iso = ((date.getUTCDay() + 6) % 7) + 1;
+      if (field.of === 'dayOfWeek') return ((iso - field.weekStart + 7) % 7) + 1;
+      const start = Date.UTC(
+        date.getUTCFullYear(),
+        field.of === 'weekOfMonth' ? date.getUTCMonth() : 0,
+        1,
+      );
+      const shiftDays = (new Date(start).getUTCDay() - (field.weekStart % 7) + 7) % 7;
+      return Math.floor((Math.floor((ms - start) / DAY_MS) + shiftDays) / 7) + 1;
+    }
+    switch (KT.str(field)) {
+      case 'YEAR':
+      case 'YEAR_OF_ERA':
+        return date.getUTCFullYear();
+      case 'MONTH_OF_YEAR':
+        return date.getUTCMonth() + 1;
+      case 'DAY_OF_MONTH':
+        return date.getUTCDate();
+      case 'DAY_OF_WEEK':
+        return ((date.getUTCDay() + 6) % 7) + 1;
+      case 'DAY_OF_YEAR':
+        return Math.floor((ms - Date.UTC(date.getUTCFullYear(), 0, 1)) / DAY_MS) + 1;
+      case 'HOUR_OF_DAY':
+        return date.getUTCHours();
+      case 'MINUTE_OF_HOUR':
+        return date.getUTCMinutes();
+      case 'SECOND_OF_MINUTE':
+        return date.getUTCSeconds();
+      case 'EPOCH_DAY':
+        return Math.floor(ms / DAY_MS);
+      default:
+        return 0;
+    }
+  };
+  /// java.time's `WeekFields`: weeks starting on `weekStart` (1 Monday … 7 Sunday).
+  const weekFields = (weekStart) => ({
+    __class: 'WeekFields',
+    dayOfWeek: () => ({ isWeekField: true, of: 'dayOfWeek', weekStart }),
+    weekOfMonth: () => ({ isWeekField: true, of: 'weekOfMonth', weekStart }),
+    weekOfYear: () => ({ isWeekField: true, of: 'weekOfYear', weekStart }),
+    weekOfWeekBasedYear: () => ({ isWeekField: true, of: 'weekOfYear', weekStart }),
+    getFirstDayOfWeek: () => dayOfWeek(weekStart),
+  });
+  /// A day's milliseconds in a zone (the device's when none is given), as java.time's `now(zone)`.
+  const nowIn = (where) =>
+    Date.now() + (where === undefined || where === null ? localOffset() : offsetOf(where)) * 60000;
+  const msOfTemporal = (value) =>
+    value && typeof value === 'object' && typeof value.ms === 'number' ? value.ms : Number(value);
   /// A wall clock read from text with a date format (or ISO 8601 without one), in UTC.
   const wallClock = (text, format, kind) => {
     let ms;
@@ -8380,17 +8783,95 @@
     },
     FormatStyle: { FULL: 'FULL', LONG: 'LONG', MEDIUM: 'MEDIUM', SHORT: 'SHORT' },
     LocalDate: {
-      now: () =>
-        moment(Math.floor((Date.now() + localOffset() * 60000) / DAY_MS) * DAY_MS, 'LocalDate'),
+      now: (where) => moment(Math.floor(nowIn(where) / DAY_MS) * DAY_MS, 'LocalDate'),
       parse: (text, format) => moment(wallClock(text, format, 'LocalDate'), 'LocalDate'),
       of: (year, month, day) => moment(Date.UTC(year, month - 1, day), 'LocalDate'),
       ofEpochDay: (days) => moment(days * DAY_MS, 'LocalDate'),
+      from: (value) => moment(Math.floor(msOfTemporal(value) / DAY_MS) * DAY_MS, 'LocalDate'),
+      MIN: moment(-8.64e15, 'LocalDate'),
+      MAX: moment(8.64e15, 'LocalDate'),
+      EPOCH: moment(0, 'LocalDate'),
     },
     LocalDateTime: {
-      now: () => moment(Date.now() + localOffset() * 60000, 'LocalDateTime'),
+      now: (where) => moment(nowIn(where), 'LocalDateTime'),
       parse: (text, format) => moment(wallClock(text, format, 'LocalDateTime'), 'LocalDateTime'),
       of: (year, month, day, hour = 0, minute = 0, second = 0) =>
         moment(Date.UTC(year, month - 1, day, hour, minute, second), 'LocalDateTime'),
+      from: (value) => moment(msOfTemporal(value), 'LocalDateTime'),
+    },
+    // `YearMonth.of(2024, 3)`, `YearMonth.from(date)`, `YearMonth.now()`: a month, at its first day.
+    YearMonth: {
+      now: (where) => {
+        const date = new Date(nowIn(where));
+        return moment(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1), 'YearMonth');
+      },
+      of: (year, month) => moment(Date.UTC(year, Number(month) - 1, 1), 'YearMonth'),
+      from: (value) => {
+        const date = new Date(msOfTemporal(value));
+        return moment(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1), 'YearMonth');
+      },
+      parse: (text, format) => {
+        const date = new Date(
+          format
+            ? wallClock(text, format, 'LocalDate')
+            : Date.parse(`${KT.str(text).trim()}-01T00:00:00Z`),
+        );
+        if (Number.isNaN(date.getTime()))
+          throw new KotlinError(
+            `Text '${KT.str(text)}' could not be parsed`,
+            'DateTimeParseException',
+          );
+        return moment(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1), 'YearMonth');
+      },
+    },
+    // `LocalTime.parse("10:30", format)`, `LocalTime.of(10, 30)`: a time of day, in milliseconds.
+    LocalTime: {
+      parse: (text, format) => {
+        if (format && typeof format.parse === 'function') {
+          const read = format.parse(text);
+          if (read === null)
+            throw new KotlinError(
+              `Text '${KT.str(text)}' could not be parsed`,
+              'DateTimeParseException',
+            );
+          return moment(
+            (((read + format.offsetMinutes * 60000) % DAY_MS) + DAY_MS) % DAY_MS,
+            'LocalTime',
+          );
+        }
+        const found = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(KT.str(text).trim());
+        if (!found)
+          throw new KotlinError(
+            `Text '${KT.str(text)}' could not be parsed`,
+            'DateTimeParseException',
+          );
+        const [, hour, minute, second = '0'] = found;
+        return moment(
+          ((Number(hour) * 60 + Number(minute)) * 60 + Number(second)) * 1000,
+          'LocalTime',
+        );
+      },
+      of: (hour, minute = 0, second = 0) =>
+        moment(((Number(hour) * 60 + Number(minute)) * 60 + Number(second)) * 1000, 'LocalTime'),
+      now: (where) => moment(nowIn(where) % DAY_MS, 'LocalTime'),
+      MIDNIGHT: moment(0, 'LocalTime'),
+      MIN: moment(0, 'LocalTime'),
+      NOON: moment(12 * 3600000, 'LocalTime'),
+      MAX: moment(DAY_MS - 1, 'LocalTime'),
+    },
+    WeekFields: {
+      ISO: weekFields(1),
+      SUNDAY_START: weekFields(7),
+      of: (first) =>
+        weekFields(
+          first && first.language !== undefined
+            ? ['US', 'CA', 'JP', 'KR', 'TW', 'BR', 'IL'].includes(first.country)
+              ? 7
+              : 1
+            : first && typeof first.getValue === 'function'
+              ? first.getValue()
+              : 1,
+        ),
     },
     ZonedDateTime: {
       now: () => moment(Date.now(), 'ZonedDateTime'),
@@ -8465,6 +8946,13 @@
       ceil: Math.ceil,
       round: Math.round,
       pow: Math.pow,
+    },
+    BigInteger: {
+      ZERO: 0n,
+      ONE: 1n,
+      TWO: 2n,
+      TEN: 10n,
+      valueOf: (value) => bigIntOf(value),
     },
     Integer: javaInteger,
     Long: javaLong,

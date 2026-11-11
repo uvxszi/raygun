@@ -638,7 +638,14 @@
       this.matcher = new RegExp(`^\\s*${source}\\s*$`, 'iu');
     }
 
-    parse(text) {
+    /** The text's milliseconds; with a query (`formatter.parse(text, LocalDate::from)`), what it
+     * makes of them. */
+    parse(text, query) {
+      const ms = this.read(text);
+      return typeof query === 'function' && ms !== null ? query(ms) : ms;
+    }
+
+    read(text) {
       if (text == null) return null;
       const found = K.str(text).trim().match(this.matcher);
       if (!found) return null;

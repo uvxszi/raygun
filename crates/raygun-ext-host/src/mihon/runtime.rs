@@ -147,6 +147,12 @@ enum CryptoArgs {
         #[serde(default)]
         format: String,
     },
+    /// Bytes deflated, in the same formats (`GZIPOutputStream`, `DeflaterOutputStream`).
+    Deflate {
+        data: String,
+        #[serde(default)]
+        format: String,
+    },
     /// An HMAC with the digest `algorithm`.
     Hmac {
         algorithm: String,
@@ -196,6 +202,7 @@ pub(crate) fn crypto(args: &str) -> Result<String, String> {
         )?,
         CryptoArgs::Digest { algorithm, data } => digest(&algorithm, &bytes(&data)?)?,
         CryptoArgs::Inflate { data, format } => inflate(&format, &bytes(&data)?)?,
+        CryptoArgs::Deflate { data, format } => deflate(&format, &bytes(&data)?)?,
         CryptoArgs::Hmac {
             algorithm,
             key,
@@ -305,6 +312,26 @@ fn inflate(format: &str, data: &[u8]) -> Result<Vec<u8>, String> {
     };
     read.map_err(|error| format!("the data didn't inflate: {error}"))?;
     Ok(out)
+}
+
+fn deflate(format: &str, data: &[u8]) -> Result<Vec<u8>, String> {
+    use std::io::Write as _;
+    let level = flate2::Compression::default();
+    let written = match format {
+        "raw" => {
+            let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), level);
+            encoder.write_all(data).and_then(|()| encoder.finish())
+        }
+        "gzip" => {
+            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), level);
+            encoder.write_all(data).and_then(|()| encoder.finish())
+        }
+        _ => {
+            let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), level);
+            encoder.write_all(data).and_then(|()| encoder.finish())
+        }
+    };
+    written.map_err(|error| format!("the data didn't deflate: {error}"))
 }
 
 fn aes_run(
