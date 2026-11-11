@@ -176,15 +176,19 @@ Two themes' pieces are written by Raygun instead of converted:
 
 Interceptors run as OkHttp's do (`addInterceptor`, `addNetworkInterceptor`, an `Interceptor`
 class or lambda): each gets the chain's request, may change it (`newBuilder().header(…)`), calls
-`proceed` and may change the answer (`response.newBuilder()…`, `toResponseBody`). Keiyoushi's
-`addCookie(…)` adds cookies to the source's requests, and its `GraphQLErrorInterceptor`,
-`graphQLBody` and `parseGraphQLAs` are the runtime's. `client.cookieJar` is the extension's own
-jar (`loadForRequest`, `saveFromResponse`, OkHttp's `Cookie.parse` and `Cookie.Builder`), and so
-is Android's `CookieManager`. Keiyoushi's `XorInterceptor` (MANGA Plus-style XORed pages) is a
-recipe as well: each page's request gives its key when the pages are listed, and the address
-carries it (`#raygun-unscramble=xor:<hex>`) for Raygun's image fetcher. `QuickJs.create()
-.evaluate(script)` runs a site's script in a JavaScript engine of its own (5 s, 64 MB, nothing of
-the extension's).
+`proceed` and may change the answer (`response.newBuilder()…`, `toResponseBody`).
+`client.newBuilder()` makes a client of its own with the interceptors added so far; one built
+with `followRedirects(false)` gets a redirect as it came (its status, `Location` and cookies,
+through the host's `redirect: 'manual'`) while the source's own client keeps following them.
+Keiyoushi's `addCookie(…)` adds cookies to the source's requests, and its
+`GraphQLErrorInterceptor`, `graphQLBody` and `parseGraphQLAs` are the runtime's (as in Keiyoushi,
+any error in an answer fails `parseGraphQLAs`, even beside data). `client.cookieJar` is the
+extension's own jar (`loadForRequest`, `saveFromResponse`, OkHttp's `Cookie.parse` and
+`Cookie.Builder`), and so is Android's `CookieManager`. Keiyoushi's `XorInterceptor` (MANGA
+Plus-style XORed pages) is a recipe as well: each page's request gives its key when the pages
+are listed, and the address carries it (`#raygun-unscramble=xor:<hex>`) for Raygun's image
+fetcher. `QuickJs.create().evaluate(script)` runs a site's script in a JavaScript engine of its
+own (5 s, 64 MB, nothing of the extension's).
 
 ### Pictures the source draws
 
@@ -305,10 +309,13 @@ popular titles, and of those 94% give details, 93% chapters and 79% pages (106 p
 Of the 59 that don't list, 21 meet a browser check, 9 refuse access (Japanese stores outside
 Japan, mostly), 9 are slow past 30 s, 8 are down or gone (5xx, DNS, refused connections), 4 list
 nothing and 2 want a sign-in; a handful stop on the runtime. Past the listing, pages fail on
-purchases and sign-ins, sites that changed, and a few runtime gaps: OkHttp's `followRedirects
-(false)` (the host follows redirects, so MangaHub's key refresh never sees its `Set-Cookie`),
-and pictures a CDN sends as `text/plain` (Keyoapp's), which Raygun's image fetcher refuses before
-looking at the bytes.
+purchases and sign-ins and sites that changed. Two gaps found there are closed since: Raygun's
+image fetcher judges an answer not declared as a picture by its bytes (Keyoapp's CDN sends pages
+as `text/plain`), and MangaHub's key refresh runs (GraphQL errors beside data fail
+`parseGraphQLAs`; `followRedirects(false)` is honoured). Sampled alone afterwards, 23 of the 25
+Keyoapp and MangaHub sources sampled list (the sample leaves out Keyoapp's 2 adult ones; 2 others
+meet a browser check), and all 23 give details, chapters, pages and a first picture (two Keyoapp
+sites send AVIF, which webviews show and the live check's decoder doesn't read).
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture

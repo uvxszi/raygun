@@ -2838,16 +2838,22 @@
       const text = await this.raw.text();
       return JSON.parse(typeof transform === 'function' ? KT.str(await transform(text)) : text);
     }
-    /// Keiyoushi's `parseGraphQLAs<T>()`: the answer's `data`, or its errors as a failure.
+    /// Keiyoushi's `parseGraphQLAs<T>()`: the answer's `data`; any errors fail it, even beside
+    /// data (MangaHub's `{"data": {"chapter": null}, "errors": […]}` asks for a new key).
     async parseGraphQLAs() {
       const answer = JSON.parse(await this.raw.text());
-      if (Array.isArray(answer.errors) && answer.errors.length && answer.data == null) {
+      if (Array.isArray(answer.errors) && answer.errors.length) {
         throw new KotlinError(
           answer.errors.map((error) => KT.str(error?.message ?? '')).join('\n'),
           'GraphQLException',
         );
       }
-      return answer.data ?? null;
+      if (answer.data == null)
+        throw new KotlinError(
+          "GraphQL response is missing the 'data' field",
+          'IllegalStateException',
+        );
+      return answer.data;
     }
     async use(lambda) {
       return lambda(this);

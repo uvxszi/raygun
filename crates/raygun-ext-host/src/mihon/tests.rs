@@ -1899,23 +1899,39 @@ const REDIRECTS_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixt
 
 import eu.kanade.tachiyomi.source.model.FilterList
 import keiyoushi.source.KeiSource
+import keiyoushi.utils.GraphQLException
+import keiyoushi.utils.graphQLBody
+import keiyoushi.utils.parseGraphQLAs
 
 @Source
 abstract class FixtureRedirects : KeiSource() {
     override val supportsLatest = false
 
+    private var apiKey = "stale"
+
     private val keyRegex = Regex("key=([^;]+)")
 
+    private suspend fun chapter(): String = client.post(
+        "$baseUrl/graphql",
+        headersBuilder().set("x-key", apiKey).build(),
+        Fetch.XHR,
+        graphQLBody(query = "{ chapter { pages } }"),
+    ).parseGraphQLAs<ChapterData>().chapter!!.pages
+
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val noRedirectClient = client.newBuilder().followRedirects(false).build()
-        val response = noRedirectClient.get("$baseUrl/moved", headers, Fetch.DOCUMENT, ensureSuccess = false)
-        val key = response.headers("Set-Cookie").firstNotNullOfOrNull { keyRegex.find(it)?.groupValues?.get(1) } ?: "none"
-        val location = response.header("Location") ?: "nowhere"
-        val code = response.code
-        response.close()
+        val pages = try {
+            chapter()
+        } catch (e: GraphQLException) {
+            val noRedirectClient = client.newBuilder().followRedirects(false).build()
+            val response = noRedirectClient.get("$baseUrl/moved", headers, Fetch.DOCUMENT, ensureSuccess = false)
+            apiKey = response.headers("Set-Cookie").firstNotNullOfOrNull { keyRegex.find(it)?.groupValues?.get(1) } ?: "none"
+            val moved = "${response.code} ${response.header("Location")}"
+            response.close()
+            "${e.message}, $moved, ${chapter()}"
+        }
         val followed = client.get("$baseUrl/moved", Fetch.DOCUMENT).asJsoup().selectFirst("h2")?.text() ?: "lost"
         val manga = SManga.create().apply {
-            title = "$code $key $location $followed"
+            title = "$pages, $followed"
             url = "/x"
         }
         return MangasPage(listOf(manga), false)
@@ -1934,14 +1950,36 @@ abstract class FixtureRedirects : KeiSource() {
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = emptyList()
 }
+
+@Serializable
+class ChapterData(val chapter: ChapterObject? = null)
+
+@Serializable
+class ChapterObject(val pages: String)
 "##;
 
-/// OkHttp's `followRedirects(false)` (MangaHub's key refresh): a client of its own gets the
-/// redirect as it came, its status, `Location` and cookies, while the source's keeps following.
+/// MangaHub's key refresh: a GraphQL error beside data (`{"data": {"chapter": null}, "errors":
+/// [...]}`) fails `parseGraphQLAs`, and the new key comes with a redirect that a client built with
+/// OkHttp's `followRedirects(false)` gets as it came (status, `Location`, cookies), while the
+/// source's own client keeps following redirects.
 #[tokio::test]
 async fn a_client_built_not_to_follow_redirects_gets_them_as_they_came() {
-    use axum::http::header::{LOCATION, SET_COOKIE};
+    use axum::http::header::{CONTENT_TYPE, LOCATION, SET_COOKIE};
     let app = Router::new()
+        .route(
+            "/graphql",
+            post(|headers: axum::http::HeaderMap| async move {
+                let answer = if headers.get("x-key").is_some_and(|key| key == "fresh") {
+                    json!({"data": {"chapter": {"pages": "p1"}}})
+                } else {
+                    json!({
+                        "data": {"chapter": null},
+                        "errors": [{"message": "api key invalid"}],
+                    })
+                };
+                ([(CONTENT_TYPE, "application/json")], answer.to_string())
+            }),
+        )
         .route(
             "/moved",
             get(|| async {
@@ -1983,7 +2021,7 @@ async fn a_client_built_not_to_follow_redirects_gets_them_as_they_came() {
         .iter()
         .map(|item| item.title.as_str())
         .collect();
-    assert_eq!(titles, ["302 fresh /target Arrived"]);
+    assert_eq!(titles, ["api key invalid, 302 /target, p1, Arrived"]);
 }
 
 /// A source whose client puts its pictures back together (`BitmapFactory`, `Canvas`, okio's
