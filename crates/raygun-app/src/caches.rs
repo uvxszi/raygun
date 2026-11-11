@@ -263,5 +263,11 @@ pub fn sweep_later(app: &AppHandle) {
             }
             Err(error) => tracing::warn!(%error, "could not read the library's covers"),
         }
+        // Covers stored before JPEG XL, or whose conversion never ran, are converted in the
+        // background (paced by the conversion's own rest).
+        let queued = app.state::<Caches>().covers.convert_pending().await;
+        if queued > 0 {
+            tracing::info!(queued, "stored covers queued to become JPEG XL");
+        }
     });
 }

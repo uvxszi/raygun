@@ -441,6 +441,34 @@ impl CoverCache {
         None
     }
 
+    /// Queues every stored copy not yet looked at for converting (covers cached before JPEG XL,
+    /// or whose conversion never ran): the webview keeps covers it has shown and doesn't ask for
+    /// them again, so waiting for a cover to be seen would leave them as they are. Returns how
+    /// many were queued.
+    pub async fn convert_pending(&self) -> usize {
+        let mut queued = 0;
+        for dir in [self.dir.clone(), self.dir.join(KEEP)] {
+            let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+                continue;
+            };
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let name = entry.file_name();
+                let Some(token) = name.to_str() else {
+                    continue;
+                };
+                if !Self::valid(token) || !entry.file_type().await.is_ok_and(|kind| kind.is_file())
+                {
+                    continue;
+                }
+                if self.read_meta(token).await.stored == Stored::Pending {
+                    self.convert_later(token);
+                    queued += 1;
+                }
+            }
+        }
+        queued
+    }
+
     async fn read_meta(&self, token: &str) -> Meta {
         tokio::fs::read_to_string(self.meta_file(token))
             .await

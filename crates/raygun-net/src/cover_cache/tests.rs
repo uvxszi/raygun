@@ -521,3 +521,26 @@ fn requests_take_jpeg_xl_when_they_list_it_or_the_webview_shows_it() {
     // Refused outright.
     assert!(!takes_jxl("image/jxl;q=0, image/jpeg", false));
 }
+
+/// Covers stored before JPEG XL convert without being asked for again: the webview keeps covers
+/// it showed and never asks for them, so the start's pass queues them.
+#[tokio::test]
+async fn covers_stored_before_jpeg_xl_convert_without_being_seen_again() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let dir = temp.path().join("covers");
+    std::fs::create_dir_all(dir.join(KEEP)).unwrap();
+    std::fs::create_dir_all(dir.join(META)).unwrap();
+    // An older cache: the pictures and their records, no conversion recorded.
+    std::fs::write(dir.join("c0"), jpeg_of(&photo(240, 180))).unwrap();
+    std::fs::write(dir.join(KEEP).join("c1"), jpeg_of(&photo(200, 200))).unwrap();
+    for token in ["c0", "c1"] {
+        std::fs::write(dir.join(META).join(token), Meta::default().encode()).unwrap();
+    }
+    let cache = CoverCache::new(dir.clone(), 1 << 24, Duration::ZERO);
+    assert_eq!(cache.convert_pending().await, 2);
+    settle_conversions(&cache).await;
+    assert!(is_jxl(&std::fs::read(dir.join("c0")).unwrap()));
+    assert!(is_jxl(&std::fs::read(dir.join(KEEP).join("c1")).unwrap()));
+    // Looked at once: nothing is queued again.
+    assert_eq!(cache.convert_pending().await, 0);
+}
