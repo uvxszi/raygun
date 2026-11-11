@@ -1,10 +1,15 @@
-// dev.raygun.podcast-index 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.podcast-index 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
   var defineProvider = (provider) => provider;
   var registerProvider = (provider) => {
     raygun.providers.register(provider);
+  };
+  var needsSetup = (reason) => {
+    const host = raygun;
+    if (typeof host.needsSetup === "function") host.needsSetup(reason);
+    throw new Error(reason);
   };
   var query = (params) => Object.entries(params).flatMap(([name, value]) => {
     if (value === void 0 || value === null) return [];
@@ -115,7 +120,7 @@
     const key = raygun.settings.get("apiKey")?.trim();
     const secret = raygun.settings.get("apiSecret")?.trim();
     if (!key || !secret) {
-      throw new Error(
+      return needsSetup(
         "Podcast Index needs your free API key and secret: get them at api.podcastindex.org and add them in this source's settings"
       );
     }
@@ -133,8 +138,8 @@
         Authorization: sha1Hex(`${key}${secret}${time}`)
       }
     });
-    if (response.status === 401) {
-      throw new Error(
+    if (response.status === 401 || response.status === 403) {
+      needsSetup(
         "Podcast Index didn't accept the API key and secret: check them in this source's settings"
       );
     }

@@ -21,7 +21,9 @@ import type { MusicView } from './searchTypes';
 import { SourceMenu } from './SourceMenu';
 import { playResults, useOnlineSearch } from './useOnlineSearch';
 import { AdultMark } from '../shell/AdultMark';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
+import { needsSetupOf, useSourcesSetup } from '../sources/useSourcesSetup';
 import { useDragScroll } from '../shell/useDragScroll';
 import { useDrawnCount } from '../shell/useDrawnCount';
 import { usePressedInView } from '../shell/usePressedInView';
@@ -29,6 +31,9 @@ import { useSettings } from '../settings/useSettings';
 
 /** Songs By source draws at first, then as many more at a time (`useDrawnCount`). */
 const FIRST_ROWS = 30;
+
+/** The sources a song search asks; those waiting for a key are counted in one line. */
+const SONG_KINDS: readonly string[] = ['music.metadata'];
 
 type ProviderResultsProps = { result: ProviderSearchResult; ambiguous: boolean; limit?: number };
 
@@ -183,11 +188,19 @@ const SongResultsView: FC<{ query: string; grouped: boolean }> = ({ query, group
   const seen = useSeenSongs(query, !search.data);
   const failures = useSourceHealth((state) => state.failures);
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
+  // A source that said it needs a key is counted in the line below, not listed.
   const results = useMemo(
-    () => rankedSources(search.data?.providers ?? [], failures, failingAtEnd),
+    () =>
+      rankedSources(search.data?.providers ?? [], failures, failingAtEnd).filter(
+        (result) => !needsSetupOf(result.error),
+      ),
     [search.data, failures, failingAtEnd],
   );
   const working = useMemo(() => results.filter((result) => !result.error), [results]);
+  // Sources wait for a key: "no sources" would send people to add one they have.
+  const setupWaiting = useSourcesSetup().some((source) =>
+    source.kinds.some((kind) => SONG_KINDS.includes(kind)),
+  );
   const library = search.data?.library ?? [];
   const top = search.data?.top ?? NO_TRACKS;
   const failed = results
@@ -202,9 +215,11 @@ const SongResultsView: FC<{ query: string; grouped: boolean }> = ({ query, group
   if (search.error) return <SourceIssue>{search.error.message}</SourceIssue>;
   return (
     <>
-      {search.isSuccess && !asking && results.length === 0 && library.length === 0 && (
-        <NoSources label={t('search.noSources')} />
-      )}
+      {search.isSuccess &&
+        !asking &&
+        results.length === 0 &&
+        library.length === 0 &&
+        !setupWaiting && <NoSources label={t('search.noSources')} />}
       {library.length > 0 && <LibraryResults tracks={library} />}
       {asking && <Asking progress={search.progress} />}
       {nothingFound ? (
@@ -227,9 +242,10 @@ const SongResultsView: FC<{ query: string; grouped: boolean }> = ({ query, group
               results={search.data ? working : NO_RESULTS}
             />
           )}
-          <FailedSources failed={failed} />
+          <FailedSources failed={failed} setupNote={false} />
         </>
       )}
+      {search.isSuccess && <NeedsSetupNote kinds={SONG_KINDS} />}
     </>
   );
 };
@@ -280,7 +296,7 @@ const useMusicHealth = (results: ProviderSearchResult[]) => {
   const report = results.map((result) => `${result.provider.id}:${result.error ? 1 : 0}`).join();
   useEffect(() => {
     for (const result of results) {
-      if (result.error) failed(result.provider.id);
+      if (result.error) failed(result.provider.id, result.error);
       else worked(result.provider.id);
     }
     // Reported once per change of the sources' answers.

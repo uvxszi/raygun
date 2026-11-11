@@ -33,22 +33,30 @@ export const providerId = (id: string) =>
     .slice(0, 64) || 'provider';
 
 /**
- * Errors that say the plugin has no server or sign-in yet: Nuclear sets these in its own settings
- * screen (a connection widget), which converted plugins don't get.
+ * Errors that say the plugin has no server, key or sign-in yet, or that its sign-in was refused:
+ * Nuclear plugins set these in their settings, which Raygun shows on the plugin's page.
  */
-const NEEDS_CONNECTION =
-  /\bnot (?:connected|configured|set up|logged in|signed in|authenticated)\b|\b(?:no|missing) (?:server|credentials|url|address|username|password|token|api key)\b|\b(?:server|credentials|url|username|password) (?:is |are )?(?:not set|missing|required)\b/i;
+const NEEDS_SETUP =
+  /\bnot (?:connected|configured|set up|logged in|signed in|authenticated|authori[sz]ed)\b|\b(?:no|missing) (?:server|credentials|url|address|username|password|token|api key)\b|\b(?:server|credentials|url|username|password|api key|token) (?:is |are )?(?:not set|missing|required)\b|\b(?:invalid|wrong|incorrect) (?:credentials|username|password|api key|token)\b|\bauthentication failed\b|\bunauthori[sz]ed\b/i;
 
-/** Where to connect a server in Raygun, for a plugin that has none. */
-export const CONNECT_HINT =
-  'Raygun connects servers itself: add yours in Sources → Add (Subsonic, Navidrome, Jellyfin, Emby, Audiobookshelf and OPDS sign in there).';
-
-/** `error` as it reaches Raygun: one that says the plugin isn't connected says where to connect. */
-export const explainError = (error: unknown): unknown => {
+/**
+ * `error` as it reaches Raygun: one that says the plugin isn't connected or signed in, or that
+ * its key was refused, becomes what `raygun.needsSetup` throws, so Raygun asks the plugin nothing
+ * more until its settings change (and counts it with the sources that need a key, not the ones
+ * that failed). Other errors stay as they are.
+ */
+export const asSetupError = (error: unknown): unknown => {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-  if (!message || !NEEDS_CONNECTION.test(message) || message.includes(CONNECT_HINT)) return error;
-  const ends = /[.!?]$/.test(message.trim()) ? '' : '.';
-  return new Error(`${message.trim()}${ends} ${CONNECT_HINT}`);
+  if (!message || !NEEDS_SETUP.test(message)) return error;
+  // An older Raygun has no `needsSetup`: the error stays as it is.
+  const host = raygun as Partial<typeof raygun>;
+  if (typeof host.needsSetup !== 'function') return error;
+  try {
+    host.needsSetup(message.trim());
+  } catch (thrown) {
+    return thrown;
+  }
+  return error;
 };
 
 const call = async <T>(
@@ -63,7 +71,7 @@ const call = async <T>(
   try {
     return (await fn.apply(provider, args)) as T;
   } catch (error) {
-    throw explainError(error);
+    throw asSetupError(error);
   }
 };
 

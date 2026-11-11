@@ -100,6 +100,11 @@ export const commands = {
 	playbackReplace: (items: QueueItemInput[], startIndex: number | null) => __TAURI_INVOKE<void>("playback_replace", { items, startIndex }),
 	/**  Installed and built-in extensions, with their status and providers. */
 	extensionsList: () => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extensions_list")),
+	/**
+	 *  The sources that need a key or sign-in before they're asked anything, with the kinds they'd
+	 *  answer and what's missing (`SourcesSetupEvent` brings changes).
+	 */
+	extensionsNeedingSetup: () => typedError<SourceSetup[], string>(__TAURI_INVOKE("extensions_needing_setup")),
 	/**  Reloads all extensions, picking up any copied into the `extensions/` folder. */
 	extensionsReload: () => typedError<ExtensionInfo_Serialize[], string>(__TAURI_INVOKE("extensions_reload")),
 	/**  Forgets an extension's cookies and stored data (M46.11), then reloads it. */
@@ -1789,6 +1794,7 @@ export const events = {
 	songCaptureEvent: makeEvent<SongCaptureEvent>("song-capture-event"),
 	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
+	sourcesSetupEvent: makeEvent<SourcesSetupEvent>("sources-setup-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	trackDurationsEvent: makeEvent<TrackDurationsEvent>("track-durations-event"),
@@ -3181,7 +3187,7 @@ export type ExtensionInfo_Deserialize = {
 	/**  Host patterns the extension may reach (`archive.org`, `*.archive.org`). */
 	net: string[],
 	providers: ProviderInfo_Deserialize[],
-	settings: ExtensionSetting[],
+	settings: ExtensionSetting_Deserialize[],
 	/**  For a converted Nuclear plugin (M17): what works and what doesn't. */
 	compatibility: CompatReport | null,
 	/**  The icon its repository lists, through the cover cache (M46.2). */
@@ -3196,6 +3202,8 @@ export type ExtensionInfo_Deserialize = {
 	 *  own or copied into the extensions folder.
 	 */
 	repository: string | null,
+	/**  What it needs before it's asked anything (a key, an account, a sign-in); none when ready. */
+	needsSetup?: SetupNeed | null,
 };
 
 export type ExtensionInfo_Serialize = {
@@ -3218,7 +3226,7 @@ export type ExtensionInfo_Serialize = {
 	/**  Host patterns the extension may reach (`archive.org`, `*.archive.org`). */
 	net: string[],
 	providers: ProviderInfo_Serialize[],
-	settings: ExtensionSetting[],
+	settings: ExtensionSetting_Serialize[],
 	/**  For a converted Nuclear plugin (M17): what works and what doesn't. */
 	compatibility: CompatReport | null,
 	/**  The icon its repository lists, through the cover cache (M46.2). */
@@ -3233,6 +3241,8 @@ export type ExtensionInfo_Serialize = {
 	 *  own or copied into the extensions folder.
 	 */
 	repository: string | null,
+	/**  What it needs before it's asked anything (a key, an account, a sign-in); none when ready. */
+	needsSetup?: SetupNeed | null,
 };
 
 /**  One install in the queue. */
@@ -3307,7 +3317,10 @@ export type ExtensionRepo = {
 };
 
 /**  A setting an extension declares, with its current value. */
-export type ExtensionSetting = {
+export type ExtensionSetting = ExtensionSetting_Serialize | ExtensionSetting_Deserialize;
+
+/**  A setting an extension declares, with its current value. */
+export type ExtensionSetting_Deserialize = {
 	key: string,
 	label: string,
 	kind: SettingKind,
@@ -3316,6 +3329,28 @@ export type ExtensionSetting = {
 	default: SettingValue | null,
 	/**  The user's value, or the default when they haven't set one. */
 	value: SettingValue | null,
+	/**
+	 *  The extension can't work without it (a key, a secret, a server's address, a user name):
+	 *  while it's empty the extension is asked nothing.
+	 */
+	required?: boolean,
+};
+
+/**  A setting an extension declares, with its current value. */
+export type ExtensionSetting_Serialize = {
+	key: string,
+	label: string,
+	kind: SettingKind,
+	/**  The choices of a `select`. */
+	options: string[],
+	default: SettingValue | null,
+	/**  The user's value, or the default when they haven't set one. */
+	value: SettingValue | null,
+	/**
+	 *  The extension can't work without it (a key, a secret, a server's address, a user name):
+	 *  while it's empty the extension is asked nothing.
+	 */
+	required?: boolean,
 };
 
 export type ExtensionStatus = "loaded" | "failed";
@@ -5827,6 +5862,27 @@ export type Settings = {
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
 export type SettingsChangedEvent = string;
 
+/**  What a source needs before Raygun asks it anything: a key, an account, a sign-in. */
+export type SetupNeed = {
+	reason: SetupReason,
+	/**  The labels of the required settings that are empty. */
+	missing: string[],
+	/**  What the source said, when its answers said it. */
+	detail: string | null,
+};
+
+/**  Why a source isn't asked anything until someone sets it up. */
+export type SetupReason = 
+/**  Settings it can't work without are empty (its settings page has them). */
+"settings" | 
+/**
+ *  Its own answers said its key or sign-in was refused; it's asked again once its settings
+ *  change.
+ */
+"refused" | 
+/**  A connected server without its sign-in: sign in again from Sources. */
+"signIn";
+
 /**  Titles of one Mihon source that Raygun has no source for. */
 export type SkippedSource = {
 	name: string,
@@ -6180,6 +6236,32 @@ export type SourceSearchResult_Serialize = {
 	 */
 	fromListings: boolean,
 };
+
+/**
+ *  A source waiting to be set up, for the places that list sources' answers: one line says how
+ *  many there are, and each links to where it's set up.
+ */
+export type SourceSetup = {
+	extensionId: string,
+	name: string,
+	/**
+	 *  The kinds of its providers that would be asked (`music.metadata`, `lyrics`...): turned
+	 *  off ones and hidden 18+ ones left out.
+	 */
+	kinds: string[],
+	need: SetupNeed,
+	/**
+	 *  A connected server (Sources → Servers signs it in again); else an extension, set up on
+	 *  its page.
+	 */
+	server: boolean,
+};
+
+/**
+ *  Which sources need a key or sign-in changed (a load, settings, a source saying its key was
+ *  refused, sources turned on or off); carries the new list.
+ */
+export type SourcesSetupEvent = SourceSetup[];
 
 /**  What the webview's speech engine does on desktop (M46.6). */
 export type SpeechCommand = 

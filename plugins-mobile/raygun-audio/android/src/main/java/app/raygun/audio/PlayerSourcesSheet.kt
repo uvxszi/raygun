@@ -117,12 +117,30 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         (0 until links.length()).any { links.optJSONObject(it)?.optBoolean("current") == true }
     }
 
+    /** Sources waiting for a key or sign-in weren't asked: one line counts and names them. */
+    private fun setupLine(): String? {
+        val waiting = (0 until groups.length())
+            .mapNotNull { groups.optJSONObject(it) }
+            .filter { it.optString("state") == "setup" && (it.optJSONArray("links")?.length() ?: 0) == 0 }
+        if (waiting.isEmpty()) return null
+        val count = host.countLabel(
+            "sourcesNeedSetup",
+            "{n} source needs a key or sign-in",
+            "{n} sources need a key or sign-in",
+            waiting.size.toString(),
+            waiting.size,
+        )
+        return count + ": " + waiting.joinToString(", ") { it.optString("name") }
+    }
+
     private fun cleanList(sheet: PlayerSheet) {
         val shown = ordered()
+        val setup = setupLine()
         if (shown.isEmpty()) {
-            sheet.row(label("noSourceWorked", "No source could play this"), onClick = null)
+            sheet.row(setup ?: label("noSourceWorked", "No source could play this"), onClick = null)
             return
         }
+        setup?.let { sheet.row(it, onClick = null) }
         val chosen = picked?.takeIf { it in shown } ?: playingGroup()?.takeIf { it in shown } ?: shown.first()
         val landscape = host.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         if (landscape) {
@@ -280,6 +298,8 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         return when (server.optString("state")) {
             "failed" -> host.prefs.showFailedSources
             "empty" -> host.prefs.showEmptySources
+            // Counted in one line instead (`setupLine`).
+            "setup" -> false
             else -> true
         }
     }

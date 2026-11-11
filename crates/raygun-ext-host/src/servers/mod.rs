@@ -554,6 +554,29 @@ enum Backend {
     Subsonic(subsonic::Subsonic),
     Audiobookshelf(Rc<audiobookshelf::Audiobookshelf>),
     Opds(opds::Opds),
+    /// Raygun doesn't have its sign-in (forgotten, or a backup restored without passwords): the
+    /// connection stays listed and needs signing in again; nothing is asked meanwhile.
+    SignedOut,
+}
+
+/// A call's failure that says the server refused the sign-in: HTTP 401, or Subsonic's wrong
+/// user or password (40), token sign-in refused (41) or an unknown API key (44). Such a failure
+/// says the connection needs signing in again (`failure::NEEDS_SETUP_MARK`), so it's asked
+/// nothing until then.
+fn sign_in_refused(failure: Failure) -> Failure {
+    let refused = http::status_of(&failure) == Some(401)
+        || matches!(subsonic::error_code(&failure), Some(40 | 41 | 44));
+    if !refused {
+        return failure;
+    }
+    Failure {
+        message: format!(
+            "{} the server refused the sign-in: {}",
+            crate::failure::NEEDS_SETUP_MARK,
+            failure.message.lines().next().unwrap_or_default()
+        ),
+        ..failure
+    }
 }
 
 /// Distinguishes one load of a connection from the next in `raygun_net::server_auth`, so an old
@@ -594,20 +617,27 @@ impl ServerExtension {
         let http = client_for(config.kind, &base)?;
         let owner = format!("{}#{}", manifest.id, LOADS.fetch_add(1, Ordering::Relaxed));
         let needs_secret = config.secret != SecretKind::None;
+        let signed_out = |manifest, config, settings, owner| Self {
+            manifest,
+            config,
+            backend: Backend::SignedOut,
+            settings,
+            owner,
+            renewer: None,
+        };
+        // Without its sign-in the connection stays, waiting to be signed in again
+        // (`Self::signed_out`): nothing is asked meanwhile.
         let secret = match (secret, needs_secret) {
             (Some(secret), true) => secret,
             (_, false) => String::new(),
-            (None, true) => {
-                return Err("Raygun no longer has this server's sign-in: sign in again".into());
-            }
+            (None, true) => return Ok(signed_out(manifest, config, settings, owner)),
         };
         let mut renewer = None;
         let backend = match config.kind {
             ServerKind::Jellyfin | ServerKind::Emby => {
-                let user = config
-                    .user_id
-                    .clone()
-                    .ok_or("the connection names no user: sign in again")?;
+                let Some(user) = config.user_id.clone() else {
+                    return Ok(signed_out(manifest, config, settings, owner));
+                };
                 let client = jellyfin::Jellyfin::new(
                     http,
                     base.clone(),
@@ -725,6 +755,12 @@ impl ServerExtension {
         &self.settings
     }
 
+    /// Whether Raygun lacks the sign-in this connection needs: it's signed in again from
+    /// Sources, and asked nothing until then.
+    pub fn signed_out(&self) -> bool {
+        matches!(self.backend, Backend::SignedOut)
+    }
+
     pub fn providers(&self) -> Vec<ProviderInfo> {
         self.config
             .kind
@@ -742,7 +778,17 @@ impl ServerExtension {
     }
 
     pub async fn call(&self, local_id: &str, method: &str, args: &Value) -> Result<Value, Failure> {
+        self.answer(local_id, method, args)
+            .await
+            .map_err(sign_in_refused)
+    }
+
+    async fn answer(&self, local_id: &str, method: &str, args: &Value) -> Result<Value, Failure> {
         match (&self.backend, local_id) {
+            (Backend::SignedOut, _) => Err(Failure::said(format!(
+                "{} the server isn't signed in",
+                crate::failure::NEEDS_SETUP_MARK
+            ))),
             (Backend::Jellyfin(server), "videos") => server.video_call(method, args).await,
             (Backend::Jellyfin(server), "music") => server.music_call(method, args).await,
             (Backend::Jellyfin(server), "streams") => server.stream_call(method, args).await,

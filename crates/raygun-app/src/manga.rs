@@ -439,12 +439,15 @@ impl MangaService {
         for kind in [NOVEL_KIND, video_library::KIND] {
             library.extend(titles::library(&db, kind).await.map_err(to_message)?);
         }
+        let extensions = self.catalog.extensions();
         let due: Vec<TitleRow> = library
             .into_iter()
             .map(|entry| entry.title)
             .filter(|title| manual || wants_update(&title.fields.status))
             // Imported titles have no source to ask.
             .filter(|title| !title.fields.source_id.starts_with(LOCAL_SOURCE_PREFIX))
+            // Nor do sources waiting for their key or sign-in, until they're set up.
+            .filter(|title| !extensions.needs_setup(&title.fields.source_id))
             .filter(|title| only.as_ref().is_none_or(|only| only.contains(&title.id)))
             .collect();
         let snapshot = {

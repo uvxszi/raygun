@@ -397,6 +397,10 @@ impl ExtensionHost {
         prefs: SearchListingsPrefs,
         deadline: Instant,
     ) -> Result<Vec<MangaSummary>, String> {
+        // A source waiting for its key isn't asked for its listings either.
+        if self.provider_needs_setup(provider) {
+            return Ok(Vec::new());
+        }
         let wanted = Wanted::new(query);
         self.listings()
             .titles

@@ -14,10 +14,15 @@ import {
   useTagVocabulary,
 } from '../music/useDiscovery';
 import { playResults } from '../search/useOnlineSearch';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar } from '../shell/TopBar';
+import { needsSetupOf, setupSourceOf } from '../sources/useSourcesSetup';
 import { joinCount, useSongsLength } from '../music/collectionLength';
 import { usePlayContext } from '../music/playContext';
+
+/** The sources a genre page asks; those waiting for a key are counted in one line. */
+const TAG_KINDS = ['music.charts', 'music.tags'];
 
 const asOnline = (track: SavedTrack): OnlineTrack => ({
   externalId: null,
@@ -99,11 +104,21 @@ export const MusicTagPage: FC = () => {
             songs={row.tracks}
           />
         ))}
-      {sources.data?.failures.map((failure) => (
-        <SourceIssue key={failure.source} compact source={failure.source}>
-          {failure.error}
-        </SourceIssue>
-      ))}
+      {sources.data?.failures
+        .filter((failure) => !needsSetupOf(failure.error))
+        .map((failure) => (
+          <SourceIssue key={failure.source} compact source={failure.source}>
+            {failure.error}
+          </SourceIssue>
+        ))}
+      {sources.data && (
+        <NeedsSetupNote
+          kinds={TAG_KINDS}
+          sources={sources.data.failures.flatMap(
+            (failure) => setupSourceOf(failure.error, failure.source) ?? [],
+          )}
+        />
+      )}
       <section aria-label={t('discover.tagSongs', { name })} className="flex flex-col gap-2">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">{t('discover.tagSongs', { name })}</h2>

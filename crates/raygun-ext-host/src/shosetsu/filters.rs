@@ -236,6 +236,7 @@ pub fn settings(specs: &[Spec], out: &mut Vec<crate::manifest::SettingDef>) {
             label: Some(label.clone()).filter(|label| !label.is_empty()),
             options,
             default: Some(default),
+            required: false,
         });
     }
 }

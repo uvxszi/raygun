@@ -318,6 +318,11 @@ impl ResolverService {
                 Some(source) => Ok((source, None)),
                 None => {
                     let provider = candidate.provider_id.as_str();
+                    // A source waiting for its key isn't asked; that says nothing of the match.
+                    if extensions.needs_setup(provider) {
+                        notes.needs_setup = true;
+                        continue;
+                    }
                     let calls = asked.entry(provider.to_owned()).or_default();
                     if limited.contains(provider)
                         || extensions.resting(provider)
@@ -373,6 +378,8 @@ impl ResolverService {
                     }
                     notes.unanswered.push(candidate_key);
                 }
+                // The source just said it needs a key: not the match's failure.
+                Err(error) if error.is_needs_setup() => notes.needs_setup = true,
                 Err(error) => {
                     tracing::warn!(provider = %candidate.provider_id, %error, "candidate didn't resolve");
                     let _ = streams::mark_failed(
@@ -410,6 +417,12 @@ impl ResolverService {
             provider_id: row.provider_id.clone(),
             candidate_id: row.candidate_id.clone(),
         };
+        // The source waits for its key or sign-in: the pick stays as it is, the sources are
+        // searched instead.
+        if self.extensions().needs_setup(&row.provider_id) {
+            notes.needs_setup = true;
+            return None;
+        }
         let answer = self
             .extensions()
             .resolve_stream_call(&row.provider_id, &row.candidate_id, using)
@@ -443,6 +456,10 @@ impl ResolverService {
                     notes.retry_after = notes.retry_after.max(raygun_ext_host::asked_wait(&error));
                 }
                 notes.unanswered.push(candidate_key);
+                None
+            }
+            Err(error) if error.is_needs_setup() => {
+                notes.needs_setup = true;
                 None
             }
             Err(error) => {
@@ -721,11 +738,19 @@ impl ResolverService {
         for answer in answers {
             match answer.result {
                 Ok(found) => candidates.extend(found),
+                // It said it needs a key: it isn't asked again until it's set up.
+                Err(error) if raygun_ext_host::needs_setup_in(&error).is_some() => {
+                    notes.needs_setup = true;
+                }
                 Err(error) => {
                     notes.troubled = true;
                     tracing::warn!(provider = %answer.provider.id, %error, "stream provider failed");
                 }
             }
+        }
+        // Stream sources waiting for their key weren't asked.
+        if extensions.stream_sources_need_setup().await {
+            notes.needs_setup = true;
         }
         if !candidates.is_empty() {
             self.searches

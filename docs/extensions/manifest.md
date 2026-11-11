@@ -92,18 +92,35 @@ People can mark any extension, or a whole repository, 18+ or not themselves; the
 
 Each setting is an object with:
 
-| Field     | Required        | What it is                                                                       |
-| --------- | --------------- | -------------------------------------------------------------------------------- |
-| `key`     | yes             | Unique, not empty; what `raygun.settings.get` takes.                             |
-| `type`    | yes             | `text`, `number`, `boolean` or `select`.                                         |
-| `label`   | no              | What Raygun shows; `itemsPerSearch` reads "Items per search" without one.        |
-| `options` | for a `select`  | The choices, as text.                                                            |
-| `default` | no              | A string, a number, a boolean, or one of a select's options.                     |
+| Field      | Required        | What it is                                                                       |
+| ---------- | --------------- | -------------------------------------------------------------------------------- |
+| `key`      | yes             | Unique, not empty; what `raygun.settings.get` takes.                             |
+| `type`     | yes             | `text`, `number`, `boolean` or `select`.                                         |
+| `label`    | no              | What Raygun shows; `itemsPerSearch` reads "Items per search" without one.        |
+| `options`  | for a `select`  | The choices, as text.                                                            |
+| `default`  | no              | A string, a number, a boolean, or one of a select's options.                     |
+| `required` | no              | `true` for a key, a secret, an address or a user name it can't work without.     |
 
 Raygun draws the settings on the extension's page and keeps people's values across updates;
 `raygun.settings.get(key)` gives the value, else the default, else `null`. A value that no longer
 fits (a choice the extension dropped) reads as the default. Changing a setting reloads the
 extension.
+
+While a `required` setting is empty (no value, or only spaces), the extension needs setup:
+Raygun calls none of its providers and sends none of its requests, leaves it out of searches and
+lookups without counting it as failing, and lists it under one line, "N sources need a key or
+sign-in", whose entries open its settings. A key the extension's own API refuses is said with
+[`needsSetup`](host-api.md#raygunneedssetupreason), which does the same until the settings
+change.
+
+```json
+{
+  "settings": [
+    { "key": "apiKey", "type": "text", "label": "API key", "required": true },
+    { "key": "apiSecret", "type": "text", "label": "API secret", "required": true }
+  ]
+}
+```
 
 ## What Raygun writes
 

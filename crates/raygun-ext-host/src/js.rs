@@ -393,7 +393,7 @@ impl JsExtension {
                         // A converted Nuclear plugin's shim takes what the web gives it in a
                         // webview and the `raygun` API lacks (`crate::nuclear::install_natives`).
                         if nuclear {
-                            crate::nuclear::install_natives(&ctx)
+                            crate::nuclear::install_natives(&ctx, registered)
                                 .map_err(|error| error.to_string())?;
                         }
                         eval_script(&ctx, &code, &filename, true)

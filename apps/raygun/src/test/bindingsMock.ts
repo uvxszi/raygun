@@ -10,6 +10,7 @@ import type {
   EngineCommand,
   ExportJob,
   ExtensionInfo,
+  SourceSetup,
   ExtensionInstallStatus,
   FollowedArtist,
   PermissionPrompt,
@@ -67,6 +68,7 @@ type EventPayloads = {
   queueEvent: QueueSnapshot;
   libraryScanEvent: LibraryScanProgress;
   extensionsChangedEvent: ExtensionInfo[];
+  sourcesSetupEvent: SourceSetup[];
   extensionInstallsEvent: ExtensionInstallStatus;
   searchProgressEvent: SearchProgress;
   syncChangedEvent: number;
@@ -493,6 +495,7 @@ export const bindingsMock = {
     libraryPlay: vi.fn(),
     playbackReplace: vi.fn(),
     extensionsList: vi.fn(),
+    extensionsNeedingSetup: vi.fn(),
     extensionsReload: vi.fn(),
     extensionClearData: vi.fn(),
     miniplayerOpen: vi.fn(),
@@ -809,6 +812,7 @@ export const bindingsMock = {
     queueEvent: makeEvent('queueEvent'),
     libraryScanEvent: makeEvent('libraryScanEvent'),
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
+    sourcesSetupEvent: makeEvent('sourcesSetupEvent'),
     extensionInstallsEvent: makeEvent('extensionInstallsEvent'),
     searchProgressEvent: makeEvent('searchProgressEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
@@ -1264,6 +1268,7 @@ export const seedBindings = () => {
   commands.libraryPlay.mockResolvedValue(ok(null));
   commands.playbackReplace.mockResolvedValue(undefined);
   commands.extensionsList.mockResolvedValue(ok([]));
+  commands.extensionsNeedingSetup.mockResolvedValue(ok([]));
   commands.extensionsReload.mockResolvedValue(ok([]));
   commands.extensionClearData.mockResolvedValue(ok([]));
   commands.miniplayerOpen.mockResolvedValue(ok(null));

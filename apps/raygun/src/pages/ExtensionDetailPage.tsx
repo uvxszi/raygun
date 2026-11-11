@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Blocks, Globe } from 'lucide-react';
+import { Blocks, Globe, KeyRound } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -64,6 +64,24 @@ export const ExtensionDetailPage: FC = () => {
       {info.description && <p className="text-sm leading-relaxed">{info.description}</p>}
       {info.status === 'failed' && (
         <SourceIssue source={info.name}>{info.error ?? t('issue.title')}</SourceIssue>
+      )}
+      {info.needsSetup && (
+        <p
+          data-testid="extension-needs-setup"
+          className="bg-surface/70 text-muted flex items-start gap-2 rounded-xl px-3 py-2 text-sm"
+        >
+          <KeyRound aria-hidden size={16} className="mt-0.5 shrink-0" />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-foreground font-medium">{t('sourcesSetup.waits')}</span>
+            <span className="wrap-anywhere">
+              {info.needsSetup.reason === 'settings'
+                ? t('sourcesSetup.missing', { fields: info.needsSetup.missing.join(', ') })
+                : info.needsSetup.reason === 'signIn'
+                  ? t('sourcesSetup.signIn')
+                  : (info.needsSetup.detail ?? t('sourcesSetup.refused'))}
+            </span>
+          </span>
+        </p>
       )}
       {info.providers.length > 0 && (
         <section aria-labelledby="extension-provides" className="flex flex-col gap-1 text-sm">

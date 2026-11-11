@@ -128,6 +128,13 @@
         providers.set(id, provider);
       },
     }),
+    // The extension can't work until someone sets it up: its key or sign-in is missing or was
+    // refused. Throws; Raygun then asks it nothing until its settings change (the mark below is
+    // what the host reads, `failure::NEEDS_SETUP_MARK`).
+    needsSetup: (reason) => {
+      const said = reason === undefined || reason === null ? '' : String(reason);
+      throw new Error(`[raygun:needs-setup] ${said}`.trim());
+    },
   });
 
   globalThis.console = Object.freeze({

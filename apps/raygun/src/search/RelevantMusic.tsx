@@ -20,6 +20,7 @@ import { PodcastArt } from '../podcasts/PodcastArt';
 import { PodcastResultList } from '../podcasts/PodcastResultList';
 import { useOpenFeed, usePodcastSearch } from '../podcasts/usePodcasts';
 import { Carousel } from '../shell/Carousel';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { OpeningBook } from './AudiobookSearch';
 import { useOpenBook } from './useOpenBook';
 import { AlbumTile, Asking } from './MusicFinds';
@@ -39,6 +40,8 @@ const TOP_MENU_CLASS =
 /** How many of each kind Relevant shows before its See all. */
 const SONGS = 5;
 const ROW = 10;
+/** The sources Relevant asks; those waiting for a key are counted in one line. */
+const RELEVANT_KINDS = ['music.metadata', 'podcast.directory', 'audiobook.directory'];
 
 type Top =
   | { kind: 'song'; score: number; track: OnlineTrack }
@@ -393,6 +396,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
           </Carousel>
         </Part>
       )}
+      {later && <NeedsSetupNote kinds={RELEVANT_KINDS} />}
     </div>
   );
 };

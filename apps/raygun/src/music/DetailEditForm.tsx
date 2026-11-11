@@ -9,10 +9,14 @@ import { useTranslation } from 'react-i18next';
 import { unwrapResult } from '../lib/commandResult';
 import { Artwork } from '../library/Artwork';
 import { uploadFile } from '../manga/useImportComics';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { TextField } from '../shell/TextField';
 import { detailKey, useDetailEdit } from './useDetailEdit';
 
 type Field = 'title' | 'artist' | 'album';
+
+/** The sources covers are searched on; those waiting for a key are counted in one line. */
+const COVER_KINDS = ['music.metadata'];
 
 const EMPTY: DetailEdit = { title: null, artist: null, album: null, artworkUrl: null };
 
@@ -329,6 +333,7 @@ const SourceCovers: FC<{
           })}
         </ul>
       )}
+      {!options.isPending && <NeedsSetupNote kinds={COVER_KINDS} />}
     </div>
   );
 };

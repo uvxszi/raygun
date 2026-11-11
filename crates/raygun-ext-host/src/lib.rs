@@ -47,6 +47,8 @@ mod open_sources_tests;
 #[cfg(test)]
 mod repo_tests;
 #[cfg(test)]
+mod setup_tests;
+#[cfg(test)]
 mod tests;
 
 pub use content::{ContentFilter, without_adult_sources};
@@ -56,7 +58,7 @@ pub use host::{
     ExtensionHost, ExtensionSource, HostConfig, INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS,
     MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS, ProviderCandidates, ResolvedStream, ServerSecrets,
     StreamUse, UserSettings, discover_installed, in_background, interactive_calls, is_background,
-    waiting_limit,
+    needs_setup_in, waiting_limit,
 };
 pub use js::{Limits, asked_wait};
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};

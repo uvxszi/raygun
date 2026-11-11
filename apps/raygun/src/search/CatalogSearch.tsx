@@ -48,7 +48,9 @@ import {
 import type { FilterValues } from './useCatalogSearch';
 import { LoadMore } from '../shell/LoadMore';
 import { useSettings } from '../settings/useSettings';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useSourcesSetup } from '../sources/useSourcesSetup';
 
 /** Cards for a grid; `fromListing` labels titles found in a source's listings, not its search. */
 const toGridItems = (items: MangaCard[], fromListing?: string) =>
@@ -193,7 +195,8 @@ const useHealthReport = (
   const failed = useSourceHealth((state) => state.failed);
   const worked = useSourceHealth((state) => state.worked);
   useEffect(() => {
-    if (error || data?.error) failed(id);
+    if (error || data?.error)
+      failed(id, data?.error ?? (error instanceof Error ? error.message : null));
     else if (data) worked(id);
   }, [id, error, data, failed, worked]);
 };
@@ -287,7 +290,9 @@ export const RankedResults: FC<{
     .filter((result) => result.error)
     .map((result) => ({ name: result.source.name, error: result.error ?? '' }));
   useEffect(() => {
-    for (const id of searches.failedIds) failed(id);
+    for (const id of searches.failedIds) {
+      failed(id, results.find((result) => result.source.id === id)?.error);
+    }
     for (const result of results) {
       if (!result.error) worked(result.source.id);
     }
@@ -332,7 +337,8 @@ export const RankedResults: FC<{
           {t('search.showMore', { count: Math.min(RANKED_PAGE, ranked.length - cap) })}
         </button>
       )}
-      <FailedSources failed={failures} />
+      {/* Sources that need a key are counted in the search's own line. */}
+      <FailedSources failed={failures} setupNote={false} />
     </div>
   );
 };
@@ -547,11 +553,17 @@ export const CatalogSearch: FC<{
       .map((source) => source.id)
       .join('\n');
   }, [picked, all, asked.custom, failures, failingAtEnd]);
+  // Sources that need a key or sign-in aren't asked: one line below counts them.
+  const waitingSetup = useSourcesSetup();
   const searched = useMemo(() => {
     if (!searchedIds) return NO_SOURCES;
     const byId = new Map(all.map((source) => [source.id, source]));
-    return searchedIds.split('\n').flatMap((id) => byId.get(id) ?? []);
-  }, [searchedIds, all]);
+    const waiting = new Set(waitingSetup.map((source) => source.extensionId));
+    return searchedIds
+      .split('\n')
+      .flatMap((id) => byId.get(id) ?? [])
+      .filter((source) => !waiting.has(source.extensionId));
+  }, [searchedIds, all, waitingSetup]);
   // A row's More searches only its source; the rows keep the same handler.
   const latestOnly = useRef(choice.only);
   useLayoutEffect(() => {
@@ -624,6 +636,7 @@ export const CatalogSearch: FC<{
           relevant && medium !== 'video' && !hidesSaved(filter, medium) ? onLibrary : undefined
         }
       />
+      <NeedsSetupNote kinds={[`${medium}.source`]} />
     </div>
   );
 };

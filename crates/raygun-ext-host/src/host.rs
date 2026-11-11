@@ -23,7 +23,8 @@ use raygun_model::{
     ExtensionSetting, ExtensionStatus, LyricLine, Lyrics, LyricsTranslation, LyricsTranslationKind,
     LyricsTranslationOrigin, MediaSource, MusicAlbum, MusicAlbumDetail, MusicArtist, MusicChart,
     MusicPlaylist, MusicPlaylistDetail, OnlineTrack, ProviderInfo, ProviderSearchResult,
-    SearchListingsPrefs, SettingKind, SettingValue, TrackQuery,
+    SearchListingsPrefs, SettingKind, SettingValue, SetupNeed, SetupReason, SourceSetup,
+    TrackQuery,
 };
 use raygun_net::{Issue, IssueKind};
 use raygun_resolver::Candidate;
@@ -305,6 +306,16 @@ pub enum CallError {
     /// failure stands in for the answer.
     #[error("{last}\nnot asked for a while after failing {failures} times in a row")]
     Resting { last: Box<CallError>, failures: u32 },
+    /// Not asked: the source needs a key, an account or a sign-in first (a required setting is
+    /// empty, a server isn't signed in, or its own answers said its key was refused). Not a
+    /// failure: nothing was sent, nothing counts against it, and it's asked again once it's set
+    /// up. The second line is read by the UI ([`needs_setup_in`]).
+    #[error("{name} needs a key or sign-in\nneeds setup ({extension}): {reason}")]
+    NeedsSetup {
+        name: String,
+        extension: String,
+        reason: String,
+    },
     /// Nobody waits for the answer any more.
     #[error("Stopped")]
     Cancelled,
@@ -351,6 +362,11 @@ impl CallError {
         matches!(self, Self::MissingMethod { .. })
     }
 
+    /// Whether the source wasn't asked because it needs a key or sign-in first: not a failure.
+    pub fn is_needs_setup(&self) -> bool {
+        matches!(self, Self::NeedsSetup { .. })
+    }
+
     /// The raw details: what the script threw, what its requests met.
     pub fn detail(&self) -> String {
         match self {
@@ -358,9 +374,20 @@ impl CallError {
             Self::Said { message, .. } => message.clone(),
             Self::Exhausted { detail, .. } => detail.clone(),
             Self::Resting { last, .. } => last.detail(),
+            Self::NeedsSetup { reason, .. } => reason.clone(),
             other => other.to_string(),
         }
     }
+}
+
+/// The extension an error text names as needing a key or sign-in ([`CallError::NeedsSetup`]'s
+/// words), for answers that only keep the text.
+pub fn needs_setup_in(text: &str) -> Option<&str> {
+    text.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("needs setup (")?;
+        let (extension, _) = rest.split_once(')')?;
+        manifest::is_extension_id(extension).then_some(extension)
+    })
 }
 
 /// A source's own message, with its name unless the message names it already.
@@ -410,6 +437,69 @@ struct LoadItem {
     secret: Option<String>,
 }
 
+/// An extension's version, settings and sign-in, hashed: what a source that said its key was
+/// refused waits on to change.
+fn fingerprint(item: &LoadItem) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    item.manifest.version.to_string().hash(&mut hasher);
+    serde_json::to_string(&item.settings)
+        .unwrap_or_default()
+        .hash(&mut hasher);
+    item.secret.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The need of a source whose own answer said its key or sign-in was refused (`said`).
+fn refused_need(said: &str) -> SetupNeed {
+    SetupNeed {
+        reason: SetupReason::Refused,
+        missing: Vec::new(),
+        detail: Some(said.to_owned()).filter(|said| !said.is_empty()),
+    }
+}
+
+/// Why a source isn't asked, for [`CallError::NeedsSetup`]'s details.
+fn need_reason(need: &SetupNeed) -> String {
+    match need.reason {
+        SetupReason::Settings => format!("{} not set", need.missing.join(", ")),
+        SetupReason::SignIn => "the server isn't signed in".to_owned(),
+        SetupReason::Refused => need
+            .detail
+            .clone()
+            .unwrap_or_else(|| "its key or sign-in was refused".to_owned()),
+    }
+}
+
+/// What a loaded extension needs before it's asked anything: a server's sign-in, or required
+/// settings that are empty (`settings` as listed, with their values).
+fn setup_need(extension: &Extension, settings: &[ExtensionSetting]) -> Option<SetupNeed> {
+    if let Extension::Server(server) = extension
+        && server.signed_out()
+    {
+        return Some(SetupNeed {
+            reason: SetupReason::SignIn,
+            missing: Vec::new(),
+            detail: None,
+        });
+    }
+    let missing: Vec<String> = settings
+        .iter()
+        .filter(|setting| setting.required)
+        .filter(|setting| match &setting.value {
+            None => true,
+            Some(SettingValue::Text(text)) => text.trim().is_empty(),
+            Some(_) => false,
+        })
+        .map(|setting| setting.label.clone())
+        .collect();
+    (!missing.is_empty()).then_some(SetupNeed {
+        reason: SetupReason::Settings,
+        missing,
+        detail: None,
+    })
+}
+
 /// How much an extension weighs on its lane: code written for other apps parses whole pages
 /// in script; Shosetsu scripts and servers run their work elsewhere.
 fn lane_weight(item: &LoadItem) -> usize {
@@ -446,6 +536,12 @@ struct HostShared {
     heaps: Heaps,
     /// Calls someone waited on that went on past their time.
     late: LateCalls,
+    /// Extensions whose own answers said their key or sign-in is missing or was refused, by id:
+    /// the fingerprint of the settings they said it with (`Directory::fingerprints`) and what
+    /// they said. They're asked nothing until those settings change.
+    refused: std::sync::Mutex<HashMap<String, (u64, String)>>,
+    /// Counts changes to which extensions need setup (a load, a source saying so).
+    setup_changes: tokio::sync::watch::Sender<u64>,
 }
 
 /// Each loaded JavaScript extension's heap meter and memory limit, by extension id.
@@ -462,6 +558,12 @@ struct Directory {
     names: HashMap<String, String>,
     /// Miru extensions, whose settings may change after loading.
     miru: std::collections::HashSet<String>,
+    /// What extensions need before they're asked anything, as loaded: a required setting left
+    /// empty, a server without its sign-in.
+    setup: HashMap<String, SetupNeed>,
+    /// Each extension's version, settings and sign-in as loaded, hashed: a source that said its
+    /// key was refused is asked again once this changes.
+    fingerprints: HashMap<String, u64>,
 }
 
 /// A fan-out's own limit outlasts its calls' by this much: a call someone waits on hands its
@@ -520,6 +622,8 @@ impl ExtensionHost {
                 listings: crate::listing_search::Listings::default(),
                 heaps,
                 late: LateCalls::default(),
+                refused: std::sync::Mutex::new(HashMap::new()),
+                setup_changes: tokio::sync::watch::Sender::new(0),
             }),
         })
     }
@@ -608,6 +712,7 @@ impl ExtensionHost {
         let count = self.shared.lanes.len();
         let mut batches: Vec<Vec<LoadItem>> = (0..count).map(|_| Vec::new()).collect();
         let mut fresh = Vec::new();
+        let mut fingerprints = HashMap::new();
         for (id, (source, manifest)) in chosen {
             let item = LoadItem {
                 settings: settings.remove(&id).unwrap_or_default(),
@@ -615,6 +720,7 @@ impl ExtensionHost {
                 source,
                 manifest,
             };
+            fingerprints.insert(id.clone(), fingerprint(&item));
             match previous.get(&id) {
                 Some(&lane) if lane < count => batches[lane].push(item),
                 _ => fresh.push(item),
@@ -675,6 +781,14 @@ impl ExtensionHost {
             .flat_map(|info| &info.providers)
             .map(|provider| (provider.id.clone(), provider.name.clone()))
             .collect();
+        let setup = infos
+            .iter()
+            .filter_map(|info| Some((info.id.clone(), info.needs_setup.clone()?)))
+            .collect();
+        // A source that said its key was refused is asked again once its settings (or sign-in,
+        // or version) change, and forgotten once it's gone.
+        self.refused()
+            .retain(|id, (said_with, _)| fingerprints.get(id) == Some(said_with));
         let previous = std::mem::replace(
             &mut *self
                 .shared
@@ -686,8 +800,13 @@ impl ExtensionHost {
                 lanes,
                 names,
                 miru,
+                setup,
+                fingerprints,
             },
         );
+        self.shared
+            .setup_changes
+            .send_modify(|changes| *changes += 1);
         // An extension that changed (an update, other settings) starts with a clean record.
         for info in &infos {
             let same = previous.infos.iter().any(|old| {
@@ -700,7 +819,106 @@ impl ExtensionHost {
             }
         }
         self.rate(&mut infos);
+        self.with_setup(&mut infos);
         infos
+    }
+
+    fn refused(&self) -> std::sync::MutexGuard<'_, HashMap<String, (u64, String)>> {
+        self.shared
+            .refused
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Adds what sources said about their keys since they loaded to `infos`' setup needs.
+    fn with_setup(&self, infos: &mut [ExtensionInfo]) {
+        let refused = self.refused();
+        for info in infos {
+            if info.needs_setup.is_none()
+                && let Some((_, said)) = refused.get(&info.id)
+            {
+                info.needs_setup = Some(refused_need(said));
+            }
+        }
+    }
+
+    /// What `extension_id` needs before it's asked anything (a key, an account, a sign-in), or
+    /// `None` when it's ready: a required setting left empty, a server without its sign-in, or
+    /// its own answers having said its key was refused (until its settings change). While it
+    /// needs setup its providers are left out of every search and lookup, and calls to it
+    /// answer [`CallError::NeedsSetup`] at once, without a request.
+    pub fn needs_setup(&self, extension_id: &str) -> Option<SetupNeed> {
+        if let Some(need) = self.directory().setup.get(extension_id) {
+            return Some(need.clone());
+        }
+        self.refused()
+            .get(extension_id)
+            .map(|(_, said)| refused_need(said))
+    }
+
+    /// Whether a provider's extension needs setup (see [`Self::needs_setup`]).
+    pub fn provider_needs_setup(&self, provider: &str) -> bool {
+        let extension = provider.split_once('/').map_or(provider, |(id, _)| id);
+        self.needs_setup(extension).is_some()
+    }
+
+    /// Notes that `extension_id`'s own answer said its key or sign-in is missing or refused: it's
+    /// asked nothing more until its settings change.
+    fn note_refused(&self, extension_id: &str, said: &str) {
+        let Some(fingerprint) = self.directory().fingerprints.get(extension_id).copied() else {
+            return;
+        };
+        let changed = self
+            .refused()
+            .insert(extension_id.to_owned(), (fingerprint, said.to_owned()))
+            .is_none();
+        if changed {
+            tracing::info!(extension = %extension_id, reason = %said, "a source needs setup: it's asked nothing until its settings change");
+            self.shared
+                .setup_changes
+                .send_modify(|changes| *changes += 1);
+        }
+    }
+
+    /// The sources that need setup and would otherwise be asked, by name: each with the kinds
+    /// of its providers that searches and lookups use (turned off ones and hidden 18+ ones left
+    /// out; a source with none left isn't listed).
+    pub fn sources_needing_setup(&self) -> Vec<SourceSetup> {
+        let no_adult = crate::content::adult_left_out();
+        let content = &self.shared.content;
+        let mut infos = self.directory().infos.clone();
+        self.with_setup(&mut infos);
+        infos
+            .into_iter()
+            .filter(|info| info.status == ExtensionStatus::Loaded)
+            .filter_map(|info| {
+                let need = info.needs_setup?;
+                let adult = content.extension_adult(&info.id, &info.content_rating);
+                let mut kinds: Vec<String> = info
+                    .providers
+                    .iter()
+                    .filter(|provider| !content.is_disabled(&provider.id))
+                    .filter(|provider| {
+                        !(adult && (no_adult || !content.allows_adult(&provider.kind)))
+                    })
+                    .map(|provider| provider.kind.clone())
+                    .collect();
+                kinds.sort();
+                kinds.dedup();
+                (!kinds.is_empty()).then(|| SourceSetup {
+                    server: info.id.starts_with(crate::servers::ID_PREFIX),
+                    extension_id: info.id,
+                    name: info.name,
+                    kinds,
+                    need,
+                })
+            })
+            .collect()
+    }
+
+    /// Changes to which sources need setup: a load, or a source saying its key was refused.
+    pub fn setup_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.shared.setup_changes.subscribe()
     }
 
     /// Every extension, failed ones included, by name. Miru extensions' settings are asked of
@@ -732,6 +950,7 @@ impl ExtensionHost {
             }
         }
         self.rate(&mut infos);
+        self.with_setup(&mut infos);
         infos
     }
 
@@ -749,8 +968,9 @@ impl ExtensionHost {
         }
     }
 
-    /// Providers of `kind` that searches and lookups use: not the disabled ones, and those of
-    /// NSFW-rated extensions only while NSFW content is shown, and no adult ones inside
+    /// Providers of `kind` that searches and lookups use: not the disabled ones, not those whose
+    /// extension needs a key or sign-in first ([`Self::needs_setup`]), and those of NSFW-rated
+    /// extensions only while NSFW content is shown, and no adult ones inside
     /// [`crate::without_adult_sources`].
     pub async fn providers(&self, kind: &str) -> Vec<ProviderInfo> {
         let no_adult = crate::content::adult_left_out();
@@ -759,6 +979,7 @@ impl ExtensionHost {
             .into_iter()
             .filter(|provider| !self.shared.content.is_disabled(&provider.id))
             .filter(|provider| !(no_adult && provider.adult))
+            .filter(|provider| self.needs_setup(&provider.extension_id).is_none())
             .collect()
     }
 
@@ -945,6 +1166,15 @@ impl ExtensionHost {
             .get(extension_id)
             .copied()
             .ok_or_else(unknown)?;
+        // A source that needs a key or sign-in first is asked nothing: no script runs, nothing
+        // is sent, and nothing counts against it.
+        if let Some(need) = self.needs_setup(extension_id) {
+            return Err(CallError::NeedsSetup {
+                name: self.provider_name(provider),
+                extension: extension_id.to_owned(),
+                reason: need_reason(&need),
+            });
+        }
         let (reply, answer) = oneshot::channel();
         self.shared.lanes[lane]
             .send(Request::Call {
@@ -954,7 +1184,12 @@ impl ExtensionHost {
                 reply,
             })
             .map_err(|_| CallError::HostStopped)?;
-        answer.await.unwrap_or(Err(CallError::HostStopped))
+        let answer = answer.await.unwrap_or(Err(CallError::HostStopped));
+        // The source said so itself (`raygun.needsSetup`, a server refusing its sign-in).
+        if let Err(CallError::NeedsSetup { reason, .. }) = &answer {
+            self.note_refused(extension_id, reason);
+        }
+        answer
     }
 
     /// The browser check behind an error text (`crate::browser_check`): `source` when the page
@@ -1141,7 +1376,9 @@ impl ExtensionHost {
         started: tokio::time::Instant,
     ) -> ProviderSearchResult {
         let nothing = asked.answer.as_ref().map_or(true, Vec::is_empty);
-        if !listings.enabled || !nothing || query.trim().is_empty() {
+        // A source that just said it needs a key isn't asked for its charts either.
+        let unset = asked.answer.as_ref().is_err_and(CallError::is_needs_setup);
+        if !listings.enabled || !nothing || unset || query.trim().is_empty() {
             return search_result(asked);
         }
         let deadline = (started + waiting_limit())
@@ -1272,7 +1509,7 @@ impl ExtensionHost {
         for asked in fanout::collect(asks).await {
             match asked.answer {
                 Ok(value) => found.extend(parse_lyrics(&asked.provider, &value)),
-                Err(error) if error.is_missing() => {}
+                Err(error) if error.is_missing() || error.is_needs_setup() => {}
                 Err(error) => {
                     tracing::warn!(provider = %asked.provider.id, %error, "lyrics provider failed");
                     errors.push(error.to_string());
@@ -2240,9 +2477,9 @@ impl LaneState {
                 .map_err(|_| "loading timed out".to_owned())?
                 .map(|extension| Extension::Shosetsu(Box::new(extension)));
         }
-        // A Miru script or an LNReader plugin declares its settings as it runs: its values are
-        // checked when listed.
-        if !manifest.runtime.declares_settings() {
+        // A Miru script, an LNReader plugin or a Nuclear plugin declares settings as it runs:
+        // its values are checked when listed.
+        if !manifest.registers_settings() {
             user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
         }
         let code = source.read(&manifest.entry)?;
@@ -2353,6 +2590,7 @@ fn settings_info(extension: &Extension) -> Vec<ExtensionSetting> {
                     .and_then(SettingValue::from_json)
                     .or_else(|| default.clone()),
                 default,
+                required: setting.required,
             }
         })
         .collect()
@@ -2360,7 +2598,9 @@ fn settings_info(extension: &Extension) -> Vec<ExtensionSetting> {
 
 fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo {
     let manifest = extension.manifest();
+    let settings = settings_info(extension);
     ExtensionInfo {
+        needs_setup: setup_need(extension, &settings),
         id: manifest.id.clone(),
         name: manifest.name.clone(),
         version: manifest.version.to_string(),
@@ -2389,7 +2629,7 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
         icon: None,
         repository: None,
         website: extension.website(),
-        settings: settings_info(extension),
+        settings,
     }
 }
 
@@ -2451,6 +2691,7 @@ fn failed_info(
         icon: None,
         repository: None,
         website: None,
+        needs_setup: None,
     }
 }
 

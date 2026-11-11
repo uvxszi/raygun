@@ -46,10 +46,19 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
   const [picked, setPicked] = useState<number | null>(null);
   const [options, setOptions] = useState(false);
 
+  // Sources waiting for a key or sign-in weren't asked: one line counts them.
   const visible = (group: SourceGroup) =>
     group.links.length > 0 ||
-    ((group.state !== 'failed' || prefs.showFailedSources) &&
+    (group.state !== 'setup' &&
+      (group.state !== 'failed' || prefs.showFailedSources) &&
       (group.state !== 'empty' || prefs.showEmptySources));
+  const waiting = sources.filter((group) => group.state === 'setup' && group.links.length === 0);
+  const setupLine = waiting.length > 0 && (
+    <p data-testid="sources-need-setup" className="text-muted px-3 py-2 text-sm">
+      {t('sourcesSetup.count', { count: waiting.length })}:{' '}
+      {waiting.map((group) => group.name).join(', ')}
+    </p>
+  );
   const all = sources.map((_, index) => index);
   const listed = (order ?? []).filter(
     (index, place, list) => index >= 0 && index < sources.length && list.indexOf(index) === place,
@@ -228,6 +237,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
       ) : (
         sourceList
       )}
+      {setupLine}
     </PlayerPanel>
   );
 };

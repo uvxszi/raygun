@@ -292,6 +292,18 @@ impl ExtensionService {
                     .map_err(raygun_net::images::ImageError::Network)
             })
         }));
+        // Which sources need a key or sign-in: told to the UI after every load and whenever a
+        // source says its key was refused.
+        let announcer = Arc::downgrade(&service);
+        let mut setup_changes = service.host.setup_changes();
+        tauri::async_runtime::spawn(async move {
+            while setup_changes.changed().await.is_ok() {
+                let Some(service) = announcer.upgrade() else {
+                    break;
+                };
+                service.announce_setup();
+            }
+        });
         // Before anything lists repositories: one quick query when there's nothing to move.
         tauri::async_runtime::block_on(service.replace_retired_repos());
         // Take the lock now, before any command can run, and load in the background.
@@ -373,10 +385,26 @@ impl ExtensionService {
             .collect()
     }
 
+    /// The sources that need a key or sign-in before they're asked anything (turned off and
+    /// hidden 18+ ones left out), once extensions have loaded.
+    pub async fn sources_needing_setup(&self) -> Vec<raygun_model::SourceSetup> {
+        let _ready = self.loading.read().await;
+        self.host.sources_needing_setup()
+    }
+
+    /// Tells the UI which sources need a key or sign-in now.
+    fn announce_setup(&self) {
+        let waiting = self.host.sources_needing_setup();
+        if let Err(error) = crate::events::SourcesSetupEvent(waiting).emit(&self.app) {
+            tracing::warn!(%error, "could not announce sources that need setup");
+        }
+    }
+
     /// Whether NSFW extensions and content are shown (M35).
     /// The sources and providers the user turned off (M46.8): searches and lookups skip them.
     pub fn set_disabled_sources(&self, ids: &[String]) {
         self.host.content().set_disabled(ids);
+        self.announce_setup();
     }
 
     pub fn show_nsfw(&self) -> bool {
@@ -393,6 +421,7 @@ impl ExtensionService {
         if let Err(error) = ExtensionsChangedEvent(infos).emit(&self.app) {
             tracing::warn!(%error, "could not announce extension changes");
         }
+        self.announce_setup();
     }
 
     /// Puts the user's 18+ marks into effect at once and tells the UI, whose source lists and
@@ -404,6 +433,7 @@ impl ExtensionService {
         if let Err(error) = ExtensionsChangedEvent(infos).emit(&self.app) {
             tracing::warn!(%error, "could not announce extension changes");
         }
+        self.announce_setup();
     }
 
     /// Whether a Stremio addon (by its stored id) that says `own` counts as 18+, the user's
@@ -860,6 +890,24 @@ impl ExtensionService {
     /// Whether a source sits out after failing again and again lately: it isn't asked meanwhile.
     pub fn resting(&self, provider_id: &str) -> bool {
         self.host.health().resting(provider_id).is_some()
+    }
+
+    /// Whether a provider's source needs a key or sign-in before it's asked anything: it isn't
+    /// asked, and that says nothing about the song or the pick.
+    pub fn needs_setup(&self, provider_id: &str) -> bool {
+        self.host.provider_needs_setup(provider_id)
+    }
+
+    /// Whether any source that finds streams waits for its key or sign-in: until it's set up,
+    /// it isn't known that no source has a song.
+    pub async fn stream_sources_need_setup(&self) -> bool {
+        let _ready = self.loading.read().await;
+        self.host.sources_needing_setup().iter().any(|source| {
+            source
+                .kinds
+                .iter()
+                .any(|kind| kind == raygun_ext_host::MUSIC_STREAM)
+        })
     }
 
     /// [`Self::stream_candidates`] asking each provider for up to `limit` candidates.
@@ -2959,6 +3007,7 @@ mod tests {
             options: options.iter().map(|option| (*option).to_owned()).collect(),
             default: None,
             value: None,
+            required: false,
         };
         let text = |value: &str| SettingValue::Text(value.into());
         assert!(accepts(&setting(SettingKind::Text, &[]), &text("x")));

@@ -6,9 +6,11 @@
 // The API needs a free key and secret per person (https://api.podcastindex.org): its terms keep
 // credentials out of open-source code, so people enter their own in this source's settings. Each
 // request is signed as the API documents: `Authorization` is the SHA-1 of key, secret and the
-// Unix time in `X-Auth-Date`. Explicit feeds are left out unless NSFW content is on, and so are
-// feeds the index found dead.
-import { defineProvider, query, registerProvider } from '@raygun/sdk';
+// Unix time in `X-Auth-Date`. Both settings are required, so Raygun asks nothing while either is
+// empty, and a key the API refuses says so with `needsSetup` (asked again once the settings
+// change). Explicit feeds are left out unless NSFW content is on, and so are feeds the index found
+// dead.
+import { defineProvider, needsSetup, query, registerProvider } from '@raygun/sdk';
 import type { PodcastResult } from '@raygun/sdk';
 
 import { sha1Hex } from './sha1';
@@ -78,12 +80,12 @@ export const toResult = (feed: Feed): PodcastResult | null => {
   };
 };
 
-/** The person's credentials, or a plain sentence saying where to put them. */
+/** The person's credentials; without them the source needs setup. */
 const credentials = () => {
   const key = raygun.settings.get<string>('apiKey')?.trim();
   const secret = raygun.settings.get<string>('apiSecret')?.trim();
   if (!key || !secret) {
-    throw new Error(
+    return needsSetup(
       "Podcast Index needs your free API key and secret: get them at api.podcastindex.org and add them in this source's settings",
     );
   }
@@ -102,8 +104,8 @@ const ask = async (path: string, params: Record<string, string | number | boolea
       Authorization: sha1Hex(`${key}${secret}${time}`),
     },
   });
-  if (response.status === 401) {
-    throw new Error(
+  if (response.status === 401 || response.status === 403) {
+    needsSetup(
       "Podcast Index didn't accept the API key and secret: check them in this source's settings",
     );
   }

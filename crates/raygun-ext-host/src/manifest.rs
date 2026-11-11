@@ -93,9 +93,24 @@ pub struct SettingDef {
     pub options: Vec<String>,
     #[serde(default)]
     pub default: Option<serde_json::Value>,
+    /// The extension can't work without it (a key, a secret, a server's address, a user name):
+    /// while it's empty, the host asks the extension nothing (`ExtensionHost::needs_setup`).
+    /// Not for a switch, which always has a value.
+    #[serde(default)]
+    pub required: bool,
 }
 
 impl SettingDef {
+    /// Whether `value` (the user's, else the default) leaves a required setting empty: nothing,
+    /// or text that's only spaces.
+    pub fn is_empty(value: Option<&serde_json::Value>) -> bool {
+        match value {
+            None | Some(serde_json::Value::Null) => true,
+            Some(serde_json::Value::String(text)) => text.trim().is_empty(),
+            Some(_) => false,
+        }
+    }
+
     /// Whether `value` fits this setting: the right JSON type, and one of the options for a select.
     pub fn accepts(&self, value: &serde_json::Value) -> bool {
         match self.kind {
@@ -178,7 +193,7 @@ pub enum ManifestError {
     #[error("invalid net permission {0:?}: use a host like api.example.org or *.example.org")]
     Net(String),
     #[error(
-        "setting {0:?}: duplicate or empty key, a select without options, or a default of the wrong type"
+        "setting {0:?}: duplicate or empty key, a select without options, a default of the wrong type, or a required switch"
     )]
     Setting(String),
 }
@@ -230,6 +245,7 @@ impl Manifest {
             setting.key.is_empty()
                 || !keys.insert(setting.key.as_str())
                 || (setting.kind == SettingKind::Select && setting.options.is_empty())
+                || (setting.required && setting.kind == SettingKind::Boolean)
                 || setting
                     .default
                     .as_ref()
@@ -263,6 +279,13 @@ impl Manifest {
                 .website
                 .filter(|url| url.starts_with("https://") || url.starts_with("http://")),
         })
+    }
+
+    /// Whether the script adds settings of its own as it runs (Miru's `registerSetting`,
+    /// LNReader's `pluginSettings`, a Nuclear plugin's `Settings.register`): the user's values
+    /// for them are kept at load and checked when they're listed.
+    pub fn registers_settings(&self) -> bool {
+        self.runtime.declares_settings() || self.nuclear.is_some()
     }
 
     pub fn setting(&self, key: &str) -> Option<&SettingDef> {

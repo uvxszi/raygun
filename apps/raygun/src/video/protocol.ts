@@ -117,7 +117,7 @@ export type SourceLink = {
 
 export type SourceGroup = {
   name: string;
-  state: 'resolving' | 'ready' | 'empty' | 'failed';
+  state: 'resolving' | 'ready' | 'empty' | 'failed' | 'setup';
   error: string | null;
   links: SourceLink[];
   /** It failed lately and hasn't worked since (M46.17): tried last. */

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import { needsSetupOf } from '../sources/useSourcesSetup';
+
 const KEY = 'raygun.sourceHealth';
 /** A failure older than this no longer counts: the source may work again. */
 const REMEMBER_MS = 3 * 24 * 60 * 60_000;
@@ -35,7 +37,8 @@ const offlineMode = () =>
 type SourceHealth = {
   /** Sources whose last search or listing failed, and when. */
   failures: Record<string, number>;
-  failed: (id: string) => void;
+  /** Notes a source's failure; `error` is what it failed with, when known. */
+  failed: (id: string, error?: string | null) => void;
   worked: (id: string) => void;
 };
 
@@ -45,9 +48,10 @@ type SourceHealth = {
  */
 export const useSourceHealth = create<SourceHealth>((set, get) => ({
   failures: read(),
-  failed: (id) => {
-    // A failure while Offline Mode is on isn't the source's.
-    if (offlineMode()) return;
+  failed: (id, error) => {
+    // A failure while Offline Mode is on isn't the source's, and a source waiting for its key
+    // or sign-in wasn't asked.
+    if (offlineMode() || needsSetupOf(error)) return;
     const failures = { ...get().failures, [id]: Date.now() };
     write(failures);
     set({ failures });

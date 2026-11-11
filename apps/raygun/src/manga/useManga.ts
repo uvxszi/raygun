@@ -44,7 +44,7 @@ export const useMangaBrowse = (
         health.worked(sourceId);
         return page;
       } catch (error) {
-        health.failed(sourceId);
+        health.failed(sourceId, error instanceof Error ? error.message : String(error));
         throw error;
       }
     },

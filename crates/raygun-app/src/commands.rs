@@ -373,6 +373,16 @@ pub async fn extensions_list(
     Ok(extensions.list().await)
 }
 
+/// The sources that need a key or sign-in before they're asked anything, with the kinds they'd
+/// answer and what's missing (`SourcesSetupEvent` brings changes).
+#[tauri::command]
+#[specta::specta]
+pub async fn extensions_needing_setup(
+    extensions: tauri::State<'_, Arc<ExtensionService>>,
+) -> Result<Vec<raygun_model::SourceSetup>, String> {
+    Ok(extensions.sources_needing_setup().await)
+}
+
 /// Reloads all extensions, picking up any copied into the `extensions/` folder.
 #[tauri::command]
 #[specta::specta]

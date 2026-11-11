@@ -222,6 +222,7 @@ fn register_setting(settings: &RefCell<Vec<SettingDef>>, json: &str) -> Result<(
                     .as_bool()
                     .unwrap_or_else(|| raw.value.as_str() == Some("true"))
             )),
+            required: false,
         },
         "Select" if !raw.options.is_empty() => {
             if raw.options.len() > MAX_OPTIONS {
@@ -243,6 +244,7 @@ fn register_setting(settings: &RefCell<Vec<SettingDef>>, json: &str) -> Result<(
                 label,
                 options: raw.options.into_iter().map(|(label, _)| label).collect(),
                 default,
+                required: false,
             }
         }
         _ => SettingDef {
@@ -255,6 +257,7 @@ fn register_setting(settings: &RefCell<Vec<SettingDef>>, json: &str) -> Result<(
                 serde_json::Value::Null => String::new(),
                 other => other.to_string(),
             })),
+            required: false,
         },
     };
     let mut settings = settings.borrow_mut();

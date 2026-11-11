@@ -498,6 +498,87 @@ async fn subsonic_searches_streams_and_finds_lyrics() {
     assert_eq!(lyrics.synced[0].text, "(instrumental)");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_without_a_sign_in_that_works_is_asked_nothing() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let counted = hits.clone();
+    let app = subsonic_app().layer(axum::middleware::from_fn(
+        move |request: axum::extract::Request, next: axum::middleware::Next| {
+            let counted = counted.clone();
+            async move {
+                counted.fetch_add(1, Ordering::SeqCst);
+                next.run(request).await
+            }
+        },
+    ));
+    let base = format!("http://{}/music", serve(app));
+    let connected = connect(&input(
+        ServerKind::Subsonic,
+        base.clone(),
+        "listener",
+        "sesame",
+    ))
+    .await
+    .unwrap();
+
+    // Raygun lost the sign-in: the connection loads, waits to be signed in again, and its
+    // providers are left out of searches without a request.
+    let signed_out = Connected {
+        secret: None,
+        ..connected.clone()
+    };
+    let (host, _dir, id) = connected_host(&signed_out).await;
+    let before = hits.load(Ordering::SeqCst);
+    let need = host.needs_setup(&id).expect("needs signing in");
+    assert_eq!(need.reason, raygun_model::SetupReason::SignIn);
+    assert!(host.search_music("moonlight", 10).await.is_empty());
+    let unasked = host
+        .call(
+            &format!("{id}/music"),
+            "search",
+            json!({ "query": "x", "limit": 5 }),
+        )
+        .await
+        .unwrap_err();
+    assert!(unasked.is_needs_setup(), "{unasked}");
+    assert_eq!(hits.load(Ordering::SeqCst), before, "nothing was sent");
+    assert_eq!(host.sources_needing_setup()[0].extension_id, id);
+
+    // A sign-in the server refuses (wrong user or password): asked once, then not again.
+    let refused = Connected {
+        secret: Some("wrong".into()),
+        ..connected
+    };
+    let (host, _dir, id) = connected_host(&refused).await;
+    assert!(
+        host.needs_setup(&id).is_none(),
+        "nothing known before asking"
+    );
+    let before = hits.load(Ordering::SeqCst);
+    let found = host.search_music("moonlight", 10).await;
+    assert!(
+        found[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| crate::needs_setup_in(error) == Some(id.as_str())),
+        "{found:?}"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), before + 1);
+    assert_eq!(
+        host.needs_setup(&id).map(|need| need.reason),
+        Some(raygun_model::SetupReason::Refused)
+    );
+    assert!(host.search_music("moonlight", 10).await.is_empty());
+    assert_eq!(hits.load(Ordering::SeqCst), before + 1, "not asked again");
+    assert_eq!(
+        host.health().standing(&format!("{id}/music")),
+        crate::fanout::Standing::Good,
+        "not counted as failing"
+    );
+}
+
 // ---- Audiobookshelf ----
 
 fn abs_app() -> Router {

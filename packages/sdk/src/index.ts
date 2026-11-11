@@ -22,6 +22,18 @@ export const registerProvider = (provider: Provider): void => {
 };
 
 /**
+ * Says the extension can't work until someone sets it up (its key or sign-in is missing, or its
+ * own API refused it with a 401 or 403) and throws. Raygun then asks it nothing until its
+ * settings change, and counts it with the sources that need a key rather than the ones that
+ * failed. In a Raygun without `raygun.needsSetup`, it throws `reason` as a plain error.
+ */
+export const needsSetup = (reason: string): never => {
+  const host = raygun as Partial<typeof raygun>;
+  if (typeof host.needsSetup === 'function') host.needsSetup(reason);
+  throw new Error(reason);
+};
+
+/**
  * Fetches a page's text; throws `HTTP <status> from <url>` on a non-2xx status. Raygun reads that
  * message (a rate limit, a missing page, a server error) to tell the user what happened.
  */

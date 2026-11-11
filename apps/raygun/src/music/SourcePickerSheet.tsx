@@ -13,6 +13,7 @@ import { formatTime } from '../player/formatTime';
 import { playResults, toQueueItem, useOnlineSearch } from '../search/useOnlineSearch';
 import { Sheet } from '../shell/Sheet';
 import { useSourcePickerStore } from './sourcePickerStore';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TextField } from '../shell/TextField';
 import { SPIN } from './songDownloadState';
@@ -28,6 +29,9 @@ import { useSongDownloadActions, useSongDownloadsSelect } from './useSongDownloa
  */
 type Picked = { track: OnlineTrack; source: string | undefined; found?: boolean };
 type Confirmed = Picked & { ticked: ReadonlySet<DetailField> };
+
+/** The sources a song is found on; those waiting for a key are counted in one line. */
+const PICK_KINDS = ['music.metadata', 'music.stream'];
 
 /**
  * Find a source (M46.31): every source's answer for the song, with a preview, and Use this,
@@ -234,6 +238,7 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
         {search.isSuccess && ranked.length === 0 && !picked && (
           <p className="text-muted text-sm">{t('sourcePicker.none')}</p>
         )}
+        {search.isSuccess && !picked && <NeedsSetupNote kinds={PICK_KINDS} />}
         <ul className={picked ? 'hidden' : 'flex max-h-[50vh] flex-col overflow-y-auto'}>
           {ranked.map((entry, index) => (
             <li key={`${entry.source ?? ''}-${index}`} className="flex items-center gap-2 py-1.5">

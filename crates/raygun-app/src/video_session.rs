@@ -499,6 +499,11 @@ fn sources_update(session: &Session, now: i64) -> Value {
                 GroupState::Resolving => ("resolving", None),
                 GroupState::Ready => ("ready", None),
                 GroupState::Empty => ("empty", None),
+                // Not asked: the source waits for its key or sign-in. The sheet counts these in
+                // one line instead of listing them as failed.
+                GroupState::Failed(error) if raygun_ext_host::needs_setup_in(error).is_some() => {
+                    ("setup", Some(error.clone()))
+                }
                 GroupState::Failed(error) => ("failed", Some(error.clone())),
             };
             let facts: Vec<LinkFacts> = group.links.iter().map(Link::facts).collect();

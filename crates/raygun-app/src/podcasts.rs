@@ -333,12 +333,23 @@ impl PodcastService {
     ) -> Result<AudiobookPage, String> {
         let query = query.trim().to_owned();
         let page = page.max(1);
-        let providers = {
+        let (providers, waiting) = {
             let extensions = self.app.state::<Arc<ExtensionService>>();
             let (_ready, host) = extensions.ready().await;
-            host.providers(AUDIOBOOK_DIRECTORY).await
+            let waiting = host
+                .sources_needing_setup()
+                .iter()
+                .any(|source| source.kinds.iter().any(|kind| kind == AUDIOBOOK_DIRECTORY));
+            (host.providers(AUDIOBOOK_DIRECTORY).await, waiting)
         };
         if providers.is_empty() {
+            // Sources waiting for their key aren't asked; the page counts them in a line.
+            if waiting {
+                return Ok(AudiobookPage {
+                    books: Vec::new(),
+                    has_more: false,
+                });
+            }
             return Err("No audiobook source is installed".into());
         }
         let mut answers: Vec<Option<Result<BookPage, String>>> = vec![None; providers.len()];
@@ -1030,6 +1041,15 @@ impl PodcastService {
         let (_ready, host) = extensions.ready().await;
         let providers = host.providers(PODCAST_DIRECTORY).await;
         if providers.is_empty() {
+            // Directories waiting for their key aren't asked, and nothing failed: the page
+            // counts them in a line of its own.
+            let waiting = host
+                .sources_needing_setup()
+                .iter()
+                .any(|source| source.kinds.iter().any(|kind| kind == PODCAST_DIRECTORY));
+            if waiting {
+                return Ok(Vec::new());
+            }
             return Err("No podcast directory is installed".into());
         }
         // Every directory at once (M46.48), each in the order it ranked its shows.
@@ -1062,6 +1082,8 @@ impl PodcastService {
                         });
                     }
                 }
+                // It just said it needs a key: counted with the sources waiting for one.
+                Err(error) if raygun_ext_host::needs_setup_in(&error.to_string()).is_some() => {}
                 Err(error) => errors.push(raygun_net::issue::named(&provider.name, &error)),
             }
         }
