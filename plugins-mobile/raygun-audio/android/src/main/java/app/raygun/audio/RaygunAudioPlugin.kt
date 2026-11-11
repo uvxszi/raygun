@@ -1519,6 +1519,7 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     @Command
     fun mediaState(invoke: Invoke) {
         val state = MirrorState.parse(invoke.getArgs().optJSONObject("state"))
+        val previous = mirrorState
         mirrorState = state
         if (state == null && RaygunPlaybackService.instance == null) {
             // Nothing plays and nothing did: no service to start for it.
@@ -1528,9 +1529,32 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         }
         withController {
             RaygunPlaybackService.instance?.mirror?.update(state)
+            // The song playing here was given other details (a cover picked for it, a new
+            // title): the notification and lock screen show them without loading it again.
+            if (loadId != null && state != null && previous?.itemId == state.itemId &&
+                (previous.title != state.title || previous.artist != state.artist ||
+                    previous.artworkUrl != state.artworkUrl)
+            ) {
+                retitleDeck(state)
+            }
             syncSession()
         }
         invoke.resolve()
+    }
+
+    /** Puts [state]'s title, artist and cover on the item the deck plays; its stream stays. */
+    private fun retitleDeck(state: MirrorState) {
+        val player = RaygunPlaybackService.instance?.deck?.player ?: return
+        val current = player.currentMediaItem ?: return
+        val metadata = current.mediaMetadata.buildUpon()
+            .setTitle(state.title)
+            .setArtist(state.artist)
+            .setArtworkUri(state.artworkUrl?.let(Uri::parse))
+            .build()
+        player.replaceMediaItem(
+            player.currentMediaItemIndex,
+            current.buildUpon().setMediaMetadata(metadata).build(),
+        )
     }
 
     // ---- Download notifications (see DownloadNotices) ----

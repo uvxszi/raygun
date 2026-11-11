@@ -4,7 +4,7 @@
 //! stream stops working isn't skipped at once: it looks for another source as `resolution`
 //! plans, and the player says so meanwhile.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -105,6 +105,9 @@ pub struct PlaybackService {
     /// Raygun's webview is there, with YouTube's embedded player in it. On Android it goes with
     /// Raygun's activity while music plays on without it ([`Self::webview_gone`]).
     webview: std::sync::atomic::AtomicBool,
+    /// Queued songs without a cover whose cover found elsewhere was looked for, by item id
+    /// ([`Self::find_covers`]).
+    covers_asked: Mutex<HashSet<String>>,
 }
 
 /// Everything to emit once the core lock is released.
@@ -184,6 +187,7 @@ impl PlaybackService {
             armed: Mutex::new(None),
             clock: Instant::now(),
             webview: std::sync::atomic::AtomicBool::new(true),
+            covers_asked: Mutex::new(HashSet::new()),
         }
     }
 
@@ -576,6 +580,85 @@ impl PlaybackService {
 
     pub fn queue(&self) -> QueueSnapshot {
         self.lock().core.queue()
+    }
+
+    /// Queued songs without a cover take the one found for them at another source (M46.40), as
+    /// their rows showed it: what's remembered for a new queue's songs at once, and a lookup for
+    /// the song that plays when nothing is. Each item is looked for once.
+    fn find_covers(&self, queue: Option<&QueueSnapshot>, current: Option<&QueueItem>) {
+        let (remembered, look_up) = {
+            let mut asked = self.covers_asked.lock().expect("covers poisoned");
+            if let Some(queue) = queue {
+                asked.retain(|id| {
+                    let id = id.trim_start_matches(LOOKED_UP);
+                    queue.items.iter().any(|item| item.id == id)
+                });
+            }
+            let remembered = queue
+                .map(|queue| coverless(&queue.items, "", &mut asked))
+                .unwrap_or_default();
+            let look_up = current
+                .map(|item| coverless(std::slice::from_ref(item), LOOKED_UP, &mut asked))
+                .unwrap_or_default();
+            (remembered, look_up)
+        };
+        if remembered.is_empty() && look_up.is_empty() {
+            return;
+        }
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let fallbacks = app
+                .state::<Arc<crate::cover_fallback::CoverFallbacks>>()
+                .inner()
+                .clone();
+            let keys: Vec<String> = remembered
+                .iter()
+                .flat_map(|(_, keys)| keys.clone())
+                .collect();
+            let known = fallbacks.remembered_songs(&keys).await;
+            let mut found: HashMap<String, String> = remembered
+                .into_iter()
+                .filter_map(|(item, keys)| {
+                    let url = keys.iter().find_map(|key| known.get(key))?;
+                    Some((item.id, url.clone()))
+                })
+                .collect();
+            let podcasts = app
+                .try_state::<Arc<crate::podcasts::PodcastService>>()
+                .map(|podcasts| podcasts.inner().clone());
+            for (item, _) in look_up {
+                if found.contains_key(&item.id) {
+                    continue;
+                }
+                // Episodes and chapters have their show's or book's cover, never a song's.
+                if let Some(podcasts) = &podcasts
+                    && matches!(podcasts.spoken_item(&item.source).await, Ok(Some(_)))
+                {
+                    continue;
+                }
+                let target = raygun_model::DetailTarget::Song {
+                    query: TrackQuery {
+                        title: item.title.clone(),
+                        artist: item.artist.clone(),
+                        album: item.album.clone(),
+                        duration_ms: None,
+                    },
+                };
+                if let Some(url) = fallbacks.cover(&target).await {
+                    found.insert(item.id.clone(), url);
+                }
+            }
+            if found.is_empty() {
+                return;
+            }
+            let images = app.state::<raygun_net::ImageLinks>();
+            let found: HashMap<String, String> = found
+                .into_iter()
+                .map(|(id, url)| (id, images.cover(&url, &Default::default())))
+                .collect();
+            app.state::<PlaybackService>()
+                .update_items(|item| give_cover(item, &found));
+        });
     }
 
     pub fn enqueue(&self, items: Vec<QueueItemInput>, play_now: bool) {
@@ -1250,6 +1333,7 @@ impl PlaybackService {
                 _ => log_emit(EngineCommandEvent(command).emit(&self.app)),
             }
         }
+        self.find_covers(outbox.queue.as_ref(), outbox.current.as_ref());
         if let Some(queue) = outbox.queue {
             log_emit(QueueEvent(queue).emit(&self.app));
         }
@@ -1657,6 +1741,42 @@ fn unplayable(title: &str) -> String {
     format!("No source could play \u{201c}{title}\u{201d}")
 }
 
+/// What marks an item whose cover was looked up at the sources in `covers_asked` (rather than
+/// read from what's remembered).
+const LOOKED_UP: &str = "lookup:";
+
+/// The songs of `items` without a cover not asked about yet (as `asked` records them, under
+/// `mark` and their id), with the keys a cover found for them is remembered under; they're
+/// recorded as asked.
+fn coverless(
+    items: &[QueueItem],
+    mark: &str,
+    asked: &mut HashSet<String>,
+) -> Vec<(QueueItem, Vec<String>)> {
+    items
+        .iter()
+        .filter(|item| {
+            item.artwork_url.is_none() && item.media_kind == raygun_model::MediaKind::Audio
+        })
+        .filter(|item| asked.insert(format!("{mark}{}", item.id)))
+        .map(|item| (item.clone(), song_keys(item)))
+        .collect()
+}
+
+/// Gives `item` the cover `found` has for it (by item id), unless it got one meanwhile.
+fn give_cover(item: &mut QueueItem, found: &HashMap<String, String>) -> bool {
+    if item.artwork_url.is_some() {
+        return false;
+    }
+    match found.get(&item.id) {
+        Some(url) => {
+            item.artwork_url = Some(url.clone());
+            true
+        }
+        None => false,
+    }
+}
+
 /// How often the queue is saved for reopening (M46.16).
 const SAVE_EVERY: Duration = Duration::from_secs(5);
 
@@ -1826,5 +1946,56 @@ mod tests {
         assert_eq!(engine_for(&stream, true), Engine::Native);
         assert_eq!(engine_for(&file, true), Engine::Native);
         assert_eq!(engine_for(&file, false), Engine::Webview);
+    }
+
+    fn song(id: &str, title: &str, artwork: Option<&str>) -> QueueItem {
+        QueueItem {
+            id: id.into(),
+            title: title.into(),
+            artist: Some("Nina Simone".into()),
+            album: None,
+            duration_ms: None,
+            artwork_url: artwork.map(String::from),
+            media_kind: raygun_model::MediaKind::Audio,
+            source: MediaSource::Lookup {
+                title: title.into(),
+                artist: Some("Nina Simone".into()),
+                album: None,
+                duration_ms: None,
+            },
+            explicit: false,
+        }
+    }
+
+    #[test]
+    fn songs_without_a_cover_are_looked_for_once_and_take_the_one_found() {
+        let mut items = vec![
+            song("a", "Sinnerman", Some("own.jpg")),
+            song("b", "Be My Husband", None),
+        ];
+        let mut asked = HashSet::new();
+        let wanted = coverless(&items, "", &mut asked);
+        assert_eq!(wanted.len(), 1);
+        assert_eq!(wanted[0].0.id, "b");
+        assert!(
+            wanted[0]
+                .1
+                .contains(&"nina simone|be my husband".to_owned())
+        );
+        // Asked once: a queue change after doesn't ask again; a lookup is asked on its own.
+        assert!(coverless(&items, "", &mut asked).is_empty());
+        assert_eq!(coverless(&items, LOOKED_UP, &mut asked).len(), 1);
+
+        let found = HashMap::from([
+            ("a".to_owned(), "other.jpg".to_owned()),
+            ("b".to_owned(), "found.jpg".to_owned()),
+        ]);
+        let changed: Vec<bool> = items
+            .iter_mut()
+            .map(|item| give_cover(item, &found))
+            .collect();
+        assert_eq!(changed, [false, true]);
+        assert_eq!(items[0].artwork_url.as_deref(), Some("own.jpg"));
+        assert_eq!(items[1].artwork_url.as_deref(), Some("found.jpg"));
     }
 }
