@@ -1,8 +1,14 @@
 package app.raygun.audio
 
 import android.content.Context
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Looper
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
+import android.view.View
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
@@ -24,6 +30,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import kotlin.concurrent.thread
+import kotlin.math.roundToInt
 
 /** Largest subtitle file read for the second track. */
 private const val MAX_SUBTITLE_BYTES = 8 * 1024 * 1024
@@ -100,6 +107,97 @@ internal fun sameLanguage(a: String?, b: String?): Boolean {
 
 /** A language's name in the device's language ("German" for "ger"). */
 internal fun languageName(tag: String?): String? = Languages.name(tag)
+
+/**
+ * `items` with those in the first of `languages` at the top, then the next language's, then the
+ * rest; each group keeps its own order (several tracks in one language stay together).
+ */
+internal fun <T> byLanguages(items: List<T>, languages: List<String>, language: (T) -> String?): List<T> {
+    if (languages.isEmpty()) return items
+    return items.sortedBy { item ->
+        languages.indexOf(Languages.code(language(item))).let { rank -> if (rank < 0) languages.size else rank }
+    }
+}
+
+/**
+ * Cues in the viewer's style over the file's own: a text colour or a background picked in the
+ * player wins over the colours a file gives its lines (an ASS style's, a TTML region's), and the
+ * size setting scales the sizes a file sets. Texts are copied, so nothing of one style stays on a
+ * cue when the style changes (Media3's painter adds spans to a `SpannableStringBuilder` it draws).
+ */
+internal fun restyled(cues: List<Cue>, look: SubtitleLook): List<Cue> {
+    val defaults = SubtitleLook()
+    val ownText = look.textColor != defaults.textColor
+    val ownBackground = look.backgroundColor != defaults.backgroundColor
+    val scale = look.size / 100f
+    if (!ownText && !ownBackground && look.size == defaults.size) return cues
+    return cues.map { cue ->
+        val builder = cue.buildUpon()
+        val text = cue.text
+        if (text is Spanned && (ownText || ownBackground)) {
+            val copy = SpannableString(text)
+            if (ownText) copy.getSpans(0, copy.length, ForegroundColorSpan::class.java).forEach(copy::removeSpan)
+            if (ownBackground) copy.getSpans(0, copy.length, BackgroundColorSpan::class.java).forEach(copy::removeSpan)
+            builder.setText(copy)
+        }
+        if (ownBackground) builder.clearWindowColor()
+        if (scale != 1f && cue.textSizeType != Cue.TYPE_UNSET && cue.textSize != Cue.DIMEN_UNSET) {
+            builder.setTextSize(cue.textSize * scale, cue.textSizeType)
+        }
+        builder.build()
+    }
+}
+
+/**
+ * Where subtitles go on a `width`×`height` window: the part of the picture's `frame` on screen,
+ * or (no frame laid out yet, or a sliver of one mid-layout) the picture fitted to the window at
+ * its own shape, at 16:9 without a picture. Never the whole window: lines are sized by the
+ * area's height, and a portrait window's height would make them several times too large.
+ */
+internal fun subtitleArea(width: Int, height: Int, frame: View?, pictureWidth: Float, pictureHeight: Float): Rect {
+    if (frame != null) {
+        val visible = Rect(
+            frame.left.coerceAtLeast(0),
+            frame.top.coerceAtLeast(0),
+            frame.right.coerceAtMost(width),
+            frame.bottom.coerceAtMost(height),
+        )
+        if (visible.width() >= width / 8 && visible.height() >= height / 8) return visible
+    }
+    val ratio = if (pictureWidth > 0f && pictureHeight > 0f) pictureWidth / pictureHeight else 16f / 9f
+    var fitWidth = width
+    var fitHeight = (width / ratio).roundToInt()
+    if (fitHeight > height) {
+        fitHeight = height
+        fitWidth = (height * ratio).roundToInt().coerceAtMost(width)
+    }
+    val left = (width - fitWidth) / 2
+    val top = (height - fitHeight) / 2
+    return Rect(left, top, left + fitWidth, top + fitHeight)
+}
+
+/**
+ * The cues of one subtitle view as they came, shown in [look] ([restyled]): a style change shows
+ * on the lines on screen at once, not from the next line or track.
+ */
+internal class StyledCues(private val view: SubtitleView) {
+    private var raw: List<Cue> = emptyList()
+
+    var look: SubtitleLook = SubtitleLook()
+        set(value) {
+            if (field == value) return
+            field = value
+            view.setCues(restyled(raw, value))
+        }
+
+    fun set(cues: List<Cue>?) {
+        val next = cues ?: emptyList()
+        // The second subtitles ask every tick; the same lines aren't drawn again.
+        if (next == raw) return
+        raw = next
+        view.setCues(restyled(next, look))
+    }
+}
 
 private fun hasWord(text: String?, words: List<String>): Boolean {
     val name = text?.lowercase(Locale.ROOT) ?: return false
@@ -374,7 +472,7 @@ private fun Cue.atTop(): Cue = buildUpon()
  * this one is a subtitle file read and parsed here, or one of the [LiveSubtitles] tracks, its
  * cues shown as the position moves.
  */
-internal class SecondSubtitles(private val host: VideoPlayerActivity, private val view: SubtitleView) {
+internal class SecondSubtitles(private val host: VideoPlayerActivity, private val view: StyledCues) {
     private var timed: List<TimedCues> = emptyList()
     private var generation = 0
     var current: Sidecar? = null
@@ -391,7 +489,7 @@ internal class SecondSubtitles(private val host: VideoPlayerActivity, private va
         current = sidecar
         liveId = null
         timed = emptyList()
-        view.setCues(null)
+        view.set(null)
         thread(name = "raygun-subtitles") {
             val result = runCatching { SubtitleFiles.parse(SubtitleFiles.read(host, sidecar.uri), sidecar.mime) }
             host.runOnUiThread {
@@ -410,7 +508,7 @@ internal class SecondSubtitles(private val host: VideoPlayerActivity, private va
         current = null
         timed = emptyList()
         liveId = id
-        view.setCues(null)
+        view.set(null)
     }
 
     fun clear() {
@@ -418,18 +516,18 @@ internal class SecondSubtitles(private val host: VideoPlayerActivity, private va
         current = null
         liveId = null
         timed = emptyList()
-        view.setCues(null)
+        view.set(null)
     }
 
     /** Shows the cues at `positionMs`, shifted by the subtitle delay, at the top of the picture. */
     fun update(positionMs: Long, delayMs: Long) {
         liveId?.let { id ->
-            view.setCues(host.liveTracks.cuesAt(id, positionMs - delayMs).map { it.atTop() })
+            view.set(host.liveTracks.cuesAt(id, positionMs - delayMs).map { it.atTop() })
             return
         }
         if (timed.isEmpty()) return
         val at = (positionMs - delayMs) * 1000
-        view.setCues(timed.filter { at >= it.startUs && at < it.endUs }.flatMap { it.cues }.map { it.atTop() })
+        view.set(timed.filter { at >= it.startUs && at < it.endUs }.flatMap { it.cues }.map { it.atTop() })
     }
 }
 
@@ -467,6 +565,10 @@ internal class LiveTrack(val id: String, val kind: String) {
     var status = LiveStatus(null)
     /** In time order. */
     val cues = ArrayList<LiveCue>()
+
+    /** Listed with the subtitles once it has lines or is being made, not before. */
+    val shown: Boolean
+        get() = cues.isNotEmpty() || status.running || status.preparing || status.downloading != null
 
     fun merge(list: JSONArray?, replace: Boolean) {
         if (replace) cues.clear()
@@ -590,7 +692,7 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
         primary = id
         shown = emptyList()
         host.main.removeCallbacks(ticker)
-        host.subtitleView.setCues(null)
+        host.mainCues.set(null)
         if (id != null) {
             host.tracks.select(C.TRACK_TYPE_TEXT, null)
             host.main.post(ticker)
@@ -603,14 +705,14 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
         // Media3's own track turned on again (picked after a reload): it shows instead.
         if (track == null || !host.tracks.textOff()) {
             primary = null
-            if (track == null) host.subtitleView.setCues(null)
+            if (track == null) host.mainCues.set(null)
             return
         }
         // A live stream's cues are timed by its own clock (`PlayerLive.clockMs`).
         val now = track.at(host.liveStream.clockMs() - host.state.subtitleDelayMs)
         if (now == shown) return
         shown = now
-        host.subtitleView.setCues(now.map { Cue.Builder().setText(it.text).build() })
+        host.mainCues.set(now.map { Cue.Builder().setText(it.text).build() })
     }
 
     /** The cues of live track `id` at `positionMs`, for the second subtitles. */
@@ -666,9 +768,12 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
     /** The saved AI subtitles file of this video, which the live AI track replaces while shown. */
     fun isAiFile(sidecar: Sidecar): Boolean = sidecar.uri.toString().contains("/local/subtitles/ai/")
 
+    /** Whether the live AI subtitles are listed (lines, or being made). */
+    val aiListed: Boolean get() = tracks[AI_TRACK]?.shown == true
+
     /** Whether Media3's `track` is the saved AI subtitles file, hidden while the live one shows. */
     fun hides(track: TrackRef): Boolean {
-        if (!tracks.containsKey(AI_TRACK)) return false
+        if (!aiListed) return false
         val file = host.sidecars.firstOrNull { isAiFile(it) } ?: return false
         return track.format.label == file.label
     }

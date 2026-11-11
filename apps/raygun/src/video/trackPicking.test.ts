@@ -1,6 +1,8 @@
 import {
+  byLanguages,
   languageCode,
   languagePrefs,
+  listedLanguages,
   matchChoice,
   ORIGINAL_AUDIO,
   pickAudio,
@@ -178,5 +180,44 @@ describe('pickVariant', () => {
     const unsized = [{ bitrate: 6_000_000 }, { bitrate: 2_400_000 }, { bitrate: 14_000_000 }];
     expect(pickVariant(unsized, '1080p')?.start).toBe(0);
     expect(pickVariant(ladder.slice(0, 1), '1080p')).toBeNull();
+  });
+});
+
+describe('subtitle lists', () => {
+  const input = {
+    audioLanguage: '',
+    audioFallback: '',
+    subtitleFallback: '',
+    appLanguage: 'de',
+    subtitleLanguage: '',
+    subtitleMode: 'foreign' as const,
+    spoken: null,
+    device: ['en-GB'],
+  };
+
+  it('list the device’s languages, then the app’s, then the rest', () => {
+    expect(listedLanguages(input)).toEqual(['en', 'de']);
+    // A subtitle language set in Settings comes first.
+    expect(listedLanguages({ ...input, subtitleLanguage: 'fr' })).toEqual(['fr', 'en', 'de']);
+  });
+
+  it('keep every track of a language together, in the video’s order', () => {
+    const options = [
+      option('es', 'Español', 'spa'),
+      option('en', 'English', 'en'),
+      option('fr', 'Français', 'fre'),
+      option('sdh', 'English SDH', 'eng'),
+      option('ai', 'AI subtitles', null),
+      option('de', 'Deutsch (translated)', 'de'),
+    ];
+    expect(byLanguages(options, listedLanguages(input)).map((track) => track.key)).toEqual([
+      'en',
+      'sdh',
+      'de',
+      'es',
+      'fr',
+      'ai',
+    ]);
+    expect(byLanguages(options, [])).toBe(options);
   });
 });

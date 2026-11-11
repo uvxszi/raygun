@@ -125,6 +125,19 @@ export const cssColor = (argb: number) => {
   return `rgba(${red}, ${green}, ${blue}, ${Number(alpha.toFixed(3))})`;
 };
 
+/** `#rrggbb` of a 0xAARRGGBB colour (its opacity left out). */
+export const hexOf = (argb: number) => `#${(argb & 0xffffff).toString(16).padStart(6, '0')}`;
+
+/** A typed `#rrggbb` (the # may be left out) as 0xRRGGBB; null when it isn't one. */
+export const parseHex = (text: string): number | null => {
+  const digits = text.trim().replace(/^#/, '');
+  return /^[0-9a-f]{6}$/i.test(digits) ? Number.parseInt(digits, 16) : null;
+};
+
+/** `rgb` with opacity `alpha` (0–255), as an unsigned 0xAARRGGBB. */
+export const withAlpha = (rgb: number, alpha: number) =>
+  (((alpha & 0xff) << 24) | (rgb & 0xffffff)) >>> 0;
+
 /** The player's settings with every field: Rust always sends them all, but the generated type
  * marks them optional because the stored row may lack ones added later. */
 export type PlayerPrefs = Required<Omit<VideoPlayerPrefs, 'subtitleStyle'>> & {

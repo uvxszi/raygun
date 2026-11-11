@@ -240,7 +240,8 @@ describe('desktop video player', () => {
       await within(panel).findByRole('button', { name: 'Add OpenSubtitles v3' }),
     ).toBeInTheDocument();
 
-    // AI subtitles from where the viewer is, with the chosen model.
+    // AI subtitles from where the viewer is, with the chosen model: a tool of its own.
+    await user.click(within(panel).getByRole('button', { name: 'Transcribe with AI' }));
     await user.click(within(panel).getByRole('button', { name: 'Transcribe from here' }));
     expect(commands.captionsVideoTranscribe).toHaveBeenCalledWith(
       MOVIE.id,

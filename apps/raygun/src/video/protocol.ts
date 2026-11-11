@@ -150,7 +150,13 @@ export type PlayerUpdate =
   | { type: 'sources'; groups: SourceGroup[]; playingFrom?: string | null; order?: number[] }
   | { type: 'chapters'; id: string; items: VideoChapter[] }
   /** The Quality menu; `notice` when a step tapped can't play. */
-  | { type: 'qualities'; items: QualityRow[]; wanted?: string | null; notice?: string | null };
+  | { type: 'qualities'; items: QualityRow[]; wanted?: string | null; notice?: string | null }
+  /** Settings changed in the app while a video plays (`video::settings_changed`): followed at
+   * once, as a request's would be. */
+  | ({ type: 'prefs' } & Pick<
+      PlayerRequest,
+      'prefs' | 'seekStepMs' | 'appLanguage' | 'subtitleLanguage' | 'subtitleMode'
+    >);
 
 export type ReportState = 'progress' | 'ended' | 'error' | 'switched' | 'closed';
 

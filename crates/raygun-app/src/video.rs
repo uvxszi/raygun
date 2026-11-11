@@ -365,6 +365,23 @@ pub async fn session_shell(app: &AppHandle, title: &str, subtitle: &str) -> serd
     with_shared_fields(shell, &prefs)
 }
 
+/// Settings changed in the app (Settings → Video player, the subtitle language, the seek step)
+/// while a video plays: the open player follows them at once (the subtitles' style included)
+/// instead of from its next video. Nothing happens without an open player.
+pub async fn settings_changed(app: &AppHandle) {
+    let db = app.state::<AppDb>().0.clone();
+    let prefs = player_prefs(&db).await;
+    let settings = player_settings(&db, &prefs).await;
+    if let Err(error) = update_player(app, &prefs_update(settings, &prefs)) {
+        tracing::debug!(%error, "no player to follow the settings");
+    }
+}
+
+/// The `prefs` update: the player's settings and what every request carries besides the video.
+fn prefs_update(settings: Value, prefs: &PlayerPrefs) -> Value {
+    with_shared_fields(json!({ "type": "prefs", "prefs": settings }), prefs)
+}
+
 /// The player's settings as it reads them, with the brightness to restore when it's remembered.
 async fn player_settings(db: &raygun_db::Db, prefs: &PlayerPrefs) -> Value {
     let mut value = serde_json::to_value(&prefs.video_player).unwrap_or_default();
@@ -1165,6 +1182,37 @@ mod tests {
         assert!(!keeps_place(&report(json!({
             "id": "v", "state": "error", "positionMs": 0.0, "durationMs": null
         }))));
+    }
+
+    #[test]
+    fn settings_reach_an_open_player_as_a_prefs_update() {
+        let mut video_player = VideoPlayerPrefs::default();
+        video_player.subtitle_style.text_color = 0xFF12_3456;
+        let prefs = PlayerPrefs {
+            resume: true,
+            watched_share: 0.9,
+            seek_ms: 15_000,
+            app_language: "de".into(),
+            subtitle_language: "fr".into(),
+            subtitle_mode: SubtitleMode::Always,
+            autoplay: true,
+            next_prompt_ms: 10_000,
+            keep_music_playing: false,
+            accent: "#65adff".into(),
+            video_player: video_player.clone(),
+        };
+        let update = prefs_update(serde_json::to_value(&video_player).unwrap(), &prefs);
+        assert_eq!(update["type"], "prefs");
+        assert_eq!(
+            update["prefs"]["subtitleStyle"]["textColor"],
+            0xFF12_3456_u32
+        );
+        assert_eq!(update["seekStepMs"], 15_000);
+        assert_eq!(update["subtitleLanguage"], "fr");
+        assert_eq!(update["subtitleMode"], "always");
+        assert_eq!(update["appLanguage"], "de");
+        // Not a new video: nothing of a request's own.
+        assert!(update.get("url").is_none() && update.get("session").is_none());
     }
 
     #[test]

@@ -192,6 +192,14 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
             qualities: update.items,
             qualityNotice: update.notice ? { text: update.notice, at: Date.now() } : null,
           };
+        case 'prefs': {
+          // Only what settings say; the session's own fields stay.
+          const { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode } = settingsFrom(
+            { id: '', ...update },
+            state,
+          );
+          return { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode };
+        }
         case 'chapters': {
           if (update.id !== state.request?.id) return state;
           // AniSkip's, beside any the source gave.

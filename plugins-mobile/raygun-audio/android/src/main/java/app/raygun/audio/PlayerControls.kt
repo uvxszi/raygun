@@ -3,7 +3,6 @@ package app.raygun.audio
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -56,13 +55,11 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         context.iconButton(R.drawable.raygun_ic_subtitles, host.label("subtitles", "Subtitles")) { host.sheets.subtitles() }
     private val moreButton =
         context.iconButton(R.drawable.raygun_ic_more, host.label("more", "More")) { host.sheets.more() }
+    // The bars draw no shade of their own: the player's vignette covers the window
+    // ([PlayerVignette]).
     private val topBar = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        background = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(0xB3000000.toInt(), 0x00000000),
-        )
         setPadding(context.dp(8), context.dp(8), context.dp(8), context.dp(24))
         addView(context.iconButton(R.drawable.raygun_ic_back, host.label("back", "Back")) { host.leave() })
         addView(LinearLayout(context).apply {
@@ -145,10 +142,6 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         }
     private val bottomBar = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        background = GradientDrawable(
-            GradientDrawable.Orientation.BOTTOM_TOP,
-            intArrayOf(0xB3000000.toInt(), 0x00000000),
-        )
         setPadding(context.dp(12), context.dp(24), context.dp(12), context.dp(8))
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
