@@ -209,13 +209,15 @@ const routeTree = rootRoute.addChildren([
     component: NovelReaderPage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { title: string; chapter: string; page?: number } => {
-      // A PDF chapter opened at a page (a search result).
+    ): { title: string; chapter: string; page?: number; block?: number } => {
+      // A PDF chapter opened at a page, or a chapter at a paragraph (search results).
       const page = Number(search.page);
+      const block = Number(search.block);
       return {
         title: text(search.title),
         chapter: text(search.chapter),
         ...(search.page !== undefined && Number.isInteger(page) && page >= 0 ? { page } : {}),
+        ...(search.block !== undefined && Number.isInteger(block) && block >= 0 ? { block } : {}),
       };
     },
   }),

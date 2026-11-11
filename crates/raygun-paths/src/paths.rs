@@ -30,6 +30,8 @@ pub enum CacheKind {
     Convert,
     /// Pieces of torrents being streamed, removed once the video closes.
     Torrents,
+    /// What dictionaries answered for words looked up in the book reader.
+    Dictionary,
     /// SponsorBlock's parts of YouTube videos, kept a day and swept after a month unused.
     SponsorBlock,
 }
@@ -48,6 +50,7 @@ impl CacheKind {
             Self::Artists => "artists",
             Self::Convert => "convert",
             Self::Torrents => "torrents",
+            Self::Dictionary => "dictionary",
             Self::SponsorBlock => "sponsorblock",
         }
     }

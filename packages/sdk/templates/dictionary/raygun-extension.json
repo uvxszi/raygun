@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "English words from the Free Dictionary API, with Wiktionary's text.",
+  "website": "https://dictionaryapi.dev",
+  "provides": ["dictionary"],
+  "permissions": { "net": ["api.dictionaryapi.dev"] },
+  "contentRating": "safe"
+}

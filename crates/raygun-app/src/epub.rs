@@ -415,6 +415,20 @@ pub fn svg_images(html: &str) -> Vec<String> {
         .collect()
 }
 
+/// The language an unpacked book says it's written in (its package's `dc:language`).
+pub fn unpacked_language(dir: &Path) -> Option<String> {
+    let container = std::fs::read(dir.join(safe_path("META-INF/container.xml"))).ok()?;
+    let container = Html::parse_document(&String::from_utf8_lossy(&container));
+    let opf_path = elements(&container, "rootfile")
+        .find_map(|element| attr(element, "full-path"))
+        .and_then(|path| normalize(&path))?;
+    let opf = std::fs::read(dir.join(safe_path(&opf_path))).ok()?;
+    let opf = Html::parse_document(&String::from_utf8_lossy(&opf));
+    elements(&opf, "dc:language")
+        .map(text)
+        .find(|tag| !tag.is_empty())
+}
+
 fn first_heading(html: &str) -> Option<String> {
     raygun_ext_host::novel::html_blocks(html, None)
         .into_iter()

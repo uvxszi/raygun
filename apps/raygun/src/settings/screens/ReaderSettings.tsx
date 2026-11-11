@@ -2,6 +2,7 @@ import type { NovelReaderPrefs, NovelTheme, NovelWidth } from '@raygun/bindings'
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { DictionarySettings } from '../../dictionary/DictionarySettings';
 import { ReadingFontRow } from '../../fonts/ReadingFont';
 import { ReaderDisplaySettings } from '../../manga/ReaderDisplaySettings';
 import { DEFAULT_PREFS, INDENT, LINE_SPACING, TEXT_SIZE } from '../../novel/useNovel';
@@ -89,6 +90,7 @@ export const ReaderSettings: FC = () => {
           onChange={(ttsRate) => set({ ttsRate })}
         />
       </PrefGroup>
+      <DictionarySettings />
     </>
   );
 };

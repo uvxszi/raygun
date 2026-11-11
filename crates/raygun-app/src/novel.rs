@@ -36,7 +36,7 @@ pub const LOCAL_EPUB: &str = "local.epub";
 /// The source id of imported PDF books.
 pub const LOCAL_PDF: &str = "local.pdf";
 /// Folder under the downloads root holding unpacked books.
-const BOOKS: &str = "books";
+pub(crate) const BOOKS: &str = "books";
 /// An imported PDF's file, and its cover, in its folder under [`BOOKS`].
 const PDF_FILE: &str = "document.pdf";
 const PDF_COVER: &str = "cover.png";

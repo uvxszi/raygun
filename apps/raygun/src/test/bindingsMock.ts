@@ -638,6 +638,10 @@ export const bindingsMock = {
     novelImportEpubUpload: vi.fn(),
     novelPdfText: vi.fn(),
     novelPdfSearch: vi.fn(),
+    novelSearchBook: vi.fn(),
+    dictionaryLookup: vi.fn(),
+    dictionarySources: vi.fn(),
+    dictionaryOpenPage: vi.fn(),
     ttsAvailable: vi.fn(),
     ttsSpeak: vi.fn(),
     ttsStop: vi.fn(),
@@ -1464,6 +1468,28 @@ export const seedBindings = () => {
   commands.novelSetRead.mockResolvedValue(ok(null));
   commands.novelPdfText.mockResolvedValue(ok({ blocks: [], pageStarts: [] }));
   commands.novelPdfSearch.mockResolvedValue(ok([]));
+  commands.novelSearchBook.mockResolvedValue(
+    ok({ hits: [], searched: 0, chapters: 0, more: false }),
+  );
+  commands.dictionarySources.mockResolvedValue(ok([]));
+  commands.dictionaryOpenPage.mockResolvedValue(ok(null));
+  commands.dictionaryLookup.mockImplementation(async (request: { text: string }) =>
+    ok({
+      query: request.text,
+      word: '',
+      language: 'en',
+      languageName: null,
+      formOf: null,
+      pronunciations: [],
+      meanings: [],
+      etymology: null,
+      credits: [],
+      onlineUrl: 'https://en.wiktionary.org/w/index.php?search=' + request.text,
+      kept: false,
+      offline: false,
+      issues: [],
+    }),
+  );
   commands.novelImportEpub.mockResolvedValue(ok({ sourceId: 'local.epub', novelId: 'abc' }));
   commands.ttsAvailable.mockResolvedValue(ok(false));
   commands.ttsSpeak.mockResolvedValue(ok(null));
