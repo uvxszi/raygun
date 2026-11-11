@@ -25,7 +25,10 @@ const pageLayout = (
     case 'fitWidth':
       return { className: 'h-auto max-w-none', style: { width: `${Math.round(100 * zoom)}%` } };
     case 'fitHeight':
-      return { className: 'w-auto max-w-none', style: { height: `${Math.round(100 * zoom)}dvh` } };
+      return {
+        className: 'w-auto max-w-none',
+        style: { height: `calc(${Math.round(100 * zoom)} * (100dvh - var(--app-bar, 0px)) / 100)` },
+      };
     case 'original':
       return { className: 'max-w-none', style: { zoom } };
     default:
@@ -33,7 +36,10 @@ const pageLayout = (
         ? { className: 'max-h-full max-w-full object-contain', style: {} }
         : {
             className: 'max-w-none object-contain',
-            style: { width: `${Math.round(100 * zoom)}%`, height: `${Math.round(100 * zoom)}dvh` },
+            style: {
+              width: `${Math.round(100 * zoom)}%`,
+              height: `calc(${Math.round(100 * zoom)} * (100dvh - var(--app-bar, 0px)) / 100)`,
+            },
           };
   }
 };
@@ -183,7 +189,7 @@ export const PagedView: FC<PagedViewProps> = ({
       // Sideways finger moves are the reader's swipes: a browser pan would cancel the pointer
       // before it lifts. A zoomed or full-size page pans both ways (and doesn't swipe).
       style={{ touchAction: zoomed || scale === 'original' ? 'pan-x pan-y' : 'pan-y' }}
-      className={`relative h-[100dvh] w-full select-none [-webkit-touch-callout:none] ${fitted ? 'flex items-center justify-center overflow-hidden' : 'grid overflow-auto [place-items:safe_center]'}`}
+      className={`relative h-[calc(100dvh-var(--app-bar,0px))] w-full select-none [-webkit-touch-callout:none] ${fitted ? 'flex items-center justify-center overflow-hidden' : 'grid overflow-auto [place-items:safe_center]'}`}
     >
       <ReaderImage
         key={`${current}:${pageIdentity(pages[current] ?? '')}`}

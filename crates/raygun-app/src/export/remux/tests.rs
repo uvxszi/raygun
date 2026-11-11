@@ -381,6 +381,35 @@ fn probes_say_size_rate_and_length() {
 }
 
 #[test]
+fn stretches_are_cut_out_of_a_files_sound_and_the_rest_moved_back() {
+    let file = fixtures().join("plain.mp4");
+    let whole = sound_seconds(convert_to(&Source::File(file.clone()), Target::M4a), "m4a");
+    // Overlapping stretches count once: 0.9 s in all.
+    let cut = Source::Cut {
+        file,
+        cuts: vec![(0.0, 0.5), (1.2, 1.5), (1.4, 1.6)],
+    };
+    let seconds = sound_seconds(convert_to(&cut, Target::M4a), "m4a");
+    assert!(
+        (whole - seconds - 0.9).abs() < 0.1,
+        "{whole} s, cut to {seconds} s"
+    );
+    let mut demux = cut.open().unwrap();
+    let mut times = Vec::new();
+    while let Some(packet) = demux.next().unwrap() {
+        let track = &demux.tracks()[packet.track];
+        if !track.codec.is_video() {
+            times.push(packet.pts as f64 / f64::from(track.timescale));
+        }
+    }
+    // The sound starts where the first stretch ended, moved back to the start, and runs on.
+    assert!(times[0] < 0.05, "{}", times[0]);
+    assert!(times.windows(2).all(|pair| pair[1] > pair[0]));
+    let probed = probe(&cut).unwrap().seconds.unwrap();
+    assert!((probed - (whole - 0.9)).abs() < 0.15, "{probed} s");
+}
+
+#[test]
 fn cancelling_stops_a_conversion() {
     let mut out = Vec::new();
     let result = convert(&hls("ts"), Target::Mp4, &mut out, &AtomicBool::new(true));

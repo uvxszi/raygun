@@ -95,6 +95,17 @@ export const VideoPlayerSettings: FC<Props> = ({ openPage }) => {
           onChange={(showEmptySources) => setPlayer({ showEmptySources })}
         />
       </PrefGroup>
+      {/* YouTube's videos follow the music player's YouTube settings (not from inside a player). */}
+      {!openPage && (
+        <PrefGroup title={t('sponsorBlock.youtube')}>
+          <PrefLink
+            title={t('sponsorBlock.title')}
+            summary={t('sponsorBlock.linkHint')}
+            to="/settings/music"
+            hash="sponsorblock"
+          />
+        </PrefGroup>
+      )}
       <PrefGroup title={t('settings.videoPlayer')}>
         {PLAYER_PAGES.filter((page) => shownOn(page.only, desktop)).map((page) => {
           const title = t(`settings.player.section.${page.id}.title`);

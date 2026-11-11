@@ -129,6 +129,8 @@ internal class PlayerPrefs(json: JSONObject) {
     val pipOnBack: Boolean = json.optBoolean("pipOnBack", false)
 
     var decoder: String = json.optString("decoder", "auto")
+    /** `VideoCodec` in raygun-model: H.264 over VP9 and AV1 where a stream offers it. */
+    val preferH264: Boolean = json.optString("videoCodec", "auto") == "h264"
     val externalPlayer: Boolean = json.optBoolean("externalPlayer", false)
     val externalPackage: String = json.optString("externalPackage")
     val showFailedSources: Boolean = json.optBoolean("showFailedSources", true)

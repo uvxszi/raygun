@@ -37,6 +37,7 @@ import { VideoPlayer } from '../video/VideoPlayer';
 import { useVideoPlayerEvents } from '../video/videoPlayerStore';
 import { useYouTubeVideoEvents } from '../video/trailerStore';
 import { YouTubeOverlay } from '../video/YouTubeOverlay';
+import { useSongSkips } from '../youtube/useSongSkips';
 import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { AppBar } from './AppBar';
 import { setWindowDecorations, useWindowState } from './appWindow';
@@ -63,6 +64,7 @@ import { useScrollMemory } from './scrollMemory';
 import { movesFreely, useDeviceStateSync } from './deviceState';
 import { useHideSplash } from './splash';
 import { useJxlProbe } from './jxlProbe';
+import { useMainBounds } from './mainBounds';
 
 const READER_PATHS = ['/manga/read', '/novel/read'];
 const isReaderPath = (pathname: string) => READER_PATHS.includes(pathname);
@@ -171,6 +173,8 @@ export const AppShell: FC = () => {
   usePlayerLabels();
   useVideoPlayerEvents();
   useYouTubeVideoEvents();
+  // SponsorBlock's parts of songs from YouTube: their marks, and a note for each one skipped.
+  useSongSkips();
   useNotificationRoutes();
   useOpenWithProblems();
   // Covers are stored as JPEG XL: whether this webview shows it as it is.
@@ -179,6 +183,9 @@ export const AppShell: FC = () => {
   // Pages scroll inside <main>, not the window: a new page starts at the top, Back and Forward
   // return to where each page was. The readers take the whole screen and keep their own place.
   const mainRef = useRef<HTMLElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The readers' bars cover the page area only, not the rail or the side panel.
+  useMainBounds(rootRef, mainRef);
   const immersive = useRouterState({
     select: (state) => isReaderPath(state.location.pathname),
   });
@@ -192,6 +199,7 @@ export const AppShell: FC = () => {
   return (
     <MotionConfig reducedMotion={movesFreely(motion) ? 'never' : 'always'}>
       <div
+        ref={rootRef}
         className="flex h-full flex-col"
         // Full-window screens (the full player) start below the desktop bar (M46.9).
         style={{ '--app-bar': desktop && !fullscreen ? '4rem' : '0px' } as CSSProperties}

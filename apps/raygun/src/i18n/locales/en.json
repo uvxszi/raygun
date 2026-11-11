@@ -952,6 +952,12 @@
         "auto": "Hardware, then software",
         "software": "Software first"
       },
+      "videoCodec": "Video codec",
+      "videoCodecHint": "What the phone’s player and YouTube’s player pick first when a video comes in several",
+      "videoCodecs": {
+        "auto": "Automatic",
+        "h264": "Prefer H.264 (for devices where VP9 or AV1 stutters or fails)"
+      },
       "otherApps": "Other apps",
       "externalPlayer": "Always use another app",
       "externalPlayerHint": "Videos open in the app below instead of Raygun's player",
@@ -5121,5 +5127,34 @@
     "downloading": "{{percent}}%",
     "cancel": "Cancel",
     "moreModels": "More models in Settings → AI"
+  },
+  "sponsorBlock": {
+    "title": "SponsorBlock",
+    "summary": "Parts of YouTube videos people marked, in songs and videos played from YouTube",
+    "enabled": "Use SponsorBlock",
+    "categories": {
+      "sponsor": "Sponsors",
+      "selfpromo": "Self-promotion",
+      "interaction": "Reminders to subscribe",
+      "intro": "Intros",
+      "outro": "End cards and credits",
+      "preview": "Previews and recaps",
+      "musicOfftopic": "Non-music parts of music videos",
+      "filler": "Tangents and jokes"
+    },
+    "actions": {
+      "skip": "Skip",
+      "show": "Show on the seek bar",
+      "off": "Off"
+    },
+    "trimDownloads": "Leave non-music parts out of downloads",
+    "trimDownloadsHint": "Songs downloaded as a music video’s M4A file are saved without them",
+    "credit": "Parts from SponsorBlock",
+    "creditHint": "sponsor.ajay.app, shared under CC BY-NC-SA 4.0. Raygun sends only part of a hash of the video’s id.",
+    "youtube": "YouTube",
+    "originalAudio": "Original audio",
+    "originalAudioHint": "Videos with dubbed or auto-translated tracks play in their own language",
+    "linkHint": "Skipping sponsors and other parts, the audio track",
+    "skipped": "Skipped: {{part}}"
   }
 }

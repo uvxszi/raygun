@@ -309,9 +309,12 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
 
     /**
      * Before a new video: no choices from the last one, the audio languages in place, and
-     * subtitles off until [pick] decides (Media3 would turn on a track marked default).
+     * subtitles off until [pick] decides (Media3 would turn on a track marked default). With
+     * [preferH264] (Settings → Video player → Advanced → Video codec), a stream offering H.264
+     * plays it over VP9 and AV1, which some devices decode slowly or not at all; otherwise Media3
+     * picks, preferring formats with a hardware decoder.
      */
-    fun reset(languages: LanguagePrefs, maxHeight: Int?) {
+    fun reset(languages: LanguagePrefs, maxHeight: Int?, preferH264: Boolean) {
         val builder = host.player.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
@@ -320,6 +323,11 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
             .setPreferredTextLanguages()
             .setPreferredAudioLanguages(*languages.audio.toTypedArray())
+        if (preferH264) {
+            builder.setPreferredVideoMimeType(MimeTypes.VIDEO_H264)
+        } else {
+            builder.setPreferredVideoMimeTypes()
+        }
         // Automatic quality stays at or below the preferred resolution; with nothing that small
         // Media3 takes the smallest above it. A picture counts by its long side against a 16:9
         // one's (1920×800 is 1080p, as `video_quality::picture_height` in raygun-app counts it).

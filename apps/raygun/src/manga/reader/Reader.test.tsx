@@ -301,6 +301,12 @@ describe('The manga reader', () => {
     const bar = await within(reader).findByTestId('reader-bar');
     expect(await within(bar).findByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
     expect(within(bar).getByRole('button', { name: 'Reading mode' })).toBeInTheDocument();
+    // Its bars cover the page area only, beside the rail and the side panel.
+    const header = within(reader).getByRole('button', { name: 'Close reader' }).closest('header');
+    for (const overlay of [bar.closest('footer'), header]) {
+      expect(overlay).toHaveClass('left-[var(--main-left,0px)]', 'right-[var(--main-right,0px)]');
+      expect(overlay).not.toHaveClass('inset-x-0');
+    }
   });
 
   it('fits the strip and the page to the container width exactly', async () => {

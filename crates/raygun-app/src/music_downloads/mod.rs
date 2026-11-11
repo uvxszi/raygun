@@ -27,6 +27,7 @@ mod check;
 mod hls_file;
 mod known;
 pub mod transcode;
+mod trim;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -299,6 +300,9 @@ pub struct SongDownloadService {
     live: Mutex<HashMap<String, Live>>,
     /// Finished songs by key: the saved file. Playback asks it for every song it loads.
     offline: Mutex<HashMap<String, PathBuf>>,
+    /// Saved files that are a YouTube video's sound, by path: the video, for SponsorBlock's
+    /// parts while the copy plays.
+    youtube_files: Mutex<HashMap<PathBuf, String>>,
     /// Network retries already made, by download (M46.46); reset when one succeeds.
     auto_retries: Mutex<HashMap<String, usize>>,
     /// The YouTube video the files' worker found for a song only YouTube's player plays, and
@@ -329,6 +333,7 @@ impl SongDownloadService {
             stops: Mutex::new(HashMap::new()),
             live: Mutex::new(HashMap::new()),
             offline: Mutex::new(HashMap::new()),
+            youtube_files: Mutex::new(HashMap::new()),
             auto_retries: Mutex::new(HashMap::new()),
             to_record: Mutex::new(HashMap::new()),
             partial_retries: Mutex::new(HashMap::new()),
@@ -376,10 +381,9 @@ impl SongDownloadService {
                                 continue;
                             };
                             if service.plays_whole(&row) {
-                                offline.insert(
-                                    row.song.track_key.clone(),
-                                    service.dir(&row.id).join(file),
-                                );
+                                let path = service.dir(&row.id).join(file);
+                                service.note_youtube_file(&path, &row.origin);
+                                offline.insert(row.song.track_key.clone(), path);
                             }
                             saved.push(row);
                         }
@@ -427,6 +431,97 @@ impl SongDownloadService {
             Ok(true) => self.announce(&row.id).await,
             Ok(false) => {}
             Err(error) => tracing::warn!(%error, "couldn't mark a saved song"),
+        }
+    }
+
+    /// The YouTube video a saved file is the sound of, when it is one's.
+    pub fn youtube_video_of_file(&self, path: &str) -> Option<String> {
+        self.youtube_files
+            .lock()
+            .expect("YouTube files poisoned")
+            .get(Path::new(path))
+            .cloned()
+    }
+
+    /// Remembers which YouTube video a saved file is the sound of ([`youtube_origin`]); one cut
+    /// to its music no longer fits SponsorBlock's times.
+    fn note_youtube_file(&self, path: &Path, origin: &Origin) {
+        let trimmed = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(trim::is_trimmed);
+        if let Some(video) = youtube_origin(origin).filter(|_| !trimmed) {
+            self.youtube_files
+                .lock()
+                .expect("YouTube files poisoned")
+                .insert(path.to_owned(), video);
+        }
+    }
+
+    /// A YouTube video's file without the video's non-music parts, when Settings → SponsorBlock
+    /// asks for that and SponsorBlock lists some: cut into a new M4A ([`trim`]), the original
+    /// removed. Anything else stays as it was saved.
+    async fn without_non_music(&self, row: &SongDownloadRow, saved: Saved) -> Saved {
+        let Some(sponsorblock) = self
+            .app
+            .try_state::<Arc<crate::sponsorblock::SponsorBlock>>()
+            .map(|state| state.inner().clone())
+        else {
+            return saved;
+        };
+        let prefs = sponsorblock.prefs();
+        if !prefs.enabled
+            || !prefs.trim_downloads
+            || saved.kind != "file"
+            || !trim::can_trim(&saved.file)
+        {
+            return saved;
+        }
+        let Some(video) = youtube_origin(&saved.origin) else {
+            return saved;
+        };
+        let segments = match sponsorblock
+            .segments(&video, crate::sponsorblock::Want::Now)
+            .await
+        {
+            Ok(segments) => segments,
+            Err(error) => {
+                tracing::info!(%error, "no SponsorBlock parts to leave out of a download");
+                return saved;
+            }
+        };
+        let dir = self.dir(&row.id);
+        let (source, name) = (dir.join(&saved.file), trim::trimmed_name(&saved.file));
+        let target = dir.join(&name);
+        let cut = tokio::task::spawn_blocking(move || {
+            let duration = transcode::length_ms(&source).map(|ms| ms as f64);
+            let cuts = trim::cuts(&segments, duration);
+            if cuts.is_empty() {
+                return Ok(false);
+            }
+            trim::cut_m4a(&source, &cuts, &target)?;
+            let _ = std::fs::remove_file(&source);
+            Ok::<bool, String>(true)
+        })
+        .await;
+        match cut {
+            Ok(Ok(true)) => {
+                tracing::info!(song = %row.song.track_key, "the download's non-music parts were left out");
+                Saved {
+                    file: name,
+                    file_ms: None,
+                    ..saved
+                }
+            }
+            Ok(Ok(false)) => saved,
+            Ok(Err(error)) => {
+                tracing::info!(%error, "couldn't leave a download's non-music parts out");
+                saved
+            }
+            Err(error) => {
+                tracing::info!(%error, "couldn't leave a download's non-music parts out");
+                saved
+            }
         }
     }
 
@@ -940,6 +1035,7 @@ impl SongDownloadService {
         row: &SongDownloadRow,
         saved: Saved,
     ) -> Result<(), raygun_db::DbError> {
+        let saved = self.without_non_music(row, saved).await;
         tracing::info!(song = %row.song.track_key, file = %saved.file, kind = saved.kind, "song downloaded");
         self.auto_retries
             .lock()
@@ -1006,6 +1102,7 @@ impl SongDownloadService {
                 ) {
                     durations.learn_file(row.song.track_key.clone(), ms as i64);
                 }
+                self.note_youtube_file(&path, &saved.origin);
                 self.offline
                     .lock()
                     .expect("offline index poisoned")
@@ -4106,9 +4203,28 @@ fn youtube_ways(listed: &[String], video_id: &str, given: bool) -> Vec<YouTubeWa
     ways
 }
 
+/// The YouTube video a saved file came from: its stream's pick, or YouTube's player it was
+/// captured from.
+fn youtube_origin(origin: &Origin) -> Option<String> {
+    if let (Some(provider), Some(stream)) = (&origin.provider, &origin.stream) {
+        let key = raygun_resolver::CandidateKey {
+            provider_id: provider.clone(),
+            candidate_id: stream.clone(),
+        };
+        if let Some(video) = youtube_video_of(&key) {
+            return Some(video.to_owned());
+        }
+    }
+    let source: MediaSource = serde_json::from_str(origin.source.as_deref()?).ok()?;
+    match source {
+        MediaSource::YouTube { video_id } => Some(video_id),
+        _ => None,
+    }
+}
+
 /// The YouTube video a pick is, its audio file or its embed: the YouTube extension's, or Nuclear's
 /// YouTube plugin's, whose candidates are videos.
-fn youtube_video_of(key: &raygun_resolver::CandidateKey) -> Option<&str> {
+pub(crate) fn youtube_video_of(key: &raygun_resolver::CandidateKey) -> Option<&str> {
     crate::resolver::youtube_video(key).or_else(|| {
         (key.provider_id == crate::resolver::NUCLEAR_YOUTUBE_STREAMS
             && is_video_id(&key.candidate_id))
