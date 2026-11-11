@@ -403,6 +403,7 @@ export const bindingsMock = {
     audiobookOpen: vi.fn(),
     audiobookPlay: vi.fn(),
     audiobookDirectory: vi.fn(),
+    audiobooksElsewhere: vi.fn(),
     audiobookDownload: vi.fn(),
     podcastContinueListening: vi.fn(),
     musicTagVocabulary: vi.fn(),
@@ -688,6 +689,9 @@ export const bindingsMock = {
     readerAiSupport: vi.fn(),
     readerAiPageText: vi.fn(),
     readerAiTranslate: vi.fn(),
+    textTranslate: vi.fn(),
+    textTranslateChoice: vi.fn(),
+    textTranslateRemember: vi.fn(),
     podcastSubscriptions: vi.fn(),
     podcastLatest: vi.fn(),
     podcastOpenFeed: vi.fn(),
@@ -1561,6 +1565,22 @@ export const seedBindings = () => {
   commands.readerAiTranslate.mockImplementation(async (request: { texts: string[]; to?: string }) =>
     ok(request.texts.map((text) => `[${request.to ?? ''}] ${text}`)),
   );
+  commands.textTranslate.mockImplementation(
+    async (request: { text: string; from?: string; to: string; translator?: string }) =>
+      ok({
+        text: `[${request.to}] ${request.text}`,
+        from: request.from ?? '',
+        detected: !request.from,
+        to: request.to,
+        translator: request.translator ?? '',
+        translatorName: '',
+        kind: null,
+        models: [],
+      }),
+  );
+  commands.textTranslateChoice.mockResolvedValue(ok(null));
+  commands.textTranslateRemember.mockResolvedValue(ok(null));
+  commands.audiobooksElsewhere.mockResolvedValue(ok([]));
   commands.podcastSubscriptions.mockResolvedValue(ok([]));
   commands.podcastLatest.mockResolvedValue(ok([]));
   commands.podcastSearch.mockResolvedValue(ok([]));

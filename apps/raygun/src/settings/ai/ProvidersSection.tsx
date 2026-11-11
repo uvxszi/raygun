@@ -1,3 +1,4 @@
+import { commands } from '@raygun/bindings';
 import type { AiProvider, AiProviderKind } from '@raygun/bindings';
 import { Languages, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -23,14 +24,23 @@ const KINDS: AiProviderKind[] = [
   'claude',
   'openAiCompatible',
   'deepl',
+  'google',
   'libreTranslate',
   'myMemory',
   'whisperServer',
 ];
 /** Services that take no model name. */
-const NO_MODEL: AiProviderKind[] = ['deepl', 'libreTranslate', 'myMemory', 'whisperServer'];
+const NO_MODEL: AiProviderKind[] = [
+  'deepl',
+  'google',
+  'libreTranslate',
+  'myMemory',
+  'whisperServer',
+];
 /** Services with a line saying what they are. */
-const KIND_ABOUT: AiProviderKind[] = ['libreTranslate', 'myMemory', 'whisperServer'];
+const KIND_ABOUT: AiProviderKind[] = ['google', 'libreTranslate', 'myMemory', 'whisperServer'];
+/** Google's Cloud Translation site, which its terms ask apps to point to. */
+const GOOGLE_SITE = 'https://cloud.google.com/translate';
 /** Services that need no key. */
 const KEY_OPTIONAL: AiProviderKind[] = [
   'openAiCompatible',
@@ -152,6 +162,20 @@ export const ProviderForm: FC<{
         {KIND_ABOUT.includes(kind) && (
           <p className="text-muted text-xs">{t(`ai.kindAbout.${kind}`)}</p>
         )}
+        {kind === 'google' && (
+          <div className="flex flex-col items-start gap-1">
+            <p className="text-muted text-2xs" data-testid="google-disclaimer">
+              {t('ai.googleDisclaimer')}
+            </p>
+            <button
+              type="button"
+              onClick={() => void commands.appOpenLink(GOOGLE_SITE)}
+              className="text-primary text-xs font-semibold"
+            >
+              {t('ai.googleSite')}
+            </button>
+          </div>
+        )}
         {!NO_MODEL.includes(kind) && (
           <label className="flex flex-col gap-1">
             <span className="text-muted text-xs">{t('ai.model')}</span>
@@ -265,9 +289,9 @@ const ProviderRow: FC<{ provider: AiProvider }> = ({ provider }) => {
 };
 
 /**
- * Online providers: Claude, OpenAI-compatible services and DeepL with their keys (kept in the
- * encrypted secrets store), the free LibreTranslate and MyMemory, and Whisper servers for
- * transcription, each set up in a sheet.
+ * Online providers: Claude, OpenAI-compatible services, DeepL and Google Translate (the Cloud
+ * Translation API) with their keys (kept in the encrypted secrets store), the free LibreTranslate
+ * and MyMemory, and Whisper servers for transcription, each set up in a sheet.
  */
 export const ProvidersSection: FC = () => {
   const { t } = useTranslation();

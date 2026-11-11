@@ -516,3 +516,320 @@ async fn libretranslate_live() {
     println!("LibreTranslate: {out:?}");
     assert_eq!(out.len(), 2);
 }
+
+#[tokio::test]
+async fn google_request_answer_and_detection() {
+    let reply = json!({
+        "data": {
+            "translations": [
+                { "translatedText": "你好", "detectedSourceLanguage": "en" },
+                { "translatedText": "晚安", "detectedSourceLanguage": "en" }
+            ]
+        }
+    });
+    let (base, seen) = mock(200, reply.clone()).await;
+    let client = raygun_net::http_client().unwrap();
+    let google = provider(ProviderKind::Google, &base, None);
+    let done = translate_detecting(
+        &client,
+        &google,
+        Some(" AIza-test "),
+        &texts(),
+        None,
+        "zh-Hant",
+        Content::Text,
+    )
+    .await
+    .unwrap();
+    assert_eq!(done.texts, ["你好", "晚安"]);
+    assert_eq!(done.detected.as_deref(), Some("en"));
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.path, "/language/translate/v2");
+        // The key goes in its header, never in the address.
+        assert_eq!(seen.headers["x-goog-api-key"], "AIza-test");
+        assert_eq!(seen.body["q"], json!(["Hello", "Good night"]));
+        assert_eq!(seen.body["target"], "zh-TW");
+        assert_eq!(seen.body["format"], "text");
+        assert!(seen.body.get("source").is_none());
+    }
+
+    // A language given goes as Google's code, and nothing is reported as detected.
+    let (base, seen) = mock(200, reply).await;
+    let google = provider(ProviderKind::Google, &base, None);
+    let done = translate_detecting(
+        &client,
+        &google,
+        Some("k"),
+        &texts(),
+        Some("pt-PT"),
+        "zh",
+        Content::Lyrics,
+    )
+    .await
+    .unwrap();
+    assert_eq!(done.detected, None);
+    assert_eq!(seen.lock().unwrap().body["source"], "pt-PT");
+    assert_eq!(seen.lock().unwrap().body["target"], "zh-CN");
+
+    assert!(matches!(
+        translate(&client, &google, None, &texts(), None, "de").await,
+        Err(TranslateError::MissingKey("Google Translate"))
+    ));
+    let default = Provider {
+        base_url: None,
+        ..provider(ProviderKind::Google, "", None)
+    };
+    assert_eq!(default.base(Some("k")), GOOGLE_BASE);
+}
+
+#[tokio::test]
+async fn google_quota_answers_read_as_rate_limits() {
+    let client = raygun_net::http_client().unwrap();
+    // Over a per-minute quota Google answers 403, naming the reason.
+    let limited = json!({
+        "error": {
+            "code": 403,
+            "message": "User Rate Limit Exceeded",
+            "errors": [{
+                "message": "User Rate Limit Exceeded",
+                "domain": "usageLimits",
+                "reason": "userRateLimitExceeded"
+            }],
+            "status": "PERMISSION_DENIED"
+        }
+    });
+    let (base, _) = mock(403, limited).await;
+    let google = provider(ProviderKind::Google, &base, None);
+    match translate(&client, &google, Some("k"), &texts(), None, "de").await {
+        Err(TranslateError::RateLimited(message)) => {
+            assert_eq!(message, "User Rate Limit Exceeded");
+        }
+        other => panic!("expected a rate limit, got {other:?}"),
+    }
+    // A 429 that doesn't say how long to wait is a rate limit at once.
+    let (base, _) = mock(
+        429,
+        json!({ "error": { "code": 429, "message": "Too many" } }),
+    )
+    .await;
+    let google = provider(ProviderKind::Google, &base, None);
+    assert!(matches!(
+        translate(&client, &google, Some("k"), &texts(), None, "de").await,
+        Err(TranslateError::RateLimited(_))
+    ));
+    // A wrong key is the provider's own refusal, with its words.
+    let bad_key = json!({
+        "error": {
+            "code": 400,
+            "message": "API key not valid. Please pass a valid API key.",
+            "errors": [{ "message": "API key not valid.", "domain": "global", "reason": "badRequest" }],
+            "status": "INVALID_ARGUMENT",
+            "details": [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID" }]
+        }
+    });
+    let (base, _) = mock(400, bad_key).await;
+    let google = provider(ProviderKind::Google, &base, None);
+    match translate(&client, &google, Some("k"), &texts(), None, "de").await {
+        Err(TranslateError::Provider { status, message }) => {
+            assert_eq!(status, 400);
+            assert!(message.starts_with("API key not valid"));
+        }
+        other => panic!("expected the provider's refusal, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn google_waits_out_a_429_that_says_how_long() {
+    use axum::response::IntoResponse;
+    let calls = Arc::new(Mutex::new(0usize));
+    let handler = {
+        let calls = calls.clone();
+        move || {
+            let calls = calls.clone();
+            async move {
+                let count = {
+                    let mut calls = calls.lock().unwrap();
+                    *calls += 1;
+                    *calls
+                };
+                if count == 1 {
+                    return (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        [("retry-after", "1")],
+                        String::new(),
+                    )
+                        .into_response();
+                }
+                json!({ "data": { "translations": [{ "translatedText": "Hallo" }] } })
+                    .to_string()
+                    .into_response()
+            }
+        }
+    };
+    let app = Router::new().route("/{*path}", post(handler));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = raygun_net::http_client().unwrap();
+    let google = provider(ProviderKind::Google, &format!("http://{address}"), None);
+    let out = translate(&client, &google, Some("k"), &texts()[..1], Some("en"), "de")
+        .await
+        .unwrap();
+    assert_eq!(out, ["Hallo"]);
+    assert_eq!(*calls.lock().unwrap(), 2);
+}
+
+#[test]
+fn google_takes_128_texts_and_about_5000_characters_a_request() {
+    let short: Vec<String> = (0..300).map(|n| format!("line {n}")).collect();
+    let sizes: Vec<usize> = google_batches(&short)
+        .iter()
+        .map(|batch| batch.len())
+        .collect();
+    assert_eq!(sizes, [128, 128, 44]);
+    let long: Vec<String> = (0..3).map(|_| "word ".repeat(600)).collect();
+    let sizes: Vec<usize> = google_batches(&long)
+        .iter()
+        .map(|batch| batch.len())
+        .collect();
+    assert_eq!(sizes, [1, 1, 1], "3,000 characters each: one a request");
+    let huge = vec!["x".repeat(9_000), "y".into()];
+    let sizes: Vec<usize> = google_batches(&huge)
+        .iter()
+        .map(|batch| batch.len())
+        .collect();
+    assert_eq!(sizes, [1, 1], "a text over the advice goes alone");
+    assert!(google_batches(&[]).is_empty());
+}
+
+#[test]
+fn language_codes_as_google_has_them() {
+    assert_eq!(google_language("zh-Hant"), "zh-TW");
+    assert_eq!(google_language("zh_HK"), "zh-TW");
+    assert_eq!(google_language("zh"), "zh-CN");
+    assert_eq!(google_language("en-US"), "en");
+    assert_eq!(google_language("pt-PT"), "pt-PT");
+    assert_eq!(google_language("pt-BR"), "pt");
+    assert_eq!(google_language("fil"), "tl");
+    assert_eq!(google_language("nb"), "no");
+    assert_eq!(tag_from("iw"), "he");
+    assert_eq!(tag_from("zh-CN"), "zh-Hans");
+    assert_eq!(tag_from("zh-TW"), "zh-Hant");
+    assert_eq!(tag_from("EN"), "en");
+}
+
+#[tokio::test]
+async fn google_detects_each_text() {
+    let reply = json!({
+        "data": {
+            "detections": [
+                [{ "language": "de", "isReliable": false, "confidence": 0.98 }],
+                [{ "language": "und", "isReliable": false, "confidence": 0 }]
+            ]
+        }
+    });
+    let (base, seen) = mock(200, reply).await;
+    let client = raygun_net::http_client().unwrap();
+    let google = provider(ProviderKind::Google, &base, None);
+    let found = detect(&client, &google, Some("k"), &texts()).await.unwrap();
+    assert_eq!(found, [Some("de".to_owned()), None]);
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.path, "/language/translate/v2/detect");
+        assert_eq!(seen.headers["x-goog-api-key"], "k");
+        assert_eq!(seen.body["q"], json!(["Hello", "Good night"]));
+    }
+    // Translators without detection of their own say so.
+    let claude = provider(ProviderKind::Claude, &base, None);
+    assert!(matches!(
+        detect(&client, &claude, Some("k"), &texts()).await,
+        Err(TranslateError::NoDetection)
+    ));
+}
+
+#[tokio::test]
+async fn deepl_and_libretranslate_say_what_they_detected() {
+    let client = raygun_net::http_client().unwrap();
+    let (base, _) = mock(
+        200,
+        json!({ "translations": [{ "detected_source_language": "FR", "text": "Hello" }] }),
+    )
+    .await;
+    let deepl = provider(ProviderKind::Deepl, &base, None);
+    let done = translate_detecting(
+        &client,
+        &deepl,
+        Some("k"),
+        &texts()[..1],
+        None,
+        "en",
+        Content::Text,
+    )
+    .await
+    .unwrap();
+    assert_eq!(done.detected.as_deref(), Some("fr"));
+
+    let (base, _) = mock(
+        200,
+        json!({
+            "translatedText": ["Hallo", "Gute Nacht"],
+            "detectedLanguage": [
+                { "confidence": 90, "language": "en" },
+                { "confidence": 80, "language": "en" }
+            ]
+        }),
+    )
+    .await;
+    let libre = provider(ProviderKind::LibreTranslate, &base, None);
+    let done = translate_detecting(&client, &libre, None, &texts(), None, "de", Content::Text)
+        .await
+        .unwrap();
+    assert_eq!(done.detected.as_deref(), Some("en"));
+
+    let (base, seen) = mock(200, json!([{ "confidence": 92, "language": "it" }])).await;
+    let libre = provider(ProviderKind::LibreTranslate, &base, None);
+    let found = detect(&client, &libre, Some("secret"), &texts()[..1])
+        .await
+        .unwrap();
+    assert_eq!(found, [Some("it".to_owned())]);
+    assert_eq!(seen.lock().unwrap().path, "/detect");
+    assert_eq!(seen.lock().unwrap().body["api_key"], "secret");
+}
+
+/// Google's Cloud Translation API with a key: `GOOGLE_TRANSLATE_KEY=<key> cargo test -p raygun-ai
+/// -- --ignored google_live --nocapture`.
+#[tokio::test]
+#[ignore = "network"]
+async fn google_live() {
+    let Ok(key) = std::env::var("GOOGLE_TRANSLATE_KEY") else {
+        eprintln!("GOOGLE_TRANSLATE_KEY isn't set");
+        return;
+    };
+    let client = raygun_net::http_client().unwrap();
+    let google = Provider {
+        id: "g".into(),
+        kind: ProviderKind::Google,
+        name: "Google Translate".into(),
+        base_url: None,
+        model: None,
+    };
+    let done = translate_detecting(
+        &client,
+        &google,
+        Some(&key),
+        &texts(),
+        None,
+        "de",
+        Content::Text,
+    )
+    .await
+    .unwrap();
+    println!("Google: {:?} from {:?}", done.texts, done.detected);
+    assert_eq!(done.texts.len(), 2);
+    assert_eq!(done.detected.as_deref(), Some("en"));
+    let found = detect(&client, &google, Some(&key), &["Guten Morgen".to_owned()])
+        .await
+        .unwrap();
+    assert_eq!(found, [Some("de".to_owned())]);
+}

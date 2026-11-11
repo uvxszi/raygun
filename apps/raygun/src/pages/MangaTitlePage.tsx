@@ -1,7 +1,7 @@
 import { commands } from '@raygun/bindings';
 import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { BookOpen, Globe, Heart, LoaderCircle, RefreshCw, SearchCheck } from 'lucide-react';
+import { BookOpen, Globe, Heart, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,7 +13,7 @@ import { ChapterOrderButton } from '../manga/ChapterOrderButton';
 import { orderChapters, useChapterOrder } from '../manga/chapterOrder';
 import { DownloadMenu } from '../manga/DownloadMenu';
 import { SelectionTopBar } from '../manga/LibrarySelection';
-import { OtherSources } from '../manga/OtherSources';
+import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { unwrapResult } from '../lib/commandResult';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
@@ -263,23 +263,15 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
           {issue.message}
         </SourceIssue>
       )}
-      {!isLocalSource(view.sourceId) && (
-        <button
-          type="button"
-          aria-expanded={finding}
-          onClick={() => setFinding(!finding)}
-          className="bg-surface hover:bg-primary/15 flex items-center gap-2 self-start rounded-full px-4 py-2 text-sm font-medium"
-        >
-          <SearchCheck aria-hidden size={16} />
-          {t('otherSources.find')}
-        </button>
-      )}
+      {/* An imported comic or book can be found online too; only a source's title moves. */}
+      <FindInOtherSourcesButton open={finding} onToggle={() => setFinding(!finding)} />
       {finding && (
         <OtherSources
           medium={medium}
           title={view.title}
+          author={view.authors[0] ?? null}
           sourceId={view.sourceId}
-          titleId={view.id}
+          titleId={isLocalSource(view.sourceId) ? undefined : view.id}
           inLibrary={view.inLibrary}
         />
       )}

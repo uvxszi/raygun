@@ -1970,13 +1970,17 @@
       "deepl": "DeepL",
       "libreTranslate": "LibreTranslate (free)",
       "myMemory": "MyMemory (free)",
-      "whisperServer": "Whisper server (transcription)"
+      "whisperServer": "Whisper server (transcription)",
+      "google": "Google Translate"
     },
     "kindAbout": {
       "libreTranslate": "Free and open source. Use your own server or one that lets you in; some ask for a key.",
       "myMemory": "Free without an account, up to about 5,000 characters a day. An email raises that to 50,000; it's only sent if you enter one.",
-      "whisperServer": "A transcription server with an OpenAI-style API, such as faster-whisper-server or whisper.cpp's server. It only transcribes."
+      "whisperServer": "A transcription server with an OpenAI-style API, such as faster-whisper-server or whisper.cpp's server. It only transcribes.",
+      "google": "Google's Cloud Translation API, with an API key from your Google Cloud project (Google bills that project for what it translates, after its monthly free amount). Translations made with it are marked Powered by Google Translate."
     },
+    "googleDisclaimer": "THIS SERVICE MAY CONTAIN TRANSLATIONS POWERED BY GOOGLE. GOOGLE DISCLAIMS ALL WARRANTIES RELATED TO THE TRANSLATIONS, EXPRESS OR IMPLIED, INCLUDING ANY WARRANTIES OF ACCURACY, RELIABILITY, AND ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.",
+    "googleSite": "About Cloud Translation",
     "name": "Name",
     "apiKey": "API key",
     "apiKeyOptional": "API key (optional for local servers)",
@@ -1992,7 +1996,8 @@
       "deepl": "Chosen from the key",
       "libreTranslate": "http://localhost:5000",
       "myMemory": "https://api.mymemory.translated.net",
-      "whisperServer": "http://localhost:8000/v1"
+      "whisperServer": "http://localhost:8000/v1",
+      "google": "https://translation.googleapis.com"
     },
     "model": "Model",
     "modelPlaceholder": {
@@ -2001,7 +2006,8 @@
       "deepl": "",
       "libreTranslate": "",
       "myMemory": "",
-      "whisperServer": ""
+      "whisperServer": "",
+      "google": ""
     },
     "save": "Save",
     "saveFailed": "Couldn't save the provider",
@@ -2111,7 +2117,7 @@
     },
     "providers": {
       "title": "Online providers",
-      "about": "Claude, OpenAI-compatible services and DeepL; keys stay encrypted on this device",
+      "about": "Claude, OpenAI-compatible services, DeepL and Google Translate; keys stay encrypted on this device",
       "none": "No providers yet.",
       "add": "Add provider",
       "form": "Provider settings",
@@ -5053,7 +5059,45 @@
     "latestSeasonEpisode": "Latest S{{season}} E{{number}}",
     "hours": "{{hours}} h {{minutes}} min",
     "minutes": "{{minutes}} min",
-    "loadingSize": "Checking what this source has"
+    "loadingSize": "Checking what this source has",
+    "searchLabel": "What to look for",
+    "titleField": "Title",
+    "authorField": "Author",
+    "searchAgain": "Search again",
+    "language": "Language of the other sources",
+    "anyLanguage": "Any language",
+    "sourcesIn_one": "{{count}} source in this language (or in many)",
+    "sourcesIn_other": "{{count}} sources in this language (or in many)",
+    "noSourcesIn": "No source here lists titles in {{language}}.",
+    "languagesUnknown": "The sources' languages couldn't be read, so every source is searched.",
+    "translateTitle": "Translate the title into {{language}}",
+    "translateTitleWithGoogle": "Translate the title into {{language}} with Google",
+    "translator": "Translator for the title",
+    "translating": "Translating the title…",
+    "searchingFor": "Searching for “{{query}}”,",
+    "translatedBy": "translated by {{name}}",
+    "translatedOnDevice": "translated on this device",
+    "follow": "Follow",
+    "following": "Following",
+    "moreFor": "More for {{title}}"
+  },
+  "translate": {
+    "title": "Translation",
+    "from": "Translate from",
+    "into": "Translate into",
+    "auto": "Detect language",
+    "autoDetected": "Detected: {{language}}",
+    "swap": "Swap languages",
+    "translator": "Translator",
+    "device": "On this device",
+    "deviceModel": "On this device: {{name}}",
+    "removed": "A translator that was removed",
+    "by": "Translated by {{name}}",
+    "byDevice": "Translated on this device",
+    "byDeviceWith": "Translated on this device with {{models}}",
+    "withGoogle": "Translate with Google",
+    "poweredByGoogle": "Powered by Google Translate",
+    "sameLanguage": "The words are in {{language}} already: pick another language to translate into."
   },
   "playlist": {
     "title": "Playlist",

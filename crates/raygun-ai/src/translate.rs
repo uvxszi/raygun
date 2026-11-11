@@ -1,11 +1,18 @@
 //! Translation providers: Claude (the Messages API over HTTP; Rust has no official SDK), any
-//! OpenAI-compatible endpoint (including local Ollama and LM Studio), DeepL, and the free ones:
-//! a LibreTranslate server (self-hosted or a public one, key optional) and MyMemory (anonymous
-//! with a daily limit; an email raises it, sent only when one was entered). A Whisper server
-//! (OpenAI-compatible transcription, self-hosted) is listed with them but only transcribes.
+//! OpenAI-compatible endpoint (including local Ollama and LM Studio), DeepL, Google's Cloud
+//! Translation API (Basic, v2, with the user's API key), and the free ones: a LibreTranslate
+//! server (self-hosted or a public one, key optional) and MyMemory (anonymous with a daily limit;
+//! an email raises it, sent only when one was entered). A Whisper server (OpenAI-compatible
+//! transcription, self-hosted) is listed with them but only transcribes.
 //!
-//! One call translates a list of texts and must return one translation per text. Batching across
-//! a chapter and glossaries build on this in M37.
+//! One call translates a list of texts and must return one translation per text; translators
+//! that work out the source language themselves say which they read ([`Translated::detected`]),
+//! and Google's and LibreTranslate's language detection can be asked on its own ([`detect`]).
+//! Offline Mode stops every request before it starts, except to a server on this device.
+//!
+//! Google is reached only through its documented API (`translation.googleapis.com`, Google APIs
+//! Terms of Service §2(c): access by the documented means, without masking the client); the
+//! undocumented endpoint Google's own pages use (`translate_a/single`) is never called.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -16,6 +23,21 @@ const ANTHROPIC_VERSION: &str = "2026-10-21";
 pub const OPENAI_BASE: &str = "http://localhost:11434/v1";
 const DEEPL_FREE: &str = "https://api-free.deepl.com";
 const DEEPL_PRO: &str = "https://api.deepl.com";
+/// Google's Cloud Translation API.
+pub const GOOGLE_BASE: &str = "https://translation.googleapis.com";
+/// Google takes at most 128 texts a request…
+const GOOGLE_BATCH: usize = 128;
+/// …and advises at most 5,000 characters a request (a longer text goes alone).
+const GOOGLE_MAX_CHARS: usize = 5_000;
+/// Google's answers to a request over a quota (a 403, or a 429).
+const GOOGLE_LIMITS: [&str; 6] = [
+    "rateLimitExceeded",
+    "userRateLimitExceeded",
+    "dailyLimitExceeded",
+    "quotaExceeded",
+    "RATE_LIMIT_EXCEEDED",
+    "RESOURCE_EXHAUSTED",
+];
 /// MyMemory's own free endpoint.
 pub const MYMEMORY_BASE: &str = "https://api.mymemory.translated.net";
 /// MyMemory takes at most 500 bytes a text; longer ones go in pieces.
@@ -41,6 +63,8 @@ pub enum ProviderKind {
     /// An OpenAI-compatible transcription server (faster-whisper-server, whisper.cpp's server):
     /// it hears words and doesn't translate.
     WhisperServer,
+    /// Google's Cloud Translation API (Basic, v2) with the user's API key.
+    Google,
 }
 
 /// A configured translator. Its key is kept apart, in the secrets store.
@@ -71,6 +95,7 @@ impl Provider {
                     DEEPL_FREE.into()
                 }
                 ProviderKind::Deepl => DEEPL_PRO.into(),
+                ProviderKind::Google => GOOGLE_BASE.into(),
                 ProviderKind::MyMemory => MYMEMORY_BASE.into(),
                 // No public server is free and dependable: the address is the user's.
                 ProviderKind::LibreTranslate | ProviderKind::WhisperServer => String::new(),
@@ -100,6 +125,14 @@ pub enum TranslateError {
     TranscribesOnly,
     #[error("MyMemory's free translations for today are used up")]
     QuotaUsed,
+    /// Over the translator's quota or rate (Google's 403s and 429s): its own words.
+    #[error("the translator is limiting requests: {0}")]
+    RateLimited(String),
+    /// Offline Mode kept the request from leaving the device.
+    #[error("{}", raygun_net::network_mode::OFFLINE_MESSAGE)]
+    Offline,
+    #[error("this translator doesn't tell languages apart on its own")]
+    NoDetection,
     #[error("couldn't reach the translator: {0}")]
     Http(#[from] reqwest::Error),
     #[error("the translator answered {status}: {message}")]
@@ -150,25 +183,65 @@ pub async fn translate_as(
     to: &str,
     content: Content,
 ) -> Result<Vec<String>, TranslateError> {
+    translate_detecting(client, provider, key, texts, from, to, content)
+        .await
+        .map(|done| done.texts)
+}
+
+/// Texts translated, and the language the translator read them as.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Translated {
+    /// One translation per text, in order.
+    pub texts: Vec<String>,
+    /// The language the translator found the texts in (a language tag: `en`, `zh-Hans`), when it
+    /// was left to work it out (no `from`) and said: Google, DeepL and LibreTranslate do.
+    pub detected: Option<String>,
+}
+
+/// [`translate_as`], with the language the translator detected when `from` is `None`.
+pub async fn translate_detecting(
+    client: &reqwest::Client,
+    provider: &Provider,
+    key: Option<&str>,
+    texts: &[String],
+    from: Option<&str>,
+    to: &str,
+    content: Content,
+) -> Result<Translated, TranslateError> {
     if texts.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Translated::default());
     }
     let key = key.map(str::trim).filter(|key| !key.is_empty());
+    reachable(provider, key)?;
     let system = instructions(from, to, content);
+    let mut detected = None;
     let translations = match provider.kind {
         ProviderKind::Claude => claude(client, provider, key, texts, &system).await?,
         ProviderKind::OpenAiCompatible => openai(client, provider, key, texts, &system).await?,
         ProviderKind::Deepl => {
             let mut all = Vec::with_capacity(texts.len());
             for batch in texts.chunks(DEEPL_BATCH) {
-                all.extend(deepl(client, provider, key, batch, from, to).await?);
+                let (done, found) = deepl(client, provider, key, batch, from, to).await?;
+                detected = detected.or(found);
+                all.extend(done);
+            }
+            all
+        }
+        ProviderKind::Google => {
+            let mut all = Vec::with_capacity(texts.len());
+            for batch in google_batches(texts) {
+                let (done, found) = google(client, provider, key, batch, from, to).await?;
+                detected = detected.or(found);
+                all.extend(done);
             }
             all
         }
         ProviderKind::LibreTranslate => {
             let mut all = Vec::with_capacity(texts.len());
             for batch in texts.chunks(LIBRE_BATCH) {
-                all.extend(libretranslate(client, provider, key, batch, from, to).await?);
+                let (done, found) = libretranslate(client, provider, key, batch, from, to).await?;
+                detected = detected.or(found);
+                all.extend(done);
             }
             all
         }
@@ -181,7 +254,55 @@ pub async fn translate_as(
             got: translations.len(),
         });
     }
-    Ok(translations)
+    Ok(Translated {
+        texts: translations,
+        detected: if from.is_none() { detected } else { None },
+    })
+}
+
+/// The language each text is written in, by the translator's own detection: Google's
+/// `detect` endpoint, or a LibreTranslate server's. `None` for a text it couldn't place;
+/// [`TranslateError::NoDetection`] from translators without one.
+pub async fn detect(
+    client: &reqwest::Client,
+    provider: &Provider,
+    key: Option<&str>,
+    texts: &[String],
+) -> Result<Vec<Option<String>>, TranslateError> {
+    if !matches!(
+        provider.kind,
+        ProviderKind::Google | ProviderKind::LibreTranslate
+    ) {
+        return Err(TranslateError::NoDetection);
+    }
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let key = key.map(str::trim).filter(|key| !key.is_empty());
+    reachable(provider, key)?;
+    if provider.kind == ProviderKind::Google {
+        let mut out = Vec::with_capacity(texts.len());
+        for batch in google_batches(texts) {
+            out.extend(google_detect(client, provider, key, batch).await?);
+        }
+        return Ok(out);
+    }
+    let mut out = Vec::with_capacity(texts.len());
+    for text in texts {
+        out.push(libre_detect(client, provider, key, text).await?);
+    }
+    Ok(out)
+}
+
+/// Fails at once while Offline Mode keeps requests from leaving the device and the translator
+/// isn't on this device (a local Ollama or LibreTranslate server still answers).
+fn reachable(provider: &Provider, key: Option<&str>) -> Result<(), TranslateError> {
+    let base = provider.base(key);
+    if base.is_empty() {
+        // Without an address the translator says so itself.
+        return Ok(());
+    }
+    raygun_net::network_mode::check(&base).map_err(|_| TranslateError::Offline)
 }
 
 fn instructions(from: Option<&str>, to: &str, content: Content) -> String {
@@ -307,6 +428,9 @@ async fn openai(
     parse_translations(text)
 }
 
+/// Translations, and the language the translator detected (when it said).
+type Answered = (Vec<String>, Option<String>);
+
 async fn deepl(
     client: &reqwest::Client,
     provider: &Provider,
@@ -314,7 +438,7 @@ async fn deepl(
     texts: &[String],
     from: Option<&str>,
     to: &str,
-) -> Result<Vec<String>, TranslateError> {
+) -> Result<Answered, TranslateError> {
     let key = key.ok_or(TranslateError::MissingKey("DeepL"))?;
     let mut body = json!({ "text": texts, "target_lang": deepl_target(to) });
     if let Some(from) = from {
@@ -327,13 +451,194 @@ async fn deepl(
         .send()
         .await?;
     let answer = read_json(response).await?;
-    Ok(answer
+    let items = answer
         .get("translations")
         .and_then(Value::as_array)
-        .ok_or(TranslateError::BadAnswer)?
+        .ok_or(TranslateError::BadAnswer)?;
+    let detected = items
         .iter()
-        .filter_map(|item| item.get("text").and_then(Value::as_str).map(str::to_owned))
+        .find_map(|item| item.get("detected_source_language").and_then(Value::as_str))
+        .map(|code| tag_from(&code.to_lowercase()));
+    Ok((
+        items
+            .iter()
+            .filter_map(|item| item.get("text").and_then(Value::as_str).map(str::to_owned))
+            .collect(),
+        detected,
+    ))
+}
+
+/// Texts in the groups Google takes at once: at most `GOOGLE_BATCH` texts and about
+/// `GOOGLE_MAX_CHARS` characters (a longer text goes alone).
+fn google_batches(texts: &[String]) -> Vec<&[String]> {
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut chars = 0;
+    for (index, text) in texts.iter().enumerate() {
+        let size = text.chars().count();
+        if index > start && (index - start >= GOOGLE_BATCH || chars + size > GOOGLE_MAX_CHARS) {
+            batches.push(&texts[start..index]);
+            start = index;
+            chars = 0;
+        }
+        chars += size;
+    }
+    if start < texts.len() {
+        batches.push(&texts[start..]);
+    }
+    batches
+}
+
+/// Google's `translate`: plain text in, plain text out (no HTML entities), the key in its header
+/// rather than the address. A 429 that says how long is waited out.
+async fn google(
+    client: &reqwest::Client,
+    provider: &Provider,
+    key: Option<&str>,
+    texts: &[String],
+    from: Option<&str>,
+    to: &str,
+) -> Result<Answered, TranslateError> {
+    let key = key.ok_or(TranslateError::MissingKey("Google Translate"))?;
+    let mut body = json!({ "q": texts, "target": google_language(to), "format": "text" });
+    if let Some(from) = from {
+        body["source"] = json!(google_language(from));
+    }
+    let request = client
+        .post(format!(
+            "{}/language/translate/v2",
+            provider.base(Some(key))
+        ))
+        .header("x-goog-api-key", key)
+        .json(&body);
+    let answer = google_json(send_waiting(request).await?).await?;
+    let items = answer
+        .pointer("/data/translations")
+        .and_then(Value::as_array)
+        .ok_or(TranslateError::BadAnswer)?;
+    let detected = items
+        .iter()
+        .find_map(|item| item.get("detectedSourceLanguage").and_then(Value::as_str))
+        .filter(|code| !code.is_empty() && *code != "und")
+        .map(tag_from);
+    let texts = items
+        .iter()
+        .map(|item| {
+            item.get("translatedText")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or(TranslateError::BadAnswer)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((texts, detected))
+}
+
+/// Google's `detect`: each text's likeliest language.
+async fn google_detect(
+    client: &reqwest::Client,
+    provider: &Provider,
+    key: Option<&str>,
+    texts: &[String],
+) -> Result<Vec<Option<String>>, TranslateError> {
+    let key = key.ok_or(TranslateError::MissingKey("Google Translate"))?;
+    let request = client
+        .post(format!(
+            "{}/language/translate/v2/detect",
+            provider.base(Some(key))
+        ))
+        .header("x-goog-api-key", key)
+        .json(&json!({ "q": texts }));
+    let answer = google_json(send_waiting(request).await?).await?;
+    let detections = answer
+        .pointer("/data/detections")
+        .and_then(Value::as_array)
+        .ok_or(TranslateError::BadAnswer)?;
+    if detections.len() != texts.len() {
+        return Err(TranslateError::CountMismatch {
+            expected: texts.len(),
+            got: detections.len(),
+        });
+    }
+    Ok(detections
+        .iter()
+        .map(|guesses| {
+            // The likeliest first; "und" when Google couldn't tell.
+            guesses
+                .as_array()
+                .and_then(|guesses| guesses.first())
+                .and_then(|guess| guess.get("language"))
+                .and_then(Value::as_str)
+                .filter(|code| !code.is_empty() && *code != "und")
+                .map(tag_from)
+        })
         .collect())
+}
+
+/// Google's answer as JSON. Its errors carry a reason: over a quota or a rate (a 403 as often as
+/// a 429) is [`TranslateError::RateLimited`], the rest keep their status and Google's message.
+async fn google_json(response: reqwest::Response) -> Result<Value, TranslateError> {
+    let status = response.status();
+    if status.is_success() {
+        return read_json(response).await;
+    }
+    let text = response.text().await?;
+    let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    let error = &parsed["error"];
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or(text);
+    let message: String = message.chars().take(MAX_ERROR_CHARS).collect();
+    let mut reasons: Vec<&str> = Vec::new();
+    for list in ["errors", "details"] {
+        for item in error
+            .get(list)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            reasons.extend(item.get("reason").and_then(Value::as_str));
+        }
+    }
+    reasons.extend(error.get("status").and_then(Value::as_str));
+    let limited = status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || reasons.iter().any(|reason| GOOGLE_LIMITS.contains(reason));
+    if limited {
+        return Err(TranslateError::RateLimited(message));
+    }
+    Err(TranslateError::Provider {
+        status: status.as_u16(),
+        message,
+    })
+}
+
+/// Google's language codes: the base language, Chinese by its characters (`zh-CN` Simplified,
+/// `zh-TW` Traditional), European Portuguese apart, Filipino as `tl`, Norwegian as `no`.
+fn google_language(code: &str) -> String {
+    let lower = code.replace('_', "-").to_lowercase();
+    match lower.as_str() {
+        "zh-hant" | "zh-tw" | "zh-hk" | "zh-mo" => "zh-TW".into(),
+        "zh" | "zh-hans" | "zh-cn" | "zh-sg" => "zh-CN".into(),
+        "pt-pt" => "pt-PT".into(),
+        "fil" => "tl".into(),
+        "nb" | "nn" => "no".into(),
+        _ => base_language(&lower).to_owned(),
+    }
+}
+
+/// A language a translator named, as a tag the app uses: Chinese by its characters, and the old
+/// codes Google still answers with for Hebrew and Javanese.
+fn tag_from(code: &str) -> String {
+    match code.replace('_', "-").to_lowercase().as_str() {
+        "zh-cn" | "zh-sg" | "zh-hans" | "zh" => "zh-Hans".into(),
+        "zh-tw" | "zh-hk" | "zh-hant" => "zh-Hant".into(),
+        "iw" => "he".into(),
+        "jw" => "jv".into(),
+        "pt-pt" => "pt-PT".into(),
+        "pt-br" => "pt-BR".into(),
+        other => base_language(other).to_owned(),
+    }
 }
 
 /// Sends a request again after a 429 that says how long to wait (`Retry-After` in seconds, up
@@ -382,7 +687,7 @@ async fn libretranslate(
     texts: &[String],
     from: Option<&str>,
     to: &str,
-) -> Result<Vec<String>, TranslateError> {
+) -> Result<Answered, TranslateError> {
     let base = provider.base(key);
     if base.is_empty() {
         return Err(TranslateError::MissingAddress("LibreTranslate"));
@@ -399,15 +704,53 @@ async fn libretranslate(
     let answer =
         read_json(send_waiting(client.post(format!("{base}/translate")).json(&body)).await?)
             .await?;
+    // With `auto`, what it read the texts as: one for one text, one each for several.
+    let detected = match answer.get("detectedLanguage") {
+        Some(Value::Array(items)) => items.first(),
+        other => other,
+    }
+    .and_then(|found| found.get("language"))
+    .and_then(Value::as_str)
+    .filter(|code| !code.is_empty())
+    .map(tag_from);
     match answer.get("translatedText") {
-        Some(Value::Array(items)) => Ok(items
-            .iter()
-            .map(|item| item.as_str().unwrap_or_default().to_owned())
-            .collect()),
+        Some(Value::Array(items)) => Ok((
+            items
+                .iter()
+                .map(|item| item.as_str().unwrap_or_default().to_owned())
+                .collect(),
+            detected,
+        )),
         // An older server answers one text with one string.
-        Some(Value::String(text)) if texts.len() == 1 => Ok(vec![text.clone()]),
+        Some(Value::String(text)) if texts.len() == 1 => Ok((vec![text.clone()], detected)),
         _ => Err(TranslateError::BadAnswer),
     }
+}
+
+/// LibreTranslate's `/detect` for one text: its likeliest language.
+async fn libre_detect(
+    client: &reqwest::Client,
+    provider: &Provider,
+    key: Option<&str>,
+    text: &str,
+) -> Result<Option<String>, TranslateError> {
+    let base = provider.base(key);
+    if base.is_empty() {
+        return Err(TranslateError::MissingAddress("LibreTranslate"));
+    }
+    let mut body = json!({ "q": text });
+    if let Some(key) = key {
+        body["api_key"] = json!(key);
+    }
+    let answer =
+        read_json(send_waiting(client.post(format!("{base}/detect")).json(&body)).await?).await?;
+    Ok(answer
+        .as_array()
+        .and_then(|guesses| guesses.first())
+        .and_then(|guess| guess.get("language"))
+        .and_then(Value::as_str)
+        .filter(|code| !code.is_empty())
+        .map(tag_from))
 }
 
 /// LibreTranslate's language codes: the base language, with Chinese by its characters.

@@ -10,11 +10,13 @@ import {
   SquareCheckBig,
   Trash2,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHasProvider } from '../extensions/useExtensions';
 import { SelectionTopBar } from '../manga/LibrarySelection';
+import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { PodcastPickActions } from '../podcasts/PodcastPickActions';
 import { usePickList } from '../select/usePickList';
 import { TopBar } from '../shell/TopBar';
@@ -61,6 +63,9 @@ export const PodcastPage: FC = () => {
   const setAll = useSetAllPlayed();
   const removeDownloads = useRemoveDownloads();
   const openPage = useOpenPodcastPage();
+  // The same show in the directories (another feed of it), when there's one to ask.
+  const [finding, setFinding] = useState(false);
+  const canFind = useHasProvider('podcast.directory') === true;
   const view = podcast.data;
   const shown = useMemo(
     () =>
@@ -245,6 +250,15 @@ export const PodcastPage: FC = () => {
       </header>
       {view.description && <ShowNotes text={view.description} clamp />}
       {error && <SourceIssue>{error.message}</SourceIssue>}
+      {canFind && <FindInOtherSourcesButton open={finding} onToggle={() => setFinding(!finding)} />}
+      {canFind && finding && (
+        <OtherSources
+          medium="podcast"
+          title={view.title}
+          author={view.author}
+          feedUrl={view.feedUrl}
+        />
+      )}
       <section aria-labelledby="podcast-episodes" className="flex flex-col gap-2">
         <div className="flex flex-wrap items-baseline gap-x-1.5">
           <h2 id="podcast-episodes" className="font-semibold">
