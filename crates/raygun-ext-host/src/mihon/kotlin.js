@@ -130,6 +130,9 @@
   KT.cmp = (left, right) => {
     if (typeof left === 'string' && typeof right === 'string')
       return left < right ? -1 : left > right ? 1 : 0;
+    // Durations and instants by their milliseconds.
+    if (left && typeof left === 'object' && 'ms' in left) left = left.ms;
+    if (right && typeof right === 'object' && 'ms' in right) right = right.ms;
     return left - right;
   };
   KT.and = (left, right) => (typeof left === 'boolean' ? left && right : left & right);
@@ -265,9 +268,56 @@
     };
   };
   KT.invoke = async (function_, args) => function_(...args);
+  // Reified type parameters: a call's types ride with its arguments (`KT.typedArgs`), are set
+  // aside as the function is entered, and taken by its first statement (`KT.takeTypes`).
+  let pendingTypes = null;
+  KT.typedArgs = (args, types) => {
+    Object.defineProperty(args, '__types', { value: types, enumerable: false });
+    return args;
+  };
+  /// Whether one of an extension's overloads takes `receiver` and `args`: its receiver's type
+  /// and its parameters' (`[required, total, [types]]`).
+  const extensionTakes = (entry, receiver, args) => {
+    if (entry.type && !KT.is(receiver, entry.type)) return false;
+    if (!entry.shape) return true;
+    const [required, total, types] = entry.shape;
+    if (args.length < required || args.length > total) return false;
+    return types.every(
+      (kind, at) => at >= args.length || kind === null || args[at] == null || KT.is(args[at], kind),
+    );
+  };
+  /// Calls `function_` with `args`, its types set aside for it to take.
+  const enter = (function_, args, receiver = undefined) => {
+    const types = args && args.__types;
+    if (types) pendingTypes = types;
+    try {
+      return receiver === undefined ? function_(...args) : function_(receiver, ...args);
+    } finally {
+      if (types) pendingTypes = null;
+    }
+  };
+  /// Arguments with a trailing lambda added, keeping the types they carry.
+  const withLambda = (args, lambda) =>
+    lambda
+      ? args.__types
+        ? KT.typedArgs([...args, lambda], args.__types)
+        : [...args, lambda]
+      : args;
+  KT.takeTypes = (count) => {
+    const types = pendingTypes ?? [];
+    pendingTypes = null;
+    return Array.from({ length: count }, (_, index) => types[index] ?? 'Any');
+  };
+  /// A type's text with the reified parameters in it put in (`NextData<T>`).
+  KT.typeWith = (text, types) =>
+    KT.str(text).replace(/[A-Za-z_][A-Za-z0-9_]*/g, (word) =>
+      Object.prototype.hasOwnProperty.call(types, word) ? KT.str(types[word]) : word,
+    );
   KT.getter = (function_) => ({ isGetter: true, function_ });
   /// A class's `var` with a value: a field set when an instance is made.
   KT.field = (function_) => ({ isField: true, function_ });
+  /// A class's `init { … }`: run when an instance is made, in order with its fields.
+  KT.init = (function_) => ({ isInit: true, function_ });
 
   // ---- What a value is ----
 
@@ -294,6 +344,12 @@
     Boolean: (value) => typeof value === 'boolean',
     List: Array.isArray,
     MutableList: Array.isArray,
+    Set: Array.isArray,
+    MutableSet: Array.isArray,
+    // OkHttp's and Mihon's builders (`HttpUrl.Builder`, `Request.Builder`, `Headers.Builder`).
+    Builder: (value) => Boolean(value && typeof value.build === 'function'),
+    HashSet: Array.isArray,
+    LinkedHashSet: Array.isArray,
     Collection: Array.isArray,
     Iterable: Array.isArray,
     Array: Array.isArray,
@@ -311,6 +367,8 @@
     Elements: (value) => value instanceof mihon.Elements,
     Document: (value) => value && typeof value.location === 'function',
     Response: (value) => value instanceof Response,
+    Request: (value) => value instanceof Request,
+    Headers: (value) => value instanceof Headers,
     HttpUrl: (value) => value instanceof HttpUrl,
     OkHttpClient: (value) => value instanceof Client,
     HttpSource: (value) => Boolean(value && value.isSource),
@@ -453,8 +511,14 @@
         cipher.key = bytesOf(keySpec?.key ?? keySpec);
         if (params) cipher.iv = bytesOf(params.iv ?? params);
       },
-      doFinal: (data = []) =>
-        fromBase64(
+      // GCM's additional authenticated data.
+      updateAAD: (bytes) => {
+        cipher.aad = [...(cipher.aad ?? []), ...bytesOf(bytes)];
+      },
+      // A picture's bytes stay a `Uint8Array` on the way through (a list of numbers that size
+      // would fill the script's memory).
+      doFinalU8: (data = []) =>
+        K.bin.fromBase64(
           crypto({
             op: 'aes',
             mode: cipher.mode,
@@ -462,9 +526,11 @@
             iv: cipher.iv ? base64Of(cipher.iv) : null,
             padding: cipher.padding,
             encrypt: cipher.encrypt,
-            data: base64Of(data),
+            data: data instanceof Uint8Array ? K.bin.toBase64(data) : base64Of(data),
+            aad: cipher.aad && cipher.aad.length ? base64Of(cipher.aad) : null,
           }),
         ),
+      doFinal: (data = []) => listOfBytes(cipher.doFinalU8(data)),
       getIV: () => cipher.iv,
       iv_: null,
     };
@@ -524,17 +590,86 @@
       );
     return null;
   };
-  const toInt = (text) => {
+  const toInt = (text, radix = 10) => {
     const trimmed = K.str(text).trim();
-    if (!/^[+-]?\d+$/.test(trimmed)) return null;
-    return parseInt(trimmed, 10);
+    const base = Number(radix) || 10;
+    const digits = '0123456789abcdefghijklmnopqrstuvwxyz'.slice(0, base);
+    const body = trimmed.replace(/^[+-]/, '').toLowerCase();
+    if (!body || [...body].some((char) => !digits.includes(char))) return null;
+    return parseInt(trimmed, base);
   };
   const toFloat = (text) => {
     const trimmed = K.str(text).trim();
     if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(trimmed)) return null;
     return parseFloat(trimmed);
   };
+  /// RC4 (Keiyoushi's `rc4(key, skip)`): the keystream XORed in, after `skip` of its bytes.
+  const rc4 = (data, key, skip = 0) => {
+    const state = Uint8Array.from({ length: 256 }, (_, index) => index);
+    let j = 0;
+    for (let i = 0; i < 256; i++) {
+      j = (j + state[i] + key[i % key.length]) & 255;
+      [state[i], state[j]] = [state[j], state[i]];
+    }
+    let a = 0;
+    let b = 0;
+    const next = () => {
+      a = (a + 1) & 255;
+      b = (b + state[a]) & 255;
+      [state[a], state[b]] = [state[b], state[a]];
+      return state[(state[a] + state[b]) & 255];
+    };
+    for (let count = 0; count < skip; count++) next();
+    const out = new Uint8Array(data.length);
+    for (let index = 0; index < data.length; index++) out[index] = data[index] ^ next();
+    return out;
+  };
   const STRING = {
+    toString: (s) => s,
+    prependIndent: (s, [indent = '    ']) =>
+      s
+        .split('\n')
+        .map((line) => (line.trim() === '' && line.length < indent.length ? indent : indent + line))
+        .join('\n'),
+    replaceRange: (s, [from, to, replacement]) =>
+      from && from.isRange
+        ? s.slice(0, from.first) + KT.str(to) + s.slice(from.last + 1)
+        : s.slice(0, from) + KT.str(replacement) + s.slice(to),
+    replaceAfter: (s, [delimiter, replacement, missing = s]) => {
+      const at = s.indexOf(KT.str(delimiter));
+      return at < 0 ? missing : s.slice(0, at + KT.str(delimiter).length) + KT.str(replacement);
+    },
+    replaceAfterLast: (s, [delimiter, replacement, missing = s]) => {
+      const at = s.lastIndexOf(KT.str(delimiter));
+      return at < 0 ? missing : s.slice(0, at + KT.str(delimiter).length) + KT.str(replacement);
+    },
+    replaceBefore: (s, [delimiter, replacement, missing = s]) => {
+      const at = s.indexOf(KT.str(delimiter));
+      return at < 0 ? missing : KT.str(replacement) + s.slice(at);
+    },
+    replaceBeforeLast: (s, [delimiter, replacement, missing = s]) => {
+      const at = s.lastIndexOf(KT.str(delimiter));
+      return at < 0 ? missing : KT.str(replacement) + s.slice(at);
+    },
+    uppercaseChar: (s) => s.toUpperCase(),
+    lowercaseChar: (s) => s.toLowerCase(),
+    titlecaseChar: (s) => s.toUpperCase(),
+    codePointAt: (s, [index]) => s.codePointAt(index),
+    encodeUtf8: (s) => byteString(K.bin.utf8(s)),
+    decodeHexToByteString: (s) => byteString(u8Of(fromHex(s))),
+    toBigDecimal: (s) => Number(s),
+    toBigInteger: (s) => Number(s),
+    toULong: (s) => Number(s),
+    subSequence: (s, [start, end = s.length]) => s.slice(start, end),
+    toBigDecimalOrNull: (s) => toFloat(s),
+    toUInt: (s, [radix]) => KT.nn(toInt(s, radix)) >>> 0,
+    toUIntOrNull: (s, [radix]) => {
+      const value = toInt(s, radix);
+      return value === null || value < 0 || value > 4294967295 ? null : value;
+    },
+    lineSequence: (s) => s.split(/\r?\n/),
+    isISOControl: (s) => /^[\u0000-\u001f\u007f-\u009f]$/.test(s),
+    random: (s) => (s.length ? s[Math.floor(Math.random() * s.length)] : noSuch('empty text')),
     substringAfter: (s, [delimiter, missing = s]) =>
       K.substringAfter(s, KT.str(delimiter), missing),
     substringBefore: (s, [delimiter, missing = s]) =>
@@ -618,10 +753,11 @@
     ifBlank: async (s, args, lambda) => (s.trim() === '' ? (lambda ? lambda() : args[0]) : s),
     ifEmpty: async (s, args, lambda) => (s.length === 0 ? (lambda ? lambda() : args[0]) : s),
     orEmpty: (s) => s,
-    toInt: (s) => KT.nn(toInt(s)),
-    toIntOrNull: (s) => toInt(s),
-    toLong: (s) => KT.nn(toInt(s)),
-    toLongOrNull: (s) => toInt(s),
+    // `toInt(16)` too.
+    toInt: (s, [radix]) => KT.nn(toInt(s, radix)),
+    toIntOrNull: (s, [radix]) => toInt(s, radix),
+    toLong: (s, [radix]) => KT.nn(toInt(s, radix)),
+    toLongOrNull: (s, [radix]) => toInt(s, radix),
     toFloat: (s) => KT.nn(toFloat(s)),
     toFloatOrNull: (s) => toFloat(s),
     toDouble: (s) => KT.nn(toFloat(s)),
@@ -657,7 +793,8 @@
       }
     },
     asJsoup: (s, [base = '']) => Jsoup.parse(s, KT.str(base)),
-    parseAs: (s, _args, _lambda, _named, type) => decode(JSON.parse(s), type),
+    parseAs: async (s, _args, lambda, _named, type) =>
+      decode(JSON.parse(lambda ? KT.str(await lambda(s)) : s), type),
     trimIndent: (s) => K.trimIndent(s),
     trimMargin: (s) => K.trimMargin(s),
     toCharArray: (s) => [...s],
@@ -839,20 +976,43 @@
     throw new KotlinError(what, 'NoSuchElementException');
   };
   /// A comparator (`compareBy { … }.thenByDescending { … }`): keys to sort by, in order.
-  const comparator = (keys) => ({
-    isComparator: true,
-    keys,
-    thenBy: (select) => comparator([...keys, { select, descending: false }]),
-    thenByDescending: (select) => comparator([...keys, { select, descending: true }]),
-    reversed: () => comparator(keys.map((key) => ({ ...key, descending: !key.descending }))),
-  });
+  /// A key's order: its own comparator's (a collator, `compareBy(collator) { … }`), else natural.
+  const keyOrder = (key, left, right) =>
+    key.order && typeof key.order.compare === 'function'
+      ? key.order.compare(left, right)
+      : KT.cmp(left, right);
+  const comparator = (keys) => {
+    const made = {
+      isComparator: true,
+      __class: 'Comparator',
+      __classes: ['Comparator'],
+      keys,
+      thenBy: (select) => comparator([...keys, { select, descending: false }]),
+      thenByDescending: (select) => comparator([...keys, { select, descending: true }]),
+      reversed: () => comparator(keys.map((key) => ({ ...key, descending: !key.descending }))),
+      compare: async (left, right) => {
+        for (const key of keys) {
+          const a = key.select ? await key.select(left) : left;
+          const b = key.select ? await key.select(right) : right;
+          const result = keyOrder(key, a, b);
+          if (result) return key.descending ? -result : result;
+        }
+        return 0;
+      },
+    };
+    return made;
+  };
   /// Items in the order a comparator, or a `Comparator { a, b -> … }`, gives.
   const sortWith = async (items, order) => {
-    if (typeof order === 'function') {
+    if (
+      typeof order === 'function' ||
+      (order && !order.keys && typeof order.compare === 'function')
+    ) {
+      const compare = typeof order === 'function' ? order : order.compare;
       const out = [];
       for (const item of items) {
         let at = out.length;
-        while (at > 0 && (await order(out[at - 1], item)) > 0) at--;
+        while (at > 0 && (await compare(out[at - 1], item)) > 0) at--;
         out.splice(at, 0, item);
       }
       return out;
@@ -865,7 +1025,7 @@
     }
     keyed.sort((a, b) => {
       for (let index = 0; index < order.keys.length; index++) {
-        const result = KT.cmp(a[0][index], b[0][index]);
+        const result = keyOrder(order.keys[index], a[0][index], b[0][index]);
         if (result) return order.keys[index].descending ? -result : result;
       }
       return 0;
@@ -899,6 +1059,103 @@
   };
   const LIST = {
     size: (l) => l.length,
+    // Jsoup's `Elements` edits, on each element.
+    prepend: (l, [html]) => (l.forEach((element) => element.prepend(html)), l),
+    append: (l, [html]) => (l.forEach((element) => element.append(html)), l),
+    before: (l, [html]) => (l.forEach((element) => element.before(html)), l),
+    after: (l, [html]) => (l.forEach((element) => element.after(html)), l),
+    // Removals from either end, and what a list keeps or drops while a test holds.
+    removeLast: (l) => (l.length ? l.pop() : noSuch('the list is empty')),
+    removeFirst: (l) => (l.length ? l.shift() : noSuch('the list is empty')),
+    removeLastOrNull: (l) => (l.length ? l.pop() : null),
+    removeFirstOrNull: (l) => (l.length ? l.shift() : null),
+    retainAll: async (l, args, lambda) => {
+      const keep = lambda
+        ? await mapAll(l, lambda)
+        : l.map((item) => KT.iter(args[0]).some((other) => KT.eq(item, other)));
+      let changed = false;
+      for (let index = l.length - 1; index >= 0; index--)
+        if (!KT.truthy(keep[index])) {
+          l.splice(index, 1);
+          changed = true;
+        }
+      return changed;
+    },
+    takeLastWhile: async (l, _args, lambda) => {
+      let at = l.length;
+      while (at > 0 && KT.truthy(await lambda(l[at - 1]))) at--;
+      return l.slice(at);
+    },
+    dropLastWhile: async (l, _args, lambda) => {
+      let at = l.length;
+      while (at > 0 && KT.truthy(await lambda(l[at - 1]))) at--;
+      return l.slice(0, at);
+    },
+    onEachIndexed: async (l, _args, lambda) => {
+      for (let index = 0; index < l.length; index++) await lambda(index, l[index]);
+      return l;
+    },
+    mapIndexedTo: async (l, [destination], lambda) => {
+      for (let index = 0; index < l.length; index++)
+        destination.push(await lambda(index, l[index]));
+      return destination;
+    },
+    flatMapIndexed: async (l, _args, lambda) =>
+      (await mapAll(l, lambda, true)).flatMap((value) => KT.iter(value)),
+    flatMapTo: async (l, [destination], lambda) => {
+      for (const item of l) destination.push(...KT.iter(await lambda(item)));
+      return destination;
+    },
+    filterNotNullTo: (l, [destination]) => {
+      for (const item of l) if (item !== null && item !== undefined) destination.push(item);
+      return destination;
+    },
+    // `groupingBy { … }.eachCount()`.
+    groupingBy: async (l, _args, lambda) => {
+      const keys = await mapAll(l, lambda);
+      return {
+        __class: 'Grouping',
+        __classes: ['Grouping'],
+        eachCount: () => {
+          const counts = new Map();
+          for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+          return counts;
+        },
+        keyOf: (item) => keys[l.indexOf(item)],
+      };
+    },
+    iterator: (l) => {
+      let at = 0;
+      return {
+        __class: 'Iterator',
+        __classes: ['Iterator'],
+        hasNext: () => at < l.length,
+        next: () => (at < l.length ? l[at++] : noSuch('the list has no more items')),
+        remove: () => {
+          at -= 1;
+          l.splice(at, 1);
+        },
+      };
+    },
+    // Keiyoushi's byte readers (`keiyoushi.utils.Binary`) and RC4, okio's `ByteString`.
+    readUShortLittleEndian: (l, [offset]) => (l[offset] & 255) | ((l[offset + 1] & 255) << 8),
+    readUShortBigEndian: (l, [offset]) => ((l[offset] & 255) << 8) | (l[offset + 1] & 255),
+    readUIntLittleEndian: (l, [offset]) =>
+      ((l[offset] & 255) | ((l[offset + 1] & 255) << 8) | ((l[offset + 2] & 255) << 16)) +
+      (l[offset + 3] & 255) * 16777216,
+    readLongLittleEndian: (l, [offset]) => {
+      let value = 0;
+      for (let index = 7; index >= 0; index--) value = value * 256 + (l[offset + index] & 255);
+      return value;
+    },
+    rc4: (l, [key, skip = 0]) => listOfBytes(rc4(u8Of(l), u8Of(key), skip)),
+    toByteString: (l) => byteString(u8Of(l)),
+    // Keiyoushi's `ByteArray.inflate(nowrap)`.
+    inflate: (l, [nowrap = false]) => listOfBytes(inflateBytes(l, nowrap ? 'raw' : 'zlib')),
+    copyInto: (l, [destination, offset = 0, start = 0, end = l.length]) => {
+      for (let index = start; index < end; index++) destination[offset + index - start] = l[index];
+      return destination;
+    },
     // A JSON array's `parseAs<List<T>>()`.
     parseAs: (l, _args, _lambda, _named, type) => decode(l, type),
     containsAll: (l, [other]) => KT.iter(other).every((item) => l.some((own) => KT.eq(own, item))),
@@ -1151,20 +1408,30 @@
     reversed: (l) => [...l].reverse(),
     asReversed: (l) => [...l].reverse(),
     flatten: (l) => l.flatMap((value) => KT.iter(value)),
-    groupBy: async (l, _args, lambda) => {
+    // `groupBy({ key }, { value })` too.
+    groupBy: async (l, args, lambda) => {
+      const [keyOf, valueOf] =
+        args.length >= 2 && typeof args[1] === 'function'
+          ? [args[0], args[1]]
+          : [lambda ?? args[0], args.length === 1 && lambda && lambda !== args[0] ? args[0] : null];
       const groups = new Map();
       for (const item of l) {
-        const key = await lambda(item);
+        const key = await keyOf(item);
         if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(item);
+        groups.get(key).push(valueOf ? await valueOf(item) : item);
       }
       return groups;
     },
     associate: async (l, _args, lambda) =>
       new Map((await mapAll(l, lambda)).map((pair) => [pair.first, pair.second])),
-    associateBy: async (l, _args, lambda) => {
+    // `associateBy({ key }, { value })` too.
+    associateBy: async (l, args, lambda) => {
+      const [keyOf, valueOf] =
+        args.length >= 2 && typeof args[1] === 'function'
+          ? [args[0], args[1]]
+          : [lambda ?? args[0], null];
       const map = new Map();
-      for (const item of l) map.set(await lambda(item), item);
+      for (const item of l) map.set(await keyOf(item), valueOf ? await valueOf(item) : item);
       return map;
     },
     associateWith: async (l, _args, lambda) => {
@@ -1278,13 +1545,44 @@
     minus: (l, [other]) => KT.minus(l, other),
     plusElement: (l, [item]) => [...l, item],
     add: (l, args) => {
+      if (l.isSet && l.some((other) => KT.eq(other, args[args.length - 1]))) return false;
       if (args.length === 2) l.splice(args[0], 0, args[1]);
       else l.push(args[0]);
       return true;
     },
     addAll: (l, [items]) => {
-      l.push(...KT.iter(items));
+      const list = [...KT.iter(items)];
+      if (l.isSet) {
+        let added = false;
+        for (const item of list) added = LIST.add(l, [item]) || added;
+        return added;
+      }
+      l.push(...list);
       return true;
+    },
+    randomOrNull: (l) => (l.length ? l[Math.floor(Math.random() * l.length)] : null),
+    toHashSet: (l) => LIST.distinct(l),
+    asList: (l) => l,
+    contentToString: (l) => `[${l.map((item) => KT.str(item)).join(', ')}]`,
+    minWith: async (l, [order]) => {
+      if (!l.length) return noSuch('the list is empty');
+      return (await sortWith(l, order))[0];
+    },
+    maxWith: async (l, [order]) => {
+      if (!l.length) return noSuch('the list is empty');
+      const sorted = await sortWith(l, order);
+      return sorted[sorted.length - 1];
+    },
+    runningFold: async (l, [initial], lambda) => {
+      const out = [initial];
+      let acc = initial;
+      for (const item of l) out.push((acc = await lambda(acc, item)));
+      return out;
+    },
+    // `MutableList.reverse()`: in place.
+    reverse: (l) => {
+      l.reverse();
+      return KT.unit;
     },
     remove: (l, [item]) => {
       const index = l.findIndex((other) => KT.eq(other, item));
@@ -1319,6 +1617,9 @@
   };
 
   const MAP = {
+    // Kotlin's `{a=1, b=2}`.
+    toString: (m) =>
+      `{${[...m].map(([key, value]) => `${KT.str(key)}=${KT.str(value)}`).join(', ')}}`,
     get: (m, [key]) => (m.has(key) ? m.get(key) : null),
     toSortedMap: (m) => new Map([...m.entries()].sort(([left], [right]) => KT.cmp(left, right))),
     getOrDefault: (m, [key, fallback]) => (m.has(key) ? m.get(key) : fallback),
@@ -1328,6 +1629,17 @@
       return m.get(key);
     },
     containsKey: (m, [key]) => m.has(key),
+    getValue: async (m, [key]) =>
+      m.has(key) ? m.get(key) : m.defaultOf ? m.defaultOf(key) : noSuch(`no key ${KT.str(key)}`),
+    // `withDefault { key -> … }`: what `getValue` answers for a key it lacks.
+    withDefault: (m, _args, lambda) => {
+      Object.defineProperty(m, 'defaultOf', {
+        value: lambda,
+        enumerable: false,
+        configurable: true,
+      });
+      return m;
+    },
     containsValue: (m, [value]) => [...m.values()].some((other) => KT.eq(other, value)),
     put: (m, [key, value]) => {
       m.set(key, value);
@@ -1357,6 +1669,22 @@
       (await mapAll(KT.iter(m), lambda)).filter((value) => value != null),
     filter: async (m, _args, lambda) =>
       new Map((await filterAll(KT.iter(m), lambda)).map((entry) => [entry.key, entry.value])),
+    filterNot: async (m, _args, lambda) => {
+      const out = new Map();
+      for (const entry of KT.iter(m))
+        if (!KT.truthy(await lambda(entry))) out.set(entry.key, entry.value);
+      return out;
+    },
+    filterKeys: async (m, _args, lambda) => {
+      const out = new Map();
+      for (const [key, value] of m) if (KT.truthy(await lambda(key))) out.set(key, value);
+      return out;
+    },
+    filterValues: async (m, _args, lambda) => {
+      const out = new Map();
+      for (const [key, value] of m) if (KT.truthy(await lambda(value))) out.set(key, value);
+      return out;
+    },
     mapValues: async (m, _args, lambda) => {
       const out = new Map();
       for (const entry of KT.iter(m)) out.set(entry.key, await lambda(entry));
@@ -1379,6 +1707,12 @@
 
   /// A JSON object, as kotlinx.serialization's `JsonObject` or a DTO.
   const OBJECT = {
+    // A locale's tag and names.
+    toLanguageTag: (o) => (o.country ? `${o.language}-${o.country}` : KT.str(o.language)),
+    getDisplayLanguage: (o) => LANGUAGE_NAMES[o.language] ?? KT.str(o.language),
+    getDisplayName: (o) => LANGUAGE_NAMES[o.language] ?? KT.str(o.language),
+    // A `JsonObject`'s text is its JSON.
+    toString: (o) => JSON.stringify(o),
     // Keiyoushi's `JsonElement.parseAs<T>()`: the element decoded as the type.
     parseAs: (o, _args, _lambda, _named, type) => decode(o, type),
     // Keiyoushi's `Element.toMarkdown(keepNewlines)`: its text with paragraphs, plain.
@@ -1423,8 +1757,40 @@
     toMap: (o) => new Map(Object.entries(o)),
     toMutableMap: (o) => new Map(Object.entries(o)),
   };
+  /// What a map has, on a JSON object (`jsonObject.mapValues { … }`): read as a map.
+  const objectAsMap = (name) =>
+    MAP[name] ? (o, ...rest) => MAP[name](new Map(Object.entries(o)), ...rest) : null;
 
   const NUMBER = {
+    // `BigDecimal`s are numbers here.
+    stripTrailingZeros: (n) => n,
+    setScale: (n, [scale = 0, mode = 'HALF_UP']) => {
+      const factor = 10 ** Number(scale);
+      const round =
+        {
+          DOWN: Math.trunc,
+          FLOOR: Math.floor,
+          CEILING: Math.ceil,
+          UP: (x) => Math.sign(x) * Math.ceil(Math.abs(x)),
+        }[KT.str(mode)] ?? Math.round;
+      return round(n * factor) / factor;
+    },
+    toPlainString: (n) => String(n),
+    mod: (n, [other]) => ((n % other) + other) % other,
+    toBigDecimal: (n) => n,
+    toBigInteger: (n) => n,
+    toULong: (n) => (n < 0 ? n + 18446744073709551616 : n),
+    toUByte: (n) => n & 255,
+    toUInt: (n) => Math.trunc(n) >>> 0,
+    downTo: (n, [to]) => KT.range(n, to, -1),
+    until: (n, [to]) => KT.range(n, to - 1),
+    rangeTo: (n, [to]) => KT.range(n, to),
+    signum: (n) => Math.sign(n),
+    // A character's code read as one (`Char::isISOControl`).
+    isISOControl: (n) => n <= 31 || (n >= 127 && n <= 159),
+    toULong: (n) => (n < 0 ? n + 18446744073709551616 : Math.trunc(n)),
+    toUShort: (n) => n & 65535,
+    multipliedBy: (n, [other]) => n * Number(other),
     toString: (n, [radix]) => (radix ? n.toString(radix) : K.str(n)),
     toInt: (n) => Math.trunc(n),
     toLong: (n) => Math.trunc(n),
@@ -1452,6 +1818,25 @@
   };
 
   const ANY = {
+    // A comparator's `then(other)` (not a property: an object with `then` would be awaited as a
+    // promise): this order, then the other's for ties.
+    then:
+      (value, [other]) =>
+      async (left, right) =>
+        (await compareWith(value, left, right)) || compareWith(other, left, right),
+    thenComparator:
+      (value, [other], lambda) =>
+      async (left, right) =>
+        (await compareWith(value, left, right)) || (lambda ?? other)(left, right),
+    thenDescending:
+      (value, [other]) =>
+      async (left, right) =>
+        (await compareWith(value, left, right)) || -(await compareWith(other, left, right)),
+    // kotlinx.datetime's and java.time's instants are the same here.
+    toJavaInstant: (value) => value,
+    toKotlinInstant: (value) => value,
+    // A comparator's `compare(a, b)`: a `Comparator { a, b -> … }`, a collator, `compareBy`.
+    compare: async (value, [left, right]) => compareWith(value, left, right),
     // Keiyoushi's protobuf writers, on an instance of a class the source declares.
     toRequestBodyProto: (value, [type = 'application/protobuf']) => ({
       isBody: true,
@@ -1520,6 +1905,12 @@
 
   /// kotlinx.serialization's JSON elements, read off plain JSON values.
   const JSON_PROPS = {
+    // Keiyoushi's `obj` and `array` (`keiyoushi.utils`).
+    obj: (value) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? value
+        : KT.raise('not a JSON object'),
+    array: (value) => (Array.isArray(value) ? value : KT.raise('not a JSON array')),
     jsonObject: (value) =>
       value && typeof value === 'object' && !Array.isArray(value)
         ? value
@@ -1559,6 +1950,8 @@
   let aliases = {};
   /// Keiyoushi's `assets/i18n/messages_<lang>.properties`, by `<lang>` (`pt_br`).
   let messages = {};
+  /// The extension's resources (`assets/…`), as base64, for `javaClass.getResource(…)`.
+  let assets = {};
   /// Keiyoushi's `Intl` (lib:i18n): messages in the source's language, else the base one's.
   const intl = (language, availableLanguages, baseLanguage) => {
     const snake = (lang) => KT.str(lang).replace(/-/g, '_').toLowerCase();
@@ -1571,7 +1964,10 @@
       chosenLanguage: chosen,
       get,
       format: (key, ...args) => K.format(get(key), ...args),
-      languageDisplayName: (code) => KT.str(code),
+      languageDisplayName: (code) => {
+        const language = KT.str(code).split(/[-_]/)[0].toLowerCase();
+        return LANGUAGE_NAMES[language] ?? KT.str(code);
+      },
     };
   };
   /// A DTO's property by its Kotlin name, or the JSON name it's read by.
@@ -1600,7 +1996,22 @@
     }
     return false;
   };
+  /// What `JsonNull` (a `JsonPrimitive`) answers.
+  const JSON_NULL_PROPS = {
+    contentOrNull: null,
+    content: 'null',
+    isString: false,
+    stringOrNull: null,
+    intOrNull: null,
+    longOrNull: null,
+    doubleOrNull: null,
+    floatOrNull: null,
+    booleanOrNull: null,
+    jsonPrimitive: null,
+  };
   KT.p = async (value, name) => {
+    if (value === null && Object.prototype.hasOwnProperty.call(JSON_NULL_PROPS, name))
+      return JSON_NULL_PROPS[name];
     if (value === null || value === undefined)
       throw new KotlinError(`read ${name} of null`, 'NullPointerException');
     const kind = kindOf(value);
@@ -1644,8 +2055,11 @@
         if (name === 'isSuccess') return value.isSuccess;
         if (name === 'isFailure') return !value.isSuccess;
       }
-      const getter = value[`get${name.charAt(0).toUpperCase()}${name.slice(1)}`];
+      const getterName = `get${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+      const getter = value[getterName];
       if (typeof getter === 'function') return getter.call(value);
+      // A plain value's Java getter from the runtime's table (`locale.displayLanguage`).
+      if (value.__class === undefined && OBJECT[getterName]) return OBJECT[getterName](value, []);
       if (value.__class !== undefined && !(name in value))
         throw new KotlinError(`${value.__class} has no ${name}`);
       return null;
@@ -1681,7 +2095,19 @@
       throw new KotlinError(`set ${name} of null`, 'NullPointerException');
     if (value.isGetterHost && value.setters && value.setters[name])
       return value.setters[name](value, item);
-    value[name] = item;
+    try {
+      value[name] = item;
+    } catch (error) {
+      // A `var` with a getter and a setter the converter kept the getter of: the value set
+      // is kept as a field.
+      if (!(error instanceof TypeError)) throw error;
+      Object.defineProperty(value, name, {
+        value: item,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
   };
 
   /// A function passed in parentheses (`all(Char::isDigit)`, `fold(0, ::add)`): the lambda Kotlin
@@ -1698,6 +2124,7 @@
       if (NULLABLE[name]) return NULLABLE[name](receiver, args, lambda, named, type);
       throw new KotlinError(`${name}() was called on null`, 'NullPointerException');
     }
+    if (receiver.isLazySequence) return sequenceCall(receiver, name, args, lambda, named, type);
     if (hasNextJs(receiver, name)) return NEXT_JS[name](receiver, args, lambda, type);
     // Protobuf answers read as the type asked (`parseAsProto<T>()`), after a `transform` if any.
     if (type && PROTO_DECODERS.has(name)) {
@@ -1709,12 +2136,27 @@
     if (receiver instanceof RegExp && REGEX[name]) return REGEX[name](receiver, args, lambda);
     // `response.parseAs<List<MangaDto>>()`, `json.decodeFromString<T>(text)`: as the type asked.
     if (type && DECODERS.has(name) && kind === 'object' && typeof receiver[name] === 'function') {
-      return decode(await receiver[name](...args), type);
+      const all = lambda && !args.includes(lambda) ? [...args, lambda] : args;
+      return decode(await receiver[name](...all), type);
     }
     if (kind === 'elements' && typeof receiver[name] === 'function' && ELEMENTS_OWN.has(name))
       return receiver[name](...args);
+    // A declared class built on a collection: its own functions first.
+    if (
+      (kind === 'list' || kind === 'map') &&
+      receiver.__class !== undefined &&
+      Object.prototype.hasOwnProperty.call(receiver, name) &&
+      typeof receiver[name] === 'function'
+    )
+      return receiver[name](...args, ...(written ? [written] : []));
     const table = { string: STRING, list: LIST, elements: LIST, map: MAP, number: NUMBER }[kind];
     if (table && table[name]) return table[name](receiver, args, lambda, named, type);
+    // A map's entries as a list (`map.count { … }`, `map.maxByOrNull { … }`), a text's
+    // characters (`text.foldIndexed(0) { … }`).
+    if (kind === 'map' && LIST[name])
+      return LIST[name](KT.iter(receiver), args, lambda, named, type);
+    if (kind === 'string' && LIST[name] && !ANY[name])
+      return LIST[name]([...receiver], args, lambda, named, type);
     // A StringBuilder is a CharSequence too (`if (isNotEmpty()) append(", ")`).
     if (receiver.isStringBuilder && typeof receiver[name] !== 'function' && STRING[name])
       return STRING[name](receiver.text, args, lambda, named, type);
@@ -1733,7 +2175,11 @@
       name === 'cipherSource' ||
       (name === 'aesDecrypt' && receiver && typeof receiver.u8Now === 'function')
     )
-      return okioBuffer(u8Of(await args[0].doFinal(await streamBytes(receiver))));
+      return okioBuffer(
+        args[0].doFinalU8
+          ? args[0].doFinalU8(await streamBytes(receiver))
+          : u8Of(await args[0].doFinal(await streamBytes(receiver))),
+      );
     // OkHttp's `response.headers("Content-Type")`: that header's values.
     if (receiver instanceof Response && name === 'headers' && args.length)
       return receiver.headers.values(args[0]);
@@ -1743,7 +2189,8 @@
         return receiver.call(name, lambda && !args.includes(lambda) ? [...args, lambda] : args);
       if (receiver.isMatch && name === 'groupValues') return receiver.groupValues;
       const own = receiver[name];
-      if (typeof own === 'function') {
+      // Not JavaScript's own (a JSON object's `toString` is its JSON, below).
+      if (typeof own === 'function' && own !== Object.prototype[name]) {
         const all = [...args];
         if (named) all.push({ [NAMED]: true, ...named });
         if (written) all.push(written);
@@ -1752,6 +2199,8 @@
       if (own && own.isMethod) return own.function_(receiver, args, lambda, named, type);
       if (receiver.__class === undefined && OBJECT[name])
         return OBJECT[name](receiver, args, lambda, named, type);
+      if (receiver.__class === undefined && objectAsMap(name))
+        return objectAsMap(name)(receiver, args, lambda, named, type);
     }
     if (kind === 'function' && name === 'invoke') return receiver(...args);
     if (ANY[name]) return ANY[name](receiver, args, lambda, named, type);
@@ -1789,6 +2238,10 @@
       text: '',
       append: (value) => {
         builder.text += KT.str(value);
+        return builder;
+      },
+      appendCodePoint: (code) => {
+        builder.text += String.fromCodePoint(Number(code));
         return builder;
       },
       appendLine: (value = '') => {
@@ -1850,7 +2303,25 @@
   };
   KT.jsonArrayBuilder = () => {
     const array = [];
-    return { isJsonBuilder: true, array, add: (value) => array.push(plain(value)) };
+    return {
+      isJsonBuilder: true,
+      array,
+      add: (value) => array.push(plain(value)),
+      addAll: (values) => {
+        for (const value of KT.iter(values)) array.push(plain(value));
+        return true;
+      },
+      addJsonObject: async (lambda) => {
+        const inner = KT.jsonBuilder();
+        await lambda.call(null, inner);
+        array.push(inner.object);
+      },
+      addJsonArray: async (lambda) => {
+        const inner = KT.jsonArrayBuilder();
+        await lambda.call(null, inner);
+        array.push(inner.array);
+      },
+    };
   };
   KT.built = (builder) => (builder.isJsonBuilder ? (builder.object ?? builder.array) : builder);
   const plain = (value) => {
@@ -1982,7 +2453,7 @@
       this.host_ = parts.host;
       this.port_ = parts.port;
       this.segments = parts.path.split('/').slice(1);
-      this.query = parts.query ? parts.query.split('&') : [];
+      this.queryPairs = parts.query ? parts.query.split('&') : [];
       this.fragment_ = parts.fragment;
     }
     scheme(value) {
@@ -1992,6 +2463,19 @@
     host(value) {
       this.host_ = value;
       return this;
+    }
+    // Android's `Uri.Builder` names for the same.
+    appendQueryParameter(name, value) {
+      return this.addQueryParameter(name, value);
+    }
+    appendPath(segment) {
+      return this.addPathSegment(segment);
+    }
+    appendEncodedPath(segments) {
+      return this.addEncodedPathSegments(KT.str(segments).replace(/^\/+/, ''));
+    }
+    authority(value) {
+      return this.host(value);
     }
     port(value) {
       this.port_ = value;
@@ -2034,7 +2518,7 @@
       return this;
     }
     encodedQuery(query) {
-      this.query = query ? KT.str(query).split('&') : [];
+      this.queryPairs = query ? KT.str(query).split('&') : [];
       return this;
     }
     encodedPath(path) {
@@ -2042,29 +2526,32 @@
       return this;
     }
     addQueryParameter(name, value) {
-      if (value === null || value === undefined) this.query.push(encodeURIComponent(KT.str(name)));
+      if (value === null || value === undefined)
+        this.queryPairs.push(encodeURIComponent(KT.str(name)));
       else
-        this.query.push(`${encodeURIComponent(KT.str(name))}=${encodeURIComponent(KT.str(value))}`);
+        this.queryPairs.push(
+          `${encodeURIComponent(KT.str(name))}=${encodeURIComponent(KT.str(value))}`,
+        );
       return this;
     }
     addEncodedQueryParameter(name, value) {
-      this.query.push(value == null ? KT.str(name) : `${KT.str(name)}=${KT.str(value)}`);
+      this.queryPairs.push(value == null ? KT.str(name) : `${KT.str(name)}=${KT.str(value)}`);
       return this;
     }
     removeAllQueryParameters(name) {
       const key = encodeURIComponent(KT.str(name));
-      this.query = this.query.filter((pair) => pair.split('=')[0] !== key);
+      this.queryPairs = this.queryPairs.filter((pair) => pair.split('=')[0] !== key);
       return this;
     }
     setQueryParameter(name, value) {
       return this.removeAllQueryParameters(name).addQueryParameter(name, value);
     }
     setEncodedQueryParameter(name, value) {
-      this.query = this.query.filter((pair) => pair.split('=')[0] !== KT.str(name));
+      this.queryPairs = this.queryPairs.filter((pair) => pair.split('=')[0] !== KT.str(name));
       return this.addEncodedQueryParameter(name, value);
     }
     query(text) {
-      this.query = text ? KT.str(text).split('&') : [];
+      this.queryPairs = text ? KT.str(text).split('&') : [];
       return this;
     }
     fragment(value) {
@@ -2081,7 +2568,7 @@
           ? `:${this.port_}`
           : '';
       const path = `/${this.segments.join('/')}`;
-      const query = this.query.length ? `?${this.query.join('&')}` : '';
+      const query = this.queryPairs.length ? `?${this.queryPairs.join('&')}` : '';
       const fragment = this.fragment_ ? `#${this.fragment_}` : '';
       return HttpUrl.parse(`${this.scheme_}://${this.host_}${port}${path}${query}${fragment}`);
     }
@@ -2093,6 +2580,12 @@
   class Headers {
     constructor(pairs = []) {
       this.pairs = pairs;
+    }
+    /// OkHttp's `headers.getDate("Date")`: the header's time, or null.
+    getDate(name) {
+      const value = this.get(name);
+      const ms = value === null ? NaN : Date.parse(value);
+      return Number.isNaN(ms) ? null : ms;
     }
     get(name) {
       const found = [...this.pairs]
@@ -2171,6 +2664,12 @@
     header(name) {
       return this.headers.get(name);
     }
+    /// What `tag(type, value)` put on it (`request.tag(Page::class.java)`).
+    tag(type) {
+      const tags = this.tags ?? {};
+      const key = type === undefined ? 'Object' : KT.str(type).split('.').pop();
+      return tags[key] ?? null;
+    }
     newBuilder() {
       const builder = new RequestBuilder();
       builder.url_ = this.url;
@@ -2178,6 +2677,7 @@
       builder.headers_ = this.headers.newBuilder();
       builder.body_ = this.body;
       builder.kind_ = this.kind;
+      builder.tags_ = { ...(this.tags ?? {}) };
       return builder;
     }
   }
@@ -2240,7 +2740,12 @@
     cacheControl() {
       return this;
     }
-    tag() {
+    /// OkHttp's `tag(type, value)` (or `tag(value)`): something carried with the request for
+    /// its interceptors.
+    tag(type, value) {
+      this.tags_ = { ...(this.tags_ ?? {}) };
+      if (value === undefined) this.tags_.Object = type ?? null;
+      else this.tags_[KT.str(type).split('.').pop()] = value;
       return this;
     }
     fetch(fetch) {
@@ -2248,13 +2753,15 @@
       return this;
     }
     build() {
-      return new Request({
+      const request = new Request({
         url: this.url_,
         method: this.method_,
         headers: this.headers_.build(),
         body: this.body_,
         kind: this.kind_,
       });
+      request.tags = this.tags_ ?? {};
+      return request;
     }
   }
   const formBody = () => {
@@ -2325,20 +2832,28 @@
     async asJsoup() {
       return Jsoup.parse(await this.raw.text(), this.request.url.toString());
     }
-    /// Plain JSON; `KT.m` decodes it as the type the call asks for.
-    async parseAs() {
-      return JSON.parse(await this.raw.text());
+    /// Plain JSON; `KT.m` decodes it as the type the call asks for. Keiyoushi's
+    /// `parseAs<T> { text -> … }` changes the text first (a JSONP answer's call around it).
+    async parseAs(transform) {
+      const text = await this.raw.text();
+      return JSON.parse(typeof transform === 'function' ? KT.str(await transform(text)) : text);
     }
-    /// Keiyoushi's `parseGraphQLAs<T>()`: the answer's `data`, or its errors as a failure.
+    /// Keiyoushi's `parseGraphQLAs<T>()`: the answer's `data`; any errors fail it, even beside
+    /// data (MangaHub's `{"data": {"chapter": null}, "errors": […]}` asks for a new key).
     async parseGraphQLAs() {
       const answer = JSON.parse(await this.raw.text());
-      if (Array.isArray(answer.errors) && answer.errors.length && answer.data == null) {
+      if (Array.isArray(answer.errors) && answer.errors.length) {
         throw new KotlinError(
           answer.errors.map((error) => KT.str(error?.message ?? '')).join('\n'),
           'GraphQLException',
         );
       }
-      return answer.data ?? null;
+      if (answer.data == null)
+        throw new KotlinError(
+          "GraphQL response is missing the 'data' field",
+          'IllegalStateException',
+        );
+      return answer.data;
     }
     async use(lambda) {
       return lambda(this);
@@ -2403,12 +2918,27 @@
     const holder = classOf(type);
     if (holder && value && typeof value === 'object' && !Array.isArray(value))
       return polymorphic(holder, value).fromJson(value, type.args);
+    // An enum's entry by its name as the answer spells it (`"shounen"` for `SHOUNEN`).
+    if (holder && typeof value === 'string' && holder.definition?.kind === 'enum') {
+      const simple = (text) => text.replace(/[-_ ]/g, '').toLowerCase();
+      const entry =
+        holder.definition.entries.find((name) => name === value) ??
+        holder.definition.entries.find((name) => simple(name) === simple(value));
+      return entry === undefined ? value : holder[entry];
+    }
+    // A list where one object goes (`JsonTransformingSerializer`s taking an array's first).
+    if (holder && Array.isArray(value) && value.length && value[0] && typeof value[0] === 'object')
+      return decodeAs(value[0], type);
     return value;
   };
   /// A sealed or abstract class's subclass that an answer names in its `type` (kotlinx's class
   /// discriminator), by its `@SerialName` or its name; else the class itself.
+  /// The keys answers name their subclass by (kotlinx's `classDiscriminator`, `type` unless a
+  /// source's `Json { classDiscriminator = … }` says).
+  const discriminators = ['type'];
   const polymorphic = (holder, value) => {
-    const named = value.type;
+    const key = discriminators.find((name) => typeof value[name] === 'string');
+    const named = key === undefined ? undefined : value[key];
     if (typeof named !== 'string') return holder;
     for (const candidate of new Set(Object.values(CLASSES))) {
       if (
@@ -2907,6 +3437,8 @@
     constructor(source) {
       this.owner = source;
       this.interceptors = [];
+      // OkHttp's `followRedirects(false)`: redirects come back as they are.
+      this.followsRedirects = true;
     }
     get cookieJar() {
       return cookieJar;
@@ -2950,6 +3482,7 @@
         kind: kind === 'none' ? null : kind,
         from: fetch && fetch.page ? fetch.page : null,
         ensureSuccess: false,
+        redirect: this.followsRedirects ? null : 'manual',
       });
       return new Response(raw, request);
     }
@@ -3001,8 +3534,14 @@
       }
       return this.send(new Request({ url, method, headers, body, kind: fetch }), ensureSuccess);
     }
+    /// OkHttp's `newBuilder()`: a client of its own, with this one's interceptors and settings
+    /// (changing it leaves this one as it is).
     newBuilder() {
-      return clientBuilder(this);
+      const copy = new Client(this.owner);
+      copy.interceptors = [...this.interceptors];
+      copy.followsRedirects = this.followsRedirects;
+      copy.defaultHeaders = () => (this.defaultHeaders ? this.defaultHeaders() : new Headers());
+      return clientBuilder(copy);
     }
   }
   const clientBuilder = (client) => {
@@ -3020,9 +3559,21 @@
       readTimeout: () => builder,
       writeTimeout: () => builder,
       callTimeout: () => builder,
-      followRedirects: () => builder,
+      followRedirects: (follow = true) => {
+        client.followsRedirects = follow !== false;
+        return builder;
+      },
       followSslRedirects: () => builder,
       retryOnConnectionFailure: () => builder,
+      // Raygun's own client resolves names, picks protocols, checks certificates and caches.
+      cache: () => builder,
+      dispatcher: () => builder,
+      dns: () => builder,
+      protocols: () => builder,
+      hostnameVerifier: () => builder,
+      sslSocketFactory: () => builder,
+      connectionPool: () => builder,
+      networkInterceptors: () => client.interceptors,
       // Interceptors over requests and answers (headers, tokens, retries, cookies); one decoding
       // images can't convert, as the runtime has no pictures.
       addInterceptor: (interceptor) => {
@@ -3253,6 +3804,20 @@
       __class: 'Buffer',
       __classes: ['Buffer', 'BufferedSource', 'BufferedSink', 'Source', 'Sink'],
       u8Now: () => data.slice(head, tail),
+      /// Keiyoushi's `Source.fixedLength(n)` (`keiyoushi.zip`): the next `n` bytes.
+      fixedLength: (count) => okioBuffer(take(Math.min(Number(count), tail - head))),
+      /// Keiyoushi's `Source.inflate(nowrap)`: what's left, inflated.
+      inflate: (nowrap = false) =>
+        okioBuffer(inflateBytes(take(), nowrap === true ? 'raw' : 'zlib')),
+      /// okio's `rangeEquals(offset, bytes)`: whether the bytes at `offset` are those.
+      rangeEquals: (offset, other, otherOffset = 0, count = undefined) => {
+        const wanted = u8Of(other);
+        const length = count ?? wanted.length - otherOffset;
+        if (offset < 0 || head + offset + length > tail) return false;
+        for (let index = 0; index < length; index++)
+          if (data[head + offset + index] !== wanted[otherOffset + index]) return false;
+        return true;
+      },
       get size() {
         return tail - head;
       },
@@ -3582,7 +4147,7 @@
         ? await make(listOfBytes(iv))
         : aesCipher({ key: bytesOf(await key), iv: [...iv], encrypt: false });
     }
-    const plain = u8Of(await cipher.doFinal(bytes));
+    const plain = cipher.doFinalU8 ? cipher.doFinalU8(bytes) : u8Of(await cipher.doFinal(bytes));
     const next = bytesBody(
       async () => plain,
       type ?? (body.contentType ? body.contentType() : null),
@@ -4582,6 +5147,827 @@
       `http://${TEXT_HOST}/${encodeURIComponent(KT.str(title))}/${encodeURIComponent(KT.str(text))}`,
   };
 
+  // ---- Sequences, formats and the rest of Kotlin's and Java's library ----
+
+  /// Kotlin's sequences that may not end (`generateSequence(seed) { next(it) }`): items worked
+  /// out as they're read; anything else reads the first `SEQUENCE_CAP` as a list.
+  const SEQUENCE_CAP = 100000;
+  const lazySequence = (generate) => ({
+    isLazySequence: true,
+    __class: 'Sequence',
+    __classes: ['Sequence'],
+    generate,
+  });
+  const collectSequence = async (sequence, limit = SEQUENCE_CAP) => {
+    const out = [];
+    if (limit <= 0) return out;
+    for await (const item of sequence.generate()) {
+      out.push(item);
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+  const SEQUENCE = {
+    iterator: (s) => {
+      const source = s.generate();
+      let peeked = null;
+      const fill = async () => (peeked ??= await source.next());
+      return {
+        __class: 'Iterator',
+        __classes: ['Iterator'],
+        hasNext: async () => !(await fill()).done,
+        next: async () => {
+          const found = await fill();
+          peeked = null;
+          return found.done ? noSuch('the sequence has no more items') : found.value;
+        },
+      };
+    },
+    drop: (s, [count]) =>
+      lazySequence(async function* () {
+        let skipped = 0;
+        for await (const item of s.generate()) if (skipped++ >= count) yield item;
+      }),
+    take: (s, [count]) =>
+      lazySequence(async function* () {
+        if (count <= 0) return;
+        let taken = 0;
+        for await (const item of s.generate()) {
+          yield item;
+          if (++taken >= count) return;
+        }
+      }),
+    takeWhile: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) {
+          if (!KT.truthy(await lambda(item))) return;
+          yield item;
+        }
+      }),
+    dropWhile: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        let dropping = true;
+        for await (const item of s.generate()) {
+          if (dropping && KT.truthy(await lambda(item))) continue;
+          dropping = false;
+          yield item;
+        }
+      }),
+    map: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) yield await lambda(item);
+      }),
+    mapIndexed: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        let index = 0;
+        for await (const item of s.generate()) yield await lambda(index++, item);
+      }),
+    mapNotNull: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) {
+          const value = await lambda(item);
+          if (value !== null && value !== undefined) yield value;
+        }
+      }),
+    filter: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) if (KT.truthy(await lambda(item))) yield item;
+      }),
+    filterNot: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) if (!KT.truthy(await lambda(item))) yield item;
+      }),
+    filterNotNull: (s) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) if (item !== null && item !== undefined) yield item;
+      }),
+    filterIsInstance: (s, _args, _lambda, _named, type) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) if (KT.is(item, type)) yield item;
+      }),
+    onEach: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) {
+          await lambda(item);
+          yield item;
+        }
+      }),
+    constrainOnce: (s) => s,
+    asSequence: (s) => s,
+    firstOrNull: async (s, _args, lambda) => {
+      for await (const item of s.generate())
+        if (!lambda || KT.truthy(await lambda(item))) return item;
+      return null;
+    },
+    first: async (s, args, lambda) => {
+      for await (const item of s.generate())
+        if (!lambda || KT.truthy(await lambda(item))) return item;
+      return noSuch('the sequence is empty');
+    },
+    find: async (s, _args, lambda) => SEQUENCE.firstOrNull(s, [], lambda),
+    any: async (s, _args, lambda) =>
+      (await SEQUENCE.firstOrNull(s, [], lambda ?? (() => true))) !== null,
+    none: async (s, _args, lambda) => !(await SEQUENCE.any(s, [], lambda)),
+    all: async (s, _args, lambda) => {
+      for await (const item of s.generate()) if (!KT.truthy(await lambda(item))) return false;
+      return true;
+    },
+    elementAtOrNull: async (s, [index]) => {
+      let at = 0;
+      for await (const item of s.generate()) if (at++ === index) return item;
+      return null;
+    },
+    elementAt: async (s, [index]) =>
+      (await SEQUENCE.elementAtOrNull(s, [index])) ?? noSuch(`no item at ${index}`),
+    forEach: async (s, _args, lambda) => {
+      for await (const item of s.generate()) await lambda(item);
+    },
+  };
+  const sequenceCall = async (s, name, args, lambda, named, type) => {
+    if (SEQUENCE[name]) return SEQUENCE[name](s, args, lambda, named, type);
+    const items = await collectSequence(s);
+    if (LIST[name]) return LIST[name](items, args, lambda, named, type);
+    if (ANY[name]) return ANY[name](s, args, lambda, named, type);
+    throw new KotlinError(`Raygun's runtime has no ${name}() for a sequence`);
+  };
+  /// What a `for` loop goes through: a sequence's items (up to the cap), else as `KT.iter`.
+  KT.each = async (value) =>
+    value && value.isLazySequence ? collectSequence(value) : KT.iter(value);
+  /// `generateSequence(seed) { next }`, `generateSequence { next }`, `generateSequence(first, next)`:
+  /// items until one is null.
+  const generateSequence = (args, lambda) => {
+    const [first, step] =
+      args.length >= 2
+        ? [args[0], args[1]]
+        : lambda && args.length === 0
+          ? [lambda, lambda]
+          : [args[0], lambda ?? args[1]];
+    return lazySequence(async function* () {
+      let value = typeof first === 'function' && args.length !== 1 ? await first() : first;
+      while (value !== null && value !== undefined) {
+        yield value;
+        value = args.length === 0 ? await step() : await step(value);
+      }
+    });
+  };
+
+  /// Java's `DecimalFormat`: `#`, `0`, grouping and decimals as the pattern says.
+  const decimalFormat = (pattern) => {
+    const text = KT.str(pattern ?? '#.##');
+    const [whole, fraction = ''] = text.split(';')[0].split('.');
+    const grouping = whole.includes(',') ? whole.length - whole.lastIndexOf(',') - 1 : 0;
+    const minWhole = (whole.match(/0/g) ?? []).length;
+    const minFraction = (fraction.match(/0/g) ?? []).length;
+    const maxFraction = (fraction.match(/[0#]/g) ?? []).length;
+    const format = {
+      __class: 'DecimalFormat',
+      __classes: ['DecimalFormat', 'NumberFormat'],
+      groupingSize: grouping,
+      format: (number) => {
+        const value = Number(number);
+        if (!Number.isFinite(value)) return String(value);
+        const fixed = Math.abs(value).toFixed(maxFraction);
+        let [integer, decimals = ''] = fixed.split('.');
+        decimals = decimals.replace(/0+$/, '');
+        while (decimals.length < minFraction) decimals += '0';
+        integer = integer.replace(/^0+(?=\d)/, '');
+        if (integer === '0' && minWhole === 0 && decimals) integer = '';
+        while (integer.length < minWhole) integer = `0${integer}`;
+        if (format.groupingSize > 0)
+          integer = integer.replace(
+            new RegExp(`\\B(?=(\\d{${format.groupingSize}})+(?!\\d))`, 'g'),
+            ',',
+          );
+        const sign = value < 0 && (Number(integer) || Number(decimals)) ? '-' : '';
+        return `${sign}${integer}${decimals ? `.${decimals}` : ''}`;
+      },
+      parse: (text) => Number(KT.str(text).replace(/,/g, '')),
+      setRoundingMode: () => KT.unit,
+      setMaximumFractionDigits: () => KT.unit,
+      setMinimumFractionDigits: () => KT.unit,
+      setGroupingUsed: (used) => {
+        format.groupingSize = used ? grouping || 3 : 0;
+      },
+    };
+    return format;
+  };
+
+  /// Java's `Collator`: text compared as a language orders it.
+  const collator = (locale) => {
+    const tag = locale && locale.language ? KT.str(locale.language) : undefined;
+    const made = {
+      __class: 'Collator',
+      __classes: ['Collator', 'RuleBasedCollator', 'Comparator'],
+      strength: 2,
+      decomposition: 0,
+      compare: (left, right) => {
+        const options =
+          made.strength === 0
+            ? { sensitivity: 'base' }
+            : made.strength === 1
+              ? { sensitivity: 'accent' }
+              : {};
+        try {
+          return KT.str(left).localeCompare(KT.str(right), tag, options);
+        } catch {
+          return KT.cmp(KT.str(left), KT.str(right));
+        }
+      },
+      setStrength: (value) => {
+        made.strength = value;
+      },
+      setDecomposition: (value) => {
+        made.decomposition = value;
+      },
+      freeze: () => made,
+      cloneAsThawed: () => made,
+      getCollationKey: (text) => ({
+        sourceString: KT.str(text),
+        compareTo: (other) => made.compare(text, other.sourceString),
+      }),
+    };
+    return made;
+  };
+  /// `String.CASE_INSENSITIVE_ORDER`.
+  const caseInsensitiveOrder = {
+    __class: 'Comparator',
+    __classes: ['Comparator'],
+    compare: (left, right) => KT.cmp(KT.str(left).toLowerCase(), KT.str(right).toLowerCase()),
+  };
+  /// A comparator's verdict on two values: a `Comparator { a, b -> … }`, a collator, or one made
+  /// by `compareBy`.
+  const compareWith = async (order, left, right) => {
+    if (typeof order === 'function') return order(left, right);
+    if (order && order.keys) return order.compare(left, right);
+    if (order && typeof order.compare === 'function') return order.compare(left, right);
+    return KT.cmp(left, right);
+  };
+
+  /// Android's `LruCache` and the like: a map that keeps its newest `size` entries.
+  const lruCache = (size) => {
+    const store = new Map();
+    const cache = {
+      __class: 'LruCache',
+      __classes: ['LruCache'],
+      get: (key) => {
+        if (!store.has(key)) return null;
+        const value = store.get(key);
+        store.delete(key);
+        store.set(key, value);
+        return value;
+      },
+      put: (key, value) => {
+        const before = store.has(key) ? store.get(key) : null;
+        store.delete(key);
+        store.set(key, value);
+        while (store.size > Math.max(1, Number(size) || 1)) store.delete(store.keys().next().value);
+        return before;
+      },
+      remove: (key) => {
+        const before = store.has(key) ? store.get(key) : null;
+        store.delete(key);
+        return before;
+      },
+      evictAll: () => store.clear(),
+      size: () => store.size,
+      snapshot: () => new Map(store),
+    };
+    return cache;
+  };
+
+  /// kotlinx.coroutines' `CompletableDeferred`: a value given later.
+  const completableDeferred = (initial) => {
+    let settle;
+    let fail;
+    let done = initial !== undefined;
+    const promise =
+      initial !== undefined
+        ? Promise.resolve(initial)
+        : new Promise((resolve, reject) => {
+            settle = resolve;
+            fail = reject;
+          });
+    promise.catch(() => {});
+    return {
+      __class: 'CompletableDeferred',
+      __classes: ['CompletableDeferred', 'Deferred', 'Job'],
+      isDeferred: true,
+      await: () => promise,
+      complete: (value) => {
+        if (done) return false;
+        done = true;
+        settle(value);
+        return true;
+      },
+      completeExceptionally: (error) => {
+        if (done) return false;
+        done = true;
+        fail(KT.error(error));
+        return true;
+      },
+      get isCompleted() {
+        return done;
+      },
+      isActive: true,
+      cancel: () => KT.unit,
+      join: () =>
+        promise.then(
+          () => KT.unit,
+          () => KT.unit,
+        ),
+    };
+  };
+
+  /// Java's `URI` and `URL`, and Android's `Uri`: an address's parts.
+  const javaUri = (text, spec) => {
+    let href = KT.str(text);
+    if (spec !== undefined && spec !== null) href = K.resolve(KT.str(spec), href);
+    let parts = null;
+    try {
+      parts = K.url(href);
+    } catch {
+      parts = null;
+    }
+    const pathOf = () => (parts ? parts.path : href.split(/[?#]/)[0]);
+    const uri = {
+      __class: 'URI',
+      __classes: ['URI', 'URL', 'Uri'],
+      scheme: parts?.scheme ?? null,
+      protocol: parts?.scheme ?? null,
+      host: parts?.host ?? null,
+      authority: parts?.host ?? null,
+      port: parts?.port ?? -1,
+      path: pathOf(),
+      rawPath: pathOf(),
+      encodedPath: pathOf(),
+      query: parts?.query == null ? null : decodeURIComponent(parts.query.replace(/\+/g, ' ')),
+      rawQuery: parts?.query ?? null,
+      encodedQuery: parts?.query ?? null,
+      fragment: parts?.fragment ?? null,
+      file: parts ? `${parts.path}${parts.query == null ? '' : `?${parts.query}`}` : href,
+      get pathSegments() {
+        return pathOf()
+          .split('/')
+          .filter((part) => part !== '')
+          .map((part) => decodeURIComponent(part));
+      },
+      get lastPathSegment() {
+        const segments = uri.pathSegments;
+        return segments.length ? segments[segments.length - 1] : null;
+      },
+      getQueryParameter: (name) => (parts ? HttpUrl.parse(href).queryParameter(name) : null),
+      getQueryParameterNames: () => (parts ? HttpUrl.parse(href).queryParameterNames : []),
+      resolve: (other) => javaUri(K.resolve(KT.str(other), href)),
+      toURL: () => uri,
+      toURI: () => uri,
+      toHttpUrl: () => HttpUrl.parse(href),
+      toExternalForm: () => href,
+      buildUpon: () => HttpUrl.parse(href).newBuilder(),
+      toString: () => href,
+      equals: (other) => KT.str(other) === href,
+    };
+    return uri;
+  };
+  /// Android's `Uri.encode`: everything but letters, digits and `_-!.~'()*` (and `allow`).
+  const uriEncode = (text, allow = '') =>
+    [...KT.str(text)]
+      .map((char) =>
+        /[A-Za-z0-9_\-!.~'()*]/.test(char) || KT.str(allow ?? '').includes(char)
+          ? char
+          : encodeURIComponent(char),
+      )
+      .join('');
+
+  /// Jsoup's evaluators, as the selectors they match.
+  const cssName = (name) => KT.str(name).replace(/([^A-Za-z0-9_-])/g, '\\$1');
+  const evaluator = {
+    Tag: (name) => cssName(name),
+    Class: (name) => `.${cssName(name)}`,
+    Id: (name) => `#${cssName(name)}`,
+    Attribute: (name) => `[${cssName(name)}]`,
+    AttributeWithValue: (name, value) =>
+      `[${cssName(name)}="${KT.str(value).replace(/"/g, '\\"')}"]`,
+    AttributeWithValueContaining: (name, value) =>
+      `[${cssName(name)}*="${KT.str(value).replace(/"/g, '\\"')}"]`,
+    AttributeStarting: (prefix) => `[^${cssName(prefix)}]`,
+    AllElements: () => '*',
+  };
+
+  /// kotlinx.coroutines' dispatchers and jobs: Raygun runs a source's code on one thread.
+  const coroutineContext = (name) => ({
+    __class: name,
+    __classes: [name, 'CoroutineContext'],
+    plus: () => coroutineContext(name),
+    limitedParallelism: () => coroutineContext(name),
+    cancel: () => KT.unit,
+    cancelChildren: () => KT.unit,
+    isActive: true,
+  });
+  const dispatchers = {
+    IO: coroutineContext('Dispatchers.IO'),
+    Default: coroutineContext('Dispatchers.Default'),
+    Main: coroutineContext('Dispatchers.Main'),
+    Unconfined: coroutineContext('Dispatchers.Unconfined'),
+  };
+  /// Keiyoushi's web view helpers: Raygun has no web view, so a source driving one fails, naming
+  /// the page it would load: as a browser check when it passes one (which the person may pass by
+  /// hand: its cookies then go with the source's requests), else as a page that needs one.
+  const webViewNeeded = (page, baseUrl, check) => {
+    let host = '';
+    for (const address of [page, baseUrl]) {
+      if (host || address === null || address === undefined) continue;
+      try {
+        host = HttpUrl.parse(KT.str(address)).host ?? '';
+      } catch {
+        host = '';
+      }
+    }
+    const site = host || 'the site';
+    if (check)
+      throw new KotlinError(
+        `A browser check from ${site}: a bot check page the source passes in a web view`,
+        'IOException',
+      );
+    throw new KotlinError(
+      `The source reads ${site} in a web view, which Raygun doesn't have`,
+      'IOException',
+    );
+  };
+  /// Android's preference widgets, made by settings screens the converter leaves out: they keep
+  /// what's set on them and show nothing.
+  const preferenceWidget = (kind) => {
+    const widget = {
+      __class: kind,
+      __classes: [kind, 'Preference'],
+      key: null,
+      title: null,
+      summary: null,
+      dialogTitle: null,
+      dialogMessage: null,
+      entries: [],
+      entryValues: [],
+      text: null,
+      value: null,
+      values: [],
+      isChecked: false,
+      isVisible: true,
+      isEnabled: true,
+      setDefaultValue: () => KT.unit,
+      setOnPreferenceChangeListener: () => KT.unit,
+      setOnPreferenceClickListener: () => KT.unit,
+      setOnBindEditTextListener: () => KT.unit,
+      addPreference: () => true,
+    };
+    return widget;
+  };
+  /// Keiyoushi's `SeedRandom` (seedrandom's ARC4 generator, `keiyoushi.utils`): the same
+  /// numbers for the same seed.
+  const seedRandom = (seed) => {
+    const WIDTH = 256;
+    const MASK = 255;
+    const CHUNKS = 6;
+    const startdenom = WIDTH ** CHUNKS;
+    const significance = 2 ** 52;
+    const overflow = significance * 2;
+    const text = KT.str(seed);
+    const key = new Array(WIDTH).fill(0);
+    let smear = 0;
+    for (let index = 0; index < text.length; index++) {
+      smear ^= key[MASK & index] * 19;
+      key[MASK & index] = MASK & (smear + text.charCodeAt(index));
+    }
+    const mixed = key.slice(0, Math.min(text.length, WIDTH));
+    const effective = mixed.length ? mixed : [0];
+    const state = Array.from({ length: WIDTH }, (_, index) => index);
+    let i = 0;
+    let j = 0;
+    const g = (count) => {
+      let r = 0;
+      for (let left = count; left > 0; left--) {
+        i = MASK & (i + 1);
+        const t = state[i];
+        j = MASK & (j + t);
+        const sj = state[j];
+        state[i] = sj;
+        state[j] = t;
+        r = r * WIDTH + state[MASK & (sj + t)];
+      }
+      return r;
+    };
+    let counter = 0;
+    for (let k = 0; k < WIDTH; k++) {
+      const t = state[k];
+      counter = MASK & (counter + effective[k % effective.length] + t);
+      state[k] = state[counter];
+      state[counter] = t;
+    }
+    g(WIDTH);
+    const nextDouble = () => {
+      let n = g(CHUNKS);
+      let d = startdenom;
+      let x = 0;
+      while (n < significance) {
+        n = (n + x) * WIDTH;
+        d *= WIDTH;
+        x = g(1);
+      }
+      while (n >= overflow) {
+        n /= 2;
+        d /= 2;
+        x = Math.floor(x / 2);
+      }
+      return (n + x) / d;
+    };
+    return {
+      __class: 'SeedRandom',
+      __classes: ['SeedRandom'],
+      nextDouble,
+      shuffle: (list) => {
+        const keys = list.map((_, index) => index);
+        const out = [];
+        for (let count = 0; count < list.length; count++) {
+          const at = Math.floor(nextDouble() * keys.length);
+          out.push(list[keys.splice(at, 1)[0]]);
+        }
+        return out;
+      },
+    };
+  };
+  /// Bytes inflated in Rust (`runtime.rs`): Java's `Inflater` (`zlib`, `raw` without its
+  /// header) and `GZIPInputStream` (`gzip`).
+  const inflateBytes = (bytes, format) =>
+    u8Of(fromBase64(crypto({ op: 'inflate', data: K.bin.toBase64(u8Of(bytes)), format })));
+  /// Android's screen as a phone's, for sources sizing what they ask for by it.
+  const displayMetrics = {
+    widthPixels: 1080,
+    heightPixels: 2340,
+    density: 2.75,
+    densityDpi: 440,
+    scaledDensity: 2.75,
+    xdpi: 440,
+    ydpi: 440,
+  };
+  /// Keiyoushi's dialogs (`keiyoushi.utils.ui`): none shows, as if the person closed it.
+  const dialogClosed = (fallback) => () => fallback;
+  /// One of the extension's resources (`/assets/reader.js`), or null when it has none by that
+  /// name: Java's `URL` to read it through.
+  const resourceOf = (path) => {
+    const key = KT.str(path).replace(/^\/+/, '');
+    const found = assets[key];
+    if (found === undefined) return null;
+    const bytes = () => K.bin.fromBase64(found);
+    return {
+      __class: 'URL',
+      __classes: ['URL'],
+      readText: () => K.bin.text(bytes()),
+      readBytes: () => listOfBytes(bytes()),
+      openStream: () => inputStream(bytes()),
+      path: `/${key}`,
+      toString: () => `jar:file:/extension.apk!/${key}`,
+    };
+  };
+  /// A class as `X::class.java` and `javaClass` give it: its name, and the extension's
+  /// resources.
+  /// A value's class name (`exception::class.simpleName`).
+  KT.classNameOf = (value) =>
+    value === null || value === undefined
+      ? 'Nothing'
+      : (value.__class ??
+        value.kind ??
+        { string: 'String', number: 'Int', boolean: 'Boolean', list: 'List', map: 'Map' }[
+          kindOf(value)
+        ] ??
+        'Any');
+  KT.javaClass = (name) => {
+    if (name && name.__class === 'Class') return name;
+    const named = KT.str(name);
+    const made = {
+      __class: 'Class',
+      __classes: ['Class'],
+      name: named,
+      simpleName: named.split('.').pop(),
+      toString: () => named,
+      getResource: (path) => resourceOf(path),
+      getResourceAsStream: (path) => resourceOf(path)?.openStream() ?? null,
+    };
+    made.classLoader = made;
+    return made;
+  };
+  /// java.time's `DayOfWeek`: Monday is 1.
+  const DAY_NAMES = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+  const dayOfWeek = (value) => {
+    const name = DAY_NAMES[(((Number(value) - 1) % 7) + 7) % 7];
+    const full = name.charAt(0) + name.slice(1).toLowerCase();
+    return {
+      __class: 'DayOfWeek',
+      __classes: ['DayOfWeek', 'Enum'],
+      name,
+      value: Number(value),
+      ordinal: Number(value) - 1,
+      getValue: () => Number(value),
+      // English names: Raygun shows sources' text as they give it.
+      getDisplayName: (style) =>
+        KT.str(style) === 'SHORT' || KT.str(style) === 'SHORT_STANDALONE'
+          ? full.slice(0, 3)
+          : KT.str(style) === 'NARROW'
+            ? full.charAt(0)
+            : full,
+      plus: (days) => dayOfWeek(Number(value) + Number(days)),
+      minus: (days) => dayOfWeek(Number(value) - Number(days)),
+      toString: () => name,
+    };
+  };
+  /// Languages' names in English, for `Locale("ja").displayLanguage`.
+  const LANGUAGE_NAMES = {
+    ar: 'Arabic',
+    bg: 'Bulgarian',
+    ca: 'Catalan',
+    cs: 'Czech',
+    da: 'Danish',
+    de: 'German',
+    el: 'Greek',
+    en: 'English',
+    es: 'Spanish',
+    fa: 'Persian',
+    fi: 'Finnish',
+    fil: 'Filipino',
+    fr: 'French',
+    he: 'Hebrew',
+    hi: 'Hindi',
+    hu: 'Hungarian',
+    id: 'Indonesian',
+    it: 'Italian',
+    ja: 'Japanese',
+    ko: 'Korean',
+    ms: 'Malay',
+    my: 'Burmese',
+    nl: 'Dutch',
+    no: 'Norwegian',
+    pl: 'Polish',
+    pt: 'Portuguese',
+    ro: 'Romanian',
+    ru: 'Russian',
+    sv: 'Swedish',
+    th: 'Thai',
+    tl: 'Tagalog',
+    tr: 'Turkish',
+    uk: 'Ukrainian',
+    vi: 'Vietnamese',
+    zh: 'Chinese',
+  };
+  /// Java's `File`, over a memory of the runtime's own: what a source writes it reads back while
+  /// it runs (its caches), and nothing reaches the device's storage.
+  const memoryFiles = new Map();
+  const javaFile = (first, second = undefined) => {
+    const parent =
+      second === undefined ? null : first && first.isFile ? first.path : KT.str(first ?? '');
+    const path = (parent === null ? KT.str(first) : `${parent}/${KT.str(second)}`).replace(
+      /\/+/g,
+      '/',
+    );
+    const inside = (key) => key.startsWith(`${path}/`);
+    const missing = () => new KotlinError(`${path} (No such file or directory)`, 'IOException');
+    const file = {
+      __class: 'File',
+      __classes: ['File'],
+      isFile: true,
+      path,
+      absolutePath: path,
+      canonicalPath: path,
+      name: path.split('/').pop(),
+      get parentFile() {
+        return javaFile(path.split('/').slice(0, -1).join('/') || '/');
+      },
+      exists: () => memoryFiles.has(path) || [...memoryFiles.keys()].some(inside),
+      isDirectory: () => !memoryFiles.has(path),
+      mkdirs: () => true,
+      mkdir: () => true,
+      createNewFile: () => {
+        if (memoryFiles.has(path)) return false;
+        memoryFiles.set(path, new Uint8Array(0));
+        return true;
+      },
+      delete: () => memoryFiles.delete(path),
+      deleteRecursively: () => {
+        for (const key of [...memoryFiles.keys()])
+          if (key === path || inside(key)) memoryFiles.delete(key);
+        return true;
+      },
+      length: () => memoryFiles.get(path)?.length ?? 0,
+      lastModified: () => 0,
+      setLastModified: () => true,
+      readBytes: () => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) throw missing();
+        return listOfBytes(bytes);
+      },
+      readText: () => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) throw missing();
+        return K.bin.text(bytes);
+      },
+      writeBytes: (bytes) => {
+        memoryFiles.set(path, Uint8Array.from(u8Of(bytes)));
+      },
+      writeText: (text) => {
+        memoryFiles.set(path, K.bin.utf8(KT.str(text)));
+      },
+      appendText: (text) => {
+        const before = memoryFiles.get(path) ?? new Uint8Array(0);
+        const added = K.bin.utf8(KT.str(text));
+        const joined = new Uint8Array(before.length + added.length);
+        joined.set(before);
+        joined.set(added, before.length);
+        memoryFiles.set(path, joined);
+      },
+      inputStream: () => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) throw missing();
+        return inputStream(bytes);
+      },
+      listFiles: () =>
+        [
+          ...new Set(
+            [...memoryFiles.keys()]
+              .filter(inside)
+              .map((key) => key.slice(path.length + 1).split('/')[0]),
+          ),
+        ].map((name) => javaFile(path, name)),
+      renameTo: (other) => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) return false;
+        memoryFiles.delete(path);
+        memoryFiles.set(other.path, bytes);
+        return true;
+      },
+      toString: () => path,
+    };
+    return file;
+  };
+  /// A stand-in for Android's application: its name, and folders of Raygun's own.
+  const application = {
+    __class: 'Application',
+    __classes: ['Application', 'Context'],
+    packageName: 'app.raygun.player',
+    getPackageName: () => 'app.raygun.player',
+    cacheDir: javaFile('/cache'),
+    externalCacheDir: javaFile('/cache'),
+    filesDir: javaFile('/files'),
+    getCacheDir: () => javaFile('/cache'),
+    getFilesDir: () => javaFile('/files'),
+  };
+  /// `AtomicInteger`, `AtomicLong`, `AtomicBoolean`, `AtomicReference`: a value, set and read
+  /// on one thread here.
+  const atomic = (initial) => {
+    let value = initial;
+    return {
+      __class: 'Atomic',
+      __classes: ['Atomic'],
+      get: () => value,
+      set: (next) => {
+        value = next;
+      },
+      getAndSet: (next) => {
+        const before = value;
+        value = next;
+        return before;
+      },
+      compareAndSet: (expected, next) => {
+        if (!KT.eq(value, expected)) return false;
+        value = next;
+        return true;
+      },
+      incrementAndGet: () => ++value,
+      getAndIncrement: () => value++,
+      decrementAndGet: () => --value,
+      getAndDecrement: () => value--,
+      addAndGet: (delta) => (value += delta),
+      getAndAdd: (delta) => {
+        const before = value;
+        value += delta;
+        return before;
+      },
+      toString: () => KT.str(value),
+    };
+  };
+  /// `ReentrantLock`, `ReentrantReadWriteLock`: a mutex (both of a read-write lock's sides).
+  const lockOf = () => {
+    const mutex = KT.mutex();
+    mutex.tryLock = () => {
+      if (mutex.isLocked) return false;
+      mutex.lock();
+      return true;
+    };
+    mutex.isHeldByCurrentThread = () => Boolean(mutex.isLocked);
+    return mutex;
+  };
+  /// A pause (`delay(ms)`, `Thread.sleep(ms)`), at most ten seconds.
+  const pause = async (ms) => {
+    const wait = Math.max(0, Math.min(10000, Number(ms && ms.isDuration ? ms.ms : ms) || 0));
+    if (wait > 0) await raygun.time.sleep(wait);
+    return KT.unit;
+  };
+
   const GLOBALS = {
     listOf: (args) => [...args],
     // Android's graphics, okio's `Buffer` and Java's byte streams (above).
@@ -4640,6 +6026,71 @@
     IntRange: ([from, to]) => KT.range(from, to),
     IOException: ([message]) => new KotlinError(message, 'IOException'),
     Error: ([message]) => new KotlinError(message, 'Error'),
+    GeneralSecurityException: ([message]) => new KotlinError(message, 'GeneralSecurityException'),
+    SecurityException: ([message]) => new KotlinError(message, 'SecurityException'),
+    UnknownHostException: ([message]) => new KotlinError(message, 'UnknownHostException'),
+    ProtocolException: ([message]) => new KotlinError(message, 'ProtocolException'),
+    SocketTimeoutException: ([message]) => new KotlinError(message, 'SocketTimeoutException'),
+    InterruptedException: ([message]) => new KotlinError(message, 'InterruptedException'),
+    NumberFormatException: ([message]) => new KotlinError(message, 'NumberFormatException'),
+    TimeoutException: ([message]) => new KotlinError(message, 'TimeoutException'),
+    CancellationException: ([message]) => new KotlinError(message, 'CancellationException'),
+    // Sequences, formats, caches and coroutines (above).
+    generateSequence: (args, _named, lambda) => generateSequence(args, lambda),
+    DecimalFormat: ([pattern]) => decimalFormat(pattern),
+    SecureRandom: () => random,
+    Any: () => ({ __class: 'Any', __classes: ['Any'] }),
+    LruCache: ([size]) => lruCache(size),
+    CompletableDeferred: ([value]) => completableDeferred(value),
+    URI: ([text]) => javaUri(text),
+    URL: ([first, second]) => (second === undefined ? javaUri(first) : javaUri(second, first)),
+    SupervisorJob: () => coroutineContext('SupervisorJob'),
+    Job: () => coroutineContext('Job'),
+    delay: ([ms]) => pause(ms),
+    // Kotlin's `assert`: off, as the JVM runs without assertions.
+    assert: () => KT.unit,
+    // Keiyoushi's web view helpers (above); a page's local storage is empty without one.
+    runWebView: ([page, baseUrl, check]) => webViewNeeded(page, baseUrl, check),
+    getTurnstileToken: ([url], named_) => webViewNeeded(url ?? named_?.url, null, true),
+    getLocalStorage: () => null,
+    // Settings screens' widgets and OkHttp's disk cache: nothing to show or keep.
+    SwitchPreferenceCompat: () => preferenceWidget('SwitchPreferenceCompat'),
+    CheckBoxPreference: () => preferenceWidget('CheckBoxPreference'),
+    ListPreference: () => preferenceWidget('ListPreference'),
+    EditTextPreference: () => preferenceWidget('EditTextPreference'),
+    MultiSelectListPreference: () => preferenceWidget('MultiSelectListPreference'),
+    PreferenceCategory: () => preferenceWidget('PreferenceCategory'),
+    Cache: () => ({ __class: 'Cache', __classes: ['Cache'], evictAll: () => KT.unit }),
+    SeedRandom: ([seed]) => seedRandom(seed),
+    SoftReference: ([value]) => ({ get: () => value ?? null, clear: () => KT.unit }),
+    WeakReference: ([value]) => ({ get: () => value ?? null, clear: () => KT.unit }),
+    randomUUID: () => OBJECTS.UUID.randomUUID(),
+    // Filters imported by name (`Header("…")`).
+    Header: ([name]) => FILTER_CONSTRUCTORS.Header(name),
+    Separator: ([name]) => FILTER_CONSTRUCTORS.Separator(name),
+    // Injekt's `injectLazy()`: the `Json` most sources ask for this way.
+    injectLazy: () => KT.deferred(async () => jsonCodec),
+    AtomicInteger: ([value = 0]) => atomic(value),
+    AtomicLong: ([value = 0]) => atomic(value),
+    AtomicBoolean: ([value = false]) => atomic(value),
+    AtomicReference: ([value = null]) => atomic(value),
+    ReentrantLock: () => lockOf(),
+    ReentrantReadWriteLock: () => {
+      const lock = lockOf();
+      return { readLock: () => lock, writeLock: () => lock };
+    },
+    // `launch { … }` inside a coroutine scope: run alongside.
+    launch: (args, _named, lambda) => coroutineScope().launch(...args, lambda),
+    showInfo: dialogClosed(KT.unit),
+    askConfirm: dialogClosed(false),
+    askInput: dialogClosed(null),
+    askPassword: dialogClosed(null),
+    askSelect: dialogClosed(null),
+    askSelectOption: dialogClosed(null),
+    GZIPInputStream: async ([stream]) =>
+      inputStream(inflateBytes(await streamBytes(stream), 'gzip')),
+    InflaterInputStream: async ([stream]) =>
+      inputStream(inflateBytes(await streamBytes(stream), 'zlib')),
     HttpException: ([code]) => new KotlinError(`HTTP error ${code}`, 'HttpException'),
     GET: ([url, headers]) =>
       new Request({ url, headers: headers instanceof Headers ? headers : undefined }),
@@ -4701,7 +6152,21 @@
       ascending: named_?.ascending ?? ascending ?? false,
     }),
     // `Json { ignoreUnknownKeys = true }`: reading always ignores what it doesn't know.
-    Json: () => jsonCodec,
+    Json: (_args, named_) => {
+      const key = named_?.classDiscriminator;
+      if (key && !discriminators.includes(KT.str(key))) discriminators.unshift(KT.str(key));
+      return jsonCodec;
+    },
+    sleep: ([ms]) => pause(ms),
+    File: ([first, second]) => javaFile(first, second),
+    // OkHttp's `Dispatcher`: Raygun's client has its own limits.
+    Dispatcher: () => ({ maxRequests: 64, maxRequestsPerHost: 5 }),
+    // `AutoCloseable { … }`: what `close()` runs.
+    AutoCloseable: (_args, _named, lambda) => ({
+      __class: 'AutoCloseable',
+      __classes: ['AutoCloseable', 'Closeable'],
+      close: async () => (lambda ? lambda() : KT.unit),
+    }),
     Mutex: () => KT.mutex(),
     Semaphore: ([permits]) => KT.semaphore(permits ?? 1),
     awaitAll: (args) => awaitEach(args),
@@ -4730,14 +6195,19 @@
     // `Interceptor { chain -> … }`: the function itself.
     Interceptor: (args, _named, lambda) => lambda ?? args[0],
     Comparator: (args, _named, lambda) => lambda ?? args[0],
+    // `compareBy(collator) { it.title }`: the key in the comparator's order.
     compareBy: (args, _named, lambda) =>
-      comparator(
-        (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: false })),
-      ),
+      args.length === 1 && lambda && args[0] && typeof args[0] === 'object'
+        ? comparator([{ select: lambda, descending: false, order: args[0] }])
+        : comparator(
+            (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: false })),
+          ),
     compareByDescending: (args, _named, lambda) =>
-      comparator(
-        (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: true })),
-      ),
+      args.length === 1 && lambda && args[0] && typeof args[0] === 'object'
+        ? comparator([{ select: lambda, descending: true, order: args[0] }])
+        : comparator(
+            (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: true })),
+          ),
     naturalOrder: () => comparator([{ select: null, descending: false }]),
     reverseOrder: () => comparator([{ select: null, descending: true }]),
     List: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init),
@@ -4919,8 +6389,9 @@
   const jsonCodec = {
     decodeFromString: (text) => JSON.parse(KT.str(text)),
     parseToJsonElement: (text) => JSON.parse(KT.str(text)),
-    encodeToString: (value) => JSON.stringify(plain(value)),
-    decodeFromJsonElement: (value) => value,
+    // `encodeToString(String.serializer(), value)` too.
+    encodeToString: (...args) => JSON.stringify(plain(args[args.length - 1])),
+    decodeFromJsonElement: (...args) => args[args.length - 1],
     encodeToJsonElement: (value) => plain(value),
   };
   /// `awaitAll()`: deferred values (`async { … }`), worked out together.
@@ -4931,6 +6402,9 @@
     offset,
     isZone: true,
     getID: () => (offset ? `GMT${offset > 0 ? '+' : '-'}${Math.abs(offset / 60)}` : 'UTC'),
+    // `TimeZone.getOffset(date)`: milliseconds from UTC.
+    getOffset: () => offset * 60000,
+    getRawOffset: () => offset * 60000,
   });
   const offsetOf = (value) => (value && typeof value.offset === 'number' ? value.offset : 0);
   const msOf = (value) =>
@@ -5235,11 +6709,13 @@
           ),
         ),
       getYear: () => new Date(ms).getUTCFullYear(),
+      getDayOfWeek: () => dayOfWeek(((new Date(ms).getUTCDay() + 6) % 7) + 1),
       getMonthValue: () => new Date(ms).getUTCMonth() + 1,
       getDayOfMonth: () => new Date(ms).getUTCDate(),
       format: (formatter) => formatter.format(value),
       isBefore: (other) => ms < msOf(other.ms ?? other),
       isAfter: (other) => ms > msOf(other.ms ?? other),
+      isEqual: (other) => ms === msOf(other.ms ?? other),
       toString: () =>
         kind === 'Instant'
           ? new Date(ms).toISOString()
@@ -5398,6 +6874,8 @@
       getLong: (key, fallback) => store.get(key) ?? fallback ?? 0,
       getStringSet: (key, fallback) => store.get(key) ?? fallback ?? [],
       contains: (key) => store.has(key),
+      // `preferences.all`: every value kept, by key.
+      getAll: () => new Map(store),
       edit: () => {
         const editor = {
           putString: (key, value) => (store.set(key, value), editor),
@@ -5496,7 +6974,8 @@
       },
       altTitles: (titles, ...rest) => {
         const label = rest.find((arg) => typeof arg === 'string') ?? 'Alternative Names';
-        add(list(label, [...new Set((titles ?? []).map((title) => KT.str(title).trim()))]));
+        const names = Array.isArray(titles) ? titles : titles ? [titles] : [];
+        add(list(label, [...new Set(names.map((title) => KT.str(title).trim()))]));
         return builder;
       },
       links: (links, ...rest) => {
@@ -5509,6 +6988,11 @@
               .map((link) => `${KT.str(link.first)}: ${KT.str(link.second)}`),
           ),
         );
+        return builder;
+      },
+      // A line between sections, as plain text.
+      separator: () => {
+        add('---');
         return builder;
       },
       build: () => (sections.length ? sections.join('\n\n') : null),
@@ -5584,6 +7068,225 @@
   };
 
   const OBJECTS = {
+    // Java's `Collator`, kotlinx.coroutines' dispatchers, Jsoup's evaluators, OkHttp's `HttpUrl`,
+    // Android's `Uri`, numbers' limits and `Thread.sleep` (above).
+    Collator: {
+      getInstance: (locale) => collator(locale),
+      PRIMARY: 0,
+      SECONDARY: 1,
+      TERTIARY: 2,
+      IDENTICAL: 3,
+      NO_DECOMPOSITION: 0,
+      CANONICAL_DECOMPOSITION: 1,
+      FULL_DECOMPOSITION: 2,
+    },
+    Dispatchers: dispatchers,
+    Evaluator: evaluator,
+    HttpUrl: {
+      Builder: () => new HttpUrlBuilder(null),
+      parse: (text) => HttpUrl.parse(text),
+      get: (text) => HttpUrl.parse(text),
+      Companion: {
+        parse: (text) => HttpUrl.parse(text),
+        get: (text) => HttpUrl.parse(text),
+      },
+    },
+    Uri: {
+      parse: (text) => javaUri(text),
+      encode: (text, allow) => uriEncode(text, allow),
+      decode: (text) => decodeURIComponent(KT.str(text)),
+      EMPTY: javaUri(''),
+    },
+    Float: {
+      MAX_VALUE: 3.4028234663852886e38,
+      MIN_VALUE: 1.401298464324817e-45,
+      POSITIVE_INFINITY: Infinity,
+      NEGATIVE_INFINITY: -Infinity,
+      NaN,
+    },
+    Double: {
+      MAX_VALUE: Number.MAX_VALUE,
+      MIN_VALUE: Number.MIN_VALUE,
+      POSITIVE_INFINITY: Infinity,
+      NEGATIVE_INFINITY: -Infinity,
+      NaN,
+    },
+    Thread: { sleep: (ms) => pause(ms) },
+    // `javaClass.getResource(…)` in the source's own code, and Keiyoushi's `jsonInstance`.
+    javaClass: KT.javaClass('Source'),
+    jsonInstance: jsonCodec,
+    // OkHttp's `Response.Builder()` and `Protocol`, for answers an interceptor makes.
+    Response: {
+      Builder: () =>
+        responseBuilder({
+          code: 200,
+          headers: new Headers([]),
+          body: null,
+          request: null,
+          message: 'OK',
+        }),
+    },
+    Protocol: { HTTP_1_0: 'http/1.0', HTTP_1_1: 'http/1.1', HTTP_2: 'h2', QUIC: 'quic' },
+    Resources: { getSystem: () => ({ displayMetrics }) },
+    DayOfWeek: {
+      ...Object.fromEntries(DAY_NAMES.map((name, index) => [name, dayOfWeek(index + 1)])),
+      entries: DAY_NAMES.map((_, index) => dayOfWeek(index + 1)),
+      values: () => DAY_NAMES.map((_, index) => dayOfWeek(index + 1)),
+      of: (value) => dayOfWeek(value),
+    },
+    TextStyle: {
+      FULL: 'FULL',
+      SHORT: 'SHORT',
+      NARROW: 'NARROW',
+      FULL_STANDALONE: 'FULL',
+      SHORT_STANDALONE: 'SHORT',
+    },
+    Injekt: { get: () => application, getInstance: () => application },
+    // Keiyoushi's `applicationContext`, and Android's default preferences.
+    applicationContext: application,
+    // The extension's build: Mihon's names for it (sources put them in their User-Agent).
+    BuildConfig: { VERSION_NAME: '1.4.0', VERSION_CODE: 1, DEBUG: false, BUILD_TYPE: 'release' },
+    PreferenceManager: { getDefaultSharedPreferences: () => sharedPreferences },
+    // Mihon's three-state filter's states, by name too.
+    TriState: { STATE_IGNORE: 0, STATE_INCLUDE: 1, STATE_EXCLUDE: 2 },
+    STATE_IGNORE: 0,
+    STATE_INCLUDE: 1,
+    STATE_EXCLUDE: 2,
+    RequestBody: {
+      EMPTY: { isBody: true, text: '', type: null },
+      create: (type, content) => ({ isBody: true, text: KT.str(content), type: KT.str(type) }),
+    },
+    CookieJar: { NO_COOKIES: { loadForRequest: () => [], saveFromResponse: () => KT.unit } },
+    Credentials: {
+      basic: (user, password) =>
+        `Basic ${K.bin.toBase64(K.bin.utf8(`${KT.str(user)}:${KT.str(password)}`))}`,
+    },
+    Html: {
+      escapeHtml: (text) =>
+        KT.str(text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;'),
+      fromHtml: (text) => unescapeEntities(KT.str(text).replace(/<[^>]+>/g, '')),
+      FROM_HTML_MODE_LEGACY: 0,
+      FROM_HTML_MODE_COMPACT: 63,
+    },
+    HttpURLConnection: {
+      HTTP_OK: 200,
+      HTTP_MOVED_PERM: 301,
+      HTTP_MOVED_TEMP: 302,
+      HTTP_NOT_MODIFIED: 304,
+      HTTP_BAD_REQUEST: 400,
+      HTTP_UNAUTHORIZED: 401,
+      HTTP_FORBIDDEN: 403,
+      HTTP_NOT_FOUND: 404,
+      HTTP_INTERNAL_ERROR: 500,
+      HTTP_UNAVAILABLE: 503,
+    },
+    // java.time's `Duration`, as Kotlin's durations are here.
+    Duration: {
+      ofMillis: (n) => ({ ms: Number(n), isDuration: true }),
+      ofSeconds: (n) => ({ ms: Number(n) * 1000, isDuration: true }),
+      ofMinutes: (n) => ({ ms: Number(n) * 60000, isDuration: true }),
+      ofHours: (n) => ({ ms: Number(n) * 3600000, isDuration: true }),
+      ofDays: (n) => ({ ms: Number(n) * 86400000, isDuration: true }),
+      ZERO: { ms: 0, isDuration: true },
+    },
+    Collections: {
+      synchronizedMap: (map) => map,
+      synchronizedList: (list) => list,
+      synchronizedSet: (set) => set,
+      unmodifiableList: (list) => list,
+      unmodifiableMap: (map) => map,
+      emptyList: () => [],
+      emptyMap: () => new Map(),
+    },
+    LazyThreadSafetyMode: { SYNCHRONIZED: 0, PUBLICATION: 1, NONE: 2 },
+    URLUtil: {
+      isValidUrl: (url) => /^(https?|file|content|data):/i.test(KT.str(url)),
+      isNetworkUrl: (url) => /^https?:\/\//i.test(KT.str(url)),
+      isHttpsUrl: (url) => /^https:\/\//i.test(KT.str(url)),
+    },
+    // Kotlin's `Result.success(…)` and `Result.failure(…)`.
+    Result: {
+      success: (value) => new Result(true, value),
+      failure: (error) => new Result(false, null, KT.error(error)),
+    },
+    FORCE_NETWORK: { isCacheControl: true },
+    FORCE_CACHE: { isCacheControl: true },
+    // kotlin.time's `TimeSource.Monotonic.markNow().elapsedNow()`.
+    // Java's `Runtime`: a phone's, for sources sizing work by it.
+    File: {
+      createTempFile: (prefix, suffix = '.tmp', directory = null) =>
+        javaFile(
+          directory ?? '/cache',
+          `${KT.str(prefix)}${Math.floor(Math.random() * 1e9)}${KT.str(suffix ?? '.tmp')}`,
+        ),
+      separator: '/',
+    },
+    Runtime: {
+      getRuntime: () => ({
+        availableProcessors: () => 8,
+        maxMemory: () => 512 * 1024 * 1024,
+        totalMemory: () => 256 * 1024 * 1024,
+        freeMemory: () => 128 * 1024 * 1024,
+      }),
+    },
+    RoundingMode: {
+      UP: 'UP',
+      DOWN: 'DOWN',
+      CEILING: 'CEILING',
+      FLOOR: 'FLOOR',
+      HALF_UP: 'HALF_UP',
+      HALF_DOWN: 'HALF_DOWN',
+      HALF_EVEN: 'HALF_EVEN',
+    },
+    // Jsoup's `Validate`: what a check that fails says.
+    Validate: {
+      notEmpty: (value, message) =>
+        value === null || value === undefined || KT.str(value) === ''
+          ? KT.raise(message ?? 'String must not be empty')
+          : KT.unit,
+      notNull: (value, message) =>
+        value === null || value === undefined
+          ? KT.raise(message ?? 'Object must not be null')
+          : KT.unit,
+      isTrue: (value, message) => (value ? KT.unit : KT.raise(message ?? 'Must be true')),
+    },
+    TimeSource: {
+      Monotonic: {
+        markNow: () => {
+          const start = Date.now();
+          return { elapsedNow: () => ({ ms: Date.now() - start, isDuration: true }) };
+        },
+      },
+    },
+    GlobalScope: coroutineScope(),
+    // `SSLContext.getInstance("TLS")`: Raygun's client checks certificates itself.
+    SSLContext: {
+      getInstance: () => ({ init: () => KT.unit, socketFactory: {}, getSocketFactory: () => ({}) }),
+    },
+    // `MonthDay.of(month, day).atYear(year)`.
+    MonthDay: {
+      of: (month, day) => ({
+        __class: 'MonthDay',
+        __classes: ['MonthDay'],
+        monthValue: month,
+        dayOfMonth: day,
+        atYear: (year) => moment(Date.UTC(year, month - 1, day), 'LocalDate'),
+      }),
+    },
+    // `Year.now().value`, `OffsetDateTime.parse(text)`.
+    Year: {
+      now: () => {
+        const value = new Date().getUTCFullYear();
+        return { __class: 'Year', __classes: ['Year'], value, getValue: () => value };
+      },
+    },
+    OffsetDateTime: {
+      parse: (text) => moment(wallClock(text, null, 'ZonedDateTime'), 'ZonedDateTime'),
+    },
     // Android's graphics and Java's `ByteBuffer` (above); `lib:imagedecoder`'s `ImageDecoder`
     // and `lib:textinterceptor`'s helper.
     Bitmap: bitmapStatics,
@@ -5607,12 +7310,22 @@
     JSON_MEDIA_TYPE: 'application/json',
     // Mihon's `QuickJs`: a site's script, run apart (`runtime.rs`'s `evaluate`).
     QuickJs: {
-      create: () => ({
-        __class: 'QuickJs',
-        __classes: ['QuickJs'],
-        evaluate: (code) => K.evaluate(code),
-        close: () => KT.unit,
-      }),
+      // Each `evaluate` runs in an engine of its own; one engine's earlier scripts (a library
+      // it loads, then a call into it) run again before the next.
+      create: () => {
+        const ran = [];
+        return {
+          __class: 'QuickJs',
+          __classes: ['QuickJs'],
+          evaluate: (code) => {
+            const script = KT.str(code);
+            const value = K.evaluate([...ran, script].join(';\n'));
+            ran.push(script);
+            return value;
+          },
+          close: () => KT.unit,
+        };
+      },
     },
     MultipartBody: {
       Builder: (boundary = null) => multipartBuilder(boundary),
@@ -5698,6 +7411,21 @@
     CacheControl: {
       FORCE_NETWORK: { isCacheControl: true },
       FORCE_CACHE: { isCacheControl: true },
+      // Raygun's client keeps no HTTP cache: a request's cache settings change nothing.
+      Builder: () => {
+        const builder = {
+          noCache: () => builder,
+          noStore: () => builder,
+          noTransform: () => builder,
+          onlyIfCached: () => builder,
+          immutable: () => builder,
+          maxAge: () => builder,
+          maxStale: () => builder,
+          minFresh: () => builder,
+          build: () => ({ isCacheControl: true }),
+        };
+        return builder;
+      },
     },
     UUID: {
       randomUUID: () =>
@@ -5729,6 +7457,8 @@
         return K.format(pattern, ...rest);
       },
       valueOf: (value) => KT.str(value),
+      CASE_INSENSITIVE_ORDER: caseInsensitiveOrder,
+      serializer: () => ({ isSerializer: true, name: 'String' }),
     },
     Character: {
       isDigit: (char) => /^\p{Nd}$/u.test(char),
@@ -5886,6 +7616,7 @@
       // Keiyoushi's `Instant.tryParse`: milliseconds, or 0.
       tryParse: (text) => isoInstant(text) ?? 0,
       fromEpochMilliseconds: (ms) => instant(ms),
+      fromEpochSeconds: (seconds) => instant(Number(seconds) * 1000),
       ofEpochMilli: (ms) => instant(ms),
       ofEpochSecond: (seconds) => instant(seconds * 1000),
       now: () => instant(Date.now()),
@@ -5955,6 +7686,24 @@
       filterObject('Sort', { name, values: [...(values ?? [])], state }),
   };
   OBJECTS.Filter = FILTER_CONSTRUCTORS;
+  // A lookup by a Kotlin name never finds JavaScript's own (`"x".toString()` is the text, not
+  // `Object.prototype.toString`'s "[object Object]").
+  for (const table of [
+    STRING,
+    REGEX,
+    LIST,
+    MAP,
+    OBJECT,
+    NUMBER,
+    ANY,
+    NULLABLE,
+    JSON_PROPS,
+    NEXT_JS,
+    SEQUENCE,
+    GLOBALS,
+    OBJECTS,
+  ])
+    Object.setPrototypeOf(table, null);
   /// A source's filters as Raygun shows them, keyed by place (`f0`, `f1`…): a select or a sort
   /// picks one, a checkbox toggles, a group of checkboxes or three-state boxes is tags. Text
   /// fields aren't shown.
@@ -6059,17 +7808,42 @@
     Object.defineProperty(dispatch, 'length', { value: most + 1 });
     return dispatch;
   };
+  /// Collections a declared class may be built on, and what it then is.
+  const COLLECTION_BASES = {
+    ArrayList: 'list',
+    MutableList: 'list',
+    AbstractMutableList: 'list',
+    LinkedList: 'list',
+    HashSet: 'set',
+    LinkedHashSet: 'set',
+    MutableSet: 'set',
+    HashMap: 'map',
+    LinkedHashMap: 'map',
+    MutableMap: 'map',
+  };
+  /// A declared class's own member `name` (a function or a getter), or the nearest parent's.
+  const memberOf = (holder, name) => {
+    for (let at = holder, depth = 0; at && at.definition && depth < 8; depth++) {
+      const member = at.definition.members[name];
+      if (member !== undefined) return member;
+      const parent = at.definition.supers[0]?.split('<')[0].split('.').pop();
+      at = parent && parent !== at.name ? CLASSES[parent] : null;
+    }
+    return undefined;
+  };
   KT.defineClass = (definition) => {
     /// An instance with these fields (`undefined` ones take their defaults).
-    const build = async (fields) => {
-      const object = {
-        __class: definition.name,
-        __classes: [
-          definition.name,
-          ...definition.supers.map((name) => name.split('<')[0].split('.').pop()),
-        ],
-        __fields: definition.params,
-      };
+    const build = async (fields, json = null) => {
+      // A class built on a collection (`class CdnSet : LinkedHashSet<String>()`) is one.
+      const base = COLLECTION_BASES[definition.supers[0]?.split('<')[0].split('.').pop()];
+      const object = base === 'map' ? new Map() : base ? [] : {};
+      if (base === 'set') object.isSet = true;
+      object.__class = definition.name;
+      object.__classes = [
+        definition.name,
+        ...definition.supers.map((name) => name.split('<')[0].split('.').pop()),
+      ];
+      object.__fields = definition.params;
       for (const name of definition.params) {
         let value = fields[name];
         // A default reads the parameters before it, as they're set.
@@ -6107,25 +7881,17 @@
       }
       const fieldsToSet = [];
       for (const [name, member] of Object.entries(definition.members)) {
-        if (member && member.isField) fieldsToSet.push([name, member]);
+        if (member && (member.isField || member.isInit)) fieldsToSet.push([name, member]);
         else if (member && member.isGetter)
           Object.defineProperty(object, name, {
             get: () => member.function_(object),
             enumerable: false,
+            configurable: true,
           });
         else {
           object[name] = (...rest) => member(object, ...rest);
           object[name].arity = Math.max(0, member.length - 1);
         }
-      }
-      // Fields in the order they're declared, once the instance has its functions.
-      for (const [name, member] of fieldsToSet) {
-        Object.defineProperty(object, name, {
-          value: await member.function_(object),
-          writable: true,
-          enumerable: false,
-          configurable: true,
-        });
       }
       for (const [name, function_] of Object.entries(definition.statics ?? {}))
         if (!Object.prototype.hasOwnProperty.call(object, name))
@@ -6135,6 +7901,8 @@
       if (parentClass) {
         const inherited = await parentClass.make(
           Array.isArray(object.__super) ? object.__super : [],
+          null,
+          json,
         );
         for (const name of Object.getOwnPropertyNames(inherited)) {
           if (name.startsWith('__') || Object.prototype.hasOwnProperty.call(object, name)) continue;
@@ -6150,11 +7918,44 @@
               configurable: true,
             });
           } else {
-            Object.defineProperty(object, name, descriptor);
+            // The parent's own functions and getters run on this object, so they reach what
+            // it overrides (an abstract `getCanvasDimensions()` a subclass has).
+            const member = memberOf(parentClass, name);
+            if (typeof member === 'function') {
+              object[name] = (...rest) => member(object, ...rest);
+              object[name].arity = Math.max(0, member.length - 1);
+            } else if (member && member.isGetter) {
+              Object.defineProperty(object, name, {
+                get: () => member.function_(object),
+                enumerable: false,
+                configurable: true,
+              });
+            } else {
+              Object.defineProperty(object, name, descriptor);
+            }
           }
         }
         for (const name of inherited.__classes)
           if (!object.__classes.includes(name)) object.__classes.push(name);
+      }
+      // Fields in the order they're declared, once the instance has its functions and its
+      // parent's (whose constructor runs first, as in Kotlin), and its `init` blocks among them.
+      for (const [name, member] of fieldsToSet) {
+        if (member.isInit) {
+          await member.function_(object);
+          continue;
+        }
+        // Decoded from JSON: a body field the answer has takes its value, as kotlinx does.
+        const given = json ? field(json, name) : undefined;
+        Object.defineProperty(object, name, {
+          value:
+            given !== undefined
+              ? await decodeAs(given, parseType(definition.types?.[name] ?? 'Any'))
+              : await member.function_(object),
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        });
       }
       object.toString = () =>
         `${definition.name}(${definition.params.map((name) => `${name}=${KT.str(object[name])}`).join(', ')})`;
@@ -6167,14 +7968,15 @@
         );
       return object;
     };
-    /// Made from constructor arguments, in order or by name.
-    const make = async (args = [], named_ = null) => {
+    /// Made from constructor arguments, in order or by name (and, for a parent of a class
+    /// decoded from JSON, the JSON its fields read).
+    const make = async (args = [], named_ = null, json = null) => {
       const fields = {};
       definition.params.forEach((name, index) => {
         fields[name] =
           named_ && Object.prototype.hasOwnProperty.call(named_, name) ? named_[name] : args[index];
       });
-      return build(fields);
+      return build(fields, json);
     };
     /// Decoded from JSON: each field by its JSON name, as its type says.
     const fromJson = async (json, typeArgs = []) => {
@@ -6188,7 +7990,7 @@
         );
         fields[name] = value === undefined ? undefined : await decodeAs(value, type);
       }
-      return build(fields);
+      return build(fields, json);
     };
     const holder = {
       isClass: true,
@@ -6206,16 +8008,37 @@
       holder[name] = (...rest) => function_(...rest);
     CLASSES[definition.name] = holder;
     if (definition.qualified) CLASSES[definition.qualified] = holder;
-    for (const entry of definition.entries)
-      holder[entry] = {
+    // An enum's entries: their fields from their arguments, and the class's functions.
+    definition.entries.forEach((entry, ordinal) => {
+      const value = {
         __class: definition.name,
-        __classes: [definition.name],
+        __classes: [definition.name, 'Enum'],
         name: entry,
-        ordinal: definition.entries.indexOf(entry),
+        ordinal,
         toString: () => entry,
       };
+      const args = definition.entryArgs?.[entry] ?? [];
+      definition.params.forEach((param, index) => {
+        if (index < args.length && param !== 'name') value[param] = args[index];
+      });
+      for (const [name, member] of Object.entries(definition.members)) {
+        if (typeof member === 'function') value[name] = (...rest) => member(value, ...rest);
+        else if (member && member.isGetter)
+          Object.defineProperty(value, name, {
+            get: () => member.function_(value),
+            enumerable: false,
+            configurable: true,
+          });
+      }
+      holder[entry] = value;
+    });
     holder.values = () => definition.entries.map((entry) => holder[entry]);
     holder.entries = definition.entries.map((entry) => holder[entry]);
+    holder.valueOf = (text) =>
+      Object.prototype.hasOwnProperty.call(holder, KT.str(text)) &&
+      definition.entries.includes(KT.str(text))
+        ? holder[KT.str(text)]
+        : KT.raise(`No enum constant ${definition.name}.${KT.str(text)}`);
     if (definition.kind === 'object') {
       for (const [name, member] of Object.entries(definition.members)) {
         // A property (`val wordRegex by lazy { … }`) is worked out once, when first read; a
@@ -6273,6 +8096,13 @@
 
   const hasMember = (receiver, name) => {
     if (receiver === null || receiver === undefined) return false;
+    if (receiver instanceof RegExp) return Boolean(REGEX[name]);
+    // Decoders `KT.m` answers for answers, bodies and bytes (`fun Response.read() = parseAsProto<T>()`).
+    if (
+      (PROTO_DECODERS.has(name) || DECODERS.has(name)) &&
+      (receiver instanceof Response || receiver.isResponseBody || Array.isArray(receiver))
+    )
+      return true;
     if (hasNextJs(receiver, name)) return true;
     const kind = kindOf(receiver);
     if (kind === 'list' || kind === 'elements')
@@ -6303,6 +8133,7 @@
 
   KT.rget = async (receivers, name) => {
     for (const receiver of receivers) {
+      if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
         if (receiver.has(name)) return receiver.get(name);
         continue;
@@ -6317,6 +8148,7 @@
   };
   KT.rset = async (receivers, name, value) => {
     for (const receiver of receivers) {
+      if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
         if (receiver.has(name)) return receiver.set(name, value);
         continue;
@@ -6326,18 +8158,36 @@
     throw new KotlinError(`Raygun's runtime doesn't know ${name}`);
   };
   KT.rcall = async (receivers, name, args, named_, lambda, type) => {
+    // One of the source's extensions goes to the receiver of its type (`infoRow(…)` on a
+    // `Document` inside `SManga.create().apply { … }`), when one is.
+    const last = receivers[receivers.length - 1];
+    const anyFits =
+      last &&
+      last.isSource &&
+      last.hasExtension(name) &&
+      receivers.some(
+        (receiver) =>
+          receiver !== null &&
+          receiver !== undefined &&
+          !receiver.isSource &&
+          last.extensionFits(name, receiver),
+      );
     for (const receiver of receivers) {
+      if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
-        if (receiver.hasFunction(name))
-          return receiver.call(name, lambda ? [...args, lambda] : args);
+        if (receiver.hasFunction(name)) return receiver.call(name, withLambda(args, lambda));
         if (receiver.hasExtension(name)) continue;
         continue;
       }
       if (hasMember(receiver, name) || (receiver.isJsonBuilder && name in receiver))
         return KT.m(receiver, name, args, named_, lambda, type);
       const source = receivers[receivers.length - 1];
-      if (source.isSource && source.hasExtension(name))
-        return source.ext(name, receiver, lambda ? [...args, lambda] : args);
+      if (
+        source.isSource &&
+        source.hasExtension(name) &&
+        (!anyFits || source.extensionFits(name, receiver))
+      )
+        return source.ext(name, receiver, withLambda(args, lambda));
       // What any value has (`toJsonElement()` in `fun Foo.toJson() = toJsonElement()`).
       if (receiver !== null && receiver !== undefined && ANY[name])
         return KT.m(receiver, name, args, named_, lambda, type);
@@ -6366,6 +8216,7 @@
     const values = new Map();
     const extensions = new Map();
     const extensionOverloads = new Map();
+    const inits = [];
     const constants = new Map();
     const constantValues = new Map();
     const C = {
@@ -6391,6 +8242,7 @@
       id: async () => t.id,
       versionId: async () => 1,
       supportsLatest: async () => true,
+      imageFetch: async () => Fetch.IMAGE,
       client: async () => client,
       network: async () => ({ client, cloudflareClient: client }),
       headers: async () => (headers ??= (await defaultHeaders()).build()),
@@ -6409,6 +8261,15 @@
       getImageRequest: async (page) =>
         new Request({ url: page.imageUrl, headers: await self.get('headers') }),
       imageRequest: async (page) => self.call('getImageRequest', [page]),
+      // KeiSource's deep links: none unless the source has them.
+      getMangaByUrl: async () => KT.raise('getMangaByUrl not implemented'),
+      getMangasByUrl: async (url, page) => {
+        const found = await self.call('getMangaByUrl', [url]);
+        return KT.call('MangasPage', [found === null || found === undefined ? [] : [found], false]);
+      },
+      // KeiSource's `getSearchManga`: a search (an address typed in isn't looked up).
+      getSearchManga: async (page, query, filters) =>
+        self.call('getSearchMangaList', [page, query, filters]),
       // Filters aren't shown yet: code asking for them gets none.
       getFilterList: async () => [],
     };
@@ -6419,6 +8280,7 @@
       getInt: (key, fallback) => preferences.store.get(key) ?? fallback ?? 0,
       getStringSet: (key, fallback) => preferences.store.get(key) ?? fallback ?? [],
       contains: (key) => preferences.store.has(key),
+      getAll: () => new Map(preferences.store),
       edit: () => {
         const editor = {
           putString: (key, value) => (preferences.store.set(key, value), editor),
@@ -6467,7 +8329,7 @@
     };
     const invoke = async (name, args, below) => {
       const function_ = findFunction(name, args, below);
-      if (function_) return function_(...args);
+      if (function_) return enter(function_, args);
       if (baseFunctions[name]) return baseFunctions[name](...args);
       throw new KotlinError(`the source has no ${name}`);
     };
@@ -6479,6 +8341,8 @@
       classes: D,
       define: (name, overloads) => layers[index].functions.set(name, overloads),
       prop: (name, getter, once = true) => layers[index].properties.set(name, { getter, once }),
+      /// The class's `init { … }`, run before the first call.
+      init: (function_) => inits.push(function_),
       // Extensions of one name on different receivers are told apart by the receiver's type
       // (the latest of those that fit, else the latest).
       /// An extension function; overloads are told apart by their receiver's type, then by
@@ -6519,6 +8383,11 @@
         layers.some((layer) => layer.functions.has(name)) ||
         Object.prototype.hasOwnProperty.call(baseFunctions, name),
       hasExtension: (name) => extensions.has(name),
+      /// Whether one of the extension's overloads takes `receiver` by its declared type.
+      extensionFits: (name, receiver) =>
+        (extensionOverloads.get(name) ?? []).some(
+          (entry) => entry.type && KT.is(receiver, entry.type),
+        ),
       get: (name) => read(name, top),
       set: async (name, value) => {
         const at = findProperty(name, top);
@@ -6535,7 +8404,29 @@
         const own = receiver && receiver.__class !== undefined ? receiver[name] : undefined;
         if (typeof own === 'function' && (own.arity === undefined || args.length <= own.arity))
           return own(...args);
-        return function_(receiver, ...args);
+        // An extension property beside a field of the same name: the field, as in Kotlin.
+        if (
+          !args.length &&
+          receiver &&
+          receiver.__class !== undefined &&
+          own !== undefined &&
+          typeof own !== 'function' &&
+          Object.prototype.hasOwnProperty.call(receiver, name)
+        )
+          return own;
+        // A runtime value's own function wins when the extension doesn't take these arguments
+        // (OkHttp's `addQueryParameter(name, value)` beside an extension taking a set of values).
+        if (
+          receiver !== null &&
+          receiver !== undefined &&
+          receiver.__class === undefined &&
+          hasMember(receiver, name) &&
+          !(extensionOverloads.get(name) ?? []).some((entry) =>
+            extensionTakes(entry, receiver, args),
+          )
+        )
+          return KT.m(receiver, name, args);
+        return enter(function_, args, receiver);
       },
       base: {
         get: async (name) =>
@@ -6556,6 +8447,15 @@
       self.ready = extensions
         .get('configureClient')(clientBuilder(client))
         .catch(() => {});
+    }
+    // The classes' `init` blocks, base-most first, once the client is set up.
+    if (inits.length) {
+      const before = self.ready;
+      self.ready = (async () => {
+        if (before) await before;
+        for (const run of inits) await run();
+      })();
+      self.ready.catch(() => {});
     }
     return self;
   };
@@ -6663,6 +8563,7 @@
     renames = { ...renames, ...(config.renames ?? {}) };
     aliases = { ...aliases, ...(config.aliases ?? {}) };
     messages = { ...messages, ...(config.messages ?? {}) };
+    assets = { ...assets, ...(config.assets ?? {}) };
     for (const source of config.sources) {
       const t = { id: source.id, name: source.name, lang: source.lang, baseUrl: source.baseUrl };
       t.http = new Http(t, {});
@@ -6688,6 +8589,19 @@
         return result;
       };
       const memos = titleMemos(source.id);
+      // What each chapter was listed with (its name, number, scanlator), by id: Mihon hands
+      // `getPageList` the whole chapter, and some sources read its name there.
+      const chapterFacts = new Map();
+      const keepFacts = (id, item) => {
+        chapterFacts.delete(id);
+        chapterFacts.set(id, {
+          name: item.name,
+          chapter_number: item.chapter_number,
+          scanlator: item.scanlator,
+          date_upload: item.date_upload,
+        });
+        if (chapterFacts.size > 4000) chapterFacts.delete(chapterFacts.keys().next().value);
+      };
       const titleOf = (id) => manga({ url: id, memo: memos.get(id) });
       const update = async (id, details) => {
         await ready();
@@ -6737,7 +8651,7 @@
           const answer = await update(id, false);
           return {
             chapters: (answer.chapters ?? []).map((item) => ({
-              id: chapterIdOf(item),
+              id: (keepFacts(chapterIdOf(item), item), chapterIdOf(item)),
               name: K.str(item.name).trim() || undefined,
               number: item.chapter_number >= 0 ? item.chapter_number : undefined,
               dateUpload: item.date_upload > 0 ? item.date_upload : undefined,
@@ -6747,7 +8661,10 @@
         },
         pages: async ({ chapterId }) => {
           await ready();
-          const pages = await self.call('getPageList', [chapterOf(chapterId)]);
+          const asked = chapterOf(chapterId);
+          const facts = chapterFacts.get(chapterId);
+          if (facts) Object.assign(asked, facts);
+          const pages = await self.call('getPageList', [asked]);
           // Pages that are sub pages (`Page(i, url)`): their pictures' addresses, as Mihon's
           // reader asks `getImageUrl` for them, a few at a time.
           const lazy = pages.filter((page) => !page.imageUrl && page.url);

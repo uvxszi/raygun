@@ -1267,7 +1267,7 @@ fn code_the_runtime_lacks_is_refused_by_name() {
     );
     let starts =
         STANDALONE_SOURCE.replace("override val supportsLatest = false", "init { setup() }");
-    assert!(reason(&starts).contains("starts"));
+    assert!(reason(&starts).contains("setup"), "{}", reason(&starts));
 }
 
 #[tokio::test]
@@ -1602,6 +1602,200 @@ class Entry(val name: String) : Named(name) {
     assert!(listing.has_next_page);
 }
 
+/// Sequences that don't end, `init` blocks, `++` on properties, names written with their
+/// package, comparators and formats, as converted code uses them.
+#[tokio::test]
+async fn converted_code_reads_sequences_inits_and_qualified_names() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private val preferences by getPreferencesLazy {
+        if (getString("old", "x") == "x") {
+            edit().putString("server", "second").apply()
+        }
+    }
+
+    private var served = 0
+
+    init {
+        served = 10
+    }
+
+    private fun Document.label(): String = selectFirst("b")!!.text()
+
+    private inline fun <reified T> String.decoded(): T = parseAs<Wrap<T>>().value
+
+    private fun pick(kind: Int): (String) -> String = when (kind) {
+        0 -> { _ -> "none" }
+        else -> { text -> text.uppercase() }
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        var seed = 7
+        val random = generateSequence(seed) { x -> (x * 3) % 1000 }.drop(1).iterator()
+        val firsts = List(3) { random.next() }
+        val counted = generateSequence(1) { it + 1 }.map { it * 2 }.takeWhile { it < 9 }.toList()
+        val box = Box("a-b")
+        box.count++
+        ++box.count
+        served++
+        val order = Filter.Sort.Selection(2, true)
+        val host = java.net.URI("https://other.example/x/y").host
+        val sorted = listOf("b", "C", "a").sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
+        val left = mutableListOf(1, 2, 3).apply { removeLast() }
+        val price = DecimalFormat("#,###.##").format(12345.678)
+        val names = listOf(
+            firsts.joinToString(","),
+            counted.joinToString(","),
+            "${box.parts.size}:${box.count}:$served",
+            "${order.index}:${order.ascending}",
+            host,
+            sorted.joinToString(""),
+            left.joinToString(""),
+            price,
+            pick(0)("x") + pick(1)("y"),
+            preferences.getString("server", "first")!!,
+            json.parseToJsonElement("""{"a":1,"b":2}""").jsonObject.mapValues { it.value.jsonPrimitive.int + 1 }.values.sum().toString(),
+            Regex("[a-c[x-z]]+").find("--bxz--")!!.value,
+            mapOf("a" to 1, "b" to 2).count { it.value > 1 }.toString(),
+            "cb({\"n\":5})".parseAs<JsonObject> { it.substringAfter("(").substringBeforeLast(")") }["n"]!!.jsonPrimitive.int.toString(),
+            listOf(1, 2, 3).groupBy({ it % 2 }, { it * 10 })[1]!!.sum().toString(),
+            Jsoup.parse("<p><a>1</a><b>2</b><i>3</i></p>").select("p > :is(a, b)").size.toString(),
+            Square(3).describe(),
+            Names().apply { add("a"); add("a"); add("b") }.let { "${it.size}${it.firstName()}" },
+            Jsoup.parse("<p>x</p>").toString().contains("<p>x</p>").toString() + "x".toString() + mapOf("a" to 1).toString(),
+            mapOf("a" to 1).getValue("a").toString(),
+            Regex("^(?i)ch(apter)?").containsMatchIn("Chapter 1").toString(),
+            with(Jsoup.parse("<b>bold</b>")) { SManga.create().apply { title = label() } }.title,
+            """{"value":{"n":4}}""".decoded<Item>().twice().toString(),
+            javaClass.getResource("/assets/greeting.txt")!!.readText(),
+            Layout.B.url("x"),
+            QuickJs.create().use { engine -> engine.evaluate("var k = 2"); engine.evaluate("k * 21") }.toString(),
+            "ff".toInt(16).toString(),
+            OrderPick().state.toString(),
+            "https://x.example/manga/32d76d19-8a05-4db0-9fc2-e0b0648fe9d0".contains(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")).toString(),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        ) + r#"
+@Serializable
+class Wrap<T>(val value: T)
+
+@Serializable
+class Item(val n: Int) {
+    fun twice() = n * 2
+}
+
+enum class Layout(private val prefix: String) {
+    A("/a/"),
+    B("/b/"),
+    ;
+
+    fun url(slug: String) = "$prefix$slug"
+}
+
+open class Pick(name: String, values: Array<String>) : Filter.Select<String>(name, values)
+
+class OrderPick : Pick("Order", arrayOf("a", "b", "c")) {
+    init {
+        state = 2
+    }
+}
+
+abstract class Shape {
+    fun describe() = "area " + area()
+
+    abstract fun area(): Int
+}
+
+class Square(private val side: Int) : Shape() {
+    override fun area() = side * side
+}
+
+class Names : LinkedHashSet<String>() {
+    fun firstName() = first()
+}
+
+class Box(text: String) {
+    lateinit var parts: List<String>
+    var count = 0
+
+    init {
+        parts = text.split("-")
+        count = parts.size
+    }
+}
+"#;
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let mut code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    code.assets
+        .insert("assets/greeting.txt".to_owned(), b"hello".to_vec());
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "21,63,189",
+            "2,4,6,8",
+            "2:4:11",
+            "2:true",
+            "other.example",
+            "abC",
+            "12",
+            "12,345.68",
+            "noneY",
+            "second",
+            "5",
+            "bxz",
+            "1",
+            "5",
+            "40",
+            "2",
+            "area 9",
+            "2a",
+            "truex{a=1}",
+            "1",
+            "true",
+            "bold",
+            "8",
+            "hello",
+            "/b/x",
+            "42",
+            "255",
+            "2",
+            "true",
+        ]
+    );
+}
+
 const JUMPS_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixturejumps
 
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -1699,6 +1893,135 @@ async fn loops_jump_from_lambdas_and_cookies_are_read() {
         .map(|item| item.title.as_str())
         .collect();
     assert_eq!(titles, ["A", "B", "token abc, note First words"]);
+}
+
+const REDIRECTS_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixtureredirects
+
+import eu.kanade.tachiyomi.source.model.FilterList
+import keiyoushi.source.KeiSource
+import keiyoushi.utils.GraphQLException
+import keiyoushi.utils.graphQLBody
+import keiyoushi.utils.parseGraphQLAs
+
+@Source
+abstract class FixtureRedirects : KeiSource() {
+    override val supportsLatest = false
+
+    private var apiKey = "stale"
+
+    private val keyRegex = Regex("key=([^;]+)")
+
+    private suspend fun chapter(): String = client.post(
+        "$baseUrl/graphql",
+        headersBuilder().set("x-key", apiKey).build(),
+        Fetch.XHR,
+        graphQLBody(query = "{ chapter { pages } }"),
+    ).parseGraphQLAs<ChapterData>().chapter!!.pages
+
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        val pages = try {
+            chapter()
+        } catch (e: GraphQLException) {
+            val noRedirectClient = client.newBuilder().followRedirects(false).build()
+            val response = noRedirectClient.get("$baseUrl/moved", headers, Fetch.DOCUMENT, ensureSuccess = false)
+            apiKey = response.headers("Set-Cookie").firstNotNullOfOrNull { keyRegex.find(it)?.groupValues?.get(1) } ?: "none"
+            val moved = "${response.code} ${response.header("Location")}"
+            response.close()
+            "${e.message}, $moved, ${chapter()}"
+        }
+        val followed = client.get("$baseUrl/moved", Fetch.DOCUMENT).asJsoup().selectFirst("h2")?.text() ?: "lost"
+        val manga = SManga.create().apply {
+            title = "$pages, $followed"
+            url = "/x"
+        }
+        return MangasPage(listOf(manga), false)
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()
+
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage = getPopularManga(page)
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate = SMangaUpdate(manga, emptyList())
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> = emptyList()
+}
+
+@Serializable
+class ChapterData(val chapter: ChapterObject? = null)
+
+@Serializable
+class ChapterObject(val pages: String)
+"##;
+
+/// MangaHub's key refresh: a GraphQL error beside data (`{"data": {"chapter": null}, "errors":
+/// [...]}`) fails `parseGraphQLAs`, and the new key comes with a redirect that a client built with
+/// OkHttp's `followRedirects(false)` gets as it came (status, `Location`, cookies), while the
+/// source's own client keeps following redirects.
+#[tokio::test]
+async fn a_client_built_not_to_follow_redirects_gets_them_as_they_came() {
+    use axum::http::header::{CONTENT_TYPE, LOCATION, SET_COOKIE};
+    let app = Router::new()
+        .route(
+            "/graphql",
+            post(|headers: axum::http::HeaderMap| async move {
+                let answer = if headers.get("x-key").is_some_and(|key| key == "fresh") {
+                    json!({"data": {"chapter": {"pages": "p1"}}})
+                } else {
+                    json!({
+                        "data": {"chapter": null},
+                        "errors": [{"message": "api key invalid"}],
+                    })
+                };
+                ([(CONTENT_TYPE, "application/json")], answer.to_string())
+            }),
+        )
+        .route(
+            "/moved",
+            get(|| async {
+                (
+                    axum::http::StatusCode::FOUND,
+                    [(LOCATION, "/target"), (SET_COOKIE, "key=fresh; Path=/")],
+                )
+            }),
+        )
+        .route("/target", get(|| async { Html("<h2>Arrived</h2>") }));
+    let address = serve(app);
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixtureredirects",
+        "https://redirects.example",
+    );
+    let build = "keiyoushi {\n    name = \"Fixture Redirects\"\n    versionCode = 1\n    libVersion = \"1.6\"\n    source {\n        lang = \"en\"\n        baseUrl = \"https://redirects.example\"\n    }\n}\n";
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            build,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixtureredirects/FixtureRedirects.kt",
+                REDIRECTS_SOURCE,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, address).await;
+    let popular = host
+        .manga_list(
+            "mihon.en.fixtureredirects/4242",
+            crate::manga::MangaList::Popular,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<&str> = popular
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(titles, ["api key invalid, 302 /target, p1, Arrived"]);
 }
 
 /// A source whose client puts its pictures back together (`BitmapFactory`, `Canvas`, okio's

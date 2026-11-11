@@ -24,7 +24,7 @@ use crate::package::{PackageError, VerifiedPackage, from_files};
 
 /// Bumped when conversions change in a way installed sources should get: the catalogue then
 /// offers them again.
-pub const CONVERTER_VERSION: u32 = 5;
+pub const CONVERTER_VERSION: u32 = 6;
 /// The converted script in the extension folder.
 pub const ENTRY: &str = "index.js";
 
@@ -196,7 +196,13 @@ pub fn convert(extension: &StoreExtension, sources: &Sources) -> Result<Converte
         return Err("its folder has no Kotlin code".into());
     }
     let Some(name) = build.theme.as_deref() else {
-        return super::transpile::convert(extension, &files, None, &sources.messages());
+        return super::transpile::convert(
+            extension,
+            &files,
+            None,
+            &sources.messages(),
+            &sources.assets,
+        );
     };
     // A theme Raygun runs by hand first; else the theme's own code, converted with the
     // extension's, when it was read.
@@ -236,6 +242,7 @@ pub fn convert(extension: &StoreExtension, sources: &Sources) -> Result<Converte
         &files,
         Some((name, &theme_files)),
         &sources.messages(),
+        &sources.assets,
     )?;
     Ok(Converted {
         theme: Some(name.to_owned()),

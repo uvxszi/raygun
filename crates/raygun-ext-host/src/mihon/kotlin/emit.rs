@@ -31,6 +31,17 @@ pub struct Context {
     pub companion_functions: HashMap<String, HashSet<String>>,
     /// `typealias ChaptersListDto = List<ChapterDto>`: what each alias stands for.
     pub type_aliases: HashMap<String, Type>,
+    /// The source's functions with reified type parameters (`inline fun <reified T> …`): how
+    /// many, which a call passes along with its arguments.
+    pub reified: HashMap<String, usize>,
+    /// The source's own classes (`ReadRealm`, its theme's), whose companions' values are its
+    /// constants (`ReadRealm.IMAGE_URL`).
+    pub source_classes: HashSet<String>,
+    /// Each declared enum's entries, by the enum's name.
+    pub enum_entries: HashMap<String, HashSet<String>>,
+    /// Fields of the declared classes that are lists wherever a class declares them, for
+    /// `dto.titles.orEmpty()`.
+    pub list_fields: HashSet<String>,
 }
 
 impl Context {
@@ -203,6 +214,48 @@ pub const METHODS: &[&str] = &[
     "order", "getShort", "getInt", "getFloat", "getDouble", "putShort", "putInt", "putLong",
     "array", "arrayOffset", "position", "limit", "capacity", "remaining", "hasRemaining",
     "rewind", "flip", "nativeOrder",
+    // Comparators, lists' ends and what they keep, sequences and iterators
+    "compare", "removeLast", "removeFirst", "removeLastOrNull", "removeFirstOrNull", "retainAll",
+    "takeLastWhile", "dropLastWhile", "onEachIndexed", "mapIndexedTo", "flatMapIndexed",
+    "flatMapTo", "filterNotNullTo", "groupingBy", "eachCount", "iterator", "hasNext", "next",
+    "constrainOnce", "setStrength", "setDecomposition", "getCollationKey",
+    // Strings, characters and numbers
+    "prependIndent", "replaceRange", "replaceAfter", "replaceAfterLast", "replaceBefore",
+    "replaceBeforeLast", "uppercaseChar", "lowercaseChar", "titlecaseChar", "codePointAt",
+    "encodeUtf8", "decodeHexToByteString", "toBigDecimal", "toBigInteger", "toULong", "toUByte",
+    "toUShort", "mod", "multipliedBy", "separator",
+    // Bytes: Keiyoushi's readers, RC4, okio's `ByteString` and `rangeEquals`
+    "readUShortLittleEndian", "readUShortBigEndian", "readUIntLittleEndian",
+    "readLongLittleEndian", "rc4", "toByteString", "rangeEquals",
+    // Jsoup
+    "previousElementSiblings", "getElementsByTag", "getElementsByClass", "getElementById",
+    "wholeOwnText", "childNodes", "childNodeSize", "val", "setBaseUri",
+    // OkHttp's tags and client settings Raygun's own client has
+    "tag", "cache", "dns", "protocols", "hostnameVerifier", "sslSocketFactory", "connectionPool",
+    "networkInterceptors",
+    // Deferred values, caches, addresses
+    "complete", "completeExceptionally", "evictAll", "snapshot", "getQueryParameter",
+    "getQueryParameterNames", "buildUpon", "toURL", "toURI", "toExternalForm",
+    // GCM's data, Android's `Uri.Builder`, settings widgets, Jsoup and the rest
+    "updateAAD", "appendQueryParameter", "appendPath", "appendEncodedPath", "authority",
+    "setDefaultValue", "setOnPreferenceChangeListener", "setOnPreferenceClickListener",
+    "setOnBindEditTextListener", "addPreference", "parseBodyFragment", "nextDouble", "shuffle",
+    "toJavaInstant", "toKotlinInstant", "stripTrailingZeros", "toPlainString", "noCache",
+    "noStore", "maxStale", "maxAge", "onlyIfCached", "protocol", "subSequence", "inflate",
+    "copyInto", "insertChildren", "atYear", "getResource", "getResourceAsStream", "openStream",
+    "serializer", "getDate", "getDayOfWeek", "getDisplayName", "getDisplayLanguage",
+    "toLanguageTag", "toBigDecimalOrNull", "randomOrNull", "minWith", "maxWith", "runningFold",
+    "siblingIndex", "normalName", "getName", "languageDisplayName", "downTo", "contentToString",
+    "appendCodePoint", "signum", "then", "thenComparator", "thenDescending", "elapsedNow",
+    "markNow", "isISOControl", "fromEpochSeconds", "incrementAndGet", "getAndIncrement",
+    "decrementAndGet", "getAndDecrement", "addAndGet", "getAndAdd", "getAndSet", "compareAndSet",
+    "tryLock", "readLock", "writeLock", "isHeldByCurrentThread", "setScale", "simpleName",
+    "fixedLength", "cancelChildren", "availableProcessors", "maxMemory", "totalMemory",
+    "freeMemory", "addJsonObject", "addJsonArray", "dispatcher", "withDefault", "exists",
+    "mkdirs", "mkdir", "createNewFile", "deleteRecursively", "lastModified", "setLastModified",
+    "readBytes", "writeBytes", "writeText", "appendText", "listFiles", "renameTo",
+    "createTempFile", "isDirectory", "isEqual", "getOffset", "getRawOffset", "freeze",
+    "cloneAsThawed", "toHashSet", "asList", "getElementsContainingText",
 ];
 
 fn quote(text: &str) -> String {
@@ -249,6 +302,13 @@ pub struct Gen<'a> {
     next: u32,
     /// The declared class whose code this is: its companion's values are in scope.
     pub class_scope: Option<String>,
+    /// The Kotlin function being written (`passCheck`), which tells a web view passing a
+    /// browser check from one reading a page.
+    function_name: String,
+    /// Its declared return type: what `return text.parseAs()` decodes into.
+    return_type: Option<Type>,
+    /// Its reified type parameters (`T`) and the JavaScript names their types are in.
+    reified_types: Vec<(String, String)>,
     /// Local functions with a receiver (`fun Builder.addParam(…)` in a body), by JavaScript name:
     /// their receiver is passed first.
     local_extensions: HashSet<String>,
@@ -330,6 +390,25 @@ const LIBRARY_PACKAGES: [&str; 11] = [
     "uy.kohesive.",
 ];
 
+/// The first segments of names written with their package (`java.net.URI(…)`,
+/// `eu.kanade.tachiyomi.source.model.Filter.Header(…)`), which the converter reads without it.
+const PACKAGE_ROOTS: [&str; 14] = [
+    "java",
+    "javax",
+    "kotlin",
+    "kotlinx",
+    "eu",
+    "org",
+    "okhttp3",
+    "okio",
+    "android",
+    "androidx",
+    "keiyoushi",
+    "uy",
+    "rx",
+    "com",
+];
+
 /// A loop being written: how deep in lambdas it is, its label, and an id jumps name it by.
 #[derive(Debug, Clone)]
 struct Loop {
@@ -354,6 +433,9 @@ impl<'a> Gen<'a> {
             catches_return: false,
             next: 0,
             class_scope: None,
+            function_name: String::new(),
+            return_type: None,
+            reified_types: Vec::new(),
             local_extensions: HashSet::new(),
             loops: Vec::new(),
             jumped: HashSet::new(),
@@ -468,6 +550,199 @@ impl<'a> Gen<'a> {
         METHODS.contains(&name) || self.cx.class_members.contains(name)
     }
 
+    /// `java.net.URI`, `eu.kanade.tachiyomi.source.model.Filter.Header`: a name written with its
+    /// package, read without it (`URI`, `Filter.Header`).
+    fn without_package(&self, expr: &Expr) -> Option<Expr> {
+        let mut segments = Vec::new();
+        let mut at = expr;
+        loop {
+            match at {
+                Expr::Member {
+                    target,
+                    name,
+                    safe: false,
+                } => {
+                    segments.push(name.as_str());
+                    at = target;
+                }
+                Expr::Name(root) => {
+                    segments.push(root.as_str());
+                    break;
+                }
+                _ => return None,
+            }
+        }
+        segments.reverse();
+        let root = segments[0];
+        if !PACKAGE_ROOTS.contains(&root)
+            || self.is_local(root)
+            || self.cx.properties.contains(root)
+            || self.cx.constants.contains(root)
+        {
+            return None;
+        }
+        let first_type = segments
+            .iter()
+            .position(|segment| segment.chars().next().is_some_and(char::is_uppercase))?;
+        let mut out = Expr::Name(segments[first_type].to_owned());
+        for segment in &segments[first_type + 1..] {
+            out = Expr::Member {
+                target: Box::new(out),
+                name: (*segment).to_owned(),
+                safe: false,
+            };
+        }
+        Some(out)
+    }
+
+    /// A type as written for the runtime: its text, with the reified type parameters in scope
+    /// put in when the code runs (`NextData<T>` → `NextData<MangaListDto>`).
+    fn type_code(&self, text: &str) -> String {
+        let used: Vec<String> = self
+            .reified_types
+            .iter()
+            .filter(|(name, _)| {
+                text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|word| word == name)
+            })
+            .map(|(name, js)| format!("{}: {js}", quote(name)))
+            .collect();
+        if used.is_empty() {
+            quote(text)
+        } else {
+            format!("KT.typeWith({}, {{{}}})", quote(text), used.join(", "))
+        }
+    }
+
+    /// Whether an expression's value is a list: a call answering one (`split(…)`, `map { … }`)
+    /// or a field the declared classes keep lists in.
+    fn gives_a_list(&self, expr: &Expr) -> bool {
+        const LIST_RESULTS: [&str; 30] = [
+            "split",
+            "map",
+            "mapNotNull",
+            "mapIndexed",
+            "mapIndexedNotNull",
+            "filterNotNull",
+            "select",
+            "toList",
+            "toMutableList",
+            "sortedBy",
+            "sortedByDescending",
+            "distinctBy",
+            "chunked",
+            "flatMap",
+            "flatten",
+            "lines",
+            "children",
+            "eachText",
+            "eachAttr",
+            "listOf",
+            "emptyList",
+            "groupValues",
+            "zip",
+            "windowed",
+            "toTypedArray",
+            "filterIsInstance",
+            "textNodes",
+            "parents",
+            "siblingElements",
+            "nextElementSiblings",
+        ];
+        match expr {
+            Expr::Call { callee, .. } => match callee.as_ref() {
+                Expr::Member { name, .. } | Expr::Name(name) => {
+                    LIST_RESULTS.contains(&name.as_str())
+                }
+                _ => false,
+            },
+            Expr::Member { name, .. } => self.cx.list_fields.contains(name),
+            _ => false,
+        }
+    }
+
+    /// `MangaResponse.Props`: classes the source declares, nested in one another.
+    fn declared_path(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => self.cx.classes.contains(name) && !self.is_local(name),
+            Expr::Member {
+                target,
+                name,
+                safe: false,
+            } => self.cx.classes.contains(name) && self.declared_path(target),
+            _ => false,
+        }
+    }
+
+    /// `Filter.Sort`: classes of the runtime's nested in one another, not a value of the source's.
+    fn is_type_path(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => {
+                name.chars().next().is_some_and(char::is_uppercase)
+                    && !self.is_local(name)
+                    && !self.cx.properties.contains(name)
+                    && !self.cx.constants.contains(name)
+                    && !self.cx.classes.contains(name)
+            }
+            Expr::Member {
+                target,
+                name,
+                safe: false,
+            } => name.chars().next().is_some_and(char::is_uppercase) && self.is_type_path(target),
+            _ => false,
+        }
+    }
+
+    /// `i++`, `++count`, `this.page--`, `counts[key]++` as a value: the variable moves on, and the
+    /// value is the one before it did (postfix) or after (prefix).
+    fn increment(&mut self, op: &str, target: &Expr, postfix: bool) -> Result<String, String> {
+        if let Expr::Name(name) = target
+            && let Some(js) = self.resolve(name)
+        {
+            return Ok(if postfix {
+                format!("({js}{op})")
+            } else {
+                format!("({op}{js})")
+            });
+        }
+        let step = if op == "++" { "+ 1" } else { "- 1" };
+        let (old, new) = (self.temp(), self.temp());
+        let (setup, read, write) = match target {
+            Expr::Name(name) => {
+                let receivers = self.receiver_list();
+                (
+                    String::new(),
+                    format!("await KT.rget({receivers}, {})", quote(name)),
+                    format!("await KT.rset({receivers}, {}, {new})", quote(name)),
+                )
+            }
+            Expr::Member { target, name, .. } => {
+                let object = self.expr(target)?;
+                let holder = self.temp();
+                (
+                    format!("const {holder} = {object}; "),
+                    format!("await KT.p({holder}, {})", quote(name)),
+                    format!("await KT.setp({holder}, {}, {new})", quote(name)),
+                )
+            }
+            Expr::Index { target, index } if index.len() == 1 => {
+                let object = self.expr(target)?;
+                let key = self.expr(&index[0])?;
+                let (holder, key_temp) = (self.temp(), self.temp());
+                (
+                    format!("const {holder} = {object}; const {key_temp} = {key}; "),
+                    format!("await KT.m({holder}, \"get\", [{key_temp}])"),
+                    format!("await KT.m({holder}, \"set\", [{key_temp}, {new}])"),
+                )
+            }
+            _ => return Err(unsupported(format!("{op} on that"))),
+        };
+        let result = if postfix { &old } else { &new };
+        Ok(format!(
+            "(await (async () => {{ {setup}const {old} = {read}; const {new} = {old} {step}; {write}; return {result}; }})())"
+        ))
+    }
+
     /// Declares a local and gives its JavaScript name. Kotlin lets a local shadow a parameter or
     /// an outer local, even reading it in its own initializer (`val page = page + 1`), which
     /// JavaScript doesn't: such a local gets a name of its own.
@@ -547,6 +822,20 @@ impl<'a> Gen<'a> {
             self.receivers.len(),
         );
         let outer_loops = std::mem::take(&mut self.loops);
+        let outer_name = std::mem::replace(&mut self.function_name, fun.name.clone());
+        let outer_return = std::mem::replace(&mut self.return_type, fun.ret.clone());
+        // A function's reified type parameters: the types its call passes, taken first.
+        let reified: Vec<(String, String)> = fun
+            .modifiers
+            .iter()
+            .filter_map(|modifier| modifier.strip_prefix("reified:"))
+            .map(|name| (name.to_owned(), format!("$type${name}")))
+            .collect();
+        let outer_reified = if reified.is_empty() {
+            None
+        } else {
+            Some(std::mem::replace(&mut self.reified_types, reified.clone()))
+        };
         self.depth = 0;
         self.catches_return = false;
         let result = self.scoped(|writer| {
@@ -616,6 +905,17 @@ impl<'a> Gen<'a> {
             } else {
                 format!("{} {code}", defaults.join(" "))
             };
+            // The types a call passed, read before anything waits.
+            let code = if reified.is_empty() {
+                code
+            } else {
+                let names: Vec<&str> = reified.iter().map(|(_, js)| js.as_str()).collect();
+                format!(
+                    "const [{}] = KT.takeTypes({}); {code}",
+                    names.join(", "),
+                    names.len()
+                )
+            };
             let code = if writer.catches_return {
                 format!("try {{ {code} }} catch (e) {{ if (e instanceof KT.Return) return e.value; throw e; }}")
             } else {
@@ -628,6 +928,11 @@ impl<'a> Gen<'a> {
         self.catches_return = catches_return;
         self.labels = labels;
         self.loops = outer_loops;
+        self.function_name = outer_name;
+        self.return_type = outer_return;
+        if let Some(outer) = outer_reified {
+            self.reified_types = outer;
+        }
         self.receivers.truncate(receivers);
         self.receiver_labels.truncate(receivers);
         result
@@ -854,7 +1159,7 @@ impl<'a> Gen<'a> {
                     let head = match vars {
                         LambdaParam::Name(name) => {
                             let js = writer.declare(name);
-                            format!("const {js} of KT.iter({iterable})")
+                            format!("const {js} of (await KT.each({iterable}))")
                         }
                         LambdaParam::Destructured(names) => {
                             let temp = writer.temp();
@@ -870,7 +1175,7 @@ impl<'a> Gen<'a> {
                             let inner = writer.block(body, Tail::Discard)?;
                             let inner = writer.loop_body(id, inner);
                             return Ok(format!(
-                                "{}for (const {temp} of KT.iter({iterable})) {{ {} {inner} }}",
+                                "{}for (const {temp} of (await KT.each({iterable}))) {{ {} {inner} }}",
                                 label
                                     .as_ref()
                                     .map(|label| format!("{}: ", local(label)))
@@ -1008,6 +1313,10 @@ impl<'a> Gen<'a> {
         label: Option<&str>,
         value: Option<&Expr>,
     ) -> Result<String, String> {
+        // `return client.get(url).parseAs()`: decoded as the function's return type.
+        if label.is_none() && self.depth == 0 && value.is_some_and(untyped_decoder) {
+            self.expected = self.return_type.clone();
+        }
         let value = match value {
             Some(value) => self.expr(value)?,
             None => "KT.unit".to_owned(),
@@ -1170,6 +1479,11 @@ impl<'a> Gen<'a> {
     }
 
     pub fn expr(&mut self, expr: &Expr) -> Result<String, String> {
+        if matches!(expr, Expr::Member { .. })
+            && let Some(stripped) = self.without_package(expr)
+        {
+            return self.expr(&stripped);
+        }
         Ok(match expr {
             Expr::Int(value) => value.to_string(),
             Expr::Float(value) => {
@@ -1219,25 +1533,19 @@ impl<'a> Gen<'a> {
                 format!("(await KT.m({object}, \"get\", [{}]))", keys.join(", "))
             }
             Expr::NotNull(inner) => format!("KT.nn({})", self.expr(inner)?),
+            Expr::Unary { op, expr } if matches!(*op, "++" | "--") => {
+                self.increment(op, expr, false)?
+            }
             Expr::Unary { op, expr } => {
                 let value = self.expr(expr)?;
                 match *op {
                     "!" => format!("(!KT.truthy({value}))"),
                     "-" => format!("(-{value})"),
-                    "+" => value,
-                    _ => return Err(unsupported("++ and -- inside expressions")),
+                    _ => value,
                 }
             }
-            Expr::Postfix { op, expr } => {
-                // `i++` as a value: the value before, then the variable moves on.
-                let Expr::Name(name) = expr.as_ref() else {
-                    return Err(unsupported("++ on that"));
-                };
-                let Some(name) = self.resolve(name) else {
-                    return Err(unsupported("++ on a property"));
-                };
-                format!("({name}{op})")
-            }
+            // `i++` as a value: the value before, then the variable moves on.
+            Expr::Postfix { op, expr } => self.increment(op, expr, true)?,
             Expr::Binary { op, left, right } => self.binary(op, left, right)?,
             Expr::Is { expr, ty, negated } => {
                 let test = format!("KT.is({}, {})", self.expr(expr)?, quote(&ty.name));
@@ -1419,21 +1727,88 @@ impl<'a> Gen<'a> {
         if OBJECTS.contains(&name) || GLOBALS.contains(&name) {
             return Ok(format!("KT.global({})", quote(name)));
         }
+        // An enum's entry by itself: in the enum's own code, or imported
+        // (`import ….Filter.TriState.Companion.STATE_IGNORE`, `import ….Method.SINGLE`).
+        if let Some(entry) = self.enum_entry(name) {
+            return Ok(entry);
+        }
+        // `import java.time.Instant as JavaInstant`: the runtime's object under another name.
+        if let Some(real) = self.aliased(name)
+            && (OBJECTS.contains(&real.as_str()) || GLOBALS.contains(&real.as_str()))
+        {
+            return Ok(format!("KT.global({})", quote(&real)));
+        }
         Err(unsupported(name))
     }
 
-    /// An object the runtime has, as the owner of a member (`Calendar.getInstance()`).
-    fn runtime_object(owner: &str, name: &str) -> Result<String, String> {
+    /// An object the runtime has, as the owner of a member (`Calendar.getInstance()`), under its
+    /// own name or one an import gives it (`JavaInstant.ofEpochMilli`).
+    fn runtime_object(&self, owner: &str, name: &str) -> Result<String, String> {
         if OBJECTS.contains(&owner) {
             Ok(format!("KT.global({})", quote(owner)))
+        } else if let Some(real) = self
+            .aliased(owner)
+            .filter(|real| OBJECTS.contains(&real.as_str()))
+        {
+            Ok(format!("KT.global({})", quote(&real)))
         } else {
             Err(unsupported(format!("{owner}.{name}")))
         }
     }
 
+    /// The name an import alias stands for (`import java.time.Instant as JavaInstant`).
+    fn aliased(&self, alias: &str) -> Option<String> {
+        self.imports
+            .iter()
+            .find(|(name, full)| name == alias && !full.ends_with(&format!(".{alias}")))
+            .and_then(|(_, full)| full.rsplit('.').next())
+            .map(str::to_owned)
+    }
+
+    /// An enum entry named by itself: of the enum whose code this is, or one imported by name.
+    fn enum_entry(&self, name: &str) -> Option<String> {
+        if let Some(scope) = self.class_scope.as_deref()
+            && self
+                .cx
+                .enum_entries
+                .get(scope)
+                .is_some_and(|entries| entries.contains(name))
+        {
+            return Some(format!("(await KT.p(D.{scope}, {}))", quote(name)));
+        }
+        let (_, full) = self.imports.iter().find(|(alias, _)| alias == name)?;
+        let mut parts = full.rsplit('.');
+        let entry = parts.next()?;
+        let owner = parts.find(|part| *part != "Companion")?;
+        if self
+            .cx
+            .enum_entries
+            .get(owner)
+            .is_some_and(|entries| entries.contains(entry))
+        {
+            return Some(format!("(await KT.p(D.{owner}, {}))", quote(entry)));
+        }
+        None
+    }
+
     fn member(&mut self, target: &Expr, name: &str, safe: bool) -> Result<String, String> {
         if let Expr::Super = target {
             return Ok(format!("(await self.base.get({}))", quote(name)));
+        }
+        // `ReadRealm.IMAGE_URL` in a DTO: a constant of the source's own companion.
+        if let Expr::Name(owner) = target
+            && self.cx.source_classes.contains(owner)
+            && !self.is_local(owner)
+            && self.cx.constants.contains(name)
+        {
+            return Ok(format!("(await C.get({}))", quote(name)));
+        }
+        // `Page::class.java`: the class (its name, and the extension's resources).
+        if matches!(name, "java" | "javaObjectType" | "kotlin")
+            && matches!(target, Expr::Reference { name, .. } if name == "class")
+        {
+            let class = self.expr(target)?;
+            return Ok(format!("KT.javaClass({class})"));
         }
         // `this.baseUrl` in the source: its own property.
         if matches!(target, Expr::This(None))
@@ -1466,7 +1841,7 @@ impl<'a> Gen<'a> {
             if self.cx.classes.contains(owner) {
                 return Ok(format!("(await KT.p(D.{owner}, {}))", quote(name)));
             }
-            let object = Self::runtime_object(owner, name)?;
+            let object = self.runtime_object(owner, name)?;
             return Ok(format!("(await KT.p({object}, {}))", quote(name)));
         }
         let object = self.expr(target)?;
@@ -1588,12 +1963,35 @@ impl<'a> Gen<'a> {
         args: &[Arg],
         lambda: Option<&Lambda>,
     ) -> Result<String, String> {
+        if let Some(stripped) = self.without_package(callee) {
+            return self.call(&stripped, type_args, args, lambda);
+        }
         let expected = self.expected.take();
         let type_arg = type_args
             .first()
             .or(expected.as_ref())
-            .map(|ty| quote(&type_name(&self.cx.unaliased(ty))))
+            .map(|ty| self.type_code(&type_name(&self.cx.unaliased(ty))))
             .unwrap_or_else(|| "null".to_owned());
+        // A call to one of the source's functions with reified type parameters passes its
+        // types along (`parseAsNextData<MangaListDto>()`).
+        let passed_types: Option<String> = match callee {
+            Expr::Name(name) | Expr::Member { name, .. } => {
+                self.cx.reified.get(name).map(|count| {
+                    let mut types: Vec<String> = type_args
+                        .iter()
+                        .map(|ty| self.type_code(&type_name(&self.cx.unaliased(ty))))
+                        .collect();
+                    if types.is_empty()
+                        && let Some(ty) = expected.as_ref()
+                    {
+                        types.push(self.type_code(&type_name(&self.cx.unaliased(ty))));
+                    }
+                    types.truncate(*count);
+                    format!("[{}]", types.join(", "))
+                })
+            }
+            _ => None,
+        };
         match callee {
             Expr::Name(name) => {
                 // Scope functions without a receiver.
@@ -1621,6 +2019,52 @@ impl<'a> Gen<'a> {
                     {
                         return self.receiver_call_returning(lambda, "[]", name);
                     }
+                    // Keiyoushi's `runWebView { … }`: a web view the source drives, which Raygun
+                    // doesn't have. The call fails naming the page it would load: as a browser
+                    // check when the function passes one (which the person may then pass by
+                    // hand), else as a page that needs a web view.
+                    ("runWebView" | "runWebViewBlocking", Some(lambda)) => {
+                        let page = loaded_page(&lambda.body)
+                            .and_then(|page| self.expr(&page).ok())
+                            .unwrap_or_else(|| "null".to_owned());
+                        let check = passes_a_check(&self.function_name);
+                        return Ok(format!(
+                            "(await KT.call(\"runWebView\", [{page}, (await self.get(\"baseUrl\")), {check}]))"
+                        ));
+                    }
+                    // kotlinx.serialization's settings: reading always ignores unknown keys and
+                    // tells subclasses by their discriminator, so only that is read.
+                    ("Json", Some(lambda)) => {
+                        let discriminator = lambda.body.iter().find_map(|stmt| match stmt {
+                            Stmt::Assign {
+                                target: Expr::Name(name),
+                                value: Expr::Str(parts),
+                                ..
+                            } if name == "classDiscriminator" => match parts.as_slice() {
+                                [StrPart::Text(text)] => Some(text.clone()),
+                                _ => None,
+                            },
+                            _ => None,
+                        });
+                        return Ok(match discriminator {
+                            Some(key) => format!(
+                                "(await KT.call(\"Json\", [], {{ classDiscriminator: {} }}))",
+                                quote(&key)
+                            ),
+                            None => "(await KT.call(\"Json\", []))".to_owned(),
+                        });
+                    }
+                    ("SerializersModule", Some(_)) => return Ok("null".to_owned()),
+                    // `lazy(::make)`: the function's value, once.
+                    ("lazy", None) if args.len() == 1 => {
+                        let function = self.expr(&args[0].value)?;
+                        return Ok(format!(
+                            "KT.deferred(async () => (await KT.invoke({function}, [])))"
+                        ));
+                    }
+                    ("buildMap", Some(lambda)) => {
+                        return self.receiver_call_returning(lambda, "new Map()", name);
+                    }
                     ("buildString", Some(lambda)) => {
                         let built =
                             self.receiver_call_returning(lambda, "KT.stringBuilder()", name)?;
@@ -1639,6 +2083,20 @@ impl<'a> Gen<'a> {
                     ("runCatching", Some(lambda)) => {
                         let call = self.lambda_call(lambda, name)?;
                         return Ok(format!("(await KT.runCatching(async () => {call}))"));
+                    }
+                    // `getPreferencesLazy { … }`: the preferences, after a block that reads them
+                    // as its receiver (moving an old setting to a new one).
+                    ("getPreferences" | "getPreferencesLazy", Some(lambda)) if args.is_empty() => {
+                        let preferences = self.receiver_call_returning(
+                            lambda,
+                            "(await KT.call(\"getPreferences\", []))",
+                            name,
+                        )?;
+                        return Ok(if name == "getPreferences" {
+                            preferences
+                        } else {
+                            format!("KT.deferred(async () => {preferences})")
+                        });
                     }
                     ("repeat", Some(lambda)) if args.len() == 1 => {
                         let times = self.expr(&args[0].value)?;
@@ -1704,7 +2162,7 @@ impl<'a> Gen<'a> {
                 });
                 let lambda_code = lambda
                     .filter(|_| !takes_receiver)
-                    .map(|lambda| self.lambda(lambda, name))
+                    .map(|lambda| self.trailing_lambda(lambda, name))
                     .transpose()?;
                 if !self.receivers.is_empty() && !self.cx.functions.contains_key(name) {
                     if !self.known(name) && !self.cx.extensions.contains(name) {
@@ -1712,10 +2170,10 @@ impl<'a> Gen<'a> {
                     }
                     let (args, named) = self.args(args, None)?;
                     return Ok(format!(
-                        "(await KT.rcall({}, {}, [{}], {}, {}, {type_arg}))",
+                        "(await KT.rcall({}, {}, {}, {}, {}, {type_arg}))",
                         self.receiver_list(),
                         quote(name),
-                        args.join(", "),
+                        typed_args(&args, passed_types.as_deref()),
                         named.unwrap_or_else(|| "null".to_owned()),
                         lambda_code.unwrap_or_else(|| "null".to_owned())
                     ));
@@ -1738,9 +2196,9 @@ impl<'a> Gen<'a> {
                         args.push(lambda);
                     }
                     return Ok(format!(
-                        "(await self.call({}, [{}]))",
+                        "(await self.call({}, {}))",
                         quote(name),
-                        args.join(", ")
+                        typed_args(&args, passed_types.as_deref())
                     ));
                 }
                 if self.declared_class(name) {
@@ -1768,6 +2226,13 @@ impl<'a> Gen<'a> {
                 self.global_call(name, args, lambda_code, &type_arg)
             }
             Expr::Member { target, name, safe } => {
+                // `x?.split(";").orEmpty()`, `dto.titles.orEmpty()`: an empty list, not text.
+                let type_arg =
+                    if name == "orEmpty" && type_arg == "null" && self.gives_a_list(target) {
+                        quote("List")
+                    } else {
+                        type_arg
+                    };
                 // Scope functions with a receiver.
                 if let Some(lambda) = lambda
                     && args.is_empty()
@@ -1835,10 +2300,36 @@ impl<'a> Gen<'a> {
                         args.push(self.lambda(lambda, name)?);
                     }
                     return Ok(format!(
-                        "(await self.call({}, [{}]))",
+                        "(await self.call({}, {}))",
                         quote(name),
-                        args.join(", ")
+                        typed_args(&args, passed_types.as_deref())
                     ));
+                }
+                // `MangaResponse.Props.Chapter(…)`: a class the source declares, written inside the
+                // ones it's nested in.
+                if self.cx.classes.contains(name.as_str())
+                    && matches!(target.as_ref(), Expr::Member { .. } | Expr::Name(_))
+                    && self.declared_path(target)
+                {
+                    let (args, named) = self.args(args, None)?;
+                    let mut args = args;
+                    if let Some(lambda) = lambda {
+                        args.push(self.lambda(lambda, name)?);
+                    }
+                    return Ok(format!(
+                        "(await KT.make(D.{name}, [{}], {}))",
+                        args.join(", "),
+                        named.unwrap_or_else(|| "null".to_owned())
+                    ));
+                }
+                // `Filter.Sort.Selection(…)`: a class of the runtime's, written inside the ones
+                // it's nested in.
+                if GLOBALS.contains(&name.as_str())
+                    && matches!(target.as_ref(), Expr::Member { .. })
+                    && self.is_type_path(target)
+                {
+                    let lambda = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
+                    return self.global_call(name, args, lambda, &type_arg);
                 }
                 // `Foo.create()`, `Jsoup.parse(…)`: an object's member (not a constant's, such as
                 // a class's companion's `NUMBER_REGEX.findAll(…)`).
@@ -1848,11 +2339,12 @@ impl<'a> Gen<'a> {
                     && !self.cx.properties.contains(owner)
                     && !self.cx.constants.contains(owner)
                     && self.companion_value(owner).is_none()
+                    && !(self.class_scope.is_some() && self.cx.class_members.contains(owner))
                 {
                     let owner_code = if self.cx.classes.contains(owner) {
                         format!("D.{owner}")
                     } else {
-                        Self::runtime_object(owner, name)?
+                        self.runtime_object(owner, name)?
                     };
                     let (args, named) = self.args(args, None)?;
                     let lambda = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
@@ -1897,7 +2389,9 @@ impl<'a> Gen<'a> {
                     return Err(unsupported(format!("{name}()")));
                 }
                 let (args, named) = self.args(args, None)?;
-                let lambda = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
+                let lambda = lambda
+                    .map(|lambda| self.trailing_lambda(lambda, name))
+                    .transpose()?;
                 let mut call_args = args;
                 let lambda_arg = lambda.unwrap_or_else(|| "null".to_owned());
                 let call = |receiver: &str| {
@@ -1907,9 +2401,9 @@ impl<'a> Gen<'a> {
                             all.push(lambda_arg.clone());
                         }
                         format!(
-                            "self.ext({}, {receiver}, [{}])",
+                            "self.ext({}, {receiver}, {})",
                             quote(name),
-                            all.join(", ")
+                            typed_args(&all, passed_types.as_deref())
                         )
                     } else {
                         format!(
@@ -1979,6 +2473,29 @@ impl<'a> Gen<'a> {
     }
 
     fn reference(&mut self, target: Option<&Expr>, name: &str) -> Result<String, String> {
+        // `this::class`, `this@Source::class`: the class whose code this is.
+        if name == "class"
+            && let Some(Expr::This(_)) = target
+        {
+            return Ok(format!(
+                "KT.javaClass({})",
+                quote(self.class_scope.as_deref().unwrap_or("Source"))
+            ));
+        }
+        // `exception::class.simpleName`: a value's class.
+        if name == "class"
+            && let Some(value) = target
+            && !matches!(value, Expr::Name(owner) if owner.chars().next().is_some_and(char::is_uppercase) && !self.is_local(owner))
+        {
+            let value = self.expr(value)?;
+            return Ok(format!("KT.javaClass(KT.classNameOf({value}))"));
+        }
+        // `::node`: a local function, already a function.
+        if target.is_none()
+            && let Some(js) = self.resolve(name)
+        {
+            return Ok(js);
+        }
         match target {
             // `::helper`: one of the source's functions.
             None if self.cx.functions.contains_key(name) => Ok(format!(
@@ -2028,7 +2545,7 @@ impl<'a> Gen<'a> {
                     && self.companion_value(owner).is_none() =>
             {
                 if name == "class" {
-                    return Ok(quote(owner));
+                    return Ok(format!("KT.javaClass({})", quote(owner)));
                 }
                 if self.cx.extensions.contains(name) {
                     return Ok(format!(
@@ -2039,6 +2556,20 @@ impl<'a> Gen<'a> {
                 // `SChapter::chapter_number`: a field of Mihon's models.
                 if matches!(owner.as_str(), "SChapter" | "SManga" | "Page") {
                     return Ok(format!("(async (value) => KT.p(value, {}))", quote(name)));
+                }
+                // `Genre::state`, `TagCheckBox::state`: a declared class's own field or function
+                // (or an object's: `Unpacker::unpack`), else a filter's, read on what's passed.
+                if self.cx.classes.contains(owner) && self.cx.class_members.contains(name) {
+                    return Ok(format!(
+                        "(async (...args) => KT.ref(D.{owner}, {}, args))",
+                        quote(name)
+                    ));
+                }
+                if matches!(name, "state" | "name" | "values") {
+                    return Ok(format!(
+                        "(async (receiver, ...args) => KT.member(receiver, {}, args))",
+                        quote(name)
+                    ));
                 }
                 if !self.known(name) {
                     return Err(unsupported(format!("{owner}::{name}")));
@@ -2193,6 +2724,19 @@ impl<'a> Gen<'a> {
         ))
     }
 
+    /// A call's trailing lambda: with the builder as its receiver for kotlinx.serialization's
+    /// JSON builders (`putJsonArray("tags") { add(tag) }`), else a plain one.
+    fn trailing_lambda(&mut self, lambda: &Lambda, name: &str) -> Result<String, String> {
+        if matches!(
+            name,
+            "putJsonArray" | "putJsonObject" | "addJsonArray" | "addJsonObject"
+        ) {
+            self.receiver_lambda(lambda, name)
+        } else {
+            self.lambda(lambda, name)
+        }
+    }
+
     /// A lambda called at once with no argument.
     fn lambda_call(&mut self, lambda: &Lambda, label: &str) -> Result<String, String> {
         let function = self.lambda(&without_it(lambda), label)?;
@@ -2269,6 +2813,56 @@ fn type_name(ty: &Type) -> String {
     }
 }
 
+/// A call's arguments as JavaScript's list, with the types it passes to reified type parameters
+/// (`KT.typedArgs`), when it passes some.
+fn typed_args(args: &[String], types: Option<&str>) -> String {
+    match types {
+        Some(types) => format!("KT.typedArgs([{}], {types})", args.join(", ")),
+        None => format!("[{}]", args.join(", ")),
+    }
+}
+
+/// The page a web view's block loads first (`loadUrl(checkUrl.toString())`), when it says.
+fn loaded_page(block: &Block) -> Option<Expr> {
+    block.iter().find_map(|stmt| match stmt {
+        Stmt::Expr(Expr::Call { callee, args, .. }) => match callee.as_ref() {
+            Expr::Name(name) if matches!(name.as_str(), "loadUrl" | "loadData") => {
+                args.first().map(|arg| arg.value.clone())
+            }
+            _ => None,
+        },
+        Stmt::Expr(Expr::If {
+            then, otherwise, ..
+        }) => loaded_page(then).or_else(|| otherwise.as_ref().and_then(loaded_page)),
+        _ => None,
+    })
+}
+
+/// Whether a function's name says it passes a browser check (`passGuard`, `wafInterceptor`,
+/// `solveTurnstile`), rather than reading a page a script draws.
+fn passes_a_check(function: &str) -> bool {
+    const MARKS: [&str; 16] = [
+        "pass",
+        "guard",
+        "check",
+        "challenge",
+        "verify",
+        "waf",
+        "anubis",
+        "bot",
+        "clearance",
+        "turnstile",
+        "captcha",
+        "gate",
+        "cloudflare",
+        "solve",
+        "bypass",
+        "shield",
+    ];
+    let lower = function.to_lowercase();
+    MARKS.iter().any(|mark| lower.contains(mark))
+}
+
 /// Functions and objects the runtime has without a receiver (`mihon/kotlin.js`'s `GLOBALS`).
 #[rustfmt::skip]
 pub const GLOBALS: &[&str] = &[
@@ -2294,6 +2888,17 @@ pub const GLOBALS: &[&str] = &[
     "GCMParameterSpec", "PBEKeySpec", "TextNode", "XorInterceptor", "Canvas", "Rect", "RectF",
     "Matrix", "Paint", "TextPaint", "Buffer", "ByteArrayOutputStream", "ByteArrayInputStream",
     "TextInterceptor",
+    "GeneralSecurityException", "SecurityException", "UnknownHostException", "ProtocolException",
+    "SocketTimeoutException", "InterruptedException", "NumberFormatException", "TimeoutException",
+    "CancellationException", "generateSequence", "DecimalFormat", "SecureRandom", "Any",
+    "LruCache", "CompletableDeferred", "URI", "URL", "SupervisorJob", "Job", "delay", "assert",
+    "runWebView", "getTurnstileToken", "getLocalStorage", "SwitchPreferenceCompat",
+    "CheckBoxPreference", "ListPreference", "EditTextPreference", "MultiSelectListPreference",
+    "PreferenceCategory", "Cache", "SeedRandom", "showInfo", "askConfirm", "askInput",
+    "askPassword", "askSelect", "askSelectOption", "GZIPInputStream", "InflaterInputStream",
+    "SoftReference", "WeakReference", "randomUUID", "launch", "Header", "Separator",
+    "injectLazy", "AtomicInteger", "AtomicLong", "AtomicBoolean", "AtomicReference",
+    "ReentrantLock", "ReentrantReadWriteLock", "sleep", "AutoCloseable", "File", "Dispatcher",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2308,5 +2913,12 @@ pub const OBJECTS: &[&str] = &[
     "VERSION", "Normalizer", "Entities", "StandardCharsets", "Charset", "MarkdownDescription",
     "Cipher", "MessageDigest", "Mac", "SecretKeyFactory", "UpdateStrategy", "MultipartBody",
     "QuickJs", "JSON_MEDIA_TYPE", "Bitmap", "BitmapFactory", "Color", "Paint", "Typeface",
-    "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper",
+    "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper", "Collator", "Dispatchers",
+    "Evaluator", "HttpUrl", "Uri", "Float", "Double", "Thread", "Response", "Protocol", "Year",
+    "OffsetDateTime", "Resources", "MonthDay", "javaClass", "jsonInstance", "DayOfWeek",
+    "TextStyle", "Injekt", "GlobalScope", "SSLContext", "TriState", "STATE_IGNORE",
+    "STATE_INCLUDE", "STATE_EXCLUDE", "RequestBody", "CookieJar", "Credentials", "Html",
+    "HttpURLConnection", "Duration", "Collections", "LazyThreadSafetyMode", "URLUtil", "Result",
+    "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
+    "applicationContext", "PreferenceManager", "BuildConfig", "File",
 ];

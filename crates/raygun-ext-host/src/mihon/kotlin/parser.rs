@@ -447,8 +447,13 @@ impl Parser {
         annotations: Vec<String>,
         line: u32,
     ) -> Result<FunDecl, String> {
+        let mut modifiers = modifiers;
+        // `inline fun <reified T> …`: its reified type parameters, kept as `reified:<name>`
+        // among the modifiers.
         if self.is_op("<") {
-            self.type_params()?;
+            for name in self.function_type_params()? {
+                modifiers.push(format!("reified:{name}"));
+            }
         }
         let (receiver, name) = self.receiver_and_name()?;
         let params = self.params()?;
@@ -728,6 +733,31 @@ impl Parser {
     }
 
     /// `<T, out R : Any>`: the names.
+    /// A function's type parameters: the names of its `reified` ones.
+    fn function_type_params(&mut self) -> Result<Vec<String>, String> {
+        self.expect_op("<")?;
+        self.with_nesting(true, |parser| {
+            let mut names = Vec::new();
+            loop {
+                let (modifiers, _) = parser.modifiers()?;
+                parser.eat_name("in");
+                parser.eat_name("out");
+                let name = parser.name()?;
+                if modifiers.iter().any(|modifier| modifier == "reified") {
+                    names.push(name);
+                }
+                if parser.eat_op(":") {
+                    parser.ty()?;
+                }
+                if !parser.eat_op(",") {
+                    break;
+                }
+            }
+            parser.expect_op(">")?;
+            Ok(names)
+        })
+    }
+
     fn type_params(&mut self) -> Result<Vec<String>, String> {
         self.expect_op("<")?;
         self.with_nesting(true, |parser| {
@@ -1875,11 +1905,23 @@ impl Parser {
     /// A branch of `if` or `when`: a block, or one statement.
     fn branch(&mut self) -> Result<Block, String> {
         self.skip_newlines();
-        if self.is_op("{") {
+        if self.is_op("{") && !self.braces_hold_a_lambda() {
             self.block()
         } else {
             Ok(vec![self.statement()?])
         }
+    }
+
+    /// Braces where a block could go that start with a lambda's parameters and its arrow
+    /// (`SINGLE -> { _ -> "SINGLE" }`) are a lambda, as Kotlin reads them.
+    fn braces_hold_a_lambda(&mut self) -> bool {
+        let save = self.at;
+        let found = self.expect_op("{").is_ok()
+            && self
+                .with_nesting(false, |parser| Ok(parser.lambda_params().is_some()))
+                .unwrap_or(false);
+        self.at = save;
+        found
     }
 
     fn if_expr(&mut self) -> Result<Expr, String> {

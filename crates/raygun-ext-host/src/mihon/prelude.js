@@ -140,8 +140,47 @@
 
   // ---- Regular expressions: Java's syntax, as far as JavaScript takes it ----
 
+  /** Java's nested character classes (`[^(['")]]` is one class in Java): their members merged
+   * into the class around them, as JavaScript nests none; a `]` first in a class is a member. */
+  const flattenClasses = (source) => {
+    let out = '';
+    let depth = 0;
+    for (let at = 0; at < source.length; at++) {
+      const char = source[at];
+      if (char === '\\') {
+        out += char + (source[at + 1] ?? '');
+        at++;
+        continue;
+      }
+      if (char === '[' && depth === 0) {
+        depth = 1;
+        out += char;
+        if (source[at + 1] === '^') {
+          out += '^';
+          at++;
+        }
+        if (source[at + 1] === ']') {
+          out += '\\]';
+          at++;
+        }
+        continue;
+      }
+      if (char === '[' && depth > 0) {
+        depth++;
+        if (source[at + 1] === '^') at++;
+        continue;
+      }
+      if (char === ']' && depth > 0) {
+        depth--;
+        if (depth === 0) out += char;
+        continue;
+      }
+      out += char;
+    }
+    return out;
+  };
   K.regex = (pattern, ...options) => {
-    let source = K.str(pattern);
+    let source = flattenClasses(K.str(pattern));
     let flags = 'u';
     for (const option of options.flat()) {
       if (option === 'i' || option === 'm' || option === 's') flags += option;
@@ -152,6 +191,14 @@
       source = source.slice(inline[0].length);
       for (const flag of inline[1]) if (flag !== 'x' && !flags.includes(flag)) flags += flag;
     }
+    // Inline flags past the start (`^(?i)…`, `(?i:…)`): JavaScript has them for the whole
+    // pattern only, so they're read that way.
+    source = source.replace(/\(\?([imsx]+)(\)|:)/g, (match, inline, end, at, whole) => {
+      // `\(?i)` is an optional parenthesis, not flags.
+      if (whole[at - 1] === '\\') return match;
+      for (const flag of inline) if (flag !== 'x' && !flags.includes(flag)) flags += flag;
+      return end === ':' ? '(?:' : '';
+    });
     // Java's possessive quantifiers and atomic groups match the same here, more slowly.
     source = source.replace(/([*+?}])\+/g, '$1').replace(/\(\?>/g, '(?:');
     source = source.replace(/\\Z/g, '$').replace(/\\A/g, '^').replace(/\\h/g, '[ \\t\\u00a0]');
@@ -978,6 +1025,7 @@
       __class: 'TextNode',
       __classes: ['TextNode', 'Node'],
       wholeText: raw,
+      nodeName: () => '#text',
       text: () => raw.replace(/\s+/g, ' '),
       getWholeText: () => raw,
       isBlank: () => raw.trim() === '',
@@ -1189,6 +1237,96 @@
       const after = dom('siblings', { nodes: [this.h], forward: true, all: true });
       return Elements.of([...before, ...after], this.doc);
     }
+    /** Jsoup's `previousElementSiblings()`: the nearest first. */
+    previousElementSiblings() {
+      return Elements.of(dom('siblings', { nodes: [this.h], forward: false, all: true }), this.doc);
+    }
+    getElementsByTag(name) {
+      return this.select(K.str(name).replace(/[^A-Za-z0-9_-]/g, '') || '*');
+    }
+    getElementsByClass(name) {
+      return this.select(`.${K.str(name).replace(/([^A-Za-z0-9_-])/g, '\\$1')}`);
+    }
+    getElementById(id) {
+      return this.selectFirst(`[id="${K.str(id).replace(/"/g, '\\"')}"]`);
+    }
+    /** Jsoup's `wholeOwnText()`: the element's own text children, as written. */
+    wholeOwnText() {
+      return this.textNodes()
+        .map((node) => node.wholeText)
+        .join('');
+    }
+    /** Jsoup's `childNodes()`: elements and text, in order (comments left out). */
+    childNodes() {
+      const handles = dom('children', { nodes: [this.h], all: true });
+      const infos = handles.length ? dom('info', { nodes: handles }) : [];
+      const elementAfter = (index, step) => {
+        for (let at = index + step; at >= 0 && at < handles.length; at += step)
+          if (['tag', 'script', 'style'].includes(infos[at].type)) return handles[at];
+        return null;
+      };
+      const out = [];
+      handles.forEach((handle, index) => {
+        const info = infos[index];
+        if (info.type === 'text')
+          out.push(
+            textNode(
+              {
+                text: info.data,
+                next: elementAfter(index, 1),
+                previous: elementAfter(index, -1),
+              },
+              this.doc,
+            ),
+          );
+        else if (['tag', 'script', 'style'].includes(info.type))
+          out.push(new Element(handle, this.doc));
+      });
+      return out;
+    }
+    childNodeSize() {
+      return this.childNodes().length;
+    }
+    /** Jsoup's `getElementsContainingText(text)`: elements whose text has it. */
+    getElementsContainingText(text) {
+      return this.select(`*:contains(${K.str(text).replace(/[()]/g, '\\$&')})`);
+    }
+    /** Jsoup's `siblingIndex()`: its place among its parent's child nodes. */
+    siblingIndex() {
+      const parent = this.parent();
+      if (!parent) return 0;
+      return Math.max(
+        0,
+        parent.childNodes().findIndex((node) => node instanceof Element && node.h === this.h),
+      );
+    }
+    /** Jsoup's `tag()`: the element's tag, by name. */
+    tag() {
+      const name = this.tagName();
+      return {
+        getName: () => name,
+        normalName: () => name.toLowerCase(),
+        name,
+        toString: () => name,
+      };
+    }
+    /** Jsoup's `insertChildren(index, nodes)`: put before the element child at `index`. */
+    insertChildren(index, nodes) {
+      const list = Array.isArray(nodes) ? nodes : [...nodes];
+      const kids = this.children();
+      const at = index < 0 ? kids.length + 1 + index : index;
+      if (at >= kids.length) for (const node of list) this.append(node);
+      else for (const node of list) kids[at].before(node);
+      return this;
+    }
+    /** Jsoup's `val()`: a form field's value. */
+    val() {
+      return this.tagName() === 'textarea' ? this.text() : this.attr('value');
+    }
+    /** Jsoup's `setBaseUri(uri)`: the address relative links are read against. */
+    setBaseUri(uri) {
+      if (this.doc) this.doc.loc = K.str(uri);
+    }
     remove() {
       dom('remove', { nodes: [this.h] });
     }
@@ -1341,6 +1479,7 @@
         from = null,
         ensureSuccess = true,
         form = null,
+        redirect = null,
       } = {},
     ) {
       await this.pace();
@@ -1365,6 +1504,7 @@
         body: payload,
         bodyBase64,
         binary: true,
+        redirect: redirect ?? undefined,
       });
       const response = new Response(raw, address);
       if (ensureSuccess && !response.isSuccessful)

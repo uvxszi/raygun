@@ -71,6 +71,8 @@
         // A body of bytes goes as base64; `binary` keeps an answer's bytes when they aren't text.
         if (init.bodyBase64 != null) options.bodyBase64 = String(init.bodyBase64);
         if (init.binary) options.binary = true;
+        // `redirect: 'manual'`: a redirect comes back as it is (its status and `Location`).
+        if (init.redirect === 'manual') options.redirect = 'manual';
         const raw = await native.fetch(String(url), JSON.stringify(options));
         if (raw.error !== undefined) {
           throw new Error(raw.error);

@@ -181,6 +181,16 @@ fn wanted(path: &str) -> bool {
             && !path["assets/i18n/".len()..].contains('/'))
 }
 
+/// Whether a file is one of the extension's resources (`assets/page_list.js`, read with
+/// `javaClass.getResource(…)`), which conversion keeps with the code: `i18n` messages aside.
+fn wanted_asset(path: &str) -> bool {
+    path.starts_with("assets/") && !path.starts_with("assets/i18n/")
+}
+
+/// The largest resource kept, and all of an extension's together.
+const MAX_ASSET_BYTES: u64 = 1024 * 1024;
+const MAX_ASSETS_BYTES: u64 = 2 * 1024 * 1024;
+
 /// A Java `.properties` file's entries: `key=value` or `key: value`, `#` and `!` comments,
 /// lines continued with `\`, and `\uXXXX` escapes.
 pub fn properties(text: &str) -> BTreeMap<String, String> {
@@ -254,9 +264,26 @@ pub fn listing(json: &[u8]) -> Result<Vec<(String, u64)>, String> {
     Ok(tree
         .tree
         .into_iter()
-        .filter(|entry| entry.kind == "blob" && wanted(&entry.path))
+        .filter(|entry| entry.kind == "blob" && (wanted(&entry.path) || wanted_asset(&entry.path)))
         .map(|entry| (entry.path, entry.size))
         .collect())
+}
+
+/// Files of a listing, by path, with their sizes.
+type Listed = Vec<(String, u64)>;
+
+/// A listing's code files, and its resources that fit (the smallest first).
+fn split_assets(files: Listed) -> (Listed, Listed) {
+    let (mut assets, code): (Vec<_>, Vec<_>) =
+        files.into_iter().partition(|(path, _)| wanted_asset(path));
+    assets.retain(|(_, size)| *size <= MAX_ASSET_BYTES);
+    assets.sort_by_key(|(_, size)| *size);
+    let mut total = 0;
+    assets.retain(|(_, size)| {
+        total += size;
+        total <= MAX_ASSETS_BYTES
+    });
+    (code, assets)
 }
 
 /// An extension's code: its folder and the files read, by path inside it; its theme's
@@ -267,6 +294,9 @@ pub struct Sources {
     pub files: BTreeMap<String, String>,
     pub theme_files: BTreeMap<String, String>,
     pub library_files: BTreeMap<String, BTreeMap<String, String>>,
+    /// Resources of the extension, its theme and its libraries (`assets/…`), as an APK merges
+    /// them: the extension's own first.
+    pub assets: BTreeMap<String, Vec<u8>>,
 }
 
 fn build_file_of(files: &BTreeMap<String, String>) -> Option<&str> {
@@ -329,6 +359,7 @@ impl Sources {
     pub fn from_dir(dir: &std::path::Path) -> std::io::Result<Self> {
         Ok(Self {
             files: read_dir(dir)?,
+            assets: read_assets(dir),
             ..Self::default()
         })
     }
@@ -336,6 +367,7 @@ impl Sources {
     /// Adds a theme's folder on disk (`lib-multisrc/<theme>` of a checkout).
     pub fn add_theme_dir(&mut self, dir: &std::path::Path) -> std::io::Result<()> {
         self.theme_files = read_dir(dir)?;
+        self.add_assets(read_assets(dir));
         Ok(())
     }
 
@@ -343,8 +375,54 @@ impl Sources {
     pub fn add_library_dir(&mut self, library: &str, dir: &std::path::Path) -> std::io::Result<()> {
         self.library_files
             .insert(library.to_owned(), read_dir(dir)?);
+        self.add_assets(read_assets(dir));
         Ok(())
     }
+
+    /// Resources a theme or a library brings, under the extension's own of the same name.
+    pub fn add_assets(&mut self, assets: BTreeMap<String, Vec<u8>>) {
+        for (path, bytes) in assets {
+            let total: usize = self.assets.values().map(Vec::len).sum();
+            if total + bytes.len() <= MAX_ASSETS_BYTES as usize {
+                self.assets.entry(path).or_insert(bytes);
+            }
+        }
+    }
+}
+
+/// A folder's resources on disk (`assets/…` but its messages), the smallest first, within the
+/// limits.
+fn read_assets(dir: &std::path::Path) -> BTreeMap<String, Vec<u8>> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.join("assets")];
+    while let Some(current) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(relative) = path.strip_prefix(dir) {
+                let relative = relative.to_string_lossy().replace('\\', "/");
+                let size = entry.metadata().map(|meta| meta.len()).unwrap_or(u64::MAX);
+                if wanted_asset(&relative) {
+                    found.push((relative, size, path));
+                }
+            }
+        }
+    }
+    let (_, kept) = split_assets(
+        found
+            .iter()
+            .map(|(relative, size, _)| (relative.clone(), *size))
+            .collect(),
+    );
+    found
+        .into_iter()
+        .filter(|(relative, _, _)| kept.iter().any(|(path, _)| path == relative))
+        .filter_map(|(relative, _, path)| Some((relative, std::fs::read(path).ok()?)))
+        .collect()
 }
 
 fn read_dir(dir: &std::path::Path) -> std::io::Result<BTreeMap<String, String>> {
@@ -409,8 +487,8 @@ where
         Some(url) => fetch(url).await.and_then(|json| listing(&json)),
         None => Err("the folder's address is invalid".to_owned()),
     };
-    let wanted_files: Vec<(String, u64)> = match listed {
-        Ok(files) => files,
+    let (wanted_files, assets): (Listed, Listed) = match listed {
+        Ok(files) => split_assets(files),
         Err(error) => {
             // Without a listing: the build file and the main file by its likely names.
             tracing::debug!(%error, folder = %folder.web_url(), "no listing; guessing the files");
@@ -469,7 +547,29 @@ where
             .files
             .insert(path, String::from_utf8_lossy(&bytes).into_owned());
     }
+    sources.add_assets(fetch_assets(folder, assets, &fetch).await);
     Ok(sources)
+}
+
+/// A folder's resources, as they're listed (one that can't be read is left out).
+async fn fetch_assets<F, Fut>(
+    folder: &SourceFolder,
+    assets: Vec<(String, u64)>,
+    fetch: &F,
+) -> BTreeMap<String, Vec<u8>>
+where
+    F: Fn(Url) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>, String>>,
+{
+    let mut read = BTreeMap::new();
+    for (path, _) in assets {
+        if let Some(url) = folder.raw_url(&path)
+            && let Ok(bytes) = fetch(url).await
+        {
+            read.insert(path, bytes);
+        }
+    }
+    read
 }
 
 /// Reads the code of the theme `theme` (`lib-multisrc/<theme>` in the extension's repository)
@@ -494,8 +594,10 @@ where
     let url = theme_folder
         .tree_url()
         .ok_or("the theme's folder address is invalid")?;
-    let files = listing(&fetch(url).await?)
-        .map_err(|error| format!("Raygun couldn't list the {theme} theme's files\n{error}"))?;
+    let (files, assets) = split_assets(
+        listing(&fetch(url).await?)
+            .map_err(|error| format!("Raygun couldn't list the {theme} theme's files\n{error}"))?,
+    );
     let total: u64 = files.iter().map(|(_, size)| size).sum();
     if files.len() > MAX_FILES
         || total > MAX_TOTAL_BYTES
@@ -514,6 +616,7 @@ where
             .theme_files
             .insert(path, String::from_utf8_lossy(&bytes).into_owned());
     }
+    sources.add_assets(fetch_assets(&theme_folder, assets, &fetch).await);
     Ok(())
 }
 
@@ -540,8 +643,10 @@ where
     let url = library_folder
         .tree_url()
         .ok_or("the library's folder address is invalid")?;
-    let files = listing(&fetch(url).await?)
-        .map_err(|error| format!("Raygun couldn't list {library}'s files\n{error}"))?;
+    let (files, assets) = split_assets(
+        listing(&fetch(url).await?)
+            .map_err(|error| format!("Raygun couldn't list {library}'s files\n{error}"))?,
+    );
     let total: u64 = files.iter().map(|(_, size)| size).sum();
     if files.len() > MAX_FILES
         || total > MAX_TOTAL_BYTES
@@ -558,6 +663,7 @@ where
         read.insert(path, String::from_utf8_lossy(&bytes).into_owned());
     }
     sources.library_files.insert(library.to_owned(), read);
+    sources.add_assets(fetch_assets(&library_folder, assets, &fetch).await);
     Ok(())
 }
 

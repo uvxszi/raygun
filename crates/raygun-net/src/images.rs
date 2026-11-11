@@ -104,7 +104,9 @@ async fn fetch_through_source(
     Ok(Image { bytes, extension })
 }
 
-/// Fetches `url` with `headers`, accepting only a successful `image/*` answer of at most 30 MB.
+/// Fetches `url` with `headers`, accepting only a successful answer of at most 30 MB that is a
+/// picture: declared `image/*`, or starting as one does (some sites send pictures as
+/// `text/plain`, `application/octet-stream` or without a type), so error pages are refused.
 pub async fn fetch_image(
     client: &reqwest::Client,
     url: &str,
@@ -139,9 +141,6 @@ pub async fn fetch_image(
     let recipe = Unscramble::from_url(url);
     // A file that's a picture only once its bytes are put back (XORed) comes as anything.
     let bytes_recipe = matches!(recipe, Some(Unscramble::Xor(_)));
-    if !content_type.starts_with("image/") && !bytes_recipe {
-        return Err(ImageError::NotImage);
-    }
     if response
         .content_length()
         .is_some_and(|length| length > MAX_IMAGE_BYTES as u64)
@@ -154,6 +153,11 @@ pub async fn fetch_image(
         .map_err(|error| ImageError::Network(error.to_string()))?;
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(ImageError::TooLarge);
+    }
+    // An answer not declared as a picture is one only if its bytes say so (an HTML or JSON
+    // error page never does).
+    if !content_type.starts_with("image/") && !bytes_recipe && !is_picture(&bytes) {
+        return Err(ImageError::NotImage);
     }
     // A page whose file is XORed: the picture it hides, as itself.
     if let Some(plain) = recipe
@@ -325,6 +329,11 @@ impl Unscramble {
             .map_err(|error| error.to_string())?;
         Ok(jpeg)
     }
+}
+
+/// Whether `bytes` start as a JPEG, PNG, GIF, WebP, AVIF or JPEG XL picture does.
+fn is_picture(bytes: &[u8]) -> bool {
+    sniff_content_type(bytes).starts_with("image/") || is_jxl(bytes)
 }
 
 /// Whether `bytes` are a JPEG XL picture: a bare codestream or the ISO BMFF container.
@@ -653,6 +662,7 @@ mod tests {
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
     const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2];
+    const GIF: &[u8] = b"GIF89a\x01\x00\x01\x00";
 
     static COUNTED: AtomicUsize = AtomicUsize::new(0);
     static FLAKY: AtomicUsize = AtomicUsize::new(0);
@@ -671,6 +681,26 @@ mod tests {
         }
         async fn html() -> Response {
             ([(header::CONTENT_TYPE, "text/html")], "<p>blocked</p>").into_response()
+        }
+        // Pictures some sites send under other types, and error pages that aren't pictures.
+        async fn as_text() -> Response {
+            ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], JPEG).into_response()
+        }
+        async fn as_bytes() -> Response {
+            ([(header::CONTENT_TYPE, "application/octet-stream")], PNG).into_response()
+        }
+        async fn untyped() -> Response {
+            Response::new(axum::body::Body::from(GIF))
+        }
+        async fn json() -> Response {
+            (
+                [(header::CONTENT_TYPE, "application/json")],
+                r#"{"error":"gone"}"#,
+            )
+                .into_response()
+        }
+        async fn text() -> Response {
+            ([(header::CONTENT_TYPE, "text/plain")], "Not found").into_response()
         }
         async fn counted() -> Response {
             COUNTED.fetch_add(1, Ordering::SeqCst);
@@ -711,6 +741,11 @@ mod tests {
             .route("/1.png", get(png))
             .route("/2", get(jpeg))
             .route("/html", get(html))
+            .route("/as-text", get(as_text))
+            .route("/as-bytes", get(as_bytes))
+            .route("/untyped", get(untyped))
+            .route("/json", get(json))
+            .route("/text", get(text))
             .route("/counted.png", get(counted))
             .route("/flaky", get(flaky))
             .route("/busy", get(always_busy))
@@ -723,6 +758,30 @@ mod tests {
         RemoteImage {
             url: format!("http://{origin}{path}"),
             headers: [("Referer".to_owned(), "https://site/".to_owned())].into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn answers_not_declared_as_pictures_are_judged_by_their_bytes() {
+        let origin = origin().await;
+        let client = crate::http_client().unwrap();
+        let fetch = |path: &str| {
+            let url = format!("http://{origin}{path}");
+            let client = client.clone();
+            async move { fetch_image(&client, &url, &BTreeMap::new()).await }
+        };
+        let picture = fetch("/as-text").await.unwrap();
+        assert_eq!((picture.bytes.as_slice(), picture.extension), (JPEG, "jpg"));
+        let picture = fetch("/as-bytes").await.unwrap();
+        assert_eq!((picture.bytes.as_slice(), picture.extension), (PNG, "png"));
+        let picture = fetch("/untyped").await.unwrap();
+        assert_eq!((picture.bytes.as_slice(), picture.extension), (GIF, "gif"));
+        for page in ["/html", "/json", "/text"] {
+            assert_eq!(
+                fetch(page).await.err(),
+                Some(ImageError::NotImage),
+                "{page} isn't a picture"
+            );
         }
     }
 

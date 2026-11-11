@@ -113,6 +113,9 @@ struct Shared {
     manifest: Manifest,
     policy: Arc<NetPolicy>,
     client: reqwest::Client,
+    /// The same client but following no redirect, for requests that ask (`redirect: 'manual'`,
+    /// OkHttp's `followRedirects(false)`): made the first time one does.
+    manual_client: std::cell::OnceCell<reqwest::Client>,
     /// The jar the client keeps cookies in, which also knows the User-Agent each site's passed
     /// browser check holds for.
     cookies: Arc<CookieJar>,
@@ -288,14 +291,15 @@ impl JsExtension {
         };
         let memory_limit = limits.memory_for(&manifest);
         let policy = Arc::new(manifest.net.clone());
-        let client =
-            extension_client(policy.clone(), cookies.clone()).map_err(|error| error.to_string())?;
+        let client = extension_client(policy.clone(), cookies.clone(), true)
+            .map_err(|error| error.to_string())?;
         let deadline = Rc::new(Cell::new(Instant::now() + limits.cpu_budget));
         let registered = Rc::new(RefCell::new(Vec::new()));
         let shared = Rc::new(Shared {
             manifest,
             policy,
             client,
+            manual_client: std::cell::OnceCell::new(),
             cookies: cookies.clone(),
             storage: RefCell::new(storage),
             settings,
@@ -615,25 +619,31 @@ pub(crate) fn eval_script(
 }
 
 /// An HTTP client whose redirects obey the extension's permissions, like its own requests, and
-/// that keeps the extension's cookies (M46.11).
+/// that keeps the extension's cookies (M46.11). Without `follow`, a redirect is answered as it
+/// came (its status and `Location`), for the script to read.
 fn extension_client(
     policy: Arc<NetPolicy>,
     cookies: Arc<CookieJar>,
+    follow: bool,
 ) -> reqwest::Result<reqwest::Client> {
     let any_public = policy.patterns().contains(&HostPattern::AnyPublic);
     let resolver = PublicResolver {
         policy: policy.clone(),
     };
-    let redirects = reqwest::redirect::Policy::custom(move |attempt| {
-        if attempt.previous().len() >= MAX_REDIRECTS {
-            attempt.error("too many redirects")
-        } else if policy.allows(attempt.url()) {
-            attempt.follow()
-        } else {
-            let denied = denied_message(attempt.url());
-            attempt.error(denied)
-        }
-    });
+    let redirects = if follow {
+        reqwest::redirect::Policy::custom(move |attempt| {
+            if attempt.previous().len() >= MAX_REDIRECTS {
+                attempt.error("too many redirects")
+            } else if policy.allows(attempt.url()) {
+                attempt.follow()
+            } else {
+                let denied = denied_message(attempt.url());
+                attempt.error(denied)
+            }
+        })
+    } else {
+        reqwest::redirect::Policy::none()
+    };
     let mut builder = raygun_net::client_builder()
         .redirect(redirects)
         .cookie_provider(cookies)
@@ -990,6 +1000,9 @@ struct FetchOptions {
     /// The answer's bytes are wanted when they aren't text (`bytes` beside `body`).
     #[serde(default)]
     binary: bool,
+    /// `manual`: a redirect is answered as it came instead of followed.
+    #[serde(default)]
+    redirect: Option<String>,
 }
 
 struct FetchResponse {
@@ -1180,7 +1193,15 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
         .or_else(|| shared.cookies.user_agent_for(&url))
         .unwrap_or_else(raygun_net::user_agent);
     let address = url.to_string();
-    let mut request = shared.client.request(method.clone(), url);
+    let client = if options.redirect.as_deref() == Some("manual") {
+        shared.manual_client.get_or_init(|| {
+            extension_client(shared.policy.clone(), shared.cookies.clone(), false)
+                .unwrap_or_else(|_| shared.client.clone())
+        })
+    } else {
+        &shared.client
+    };
+    let mut request = client.request(method.clone(), url);
     for (name, value) in &options.headers {
         request = request.header(name, value);
     }

@@ -474,7 +474,15 @@ async fn sample_one(
     let provider = format!("{id}/{}", extension.sources[0].id);
     let theme = converted.theme.as_deref().unwrap_or("-").to_owned();
     let wait = std::time::Duration::from_secs(40);
-    let first_line = |error: String| error.lines().next().unwrap_or_default().to_owned();
+    // `MIHON_SAMPLE_FULL=1` prints failures whole (with the script's stack), not their first line.
+    let full = std::env::var_os("MIHON_SAMPLE_FULL").is_some();
+    let first_line = |error: String| {
+        if full {
+            error.replace('\n', " | ")
+        } else {
+            error.lines().next().unwrap_or_default().to_owned()
+        }
+    };
     let mut stages = [false; 4];
     let listing = match tokio::time::timeout(
         wait,
@@ -500,6 +508,9 @@ async fn sample_one(
         listing.items.len(),
         title.title
     );
+    if full {
+        line.push_str(&format!(" [{}]", title.id));
+    }
     match tokio::time::timeout(wait, host.manga_details(&provider, &title.id)).await {
         Ok(Ok(_)) => stages[1] = true,
         Ok(Err(error)) => line.push_str(&format!("; details: {}", first_line(error))),
@@ -539,6 +550,9 @@ async fn sample_one(
                 // The first page's picture, as the reader gets it: through the source when it
                 // draws its pictures, else fetched (and put back together) by Raygun.
                 let page = &pages[0];
+                if full {
+                    line.push_str(&format!(" [{} {:?}]", page.url, page.headers));
+                }
                 let picture = match raygun_net::images::source_marked(&page.url) {
                     Some((address, by)) => {
                         tokio::time::timeout(wait, host.manga_image(by, address, &page.headers))
@@ -583,6 +597,13 @@ async fn sample_one(
 #[tokio::test]
 #[ignore = "network"]
 async fn mihon_popular_live() {
+    // With `MIHON_SAMPLE_FULL`, failed calls' scripts' stacks are logged too.
+    if std::env::var_os("MIHON_SAMPLE_FULL").is_some() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("raygun_ext_host::js=debug")
+            .with_writer(std::io::stderr)
+            .try_init();
+    }
     let client = raygun_net::http_client().unwrap();
     let (from, store) = keiyoushi(&client).await;
     let sources = all_sources(&client, &store, &from).await;

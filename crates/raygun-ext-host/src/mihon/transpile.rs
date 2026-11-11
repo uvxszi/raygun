@@ -17,7 +17,7 @@ use super::kotlin::ast::{
 use super::kotlin::emit::{Context, Gen};
 
 /// What `KeiSource` (and `HttpSource` under it) gives a source, read through `self`.
-const BASE_PROPERTIES: [&str; 11] = [
+const BASE_PROPERTIES: [&str; 12] = [
     "baseUrl",
     "lang",
     "name",
@@ -29,25 +29,27 @@ const BASE_PROPERTIES: [&str; 11] = [
     "network",
     "versionId",
     "preferences",
+    "imageFetch",
 ];
-const BASE_FUNCTIONS: [(&str, &[&str]); 6] = [
+const BASE_FUNCTIONS: [(&str, &[&str]); 9] = [
+    ("getMangaByUrl", &["url"]),
+    ("getMangasByUrl", &["url", "page"]),
     ("headersBuilder", &[]),
     ("getMangaUrl", &["manga"]),
     ("getChapterUrl", &["chapter"]),
     ("getImageRequest", &["page"]),
     ("imageRequest", &["page"]),
     ("getFilterList", &[]),
+    ("getSearchManga", &["page", "query", "filters"]),
 ];
 
 /// Overrides that change nothing Raygun asks of a source: filters read from the site first,
 /// related titles, settings screens, deep links. (`getFilterList` is converted when it can be:
 /// Raygun shows its filters; else searches have none.)
-const SKIPPED: [&str; 9] = [
+const SKIPPED: [&str; 7] = [
     "fetchFilterData",
     "setupPreferenceScreen",
     "fetchRelatedMangaList",
-    "getMangaByUrl",
-    "getMangasByUrl",
     "supportsRelatedMangas",
     "supportRelatedMangasBySearch",
     "supportsFilterFetching",
@@ -345,6 +347,20 @@ fn property_value(prop: &PropDecl) -> Option<Body> {
                 lambda: Some(lambda),
             }))
         }
+        // `by lazy(::make)`: the function's value.
+        Some(Expr::Call {
+            callee,
+            lambda: None,
+            args,
+            ..
+        }) if args.len() == 1 && matches!(callee.as_ref(), Expr::Name(name) if name == "lazy") => {
+            Some(Body::Expr(Expr::Call {
+                callee: Box::new(args[0].value.clone()),
+                type_args: Vec::new(),
+                args: Vec::new(),
+                lambda: None,
+            }))
+        }
         // `by getPreferencesLazy()`: a `Lazy`'s value.
         Some(other @ Expr::Call { callee, .. }) if matches!(callee.as_ref(), Expr::Name(name) if name.ends_with("Lazy")) => {
             Some(Body::Expr(Expr::Member {
@@ -373,6 +389,17 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
     }
     let add_members = |cx: &mut Context, members: &[Member], top: bool| {
         for member in members {
+            // Functions with reified type parameters take the types their calls pass.
+            if let Member::Fun(fun) = member {
+                let count = fun
+                    .modifiers
+                    .iter()
+                    .filter(|modifier| modifier.starts_with("reified:"))
+                    .count();
+                if count > 0 {
+                    cx.reified.insert(fun.name.clone(), count);
+                }
+            }
             match member {
                 Member::Fun(fun) if fun.receiver.is_some() => {
                     cx.extensions.insert(fun.name.clone());
@@ -409,7 +436,13 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
         }
     }
     for class in chain {
+        cx.source_classes.insert(class.name.clone());
         add_members(&mut cx, &class.members, false);
+        // A theme's constructor parameters (`MangaThemesiaAlt(randomUrlPrefKey = …)`) are its
+        // properties.
+        for param in &class.params {
+            cx.properties.insert(param.name.clone());
+        }
     }
     for member in chain.iter().flat_map(|class| &class.members) {
         if let Member::Class(inner) = member
@@ -442,6 +475,16 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                 if skip.iter().any(|class| std::ptr::eq(inner, *class)) {
                     classes(&inner.members, skip, cx);
                     continue;
+                }
+                if inner.kind == ClassKind::Enum {
+                    cx.enum_entries.insert(
+                        inner.name.clone(),
+                        inner
+                            .entries
+                            .iter()
+                            .map(|entry| entry.name.clone())
+                            .collect(),
+                    );
                 }
                 if !inner.modifiers.iter().any(|m| m == "companion") {
                     cx.classes.insert(inner.name.clone());
@@ -482,6 +525,22 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
     for (_, file) in files {
         classes(&file.members, chain, &mut cx);
     }
+    // Fields that are lists wherever a class declares them.
+    let mut others = HashSet::new();
+    for class in all_classes(files) {
+        for param in &class.params {
+            let short = param.ty.name.rsplit('.').next().unwrap_or_default();
+            if matches!(
+                short,
+                "List" | "MutableList" | "ArrayList" | "Set" | "MutableSet" | "Collection"
+            ) {
+                cx.list_fields.insert(param.name.clone());
+            } else {
+                others.insert(param.name.clone());
+            }
+        }
+    }
+    cx.list_fields.retain(|name| !others.contains(name));
     cx
 }
 
@@ -510,6 +569,23 @@ fn members(
     let mut overloads: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for member in members {
         match member {
+            // The source's `init { … }`: run once, before Raygun's first call, base-most first.
+            Member::Init(block) if !companion && target == "self" => {
+                let init = super::kotlin::ast::FunDecl {
+                    name: "init".to_owned(),
+                    modifiers: Vec::new(),
+                    annotations: Vec::new(),
+                    receiver: None,
+                    params: Vec::new(),
+                    ret: None,
+                    body: Some(Body::Block(block.clone())),
+                    line: 0,
+                };
+                let code = writer
+                    .function(&init)
+                    .map_err(|reason| format!("init: {reason}"))?;
+                out.push(format!("self.init({code});"));
+            }
             Member::Init(_) => return Err("it runs code of its own when it starts".into()),
             Member::TypeAlias(..) => {}
             Member::Class(inner) if inner.modifiers.iter().any(|m| m == "companion") => {
@@ -877,7 +953,7 @@ fn class_definition(
         .collect();
     // Each field's type, for JSON decoded into the class (`List<ChapterDto>`), nested classes by
     // the names that tell them apart.
-    let types: Vec<String> = class
+    let mut types: Vec<String> = class
         .params
         .iter()
         .map(|param| {
@@ -888,6 +964,22 @@ fn class_definition(
             )
         })
         .collect();
+    // Its body's fields with a declared type (`val relationships: List<EntityDto> = …`), which
+    // JSON decodes into too.
+    for member in &class.members {
+        if let Member::Prop(prop) = member
+            && let Some(ty) = &prop.ty
+            && prop.value.is_some()
+            && prop.getter.is_none()
+            && prop.receiver.is_none()
+        {
+            types.push(format!(
+                "{}: {}",
+                quote(&prop.name),
+                quote(&qualified_type(&writer.unaliased(ty), &scope))
+            ));
+        }
+    }
     let supers: Vec<String> = class
         .supers
         .iter()
@@ -920,12 +1012,31 @@ fn class_definition(
         .iter()
         .map(|entry| quote(&entry.name))
         .collect();
+    // An enum's entries' constructor arguments (`SLUG("", "/comic/")`), when they're plain
+    // values: the entries' fields.
+    let entry_args: Vec<String> = class
+        .entries
+        .iter()
+        .filter_map(|entry| {
+            let args: Option<Vec<String>> = entry
+                .args
+                .iter()
+                .map(|arg| {
+                    let js = writer.expr(&arg.value).ok()?;
+                    (arg.name.is_none() && !arg.spread && !js.contains("await")).then_some(js)
+                })
+                .collect();
+            let args = args.filter(|args| !args.is_empty())?;
+            Some(format!("{}: [{}]", quote(&entry.name), args.join(", ")))
+        })
+        .collect();
     let mut methods = Vec::new();
     // Its functions by name: each overload as `[required, total, [types], code]`, and its code.
     let mut overloaded: Vec<(String, Vec<(String, String)>)> = Vec::new();
     // Extensions the class declares for its own code (`private fun Float.formatNumber()`): the
     // source's, as they read nothing of the instance but their receiver.
     let mut extensions = Vec::new();
+    let mut inits = 0;
     for member in &class.members {
         match member {
             Member::Fun(fun) if fun.body.is_some() && fun.receiver.is_some() => {
@@ -951,9 +1062,19 @@ fn class_definition(
                     name: class.name.clone(),
                     ..Default::default()
                 });
-                let code = writer
-                    .function(&method)
-                    .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?;
+                let code = match writer.function(&method) {
+                    Ok(code) => code,
+                    // A settings screen's helper (`setupEditTextUuidValidator`): Raygun shows no
+                    // settings screens, so one it can't convert fails only if it's called.
+                    Err(reason) if settings_helper(&fun.name) => format!(
+                        "async () => KT.raise({})",
+                        quote(&format!(
+                            "Raygun couldn't convert {}.{}: {reason}",
+                            class.name, fun.name
+                        ))
+                    ),
+                    Err(reason) => return Err(format!("{}.{}: {reason}", class.name, fun.name)),
+                };
                 let shape = shape(fun, &class.type_params);
                 let overload = format!("[{}, {code}]", &shape[1..shape.len() - 1]);
                 match overloaded.iter_mut().find(|(name, _)| *name == fun.name) {
@@ -976,9 +1097,14 @@ fn class_definition(
                         body: Some(body),
                         line: prop.line,
                     };
-                    // A `var` with a value is a field, set when the instance is made; other
-                    // properties are worked out when read.
-                    let wrapper = if prop.mutable && prop.value.is_some() && prop.getter.is_none() {
+                    // A `var` with a value is a field, set when the instance is made (a
+                    // serializable class's `val` too: JSON decodes into it); other properties are
+                    // worked out when read.
+                    let serializable = class.annotations.iter().any(|name| name == "Serializable");
+                    let wrapper = if (prop.mutable || serializable)
+                        && prop.value.is_some()
+                        && prop.getter.is_none()
+                    {
                         "KT.field"
                     } else {
                         "KT.getter"
@@ -990,7 +1116,31 @@ fn class_definition(
                             .function(&getter)
                             .map_err(|reason| format!("{}.{}: {reason}", class.name, prop.name))?
                     ));
+                } else if prop.mutable && !prop.modifiers.iter().any(|m| m == "abstract") {
+                    // `lateinit var`: a field set later (by an `init` block, or a function).
+                    methods.push(format!("{}: KT.field(async () => null)", quote(&prop.name)));
                 }
+            }
+            // `init { … }`: run when an instance is made, in order with the fields it may set.
+            Member::Init(block) if class.kind != ClassKind::Object => {
+                let init = super::kotlin::ast::FunDecl {
+                    name: "init".to_owned(),
+                    modifiers: Vec::new(),
+                    annotations: Vec::new(),
+                    receiver: Some(super::kotlin::ast::Type {
+                        name: class.name.clone(),
+                        ..Default::default()
+                    }),
+                    params: Vec::new(),
+                    ret: None,
+                    body: Some(Body::Block(block.clone())),
+                    line: class.line,
+                };
+                let code = writer
+                    .function(&init)
+                    .map_err(|reason| format!("{}.init: {reason}", class.name))?;
+                methods.push(format!("\"$init{inits}\": KT.init({code})"));
+                inits += 1;
             }
             Member::Init(_) => return Err(format!("{} runs code when it's made", class.name)),
             _ => {}
@@ -1029,7 +1179,7 @@ fn class_definition(
         statics.push(format!("{}: {function}", quote(&fun.name)));
     }
     Ok(format!(
-        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}}, statics: {{{statics}}} }});",
+        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], entryArgs: {{{entry_args}}}, members: {{{methods}}}, statics: {{{statics}}} }});",
         extensions = extensions
             .iter()
             .map(|code| format!("{code} "))
@@ -1059,8 +1209,19 @@ fn class_definition(
         defaults = defaults.join(", "),
         supers = supers.join(", "),
         entries = entries.join(", "),
+        entry_args = entry_args.join(", "),
         methods = methods.join(", "),
     ))
+}
+
+/// Whether a function's name says it builds a settings screen (`setupPreferenceScreen`,
+/// `setupEditTextUuidValidator`, `showLoginDialog`).
+fn settings_helper(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.starts_with("setup")
+        || ["preference", "edittext", "dialog", "validator", "screen"]
+            .iter()
+            .any(|mark| lower.contains(mark))
 }
 
 /// The class named `name` among the files' top-level declarations.
@@ -1082,6 +1243,7 @@ pub fn convert(
     files: &[(String, File)],
     theme: Option<(&str, &[(String, File)])>,
     messages: &BTreeMap<String, BTreeMap<String, String>>,
+    assets: &BTreeMap<String, Vec<u8>>,
 ) -> Result<Converted, String> {
     let (theme_name, theme_files) = theme.unwrap_or(("", &[]));
     let all_files: Vec<(String, File)> = files.iter().chain(theme_files).cloned().collect();
@@ -1096,6 +1258,13 @@ pub fn convert(
             .iter()
             .find_map(|parent| parent.ty.name.rsplit('.').next())
             .unwrap_or_default();
+        // `import ….ScanReader as ScanReaderTheme`: the class the alias names.
+        let parent = all_files
+            .iter()
+            .flat_map(|(_, file)| &file.imports)
+            .find(|(alias, full)| alias == parent && !full.ends_with(&format!(".{alias}")))
+            .and_then(|(_, full)| full.rsplit('.').next())
+            .unwrap_or(parent);
         if parent == "KeiSource" {
             break;
         }
@@ -1203,6 +1372,9 @@ pub fn convert(
             })
             .map(|(_, file)| file.imports.clone())
             .unwrap_or_default();
+        // Its constructor's parameters, as the class above passes them (else their defaults).
+        let child = chain.len().checked_sub(index + 2).map(|at| chain[at]);
+        constructor_properties(&mut writer, layer, child, &mut out)?;
         members(
             &mut writer,
             &layer.members,
@@ -1221,17 +1393,82 @@ pub fn convert(
     let aliases = json_aliases(&all_files);
     let layers = layers.join("\n");
     let from_source = images_from_source(&layers);
+    // Its resources (`javaClass.getResource("/assets/…")`), when its code reads them.
+    let resources: BTreeMap<&String, String> =
+        if layers.contains("KT.javaClass") || layers.contains("KT.global(\"javaClass\")") {
+            use base64::Engine as _;
+            assets
+                .iter()
+                .map(|(path, bytes)| {
+                    (
+                        path,
+                        base64::engine::general_purpose::STANDARD.encode(bytes),
+                    )
+                })
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
     let code = format!(
-        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  aliases: {aliases},\n  messages: {messages},\n  imageRecipe: {recipe},\n  imagesFromSource: {from_source},\n  layers: [\n{layers}\n  ],\n}});\n",
+        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  aliases: {aliases},\n  messages: {messages},\n  assets: {resources},\n  imageRecipe: {recipe},\n  imagesFromSource: {from_source},\n  layers: [\n{layers}\n  ],\n}});\n",
         name = extension.name.replace(['\n', '\r'], " "),
         pkg = extension.pkg,
         sources = sources_json(extension),
         renames = serde_json::to_string(&renames).unwrap_or_else(|_| "{}".into()),
         aliases = serde_json::to_string(&aliases).unwrap_or_else(|_| "{}".into()),
         messages = serde_json::to_string(messages).unwrap_or_else(|_| "{}".into()),
+        resources = serde_json::to_string(&resources).unwrap_or_else(|_| "{}".into()),
         recipe = image_recipe.map_or_else(|| "null".to_owned(), quote),
     );
     Ok(Converted { theme: None, code })
+}
+
+/// A source class's constructor parameters (`abstract class MangaThemesiaAlt(private val
+/// randomUrlPrefKey: String = "…")`) as properties: what the class extending it passes
+/// (`: MangaThemesiaAlt("key")`, by place or by name), else the default.
+fn constructor_properties(
+    writer: &mut Gen<'_>,
+    class: &ClassDecl,
+    child: Option<&ClassDecl>,
+    out: &mut Vec<String>,
+) -> Result<(), String> {
+    let passed = child
+        .and_then(|child| {
+            child
+                .supers
+                .iter()
+                .find(|parent| parent.ty.name.rsplit('.').next().unwrap_or_default() == class.name)
+        })
+        .and_then(|parent| parent.args.clone())
+        .unwrap_or_default();
+    for (place, param) in class.params.iter().enumerate() {
+        let given = passed
+            .iter()
+            .find(|arg| arg.name.as_deref() == Some(param.name.as_str()))
+            .or_else(|| passed.get(place).filter(|arg| arg.name.is_none()))
+            .map(|arg| arg.value.clone());
+        let Some(value) = given.or_else(|| param.default.clone()) else {
+            continue;
+        };
+        let getter = super::kotlin::ast::FunDecl {
+            name: param.name.clone(),
+            modifiers: Vec::new(),
+            annotations: Vec::new(),
+            receiver: None,
+            params: Vec::new(),
+            ret: None,
+            body: Some(Body::Expr(value)),
+            line: class.line,
+        };
+        let function = writer
+            .function(&getter)
+            .map_err(|reason| format!("{}: {reason}", param.name))?;
+        out.push(format!(
+            "self.prop({}, {function}, true);",
+            quote(&param.name)
+        ));
+    }
+    Ok(())
 }
 
 /// Calls in converted code that mean its client draws, decodes or rewrites pictures: Android's
