@@ -1854,6 +1854,721 @@ class Entry(val n: Int)
     );
 }
 
+/// Whole numbers wrap as Kotlin's do: an `Int`'s arithmetic at 32 bits (Java's string hash,
+/// MangoTheme's slug hash, `*=`), a `Long`'s product exactly (FNV-1a over 32 bits).
+#[tokio::test]
+async fn converted_code_wraps_whole_numbers_as_kotlin_does() {
+    let source = STANDALONE_SOURCE
+        .replace("import java.util.Locale", "import java.util.Locale\nimport kotlin.math.abs")
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun javaHash(text: String): Int {
+        var hash = 0
+        for (char in text) hash = 31 * hash + char.code
+        return hash
+    }
+
+    private fun slugHash(text: String): Int {
+        var hash = 0
+        text.forEach { char ->
+            hash = (hash shl 5) - hash + char.code
+        }
+        return hash
+    }
+
+    private fun fnv1a(bytes: ByteArray): Long {
+        var hash = 2166136261L
+        for (b in bytes) {
+            hash = hash xor (b.toLong() and 0xFF)
+            hash = (hash * 16777619L) and 0xFFFFFFFFL
+        }
+        return if (hash == 0L) GOLDEN else hash
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        var product = 1
+        for (i in 1..20) product *= i
+        val names = listOf(
+            javaHash("hello world").toString(),
+            javaHash("Raygun converts Mihon").toString(),
+            slugHash("manga-12-345-salt").toString(),
+            abs(slugHash("manga-12-345-salt").toLong()).toString(36),
+            fnv1a("Raygun".toByteArray()).toString(),
+            product.toString(),
+            (page * 20).toString(),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }
+
+    companion object {
+        private const val GOLDEN = 0x9E3779B9L
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            3,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "1794106052",
+            "1250809461",
+            "451046946",
+            "7gji1u",
+            "1699712747",
+            "-2102132736",
+            "60"
+        ]
+    );
+}
+
+/// Java's date formats with optional sections, defaults and month names of their own, ISO
+/// formats, locales, `Integer`'s unsigned and bit helpers, `System.arraycopy`, Java's `Base64`,
+/// far instants, API levels and XML read with Jsoup's `Parser.xmlParser()`.
+#[tokio::test]
+async fn converted_code_reads_formats_xml_and_java_helpers() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport java.time.format.DateTimeFormatterBuilder\nimport java.time.temporal.ChronoField\nimport java.time.format.SignStyle\nimport org.jsoup.parser.Parser\nimport android.os.Build",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private val optional = DateTimeFormatter.ofPattern("[MMMM][MMM] d, yyyy", Locale.ENGLISH)
+    private val shortYear = DateTimeFormatter.ofPattern("[dd ]MMM [yyyy][yy]", Locale.ENGLISH)
+    private val french = SimpleDateFormat("d MMMM yyyy", Locale.FRENCH)
+    private val thisYear = DateTimeFormatterBuilder()
+        .appendPattern("dd MMM")
+        .parseDefaulting(ChronoField.YEAR, 2021)
+        .toFormatter(Locale.ENGLISH)
+    private val built = DateTimeFormatterBuilder()
+        .parseCaseInsensitive()
+        .optionalStart()
+        .appendValue(ChronoField.DAY_OF_MONTH, 1, 2, SignStyle.NOT_NEGATIVE)
+        .appendLiteral(' ')
+        .appendText(ChronoField.MONTH_OF_YEAR, mapOf(1L to "uno", 2L to "dos", 3L to "tres"))
+        .appendLiteral(' ')
+        .appendValue(ChronoField.YEAR, 4)
+        .optionalEnd()
+        .toFormatter(Locale.ENGLISH)
+    private val fraction = DateTimeFormatterBuilder()
+        .appendPattern("yyyy-MM-dd'T'HH:mm:ss")
+        .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+        .toFormatter()
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val copied = byteArrayOf(1, 2, 3, 4, 5)
+        System.arraycopy(copied, 0, copied, 1, 3)
+        val feed = Jsoup.parse(
+            "<rss><channel><item><title>One</title><link>https://a.example/1</link></item><item><title>Two</title><link>https://a.example/2</link></item></channel></rss>",
+            "",
+            Parser.xmlParser(),
+        )
+        val names = listOf(
+            LocalDate.parse("February 3, 2024", optional).toEpochDay().toString(),
+            LocalDate.parse("Feb 3, 2024", optional).toEpochDay().toString(),
+            LocalDate.parse("05 Mar 24", shortYear).toEpochDay().toString(),
+            (french.parse("2 février 2023")!!.time / 86400000L).toString(),
+            LocalDate.parse("04 Jan", thisYear).year.toString(),
+            LocalDate.parse("7 dos 2020", built).toEpochDay().toString(),
+            LocalDateTime.parse("2024-01-02T03:04:05.678", fraction).toString().take(10),
+            ZonedDateTime.parse("2024-01-02T03:04:05.678+02:00", DateTimeFormatter.ISO_DATE_TIME).toInstant().toEpochMilli().toString(),
+            Integer.rotateLeft(0x40000001, 2).toString(),
+            Integer.compareUnsigned(-1, 1).toString(),
+            Integer.remainderUnsigned(-1, 7).toString(),
+            Integer.numberOfLeadingZeros(255).toString(),
+            copied.joinToString(""),
+            String(java.util.Base64.getDecoder().decode("UmF5Z3Vu")),
+            (Instant.DISTANT_PAST < Clock.System.now()).toString(),
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S).toString(),
+            feed.select("item").joinToString(" ") { it.selectFirst("link")!!.text() },
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "19756",
+            "19756",
+            "19787",
+            "19390",
+            "2021",
+            "18299",
+            "2024-01-02",
+            "1704157445678",
+            "5",
+            "1",
+            "3",
+            "24",
+            "11235",
+            "Raygun",
+            "true",
+            "true",
+            "https://a.example/1 https://a.example/2",
+        ]
+    );
+}
+
+/// A ZIP archive of stored entries (`name`, `data`), as tools write them.
+fn stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    for (name, data) in entries {
+        let offset = out.len() as u32;
+        let crc = {
+            let mut crc = 0xffff_ffffu32;
+            for byte in *data {
+                crc ^= u32::from(*byte);
+                for _ in 0..8 {
+                    crc = if crc & 1 == 1 {
+                        0xedb8_8320 ^ (crc >> 1)
+                    } else {
+                        crc >> 1
+                    };
+                }
+            }
+            !crc
+        };
+        let size = data.len() as u32;
+        let header = |signature: u32, central_record: bool| {
+            let mut record = signature.to_le_bytes().to_vec();
+            if central_record {
+                record.extend(20u16.to_le_bytes());
+            }
+            record.extend(20u16.to_le_bytes());
+            record.extend([0u8; 4]); // flags, method (stored)
+            record.extend([0u8; 4]); // time, date
+            record.extend(crc.to_le_bytes());
+            record.extend(size.to_le_bytes());
+            record.extend(size.to_le_bytes());
+            record.extend((name.len() as u16).to_le_bytes());
+            record.extend(0u16.to_le_bytes());
+            if central_record {
+                record.extend([0u8; 6]); // comment, disk, internal attributes
+                record.extend(0u32.to_le_bytes());
+                record.extend(offset.to_le_bytes());
+            }
+            record.extend(name.as_bytes());
+            record
+        };
+        out.extend(header(0x0403_4b50, false));
+        out.extend(*data);
+        central.extend(header(0x0201_4b50, true));
+    }
+    let central_offset = out.len() as u32;
+    out.extend(&central);
+    out.extend(0x0605_4b50u32.to_le_bytes());
+    out.extend([0u8; 4]);
+    out.extend((entries.len() as u16).to_le_bytes());
+    out.extend((entries.len() as u16).to_le_bytes());
+    out.extend((central.len() as u32).to_le_bytes());
+    out.extend(central_offset.to_le_bytes());
+    out.extend(0u16.to_le_bytes());
+    out
+}
+
+/// Java's `ZipInputStream`, `keiyoushi.zip`'s `readEntry` (the runtime's) and Keiyoushi's
+/// `graphQLGet`.
+#[tokio::test]
+async fn converted_code_reads_zips_and_graphql_over_get() {
+    let archive = stored_zip(&[("1.txt", b"one"), ("2.txt", b"two")]);
+    let app = Router::new()
+        .route(
+            "/archive.zip",
+            get(move || {
+                let archive = archive.clone();
+                async move { archive }
+            }),
+        )
+        .route(
+            "/graphql",
+            get(|uri: Uri| async move { uri.query().unwrap_or_default().to_owned() }),
+        );
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport java.util.zip.ZipInputStream\nimport okio.buffer\nimport okio.source",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val bytes = client.get("$baseUrl/archive.zip", Fetch.XHR).body.bytes()
+        val names = mutableListOf<String>()
+        ZipInputStream(bytes.inputStream()).use { zis ->
+            generateSequence { zis.nextEntry }.forEach { entry -> names += entry.name + "=" + String(zis.readBytes()) }
+        }
+        names += String(readEntry(bytes.inputStream().source().buffer(), 3L, 0).buffer().readByteArray())
+        names += client.graphQLGet("$baseUrl/graphql", query = "{ a }", operationName = "A", fetch = Fetch.XHR).body.string()
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "1.txt=one",
+            "2.txt=two",
+            "one",
+            "operationName=A&query=%7B%20a%20%7D"
+        ]
+    );
+}
+
+/// Java's key pairs: P-256 generated, agreed (ECDH), rebuilt from its point and signed with, and
+/// RSA's OAEP and PKCS #1 ciphers over a generated pair and a key read back from its encoding.
+#[tokio::test]
+async fn converted_code_makes_and_uses_key_pairs() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport java.math.BigInteger\nimport java.security.AlgorithmParameters\nimport java.security.KeyFactory\nimport java.security.KeyPairGenerator\nimport java.security.Signature\nimport java.security.interfaces.ECPublicKey\nimport java.security.spec.ECGenParameterSpec\nimport java.security.spec.ECParameterSpec\nimport java.security.spec.ECPoint\nimport java.security.spec.ECPublicKeySpec\nimport java.security.spec.MGF1ParameterSpec\nimport java.security.spec.X509EncodedKeySpec\nimport javax.crypto.Cipher\nimport javax.crypto.KeyAgreement\nimport javax.crypto.spec.OAEPParameterSpec\nimport javax.crypto.spec.PSource",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun ecPair() = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val alice = ecPair()
+        val bob = ecPair()
+        val one = KeyAgreement.getInstance("ECDH").run {
+            init(alice.private)
+            doPhase(bob.public, true)
+            generateSecret()
+        }
+        val point = (bob.public as ECPublicKey).w
+        val params = AlgorithmParameters.getInstance("EC").apply { init(ECGenParameterSpec("secp256r1")) }
+            .getParameterSpec(ECParameterSpec::class.java)
+        val p = params.curve.field.p
+        val x = point.affineX
+        val y = point.affineY
+        val onCurve = y * y % p == (x * x * x + params.curve.a * x + params.curve.b) % p
+        val rebuilt = KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(ECPoint(x, y), params))
+        val two = KeyAgreement.getInstance("ECDH").run {
+            init(alice.private)
+            doPhase(rebuilt, true)
+            generateSecret()
+        }
+        val signature = Signature.getInstance("SHA256withECDSA").run {
+            initSign(alice.private)
+            update("signed".toByteArray())
+            sign()
+        }
+        val verified = Signature.getInstance("SHA256withECDSA").run {
+            initVerify(alice.public)
+            update("signed".toByteArray())
+            verify(signature)
+        }
+        val rsa = KeyPairGenerator.getInstance("RSA").apply { initialize(1024) }.generateKeyPair()
+        val oaep = OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT)
+        val sealed = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding").run {
+            init(Cipher.ENCRYPT_MODE, rsa.public, oaep)
+            doFinal("key".toByteArray())
+        }
+        val opened = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding").run {
+            init(Cipher.DECRYPT_MODE, rsa.private, oaep)
+            doFinal(sealed)
+        }
+        val read = KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(rsa.public.encoded))
+        val padded = Cipher.getInstance("RSA/ECB/PKCS1Padding").run {
+            init(Cipher.ENCRYPT_MODE, read)
+            doFinal("old".toByteArray())
+        }
+        val unpadded = Cipher.getInstance("RSA/ECB/PKCS1Padding").run {
+            init(Cipher.DECRYPT_MODE, rsa.private)
+            doFinal(padded)
+        }
+        val names = listOf(
+            (one.size == 32 && one.contentEquals(two)).toString(),
+            onCurve.toString(),
+            verified.toString(),
+            String(opened),
+            String(unpadded),
+            (x.toByteArray().size >= 32).toString(),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(titles, ["true", "true", "true", "key", "old", "true"]);
+}
+
+/// org.json's `JSONObject`, `BigInteger` as JavaScript's `BigInt`, and `GZIPOutputStream` read
+/// back by `GZIPInputStream`.
+#[tokio::test]
+async fn converted_code_reads_org_json_big_numbers_and_gzip() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport org.json.JSONArray\nimport org.json.JSONObject\nimport java.math.BigInteger\nimport java.util.zip.GZIPInputStream\nimport java.util.zip.GZIPOutputStream\nimport java.io.ByteArrayOutputStream\nimport java.io.File\nimport org.kotlincrypto.hash.blake2.BLAKE2b\nimport com.squareup.zstd.okio.zstdCompress\nimport com.squareup.zstd.okio.zstdDecompress\nimport okio.buffer\nimport okio.sink\nimport okio.source",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun JSONObject.stringOrArray(key: String): String? = when (val value = opt(key)) {
+        is String -> value.takeIf { it.isNotBlank() }
+        is JSONArray -> (0 until value.length()).mapNotNull { value.optString(it) }.joinToString(", ")
+        else -> null
+    }
+
+    private fun decoy(size: Int, orderId: Long, sid: Long): Int? {
+        val key = (sid.toBigInteger() * FACTOR).xor(size.toBigInteger() * BigInteger.valueOf(0x85EBCA6BL))
+            .mod(size.toBigInteger())
+        return orderId.toBigInteger().xor(key).takeIf { it in BigInteger.ZERO..<size.toBigInteger() }?.toInt()
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val json = JSONObject("""{"@graph":[{"@type":"Other"},{"@type":"CreativeWorkSeries","genre":["A","B"],"name":"N"}]}""")
+        val graph = json.optJSONArray("@graph")!!
+        val series = (0 until graph.length()).map { graph.optJSONObject(it) }.first { it?.optString("@type") == "CreativeWorkSeries" }!!
+        val packed = ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { it.write("Raygun".toByteArray()) } }.toByteArray()
+        val names = listOf(
+            series.stringOrArray("genre").orEmpty(),
+            series.stringOrArray("name").orEmpty(),
+            BigInteger(1, byteArrayOf(1, 0)).toString(),
+            BigInteger("ff", 16).pow(2).toString(16),
+            (decoy(7, 3L, 12345L) ?: -1).toString(),
+            GZIPInputStream(packed.inputStream()).readBytes().decodeToString(),
+            BLAKE2b(256).apply { update("abc".toByteArray()) }.digest().toHexString(),
+            File.createTempFile("cache", ".zst").let { file ->
+                file.sink().zstdCompress().buffer().use { it.writeUtf8("cached") }
+                file.source().zstdDecompress().buffer().readUtf8()
+            },
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }
+
+    companion object {
+        private val FACTOR = BigInteger.valueOf(0x9E3779B1L)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "A, B",
+            "N",
+            "256",
+            "fe01",
+            "2",
+            "Raygun",
+            "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319",
+            "cached",
+        ]
+    );
+}
+
+/// java.time's `YearMonth`, `LocalTime`, `WeekFields`, fields and a format's query
+/// (`parse(text, LocalDate::from)`).
+#[tokio::test]
+async fn converted_code_reads_months_times_and_weeks() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport java.time.YearMonth\nimport java.time.LocalTime\nimport java.time.temporal.WeekFields\nimport java.time.temporal.ChronoField",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val months = listOf(YearMonth.of(2024, 3), YearMonth.of(2024, 2))
+        val names = listOf(
+            YearMonth.from(LocalDate.parse("2024-03-15")).toString(),
+            (months[0] > months[1]).toString(),
+            months[1].atEndOfMonth().toString(),
+            LocalDate.parse("2024-01-02").atTime(LocalTime.parse("10:30", DateTimeFormatter.ofPattern("HH:mm"))).toString(),
+            LocalDate.parse("2024-01-07").get(WeekFields.SUNDAY_START.dayOfWeek()).toString(),
+            LocalDate.parse("2024-01-07").get(WeekFields.ISO.dayOfWeek()).toString(),
+            DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH).parse("March 5, 2024", LocalDate::from).toString(),
+            LocalDate.of(2024, 5, 9).get(ChronoField.DAY_OF_YEAR).toString(),
+            "${months[0].year}-${months[0].monthValue}",
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "2024-03",
+            "true",
+            "2024-02-29",
+            "2024-01-02T10:30:00",
+            "1",
+            "7",
+            "2024-03-05",
+            "130",
+            "2024-3",
+        ]
+    );
+}
+
+/// `sequence { yield(…); yieldAll(…) }` read as far as it's asked (Pixiv's `countUp`), and a
+/// property delegated to a `PropertyDelegateProvider` (Project Suki's).
+#[tokio::test]
+async fn converted_code_builds_sequences_and_delegates() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport kotlin.properties.PropertyDelegateProvider",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun countUp(start: Int = 0) = sequence<Int> {
+        yieldAll(start..Int.MAX_VALUE)
+        throw RuntimeException("Overflow")
+    }
+
+    private fun letters() = sequence {
+        yield("a")
+        yieldAll(listOf("b", "c"))
+        yield("d")
+    }
+
+    private fun <R> cachedLazy(initializer: () -> R): PropertyDelegateProvider<Any?, Lazy<R>> = PropertyDelegateProvider { thisRef, property ->
+        lazy { initializer() }
+    }
+
+    private var made = 0
+
+    private val cached: String by cachedLazy {
+        made++
+        "made"
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        var last = 0
+        for (p in countUp(start = 1)) {
+            if (p > 3) break
+            last = p
+        }
+        val names = listOf(
+            last.toString(),
+            countUp(5).take(3).joinToString(","),
+            letters().joinToString(""),
+            letters().iterator().next(),
+            cached + cached + made,
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(titles, ["3", "5,6,7", "abcd", "a", "mademade1"]);
+}
+
 /// Sequences that don't end, `init` blocks, `++` on properties, names written with their
 /// package, comparators and formats, as converted code uses them.
 #[tokio::test]

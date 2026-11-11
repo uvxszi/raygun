@@ -44,7 +44,7 @@ fn unsupported(what: &str) -> String {
 impl Gen<'_> {
     fn expr(&mut self, expr: &Expr) -> Result<String, String> {
         Ok(match expr {
-            Expr::Int(value) => value.to_string(),
+            Expr::Int(value) | Expr::Long(value) => value.to_string(),
             Expr::Float(value) => {
                 if value.is_finite() {
                     format!("{value}")

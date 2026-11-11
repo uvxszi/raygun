@@ -112,6 +112,16 @@ fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
         Function::new(ctx.clone(), |args: String| envelope(crypto(&args)))?,
     )?;
     native.set(
+        "unzip",
+        Function::new(ctx.clone(), |data: String| envelope(unzip(&data)))?,
+    )?;
+    native.set(
+        "keys",
+        Function::new(ctx.clone(), |args: String| {
+            envelope(super::keys::run(&args))
+        })?,
+    )?;
+    native.set(
         "evaluate",
         Function::new(ctx.clone(), |code: String| envelope(evaluate(&code)))?,
     )?;
@@ -143,6 +153,12 @@ enum CryptoArgs {
     Digest { algorithm: String, data: String },
     /// Bytes inflated: `zlib` (Java's `Inflater`), `raw` (`Inflater(true)`) or `gzip`.
     Inflate {
+        data: String,
+        #[serde(default)]
+        format: String,
+    },
+    /// Bytes deflated, in the same formats (`GZIPOutputStream`, `DeflaterOutputStream`).
+    Deflate {
         data: String,
         #[serde(default)]
         format: String,
@@ -196,6 +212,7 @@ pub(crate) fn crypto(args: &str) -> Result<String, String> {
         )?,
         CryptoArgs::Digest { algorithm, data } => digest(&algorithm, &bytes(&data)?)?,
         CryptoArgs::Inflate { data, format } => inflate(&format, &bytes(&data)?)?,
+        CryptoArgs::Deflate { data, format } => deflate(&format, &bytes(&data)?)?,
         CryptoArgs::Hmac {
             algorithm,
             key,
@@ -227,6 +244,19 @@ fn digest(algorithm: &str, data: &[u8]) -> Result<Vec<u8>, String> {
             "sha256" => sha2::Sha256::digest(data).to_vec(),
             "sha384" => sha2::Sha384::digest(data).to_vec(),
             "sha512" => sha2::Sha512::digest(data).to_vec(),
+            // BLAKE2b of a size in bits (`blake2b256`), 512 without one.
+            other if other.starts_with("blake2b") => {
+                use blake2::digest::{Update as _, VariableOutput as _};
+                let bits: usize = other["blake2b".len()..].parse().unwrap_or(512);
+                let mut hasher = blake2::Blake2bVar::new(bits / 8)
+                    .map_err(|_| format!("no BLAKE2b of {bits} bits"))?;
+                hasher.update(data);
+                let mut out = vec![0; bits / 8];
+                hasher
+                    .finalize_variable(&mut out)
+                    .map_err(|error| error.to_string())?;
+                out
+            }
             other => return Err(format!("no {other} digest")),
         },
     )
@@ -305,6 +335,62 @@ fn inflate(format: &str, data: &[u8]) -> Result<Vec<u8>, String> {
     };
     read.map_err(|error| format!("the data didn't inflate: {error}"))?;
     Ok(out)
+}
+
+/// The most an archive's entries give together (`ZipInputStream`): a chapter's pictures are far
+/// less.
+const UNZIPPED_LIMIT: u64 = 256 * 1024 * 1024;
+
+/// A ZIP archive's entries in order, as `[{name, data}]` with the data in base64 (Java's
+/// `ZipInputStream` over an answer's bytes).
+fn unzip(data: &str) -> Result<String, String> {
+    use std::io::Read as _;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let bytes = engine
+        .decode(data)
+        .map_err(|error| format!("not base64: {error}"))?;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|error| format!("not a ZIP archive: {error}"))?;
+    let mut entries = Vec::new();
+    let mut total = 0u64;
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("a ZIP entry didn't read: {error}"))?;
+        let name = entry
+            .name()
+            .map(|name| name.to_string())
+            .map_err(|error| format!("a ZIP entry's name didn't read: {error}"))?;
+        let mut out = Vec::new();
+        entry
+            .by_ref()
+            .take(UNZIPPED_LIMIT.saturating_sub(total))
+            .read_to_end(&mut out)
+            .map_err(|error| format!("a ZIP entry didn't read: {error}"))?;
+        total += out.len() as u64;
+        entries.push(serde_json::json!({ "name": name, "data": engine.encode(&out) }));
+    }
+    Ok(serde_json::Value::Array(entries).to_string())
+}
+
+fn deflate(format: &str, data: &[u8]) -> Result<Vec<u8>, String> {
+    use std::io::Write as _;
+    let level = flate2::Compression::default();
+    let written = match format {
+        "raw" => {
+            let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), level);
+            encoder.write_all(data).and_then(|()| encoder.finish())
+        }
+        "gzip" => {
+            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), level);
+            encoder.write_all(data).and_then(|()| encoder.finish())
+        }
+        _ => {
+            let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), level);
+            encoder.write_all(data).and_then(|()| encoder.finish())
+        }
+    };
+    written.map_err(|error| format!("the data didn't deflate: {error}"))
 }
 
 fn aes_run(

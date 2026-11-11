@@ -12,8 +12,10 @@ pub enum Part {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
     Name(String),
-    /// A number as written, without `_`, its suffix (`L`, `f`) kept off.
+    /// A number as written, without `_`, its suffix (`f`, `u`) kept off.
     Int(i64),
+    /// A whole number written with `L` (`16777619L`, `0xFFL`): a `Long` whatever its size.
+    Long(i64),
     Float(f64),
     Str(Vec<Part>),
     Char(char),
@@ -209,15 +211,21 @@ impl Lexer<'_> {
                 .iter()
                 .filter(|c| **c != '_')
                 .collect();
-            if self
-                .peek(0)
-                .is_some_and(|c| c == 'L' || c == 'u' || c == 'U')
-            {
+            let mut long = false;
+            if self.peek(0).is_some_and(|c| c == 'u' || c == 'U') {
                 self.at += 1;
+            }
+            if self.peek(0) == Some('L') {
+                self.at += 1;
+                long = true;
             }
             let value = u64::from_str_radix(&digits, 16)
                 .map_err(|_| self.error("invalid hexadecimal number"))?;
-            return Ok(Kind::Int(value as i64));
+            return Ok(if long {
+                Kind::Long(value as i64)
+            } else {
+                Kind::Int(value as i64)
+            });
         }
         let mut float = false;
         while let Some(char) = self.peek(0) {
@@ -241,15 +249,21 @@ impl Lexer<'_> {
             .iter()
             .filter(|c| **c != '_')
             .collect();
+        let mut long = false;
         match self.peek(0) {
             Some('f' | 'F' | 'd' | 'D') => {
                 self.at += 1;
                 float = true;
             }
-            Some('L' | 'u' | 'U') => {
+            Some('L') => {
+                self.at += 1;
+                long = true;
+            }
+            Some('u' | 'U') => {
                 self.at += 1;
                 if self.peek(0) == Some('L') {
                     self.at += 1;
+                    long = true;
                 }
             }
             _ => {}
@@ -259,9 +273,10 @@ impl Lexer<'_> {
                 .map(Kind::Float)
                 .map_err(|_| self.error("invalid number"))
         } else {
+            let make = if long { Kind::Long } else { Kind::Int };
             text.parse::<i64>()
-                .map(Kind::Int)
-                .or_else(|_| text.parse::<u64>().map(|value| Kind::Int(value as i64)))
+                .map(make)
+                .or_else(|_| text.parse::<u64>().map(|value| make(value as i64)))
                 .map_err(|_| self.error("invalid number"))
         }
     }
@@ -443,7 +458,7 @@ mod tests {
         assert_eq!(
             kinds("1_000L 0x1F 1.5f a?.b ?: c!!"),
             [
-                Kind::Int(1000),
+                Kind::Long(1000),
                 Kind::Int(31),
                 Kind::Float(1.5),
                 Kind::Name("a".into()),

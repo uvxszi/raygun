@@ -14,7 +14,34 @@ use super::index::StoreExtension;
 use super::kotlin::ast::{
     Body, ClassDecl, ClassKind, Expr, File, FunDecl, Member, Param, PropDecl,
 };
-use super::kotlin::emit::{Context, Gen};
+use super::kotlin::emit::{Context, Gen, Num, companion_key};
+
+/// A function's kind of whole number (`fun fnv1a(…): Long`), kept by name; overloads that
+/// disagree leave the name without one.
+fn note_function_number(cx: &mut Context, fun: &FunDecl) {
+    // One that gives a sequence (`= sequence { … }`, `: Sequence<Int>`) too.
+    let builds_one = matches!(
+        &fun.body,
+        Some(Body::Expr(Expr::Call { callee, .. }))
+            if matches!(callee.as_ref(), Expr::Name(name) if name == "sequence" || name == "generateSequence")
+    );
+    let declared_one = fun
+        .ret
+        .as_ref()
+        .is_some_and(|ret| matches!(ret.name.as_str(), "Sequence" | "kotlin.sequences.Sequence"));
+    if builds_one || declared_one {
+        cx.sequence_functions.insert(fun.name.clone());
+    }
+    let kind = fun.ret.as_ref().and_then(Num::of_type);
+    cx.function_numbers
+        .entry(fun.name.clone())
+        .and_modify(|known| {
+            if *known != kind {
+                *known = None;
+            }
+        })
+        .or_insert(kind);
+}
 
 /// What `KeiSource` (and `HttpSource` under it) gives a source, read through `self`.
 const BASE_PROPERTIES: [&str; 12] = [
@@ -361,6 +388,15 @@ fn property_value(prop: &PropDecl) -> Option<Body> {
                 lambda: None,
             }))
         }
+        // `by tagsFilter::state`: that property, as it is when read.
+        Some(Expr::Reference {
+            target: Some(target),
+            name,
+        }) if name != "class" => Some(Body::Expr(Expr::Member {
+            target: target.clone(),
+            name: name.clone(),
+            safe: false,
+        })),
         // `by getPreferencesLazy()`: a `Lazy`'s value.
         Some(other @ Expr::Call { callee, .. }) if matches!(callee.as_ref(), Expr::Name(name) if name.ends_with("Lazy")) => {
             Some(Body::Expr(Expr::Member {
@@ -409,12 +445,16 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                         .entry(fun.name.clone())
                         .or_default()
                         .push(param_names(&fun.params));
+                    note_function_number(cx, fun);
                 }
                 Member::Prop(prop) if prop.receiver.is_some() => {
                     cx.extension_properties.insert(prop.name.clone());
                 }
                 Member::Prop(prop) if top => {
                     cx.constants.insert(prop.name.clone());
+                    if let Some(kind) = Num::of_prop(prop) {
+                        cx.constant_numbers.insert(prop.name.clone(), kind);
+                    }
                 }
                 Member::Prop(prop) => {
                     cx.properties.insert(prop.name.clone());
@@ -452,6 +492,9 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                 match member {
                     Member::Prop(prop) if prop.receiver.is_none() => {
                         cx.constants.insert(prop.name.clone());
+                        if let Some(kind) = Num::of_prop(prop) {
+                            cx.constant_numbers.insert(prop.name.clone(), kind);
+                        }
                     }
                     Member::Fun(fun) if fun.receiver.is_some() => {
                         cx.extensions.insert(fun.name.clone());
@@ -461,6 +504,7 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                             .entry(fun.name.clone())
                             .or_default()
                             .push(param_names(&fun.params));
+                        note_function_number(&mut cx, fun);
                     }
                     _ => {}
                 }
@@ -488,6 +532,12 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                 }
                 if !inner.modifiers.iter().any(|m| m == "companion") {
                     cx.classes.insert(inner.name.clone());
+                    for prop in companion_values(inner) {
+                        if let Some(kind) = Num::of_prop(prop) {
+                            cx.constant_numbers
+                                .insert(companion_key(&inner.name, &prop.name), kind);
+                        }
+                    }
                     let values: HashSet<String> = companion_values(inner)
                         .map(|prop| prop.name.clone())
                         .collect();
@@ -504,6 +554,16 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                 for nested in &inner.members {
                     if matches!(nested, Member::Fun(_) | Member::Prop(_)) {
                         cx.class_members.insert(nested.name().to_owned());
+                    }
+                    if let Member::Fun(fun) = nested
+                        && fun.receiver.is_none()
+                    {
+                        note_function_number(cx, fun);
+                        if fun.params.last().is_some_and(|param| {
+                            param.ty.name == super::kotlin::ast::RECEIVER_FUNCTION
+                        }) {
+                            cx.receiver_lambda_methods.insert(fun.name.clone());
+                        }
                     }
                     // A class's own extensions (`private fun Float.formatNumber()`) are the
                     // source's (`transpile::class_definition`).

@@ -60,6 +60,8 @@ struct Parser {
     at: usize,
     /// Whether line breaks are insignificant here (inside parentheses or brackets).
     nesting: Vec<bool>,
+    /// A `{` here isn't a trailing lambda: it opens the class body after `Interface by delegate`.
+    no_trailing_lambda: bool,
 }
 
 impl Parser {
@@ -68,6 +70,7 @@ impl Parser {
             tokens,
             at: 0,
             nesting: vec![false],
+            no_trailing_lambda: false,
         }
     }
 
@@ -182,7 +185,9 @@ impl Parser {
         parse: impl FnOnce(&mut Self) -> Result<T, String>,
     ) -> Result<T, String> {
         self.nesting.push(ignoring);
+        let outer = std::mem::take(&mut self.no_trailing_lambda);
         let result = parse(self);
+        self.no_trailing_lambda = outer;
         self.nesting.pop();
         result
     }
@@ -669,9 +674,12 @@ impl Parser {
             } else {
                 None
             };
-            // `Interface by delegate`
+            // `Interface by delegate`, before the class's body.
             if self.eat_name("by") {
-                self.expr()?;
+                let outer = std::mem::replace(&mut self.no_trailing_lambda, true);
+                let delegate = self.expr();
+                self.no_trailing_lambda = outer;
+                delegate?;
             }
             supers.push(SuperRef { ty, args });
             if !self.eat_op(",") {
@@ -1073,9 +1081,11 @@ impl Parser {
                     } else {
                         (vec![self.name()?], false)
                     };
-                    if self.eat_op(":") {
-                        self.ty()?;
-                    }
+                    let ty = if self.eat_op(":") {
+                        Some(self.ty()?)
+                    } else {
+                        None
+                    };
                     let (value, delegate) = if self.eat_op("=") {
                         self.skip_newlines();
                         (Some(self.expr()?), None)
@@ -1088,6 +1098,7 @@ impl Parser {
                         names,
                         destructured,
                         mutable,
+                        ty,
                         value,
                         delegate,
                     })
@@ -1405,6 +1416,7 @@ impl Parser {
                 Some(
                     Kind::Name(_)
                         | Kind::Int(_)
+                        | Kind::Long(_)
                         | Kind::Float(_)
                         | Kind::Str(_)
                         | Kind::Char(_)
@@ -1538,7 +1550,7 @@ impl Parser {
                     }
                     return Ok(expr);
                 }
-                Some(Kind::Op("{")) if is_callable(&expr) => {
+                Some(Kind::Op("{")) if is_callable(&expr) && !self.no_trailing_lambda => {
                     let lambda = self.lambda()?;
                     expr = Expr::Call {
                         callee: Box::new(expr),
@@ -1647,6 +1659,9 @@ impl Parser {
     }
 
     fn trailing_lambda(&mut self) -> Result<Option<Box<Lambda>>, String> {
+        if self.no_trailing_lambda {
+            return Ok(None);
+        }
         let labelled = matches!(
             (
                 self.tokens.get(self.at).map(|t| &t.kind),
@@ -1802,6 +1817,10 @@ impl Parser {
             Kind::Int(value) => {
                 self.at += 1;
                 Ok(Expr::Int(value))
+            }
+            Kind::Long(value) => {
+                self.at += 1;
+                Ok(Expr::Long(value))
             }
             Kind::Float(value) => {
                 self.at += 1;

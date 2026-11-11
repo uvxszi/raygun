@@ -112,7 +112,11 @@ What else the converter reads as Kotlin does:
 
 - classes: `init` blocks (the source's own run once before Raygun's first call), `lateinit`
   fields, a parent built before the child's fields, a parent's functions reaching what a subclass
-  overrides, a class built on a collection (`class CdnSet : LinkedHashSet<String>()`), enum
+  overrides, a class built on a collection (`class CdnSet : LinkedHashSet<String>()`, or
+  delegating one: `class PixivFilters : MutableList<Filter<*>> by mutableListOf()`), properties
+  delegated to another's (`val tags by tagsFilter::state`) or to a `PropertyDelegateProvider`,
+  a declared class's function whose last parameter has a receiver
+  (`firestore.getCollection("Series") { limit = 20 }`), enum
   entries with their constructor values and the class's functions, a theme's constructor
   parameters as properties (what the class above passes, else the defaults);
 - generics: functions with reified type parameters get the types their calls pass
@@ -121,8 +125,9 @@ What else the converter reads as Kotlin does:
   enums decode from their JSON names, subclasses by the class discriminator `Json { … }` names;
 - names: written with their package (`java.net.URI(…)`), nested (`Filter.Sort.Selection`,
   `MangaResponse.Props.Chapter`), through import aliases, bare enum entries, `X::class.java`;
-- sequences that may not end (`generateSequence(seed) { … }.drop(1).iterator()`), worked out as
-  they're read;
+- sequences that may not end (`generateSequence(seed) { … }.drop(1).iterator()`, a builder's
+  `sequence { yield(…); yieldAll(start..Int.MAX_VALUE) }`, which a `for` loop reads as it goes),
+  worked out as they're read;
 - `++`/`--` on properties and indexes, lambdas as `when` branches;
 - numbers: `and`/`or`/`xor`/`shl`/`shr`/`ushr`/`inv` on 32 bits for values that fit an Int and on
   64 for Longs (`(1664525L * state + 1013904223L) and 0xFFFFFFFFL`), a Long's `toInt()` keeping
@@ -154,7 +159,8 @@ but Raygun has no web view: a call fails naming the page it would load, as a bro
 the function passes one (`passGuard`, `wafInterceptor`: the person may pass it by hand, and its
 cookies then go with the source's requests), else as a page that needs a web view.
 `getLocalStorage` reads an empty store. `java.io.File` is a memory of the runtime's own: what a
-source caches it reads back while it runs, and nothing reaches the device's storage.
+source caches it reads back while it runs (okio's `source()`/`sink()` too, and zstd keeps the bytes
+as they are there), and nothing reaches the device's storage.
 
 ### Themes from their code
 
@@ -174,6 +180,9 @@ extensions):
   for `Intl`;
 - `lib:textinterceptor` and `lib:imagedecoder` are the runtime's own: text drawn as a page (a web
   comic's notes, in the system's sans-serif face) and pictures decoded;
+- the parts of Keiyoushi's `core` the runtime doesn't have itself, which an extension imports,
+  convert with its code too: `keiyoushi.zip` (`core:zip`, ZIP archives read by HTTP range requests:
+  `zipDirectory`, `readZipEntry`, `Entry.dataRange`), its `readEntry` the runtime's;
 - any other library (`lib:unpacker`, `lib:speedbinb`, `lib:publus`, `lib:clipstudioreader`…) is
   read when installing (`source::fetch_library`, after `convert::libraries_to_read`) and its code
   converts with the extension's, as it's compiled into it.
@@ -242,7 +251,7 @@ Anything else is refused with the reason, which the catalogue then shows for tha
 - one of Keiyoushi's libraries whose code couldn't be read;
 - a call, object or name the runtime doesn't have (`emit::METHODS`, `GLOBALS` and `OBJECTS`,
   which a test keeps equal to `kotlin.js`'s tables), such as Android's `WebView`,
-  `StaticLayout` or `PdfRenderer`, or Java's `KeyPairGenerator`;
+  `PdfRenderer` or `ParcelFileDescriptor`;
 - what JavaScript can't say: a vararg before other parameters;
 - an object's `init` block.
 
@@ -264,13 +273,14 @@ the themes:
 |---|---|
 | Jsoup | Documents parsed in Rust (the LNReader runtime's document store), Raygun's Jsoup-compatible selectors (`:contains`, `:has`, `:eq`…), Jsoup's `text()` and `ownText()` whitespace rules, `attr("abs:…")`, siblings and parents |
 | OkHttp, `KeiSource`'s client | `raygun.http` with the source's Referer and headers, the accept headers of a page load or an XHR, form bodies, its rate limit; Raygun's own limits beneath (6 requests at once per site, 32 in all) and the extension's cookie jar |
-| Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones, month names in 20 languages, Thai Buddhist years; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `Instant` as Unix milliseconds |
-| Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…) |
+| Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones and optional sections (`[MMMM][MMM] d, yyyy`), month names in 20 languages, Thai Buddhist years; `DateTimeFormatterBuilder`'s values, fractions, month names and `parseDefaulting`; the ISO formats; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `YearMonth`, `LocalTime`, `Instant` as Unix milliseconds, `WeekFields` |
+| Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…); org.json's `JSONObject`/`JSONArray`; `BigInteger` as JavaScript's `BigInt` |
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
-| Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256` in Rust (`runtime.rs`'s `crypto`) |
+| Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256`, kotlincrypto's `BLAKE2b` in Rust (`runtime.rs`'s `crypto`) |
+| Java's public keys | `KeyPairGenerator`, `KeyFactory` (X.509 and PKCS #8 encodings, a P-256 point, an RSA modulus), `KeyAgreement` (ECDH), `Signature` (`SHA256withECDSA`) and RSA's `Cipher`s (PKCS #1, OAEP) on P-256 and RSA in Rust (`mihon/keys.rs`) |
 | Keiyoushi's other helpers | `MarkdownDescription.Builder`, `toMarkdown` and `ratingStars` as plain text (Raygun shows descriptions as text), `tryParseZonedDateTime`, `Instant.tryParse`, Jsoup's `attrOrNull`, `selectLast`, `textNodes`, `createElement`, `:containsData` |
 | Android's graphics | `Bitmap`, `BitmapFactory`, `Canvas`, `Matrix`, `Rect`, `Paint`, `Color` over pictures held in Rust (`raygun_net::bitmap`) |
-| Bytes | Answers' bytes as `Uint8Array`s; okio's `Buffer` and `ByteString`, Java's byte streams, `ByteBuffer` |
+| Bytes | Answers' bytes as `Uint8Array`s; okio's `Buffer` and `ByteString`, Java's byte streams, `ByteBuffer`; `GZIPOutputStream`/`DeflaterOutputStream` deflated in Rust |
 | Protobuf | Keiyoushi's `parseAsProto`, `decodeProto`, `toRequestBodyProto`, `encodeProto` over the classes the source declares (`@ProtoNumber`, `@ProtoType`, packed lists, maps, enums by number) |
 | Decrypted answers | Keiyoushi's `response.aesDecrypt(cipher)`, `aesDecryptWithPrependedIv`, okio's `cipherSource`; pictures decrypted this way are fetched through the source |
 
@@ -293,31 +303,28 @@ Themes so far (ported from Keiyoushi's `lib-multisrc`, Apache-2.0):
 
 ## Coverage
 
-`mihon_convert_survey` converts every extension of Keiyoushi's store (1577 comic extensions as
-of 2026-11-10, read from a checkout of `keiyoushi/extensions-source` that day) and loads each
+`mihon_convert_survey` converts every extension of Keiyoushi's store (1587 comic extensions as
+of 2026-11-11, read from a checkout of `keiyoushi/extensions-source` that day) and loads each
 conversion as installing does (one that doesn't load counts as refused):
 
 | | Converted | Of |
 |---|---|---|
-| Madara | 242 | 242 |
-| MangaThemesia | 112 | 112 |
+| Madara | 243 | 243 |
+| MangaThemesia | 115 | 115 |
 | ComiciViewer, ZeistManga, GigaViewer | 81 | 81 |
 | Keyoapp | 16 | 16 |
 | MangaCatalog, YiiManga, PizzaReader | 40 | 40 |
 | Iken, InitManga, FoolSlide, GalleryAdults | 37 | 37 |
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
-| Other themes | 130 | 134 |
-| No theme | 805 | 858 |
-| All | 1520 (96.4%) | 1577 |
+| Other themes | 132 | 136 |
+| No theme | 835 | 862 |
+| All | 1556 (98.0%) | 1587 |
 
-The 57 refusals left are one or two extensions each, most of them on what has no stand-in:
-Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java's key pairs
-(`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
-`zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
-own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
-and zstd; a few on Kotlin the converter doesn't read yet (`sequence { yieldAll(…) }`, java.time's
-`YearMonth`/`LocalTime`/`WeekFields`, `DateTimeFormatterBuilder.appendValue`). Android's
+The 31 refusals left are one or two extensions each, most of them on what has no stand-in:
+Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
+own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three);
+one on Kotlin the converter doesn't read yet (a class declared in a function). Android's
 `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) is the runtime's text
 layout, so captions and speech bubbles drawn on pictures convert.
 
@@ -357,7 +364,10 @@ only those packages, and `MIHON_SURVEY_DUMP=<dir>` keeps the code of conversions
 (`MIHON_SAMPLE`, 24 by default; `MIHON_SAMPLE_ONLY=<pkg>,…` picks them) of the converted sources
 and follows each from its first popular page to the first page's picture (drawn by the source
 when it draws them); `MIHON_SAMPLE_FULL=1` prints failures whole, with the script's stack, and
-the first title's id and page's address.
+the first title's id and page's address. `mihon_runtime_members_survey` reads the conversions a
+survey kept (`MIHON_SURVEY_DUMP` with `MIHON_SURVEY_DUMP_ALL=1`) and lists what their code asks
+of the runtime's objects that they lack (`Integer.rotateLeft`, `Parser.xmlParser` once), which
+loading a conversion doesn't show.
 
 ## Running source code in a container
 

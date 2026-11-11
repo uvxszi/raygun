@@ -144,6 +144,10 @@
     return K.eq(left, right);
   };
   KT.cmp = (left, right) => {
+    if (typeof left === 'bigint' || typeof right === 'bigint') {
+      const [a, b] = [bigIntOf(left), bigIntOf(right)];
+      return a < b ? -1 : a > b ? 1 : 0;
+    }
     if (typeof left === 'string' && typeof right === 'string')
       return left < right ? -1 : left > right ? 1 : 0;
     // Durations and instants by their milliseconds.
@@ -155,8 +159,19 @@
   // that fit an Int (and shifts below 32) get the 32-bit operation, as Kotlin's Int does; a
   // Long's (`(1664525L * state + 1013904223L) and 0xFFFFFFFFL`) the 64-bit one.
   const isInt32 = (n) => Number.isInteger(n) && n >= -2147483648 && n <= 2147483647;
-  const big = (n) => BigInt(Math.trunc(Number(n)));
+  const big = (n) => (typeof n === 'bigint' ? n : BigInt(Math.trunc(Number(n) || 0)));
   const fromBig = (n) => Number(BigInt.asIntN(64, n));
+  // Arithmetic the converter knows the kind of (`kotlin::emit::Num`): an `Int` kept to 32 bits,
+  // a `Long`'s exact arithmetic over `BigInt`s and back.
+  KT.i32 = (value) => (typeof value === 'number' ? value | 0 : value);
+  KT.big = big;
+  KT.fromBig = fromBig;
+  KT.lmul = (left, right) => {
+    const product = left * right;
+    return Number.isSafeInteger(product) || !Number.isInteger(left) || !Number.isInteger(right)
+      ? product
+      : fromBig(big(left) * big(right));
+  };
   KT.and = (left, right) =>
     typeof left === 'boolean'
       ? left && right
@@ -204,6 +219,8 @@
     throw new KotlinError('this value has no parts to destructure');
   };
   KT.range = (from, to, step = 1) => ({ isRange: true, first: from, last: to, step });
+  /// `from until to`, `from..<to`: of numbers or `BigInteger`s.
+  KT.until = (from, to) => KT.range(from, typeof to === 'bigint' ? to - 1n : to - 1);
   KT.step = (range, step) => ({ ...range, step: range.step < 0 ? -step : step });
   KT.iter = (value) => {
     if (value == null) return [];
@@ -237,6 +254,20 @@
     return K.contains(container, item);
   };
   KT.safe = async (value, then) => (value === null || value === undefined ? null : then(value));
+  /// Kotlin's `use`: the block, then the value closed, whatever the block did.
+  KT.use = async (value, block) => {
+    try {
+      return await block();
+    } finally {
+      if (
+        value !== null &&
+        value !== undefined &&
+        typeof value === 'object' &&
+        hasMember(value, 'close')
+      )
+        await KT.m(value, 'close', []);
+    }
+  };
   KT.also = async (value, then) => {
     await then();
     return value;
@@ -374,6 +405,8 @@
     if (typeof value === 'string') return 'string';
     if (typeof value === 'number') return 'number';
     if (typeof value === 'boolean') return 'boolean';
+    // Java's `BigInteger` is JavaScript's own.
+    if (typeof value === 'bigint') return 'bigint';
     if (typeof value === 'function') return 'function';
     if (value instanceof mihon.Elements) return 'elements';
     if (Array.isArray(value)) return 'list';
@@ -539,6 +572,18 @@
     if (!(flags & 2) && flags !== -1) text = `${text.replace(/(.{76})/g, '$1\n')}\n`;
     return text;
   };
+  /// Java's `Base64.Decoder` and `Base64.Encoder` (flags as Android's: 1 no padding, 2 no wraps,
+  /// 8 URL-safe).
+  const javaBase64Decoder = {
+    __class: 'Decoder',
+    decode: (value) => fromBase64(Array.isArray(value) ? binaryOf(value) : value),
+  };
+  const javaBase64Encoder = (flags) => ({
+    __class: 'Encoder',
+    encodeToString: (value) => base64Encode(value, flags),
+    encode: (value) => utf8Encode(base64Encode(value, flags)),
+    withoutPadding: () => javaBase64Encoder(flags | 1),
+  });
   const crypto = (args) => K.crypto(args);
   const digestOf = (algorithm, data) =>
     fromBase64(crypto({ op: 'digest', algorithm, data: base64Of(data) }));
@@ -592,6 +637,235 @@
       mode: mode.toLowerCase(),
       padding: !/nopadding/i.test(padding) && !/zerobyte/i.test(padding),
     };
+  };
+  // ---- Java's public keys (`mihon/keys.rs`: P-256 and RSA, keys as their DER encodings) ----
+
+  const P256 = {
+    p: 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn,
+    a: 0xffffffff00000001000000000000000000000000fffffffffffffffffffffffcn,
+    b: 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn,
+    n: 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n,
+    x: 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296n,
+    y: 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5n,
+  };
+  /// `ECPoint(x, y)`: a point's coordinates as `BigInteger`s.
+  const ecPoint = (x, y) => {
+    // P-256's own point is made as the runtime loads, before `bigIntOf` is.
+    const [affineX, affineY] = [x, y].map((value) =>
+      typeof value === 'bigint' ? value : bigIntOf(value),
+    );
+    return {
+      __class: 'ECPoint',
+      __classes: ['ECPoint'],
+      affineX,
+      affineY,
+      getAffineX: () => affineX,
+      getAffineY: () => affineY,
+    };
+  };
+  /// P-256's parameters (`AlgorithmParameters.getInstance("EC").getParameterSpec(…)`).
+  const p256Parameters = {
+    __class: 'ECParameterSpec',
+    __classes: ['ECParameterSpec', 'AlgorithmParameterSpec'],
+    curve: { field: { __class: 'ECFieldFp', p: P256.p, fieldSize: 256 }, a: P256.a, b: P256.b },
+    generator: ecPoint(P256.x, P256.y),
+    order: P256.n,
+    cofactor: 1,
+  };
+  const keyAlgorithm = (name) => (/^RSA/i.test(KT.str(name)) ? 'RSA' : 'EC');
+  /// A key as Java holds it: its DER encoding (`encoded`, `getEncoded()`), and what's in it.
+  const javaKey = (der, algorithm, isPublic) => {
+    let parts = null;
+    const described = () => (parts ??= K.keys({ op: 'describe', key: der, public: isPublic }));
+    const kind = `${algorithm}${isPublic ? 'Public' : 'Private'}Key`;
+    const key = {
+      __class: kind,
+      __classes: [kind, isPublic ? 'PublicKey' : 'PrivateKey', 'Key'],
+      isJavaKey: true,
+      isPublic,
+      der,
+      algorithm,
+      format: isPublic ? 'X.509' : 'PKCS#8',
+      getAlgorithm: () => algorithm,
+      getFormat: () => key.format,
+      getEncoded: () => fromBase64(der),
+      // An EC public key's point, an EC private key's scalar, an RSA key's numbers.
+      getW: () => ecPoint(bigIntOf(described().x, 16), bigIntOf(described().y, 16)),
+      getS: () => bigIntOf(described().s, 16),
+      getModulus: () => bigIntOf(described().modulus, 16),
+      getPublicExponent: () => bigIntOf(described().exponent, 16),
+      getParams: () => p256Parameters,
+    };
+    for (const [name, getter] of [
+      ['encoded', key.getEncoded],
+      ['w', key.getW],
+      ['s', key.getS],
+      ['modulus', key.getModulus],
+      ['publicExponent', key.getPublicExponent],
+      ['params', key.getParams],
+    ])
+      Object.defineProperty(key, name, { get: getter, enumerable: false });
+    return key;
+  };
+  const keyPairOf = (made, algorithm) => {
+    const pair = {
+      __class: 'KeyPair',
+      __classes: ['KeyPair'],
+      public: javaKey(made.public, algorithm, true),
+      private: javaKey(made.private, algorithm, false),
+    };
+    pair.getPublic = () => pair.public;
+    pair.getPrivate = () => pair.private;
+    return pair;
+  };
+  const keyPairGenerator = (name) => {
+    const algorithm = keyAlgorithm(name);
+    let bits = 2048;
+    const generate = () => keyPairOf(K.keys({ op: 'generate', algorithm, bits }), algorithm);
+    return {
+      __class: 'KeyPairGenerator',
+      // `initialize(2048)`, `initialize(ECGenParameterSpec("secp256r1"))` (P-256 is the curve).
+      initialize: (spec) => {
+        if (typeof spec === 'number') bits = spec;
+        else if (spec && spec.name && !/256|prime256v1/i.test(KT.str(spec.name)))
+          throw new KotlinError(
+            `Raygun has no curve ${KT.str(spec.name)}`,
+            'InvalidAlgorithmParameterException',
+          );
+        return KT.unit;
+      },
+      generateKeyPair: generate,
+      genKeyPair: generate,
+    };
+  };
+  const keyFactory = (name) => {
+    const algorithm = keyAlgorithm(name);
+    return {
+      __class: 'KeyFactory',
+      generatePublic: (spec) => {
+        if (spec && spec.keySpec === 'x509')
+          return javaKey(base64Of(spec.encoded), algorithm, true);
+        if (spec && spec.keySpec === 'ecPoint') {
+          const { public: der } = K.keys({
+            op: 'ecPublic',
+            x: spec.point.affineX.toString(16),
+            y: spec.point.affineY.toString(16),
+          });
+          return javaKey(der, 'EC', true);
+        }
+        if (spec && spec.keySpec === 'rsa') {
+          const { public: der } = K.keys({
+            op: 'rsaPublic',
+            modulus: bigIntOf(spec.modulus).toString(16),
+            exponent: bigIntOf(spec.exponent).toString(16),
+          });
+          return javaKey(der, 'RSA', true);
+        }
+        throw new KotlinError('Raygun reads no such key spec', 'InvalidKeySpecException');
+      },
+      generatePrivate: (spec) => {
+        if (spec && spec.keySpec === 'pkcs8')
+          return javaKey(base64Of(spec.encoded), algorithm, false);
+        throw new KotlinError('Raygun reads no such key spec', 'InvalidKeySpecException');
+      },
+    };
+  };
+  /// `KeyAgreement.getInstance("ECDH")`: the shared secret of a private key and a peer's public one.
+  const keyAgreement = () => {
+    let own = null;
+    let peer = null;
+    return {
+      __class: 'KeyAgreement',
+      init: (key) => ((own = key), KT.unit),
+      doPhase: (key) => ((peer = key), null),
+      generateSecret: () =>
+        fromBase64(K.keys({ op: 'agree', private: own.der, public: peer.der }).data),
+    };
+  };
+  /// `Signature.getInstance("SHA256withECDSA")`: signs or checks what's `update`d.
+  const javaSignature = (name) => {
+    if (!/^SHA256withECDSA$/i.test(KT.str(name)))
+      throw new KotlinError(`Raygun has no ${KT.str(name)} signatures`, 'NoSuchAlgorithmException');
+    let key = null;
+    let pending = [];
+    const take = () => {
+      const data = base64Of(pending);
+      pending = [];
+      return data;
+    };
+    return {
+      __class: 'Signature',
+      initSign: (privateKey) => ((key = privateKey), (pending = []), KT.unit),
+      initVerify: (publicKey) => ((key = publicKey), (pending = []), KT.unit),
+      update: (value, offset = 0, count = undefined) => {
+        const bytes = typeof value === 'number' ? [value & 255] : Array.from(u8Of(value));
+        pending.push(...bytes.slice(offset, count === undefined ? undefined : offset + count));
+        return KT.unit;
+      },
+      sign: () => fromBase64(K.keys({ op: 'sign', private: key.der, data: take() }).data),
+      verify: (signature) =>
+        K.keys({ op: 'verify', public: key.der, data: take(), signature: base64Of(signature) })
+          .valid,
+    };
+  };
+  /// RSA's `Cipher` (`RSA/ECB/PKCS1Padding`, `RSA/ECB/OAEPWithSHA-256AndMGF1Padding`): OAEP's mask
+  /// is over SHA-1 unless an `OAEPParameterSpec` says otherwise, as Java's is.
+  const rsaCipher = (name) => {
+    const text = KT.str(name);
+    const oaep = /OAEP/i.test(text);
+    let hash = (/OAEPWith(SHA-?\d+)And/i.exec(text) ?? [])[1] ?? 'SHA-1';
+    let mgfHash = 'SHA-1';
+    let key = null;
+    let encrypt = true;
+    let pending = [];
+    const run = () => {
+      const data = base64Of(pending);
+      pending = [];
+      return fromBase64(
+        K.keys({ op: 'rsa', key: key.der, encrypt, oaep, hash, mgfHash, data }).data,
+      );
+    };
+    return {
+      __class: 'Cipher',
+      init: (mode, givenKey, parameters = null) => {
+        encrypt = Number(mode) !== 2;
+        key = givenKey;
+        if (parameters && parameters.isOaep) {
+          hash = parameters.hash;
+          mgfHash = parameters.mgfHash;
+        }
+        return KT.unit;
+      },
+      update: (value) => {
+        pending.push(...Array.from(u8Of(value)));
+        return [];
+      },
+      doFinal: (value = null) => {
+        if (value !== null) pending.push(...Array.from(u8Of(value)));
+        return run();
+      },
+    };
+  };
+  /// BLAKE2b with `bits` of output, over what's `update`d (in Rust).
+  const blake2b = (bits) => {
+    let pending = [];
+    const hasher = {
+      __class: 'BLAKE2b',
+      __classes: ['BLAKE2b', 'Digest'],
+      update: (value, offset = 0, count = undefined) => {
+        const bytes = typeof value === 'number' ? [value & 255] : Array.from(u8Of(value));
+        pending.push(...bytes.slice(offset, count === undefined ? undefined : offset + count));
+        return hasher;
+      },
+      reset: () => ((pending = []), KT.unit),
+      digest: (value = null) => {
+        if (value !== null) hasher.update(value);
+        const data = pending;
+        pending = [];
+        return digestOf(`blake2b${bits}`, data);
+      },
+    };
+    return hasher;
   };
   /// Java's `MessageDigest` and `Mac` by algorithm name, collecting what's `update`d.
   const digester = (algorithm, keyed = false) => {
@@ -707,7 +981,14 @@
     encodeUtf8: (s) => byteString(K.bin.utf8(s)),
     decodeHexToByteString: (s) => byteString(u8Of(fromHex(s))),
     toBigDecimal: (s) => Number(s),
-    toBigInteger: (s) => Number(s),
+    toBigInteger: (s, [radix = 10]) => bigIntOf(s, radix),
+    toBigIntegerOrNull: (s, [radix = 10]) => {
+      try {
+        return bigIntOf(s, radix);
+      } catch {
+        return null;
+      }
+    },
     toULong: (s) => Number(s),
     subSequence: (s, [start, end = s.length]) => s.slice(start, end),
     toBigDecimalOrNull: (s) => toFloat(s),
@@ -1111,22 +1392,104 @@
       out.push(typeof init === 'function' ? await init(index) : (init ?? null));
     return out;
   };
-  /// `DateTimeFormatterBuilder()…toFormatter()`: its pattern pieces, as one date format.
+  /// java.time's `ChronoField`s a date format reads: each one's pattern letter and the part of a
+  /// date it is (what `parseDefaulting` sets).
+  const CHRONO_FIELDS = {
+    YEAR: ['y', 'year'],
+    YEAR_OF_ERA: ['y', 'year'],
+    MONTH_OF_YEAR: ['M', 'month'],
+    DAY_OF_MONTH: ['d', 'day'],
+    HOUR_OF_DAY: ['H', 'hour'],
+    CLOCK_HOUR_OF_AMPM: ['h', 'hour'],
+    HOUR_OF_AMPM: ['h', 'hour'],
+    MINUTE_OF_HOUR: ['m', 'minute'],
+    SECOND_OF_MINUTE: ['s', 'second'],
+    NANO_OF_SECOND: ['S', 'ms'],
+    MILLI_OF_SECOND: ['S', 'ms'],
+    AMPM_OF_DAY: ['a', 'ampm'],
+    DAY_OF_WEEK: ['E', 'dayOfWeek'],
+    DAY_OF_YEAR: ['D', 'dayOfYear'],
+    EPOCH_DAY: ['', 'epochDay'],
+  };
+  /// `DateTimeFormatterBuilder()…toFormatter()`: its pattern pieces, as one date format, with
+  /// optional sections, the values a text may leave out and month names of its own.
   const dateFormatterBuilder = () => {
     let pattern = '';
+    const defaults = {};
+    let monthNames = null;
+    const letterOf = (field) => (CHRONO_FIELDS[KT.str(field)] ?? ['', ''])[0];
     const builder = {
       appendPattern: (text) => ((pattern += KT.str(text)), builder),
       appendLiteral: (text) => ((pattern += `'${KT.str(text).replace(/'/g, "''")}'`), builder),
+      // `appendValue(ChronoField.YEAR, 4)`, `appendValue(DAY_OF_MONTH, 1, 2, SignStyle…)`.
+      appendValue: (field, width = 1) => {
+        const letter = letterOf(field);
+        if (letter)
+          pattern += letter.repeat(letter === 'y' ? (width === 2 ? 2 : 4) : Math.max(1, width));
+        return builder;
+      },
+      // `appendFraction(NANO_OF_SECOND, 0, 9, true)`: a fraction of a second, with its point.
+      appendFraction: (_field, min = 0, _max = 9, point = true) => {
+        const piece = `${point ? '.' : ''}S`;
+        pattern += Number(min) > 0 ? piece : `[${piece}]`;
+        return builder;
+      },
+      // `appendText(MONTH_OF_YEAR, mapOf(1L to "январь", …))`: names, as the map gives them.
+      appendText: (field, names = null) => {
+        const letter = letterOf(field);
+        if (letter === 'M' && names instanceof Map) {
+          monthNames = [];
+          for (const [number, name] of names) monthNames[Number(number) - 1] = KT.str(name);
+        }
+        if (letter) pattern += letter === 'M' ? 'MMMM' : letter.repeat(4);
+        return builder;
+      },
       parseCaseInsensitive: () => builder,
       parseCaseSensitive: () => builder,
       parseLenient: () => builder,
       parseStrict: () => builder,
-      optionalStart: () => builder,
-      optionalEnd: () => builder,
-      parseDefaulting: () => builder,
-      toFormatter: (locale) => K.dateFormat(pattern, locale),
+      optionalStart: () => ((pattern += '['), builder),
+      optionalEnd: () => ((pattern += ']'), builder),
+      parseDefaulting: (field, value) => {
+        const part = (CHRONO_FIELDS[KT.str(field)] ?? ['', ''])[1];
+        if (part === 'month') defaults.month = Number(value) - 1;
+        else if (['year', 'day', 'hour', 'minute', 'second'].includes(part))
+          defaults[part] = Number(value);
+        return builder;
+      },
+      toFormatter: (locale) => {
+        const format = K.dateFormat(pattern, locale);
+        format.defaults = { ...defaults };
+        format.monthNames = monthNames;
+        return format;
+      },
     };
     return builder;
+  };
+  /// `DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT)`'s patterns, as English writes them.
+  const LOCALIZED_DATES = {
+    FULL: 'MMMM d, yyyy',
+    LONG: 'MMMM d, yyyy',
+    MEDIUM: 'MMM d, yyyy',
+    SHORT: 'M/d/yy',
+  };
+  /// java.time's ISO formats (`ISO_DATE_TIME`, `ISO_OFFSET_DATE_TIME`, `ISO_INSTANT`): ISO 8601
+  /// with or without a fraction, an offset, or a zone's name in brackets.
+  const isoFormat = (pattern, offset = 0) => {
+    const format = K.dateFormat(pattern).withOffset(offset);
+    format.read = (text) => {
+      if (text === null || text === undefined) return null;
+      const plain = KT.str(text)
+        .trim()
+        .replace(/\[[^\]]*\]$/, '');
+      const ms = isoInstant(plain);
+      if (ms === null) return null;
+      // A time without an offset is the format's zone's wall clock.
+      const zoned = /([Zz]|[+-]\d{2}(:?\d{2})?)$/.test(plain.slice(10));
+      return zoned ? ms : ms - format.offsetMinutes * 60000;
+    };
+    format.withZone = (zone) => isoFormat(pattern, offsetOf(zone));
+    return format;
   };
   const LIST = {
     size: (l) => l.length,
@@ -1460,6 +1823,12 @@
       return out;
     },
     sorted: (l) => [...l].sort(KT.cmp),
+    toSortedSet: (l) => LIST.distinct(l).sort(KT.cmp),
+    // `bytes.fill(0)`, `fill(value, from, to)`.
+    fill: (l, [value, from = 0, to = l.length]) => {
+      for (let at = from; at < to; at++) l[at] = value;
+      return KT.unit;
+    },
     sortedDescending: (l) => [...l].sort((a, b) => KT.cmp(b, a)),
     sortedBy: async (l, _args, lambda) => sortBy(l, lambda),
     sortedByDescending: async (l, _args, lambda) => sortBy(l, lambda, true),
@@ -1832,6 +2201,122 @@
   const objectAsMap = (name) =>
     MAP[name] ? (o, ...rest) => MAP[name](new Map(Object.entries(o)), ...rest) : null;
 
+  /// Java's `BigInteger` as JavaScript's `BigInt`: text in a radix, bytes (two's complement, or a
+  /// sign and a magnitude as `BigInteger(1, bytes)` reads them).
+  const bigIntOf = (value, radix = 10) => {
+    if (typeof value === 'bigint') return value;
+    if (typeof value === 'number') return BigInt(Math.trunc(value));
+    const text = KT.str(value).trim();
+    const base = Number(radix);
+    const negative = text.startsWith('-');
+    const digits = negative || text.startsWith('+') ? text.slice(1) : text;
+    if (!digits || !/^[0-9a-z]+$/i.test(digits))
+      throw new KotlinError(`For input string: "${text}"`, 'NumberFormatException');
+    let out = 0n;
+    for (const digit of digits.toLowerCase()) {
+      const at = parseInt(digit, 36);
+      if (Number.isNaN(at) || at >= base)
+        throw new KotlinError(`For input string: "${text}"`, 'NumberFormatException');
+      out = out * BigInt(base) + BigInt(at);
+    }
+    return negative ? -out : out;
+  };
+  const bigIntOfBytes = (bytes, signed = true) => {
+    const all = Array.from(u8Of(bytes));
+    let out = 0n;
+    for (const byte of all) out = (out << 8n) | BigInt(byte);
+    return signed && all.length && all[0] & 0x80 ? out - (1n << BigInt(all.length * 8)) : out;
+  };
+  /// `toByteArray()`: the fewest bytes of two's complement that hold the value and its sign.
+  const bigIntBytes = (value) => {
+    let count = 1;
+    while (value < -(1n << BigInt(count * 8 - 1)) || value >= 1n << BigInt(count * 8 - 1))
+      count += 1;
+    const hex = BigInt.asUintN(count * 8, value)
+      .toString(16)
+      .padStart(count * 2, '0');
+    return hex.match(/../g).map((pair) => parseInt(pair, 16));
+  };
+  const modPow = (base, exponent, modulus) => {
+    let result = 1n;
+    let at = ((base % modulus) + modulus) % modulus;
+    for (let rest = exponent; rest > 0n; rest >>= 1n) {
+      if (rest & 1n) result = (result * at) % modulus;
+      at = (at * at) % modulus;
+    }
+    return result;
+  };
+  const modInverse = (value, modulus) => {
+    let [a, m] = [((value % modulus) + modulus) % modulus, modulus];
+    let [x, last] = [0n, 1n];
+    while (m !== 0n) {
+      const quotient = a / m;
+      [a, m] = [m, a - quotient * m];
+      [last, x] = [x, last - quotient * x];
+    }
+    if (a !== 1n) throw new KotlinError('BigInteger not invertible.', 'ArithmeticException');
+    return ((last % modulus) + modulus) % modulus;
+  };
+  const BIGINT = {
+    plus: (b, [other]) => b + bigIntOf(other),
+    add: (b, [other]) => b + bigIntOf(other),
+    minus: (b, [other]) => b - bigIntOf(other),
+    subtract: (b, [other]) => b - bigIntOf(other),
+    times: (b, [other]) => b * bigIntOf(other),
+    multiply: (b, [other]) => b * bigIntOf(other),
+    div: (b, [other]) => b / bigIntOf(other),
+    divide: (b, [other]) => b / bigIntOf(other),
+    rem: (b, [other]) => b % bigIntOf(other),
+    remainder: (b, [other]) => b % bigIntOf(other),
+    mod: (b, [other]) => {
+      const modulus = bigIntOf(other);
+      return ((b % modulus) + modulus) % modulus;
+    },
+    modPow: (b, [exponent, modulus]) => modPow(b, bigIntOf(exponent), bigIntOf(modulus)),
+    modInverse: (b, [modulus]) => modInverse(b, bigIntOf(modulus)),
+    pow: (b, [exponent]) => b ** BigInt(exponent),
+    gcd: (b, [other]) => {
+      let [x, y] = [b < 0n ? -b : b, bigIntOf(other)];
+      if (y < 0n) y = -y;
+      while (y) [x, y] = [y, x % y];
+      return x;
+    },
+    xor: (b, [other]) => b ^ bigIntOf(other),
+    and: (b, [other]) => b & bigIntOf(other),
+    or: (b, [other]) => b | bigIntOf(other),
+    not: (b) => ~b,
+    inv: (b) => ~b,
+    andNot: (b, [other]) => b & ~bigIntOf(other),
+    shl: (b, [bits]) => b << BigInt(bits),
+    shiftLeft: (b, [bits]) => b << BigInt(bits),
+    shr: (b, [bits]) => b >> BigInt(bits),
+    shiftRight: (b, [bits]) => b >> BigInt(bits),
+    testBit: (b, [bit]) => ((b >> BigInt(bit)) & 1n) === 1n,
+    setBit: (b, [bit]) => b | (1n << BigInt(bit)),
+    bitLength: (b) => (b < 0n ? ~b : b).toString(2).replace(/^0$/, '').length,
+    bitCount: (b) => [...(b < 0n ? ~b : b).toString(2)].filter((digit) => digit === '1').length,
+    negate: (b) => -b,
+    unaryMinus: (b) => -b,
+    abs: (b) => (b < 0n ? -b : b),
+    signum: (b) => (b > 0n ? 1 : b < 0n ? -1 : 0),
+    compareTo: (b, [other]) => {
+      const value = bigIntOf(other);
+      return b < value ? -1 : b > value ? 1 : 0;
+    },
+    equals: (b, [other]) => typeof other === 'bigint' && b === other,
+    max: (b, [other]) => (b >= bigIntOf(other) ? b : bigIntOf(other)),
+    min: (b, [other]) => (b <= bigIntOf(other) ? b : bigIntOf(other)),
+    toInt: (b) => Number(BigInt.asIntN(32, b)),
+    intValue: (b) => Number(BigInt.asIntN(32, b)),
+    toLong: (b) => Number(BigInt.asIntN(64, b)),
+    longValue: (b) => Number(BigInt.asIntN(64, b)),
+    toDouble: (b) => Number(b),
+    doubleValue: (b) => Number(b),
+    toBigInteger: (b) => b,
+    toByteArray: (b) => bigIntBytes(b),
+    toString: (b, [radix = 10]) => b.toString(Number(radix)),
+    hashCode: (b) => Number(BigInt.asIntN(32, b)),
+  };
   const NUMBER = {
     // `BigDecimal`s are numbers here.
     stripTrailingZeros: (n) => n,
@@ -1849,7 +2334,7 @@
     toPlainString: (n) => String(n),
     mod: (n, [other]) => ((n % other) + other) % other,
     toBigDecimal: (n) => n,
-    toBigInteger: (n) => n,
+    toBigInteger: (n) => BigInt(Math.trunc(n)),
     toULong: (n) => (n < 0 ? n + 18446744073709551616 : n),
     toUByte: (n) => n & 255,
     toUInt: (n) => Math.trunc(n) >>> 0,
@@ -1901,6 +2386,10 @@
   };
 
   const ANY = {
+    // `source().zstdDecompress()`, `sink().zstdCompress()`: what the runtime's own files hold
+    // (its memory, never the device's) is kept as it is.
+    zstdCompress: (value) => value,
+    zstdDecompress: (value) => value,
     // A comparator's `then(other)` (not a property: an object with `then` would be awaited as a
     // promise): this order, then the other's for ties.
     then:
@@ -2111,6 +2600,10 @@
       if (kind === 'string' && name === 'indices') return KT.range(0, value.length - 1);
       throw new KotlinError(`a value has no ${name}`);
     }
+    if (kind === 'bigint') {
+      if (BIGINT[name]) return BIGINT[name](value, []);
+      throw new KotlinError(`a value has no ${name}`);
+    }
     if (kind === 'list' || kind === 'elements') {
       if (LIST[name] && ['size', 'lastIndex', 'indices'].includes(name)) return LIST[name](value);
       if (JSON_PROPS[name]) return JSON_PROPS[name](value);
@@ -2237,7 +2730,14 @@
       typeof receiver[name] === 'function'
     )
       return receiver[name](...args, ...(written ? [written] : []));
-    const table = { string: STRING, list: LIST, elements: LIST, map: MAP, number: NUMBER }[kind];
+    const table = {
+      string: STRING,
+      list: LIST,
+      elements: LIST,
+      map: MAP,
+      number: NUMBER,
+      bigint: BIGINT,
+    }[kind];
     if (table && table[name]) return table[name](receiver, args, lambda, named, type);
     // A map's entries as a list (`map.count { … }`, `map.maxByOrNull { … }`), a text's
     // characters (`text.foldIndexed(0) { … }`).
@@ -3630,6 +4130,43 @@
     delete(url, ...rest) {
       return this.request('DELETE', url, rest);
     }
+    /// Keiyoushi's `client.graphQLGet(url, headers, query, operationName, variables, extensions,
+    /// …, fetch)`: a GET with the GraphQL parameters in the address's query.
+    async graphQLGet(url, ...rest) {
+      const options = named(rest);
+      const texts = [];
+      const values = [];
+      let headers = options.headers ?? null;
+      let fetch = options.fetch ?? null;
+      let ensureSuccess = options.ensureSuccess ?? true;
+      for (const arg of rest) {
+        if (arg instanceof Headers) headers = arg;
+        else if (arg && arg.isFetch) fetch = arg;
+        else if (arg && arg.isCacheControl) continue;
+        else if (typeof arg === 'boolean') ensureSuccess = arg;
+        else if (typeof arg === 'string' || arg === null) texts.push(arg);
+        else if (arg !== undefined && !(arg && arg.isJsonCodec)) values.push(arg);
+      }
+      const query = options.query ?? texts[0] ?? null;
+      const operationName = options.operationName ?? texts[1] ?? null;
+      const variables = options.variables ?? values[0] ?? null;
+      const extensions = options.extensions ?? values[1] ?? null;
+      const params = [];
+      const add = (key, value) => params.push(`${key}=${encodeURIComponent(value)}`);
+      if (operationName !== null) add('operationName', KT.str(operationName));
+      if (query !== null) add('query', KT.str(query));
+      if (variables !== null) add('variables', JSON.stringify(plain(variables)));
+      if (extensions !== null) add('extensions', JSON.stringify(plain(extensions)));
+      const address = KT.str(url);
+      const full = params.length
+        ? `${address}${address.includes('?') ? '&' : '?'}${params.join('&')}`
+        : address;
+      if (!headers) headers = this.defaultHeaders ? await this.defaultHeaders() : new Headers();
+      return this.send(
+        new Request({ url: full, method: 'GET', headers, body: null, kind: fetch }),
+        ensureSuccess,
+      );
+    }
     async request(method, url, rest) {
       // Every argument named (`client.post(url = …, body = …)`).
       if (url && url[NAMED]) {
@@ -4935,13 +5472,26 @@
       outMimeType: null,
     }),
   };
-  /// Keiyoushi's `lib:imagedecoder` (`ImageDecoder.decode(bytes)`): Raygun's own decoder.
+  /// Keiyoushi's `lib:imagedecoder` (`ImageDecoder.decode(bytes)`) and Android's own
+  /// (`ImageDecoder.decodeBitmap(ImageDecoder.createSource(bytes)) { … }`): Raygun's decoder.
   const imageDecoder = {
     decode: (bytes) => {
       const bitmap = decodeBitmap(bytes);
       if (!bitmap) throw new KotlinError('No decoder could read the image', 'IOException');
       return bitmap;
     },
+    createSource: (bytes) => ({ __class: 'Source', bytes }),
+    decodeBitmap: async (source, listener = null) => {
+      const bitmap = decodeBitmap(source && source.bytes !== undefined ? source.bytes : source);
+      if (!bitmap) throw new KotlinError('No decoder could read the image', 'IOException');
+      // The listener sets the decoder's options (`allocator`), which change nothing here.
+      if (typeof listener === 'function') await listener({}, {}, source);
+      return bitmap;
+    },
+    ALLOCATOR_DEFAULT: 0,
+    ALLOCATOR_SOFTWARE: 1,
+    ALLOCATOR_SHARED_MEMORY: 2,
+    ALLOCATOR_HARDWARE: 3,
   };
   const bitmapStatics = {
     Config: {
@@ -5271,6 +5821,9 @@
     BOLD_ITALIC: 3,
     create: (_family, style) => ({ __class: 'Typeface', bold: style === 1 || style === 3 }),
     defaultFromStyle: (style) => ({ __class: 'Typeface', bold: style === 1 || style === 3 }),
+    // A font file a source fetched: text is drawn in the system's face here.
+    createFromFile: () => ({ __class: 'Typeface', bold: false }),
+    createFromAsset: () => ({ __class: 'Typeface', bold: false }),
   };
 
   /// Android's `Canvas` over a picture: draws through its matrix, inside its clip.
@@ -5739,6 +6292,108 @@
   /// What a `for` loop goes through: a sequence's items (up to the cap), else as `KT.iter`.
   KT.each = async (value) =>
     value && value.isLazySequence ? collectSequence(value) : KT.iter(value);
+  /// What a `for await` loop over a sequence that may not end reads, item by item.
+  KT.items = (value) => (value && value.isLazySequence ? value.generate() : KT.iter(value));
+  /// `sequence { yield(x); yieldAll(xs) }` (and `iterator { … }`): the block runs as the items
+  /// are read, each `yield` waiting until the next one is asked for; ranges and sequences it
+  /// yields all of are read one by one (`yieldAll(start..Int.MAX_VALUE)`).
+  const builtItems = (block) => {
+    let started = false;
+    let finished = false;
+    let reader = null; // the pending `next()`: [resolve, reject]
+    let resume = null; // the block waiting at a `yield`
+    const give = (result) => {
+      const [resolve] = reader ?? [];
+      reader = null;
+      if (resolve) resolve(result);
+    };
+    const scope = {
+      __class: 'SequenceScope',
+      __classes: ['SequenceScope'],
+      yield: (value) =>
+        new Promise((resolve) => {
+          resume = resolve;
+          give({ value, done: false });
+        }),
+      yieldAll: async (values) => {
+        if (values && values.isRange) {
+          const { first, last, step } = values;
+          for (let at = first; step > 0 ? at <= last : at >= last; at += step) {
+            if (finished) return;
+            await scope.yield(at);
+          }
+          return;
+        }
+        if (values && values.isLazySequence) {
+          for await (const item of values.generate()) await scope.yield(item);
+          return;
+        }
+        for (const item of KT.iter(values)) await scope.yield(item);
+      },
+    };
+    return {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: () =>
+        new Promise((resolve, reject) => {
+          if (finished) {
+            resolve({ value: undefined, done: true });
+            return;
+          }
+          reader = [resolve, reject];
+          if (started) {
+            const waiting = resume;
+            resume = null;
+            if (waiting) waiting();
+            return;
+          }
+          started = true;
+          Promise.resolve()
+            .then(() => block(scope))
+            .then(
+              () => {
+                finished = true;
+                give({ value: undefined, done: true });
+              },
+              (error) => {
+                finished = true;
+                const [, fail] = reader ?? [];
+                reader = null;
+                if (fail) fail(error);
+              },
+            );
+        }),
+      // A reader that stops early (`take(3)`, a `break`) leaves the block waiting for good.
+      return: async () => {
+        finished = true;
+        return { value: undefined, done: true };
+      },
+    };
+  };
+  KT.sequenceOf = (block) => lazySequence(() => builtItems(block));
+  /// `PropertyDelegateProvider { thisRef, property -> lazy { … } }` behind `val x by provider`:
+  /// the delegate it gives, made once, and its value.
+  const delegateProvider = (provide) => {
+    let delegate;
+    let made = false;
+    const value = async () => {
+      if (!made) {
+        delegate = await provide(null, { __class: 'KProperty', name: '' });
+        made = true;
+      }
+      if (delegate && delegate.isDeferred) return delegate.await();
+      if (delegate && typeof delegate.getValue === 'function') return delegate.getValue(null, {});
+      return delegate;
+    };
+    return {
+      __class: 'PropertyDelegateProvider',
+      __classes: ['PropertyDelegateProvider'],
+      isGetterHost: true,
+      getters: { value },
+      provideDelegate: async () => KT.deferred(value),
+    };
+  };
   /// `generateSequence(seed) { next }`, `generateSequence { next }`, `generateSequence(first, next)`:
   /// items until one is null.
   const generateSequence = (args, lambda) => {
@@ -6183,6 +6838,172 @@
       },
     };
   };
+  const CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+  const crc32Checksum = () => {
+    let crc = 0xffffffff;
+    const sum = {
+      __class: 'CRC32',
+      __classes: ['CRC32', 'Checksum'],
+      update: (value, offset = 0, count = undefined) => {
+        const bytes = typeof value === 'number' ? [value & 255] : u8Of(value);
+        const end = count === undefined ? bytes.length : offset + count;
+        for (let at = offset; at < end; at++)
+          crc = CRC_TABLE[(crc ^ bytes[at]) & 255] ^ (crc >>> 8);
+        return KT.unit;
+      },
+      reset: () => ((crc = 0xffffffff), KT.unit),
+      getValue: () => (crc ^ 0xffffffff) >>> 0,
+    };
+    Object.defineProperty(sum, 'value', { get: sum.getValue, enumerable: false });
+    return sum;
+  };
+  /// Bytes deflated in Rust (`runtime.rs`): `zlib`, `raw` or `gzip`.
+  const deflateBytes = (bytes, format) =>
+    u8Of(fromBase64(crypto({ op: 'deflate', data: K.bin.toBase64(u8Of(bytes)), format })));
+  const compressingStream = (target, format) => {
+    const parts = [];
+    let closed = false;
+    const stream = {
+      __class: 'OutputStream',
+      __classes: ['OutputStream', 'GZIPOutputStream', 'DeflaterOutputStream'],
+      write: (value, offset = 0, count = undefined) => {
+        const bytes = typeof value === 'number' ? [value & 255] : Array.from(u8Of(value));
+        parts.push(...bytes.slice(offset, count === undefined ? undefined : offset + count));
+        return KT.unit;
+      },
+      flush: () => KT.unit,
+      finish: async () => stream.close(),
+      close: async () => {
+        if (closed) return KT.unit;
+        closed = true;
+        await KT.m(target, 'write', [deflateBytes(parts, format)]);
+        return KT.unit;
+      },
+      use: async (lambda) => {
+        try {
+          return await lambda(stream);
+        } finally {
+          await stream.close();
+        }
+      },
+    };
+    return stream;
+  };
+  /// org.json's `JSONObject` and `JSONArray` over parsed JSON: objects and arrays inside come as
+  /// these too, text, numbers and booleans as they are.
+  const orgJsonValue = (value) =>
+    Array.isArray(value)
+      ? orgJsonArray(value)
+      : value && typeof value === 'object'
+        ? orgJsonObject(value)
+        : (value ?? null);
+  const jsonTextOf = (value) =>
+    value === null || value === undefined
+      ? null
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value);
+  const orgJsonObject = (data) => {
+    const found = (key) => {
+      const name = KT.str(key);
+      if (!Object.prototype.hasOwnProperty.call(data, name))
+        throw new KotlinError(`JSONObject["${name}"] not found.`, 'JSONException');
+      return data[name];
+    };
+    const self = {
+      __class: 'JSONObject',
+      __classes: ['JSONObject'],
+      data,
+      opt: (key) => orgJsonValue(data[KT.str(key)]),
+      get: (key) => orgJsonValue(found(key)),
+      has: (key) => Object.prototype.hasOwnProperty.call(data, KT.str(key)),
+      isNull: (key) => data[KT.str(key)] === null || data[KT.str(key)] === undefined,
+      optString: (key, fallback = '') => jsonTextOf(data[KT.str(key)]) ?? fallback,
+      getString: (key) => jsonTextOf(found(key)),
+      optInt: (key, fallback = 0) => Math.trunc(Number(data[KT.str(key)] ?? fallback)),
+      getInt: (key) => Math.trunc(Number(found(key))),
+      optLong: (key, fallback = 0) => Math.trunc(Number(data[KT.str(key)] ?? fallback)),
+      getLong: (key) => Math.trunc(Number(found(key))),
+      optDouble: (key, fallback = NaN) => Number(data[KT.str(key)] ?? fallback),
+      getDouble: (key) => Number(found(key)),
+      optBoolean: (key, fallback = false) => data[KT.str(key)] ?? fallback,
+      getBoolean: (key) => Boolean(found(key)),
+      optJSONObject: (key) => {
+        const value = data[KT.str(key)];
+        return value && typeof value === 'object' && !Array.isArray(value)
+          ? orgJsonObject(value)
+          : null;
+      },
+      getJSONObject: (key) => orgJsonObject(found(key)),
+      optJSONArray: (key) => {
+        const value = data[KT.str(key)];
+        return Array.isArray(value) ? orgJsonArray(value) : null;
+      },
+      getJSONArray: (key) => orgJsonArray(found(key)),
+      keys: () => Object.keys(data),
+      names: () => orgJsonArray(Object.keys(data)),
+      length: () => Object.keys(data).length,
+      put: (key, value) => {
+        data[KT.str(key)] = plain(value && value.data !== undefined ? value.data : value);
+        return self;
+      },
+      remove: (key) => {
+        const value = data[KT.str(key)];
+        delete data[KT.str(key)];
+        return orgJsonValue(value);
+      },
+      toString: () => JSON.stringify(data),
+    };
+    return self;
+  };
+  const orgJsonArray = (data) => {
+    const found = (index) => {
+      if (index < 0 || index >= data.length)
+        throw new KotlinError(`JSONArray[${index}] not found.`, 'JSONException');
+      return data[index];
+    };
+    const self = {
+      __class: 'JSONArray',
+      __classes: ['JSONArray'],
+      data,
+      length: () => data.length,
+      opt: (index) => orgJsonValue(data[index]),
+      get: (index) => orgJsonValue(found(index)),
+      isNull: (index) => data[index] === null || data[index] === undefined,
+      optString: (index, fallback = '') => jsonTextOf(data[index]) ?? fallback,
+      getString: (index) => jsonTextOf(found(index)),
+      optInt: (index, fallback = 0) => Math.trunc(Number(data[index] ?? fallback)),
+      getInt: (index) => Math.trunc(Number(found(index))),
+      optLong: (index, fallback = 0) => Math.trunc(Number(data[index] ?? fallback)),
+      getLong: (index) => Math.trunc(Number(found(index))),
+      optJSONObject: (index) => {
+        const value = data[index];
+        return value && typeof value === 'object' && !Array.isArray(value)
+          ? orgJsonObject(value)
+          : null;
+      },
+      getJSONObject: (index) => orgJsonObject(found(index)),
+      optJSONArray: (index) => (Array.isArray(data[index]) ? orgJsonArray(data[index]) : null),
+      getJSONArray: (index) => orgJsonArray(found(index)),
+      put: (value) => {
+        data.push(plain(value && value.data !== undefined ? value.data : value));
+        return self;
+      },
+      toString: () => JSON.stringify(data),
+      [Symbol.iterator]: function* () {
+        for (const item of data) yield orgJsonValue(item);
+      },
+    };
+    return self;
+  };
   /// Bytes inflated in Rust (`runtime.rs`): Java's `Inflater` (`zlib`, `raw` without its
   /// header) and `GZIPInputStream` (`gzip`).
   const inflateBytes = (bytes, format) =>
@@ -6375,6 +7196,31 @@
         if (!bytes) throw missing();
         return inputStream(bytes);
       },
+      // okio's `file.source()` and `file.sink()`: its bytes, and what's written kept when the
+      // sink closes (or flushes).
+      source: () => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) throw missing();
+        return okioBuffer(bytes);
+      },
+      sink: (append = false) => {
+        const buffer = okioBuffer(append === true ? (memoryFiles.get(path) ?? null) : null);
+        const keep = () => {
+          memoryFiles.set(path, Uint8Array.from(buffer.u8Now()));
+          return KT.unit;
+        };
+        buffer.close = keep;
+        buffer.flush = keep;
+        buffer.buffer = () => buffer;
+        buffer.use = async (lambda) => {
+          try {
+            return await lambda(buffer);
+          } finally {
+            keep();
+          }
+        };
+        return buffer;
+      },
       listFiles: () =>
         [
           ...new Set(
@@ -6522,6 +7368,36 @@
     IndexOutOfBoundsException: ([message]) => new KotlinError(message, 'IndexOutOfBoundsException'),
     IntRange: ([from, to]) => KT.range(from, to),
     IOException: ([message]) => new KotlinError(message, 'IOException'),
+    ZipException: ([message]) => new KotlinError(message, 'ZipException'),
+    // `keiyoushi.zip.readEntry(source, compressedSize, method, decode)`: an entry's bytes after its
+    // local header, through `decode`, inflated when they're deflated.
+    readEntry: async ([source, compressedSize, method, decode = null], _named, lambda) => {
+      const all = u8Of(await streamBytes(source));
+      const word = (at) => all[at] | (all[at + 1] << 8);
+      if (Number(method) !== 0 && Number(method) !== 8)
+        throw new KotlinError(`Unsupported ZIP method: ${method}`, 'ZipException');
+      if (all.length < 30 || (word(0) | (word(2) << 16)) >>> 0 !== 0x04034b50)
+        throw new KotlinError('Not a local file header', 'ZipException');
+      if (word(6) & 1)
+        throw new KotlinError("Encrypted ZIP entries aren't supported", 'ZipException');
+      const start = 30 + word(26) + word(28);
+      const size = Number(compressedSize);
+      if (all.length < start + size)
+        throw new KotlinError(
+          `Source ended ${start + size - all.length} byte(s) early`,
+          'EOFException',
+        );
+      let payload = okioBuffer(all.slice(start, start + size));
+      const transform = lambda ?? decode;
+      if (typeof transform === 'function') payload = await transform(payload);
+      const bytes = u8Of(await streamBytes(payload));
+      return okioBuffer(Number(method) === 8 ? inflateBytes(bytes, 'raw') : bytes);
+    },
+    // kotlincrypto's `BLAKE2b(bits)`: `update(bytes)`, then `digest()`.
+    BLAKE2b: ([bits = 512]) => blake2b(Number(bits)),
+    // Java's `CRC32`: `update(bytes)` as often as it's called, then `value`.
+    CRC32: () => crc32Checksum(),
+    EOFException: ([message]) => new KotlinError(message, 'EOFException'),
     Error: ([message]) => new KotlinError(message, 'Error'),
     GeneralSecurityException: ([message]) => new KotlinError(message, 'GeneralSecurityException'),
     SecurityException: ([message]) => new KotlinError(message, 'SecurityException'),
@@ -6604,6 +7480,59 @@
     askPassword: dialogClosed(null),
     askSelect: dialogClosed(null),
     askSelectOption: dialogClosed(null),
+    // Java's `ZipInputStream`: an archive's entries one by one (`nextEntry`), each read whole.
+    ZipInputStream: async ([stream]) => {
+      const entries = K.unzip(K.bin.toBase64(u8Of(await streamBytes(stream))));
+      let at = -1;
+      let current = null;
+      const zip = {
+        __class: 'ZipInputStream',
+        __classes: ['ZipInputStream', 'InputStream'],
+        getNextEntry: () => {
+          at += 1;
+          if (at >= entries.length) return (current = null);
+          const { name } = entries[at];
+          current = { bytes: fromBase64(entries[at].data), read: 0 };
+          return {
+            __class: 'ZipEntry',
+            __classes: ['ZipEntry'],
+            name,
+            size: current.bytes.length,
+            isDirectory: name.endsWith('/'),
+            getName: () => name,
+            getSize: () => current.bytes.length,
+          };
+        },
+        readBytes: () => {
+          if (!current) return [];
+          const rest = current.bytes.slice(current.read);
+          current.read = current.bytes.length;
+          return rest;
+        },
+        readAllBytes: () => zip.readBytes(),
+        read: (target = null, offset = 0, count = undefined) => {
+          if (!current || current.read >= current.bytes.length) return -1;
+          if (target === null) return current.bytes[current.read++];
+          const length = Math.min(count ?? target.length, current.bytes.length - current.read);
+          for (let index = 0; index < length; index++)
+            target[offset + index] = current.bytes[current.read++];
+          return length;
+        },
+        closeEntry: () => KT.unit,
+        available: () => (current && current.read < current.bytes.length ? 1 : 0),
+        close: () => KT.unit,
+      };
+      Object.defineProperty(zip, 'nextEntry', { get: zip.getNextEntry, enumerable: false });
+      return zip;
+    },
+    // `SequenceInputStream(first, second)`: one stream's bytes, then the other's.
+    SequenceInputStream: async ([first, second]) => {
+      const [head, tail] = [u8Of(await streamBytes(first)), u8Of(await streamBytes(second))];
+      const joined = new Uint8Array(head.length + tail.length);
+      joined.set(head);
+      joined.set(tail, head.length);
+      return inputStream(joined);
+    },
     GZIPInputStream: async ([stream]) =>
       inputStream(inflateBytes(await streamBytes(stream), 'gzip')),
     InflaterInputStream: async ([stream]) =>
@@ -6860,6 +7789,53 @@
     CoroutineScope: () => coroutineScope(),
     // Keiyoushi's `ratingStars(rating, max)`: five stars with halves.
     ratingStars: ([rating, max = 10], named_) => ratingStars(rating, named_?.max ?? max),
+    PropertyDelegateProvider: (args, _named, lambda) => delegateProvider(lambda ?? args[0]),
+    // Java's key specs (`KeyFactory.generatePublic(X509EncodedKeySpec(bytes))`) and OAEP's parameters.
+    X509EncodedKeySpec: ([encoded]) => ({ keySpec: 'x509', encoded }),
+    PKCS8EncodedKeySpec: ([encoded]) => ({ keySpec: 'pkcs8', encoded }),
+    ECPublicKeySpec: ([point]) => ({ keySpec: 'ecPoint', point }),
+    RSAPublicKeySpec: ([modulus, exponent]) => ({ keySpec: 'rsa', modulus, exponent }),
+    ECGenParameterSpec: ([name]) => ({ __class: 'ECGenParameterSpec', name: KT.str(name) }),
+    ECPoint: ([x, y]) => ecPoint(x, y),
+    KeyPair: ([publicKey, privateKey]) => {
+      const pair = {
+        __class: 'KeyPair',
+        __classes: ['KeyPair'],
+        public: publicKey,
+        private: privateKey,
+      };
+      pair.getPublic = () => publicKey;
+      pair.getPrivate = () => privateKey;
+      return pair;
+    },
+    OAEPParameterSpec: ([hash, _mgf, mgfSpec]) => ({
+      isOaep: true,
+      hash: KT.str(hash),
+      mgfHash: (mgfSpec && mgfSpec.digest) || 'SHA-1',
+    }),
+    // org.json's `JSONObject(text)` and `JSONArray(text)`.
+    JSONObject: ([text]) =>
+      orgJsonObject(
+        text === undefined ? {} : typeof text === 'string' ? JSON.parse(text) : plain(text),
+      ),
+    JSONArray: ([text]) =>
+      orgJsonArray(
+        text === undefined ? [] : typeof text === 'string' ? JSON.parse(text) : plain(text),
+      ),
+    // `GZIPOutputStream(out)`, `DeflaterOutputStream(out)`: what's written, compressed into
+    // `out` once the stream closes.
+    GZIPOutputStream: ([target]) => compressingStream(target, 'gzip'),
+    DeflaterOutputStream: ([target]) => compressingStream(target, 'zlib'),
+    // `BigInteger("ff", 16)`, `BigInteger(1, magnitude)`, `BigInteger(twosComplement)`.
+    BigInteger: ([first, second]) => {
+      const bytesLike = (value) => Array.isArray(value) || value instanceof Uint8Array;
+      if (typeof first === 'number' && bytesLike(second)) {
+        const magnitude = bigIntOfBytes(second, false);
+        return first < 0 ? -magnitude : magnitude;
+      }
+      if (bytesLike(first)) return bigIntOfBytes(first, true);
+      return bigIntOf(first, second ?? 10);
+    },
   };
   /// A coroutine scope: `launch` runs its block (not awaited), `async` a deferred value.
   const coroutineScope = () => ({
@@ -7229,17 +8205,103 @@
       getDayOfWeek: () => dayOfWeek(((new Date(ms).getUTCDay() + 6) % 7) + 1),
       getMonthValue: () => new Date(ms).getUTCMonth() + 1,
       getDayOfMonth: () => new Date(ms).getUTCDate(),
+      getDayOfYear: () =>
+        Math.floor((ms - Date.UTC(new Date(ms).getUTCFullYear(), 0, 1)) / DAY_MS) + 1,
+      getHour: () => new Date(ms).getUTCHours(),
+      getMinute: () => new Date(ms).getUTCMinutes(),
+      getSecond: () => new Date(ms).getUTCSeconds(),
+      lengthOfMonth: () => {
+        const date = new Date(ms);
+        return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+      },
+      isLeapYear: () => {
+        const year = new Date(ms).getUTCFullYear();
+        return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+      },
+      withDayOfMonth: (day) => shift((date) => date.setUTCDate(day)),
+      withMonth: (month) => shift((date) => date.setUTCMonth(month - 1)),
+      withYear: (year) => shift((date) => date.setUTCFullYear(year)),
+      // A date at a time of day (`date.atTime(LocalTime.parse(…))`, `atTime(10, 30)`).
+      atTime: (time, minute = 0, second = 0) =>
+        moment(
+          Math.floor(ms / DAY_MS) * DAY_MS +
+            (time && typeof time === 'object'
+              ? msOf(time.ms ?? 0) % DAY_MS
+              : ((Number(time) * 60 + Number(minute)) * 60 + Number(second)) * 1000),
+          'LocalDateTime',
+        ),
+      // A year-month's days (`YearMonth.atDay(1)`, `atEndOfMonth()`).
+      atDay: (day) => moment(ms + (Number(day) - 1) * DAY_MS, 'LocalDate'),
+      atEndOfMonth: () => moment(ms + (value.lengthOfMonth() - 1) * DAY_MS, 'LocalDate'),
+      // `date.get(ChronoField.YEAR)`, `get(WeekFields.SUNDAY_START.dayOfWeek())`.
+      get: (field) => fieldOf(ms, field),
+      getLong: (field) => fieldOf(ms, field),
       format: (formatter) => formatter.format(value),
       isBefore: (other) => ms < msOf(other.ms ?? other),
       isAfter: (other) => ms > msOf(other.ms ?? other),
       isEqual: (other) => ms === msOf(other.ms ?? other),
-      toString: () =>
-        kind === 'Instant'
-          ? new Date(ms).toISOString()
-          : new Date(ms).toISOString().slice(0, kind === 'LocalDate' ? 10 : 19),
+      toString: () => {
+        const iso = new Date(ms).toISOString();
+        if (kind === 'Instant') return iso;
+        if (kind === 'YearMonth') return iso.slice(0, 7);
+        if (kind === 'LocalTime') return iso.slice(11, iso.slice(17, 19) === '00' ? 16 : 19);
+        return iso.slice(0, kind === 'LocalDate' ? 10 : 19);
+      },
     };
     return value;
   };
+  /// A date's field (`ChronoField`'s names, a `WeekFields` field).
+  const fieldOf = (ms, field) => {
+    const date = new Date(ms);
+    if (field && field.isWeekField) {
+      const iso = ((date.getUTCDay() + 6) % 7) + 1;
+      if (field.of === 'dayOfWeek') return ((iso - field.weekStart + 7) % 7) + 1;
+      const start = Date.UTC(
+        date.getUTCFullYear(),
+        field.of === 'weekOfMonth' ? date.getUTCMonth() : 0,
+        1,
+      );
+      const shiftDays = (new Date(start).getUTCDay() - (field.weekStart % 7) + 7) % 7;
+      return Math.floor((Math.floor((ms - start) / DAY_MS) + shiftDays) / 7) + 1;
+    }
+    switch (KT.str(field)) {
+      case 'YEAR':
+      case 'YEAR_OF_ERA':
+        return date.getUTCFullYear();
+      case 'MONTH_OF_YEAR':
+        return date.getUTCMonth() + 1;
+      case 'DAY_OF_MONTH':
+        return date.getUTCDate();
+      case 'DAY_OF_WEEK':
+        return ((date.getUTCDay() + 6) % 7) + 1;
+      case 'DAY_OF_YEAR':
+        return Math.floor((ms - Date.UTC(date.getUTCFullYear(), 0, 1)) / DAY_MS) + 1;
+      case 'HOUR_OF_DAY':
+        return date.getUTCHours();
+      case 'MINUTE_OF_HOUR':
+        return date.getUTCMinutes();
+      case 'SECOND_OF_MINUTE':
+        return date.getUTCSeconds();
+      case 'EPOCH_DAY':
+        return Math.floor(ms / DAY_MS);
+      default:
+        return 0;
+    }
+  };
+  /// java.time's `WeekFields`: weeks starting on `weekStart` (1 Monday … 7 Sunday).
+  const weekFields = (weekStart) => ({
+    __class: 'WeekFields',
+    dayOfWeek: () => ({ isWeekField: true, of: 'dayOfWeek', weekStart }),
+    weekOfMonth: () => ({ isWeekField: true, of: 'weekOfMonth', weekStart }),
+    weekOfYear: () => ({ isWeekField: true, of: 'weekOfYear', weekStart }),
+    weekOfWeekBasedYear: () => ({ isWeekField: true, of: 'weekOfYear', weekStart }),
+    getFirstDayOfWeek: () => dayOfWeek(weekStart),
+  });
+  /// A day's milliseconds in a zone (the device's when none is given), as java.time's `now(zone)`.
+  const nowIn = (where) =>
+    Date.now() + (where === undefined || where === null ? localOffset() : offsetOf(where)) * 60000;
+  const msOfTemporal = (value) =>
+    value && typeof value === 'object' && typeof value.ms === 'number' ? value.ms : Number(value);
   /// A wall clock read from text with a date format (or ISO 8601 without one), in UTC.
   const wallClock = (text, format, kind) => {
     let ms;
@@ -7540,8 +8602,116 @@
   };
   random.Default = random;
   /// Android's `Build`: a phone's, as an extension asks for a User-Agent's parts.
+  /// Java's `Integer` and `Long` helpers on 32 and 64 bits (unsigned readings, rotations, bit
+  /// counts), as hashes and shuffles use them.
+  const radixOf = (radix) => Number(radix ?? 10);
+  const javaInteger = {
+    MAX_VALUE: 2147483647,
+    MIN_VALUE: -2147483648,
+    SIZE: 32,
+    BYTES: 4,
+    parseInt: (text, radix = 10) => KT.nn(toInt(text, radixOf(radix))),
+    valueOf: (value, radix = 10) =>
+      typeof value === 'number' ? value : KT.nn(toInt(value, radixOf(radix))),
+    parseUnsignedInt: (text, radix = 10) => parseInt(KT.str(text), radixOf(radix)) | 0,
+    toString: (value, radix = 10) => (value | 0).toString(radixOf(radix)),
+    toHexString: (value) => (value >>> 0).toString(16),
+    toBinaryString: (value) => (value >>> 0).toString(2),
+    toOctalString: (value) => (value >>> 0).toString(8),
+    toUnsignedString: (value, radix = 10) => (value >>> 0).toString(radixOf(radix)),
+    toUnsignedLong: (value) => value >>> 0,
+    compare: (left, right) => (left < right ? -1 : left > right ? 1 : 0),
+    compareUnsigned: (left, right) => {
+      const [a, b] = [left >>> 0, right >>> 0];
+      return a < b ? -1 : a > b ? 1 : 0;
+    },
+    divideUnsigned: (left, right) => Math.trunc((left >>> 0) / (right >>> 0)) | 0,
+    remainderUnsigned: (left, right) => ((left >>> 0) % (right >>> 0)) | 0,
+    rotateLeft: (value, distance) => (value << distance) | (value >>> -distance) | 0,
+    rotateRight: (value, distance) => (value >>> distance) | (value << -distance) | 0,
+    numberOfLeadingZeros: (value) => Math.clz32(value),
+    numberOfTrailingZeros: (value) => (value === 0 ? 32 : 31 - Math.clz32(value & -value)),
+    bitCount: (value) => {
+      let bits = value >>> 0;
+      let count = 0;
+      for (; bits; bits >>>= 1) count += bits & 1;
+      return count;
+    },
+    highestOneBit: (value) => (value === 0 ? 0 : (1 << (31 - Math.clz32(value))) | 0),
+    lowestOneBit: (value) => value & -value,
+    reverseBytes: (value) =>
+      ((value & 255) << 24) | ((value & 0xff00) << 8) | ((value >>> 8) & 0xff00) | (value >>> 24),
+    signum: (value) => Math.sign(value),
+    sum: (left, right) => (left + right) | 0,
+    max: (left, right) => Math.max(left, right),
+    min: (left, right) => Math.min(left, right),
+    hashCode: (value) => value | 0,
+  };
+  const javaLong = {
+    MAX_VALUE: Number.MAX_SAFE_INTEGER,
+    MIN_VALUE: -Number.MAX_SAFE_INTEGER,
+    SIZE: 64,
+    BYTES: 8,
+    SIZE_BITS: 64,
+    SIZE_BYTES: 8,
+    parseLong: (text, radix = 10) => KT.nn(toInt(text, radixOf(radix))),
+    valueOf: (value, radix = 10) =>
+      typeof value === 'number' ? value : KT.nn(toInt(value, radixOf(radix))),
+    toString: (value, radix = 10) => big(value).toString(radixOf(radix)),
+    toHexString: (value) => BigInt.asUintN(64, big(value)).toString(16),
+    toBinaryString: (value) => BigInt.asUintN(64, big(value)).toString(2),
+    toUnsignedString: (value, radix = 10) =>
+      BigInt.asUintN(64, big(value)).toString(radixOf(radix)),
+    compare: (left, right) => (left < right ? -1 : left > right ? 1 : 0),
+    compareUnsigned: (left, right) => {
+      const [a, b] = [BigInt.asUintN(64, big(left)), BigInt.asUintN(64, big(right))];
+      return a < b ? -1 : a > b ? 1 : 0;
+    },
+    divideUnsigned: (left, right) =>
+      fromBig(BigInt.asUintN(64, big(left)) / BigInt.asUintN(64, big(right))),
+    remainderUnsigned: (left, right) =>
+      fromBig(BigInt.asUintN(64, big(left)) % BigInt.asUintN(64, big(right))),
+    rotateLeft: (value, distance) => {
+      const bits = BigInt.asUintN(64, big(value));
+      const shift = BigInt(distance & 63);
+      return fromBig(BigInt.asUintN(64, (bits << shift) | (bits >> ((64n - shift) & 63n))));
+    },
+    numberOfLeadingZeros: (value) => {
+      const bits = BigInt.asUintN(64, big(value));
+      return bits === 0n ? 64 : 64 - bits.toString(2).length;
+    },
+    numberOfTrailingZeros: (value) => {
+      const bits = BigInt.asUintN(64, big(value));
+      if (bits === 0n) return 64;
+      let count = 0;
+      for (let rest = bits; (rest & 1n) === 0n; rest >>= 1n) count += 1;
+      return count;
+    },
+    bitCount: (value) =>
+      [...BigInt.asUintN(64, big(value)).toString(2)].filter((d) => d === '1').length,
+    signum: (value) => Math.sign(value),
+    max: (left, right) => Math.max(left, right),
+    min: (left, right) => Math.min(left, right),
+    hashCode: (value) => Number(BigInt.asIntN(32, big(value) ^ (big(value) >> 32n))),
+  };
   const build = {
     VERSION: { RELEASE: '14', SDK_INT: 34, CODENAME: 'REL', INCREMENTAL: '1' },
+    // Android's API levels by name (`Build.VERSION.SDK_INT >= Build.VERSION_CODES.S`).
+    VERSION_CODES: {
+      LOLLIPOP: 21,
+      M: 23,
+      N: 24,
+      O: 26,
+      O_MR1: 27,
+      P: 28,
+      Q: 29,
+      R: 30,
+      S: 31,
+      S_V2: 32,
+      TIRAMISU: 33,
+      UPSIDE_DOWN_CAKE: 34,
+      VANILLA_ICE_CREAM: 35,
+    },
     MODEL: 'Pixel 4',
     MANUFACTURER: 'Google',
     BRAND: 'google',
@@ -7900,18 +9070,40 @@
     },
     SChapter: { create: () => chapter() },
     Jsoup: {
-      parse: (html, base = '') => Jsoup.parse(html, KT.str(base)),
+      // `Jsoup.parse(text, base, Parser.xmlParser())`, or `(text, parser)`.
+      parse: (html, base = '', parser = null) => {
+        if (base && base.__class === 'Parser') [base, parser] = ['', base];
+        return Jsoup.parse(html, KT.str(base ?? ''), Boolean(parser && parser.xml));
+      },
       parseBodyFragment: (html, base = '') =>
         Jsoup.parse(`<body>${KT.str(html)}</body>`, KT.str(base)),
       clean: (html) => Jsoup.parse(html).text(),
     },
     Fetch,
+    // Java's locale constants (`Locale.FRENCH` reads French month names).
     Locale: {
       ENGLISH: K.locale('en'),
       US: K.locale('en', 'US'),
       ROOT: K.locale('root'),
       UK: K.locale('en', 'GB'),
+      CANADA: K.locale('en', 'CA'),
+      FRENCH: K.locale('fr'),
+      FRANCE: K.locale('fr', 'FR'),
+      CANADA_FRENCH: K.locale('fr', 'CA'),
+      GERMAN: K.locale('de'),
+      GERMANY: K.locale('de', 'DE'),
+      ITALIAN: K.locale('it'),
+      ITALY: K.locale('it', 'IT'),
       JAPANESE: K.locale('ja'),
+      JAPAN: K.locale('ja', 'JP'),
+      KOREAN: K.locale('ko'),
+      KOREA: K.locale('ko', 'KR'),
+      CHINESE: K.locale('zh'),
+      CHINA: K.locale('zh', 'CN'),
+      PRC: K.locale('zh', 'CN'),
+      SIMPLIFIED_CHINESE: K.locale('zh', 'CN'),
+      TRADITIONAL_CHINESE: K.locale('zh', 'TW'),
+      TAIWAN: K.locale('zh', 'TW'),
       getDefault: () => K.locale('en'),
       forLanguageTag: (tag) => K.locale(tag),
       of: (language, country) => K.locale(language, country),
@@ -7995,12 +9187,22 @@
       isLetter: (char) => /^\p{L}$/u.test(char),
       isLetterOrDigit: (char) => /^[\p{L}\p{Nd}]$/u.test(char),
       isWhitespace: (char) => /^\s$/.test(char),
+      isUpperCase: (char) => /^\p{Lu}$/u.test(char),
+      isLowerCase: (char) => /^\p{Ll}$/u.test(char),
+      isSpaceChar: (char) => /^\p{Zs}$/u.test(char),
+      toUpperCase: (char) => KT.str(char).toUpperCase(),
+      toLowerCase: (char) => KT.str(char).toLowerCase(),
+      // A digit's value (`7`, `a` is 10 … `z` 35), else -1.
+      getNumericValue: (char) => {
+        const value = parseInt(KT.str(char), 36);
+        return Number.isNaN(value) || KT.str(char).length !== 1 ? -1 : value;
+      },
     },
     Unit: undefined,
     // The Mihon release a source may name in its User-Agent.
     AppInfo: { getVersionName: () => '0.19.1', getVersionCode: () => 19 },
     // Android's log: nothing kept.
-    Log: { e: () => 0, w: () => 0, i: () => 0, d: () => 0, v: () => 0 },
+    Log: { e: () => 0, w: () => 0, i: () => 0, d: () => 0, v: () => 0, wtf: () => 0 },
     // `Regex.escape(text)`: the text matched as it is.
     Regex: {
       escape: (text) => KT.str(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
@@ -8016,19 +9218,105 @@
       MONTHS: 'MONTHS',
       YEARS: 'YEARS',
     },
-    ChronoField: {},
+    ChronoField: Object.fromEntries(Object.keys(CHRONO_FIELDS).map((name) => [name, name])),
+    SignStyle: {
+      NORMAL: 'NORMAL',
+      ALWAYS: 'ALWAYS',
+      NEVER: 'NEVER',
+      NOT_NEGATIVE: 'NOT_NEGATIVE',
+      EXCEEDS_PAD: 'EXCEEDS_PAD',
+    },
+    FormatStyle: { FULL: 'FULL', LONG: 'LONG', MEDIUM: 'MEDIUM', SHORT: 'SHORT' },
     LocalDate: {
-      now: () =>
-        moment(Math.floor((Date.now() + localOffset() * 60000) / DAY_MS) * DAY_MS, 'LocalDate'),
+      now: (where) => moment(Math.floor(nowIn(where) / DAY_MS) * DAY_MS, 'LocalDate'),
       parse: (text, format) => moment(wallClock(text, format, 'LocalDate'), 'LocalDate'),
       of: (year, month, day) => moment(Date.UTC(year, month - 1, day), 'LocalDate'),
       ofEpochDay: (days) => moment(days * DAY_MS, 'LocalDate'),
+      from: (value) => moment(Math.floor(msOfTemporal(value) / DAY_MS) * DAY_MS, 'LocalDate'),
+      MIN: moment(-8.64e15, 'LocalDate'),
+      MAX: moment(8.64e15, 'LocalDate'),
+      EPOCH: moment(0, 'LocalDate'),
     },
     LocalDateTime: {
-      now: () => moment(Date.now() + localOffset() * 60000, 'LocalDateTime'),
+      now: (where) => moment(nowIn(where), 'LocalDateTime'),
       parse: (text, format) => moment(wallClock(text, format, 'LocalDateTime'), 'LocalDateTime'),
       of: (year, month, day, hour = 0, minute = 0, second = 0) =>
         moment(Date.UTC(year, month - 1, day, hour, minute, second), 'LocalDateTime'),
+      from: (value) => moment(msOfTemporal(value), 'LocalDateTime'),
+    },
+    // `YearMonth.of(2024, 3)`, `YearMonth.from(date)`, `YearMonth.now()`: a month, at its first day.
+    YearMonth: {
+      now: (where) => {
+        const date = new Date(nowIn(where));
+        return moment(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1), 'YearMonth');
+      },
+      of: (year, month) => moment(Date.UTC(year, Number(month) - 1, 1), 'YearMonth'),
+      from: (value) => {
+        const date = new Date(msOfTemporal(value));
+        return moment(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1), 'YearMonth');
+      },
+      parse: (text, format) => {
+        const date = new Date(
+          format
+            ? wallClock(text, format, 'LocalDate')
+            : Date.parse(`${KT.str(text).trim()}-01T00:00:00Z`),
+        );
+        if (Number.isNaN(date.getTime()))
+          throw new KotlinError(
+            `Text '${KT.str(text)}' could not be parsed`,
+            'DateTimeParseException',
+          );
+        return moment(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1), 'YearMonth');
+      },
+    },
+    // `LocalTime.parse("10:30", format)`, `LocalTime.of(10, 30)`: a time of day, in milliseconds.
+    LocalTime: {
+      parse: (text, format) => {
+        if (format && typeof format.parse === 'function') {
+          const read = format.parse(text);
+          if (read === null)
+            throw new KotlinError(
+              `Text '${KT.str(text)}' could not be parsed`,
+              'DateTimeParseException',
+            );
+          return moment(
+            (((read + format.offsetMinutes * 60000) % DAY_MS) + DAY_MS) % DAY_MS,
+            'LocalTime',
+          );
+        }
+        const found = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(KT.str(text).trim());
+        if (!found)
+          throw new KotlinError(
+            `Text '${KT.str(text)}' could not be parsed`,
+            'DateTimeParseException',
+          );
+        const [, hour, minute, second = '0'] = found;
+        return moment(
+          ((Number(hour) * 60 + Number(minute)) * 60 + Number(second)) * 1000,
+          'LocalTime',
+        );
+      },
+      of: (hour, minute = 0, second = 0) =>
+        moment(((Number(hour) * 60 + Number(minute)) * 60 + Number(second)) * 1000, 'LocalTime'),
+      now: (where) => moment(nowIn(where) % DAY_MS, 'LocalTime'),
+      MIDNIGHT: moment(0, 'LocalTime'),
+      MIN: moment(0, 'LocalTime'),
+      NOON: moment(12 * 3600000, 'LocalTime'),
+      MAX: moment(DAY_MS - 1, 'LocalTime'),
+    },
+    WeekFields: {
+      ISO: weekFields(1),
+      SUNDAY_START: weekFields(7),
+      of: (first) =>
+        weekFields(
+          first && first.language !== undefined
+            ? ['US', 'CA', 'JP', 'KR', 'TW', 'BR', 'IL'].includes(first.country)
+              ? 7
+              : 1
+            : first && typeof first.getValue === 'function'
+              ? first.getValue()
+              : 1,
+        ),
     },
     ZonedDateTime: {
       now: () => moment(Date.now(), 'ZonedDateTime'),
@@ -8041,17 +9329,44 @@
           'ZonedDateTime',
         ),
     },
-    Parser: { unescapeEntities: (text) => unescapeEntities(text) },
+    // Jsoup's `Parser`: `Jsoup.parse(text, base, Parser.xmlParser())` reads XML (an RSS feed's
+    // `<link>` keeps its text).
+    Parser: {
+      unescapeEntities: (text) => unescapeEntities(text),
+      xmlParser: () => ({ __class: 'Parser', xml: true }),
+      htmlParser: () => ({ __class: 'Parser', xml: false }),
+    },
     DateTimeFormatter: {
       ofPattern: (pattern, locale) => K.dateFormat(pattern, locale),
       ISO_LOCAL_DATE: K.dateFormat('yyyy-MM-dd'),
-      ISO_LOCAL_DATE_TIME: K.dateFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_DATE: K.dateFormat('yyyy-MM-dd'),
+      BASIC_ISO_DATE: K.dateFormat('yyyyMMdd'),
+      ISO_LOCAL_TIME: K.dateFormat('HH:mm[:ss]'),
+      ISO_LOCAL_DATE_TIME: isoFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_DATE_TIME: isoFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_OFFSET_DATE_TIME: isoFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_ZONED_DATE_TIME: isoFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_INSTANT: isoFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+      RFC_1123_DATE_TIME: K.dateFormat('EEE, d MMM yyyy HH:mm:ss z'),
+      // English's styles: Raygun shows dates as it formats them.
+      ofLocalizedDate: (style) => K.dateFormat(LOCALIZED_DATES[KT.str(style)] ?? 'M/d/yy'),
+      ofLocalizedDateTime: (style) =>
+        K.dateFormat(`${LOCALIZED_DATES[KT.str(style)] ?? 'M/d/yy'}, HH:mm`),
     },
     // `System.getProperty("http.agent")`: the agent Android's own HTTP stack names.
     System: {
       currentTimeMillis: () => Date.now(),
+      nanoTime: () => Date.now() * 1e6,
       getProperty: (name) =>
         KT.str(name) === 'http.agent' ? 'Dalvik/2.1.0 (Linux; U; Android 14)' : null,
+      getenv: () => null,
+      lineSeparator: () => '\n',
+      // `System.arraycopy(src, from, dest, to, length)`, overlapping ranges too.
+      arraycopy: (source, from, target, to, length) => {
+        const part = Array.prototype.slice.call(source, from, from + length);
+        for (let index = 0; index < length; index++) target[to + index] = part[index];
+        return KT.unit;
+      },
     },
     FormBody: { Builder: () => formBody() },
     Headers: {
@@ -8077,9 +9392,31 @@
       round: Math.round,
       pow: Math.pow,
     },
-    Integer: { parseInt: (text) => parseInt(text, 10), MAX_VALUE: 2147483647 },
-    Long: { MAX_VALUE: Number.MAX_SAFE_INTEGER },
-    Int: { MAX_VALUE: 2147483647 },
+    BigInteger: {
+      ZERO: 0n,
+      ONE: 1n,
+      TWO: 2n,
+      TEN: 10n,
+      valueOf: (value) => bigIntOf(value),
+    },
+    Integer: javaInteger,
+    Long: javaLong,
+    Int: { MAX_VALUE: 2147483647, MIN_VALUE: -2147483648, SIZE_BITS: 32, SIZE_BYTES: 4 },
+    // OkHttp's `Dns.SYSTEM` (Raygun's client resolves names itself), Kotlin's buffer size,
+    // Android's text input types (settings screens).
+    Dns: { SYSTEM: { __class: 'Dns', lookup: (host) => [KT.str(host)] } },
+    DEFAULT_BUFFER_SIZE: 8192,
+    InputType: {
+      TYPE_CLASS_TEXT: 1,
+      TYPE_CLASS_NUMBER: 2,
+      TYPE_CLASS_PHONE: 3,
+      TYPE_TEXT_VARIATION_URI: 16,
+      TYPE_TEXT_VARIATION_EMAIL_ADDRESS: 32,
+      TYPE_TEXT_VARIATION_PASSWORD: 128,
+      TYPE_TEXT_VARIATION_VISIBLE_PASSWORD: 144,
+      TYPE_NUMBER_FLAG_DECIMAL: 8192,
+      TYPE_TEXT_FLAG_NO_SUGGESTIONS: 524288,
+    },
     URLEncoder: { encode: (text) => encodeURIComponent(KT.str(text)).replace(/%20/g, '+') },
     URLDecoder: { decode: (text) => decodeURIComponent(KT.str(text).replace(/\+/g, ' ')) },
     Charsets: { UTF_8: 'UTF-8' },
@@ -8106,13 +9443,40 @@
         decode: (value) => fromBase64(Array.isArray(value) ? binaryOf(value) : value),
         encode: (value) => base64Encode(value, 0),
       },
+      // Java's `java.util.Base64.getDecoder().decode(…)`, `getEncoder().encodeToString(…)`.
+      getDecoder: () => javaBase64Decoder,
+      getUrlDecoder: () => javaBase64Decoder,
+      getMimeDecoder: () => javaBase64Decoder,
+      getEncoder: () => javaBase64Encoder(2),
+      getUrlEncoder: () => javaBase64Encoder(2 | 8),
+      getMimeEncoder: () => javaBase64Encoder(0),
     },
     // Java's `Cipher`, `MessageDigest`, `Mac` and `SecretKeyFactory`, over the Rust natives.
     Cipher: {
-      getInstance: (name) => aesCipher(transformation(name)),
+      getInstance: (name) =>
+        /^RSA/i.test(KT.str(name)) ? rsaCipher(name) : aesCipher(transformation(name)),
       ENCRYPT_MODE: 1,
       DECRYPT_MODE: 2,
     },
+    KeyPairGenerator: { getInstance: (name) => keyPairGenerator(name) },
+    KeyFactory: { getInstance: (name) => keyFactory(name) },
+    KeyAgreement: { getInstance: () => keyAgreement() },
+    Signature: { getInstance: (name) => javaSignature(name) },
+    AlgorithmParameters: {
+      getInstance: () => ({
+        __class: 'AlgorithmParameters',
+        init: () => KT.unit,
+        getParameterSpec: () => p256Parameters,
+      }),
+    },
+    MGF1ParameterSpec: {
+      SHA1: { digest: 'SHA-1' },
+      SHA224: { digest: 'SHA-224' },
+      SHA256: { digest: 'SHA-256' },
+      SHA384: { digest: 'SHA-384' },
+      SHA512: { digest: 'SHA-512' },
+    },
+    PSource: { PSpecified: { DEFAULT: { __class: 'PSource' } } },
     MessageDigest: { getInstance: (algorithm) => digester(KT.str(algorithm)) },
     Mac: { getInstance: (algorithm) => digester(KT.str(algorithm), true) },
     SecretKeyFactory: {
@@ -8150,6 +9514,12 @@
       ofEpochMilli: (ms) => instant(ms),
       ofEpochSecond: (seconds) => instant(seconds * 1000),
       now: () => instant(Date.now()),
+      // kotlinx's far ends and java.time's (as far as a date reaches here).
+      DISTANT_PAST: instant(-8.64e15),
+      DISTANT_FUTURE: instant(8.64e15),
+      MIN: instant(-8.64e15),
+      MAX: instant(8.64e15),
+      EPOCH: instant(0),
     },
     Clock: { System: { now: () => instant(Date.now()) } },
   };

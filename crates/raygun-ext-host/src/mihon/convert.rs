@@ -154,6 +154,15 @@ pub const THEMES: [Theme; 2] = [
 /// the runtime's own (`mihon/kotlin.js`).
 const PROVIDED_LIBRARIES: [&str; 3] = ["lib:i18n", "lib:textinterceptor", "lib:imagedecoder"];
 
+/// The parts of Keiyoushi's `core` (`keiyoushi.<module>`) that convert with the code importing
+/// them, as the runtime doesn't have them itself: `zip`, ZIP archives read whole or by HTTP range
+/// requests (`zipDirectory`, `readZipEntry`, `Entry.dataRange`).
+const CONVERTED_CORE: [&str; 1] = ["zip"];
+
+/// Pieces of those parts of `core` the runtime has instead of their code: `readEntry` (an entry's
+/// bytes after its local header, inflated) over okio's `InflaterSource` and `ForwardingSource`.
+const RUNTIME_CORE_MEMBERS: [&str; 3] = ["readEntry", "fixedLength", "FixedLengthSource"];
+
 /// The theme called `name`, when Raygun runs it.
 pub fn theme(name: &str) -> Option<&'static Theme> {
     THEMES.iter().find(|theme| theme.name == name)
@@ -188,8 +197,13 @@ pub fn convert(extension: &StoreExtension, sources: &Sources) -> Result<Converte
     }
     // The libraries' code is the extension's own, as it's compiled into it.
     for (path, text) in sources.library_kotlin() {
-        let file = parse_file(text)
+        let mut file = parse_file(text)
             .map_err(|error| format!("Raygun couldn't read its code ({path}: {error})"))?;
+        // What the runtime does itself in place of `core`'s code (okio's streaming beneath it).
+        if path.starts_with("core/") {
+            file.members
+                .retain(|member| !RUNTIME_CORE_MEMBERS.contains(&member.name()));
+        }
         files.push((path, file));
     }
     if files.is_empty() {
@@ -269,6 +283,23 @@ pub fn libraries_to_read(sources: &Sources) -> Vec<String> {
         for library in gradle::read(build).libraries {
             if library.starts_with("lib:")
                 && !PROVIDED_LIBRARIES.contains(&library.as_str())
+                && !sources.library_files.contains_key(&library)
+                && !wanted.contains(&library)
+            {
+                wanted.push(library);
+            }
+        }
+    }
+    // The parts of Keiyoushi's `core` converted with the code that imports them.
+    let code = sources
+        .kotlin()
+        .chain(sources.theme_kotlin())
+        .map(|(_, text)| text)
+        .chain(sources.library_kotlin().map(|(_, text)| text));
+    for text in code {
+        for module in CONVERTED_CORE {
+            let library = format!("core:{module}");
+            if text.contains(&format!("import keiyoushi.{module}."))
                 && !sources.library_files.contains_key(&library)
                 && !wanted.contains(&library)
             {
@@ -443,17 +474,17 @@ fn rate_limit(args: &[Arg]) -> Option<(i64, i64)> {
             .map(|arg| &arg.value)
     };
     let permits = match value("permits", 0)? {
-        Expr::Int(permits) => *permits,
+        Expr::Int(permits) | Expr::Long(permits) => *permits,
         _ => return None,
     };
     let period_ms = match value("period", 1) {
         None => 1000,
-        Some(Expr::Int(seconds)) => seconds * 1000,
+        Some(Expr::Int(seconds) | Expr::Long(seconds)) => seconds * 1000,
         // `1.seconds`, `500.milliseconds`
         Some(Expr::Member { target, name, .. }) => match (target.as_ref(), name.as_str()) {
-            (Expr::Int(amount), "seconds") => amount * 1000,
-            (Expr::Int(amount), "milliseconds") => *amount,
-            (Expr::Int(amount), "minutes") => amount * 60_000,
+            (Expr::Int(amount) | Expr::Long(amount), "seconds") => amount * 1000,
+            (Expr::Int(amount) | Expr::Long(amount), "milliseconds") => *amount,
+            (Expr::Int(amount) | Expr::Long(amount), "minutes") => amount * 60_000,
             _ => return None,
         },
         _ => return None,
