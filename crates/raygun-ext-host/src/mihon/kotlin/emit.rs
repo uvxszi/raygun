@@ -225,6 +225,12 @@ pub const METHODS: &[&str] = &[
     // Deferred values, caches, addresses
     "complete", "completeExceptionally", "evictAll", "snapshot", "getQueryParameter",
     "getQueryParameterNames", "buildUpon", "toURL", "toURI", "toExternalForm",
+    // GCM's data, Android's `Uri.Builder`, settings widgets, Jsoup and the rest
+    "updateAAD", "appendQueryParameter", "appendPath", "appendEncodedPath", "authority",
+    "setDefaultValue", "setOnPreferenceChangeListener", "setOnPreferenceClickListener",
+    "setOnBindEditTextListener", "addPreference", "parseBodyFragment", "nextDouble", "shuffle",
+    "toJavaInstant", "toKotlinInstant", "stripTrailingZeros", "toPlainString", "noCache",
+    "noStore", "maxStale", "maxAge", "onlyIfCached",
 ];
 
 fn quote(text: &str) -> String {
@@ -271,6 +277,9 @@ pub struct Gen<'a> {
     next: u32,
     /// The declared class whose code this is: its companion's values are in scope.
     pub class_scope: Option<String>,
+    /// The Kotlin function being written (`passCheck`), which tells a web view passing a
+    /// browser check from one reading a page.
+    function_name: String,
     /// Local functions with a receiver (`fun Builder.addParam(…)` in a body), by JavaScript name:
     /// their receiver is passed first.
     local_extensions: HashSet<String>,
@@ -395,6 +404,7 @@ impl<'a> Gen<'a> {
             catches_return: false,
             next: 0,
             class_scope: None,
+            function_name: String::new(),
             local_extensions: HashSet::new(),
             loops: Vec::new(),
             jumped: HashSet::new(),
@@ -702,6 +712,7 @@ impl<'a> Gen<'a> {
             self.receivers.len(),
         );
         let outer_loops = std::mem::take(&mut self.loops);
+        let outer_name = std::mem::replace(&mut self.function_name, fun.name.clone());
         self.depth = 0;
         self.catches_return = false;
         let result = self.scoped(|writer| {
@@ -783,6 +794,7 @@ impl<'a> Gen<'a> {
         self.catches_return = catches_return;
         self.labels = labels;
         self.loops = outer_loops;
+        self.function_name = outer_name;
         self.receivers.truncate(receivers);
         self.receiver_labels.truncate(receivers);
         result
@@ -1784,6 +1796,19 @@ impl<'a> Gen<'a> {
                     {
                         return self.receiver_call_returning(lambda, "[]", name);
                     }
+                    // Keiyoushi's `runWebView { … }`: a web view the source drives, which Raygun
+                    // doesn't have. The call fails naming the page it would load: as a browser
+                    // check when the function passes one (which the person may then pass by
+                    // hand), else as a page that needs a web view.
+                    ("runWebView" | "runWebViewBlocking", Some(lambda)) => {
+                        let page = loaded_page(&lambda.body)
+                            .and_then(|page| self.expr(&page).ok())
+                            .unwrap_or_else(|| "null".to_owned());
+                        let check = passes_a_check(&self.function_name);
+                        return Ok(format!(
+                            "(await KT.call(\"runWebView\", [{page}, (await self.get(\"baseUrl\")), {check}]))"
+                        ));
+                    }
                     ("buildMap", Some(lambda)) => {
                         return self.receiver_call_returning(lambda, "new Map()", name);
                     }
@@ -2037,6 +2062,7 @@ impl<'a> Gen<'a> {
                     && !self.cx.properties.contains(owner)
                     && !self.cx.constants.contains(owner)
                     && self.companion_value(owner).is_none()
+                    && !(self.class_scope.is_some() && self.cx.class_members.contains(owner))
                 {
                     let owner_code = if self.cx.classes.contains(owner) {
                         format!("D.{owner}")
@@ -2168,6 +2194,12 @@ impl<'a> Gen<'a> {
     }
 
     fn reference(&mut self, target: Option<&Expr>, name: &str) -> Result<String, String> {
+        // `::node`: a local function, already a function.
+        if target.is_none()
+            && let Some(js) = self.resolve(name)
+        {
+            return Ok(js);
+        }
         match target {
             // `::helper`: one of the source's functions.
             None if self.cx.functions.contains_key(name) => Ok(format!(
@@ -2458,6 +2490,47 @@ fn type_name(ty: &Type) -> String {
     }
 }
 
+/// The page a web view's block loads first (`loadUrl(checkUrl.toString())`), when it says.
+fn loaded_page(block: &Block) -> Option<Expr> {
+    block.iter().find_map(|stmt| match stmt {
+        Stmt::Expr(Expr::Call { callee, args, .. }) => match callee.as_ref() {
+            Expr::Name(name) if matches!(name.as_str(), "loadUrl" | "loadData") => {
+                args.first().map(|arg| arg.value.clone())
+            }
+            _ => None,
+        },
+        Stmt::Expr(Expr::If {
+            then, otherwise, ..
+        }) => loaded_page(then).or_else(|| otherwise.as_ref().and_then(loaded_page)),
+        _ => None,
+    })
+}
+
+/// Whether a function's name says it passes a browser check (`passGuard`, `wafInterceptor`,
+/// `solveTurnstile`), rather than reading a page a script draws.
+fn passes_a_check(function: &str) -> bool {
+    const MARKS: [&str; 16] = [
+        "pass",
+        "guard",
+        "check",
+        "challenge",
+        "verify",
+        "waf",
+        "anubis",
+        "bot",
+        "clearance",
+        "turnstile",
+        "captcha",
+        "gate",
+        "cloudflare",
+        "solve",
+        "bypass",
+        "shield",
+    ];
+    let lower = function.to_lowercase();
+    MARKS.iter().any(|mark| lower.contains(mark))
+}
+
 /// Functions and objects the runtime has without a receiver (`mihon/kotlin.js`'s `GLOBALS`).
 #[rustfmt::skip]
 pub const GLOBALS: &[&str] = &[
@@ -2487,6 +2560,9 @@ pub const GLOBALS: &[&str] = &[
     "SocketTimeoutException", "InterruptedException", "NumberFormatException", "TimeoutException",
     "CancellationException", "generateSequence", "DecimalFormat", "SecureRandom", "Any",
     "LruCache", "CompletableDeferred", "URI", "URL", "SupervisorJob", "Job", "delay", "assert",
+    "runWebView", "getTurnstileToken", "getLocalStorage", "SwitchPreferenceCompat",
+    "CheckBoxPreference", "ListPreference", "EditTextPreference", "MultiSelectListPreference",
+    "PreferenceCategory", "Cache", "SeedRandom",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2502,5 +2578,6 @@ pub const OBJECTS: &[&str] = &[
     "Cipher", "MessageDigest", "Mac", "SecretKeyFactory", "UpdateStrategy", "MultipartBody",
     "QuickJs", "JSON_MEDIA_TYPE", "Bitmap", "BitmapFactory", "Color", "Paint", "Typeface",
     "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper", "Collator", "Dispatchers",
-    "Evaluator", "HttpUrl", "Uri", "Float", "Double", "Thread",
+    "Evaluator", "HttpUrl", "Uri", "Float", "Double", "Thread", "Response", "Protocol", "Year",
+    "OffsetDateTime",
 ];

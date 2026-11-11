@@ -512,6 +512,23 @@ fn members(
     let mut overloads: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for member in members {
         match member {
+            // The source's `init { … }`: run once, before Raygun's first call, base-most first.
+            Member::Init(block) if !companion && target == "self" => {
+                let init = super::kotlin::ast::FunDecl {
+                    name: "init".to_owned(),
+                    modifiers: Vec::new(),
+                    annotations: Vec::new(),
+                    receiver: None,
+                    params: Vec::new(),
+                    ret: None,
+                    body: Some(Body::Block(block.clone())),
+                    line: 0,
+                };
+                let code = writer
+                    .function(&init)
+                    .map_err(|reason| format!("init: {reason}"))?;
+                out.push(format!("self.init({code});"));
+            }
             Member::Init(_) => return Err("it runs code of its own when it starts".into()),
             Member::TypeAlias(..) => {}
             Member::Class(inner) if inner.modifiers.iter().any(|m| m == "companion") => {

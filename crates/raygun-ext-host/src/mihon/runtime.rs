@@ -135,6 +135,9 @@ enum CryptoArgs {
         #[serde(default)]
         encrypt: bool,
         data: String,
+        /// GCM's additional authenticated data (`updateAAD`).
+        #[serde(default)]
+        aad: Option<String>,
     },
     /// A digest (`md5`, `sha1`, `sha256`, `sha512`).
     Digest { algorithm: String, data: String },
@@ -175,6 +178,7 @@ fn crypto(args: &str) -> Result<String, String> {
             padding,
             encrypt,
             data,
+            aad,
         } => aes_run(
             &mode,
             &bytes(&key)?,
@@ -182,6 +186,7 @@ fn crypto(args: &str) -> Result<String, String> {
             padding,
             encrypt,
             &bytes(&data)?,
+            &aad.as_deref().map(bytes).transpose()?.unwrap_or_default(),
         )?,
         CryptoArgs::Digest { algorithm, data } => digest(&algorithm, &bytes(&data)?)?,
         CryptoArgs::Hmac {
@@ -281,6 +286,7 @@ fn aes_run(
     padding: bool,
     encrypt: bool,
     data: &[u8],
+    aad: &[u8],
 ) -> Result<Vec<u8>, String> {
     use aes::cipher::block_padding::NoPadding;
     use aes::cipher::{BlockDecrypt, BlockEncrypt, BlockEncryptMut, KeyInit, StreamCipher};
@@ -373,7 +379,7 @@ fn aes_run(
             by_key!(ctr_run)
         }
         "gcm" => {
-            use aes_gcm::aead::{Aead, KeyInit as _, generic_array::GenericArray};
+            use aes_gcm::aead::{Aead, KeyInit as _, Payload, generic_array::GenericArray};
             let iv = iv_of()?;
             if iv.len() != 12 {
                 return Err("GCM takes a 12-byte IV".into());
@@ -383,13 +389,14 @@ fn aes_run(
                 ($cipher:ty) => {{
                     let cipher =
                         <$cipher>::new_from_slice(key).map_err(|error| error.to_string())?;
+                    let payload = Payload { msg: data, aad };
                     if encrypt {
                         cipher
-                            .encrypt(nonce, data)
+                            .encrypt(nonce, payload)
                             .map_err(|_| "couldn't encrypt".to_owned())?
                     } else {
                         cipher
-                            .decrypt(nonce, data)
+                            .decrypt(nonce, payload)
                             .map_err(|_| "the data didn't decrypt (wrong key or tag)".to_owned())?
                     }
                 }};

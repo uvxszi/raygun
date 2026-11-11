@@ -455,6 +455,10 @@
         cipher.key = bytesOf(keySpec?.key ?? keySpec);
         if (params) cipher.iv = bytesOf(params.iv ?? params);
       },
+      // GCM's additional authenticated data.
+      updateAAD: (bytes) => {
+        cipher.aad = [...(cipher.aad ?? []), ...bytesOf(bytes)];
+      },
       doFinal: (data = []) =>
         fromBase64(
           crypto({
@@ -465,6 +469,7 @@
             padding: cipher.padding,
             encrypt: cipher.encrypt,
             data: base64Of(data),
+            aad: cipher.aad && cipher.aad.length ? base64Of(cipher.aad) : null,
           }),
         ),
       getIV: () => cipher.iv,
@@ -1591,6 +1596,9 @@
   };
 
   const NUMBER = {
+    // `BigDecimal`s are numbers here.
+    stripTrailingZeros: (n) => n,
+    toPlainString: (n) => String(n),
     mod: (n, [other]) => ((n % other) + other) % other,
     toBigDecimal: (n) => n,
     toBigInteger: (n) => n,
@@ -1625,6 +1633,9 @@
   };
 
   const ANY = {
+    // kotlinx.datetime's and java.time's instants are the same here.
+    toJavaInstant: (value) => value,
+    toKotlinInstant: (value) => value,
     // A comparator's `compare(a, b)`: a `Comparator { a, b -> … }`, a collator, `compareBy`.
     compare: async (value, [left, right]) => compareWith(value, left, right),
     // Keiyoushi's protobuf writers, on an instance of a class the source declares.
@@ -2168,6 +2179,19 @@
     host(value) {
       this.host_ = value;
       return this;
+    }
+    // Android's `Uri.Builder` names for the same.
+    appendQueryParameter(name, value) {
+      return this.addQueryParameter(name, value);
+    }
+    appendPath(segment) {
+      return this.addPathSegment(segment);
+    }
+    appendEncodedPath(segments) {
+      return this.addEncodedPathSegments(KT.str(segments).replace(/^\/+/, ''));
+    }
+    authority(value) {
+      return this.host(value);
     }
     port(value) {
       this.port_ = value;
@@ -5209,6 +5233,130 @@
     Main: coroutineContext('Dispatchers.Main'),
     Unconfined: coroutineContext('Dispatchers.Unconfined'),
   };
+  /// Keiyoushi's web view helpers: Raygun has no web view, so a source driving one fails, naming
+  /// the page it would load: as a browser check when it passes one (which the person may pass by
+  /// hand: its cookies then go with the source's requests), else as a page that needs one.
+  const webViewNeeded = (page, baseUrl, check) => {
+    let host = '';
+    for (const address of [page, baseUrl]) {
+      if (host || address === null || address === undefined) continue;
+      try {
+        host = HttpUrl.parse(KT.str(address)).host ?? '';
+      } catch {
+        host = '';
+      }
+    }
+    const site = host || 'the site';
+    if (check)
+      throw new KotlinError(
+        `A browser check from ${site}: a bot check page the source passes in a web view`,
+        'IOException',
+      );
+    throw new KotlinError(
+      `The source reads ${site} in a web view, which Raygun doesn't have`,
+      'IOException',
+    );
+  };
+  /// Android's preference widgets, made by settings screens the converter leaves out: they keep
+  /// what's set on them and show nothing.
+  const preferenceWidget = (kind) => {
+    const widget = {
+      __class: kind,
+      __classes: [kind, 'Preference'],
+      key: null,
+      title: null,
+      summary: null,
+      dialogTitle: null,
+      dialogMessage: null,
+      entries: [],
+      entryValues: [],
+      text: null,
+      value: null,
+      values: [],
+      isChecked: false,
+      isVisible: true,
+      isEnabled: true,
+      setDefaultValue: () => KT.unit,
+      setOnPreferenceChangeListener: () => KT.unit,
+      setOnPreferenceClickListener: () => KT.unit,
+      setOnBindEditTextListener: () => KT.unit,
+      addPreference: () => true,
+    };
+    return widget;
+  };
+  /// Keiyoushi's `SeedRandom` (seedrandom's ARC4 generator, `keiyoushi.utils`): the same
+  /// numbers for the same seed.
+  const seedRandom = (seed) => {
+    const WIDTH = 256;
+    const MASK = 255;
+    const CHUNKS = 6;
+    const startdenom = WIDTH ** CHUNKS;
+    const significance = 2 ** 52;
+    const overflow = significance * 2;
+    const text = KT.str(seed);
+    const key = new Array(WIDTH).fill(0);
+    let smear = 0;
+    for (let index = 0; index < text.length; index++) {
+      smear ^= key[MASK & index] * 19;
+      key[MASK & index] = MASK & (smear + text.charCodeAt(index));
+    }
+    const mixed = key.slice(0, Math.min(text.length, WIDTH));
+    const effective = mixed.length ? mixed : [0];
+    const state = Array.from({ length: WIDTH }, (_, index) => index);
+    let i = 0;
+    let j = 0;
+    const g = (count) => {
+      let r = 0;
+      for (let left = count; left > 0; left--) {
+        i = MASK & (i + 1);
+        const t = state[i];
+        j = MASK & (j + t);
+        const sj = state[j];
+        state[i] = sj;
+        state[j] = t;
+        r = r * WIDTH + state[MASK & (sj + t)];
+      }
+      return r;
+    };
+    let counter = 0;
+    for (let k = 0; k < WIDTH; k++) {
+      const t = state[k];
+      counter = MASK & (counter + effective[k % effective.length] + t);
+      state[k] = state[counter];
+      state[counter] = t;
+    }
+    g(WIDTH);
+    const nextDouble = () => {
+      let n = g(CHUNKS);
+      let d = startdenom;
+      let x = 0;
+      while (n < significance) {
+        n = (n + x) * WIDTH;
+        d *= WIDTH;
+        x = g(1);
+      }
+      while (n >= overflow) {
+        n /= 2;
+        d /= 2;
+        x = Math.floor(x / 2);
+      }
+      return (n + x) / d;
+    };
+    return {
+      __class: 'SeedRandom',
+      __classes: ['SeedRandom'],
+      nextDouble,
+      shuffle: (list) => {
+        const keys = list.map((_, index) => index);
+        const out = [];
+        for (let count = 0; count < list.length; count++) {
+          const at = Math.floor(nextDouble() * keys.length);
+          out.push(list[keys.splice(at, 1)[0]]);
+        }
+        return out;
+      },
+    };
+  };
   /// A pause (`delay(ms)`, `Thread.sleep(ms)`), at most ten seconds.
   const pause = async (ms) => {
     const wait = Math.max(0, Math.min(10000, Number(ms && ms.isDuration ? ms.ms : ms) || 0));
@@ -5297,6 +5445,19 @@
     delay: ([ms]) => pause(ms),
     // Kotlin's `assert`: off, as the JVM runs without assertions.
     assert: () => KT.unit,
+    // Keiyoushi's web view helpers (above); a page's local storage is empty without one.
+    runWebView: ([page, baseUrl, check]) => webViewNeeded(page, baseUrl, check),
+    getTurnstileToken: ([url], named_) => webViewNeeded(url ?? named_?.url, null, true),
+    getLocalStorage: () => null,
+    // Settings screens' widgets and OkHttp's disk cache: nothing to show or keep.
+    SwitchPreferenceCompat: () => preferenceWidget('SwitchPreferenceCompat'),
+    CheckBoxPreference: () => preferenceWidget('CheckBoxPreference'),
+    ListPreference: () => preferenceWidget('ListPreference'),
+    EditTextPreference: () => preferenceWidget('EditTextPreference'),
+    MultiSelectListPreference: () => preferenceWidget('MultiSelectListPreference'),
+    PreferenceCategory: () => preferenceWidget('PreferenceCategory'),
+    Cache: () => ({ __class: 'Cache', __classes: ['Cache'], evictAll: () => KT.unit }),
+    SeedRandom: ([seed]) => seedRandom(seed),
     HttpException: ([code]) => new KotlinError(`HTTP error ${code}`, 'HttpException'),
     GET: ([url, headers]) =>
       new Request({ url, headers: headers instanceof Headers ? headers : undefined }),
@@ -6295,6 +6456,28 @@
       NaN,
     },
     Thread: { sleep: (ms) => pause(ms) },
+    // OkHttp's `Response.Builder()` and `Protocol`, for answers an interceptor makes.
+    Response: {
+      Builder: () =>
+        responseBuilder({
+          code: 200,
+          headers: new Headers([]),
+          body: null,
+          request: null,
+          message: 'OK',
+        }),
+    },
+    Protocol: { HTTP_1_0: 'http/1.0', HTTP_1_1: 'http/1.1', HTTP_2: 'h2', QUIC: 'quic' },
+    // `Year.now().value`, `OffsetDateTime.parse(text)`.
+    Year: {
+      now: () => {
+        const value = new Date().getUTCFullYear();
+        return { __class: 'Year', __classes: ['Year'], value, getValue: () => value };
+      },
+    },
+    OffsetDateTime: {
+      parse: (text) => moment(wallClock(text, null, 'ZonedDateTime'), 'ZonedDateTime'),
+    },
     // Android's graphics and Java's `ByteBuffer` (above); `lib:imagedecoder`'s `ImageDecoder`
     // and `lib:textinterceptor`'s helper.
     Bitmap: bitmapStatics,
@@ -6409,6 +6592,21 @@
     CacheControl: {
       FORCE_NETWORK: { isCacheControl: true },
       FORCE_CACHE: { isCacheControl: true },
+      // Raygun's client keeps no HTTP cache: a request's cache settings change nothing.
+      Builder: () => {
+        const builder = {
+          noCache: () => builder,
+          noStore: () => builder,
+          noTransform: () => builder,
+          onlyIfCached: () => builder,
+          immutable: () => builder,
+          maxAge: () => builder,
+          maxStale: () => builder,
+          minFresh: () => builder,
+          build: () => ({ isCacheControl: true }),
+        };
+        return builder;
+      },
     },
     UUID: {
       randomUUID: () =>
@@ -7083,6 +7281,7 @@
     const values = new Map();
     const extensions = new Map();
     const extensionOverloads = new Map();
+    const inits = [];
     const constants = new Map();
     const constantValues = new Map();
     const C = {
@@ -7200,6 +7399,8 @@
       classes: D,
       define: (name, overloads) => layers[index].functions.set(name, overloads),
       prop: (name, getter, once = true) => layers[index].properties.set(name, { getter, once }),
+      /// The class's `init { … }`, run before the first call.
+      init: (function_) => inits.push(function_),
       // Extensions of one name on different receivers are told apart by the receiver's type
       // (the latest of those that fit, else the latest).
       /// An extension function; overloads are told apart by their receiver's type, then by
@@ -7277,6 +7478,15 @@
       self.ready = extensions
         .get('configureClient')(clientBuilder(client))
         .catch(() => {});
+    }
+    // The classes' `init` blocks, base-most first, once the client is set up.
+    if (inits.length) {
+      const before = self.ready;
+      self.ready = (async () => {
+        if (before) await before;
+        for (const run of inits) await run();
+      })();
+      self.ready.catch(() => {});
     }
     return self;
   };

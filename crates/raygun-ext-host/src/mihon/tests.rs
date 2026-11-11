@@ -1267,7 +1267,7 @@ fn code_the_runtime_lacks_is_refused_by_name() {
     );
     let starts =
         STANDALONE_SOURCE.replace("override val supportsLatest = false", "init { setup() }");
-    assert!(reason(&starts).contains("starts"));
+    assert!(reason(&starts).contains("setup"), "{}", reason(&starts));
 }
 
 #[tokio::test]
@@ -1623,6 +1623,10 @@ async fn converted_code_reads_sequences_inits_and_qualified_names() {
 
     private var served = 0
 
+    init {
+        served = 10
+    }
+
     private fun pick(kind: Int): (String) -> String = when (kind) {
         0 -> { _ -> "none" }
         else -> { text -> text.uppercase() }
@@ -1701,7 +1705,7 @@ class Box(text: String) {
         [
             "21,63,189",
             "2,4,6,8",
-            "2:4:1",
+            "2:4:11",
             "2:true",
             "other.example",
             "abC",
