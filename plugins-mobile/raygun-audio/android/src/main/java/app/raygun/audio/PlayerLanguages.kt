@@ -153,7 +153,15 @@ internal class LanguagePrefs(
     val subtitleMode: String,
     /** The audio's language when a stream doesn't say (Japanese for anime). */
     val spoken: String?,
+    /** The device's languages, then the app's. */
+    private val yours: List<String> = emptyList(),
 ) {
+    /**
+     * The order subtitle lists show languages in: the subtitle languages, then the device's and
+     * the app's; tracks in none of them come after.
+     */
+    val listed: List<String> get() = (subtitles + yours).distinct()
+
     companion object {
         fun from(
             prefs: PlayerPrefs,
@@ -171,7 +179,7 @@ internal class LanguagePrefs(
             }
             val firstSubtitles = if (subtitleLanguage.isBlank()) yours else listOfNotNull(Languages.code(subtitleLanguage))
             val subtitles = firstSubtitles + listOfNotNull(Languages.code(prefs.subtitleFallback))
-            return LanguagePrefs(audio.distinct(), subtitles.distinct(), subtitleMode, Languages.code(spoken))
+            return LanguagePrefs(audio.distinct(), subtitles.distinct(), subtitleMode, Languages.code(spoken), yours)
         }
     }
 }

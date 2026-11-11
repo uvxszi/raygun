@@ -14,11 +14,15 @@ import { useVideoPlayerStore } from './videoPlayerStore';
 
 /**
  * Settings → Video player over the desktop player, its screens opened in place, so the video
- * keeps playing behind it. Changes reach the player as they're saved.
+ * keeps playing behind it. Changes reach the player as they're saved. It may open on one screen
+ * (the subtitles panel's Style opens Subtitles).
  */
-export const VideoSettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
+export const VideoSettingsPanel: FC<{ onClose: () => void; page?: PlayerSettingsPage }> = ({
+  onClose,
+  page: first,
+}) => {
   const { t } = useTranslation();
-  const [page, setPage] = useState<PlayerSettingsPage | null>(null);
+  const [page, setPage] = useState<PlayerSettingsPage | null>(first ?? null);
   const settings = useSettings().data;
   // What the player read when the video opened, brought up to date as rows change here (as
   // Rust's next request would: `player_prefs` in video.rs).

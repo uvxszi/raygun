@@ -101,7 +101,13 @@ export type PlayerUpdate =
     }
   /** `playingFrom`: the source the video plays from, once it has played a while. */
   | { type: 'sources'; groups: SourceGroup[]; playingFrom?: string | null }
-  | { type: 'chapters'; id: string; items: VideoChapter[] };
+  | { type: 'chapters'; id: string; items: VideoChapter[] }
+  /** Settings changed in the app while a video plays (`video::settings_changed`): followed at
+   * once, as a request's would be. */
+  | ({ type: 'prefs' } & Pick<
+      PlayerRequest,
+      'prefs' | 'seekStepMs' | 'appLanguage' | 'subtitleLanguage' | 'subtitleMode'
+    >);
 
 export type ReportState = 'progress' | 'ended' | 'error' | 'switched' | 'closed';
 

@@ -28,6 +28,16 @@ private const val TURN_MS = 2_200L
 private const val MIN_SWEEP = 18f
 private const val MAX_SWEEP = 285f
 
+/** How long a wait after a seek goes on before the ring and its percentage show. */
+internal const val SEEK_WAIT_MS = 5_000L
+
+/**
+ * Whether a wait shows the ring now, `sinceSeekMs` after the last seek: at once before the video
+ * has shown a frame (a first load, another source), and after a seek only once it has lasted
+ * [SEEK_WAIT_MS]; most seeks are ready sooner, and a ring flashing by at 99 % is only noise.
+ */
+internal fun seekWaitShows(started: Boolean, sinceSeekMs: Long): Boolean = !started || sinceSeekMs >= SEEK_WAIT_MS
+
 /**
  * The player's waiting ring, drawn here in the accent: an arc that grows and shrinks as it turns
  * while nothing is known, and a filling ring with the percentage once [progress] is (0 to 1).

@@ -164,6 +164,14 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
           };
         case 'sources':
           return { sources: update.groups, playingFrom: update.playingFrom ?? null };
+        case 'prefs': {
+          // Only what settings say; the session's own fields stay.
+          const { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode } = settingsFrom(
+            { id: '', ...update },
+            state,
+          );
+          return { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode };
+        }
         case 'chapters': {
           if (update.id !== state.request?.id) return state;
           // AniSkip's, beside any the source gave.
