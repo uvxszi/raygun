@@ -252,14 +252,25 @@ impl Engine {
         .map_err(engine_error)?;
         // The engine's own HTTP client needs a TLS provider; the app's is ring.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let started = match start_session(&config, config.port).await {
+        let started = match start_session(&config, Some(config.port)).await {
             Ok(started) => started,
-            // The port is taken: any free one.
-            Err(error) if config.port != 0 => {
-                tracing::warn!(%error, port = config.port, "torrent port unavailable; using any");
-                start_session(&config, 0).await?
+            Err(error) => {
+                // The port is taken (any free one then), or nothing can listen here: peers are
+                // still reached, they just can't call in.
+                tracing::warn!(%error, port = config.port, "torrent port unavailable");
+                let any = if config.port != 0 {
+                    start_session(&config, Some(0)).await
+                } else {
+                    Err(error)
+                };
+                match any {
+                    Ok(started) => started,
+                    Err(error) => {
+                        tracing::warn!(%error, "torrents run without listening");
+                        start_session(&config, None).await?
+                    }
+                }
             }
-            Err(error) => return Err(error),
         };
         tracing::info!(
             port = ?started.announce_port(),
@@ -709,8 +720,11 @@ impl Engine {
     }
 }
 
-/// The session as `config` says, listening on `port`.
-async fn start_session(config: &EngineConfig, port: u16) -> Result<Arc<Session>, TorrentError> {
+/// The session as `config` says, listening on `port` (`None`: not listening).
+async fn start_session(
+    config: &EngineConfig,
+    port: Option<u16>,
+) -> Result<Arc<Session>, TorrentError> {
     let options = SessionOptions {
         dht: config.dht.then_some(DhtSessionConfig {
             bootstrap_addrs: None,
@@ -720,7 +734,7 @@ async fn start_session(config: &EngineConfig, port: u16) -> Result<Arc<Session>,
         }),
         persistence: None,
         fastresume: false,
-        listen: Some(ListenerOptions {
+        listen: port.map(|port| ListenerOptions {
             mode: ListenerMode::TcpOnly,
             listen_addr: SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)),
             enable_upnp_port_forwarding: false,
