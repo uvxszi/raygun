@@ -221,7 +221,7 @@ export type LanguagePrefs = {
   spoken: string | null;
 };
 
-type LanguageInput = {
+export type LanguageInput = {
   audioLanguage: string;
   audioFallback: string;
   subtitleFallback: string;
@@ -254,6 +254,30 @@ export const languagePrefs = (input: LanguageInput): LanguagePrefs => {
     subtitleMode: input.subtitleMode,
     spoken: languageCode(input.spoken),
   };
+};
+
+/**
+ * The order subtitle lists show languages in (`LanguagePrefs.listed` in the Android player): the
+ * subtitle languages, then the device's and the app's. Tracks in none of them come after.
+ */
+export const listedLanguages = (input: LanguageInput): string[] =>
+  codes([...languagePrefs(input).subtitles, ...input.device, input.appLanguage]);
+
+/**
+ * `options` with those in the first of `languages` at the top, then the next language's, then
+ * the rest; each group keeps its own order, so several tracks in one language stay together.
+ */
+export const byLanguages = <T extends TrackOption>(options: T[], languages: string[]): T[] => {
+  if (languages.length === 0) return options;
+  const rank = (option: T) => {
+    const code = languageOf(option);
+    const index = code ? languages.indexOf(code) : -1;
+    return index < 0 ? languages.length : index;
+  };
+  return options
+    .map((option, index) => ({ option, index, rank: rank(option) }))
+    .sort((first, second) => first.rank - second.rank || first.index - second.index)
+    .map(({ option }) => option);
 };
 
 const words = (list: string) =>

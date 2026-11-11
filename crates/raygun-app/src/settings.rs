@@ -278,6 +278,20 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
         app.state::<std::sync::Arc<crate::discovery::DiscoveryService>>()
             .nudge();
     }
+    // A video playing follows its settings at once (the subtitles' style, languages, seek step);
+    // at start there is none to tell.
+    let player = differs("videoPlayer", &|before| {
+        before.video_player == settings.video_player
+    }) || differs("subtitleLanguage", &|before| {
+        before.subtitle_language == settings.subtitle_language
+    }) || differs("autoSubtitles", &|before| {
+        before.auto_subtitles == settings.auto_subtitles
+    }) || differs("seekSeconds", &|before| {
+        before.seek_seconds == settings.seek_seconds
+    });
+    if player && before.is_some() {
+        crate::video::settings_changed(app).await;
+    }
 }
 
 /// After rows arrived from elsewhere (a sync, a restored backup, an undone sync): what they

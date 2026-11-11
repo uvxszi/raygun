@@ -36,6 +36,7 @@ import {
   PrefSwitch,
   PrefText,
 } from '../settings/prefs';
+import { PrefColor } from '../settings/PrefColor';
 import { SettingsSaveIssue } from '../settings/Problem';
 import { resetKeys } from '../settings/resets';
 import type { SettingsReset } from '../settings/resets';
@@ -429,11 +430,11 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           disabled={busy}
           onChange={(italic) => setStyle({ italic })}
         />
-        <PrefChoice
+        <PrefColor
           title={t('settings.player.textColor')}
           value={style.textColor}
           disabled={busy}
-          options={colorOptions(TEXT_COLORS, t)}
+          colors={colorOptions(TEXT_COLORS, t)}
           onChange={(textColor) => setStyle({ textColor })}
         />
         <PrefChoice
@@ -446,18 +447,19 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           }))}
           onChange={(edge) => setStyle({ edge })}
         />
-        <PrefChoice
+        <PrefColor
           title={t('settings.player.edgeColor')}
           value={style.edgeColor}
           disabled={busy || style.edge === 'none'}
-          options={colorOptions(EDGE_COLORS, t)}
+          colors={colorOptions(EDGE_COLORS, t)}
           onChange={(edgeColor) => setStyle({ edgeColor })}
         />
-        <PrefChoice
+        <PrefColor
           title={t('settings.player.backgroundColor')}
           value={style.backgroundColor}
           disabled={busy}
-          options={colorOptions(BACKGROUND_COLORS, t)}
+          colors={colorOptions(BACKGROUND_COLORS, t)}
+          opacity
           onChange={(backgroundColor) => setStyle({ backgroundColor })}
         />
         <PrefSlider

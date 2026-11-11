@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -121,6 +121,40 @@ describe('Settings → Video player', () => {
 
     await user.click(screen.getByRole('button', { name: 'Reset the style' }));
     expect(lastPlayer()?.subtitleStyle).toEqual(PLAYER_DEFAULTS.subtitleStyle);
+  });
+
+  it('picks a subtitle colour of your own, typed, with its opacity', async () => {
+    const user = userEvent.setup();
+    storeSettings();
+    await AppShellWrapper.mount('/settings/video/subtitles');
+    await user.click(await screen.findByRole('button', { name: /^Background/ }));
+    const sheet = await screen.findByRole('dialog');
+    // Each colour beside its swatch, then one of your own.
+    expect(
+      within(sheet)
+        .getAllByRole('radio')
+        .map((radio) => radio.textContent),
+    ).toEqual([
+      'None',
+      'Black, half see-through',
+      'Black, slightly see-through',
+      'Black',
+      'White, half see-through',
+      'Custom',
+    ]);
+    await user.click(within(sheet).getByRole('radio', { name: 'Custom' }));
+    const code = within(sheet).getByRole('textbox', { name: 'Colour code' });
+    await user.clear(code);
+    await user.type(code, '#3366ff{Enter}');
+    // A background that was none starts half see-through.
+    await vi.waitFor(() => expect(lastPlayer()?.subtitleStyle.backgroundColor).toBe(0x803366ff));
+    fireEvent.change(within(sheet).getByRole('slider', { name: 'Opacity' }), {
+      target: { value: '100' },
+    });
+    await vi.waitFor(() => expect(lastPlayer()?.subtitleStyle.backgroundColor).toBe(0xff3366ff));
+    expect(screen.getByRole('button', { name: /^Background/, hidden: true })).toHaveTextContent(
+      'Your own colour · #3366FF',
+    );
   });
 
   it('turns on AniSkip and picks another app', async () => {

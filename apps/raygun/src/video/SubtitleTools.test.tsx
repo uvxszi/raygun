@@ -56,8 +56,12 @@ const translation = (change: Partial<SubtitleTranslation> = {}): SubtitleTransla
   ...change,
 });
 
-/** Opens the player on a film with `subtitles`, at `timeMs`, and its Subtitles panel. */
-const openPanel = async (subtitles: unknown[]) => {
+/** Opens the player on a film with `subtitles`, at `timeMs`, and its Subtitles panel; `tool`
+ * opens one of the panel's tools. */
+const openPanel = async (
+  subtitles: unknown[],
+  tool?: 'Transcribe with AI' | 'Translate subtitles',
+) => {
   await AppShellWrapper.mount('/');
   emitEvent('videoPlayerEvent', {
     kind: 'open',
@@ -74,6 +78,7 @@ const openPanel = async (subtitles: unknown[]) => {
   fireEvent(video, new Event('loadedmetadata'));
   await userEvent.setup().click(within(player).getByRole('button', { name: 'Subtitles' }));
   const panel = await within(player).findByRole('region', { name: 'Subtitles' });
+  if (tool) await userEvent.setup().click(within(panel).getByRole('button', { name: tool }));
   return { player, video, panel };
 };
 
@@ -109,7 +114,7 @@ describe('AI subtitles and translations in the desktop player', () => {
         downloading: null,
       },
     ]);
-    const { panel } = await openPanel([]);
+    const { panel } = await openPanel([], 'Transcribe with AI');
     expect(within(panel).getByRole('heading', { name: 'Transcribe with AI' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Set up in Settings → AI' })).toBeVisible();
 
@@ -147,7 +152,7 @@ describe('AI subtitles and translations in the desktop player', () => {
         finish = resolve;
       }),
     );
-    const { panel } = await openPanel([]);
+    const { panel } = await openPanel([], 'Transcribe with AI');
     await user.click(
       await within(panel).findByRole('button', { name: 'Download the speech model (146 MB)' }),
     );
@@ -214,8 +219,14 @@ describe('AI subtitles and translations in the desktop player', () => {
         durationMs: 600_000,
       },
     }));
+    const user = userEvent.setup();
     const { panel } = await openPanel([]);
+    // Being made, the AI subtitles are a track of the list, saying how far they are.
     // The viewer is at 1:01; what's heard reaches 1:30.
+    expect(
+      await within(panel).findByRole('menuitemradio', { name: /AI subtitles/ }),
+    ).toHaveTextContent('Transcribing… 0:29 ahead');
+    await user.click(within(panel).getByRole('button', { name: 'Transcribe with AI' }));
     expect(await within(panel).findByRole('status')).toHaveTextContent('Transcribing… 0:29 ahead');
     expect(within(panel).getByRole('button', { name: 'Stop' })).toBeVisible();
   });
@@ -244,7 +255,7 @@ describe('AI subtitles and translations in the desktop player', () => {
       ],
     });
     commands.videoSubtitlesTranslate.mockResolvedValue({ status: 'ok', data: translation() });
-    const { player, video, panel } = await openPanel([ENGLISH]);
+    const { player, video, panel } = await openPanel([ENGLISH], 'Translate subtitles');
     await within(panel).findByText('From: English');
     await user.selectOptions(within(panel).getByRole('combobox', { name: 'Into' }), 'de');
     // This device has no model for the language; Claude has.
@@ -268,7 +279,8 @@ describe('AI subtitles and translations in the desktop player', () => {
       fromMs: 61_000,
       download: false,
     });
-    // The translation shows at once, and as more lines come.
+    // The translation shows at once, and as more lines come: a track in the list.
+    await user.click(within(panel).getByRole('button', { name: 'All subtitles' }));
     const track = await within(panel).findByRole('menuitemradio', {
       name: /Deutsch \(translated\)/,
     });
@@ -286,6 +298,7 @@ describe('AI subtitles and translations in the desktop player', () => {
     expect(within(player).getByTestId('second-subtitle-lines')).toHaveTextContent('Hello there');
 
     // Stopping keeps what's translated.
+    await user.click(within(panel).getByRole('button', { name: 'Translate subtitles' }));
     await user.click(within(panel).getByRole('button', { name: 'Stop' }));
     expect(commands.videoSubtitlesStop).toHaveBeenCalledWith(MOVIE.id, '0123456789abcdef.de');
   });
@@ -313,7 +326,7 @@ describe('AI subtitles and translations in the desktop player', () => {
       status: 'ok',
       data: translation({ translator: 'device', downloading: 0 }),
     });
-    const { panel } = await openPanel([ENGLISH]);
+    const { panel } = await openPanel([ENGLISH], 'Translate subtitles');
     await within(panel).findByText('From: English');
     await user.selectOptions(within(panel).getByRole('combobox', { name: 'Into' }), 'de');
     await user.click(await within(panel).findByRole('menuitemradio', { name: /This device/ }));
@@ -329,8 +342,10 @@ describe('AI subtitles and translations in the desktop player', () => {
   });
 
   it('needs subtitles that can be read as text', async () => {
-    const { panel } = await openPanel([]);
-    expect(within(panel).getByText('Turn on subtitles above to translate them.')).toBeVisible();
+    const { panel } = await openPanel([], 'Translate subtitles');
+    expect(
+      within(panel).getByText('Turn on subtitles in the list first to translate them.'),
+    ).toBeVisible();
     expect(commands.videoSubtitlesTranslate).not.toHaveBeenCalled();
   });
 });

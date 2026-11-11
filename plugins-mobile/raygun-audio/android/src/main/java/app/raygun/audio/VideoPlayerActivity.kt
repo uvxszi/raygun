@@ -137,6 +137,11 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** Subtitles over the part of the picture on screen (crop makes the picture larger). */
     internal lateinit var subtitleView: SubtitleView
     private lateinit var secondView: SubtitleView
+    /** What each subtitle view shows, in the viewer's style. */
+    internal lateinit var mainCues: StyledCues
+    private lateinit var secondCues: StyledCues
+    /** The shade behind the controls, over the whole window. */
+    private lateinit var vignette: PlayerVignette
     private lateinit var root: FrameLayout
     private lateinit var hint: TextView
     /** Double taps' seek, on the side tapped. */
@@ -313,7 +318,9 @@ class VideoPlayerActivity : AppCompatActivity() {
         playerView.subtitleView?.visibility = View.GONE
         subtitleView = SubtitleView(this)
         secondView = SubtitleView(this)
-        second = SecondSubtitles(this, secondView)
+        mainCues = StyledCues(subtitleView)
+        secondCues = StyledCues(secondView)
+        second = SecondSubtitles(this, secondCues)
         dim = View(this).apply {
             setBackgroundColor(Color.BLACK)
             alpha = 0f
@@ -429,6 +436,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             liftSubtitles(controls.visible && !controls.locked)
         }
         applySubtitleStyle()
+        installVignette()
         prefs.brightness?.let { setBrightness(it) }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -584,7 +592,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
         override fun onCues(cueGroup: CueGroup) {
             // A live track shows instead while it's the main one.
-            if (liveTracks.primary == null) subtitleView.setCues(cueGroup.cues)
+            if (liveTracks.primary == null) mainCues.set(cueGroup.cues)
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -670,6 +678,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             }
             "castDevices", "cast", "castError" -> cast.onUpdate(update)
             "subtitleTools", "subtitleTrack", "subtitleAsk", "subtitleNotice" -> liveTracks.onUpdate(update)
+            "prefs" -> settingsChanged(update)
             "chapters" -> if (update.optString("id") == videoId) {
                 // AniSkip's, beside any the source gave.
                 val found = Chapter.list(update.optJSONArray("items")).filter { new ->
@@ -715,7 +724,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         aniskipAsked = false
         tracksPicked = false
         pendingSubtitle = null
-        subtitleView.setCues(null)
+        mainCues.set(null)
 
         sidecars.clear()
         request.optJSONArray("subtitles")?.let { list ->
@@ -1163,18 +1172,24 @@ class VideoPlayerActivity : AppCompatActivity() {
         )
         listOf(subtitleView, secondView).forEach { view ->
             view.setStyle(caption)
-            // A share of the picture's height, whether or not the controls lift the lines.
+            // A share of the picture's height as it shows (the views take the picture's place,
+            // `placeSubtitles`), whether or not the controls lift the lines; the size setting is
+            // a factor of it.
             view.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * look.size / 100f, true)
             view.setApplyEmbeddedStyles(!look.ignoreEmbedded)
             view.setApplyEmbeddedFontSizes(!look.ignoreEmbedded)
         }
+        // The lines on screen take the style now, the file's own colours under the viewer's.
+        mainCues.look = look
+        secondCues.look = look
         liftSubtitles(::controls.isInitialized && controls.visible && !controls.locked)
     }
 
     /**
-     * Fits the subtitle views to the part of the picture on screen: in portrait the lines sit at
-     * the picture's foot and are sized to it, not to the whole screen; a cropped picture larger
-     * than the screen keeps them on screen.
+     * Fits the subtitle views to the part of the picture on screen, so lines are sized to the
+     * picture as it shows, not to the screen: in portrait they sit at the picture's foot at its
+     * size, and a cropped picture larger than the screen keeps them on screen. Until the
+     * picture's frame is laid out they take the place the picture will have ([subtitleArea]).
      */
     private fun placeSubtitles() {
         if (!::root.isInitialized) return
@@ -1182,51 +1197,47 @@ class VideoPlayerActivity : AppCompatActivity() {
         val height = root.height
         if (width <= 0 || height <= 0) return
         val frame = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_content_frame)
-        var left = 0
-        var top = 0
-        var right = width
-        var bottom = height
-        if (frame != null && player.videoSize.width > 0) {
-            left = frame.left.coerceAtLeast(0)
-            top = frame.top.coerceAtLeast(0)
-            right = frame.right.coerceAtMost(width)
-            bottom = frame.bottom.coerceAtMost(height)
-            // A sliver (audio only, mid-layout) isn't a picture to place lines in.
-            if (right - left < width / 4 || bottom - top < height / 5) {
-                left = 0
-                top = 0
-                right = width
-                bottom = height
-            }
-        }
+        val video = player.videoSize
+        val area = subtitleArea(
+            width,
+            height,
+            frame?.takeIf { video.width > 0 },
+            video.width * video.pixelWidthHeightRatio,
+            video.height.toFloat(),
+        )
         for (view in listOf(subtitleView, secondView)) {
             val params = view.layoutParams as FrameLayout.LayoutParams
-            if (params.leftMargin == left && params.topMargin == top &&
-                params.width == right - left && params.height == bottom - top
+            if (params.leftMargin == area.left && params.topMargin == area.top &&
+                params.width == area.width() && params.height == area.height()
             ) {
                 continue
             }
             params.gravity = Gravity.TOP or Gravity.START
-            params.leftMargin = left
-            params.topMargin = top
-            params.width = right - left
-            params.height = bottom - top
+            params.leftMargin = area.left
+            params.topMargin = area.top
+            params.width = area.width()
+            params.height = area.height()
             view.layoutParams = params
         }
+        liftSubtitles(::controls.isInitialized && controls.visible && !controls.locked)
     }
 
     /**
      * Places subtitles at the chosen height, and above the bottom bar while the controls show.
      * Media3 puts many cues (WebVTT's among them) on the last line, out of reach of its bottom
-     * padding fraction, so the view's own padding moves them instead.
+     * padding fraction, so the view's own padding moves them instead. The controls call this as
+     * they show and hide, and the shade behind them follows.
      */
     internal fun liftSubtitles(controlsShown: Boolean) {
+        if (::vignette.isInitialized) vignette.shown = controlsShown
         if (!::subtitleView.isInitialized || !::root.isInitialized) return
-        val height = subtitleView.height.takeIf { it > 0 } ?: root.height
+        // The place `placeSubtitles` gave the view, before it is laid out there.
+        val params = subtitleView.layoutParams as? FrameLayout.LayoutParams
+        val height = params?.height?.takeIf { it > 0 } ?: subtitleView.height.takeIf { it > 0 } ?: root.height
         val chosen = (height * prefs.style.position / 100f).toInt()
         val lift = if (controlsShown) {
             // Where the bar covers the picture.
-            val pictureBottom = subtitleView.top + height
+            val pictureBottom = (params?.topMargin ?: subtitleView.top) + height
             val barTop = root.height - controls.barHeight()
             maxOf(chosen, pictureBottom - barTop + dp(8))
         } else {
@@ -1238,9 +1249,39 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     /** A style change made in the player: shown at once and saved to Settings. */
     internal fun updateStyle(look: SubtitleLook) {
+        previewStyle(look)
+        savePrefs(JSONObject().put("subtitleStyle", look.toJson()))
+    }
+
+    /** Shows `look` on the subtitles without saving it yet (a colour being picked). */
+    internal fun previewStyle(look: SubtitleLook) {
         prefs.style = look
         applySubtitleStyle()
-        savePrefs(JSONObject().put("subtitleStyle", look.toJson()))
+    }
+
+    /**
+     * Settings changed in the app while this plays (Settings → Video player, the subtitle
+     * language, the seek step): the player follows them at once, the subtitles' style included,
+     * instead of from its next video.
+     */
+    private fun settingsChanged(update: JSONObject) {
+        readSettings(update)
+        languages = LanguagePrefs.from(prefs, appLanguage, subtitleLanguage, subtitleMode, spokenLanguage)
+        controls.setSeekStep(seekStepMs)
+        applySubtitleStyle()
+        root.post { placeSubtitles() }
+    }
+
+    /**
+     * The shade behind the controls ([PlayerVignette]), over the picture and under the subtitles:
+     * a child of the window-sized root, not of the controls (which keep to the safe area), so it
+     * reaches every edge.
+     */
+    private fun installVignette() {
+        vignette = PlayerVignette(this)
+        root.addView(vignette, root.indexOfChild(dim) + 1, FrameLayout.LayoutParams(-1, -1))
+        PlayerVignette.takeOverShades(controls.root)
+        vignette.shown = controls.visible && !controls.locked
     }
 
     /** Positive delays show subtitles later. Changing it re-reads cues from the same spot. */
@@ -1680,7 +1721,10 @@ class VideoPlayerActivity : AppCompatActivity() {
             return
         }
         val waiting = videoId.isNotEmpty() && player.playWhenReady && player.playbackState == Player.STATE_BUFFERING
-        if (!waiting) {
+        // After a seek (the bar, a double tap, the keys) the ring waits: most seeks are ready
+        // before it would be read, and one that comes and goes at 99 % is only noise.
+        val seekWait = !loading.shown && !seekWaitShows(started, SystemClock.elapsedRealtime() - seekedAt)
+        if (!waiting || seekWait) {
             if (loading.shown) loading.hide()
             controls.setBusy(false)
             return
