@@ -63,7 +63,7 @@ const PDF: PdfChapter = {
   firstPage: 1,
   readerMode: 'pagedLtr',
   ownReaderMode: 'pagedLtr',
-  contents: [{ title: 'Section 2', page: 1, level: 0 }],
+  contents: [{ title: 'Section 2', chapterId: 'c1', page: 1, pageNumber: 2, level: 0 }],
 };
 
 const PDF_CHAPTER: NovelChapter = {

@@ -7687,6 +7687,15 @@ pub enum TextBlock {
         /// The formula in words, for reading aloud.
         speech: String,
     },
+    /// Code, or other text set out line by line, as written: its lines (`\n` between them) and
+    /// spacing kept, shown in a monospaced font. Reading aloud passes over code.
+    Code {
+        text: String,
+        /// The language a highlighter named (`latex`, `python`), in lower case.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(optional)]
+        language: Option<String>,
+    },
 }
 
 impl TextBlock {
@@ -7753,7 +7762,8 @@ pub struct PdfChapter {
     /// How the pages are read: the title's own mode, else the comics reader's default.
     pub reader_mode: ReaderMode,
     pub own_reader_mode: Option<ReaderMode>,
-    /// The document's bookmarks within the chapter.
+    /// The document's bookmarks, in its order: an imported book's whole outline (the same in
+    /// every chapter), a source's chapter only those among its pages.
     pub contents: Vec<PdfContentsEntry>,
 }
 
@@ -7762,8 +7772,12 @@ pub struct PdfChapter {
 #[serde(rename_all = "camelCase")]
 pub struct PdfContentsEntry {
     pub title: String,
-    /// The page it leads to, from 0, in the chapter's pages.
+    /// The chapter holding the page it leads to.
+    pub chapter_id: String,
+    /// The page it leads to, from 0, in that chapter's pages.
     pub page: u32,
+    /// The document's own number of that page, from 1.
+    pub page_number: u32,
     /// 0 for the top level.
     pub level: u32,
 }

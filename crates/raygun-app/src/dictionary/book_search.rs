@@ -107,7 +107,9 @@ pub fn search_blocks(
 ) -> bool {
     for (index, block) in blocks.iter().enumerate() {
         let text = match block {
-            TextBlock::Paragraph { text, .. } | TextBlock::Heading { text } => text,
+            TextBlock::Paragraph { text, .. }
+            | TextBlock::Heading { text }
+            | TextBlock::Code { text, .. } => text,
             _ => continue,
         };
         for (start, end) in matches_in(text, query) {

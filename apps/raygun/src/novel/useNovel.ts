@@ -47,7 +47,10 @@ export const saveNovelProgress = (chapterId: string, offset: number, total: numb
 
 /** Characters a block adds to the chapter's text (what progress offsets count). */
 const blockLength = (block: TextBlock) =>
-  block.kind === 'paragraph' || block.kind === 'heading' || block.kind === 'math'
+  block.kind === 'paragraph' ||
+  block.kind === 'heading' ||
+  block.kind === 'math' ||
+  block.kind === 'code'
     ? block.text.length
     : 0;
 

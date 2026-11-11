@@ -1826,6 +1826,8 @@
     "emptyLibrary": "Find books in Browse and add them to your library.",
     "percentRead": "{{percent}}% read",
     "percent": "{{percent}}%",
+    "code": "Code",
+    "codeIn": "{{language}} code",
     "pageOf": "Page {{page}} of {{total}}",
     "textSettings": "Text settings",
     "fontSize": "Font size",
@@ -1878,6 +1880,8 @@
     "hits_other": "{{count}} places found",
     "page": "Page {{page}}",
     "contents": "Contents",
+    "contentsEntry": "{{title}}, page {{page}}",
+    "sectionsOf": "Sections of {{title}}",
     "textView": "Read as text",
     "pageView": "Read as pages",
     "noText": "This PDF has no text to show: its pages are pictures."

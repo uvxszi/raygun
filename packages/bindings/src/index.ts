@@ -5104,7 +5104,10 @@ export type PdfChapter = {
 	/**  How the pages are read: the title's own mode, else the comics reader's default. */
 	readerMode: ReaderMode,
 	ownReaderMode: ReaderMode | null,
-	/**  The document's bookmarks within the chapter. */
+	/**
+	 *  The document's bookmarks, in its order: an imported book's whole outline (the same in
+	 *  every chapter), a source's chapter only those among its pages.
+	 */
 	contents: PdfContentsEntry[],
 };
 
@@ -5134,8 +5137,12 @@ export type PdfChapterText_Serialize = {
 /**  One of a PDF's bookmarks. */
 export type PdfContentsEntry = {
 	title: string,
-	/**  The page it leads to, from 0, in the chapter's pages. */
+	/**  The chapter holding the page it leads to. */
+	chapterId: string,
+	/**  The page it leads to, from 0, in that chapter's pages. */
 	page: number,
+	/**  The document's own number of that page, from 1. */
+	pageNumber: number,
 	/**  0 for the top level. */
 	level: number,
 };
@@ -7403,9 +7410,9 @@ export type TextBlock_Deserialize = ({ kind: "paragraph"; text: string;
  *  then its plain form (formulas as their text), which progress, search, translation
  *  and exports read.
  */
-parts?: TextPart[] | null }) & { mathml?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { mathml?: never; parts?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { mathml?: never; parts?: never; speech?: never; text?: never; url?: never } | 
+parts?: TextPart[] | null }) & { language?: never; mathml?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { language?: never; mathml?: never; parts?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { language?: never; mathml?: never; parts?: never; speech?: never; text?: never; url?: never } | 
 /**  Through the local image proxy. */
-({ kind: "image"; url: string }) & { mathml?: never; parts?: never; speech?: never; text?: never } | 
+({ kind: "image"; url: string }) & { language?: never; mathml?: never; parts?: never; speech?: never; text?: never } | 
 /**  A formula on a line of its own. */
 ({ kind: "math"; 
 /**  `<math>…</math>`: MathML elements and attributes only. */
@@ -7413,7 +7420,14 @@ mathml: string;
 /**  The formula as text (its TeX, or a linear form such as `x² + 1`). */
 text: string; 
 /**  The formula in words, for reading aloud. */
-speech: string }) & { parts?: never; url?: never };
+speech: string }) & { language?: never; parts?: never; url?: never } | 
+/**
+ *  Code, or other text set out line by line, as written: its lines (`\n` between them) and
+ *  spacing kept, shown in a monospaced font. Reading aloud passes over code.
+ */
+({ kind: "code"; text: string; 
+/**  The language a highlighter named (`latex`, `python`), in lower case. */
+language?: string | null }) & { mathml?: never; parts?: never; speech?: never; url?: never };
 
 /**  One block of a novel chapter: text structure only, never source HTML. */
 export type TextBlock_Serialize = ({ kind: "paragraph"; text: string; 
@@ -7422,9 +7436,9 @@ export type TextBlock_Serialize = ({ kind: "paragraph"; text: string;
  *  then its plain form (formulas as their text), which progress, search, translation
  *  and exports read.
  */
-parts?: TextPart[] | null }) & { mathml?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { mathml?: never; parts?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { mathml?: never; parts?: never; speech?: never; text?: never; url?: never } | 
+parts?: TextPart[] | null }) & { language?: never; mathml?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { language?: never; mathml?: never; parts?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { language?: never; mathml?: never; parts?: never; speech?: never; text?: never; url?: never } | 
 /**  Through the local image proxy. */
-({ kind: "image"; url: string }) & { mathml?: never; parts?: never; speech?: never; text?: never } | 
+({ kind: "image"; url: string }) & { language?: never; mathml?: never; parts?: never; speech?: never; text?: never } | 
 /**  A formula on a line of its own. */
 ({ kind: "math"; 
 /**  `<math>…</math>`: MathML elements and attributes only. */
@@ -7432,7 +7446,14 @@ mathml: string;
 /**  The formula as text (its TeX, or a linear form such as `x² + 1`). */
 text: string; 
 /**  The formula in words, for reading aloud. */
-speech: string }) & { parts?: never; url?: never };
+speech: string }) & { language?: never; parts?: never; url?: never } | 
+/**
+ *  Code, or other text set out line by line, as written: its lines (`\n` between them) and
+ *  spacing kept, shown in a monospaced font. Reading aloud passes over code.
+ */
+({ kind: "code"; text: string; 
+/**  The language a highlighter named (`latex`, `python`), in lower case. */
+language?: string | null }) & { mathml?: never; parts?: never; speech?: never; url?: never };
 
 /**  One part of a paragraph that holds more than plain text. */
 export type TextPart = { kind: "text"; text: string } | 

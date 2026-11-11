@@ -98,6 +98,9 @@ fn chapter_xhtml(chapter: &BookChapter, language: &str) -> String {
             TextBlock::Math { mathml, .. } => {
                 body.push_str(&format!("<div class=\"formula\">{mathml}</div>\n"))
             }
+            TextBlock::Code { text, .. } => {
+                body.push_str(&format!("<pre><code>{}</code></pre>\n", escape(text)))
+            }
         }
     }
     format!(
@@ -113,7 +116,8 @@ const STYLE: &str = "body { margin: 0 5%; line-height: 1.5; }\n\
     h2 { text-align: center; margin: 1.5em 0; }\n\
     p { margin: 0 0 0.8em; text-indent: 1.2em; }\n\
     hr { margin: 1.5em 25%; }\n\
-    div.formula { text-align: center; margin: 0.8em 0; overflow-x: auto; }\n";
+    div.formula { text-align: center; margin: 0.8em 0; overflow-x: auto; }\n\
+    pre { margin: 0.8em 0; font-size: 0.85em; white-space: pre-wrap; overflow-wrap: anywhere; }\n";
 
 fn write_into<W: Write + Seek>(zip: &mut ZipWriter<W>, book: &Book) -> std::io::Result<()> {
     let deflated =
@@ -269,6 +273,7 @@ pub fn text(book: &Book) -> String {
                 TextBlock::Separator => out.push_str("* * *\n\n"),
                 TextBlock::Image { .. } => {}
                 TextBlock::Math { text, .. } => out.push_str(&format!("{text}\n\n")),
+                TextBlock::Code { text, .. } => out.push_str(&format!("{text}\n\n")),
             }
         }
     }

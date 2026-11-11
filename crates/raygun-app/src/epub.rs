@@ -448,6 +448,7 @@ fn has_text(html: &str) -> bool {
                 raygun_ext_host::novel::PassageBlock::Paragraph(_)
                     | raygun_ext_host::novel::PassageBlock::Rich(_)
                     | raygun_ext_host::novel::PassageBlock::Math(_)
+                    | raygun_ext_host::novel::PassageBlock::Code(_)
             )
         })
 }
@@ -557,6 +558,7 @@ fn plain(text: &str) -> String {
             raygun_ext_host::novel::PassageBlock::Rich(parts) => {
                 Some(raygun_ext_host::novel::plain_text(&parts))
             }
+            raygun_ext_host::novel::PassageBlock::Code(code) => Some(code.text),
             _ => None,
         })
         .collect::<Vec<_>>()

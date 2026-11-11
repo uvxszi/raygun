@@ -1,8 +1,10 @@
 //! `novel.source` providers (M31): the catalogue calls of `manga.source` (same shapes, same
 //! checks) plus `passage`, a chapter's text. Source HTML never reaches the app: it becomes plain
 //! blocks here (paragraphs, headings, separators, images). Formulas (MathML or TeX, [`crate::math`])
-//! and raised or lowered text make a paragraph's parts; a formula on its own line is a block. A
-//! passage may instead be a PDF document (`{ pdf }`), which the readers show as pages.
+//! and raised or lowered text make a paragraph's parts; a formula on its own line is a block.
+//! Preformatted text (`<pre>`: code examples, verse set out by hand) is a code block that keeps its
+//! lines and spacing, with the language a highlighter names; TeX in it stays as written. A passage
+//! may instead be a PDF document (`{ pdf }`), which the readers show as pages.
 
 use raygun_net::pdf::PdfRef;
 use scraper::{Html, Node};
@@ -24,7 +26,7 @@ const SKIPPED: [&str; 17] = [
     "button", "select", "textarea", "canvas", "title", "link", "meta",
 ];
 /// Elements that start and end a paragraph.
-const BLOCKS: [&str; 26] = [
+const BLOCKS: [&str; 25] = [
     "p",
     "div",
     "section",
@@ -40,7 +42,6 @@ const BLOCKS: [&str; 26] = [
     "tr",
     "td",
     "th",
-    "pre",
     "figure",
     "figcaption",
     "center",
@@ -66,6 +67,18 @@ pub enum PassageBlock {
     Math(Formula),
     /// The chapter is a PDF document, or some of its pages: the only block of its passage.
     Pdf(PdfRef),
+    /// Code, or other text set out line by line (`<pre>`), as written.
+    Code(CodeBlock),
+}
+
+/// A [`PassageBlock::Code`] block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeBlock {
+    /// Its lines (`\n` between them) with their spacing; no blank lines around them.
+    pub text: String,
+    /// The language a highlighter named (`latex`, `python`), in lower case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 /// One part of a [`PassageBlock::Rich`] paragraph.
@@ -180,10 +193,34 @@ const MATH_BOXES: [&str; 8] = [
     "MathJax_SVG_Display",
 ];
 /// Inline elements whose text is kept as written: TeX there is code, not a formula.
-const CODE: [&str; 4] = ["code", "kbd", "samp", "var"];
+const CODE: [&str; 5] = ["code", "kbd", "samp", "var", "tt"];
+/// Elements holding text set out line by line: code blocks.
+const PREFORMATTED: [&str; 3] = ["pre", "listing", "xmp"];
+/// Classes of the line numbers highlighters set beside code: not its text.
+const GUTTERS: [&str; 6] = [
+    "linenos",
+    "linenodiv",
+    "lineno",
+    "line-numbers-rows",
+    "rouge-gutter",
+    "hljs-ln-numbers",
+];
 
 fn has_class(element: &scraper::node::Element, wanted: &str) -> bool {
     element.classes().any(|class| class == wanted)
+}
+
+/// Text in code's place: a code element, or one set in a monospaced font (wikis' templates for
+/// commands and package names).
+fn is_code(element: &scraper::node::Element) -> bool {
+    CODE.contains(&element.name())
+        || element
+            .attr("style")
+            .is_some_and(|style| style.to_ascii_lowercase().contains("monospace"))
+}
+
+fn is_gutter(element: &scraper::node::Element) -> bool {
+    element.classes().any(|class| GUTTERS.contains(&class))
 }
 
 /// A `<script type="math/tex">` (MathJax 2's source of a formula) or `math/mml`.
@@ -278,7 +315,12 @@ fn walk_children(
                     }
                     continue;
                 }
-                if SKIPPED.contains(&name) {
+                if SKIPPED.contains(&name) || is_gutter(element) {
+                    continue;
+                }
+                if PREFORMATTED.contains(&name) {
+                    builder.flush();
+                    builder.push_preformatted(child);
                     continue;
                 }
                 // A renderer's box: the formula once, not its drawing as letters.
@@ -358,19 +400,12 @@ fn walk_children(
                             builder.push(PassageBlock::Heading(text.join(" ")));
                         }
                     }
-                    "pre" => {
-                        builder.flush();
-                        builder.code += 1;
-                        walk(child, base, builder);
-                        builder.code -= 1;
-                        builder.flush();
-                    }
                     _ if BLOCKS.contains(&name) => {
                         builder.flush();
                         walk(child, base, builder);
                         builder.flush();
                     }
-                    _ if CODE.contains(&name) => {
+                    _ if is_code(element) => {
                         builder.code += 1;
                         walk(child, base, builder);
                         builder.code -= 1;
@@ -426,6 +461,224 @@ fn bare_tex(
     }
     let display = has_class(element, "display") || element.name() == "div";
     Formula::from_tex(trimmed, display)
+}
+
+/// Elements inside preformatted text that hold a line each (some highlighters' line boxes).
+const CODE_LINES: [&str; 5] = ["div", "p", "li", "tr", "table"];
+
+/// Preformatted text as written: `<br>` breaks a line, line boxes are lines, line numbers and
+/// what isn't text are left out.
+fn collect_code(node: ego_tree::NodeRef<'_, Node>, out: &mut String, depth: usize) {
+    for child in node.children() {
+        match child.value() {
+            Node::Text(text) => out.push_str(text),
+            Node::Element(element) => {
+                let name = element.name();
+                if name == "br" {
+                    out.push('\n');
+                    continue;
+                }
+                if SKIPPED.contains(&name) || is_gutter(element) {
+                    continue;
+                }
+                let line = CODE_LINES.contains(&name);
+                if line && !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                if depth >= MAX_WALK_DEPTH {
+                    for text in child
+                        .descendants()
+                        .filter_map(|inner| inner.value().as_text())
+                    {
+                        out.push_str(text);
+                    }
+                } else {
+                    collect_code(child, out, depth + 1);
+                }
+                if line && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Code's lines without what surrounds them: line ends as `\n`, no-break spaces as spaces, no
+/// spaces ending a line, no blank lines before or after, and no indentation every line shares.
+fn tidy_code(raw: &str) -> String {
+    let text = raw
+        .replace("\r\n", "\n")
+        .replace(['\r', '\u{c}'], "\n")
+        .replace('\u{a0}', " ");
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    let (Some(first), Some(last)) = (
+        lines.iter().position(|line| !line.is_empty()),
+        lines.iter().rposition(|line| !line.is_empty()),
+    ) else {
+        return String::new();
+    };
+    let lines = &lines[first..=last];
+    let indent = |line: &str| {
+        let rest = line.trim_start_matches([' ', '\t']);
+        line.len() - rest.len()
+    };
+    // The indentation the lines share, written alike on each.
+    let mut shared: Option<&str> = None;
+    for line in lines.iter().filter(|line| !line.is_empty()) {
+        let own = &line[..indent(line)];
+        shared = Some(match shared {
+            None => own,
+            Some(shared) => {
+                let common = shared
+                    .bytes()
+                    .zip(own.bytes())
+                    .take_while(|(a, b)| a == b)
+                    .count();
+                &shared[..common]
+            }
+        });
+    }
+    let cut = shared.map_or(0, str::len);
+    lines
+        .iter()
+        .map(|line| line.get(cut..).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The language a code block's highlighter names, on the block, its `<code>` or the boxes around
+/// it: `mw-highlight-lang-latex` (MediaWiki), `language-python` and `lang-js` (Prism,
+/// highlight.js, Markdown), `highlight-python` and `highlight-source-python` (Sphinx, Jupyter
+/// Book, GitHub), `brush: ruby` (SyntaxHighlighter), `sourceCode haskell` (Pandoc).
+fn code_language(node: ego_tree::NodeRef<'_, Node>) -> Option<String> {
+    let inner = node.children().filter(|child| {
+        child
+            .value()
+            .as_element()
+            .is_some_and(|element| element.name() == "code")
+    });
+    let own = std::iter::once(node)
+        .chain(inner)
+        .filter_map(|node| node.value().as_element())
+        .find_map(|element| language_in_classes(element, true));
+    // The boxes around it; `lang-en` there would be a page's language.
+    own.or_else(|| {
+        node.ancestors()
+            .take(3)
+            .filter_map(|node| node.value().as_element())
+            .find_map(|element| language_in_classes(element, false))
+    })
+}
+
+fn language_in_classes(element: &scraper::node::Element, own: bool) -> Option<String> {
+    // As written: `brush: ruby` needs the classes in their order.
+    let classes: Vec<&str> = element
+        .attr("class")
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect();
+    let prefixes: &[&str] = if own {
+        &[
+            "mw-highlight-lang-",
+            "language-",
+            "lang-",
+            "highlight-source-",
+            "highlight-",
+            "brush:",
+        ]
+    } else {
+        &[
+            "mw-highlight-lang-",
+            "language-",
+            "highlight-source-",
+            "highlight-",
+        ]
+    };
+    let named = classes.iter().enumerate().find_map(|(index, class)| {
+        let class = class.trim_end_matches(';');
+        for &prefix in prefixes {
+            if let Some(rest) = class.strip_prefix(prefix) {
+                // `brush: ruby`: the name is the next class.
+                return if rest.is_empty() && prefix == "brush:" {
+                    classes
+                        .get(index + 1)
+                        .map(|next| next.trim_end_matches(';'))
+                } else {
+                    Some(rest)
+                };
+            }
+        }
+        None
+    });
+    let pandoc = || {
+        classes
+            .contains(&"sourceCode")
+            .then(|| {
+                classes
+                    .iter()
+                    .copied()
+                    .find(|class| !matches!(*class, "sourceCode" | "numberSource" | "numberLines"))
+            })
+            .flatten()
+    };
+    named.or_else(pandoc).and_then(language_name)
+}
+
+/// A highlighter's language name as one spelling: `ipython3` and `py` are `python`, `sh` and
+/// `console` are `shell`; plain text and no language are none.
+fn language_name(name: &str) -> Option<String> {
+    let name = name.trim().to_ascii_lowercase();
+    if name.is_empty()
+        || name.len() > 24
+        || !name
+            .chars()
+            .all(|char| char.is_ascii_alphanumeric() || "+#.-_".contains(char))
+    {
+        return None;
+    }
+    let name = match name.as_str() {
+        "none" | "text" | "txt" | "plain" | "plaintext" | "nohighlight" | "default" | "output"
+        | "notranslate" | "source" | "highlight" => return None,
+        "tex" | "latex" => "latex",
+        "py" | "py3" | "python3" | "ipython" | "ipython3" | "pycon" => "python",
+        "js" | "jsx" | "javascript" | "node" => "javascript",
+        "ts" | "tsx" | "typescript" => "typescript",
+        "sh" | "bash" | "zsh" | "shell" | "console" | "shell-session" | "shellsession" => "shell",
+        "c++" | "cxx" | "cpp" => "cpp",
+        "cs" | "c#" | "csharp" => "csharp",
+        "html" | "html5" | "xhtml" => "html",
+        "rs" | "rust" => "rust",
+        "rb" | "ruby" => "ruby",
+        "hs" | "haskell" => "haskell",
+        "yml" | "yaml" => "yaml",
+        "md" | "markdown" => "markdown",
+        other => other,
+    };
+    Some(name.to_owned())
+}
+
+/// Whether preformatted text is running prose (a plain-text chapter in `<pre>`) rather than code
+/// or verse: long lines of words, hardly any of code's signs. Such text reads as paragraphs.
+fn reads_as_prose(text: &str) -> bool {
+    let lines: Vec<usize> = text
+        .lines()
+        .map(|line| line.trim().chars().count())
+        .filter(|length| *length > 0)
+        .collect();
+    let words = text.split_whitespace().count();
+    let shown = text.chars().filter(|char| !char.is_whitespace()).count();
+    let signs = text
+        .chars()
+        .filter(|char| "{}[]<>;=\\|$#_~^`".contains(*char))
+        .count();
+    if lines.is_empty() || words < 80 || signs * 100 > shown {
+        return false;
+    }
+    let mut sorted = lines.clone();
+    sorted.sort_unstable();
+    // Hard-wrapped prose fills its lines to about the same width; verse doesn't.
+    sorted[sorted.len() / 2] >= 55
 }
 
 fn resolve(src: &str, base: Option<&url::Url>) -> Option<String> {
@@ -508,6 +761,28 @@ impl Builder {
         } else {
             self.push_part(Part::Math(formula));
         }
+    }
+
+    /// A `<pre>`: a code block, or paragraphs when it holds running prose.
+    fn push_preformatted(&mut self, node: ego_tree::NodeRef<'_, Node>) {
+        let mut raw = String::new();
+        collect_code(node, &mut raw, self.depth);
+        let text = tidy_code(&raw);
+        if text.is_empty() {
+            return;
+        }
+        let language = code_language(node);
+        if language.is_none() && reads_as_prose(&text) {
+            for block in text_blocks(&text) {
+                if let PassageBlock::Paragraph(paragraph) = block {
+                    self.push_text(&paragraph);
+                    self.flush();
+                }
+            }
+            return;
+        }
+        self.bytes += text.len();
+        self.push(PassageBlock::Code(CodeBlock { text, language }));
     }
 
     /// A part of the paragraph that isn't plain text.
@@ -682,7 +957,158 @@ mod tests {
         assert!(matches!(&parts[0], Part::Math(formula) if formula.text == "y"));
         assert_eq!(parts[1], Part::Text(" stays".into()));
         assert_eq!(blocks[3], paragraph("Price $5 and $6."));
-        assert_eq!(blocks[4], paragraph("$x$ in code"));
+        assert_eq!(blocks[4], code("$x$ in code", None));
+    }
+
+    fn code(text: &str, language: Option<&str>) -> PassageBlock {
+        Code(CodeBlock {
+            text: text.into(),
+            language: language.map(str::to_owned),
+        })
+    }
+
+    /// Wikibooks' LaTeX book (`LaTeX/Document_Structure`): a highlighted example in a table cell.
+    #[test]
+    fn code_examples_keep_their_lines() {
+        let html = r#"
+            <p>For example, to use the <span style="font-family: monospace; color: #2020C0;">color</span> package, you would type:
+            </p>
+            <table style="margin-top: 1.5em; margin-bottom: 1.5em">
+            <tbody><tr>
+            <td style="padding-left:3em;">
+            <div class="mw-highlight mw-highlight-lang-latex mw-content-ltr" dir="ltr"><pre><span></span><span class="k">\documentclass</span><span class="nb">{</span>report<span class="nb">}</span>
+<span class="k">\usepackage</span><span class="nb">{</span>color<span class="nb">}</span>
+
+<span class="k">\begin</span><span class="nb">{</span>document<span class="nb">}</span>
+...
+<span class="k">\end</span><span class="nb">{</span>document<span class="nb">}</span>
+</pre></div>
+            </td></tr></tbody></table>
+            <p>You can pass several options to a package, each separated by a comma.</p>
+        "#;
+        assert_eq!(
+            html_blocks(html, None),
+            [
+                paragraph("For example, to use the color package, you would type:"),
+                code(
+                    "\\documentclass{report}\n\\usepackage{color}\n\n\\begin{document}\n...\n\\end{document}",
+                    Some("latex")
+                ),
+                paragraph("You can pass several options to a package, each separated by a comma."),
+            ]
+        );
+    }
+
+    #[test]
+    fn tex_in_code_and_typewriter_text_stays_as_written() {
+        let html = r#"<p>Type <code>$x^2$</code>, <tt>\(a\)</tt> or <span style="font-family: monospace">$$y$$</span> for maths; <code class="mw-highlight mw-highlight-lang-latex"><span class="k">\[</span> z <span class="k">\]</span></code> too.</p>"#;
+        assert_eq!(
+            html_blocks(html, None),
+            [paragraph(
+                r"Type $x^2$, \(a\) or $$y$$ for maths; \[ z \] too."
+            )]
+        );
+    }
+
+    #[test]
+    fn code_blocks_say_their_language() {
+        let cases = [
+            (
+                r#"<pre class="sourceCode python"><code class="sourceCode python">print(1)</code></pre>"#,
+                Some("python"),
+            ),
+            (
+                r#"<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span class="nb">print</span>(1)</pre></div></div>"#,
+                Some("python"),
+            ),
+            (
+                r#"<pre class="brush: ruby; gutter: false">print(1)</pre>"#,
+                Some("ruby"),
+            ),
+            (
+                r#"<pre><code class="language-js">print(1)</code></pre>"#,
+                Some("javascript"),
+            ),
+            (
+                r#"<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code>print(1)</code></pre></div></div>"#,
+                Some("rust"),
+            ),
+            (r#"<div class="lang-en"><pre>print(1)</pre></div>"#, None),
+            (r#"<pre class="lang-text">print(1)</pre>"#, None),
+        ];
+        for (html, language) in cases {
+            assert_eq!(
+                html_blocks(html, None),
+                [code("print(1)", language)],
+                "{html}"
+            );
+        }
+    }
+
+    #[test]
+    fn code_text_is_tidied_but_not_reflowed() {
+        // Line numbers beside the code, `<br>` and Windows line ends, shared indentation, tabs.
+        let numbered = r#"<table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre>1
+2</pre></div></td><td class="code"><div class="highlight"><pre>a = 1
+b = 2</pre></div></td></tr></table>"#;
+        assert_eq!(html_blocks(numbered, None), [code("a = 1\nb = 2", None)]);
+        let spaced = "<pre>\n\n    if x:<br>    \tgo()   \r\n    end&nbsp;&nbsp;\n\n</pre>";
+        assert_eq!(
+            html_blocks(spaced, None),
+            [code("if x:\n\tgo()\nend", None)]
+        );
+        assert!(html_blocks("<pre>  \n </pre>", None).is_empty());
+        let lines =
+            r#"<pre><code><div class="line">one</div><div class="line">  two</div></code></pre>"#;
+        assert_eq!(html_blocks(lines, None), [code("one\n  two", None)]);
+    }
+
+    #[test]
+    fn running_prose_in_pre_reads_as_paragraphs() {
+        let paragraph_text = "It was the best of times, it was the worst of times, it was the age of \
+             wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch \
+             of incredulity, it was the season of Light, it was the season of Darkness.";
+        // A plain-text chapter, hard-wrapped at about seventy characters.
+        let mut wrapped = String::new();
+        for _ in 0..3 {
+            let mut line = String::new();
+            for word in paragraph_text.split(' ') {
+                if line.len() + word.len() > 70 {
+                    wrapped.push_str(&line);
+                    wrapped.push('\n');
+                    line.clear();
+                }
+                if !line.is_empty() {
+                    line.push(' ');
+                }
+                line.push_str(word);
+            }
+            wrapped.push_str(&line);
+            wrapped.push_str("\n\n");
+        }
+        let blocks = html_blocks(&format!("<pre>{wrapped}</pre>"), None);
+        assert_eq!(blocks, vec![paragraph(paragraph_text); 3]);
+        // Verse set out by hand keeps its lines.
+        let verse = "<pre>'Twas brillig, and the slithy toves\n  Did gyre and gimble in the wabe:\nAll mimsy were the borogoves,\n  And the mome raths outgrabe.</pre>";
+        assert!(
+            matches!(&html_blocks(verse, None)[..], [Code(block)] if block.text.lines().count() == 4)
+        );
+    }
+
+    #[test]
+    fn code_blocks_keep_their_shape_in_downloads() {
+        let block = code("\\begin{document}\n\\end{document}", Some("latex"));
+        let json = serde_json::to_value(&block).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "kind": "code", "value": { "text": "\\begin{document}\n\\end{document}", "language": "latex" } })
+        );
+        assert_eq!(serde_json::from_value::<PassageBlock>(json).unwrap(), block);
+        let plain = serde_json::json!({ "kind": "code", "value": { "text": "x" } });
+        assert_eq!(
+            serde_json::from_value::<PassageBlock>(plain).unwrap(),
+            code("x", None)
+        );
     }
 
     #[test]

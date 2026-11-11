@@ -3,6 +3,7 @@ import type {
   NovelChapter,
   NovelReaderPrefs,
   NovelTheme,
+  PdfContentsEntry,
   TextBlock,
   TextPart,
 } from '@raygun/bindings';
@@ -14,6 +15,7 @@ import {
   ChevronRight,
   FileImage,
   ListOrdered,
+  ListTree,
   LoaderCircle,
   Minus,
   Pause,
@@ -53,7 +55,11 @@ import { useSystemBars } from '../manga/reader/useSystemBars';
 import { useWakeLock } from '../manga/reader/useWakeLock';
 import { useReaderDisplay } from '../manga/readerDisplay';
 import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
+import { inSideScroller } from '../novel/code';
+import { CodeBlock } from '../novel/CodeBlock';
 import { MathFormula } from '../novel/MathFormula';
+import { outlineBlock } from '../novel/pdfContents';
+import { PdfContentsSheet } from '../novel/PdfContentsSheet';
 import { PdfPagesView } from '../novel/PdfPagesView';
 import { ReaderAiButton } from '../readerAi/ReaderAi';
 import { useNovelAi } from '../readerAi/useReaderAi';
@@ -217,6 +223,10 @@ const Block: FC<{
         >
           <MathFormula mathml={block.mathml} text={block.text} speech={block.speech} display />
         </div>
+      );
+    case 'code':
+      return (
+        <CodeBlock text={block.text} language={block.language} index={index} register={register} />
       );
     default:
       return (
@@ -413,6 +423,13 @@ const ChapterView: FC<{
    * page view.
    */
   pageStarts?: number[];
+  /**
+   * A block to bring into view (a bookmark picked in the contents), where the chapter opens when
+   * given as it opens; again whenever `nonce` changes.
+   */
+  goTo?: { block: number; nonce: number } | null;
+  /** Called once `goTo` is shown. */
+  onGoToShown?: () => void;
 }> = ({
   data,
   prefs,
@@ -427,6 +444,8 @@ const ChapterView: FC<{
   onSpeakFrom,
   translated,
   pageStarts,
+  goTo,
+  onGoToShown,
 }) => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -550,6 +569,7 @@ const ChapterView: FC<{
         ? pageStarts[Math.min(askedPage, pageStarts.length - 1)]
         : undefined;
   const resumeAt =
+    goTo?.block ??
     searched ??
     (data.chapter.read
       ? 0
@@ -847,7 +867,9 @@ const ChapterView: FC<{
   }, []);
 
   const onTouchStart = (event: TouchEvent) => {
-    swipeStart.current = fromText(event) ? (event.touches[0]?.clientX ?? null) : null;
+    // Code and wide formulas scroll sideways under the finger instead.
+    swipeStart.current =
+      fromText(event) && !inSideScroller(event.target) ? (event.touches[0]?.clientX ?? null) : null;
   };
   const onTouchEnd = (event: TouchEvent) => {
     const start = swipeStart.current;
@@ -874,7 +896,7 @@ const ChapterView: FC<{
     <div
       ref={endRef}
       data-testid="novel-end"
-      className="flex break-inside-avoid flex-col items-center gap-3 py-10 text-center"
+      className="book-text flex break-inside-avoid flex-col items-center gap-3 py-10 text-center"
     >
       <p className="text-muted text-sm">{t('manga.endOf', { name: data.chapter.name })}</p>
       <button
@@ -903,6 +925,20 @@ const ChapterView: FC<{
     const left = container.getBoundingClientRect().left - container.scrollLeft;
     showPage(Math.floor((element.getBoundingClientRect().left - left) / width));
   };
+
+  // A bookmark picked in the contents, once per pick (one the chapter opened with is where it
+  // opened, `resumeAt`); then it's forgotten.
+  const shownGoTo = useRef(goTo?.nonce ?? null);
+  const onGoTo = useEffectEvent((block: number | null) => {
+    if (block !== null) showBlock(block);
+    onGoToShown?.();
+  });
+  useEffect(() => {
+    if (!goTo) return;
+    const fresh = shownGoTo.current !== goTo.nonce;
+    shownGoTo.current = goTo.nonce;
+    onGoTo(fresh ? goTo.block : null);
+  }, [goTo]);
 
   /** A place a search in the book found: in this chapter, or another opened there. */
   const openPlace = (place: BookPlace) => {
@@ -989,6 +1025,7 @@ const ChapterView: FC<{
         className={`mx-auto h-[calc(100dvh-var(--app-bar,0px))] overflow-hidden outline-none ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
       >
         <div
+          className="book-text"
           style={{
             ...textStyle,
             height: '100%',
@@ -1014,11 +1051,12 @@ const ChapterView: FC<{
         if (!handledTap(event)) onToggleChrome();
       }}
       {...textHandlers}
-      className={`px-5 pt-20 pb-24 ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2]`}
+      // Never wider than the page: what can't wrap scrolls in its own box (bookText.css).
+      className={`overflow-x-clip px-5 pt-20 pb-24 ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2]`}
     >
       <article
         style={textStyle}
-        className={`mx-auto ${prefs.width === 'wide' ? 'max-w-3xl lg:max-w-4xl' : 'max-w-xl lg:max-w-2xl'}`}
+        className={`book-text mx-auto ${prefs.width === 'wide' ? 'max-w-3xl lg:max-w-4xl' : 'max-w-xl lg:max-w-2xl'}`}
       >
         {blocks}
       </article>
@@ -1083,9 +1121,30 @@ export const NovelReaderPage: FC = () => {
   useBackLayer(chrome && panel, () => setPanel(false));
   /** The chapter list's button while the list is open. */
   const [chapterList, setChapterList] = useState<HTMLElement | null>(null);
+  /** A PDF book's contents: their button while they're open, and the page then being read. */
+  const [contents, setContents] = useState<{ anchor: HTMLElement; pageNumber: number } | null>(
+    null,
+  );
+  /** A bookmark picked in a PDF book's contents, until its chapter's text shows it. */
+  const [bookmark, setBookmark] = useState<{
+    chapterId: string;
+    page: number;
+    title: string;
+    nonce: number;
+  } | null>(null);
+  const forgetBookmark = useCallback(() => setBookmark(null), []);
   const [progress, setProgress] = useState({ fraction: 0, label: '' });
   const [speechNotice, setSpeechNotice] = useState<string | null>(null);
   const data = pdf ? textChapter : loaded.data;
+  // Where the bookmark leads in the text, once its chapter's text is here.
+  const bookmarkBlock = useMemo(() => {
+    const pageStarts = pdfText.data?.pageStarts;
+    if (!bookmark || !data || !pageStarts || bookmark.chapterId !== data.chapter.id) return null;
+    return {
+      block: outlineBlock(data.blocks, pageStarts, bookmark.page, bookmark.title),
+      nonce: bookmark.nonce,
+    };
+  }, [bookmark, data, pdfText.data]);
   const error = loaded.error ?? (pdf ? pdfText.error : null);
   const theme = THEMES[prefs.theme ?? 'app'];
   useWakeLock((prefs.keepScreenOn ?? true) && data !== undefined);
@@ -1311,6 +1370,30 @@ export const NovelReaderPage: FC = () => {
     }
     void navigate({ search: { title, chapter: chapterId }, replace: true });
   };
+
+  /**
+   * A bookmark picked in a PDF book's contents: the heading it names in the text (else its page's
+   * start), in this chapter (reading aloud goes on from there), or in the chapter opened for it.
+   */
+  const openBookmark = (entry: PdfContentsEntry) => {
+    setContents(null);
+    setBookmark((last) => ({
+      chapterId: entry.chapterId,
+      page: entry.page,
+      title: entry.title,
+      nonce: (last?.nonce ?? 0) + 1,
+    }));
+    const pageStarts = pdfText.data?.pageStarts;
+    if (data && entry.chapterId === data.chapter.id) {
+      if (readingRef.current && pageStarts) {
+        readFrom(outlineBlock(data.blocks, pageStarts, entry.page, entry.title));
+      }
+      return;
+    }
+    stopReading();
+    setPanel(false);
+    void navigate({ search: { title, chapter: entry.chapterId }, replace: true });
+  };
   const onProgress = useCallback(
     (fraction: number, label: string) => setProgress({ fraction, label }),
     [],
@@ -1369,6 +1452,24 @@ export const NovelReaderPage: FC = () => {
               className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
             >
               <FileImage aria-hidden size={21} />
+            </button>
+          )}
+          {pdf && pdf.contents.length > 0 && (
+            <button
+              type="button"
+              aria-label={t('pdf.contents')}
+              aria-haspopup="dialog"
+              aria-expanded={contents !== null}
+              onClick={(event) => {
+                setPanel(false);
+                const at = pdfText.data ? blockAt(pdfText.data.pageStarts, position.current) : 0;
+                setContents(
+                  contents ? null : { anchor: event.currentTarget, pageNumber: pdf.firstPage + at },
+                );
+              }}
+              className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
+            >
+              <ListTree aria-hidden size={21} />
             </button>
           )}
           {data && (
@@ -1447,6 +1548,8 @@ export const NovelReaderPage: FC = () => {
           sentence={sentence}
           onSpeakFrom={speechAvailable.data ? readFrom : undefined}
           translated={novelAi.texts}
+          goTo={bookmarkBlock}
+          onGoToShown={forgetBookmark}
         />
       )}
       {data && (chrome || reading || speechNotice) && (
@@ -1579,6 +1682,15 @@ export const NovelReaderPage: FC = () => {
             go(chapterId);
           }}
           onClose={() => setChapterList(null)}
+        />
+      )}
+      {pdf && contents && (
+        <PdfContentsSheet
+          contents={pdf.contents}
+          pageNumber={contents.pageNumber}
+          anchor={contents.anchor}
+          onPick={openBookmark}
+          onClose={() => setContents(null)}
         />
       )}
     </section>

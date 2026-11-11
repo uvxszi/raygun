@@ -1,0 +1,62 @@
+/*
+ * The book reader's text, scrolled or in pages. Nothing in it is wider than its column, so the
+ * page never scrolls sideways: a word longer than a line (a web address, a long name) breaks where
+ * it has to, and only such words; code and formulas wider than the column scroll in their own
+ * boxes; pictures are no wider than the column (`max-w-full` on them).
+ */
+.book-text {
+  overflow-wrap: anywhere;
+}
+
+/* Code: its own lines and spacing in a monospaced font, at the reader's text size. */
+.book-code {
+  margin: 0.3em 0 1em;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 0.5em;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  break-inside: avoid;
+}
+
+.book-code-language {
+  display: block;
+  padding: 0.4em 0.9em 0;
+  font-size: 0.7em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.book-code pre {
+  margin: 0;
+  padding: 0.6em 0.9em;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  font-family:
+    ui-monospace, 'Cascadia Mono', 'Roboto Mono', 'Droid Sans Mono', Menlo, Consolas, monospace;
+  font-size: 0.82em;
+  line-height: 1.5;
+  white-space: pre;
+  tab-size: 4;
+  overflow-wrap: normal;
+  /* Code reads left to right, whatever the book's script. */
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+  text-indent: 0;
+  hyphens: none;
+}
+
+/*
+ * A formula in the line wider than the column scrolls in place. Kept on the line's baseline: a box
+ * that scrolls would otherwise sit on its bottom edge.
+ */
+.book-text .math-formula:not(.math-display) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: baseline;
+  baseline-source: last;
+  /* A box of its own in the line: the paragraph's first-line indent isn't the formula's. */
+  text-indent: 0;
+}

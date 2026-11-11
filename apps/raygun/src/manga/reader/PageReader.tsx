@@ -127,6 +127,8 @@ export type PageReaderProps = {
   onLeave: () => void;
   /** A page to show (a search result, a bookmark), again whenever `nonce` changes. */
   goTo?: { page: number; nonce: number } | null;
+  /** Told the page in view (from 0) as it changes: a PDF's contents mark the part being read. */
+  onPage?: (page: number) => void;
   /** More buttons for the top bar, before the display settings. */
   actions?: ReactNode;
 };
@@ -145,6 +147,7 @@ export const PageReader: FC<PageReaderProps> = ({
   saveProgress,
   onLeave,
   goTo,
+  onPage,
   actions,
 }) => {
   const { t } = useTranslation();
@@ -213,6 +216,10 @@ export const PageReader: FC<PageReaderProps> = ({
     setCurrent(target);
     setJump((last) => ({ page: target, nonce: (last?.nonce ?? 0) + 1 }));
   }, [goTo, total]);
+
+  useEffect(() => {
+    onPage?.(page);
+  }, [page, onPage]);
 
   // The page not saved yet: written when the timer fires, or when the reader closes first.
   const unsaved = useRef<(() => Promise<unknown>) | null>(null);
