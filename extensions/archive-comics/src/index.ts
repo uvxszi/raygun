@@ -35,7 +35,7 @@ const BASE_QUERY = [
 const PAGE_WIDTH = 1200;
 const LARGE_PAGE_WIDTH = 2400;
 
-type SearchDoc = { identifier: string; title?: string | string[] };
+type SearchDoc = { identifier: string; title?: string | string[]; creator?: string | string[] };
 type SearchResponse = { response?: { numFound?: number; docs?: SearchDoc[] } };
 type ItemFile = { name: string; format?: string; title?: string };
 type ItemMetadata = {
@@ -88,6 +88,10 @@ const escapeQuery = (query: string) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g
 const strings = (value: string | string[] | undefined): string[] =>
   (Array.isArray(value) ? value : value ? [value] : []).map((text) => text.trim()).filter(Boolean);
 
+/** Who made an item, without the web addresses some uploaders put in its creator field. */
+const creators = (value: string | string[] | undefined) =>
+  strings(value).filter((name) => !/^(https?:\/\/|www\.)/i.test(name));
+
 const cover = (identifier: string) => `${API}/services/img/${encodeURIComponent(identifier)}`;
 
 /** Descriptions are HTML; the app shows plain text. */
@@ -112,6 +116,8 @@ const searchPage = async (query: string, sort: string | null, page: number): Pro
     `q=${encodeURIComponent(query)}`,
     'fl[]=identifier',
     'fl[]=title',
+    // Who made each item comes in the same answer, for the cards.
+    'fl[]=creator',
     `rows=${ROWS}`,
     `page=${at}`,
     ...(sort ? [`sort[]=${encodeURIComponent(sort)}`] : []),
@@ -126,6 +132,7 @@ const searchPage = async (query: string, sort: string | null, page: number): Pro
         id: doc.identifier,
         title: strings(doc.title)[0] ?? doc.identifier,
         coverUrl: cover(doc.identifier),
+        authors: creators(doc.creator),
       })),
     hasNextPage: at * ROWS < (result.response?.numFound ?? 0),
   };
@@ -207,7 +214,7 @@ const details = async (id: string): Promise<MangaDetails> => {
     id,
     title: strings(meta.title)[0] ?? id,
     coverUrl: cover(id),
-    authors: strings(meta.creator),
+    authors: creators(meta.creator),
     artists: [],
     description:
       [date ? `Published ${date}.` : '', description].filter(Boolean).join('\n\n') || null,

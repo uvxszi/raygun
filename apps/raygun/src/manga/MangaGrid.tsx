@@ -41,8 +41,8 @@ export type MangaGridItem = {
   source?: string;
   /** Marked adult by its source, or from a source rated for adults: an 18+ tag. */
   adult?: boolean;
-  /** Who wrote it, when known: a book without a cover gets one drawn with it. */
-  author?: string | null;
+  /** Who wrote it, when known: a book without a cover gets one drawn with them. */
+  authors?: readonly string[];
 };
 
 /**
@@ -133,7 +133,7 @@ const MangaGridView: FC<{
         }
       >
         {items.map((item) => {
-          const book = bookWords(medium, item.title, item.author);
+          const book = bookWords(medium, item.title, item.authors);
           // A drawn cover prints the title itself: no title laid over it.
           const titleOver = compact && !(book && !item.coverUrl);
           return (

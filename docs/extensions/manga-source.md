@@ -43,6 +43,9 @@ const page: MangaPage = {
 - `id` and `title` are required; an item without them is dropped.
 - `coverUrl` must be `http(s)`; `coverHeaders` (a Referer, a User-Agent) are sent when Raygun
   fetches it.
+- `authors` names who wrote the title (at most 6 are kept), when the list's own answer has them;
+  don't ask for more to fill it. Books without a cover get one drawn with their title and
+  authors, and a title opened before keeps the authors its `details` gave.
 - `nsfw: true` marks an adult title: Raygun hides it while NSFW content is off.
 
 ### Details, chapters and pages
@@ -198,7 +201,7 @@ const names = async (lang: string) => {
 };
 
 const SERIES_PAGE: MangaPage = {
-  items: [{ id: SERIES, title: 'Pepper&Carrot', coverUrl: COVER }],
+  items: [{ id: SERIES, title: 'Pepper&Carrot', coverUrl: COVER, authors: ['David Revoy'] }],
   hasNextPage: false,
 };
 const NOTHING: MangaPage = { items: [], hasNextPage: false };

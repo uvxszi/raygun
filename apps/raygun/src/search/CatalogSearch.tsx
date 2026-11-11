@@ -60,6 +60,8 @@ const toGridItems = (items: MangaCard[], fromListing?: string) =>
     inLibrary: item.inLibrary,
     ...(item.adult ? { adult: true } : {}),
     ...(item.fromListing && fromListing ? { subtitle: fromListing } : {}),
+    // A book without a cover gets one drawn with them.
+    ...(item.authors?.length ? { authors: item.authors } : {}),
   }));
 
 /** One source's first results in a global search, as a short row. */
@@ -371,7 +373,7 @@ const InYourLibrary: FC<{ medium: Medium; query: string; onMore: () => void }> =
           title: entry.title,
           coverUrl: entry.coverUrl,
           unread: entry.unread,
-          author: entry.authors.join(', ') || null,
+          authors: entry.authors,
         }))}
       />
     </section>

@@ -141,7 +141,7 @@ const bookId = (id: string) => {
   return id;
 };
 
-/** The books of a catalogue page: each `schema:Book` item, its title and its cover. */
+/** The books of a catalogue page: each `schema:Book` item, its title, authors and cover. */
 const books = (xhtml: string): MangaSummary[] =>
   [...xhtml.matchAll(/<li typeof="schema:Book" about="\/ebooks\/([^"]+)">([\s\S]*?)<\/li>/g)]
     .map((match) => {
@@ -149,10 +149,18 @@ const books = (xhtml: string): MangaSummary[] =>
       const item = match[2] ?? '';
       const title = /<span property="schema:name">([\s\S]*?)<\/span>/.exec(item)?.[1];
       const cover = /<img src="([^"]+)"/.exec(item)?.[1];
+      const authors = [
+        ...item.matchAll(
+          /property="schema:author"[^>]*>\s*(?:<a [^>]*>\s*)?<span property="schema:name">([\s\S]*?)<\/span>/g,
+        ),
+      ]
+        .map((author) => plainText(author[1] ?? ''))
+        .filter(Boolean);
       return {
         id,
         title: title ? plainText(title) : '',
         coverUrl: cover ? absolute(decode(cover)) : null,
+        authors,
       };
     })
     .filter((book) => BOOK_ID.test(book.id) && book.title !== '');

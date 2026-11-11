@@ -2,6 +2,7 @@ import type { MangaCard, OnlineTrack } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
+import { authorsIn, withAuthors } from '../manga/bookWords';
 import type { Medium } from '../manga/medium';
 import { collectFromCache } from '../shell/queryMemory';
 import { keepTrack, useSearchFilter } from './searchFilter';
@@ -72,7 +73,10 @@ export const useSeenSongs = (query: string, needed = true): OnlineTrack[] => {
   }, [client, wanted, filter, needed]);
 };
 
-/** A cached title as a card: search results and browse pages as they are, titles by remote id. */
+/**
+ * A cached title as a card: search results and browse pages as they are, titles by remote id,
+ * with the authors any of them names.
+ */
 const asCard = (record: Record<string, unknown>): MangaCard | null => {
   if (typeof record.sourceId !== 'string' || typeof record.title !== 'string') return null;
   const id =
@@ -82,6 +86,7 @@ const asCard = (record: Record<string, unknown>): MangaCard | null => {
         ? record.id
         : null;
   if (!id) return null;
+  const authors = authorsIn(record);
   return {
     sourceId: record.sourceId,
     id,
@@ -89,6 +94,7 @@ const asCard = (record: Record<string, unknown>): MangaCard | null => {
     coverUrl: typeof record.coverUrl === 'string' ? record.coverUrl : null,
     inLibrary: record.inLibrary === true || typeof record.titleId === 'string',
     ...(record.adult === true ? { adult: true } : {}),
+    ...(authors ? { authors } : {}),
   };
 };
 
@@ -108,6 +114,7 @@ export const useSeenTitles = (medium: Medium, query: string, needed = true): Man
       [medium],
       asCard,
       (card) => `${card.sourceId}:${card.id}`,
+      withAuthors,
     );
     const score = medium === 'video' ? videoTitleScore : titleScore;
     return cards

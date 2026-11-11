@@ -109,6 +109,15 @@ const entries = (xml: string) =>
 
 const cover = (id: string) => `${SITE}/cache/epub/${id}/pg${id}.cover.medium.jpg`;
 
+/**
+ * The line under a book's title in a feed: its author, or for a book without one the feed's
+ * order ("1004 downloads", a date), which isn't kept.
+ */
+const author = (entry: string) => {
+  const line = decode(/<content[^>]*>([\s\S]*?)<\/content>/.exec(entry)?.[1] ?? '');
+  return line && !/^[\d,]+ downloads?$|^\w{3} \d{1,2}, \d{4}$/.test(line) ? [line] : [];
+};
+
 /** A page of books from an OPDS search; author and subject entries are left out. */
 const feed = async (params: Record<string, string>, page: number): Promise<MangaPage> => {
   const start = (Math.max(page, 1) - 1) * FEED_PAGE + 1;
@@ -119,7 +128,10 @@ const feed = async (params: Record<string, string>, page: number): Promise<Manga
   const items = found.flatMap((entry) => {
     const id = /<id>[^<]*\/ebooks\/(\d+)\.opds<\/id>/.exec(entry)?.[1];
     const title = /<title>([\s\S]*?)<\/title>/.exec(entry)?.[1];
-    return id && title ? [{ id, title: decode(title), coverUrl: cover(id) }] : [];
+    // The feed names each book's author, so the list carries it too.
+    return id && title
+      ? [{ id, title: decode(title), coverUrl: cover(id), authors: author(entry) }]
+      : [];
   });
   return { items, hasNextPage: found.length >= FEED_PAGE };
 };

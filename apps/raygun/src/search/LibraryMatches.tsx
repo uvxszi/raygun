@@ -82,7 +82,7 @@ export const LibraryMatches: FC<{ query: string; limit?: number }> = ({ query, l
       title: entry.title,
       coverUrl: entry.coverUrl,
       unread: entry.unread,
-      author: entry.authors.join(', ') || null,
+      authors: entry.authors,
     }));
 
   return (

@@ -167,14 +167,39 @@ async fn the_library_counts_unread_chapters() {
     assert_eq!(titles, ["berserk", "Frieren"], "alphabetical without case");
     assert_eq!((shelf[1].units, shelf[1].unread), (2, 1));
 
-    let ids = in_library(
+    let known = listed(
         &db,
         "dev.raygun.archive-comics/comics",
-        &["m1".into(), "m3".into()],
+        &["m1".into(), "m3".into(), "never-opened".into()],
     )
     .await
     .unwrap();
-    assert_eq!(ids, HashSet::from(["m1".to_owned()]));
+    assert_eq!(
+        known,
+        HashMap::from([
+            (
+                "m1".to_owned(),
+                ListedTitle {
+                    in_library: true,
+                    authors: vec!["Yamada".into()],
+                },
+            ),
+            (
+                "m3".to_owned(),
+                ListedTitle {
+                    in_library: false,
+                    authors: vec!["Yamada".into()],
+                },
+            ),
+        ]),
+        "titles opened before keep their authors for cards, in the library or not"
+    );
+    assert!(
+        listed(&db, "another/source", &["m1".into()])
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     set_completed(&db, &c1, false, 6).await.unwrap();
     assert_eq!(library(&db, "manga").await.unwrap()[1].unread, 2);

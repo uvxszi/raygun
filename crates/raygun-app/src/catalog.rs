@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields, UnitRow};
 use raygun_ext_host::listing_search::LEAST_TIME;
-use raygun_ext_host::manga::{MangaList, MangaListing};
+use raygun_ext_host::manga::{MangaList, MangaListing, MangaSummary};
 use raygun_ext_host::video::VIDEO_SOURCE;
 use raygun_model::{
     ChapterDownload, FilterValue, LibraryCategory, LibraryList, MangaBrowseMode, MangaCard,
@@ -109,7 +109,9 @@ impl Catalog {
         self.listing_page(source_id, listing).await
     }
 
-    /// A source's listing as cards: adult items dropped while NSFW is off, library titles marked.
+    /// A source's listing as cards: adult items dropped while NSFW is off, library titles marked,
+    /// and titles this device stored (opened or saved before) given the authors stored with them
+    /// when the listing names none: one database query per page, no requests.
     async fn listing_page(
         &self,
         source_id: &str,
@@ -118,26 +120,15 @@ impl Catalog {
         let show_nsfw = self.extensions().show_nsfw();
         listing.items.retain(|item| show_nsfw || !item.nsfw);
         let ids: Vec<String> = listing.items.iter().map(|item| item.id.clone()).collect();
-        let in_library = titles::in_library(&self.db(), source_id, &ids)
+        let known = titles::listed(&self.db(), source_id, &ids)
             .await
             .map_err(to_message)?;
+        // A video's stored "authors" are its cast.
+        let books = self.capability != VIDEO_SOURCE;
         Ok(MangaListingPage {
-            items: listing
-                .items
-                .into_iter()
-                .map(|item| MangaCard {
-                    adult: item.nsfw,
-                    source_id: source_id.to_owned(),
-                    in_library: in_library.contains(&item.id),
-                    cover_url: item
-                        .cover_url
-                        .as_deref()
-                        .map(|url| self.cover(url, &item.cover_headers)),
-                    id: item.id,
-                    title: item.title,
-                    from_listing: false,
-                })
-                .collect(),
+            items: listing_cards(source_id, listing.items, &known, books, |url, headers| {
+                self.cover(url, headers)
+            }),
             has_next_page: listing.has_next_page,
         })
     }
@@ -863,6 +854,41 @@ fn looks_through_listings(
             .map_or(true, |listing| listing.items.is_empty())
 }
 
+/// A source's listed titles as cards: marked when in the library, and with the authors this
+/// device stored for them (`known`, by the source's ids) where the listing names none and the
+/// titles are books or comics (`books`). `cover` links a cover through the image proxy.
+fn listing_cards(
+    source_id: &str,
+    items: Vec<MangaSummary>,
+    known: &HashMap<String, titles::ListedTitle>,
+    books: bool,
+    cover: impl Fn(&str, &BTreeMap<String, String>) -> String,
+) -> Vec<MangaCard> {
+    items
+        .into_iter()
+        .map(|item| {
+            let stored = known.get(&item.id);
+            let authors = match stored {
+                Some(stored) if books && item.authors.is_empty() => stored.authors.clone(),
+                _ => item.authors,
+            };
+            MangaCard {
+                adult: item.nsfw,
+                source_id: source_id.to_owned(),
+                in_library: stored.is_some_and(|stored| stored.in_library),
+                cover_url: item
+                    .cover_url
+                    .as_deref()
+                    .map(|url| cover(url, &item.cover_headers)),
+                id: item.id,
+                title: item.title,
+                from_listing: false,
+                authors,
+            }
+        })
+        .collect()
+}
+
 /// A category name as typed: trimmed, not empty, at most 40 characters.
 fn category_name(name: &str) -> Result<String, String> {
     let name = name.trim();
@@ -1400,6 +1426,7 @@ mod tests {
                         title: format!("Title {id}"),
                         cover_url: None,
                         cover_headers: BTreeMap::new(),
+                        authors: Vec::new(),
                         nsfw: false,
                     })
                     .collect(),
@@ -1425,6 +1452,66 @@ mod tests {
             &Err("HTTP 500".into()),
             off
         ));
+    }
+
+    #[test]
+    fn listed_titles_get_the_authors_this_device_stored() {
+        let summary = |id: &str, authors: &[&str]| MangaSummary {
+            id: id.to_owned(),
+            title: format!("Book {id}"),
+            cover_url: Some(format!("https://books.example/{id}.jpg")),
+            cover_headers: BTreeMap::new(),
+            authors: authors.iter().map(|name| (*name).to_owned()).collect(),
+            nsfw: id == "adult",
+        };
+        let stored = |in_library: bool, authors: &[&str]| titles::ListedTitle {
+            in_library,
+            authors: authors.iter().map(|name| (*name).to_owned()).collect(),
+        };
+        let known = HashMap::from([
+            ("saved".to_owned(), stored(true, &["Jane Austen"])),
+            ("opened".to_owned(), stored(false, &["Bram Stoker"])),
+            ("named".to_owned(), stored(false, &["Stored Name"])),
+        ]);
+        let items = || {
+            vec![
+                summary("saved", &[]),
+                summary("opened", &[]),
+                summary("named", &["Listed Name"]),
+                summary("new", &[]),
+                summary("adult", &["Someone"]),
+            ]
+        };
+        let cover = |url: &str, _: &BTreeMap<String, String>| format!("proxy:{url}");
+        let cards = listing_cards("src/books", items(), &known, true, cover);
+        let authors: Vec<Vec<String>> = cards.iter().map(|card| card.authors.clone()).collect();
+        assert_eq!(
+            authors,
+            [
+                vec!["Jane Austen".to_owned()],
+                vec!["Bram Stoker".to_owned()],
+                vec!["Listed Name".to_owned()],
+                vec![],
+                vec!["Someone".to_owned()],
+            ],
+            "the listing's own authors first, then the stored ones"
+        );
+        assert_eq!(
+            cards.iter().map(|card| card.in_library).collect::<Vec<_>>(),
+            [true, false, false, false, false]
+        );
+        assert_eq!(
+            cards[0].cover_url.as_deref(),
+            Some("proxy:https://books.example/saved.jpg")
+        );
+        assert!(cards[4].adult);
+        assert!(cards.iter().all(|card| card.source_id == "src/books"));
+
+        // A video's stored authors are its cast: its cards keep only what the listing says.
+        let videos = listing_cards("src/films", items(), &known, false, cover);
+        assert!(videos[1].authors.is_empty());
+        assert_eq!(videos[2].authors, ["Listed Name"]);
+        assert!(videos[0].in_library);
     }
 
     #[test]

@@ -511,6 +511,7 @@ pub async fn duplicates(
             source_id: entry.title.fields.source_id,
             remote_id: entry.title.fields.remote_id,
             title: entry.title.fields.title,
+            authors: entry.title.fields.authors,
         })
         .collect())
 }

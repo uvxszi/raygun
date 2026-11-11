@@ -5301,6 +5301,10 @@ pub struct MangaCard {
     /// nothing).
     #[serde(default)]
     pub from_listing: bool,
+    /// Who wrote it: the listing's, else what this device stored when the title was opened or
+    /// saved (none for videos). A book without a cover gets one drawn with them.
+    #[serde(default)]
+    pub authors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -5955,6 +5959,9 @@ pub struct MangaUpdateItem {
     pub chapter: MangaChapterInfo,
     /// Unix ms.
     pub found_at: f64,
+    /// The title's authors: a book without a cover gets one drawn with them.
+    #[serde(default)]
+    pub authors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -6107,6 +6114,9 @@ pub struct LibraryDuplicate {
     pub title: String,
     pub source_name: String,
     pub cover_url: Option<String>,
+    /// The title's authors: a book without a cover gets one drawn with them.
+    #[serde(default)]
+    pub authors: Vec<String>,
 }
 
 /// A user-named shelf in the manga or novel library (M39).

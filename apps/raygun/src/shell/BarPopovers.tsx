@@ -113,7 +113,7 @@ const UpdatesPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({ anch
       picture: (
         <MangaCover
           url={item.coverUrl}
-          book={bookWords(item.medium, item.title)}
+          book={bookWords(item.medium, item.title, item.authors)}
           className="w-full rounded"
         />
       ),

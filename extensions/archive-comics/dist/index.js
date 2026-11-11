@@ -1,4 +1,4 @@
-// dev.raygun.archive-comics 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.archive-comics 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -57,6 +57,7 @@
   };
   var escapeQuery = (query) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, " ").trim();
   var strings = (value) => (Array.isArray(value) ? value : value ? [value] : []).map((text) => text.trim()).filter(Boolean);
+  var creators = (value) => strings(value).filter((name) => !/^(https?:\/\/|www\.)/i.test(name));
   var cover = (identifier) => `${API}/services/img/${encodeURIComponent(identifier)}`;
   var plainText = (html) => html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/\n{3,}/g, "\n\n").trim();
   var searchPage = async (query, sort, page) => {
@@ -65,6 +66,8 @@
       `q=${encodeURIComponent(query)}`,
       "fl[]=identifier",
       "fl[]=title",
+      // Who made each item comes in the same answer, for the cards.
+      "fl[]=creator",
       `rows=${ROWS}`,
       `page=${at}`,
       ...sort ? [`sort[]=${encodeURIComponent(sort)}`] : [],
@@ -76,7 +79,8 @@
       items: docs.filter((doc) => doc.identifier).map((doc) => ({
         id: doc.identifier,
         title: strings(doc.title)[0] ?? doc.identifier,
-        coverUrl: cover(doc.identifier)
+        coverUrl: cover(doc.identifier),
+        authors: creators(doc.creator)
       })),
       hasNextPage: at * ROWS < (result.response?.numFound ?? 0)
     };
@@ -141,7 +145,7 @@
       id,
       title: strings(meta.title)[0] ?? id,
       coverUrl: cover(id),
-      authors: strings(meta.creator),
+      authors: creators(meta.creator),
       artists: [],
       description: [date ? `Published ${date}.` : "", description].filter(Boolean).join("\n\n") || null,
       genres: [.../* @__PURE__ */ new Set([...strings(meta.subject), ...languages])].slice(0, 12),

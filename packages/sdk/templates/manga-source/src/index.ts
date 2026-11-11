@@ -48,7 +48,7 @@ const names = async (lang: string) => {
 };
 
 const SERIES_PAGE: MangaPage = {
-  items: [{ id: SERIES, title: 'Pepper&Carrot', coverUrl: COVER }],
+  items: [{ id: SERIES, title: 'Pepper&Carrot', coverUrl: COVER, authors: ['David Revoy'] }],
   hasNextPage: false,
 };
 const NOTHING: MangaPage = { items: [], hasNextPage: false };
