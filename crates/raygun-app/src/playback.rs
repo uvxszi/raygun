@@ -60,6 +60,16 @@ pub fn engine_for(source: &MediaSource, native_available: bool) -> Engine {
     }
 }
 
+/// Whether `source` plays from this device while Offline Mode is on: a file, or an address of this
+/// device's (the proxy's, the only ones still allowed then).
+fn on_this_device(source: &MediaSource) -> bool {
+    match source {
+        MediaSource::LocalFile { .. } => true,
+        MediaSource::Url { url, .. } => raygun_net::network_mode::allows(url),
+        _ => false,
+    }
+}
+
 struct Inner {
     core: PlaybackCore,
     /// Engine holding the current item; play/pause/seek go here.
@@ -335,6 +345,27 @@ impl PlaybackService {
     pub fn holds_queue(&self) -> bool {
         let inner = self.lock();
         inner.core.current_item().is_some() || !inner.core.queue().items.is_empty()
+    }
+
+    /// Offline Mode turned on: a song that isn't on the device stops (a stream through the proxy
+    /// would stop by itself; YouTube's player wouldn't), and the queue moves on to one that is.
+    pub fn went_offline(&self) {
+        let away = {
+            let inner = self.lock();
+            inner.core.current_item().and_then(|item| {
+                let on_device = on_this_device(&item.source)
+                    || crate::music_downloads::offline_item(&self.app, item).is_some();
+                (!on_device).then(|| inner.core.load_id())
+            })
+        };
+        if let Some(load_id) = away {
+            self.report(EngineReport {
+                load_id,
+                event: EngineEvent::Error {
+                    message: raygun_net::network_mode::OFFLINE_MESSAGE.to_owned(),
+                },
+            });
+        }
     }
 
     /// Raygun's webview went (Android: its activity, while the music plays on). A song playing in
@@ -964,6 +995,14 @@ impl PlaybackService {
                 .then(|| inner.core.current_item().cloned())
                 .flatten();
             match &report.event {
+                // A stream cut off by Offline Mode isn't the stream's fault: the song is passed
+                // over, nothing marked or looked for again.
+                EngineEvent::Error { .. } if current && raygun_net::network_mode::offline() => {
+                    tracing::info!(load_id = report.load_id, "stopped by offline mode");
+                    report.event = EngineEvent::Error {
+                        message: raygun_net::network_mode::OFFLINE_MESSAGE.to_owned(),
+                    };
+                }
                 EngineEvent::Error { message } => {
                     tracing::info!(load_id = report.load_id, %message, "engine reported an error");
                     let plan = if current {
@@ -1118,6 +1157,18 @@ impl PlaybackService {
                     outbox.current = labelled.current.or(outbox.current);
                     outbox
                 }
+                // Offline Mode: the song isn't on the device, so it's passed over. Nobody failed:
+                // nothing is marked, nothing looked for harder.
+                Err(_) if raygun_net::network_mode::offline() => {
+                    tracing::info!(load_id, "not on the device while offline; passed over");
+                    let effects = inner.core.report(EngineReport {
+                        load_id,
+                        event: EngineEvent::Error {
+                            message: raygun_net::network_mode::OFFLINE_MESSAGE.to_owned(),
+                        },
+                    });
+                    self.resolve(&mut inner, effects, Cause::AfterFailure)
+                }
                 Err(message) => {
                     let now = self.now_ms();
                     let Some(next) = inner.tracker.unresolved(load_id, &notes, now, marked) else {
@@ -1162,6 +1213,16 @@ impl PlaybackService {
                 tokio::time::sleep(wait).await;
             }
             let playback = app.state::<PlaybackService>();
+            // Offline Mode: nothing is looked for; a song not on the device is passed over.
+            if raygun_net::network_mode::offline() {
+                playback.on_resolved(
+                    load_id,
+                    Err(raygun_net::network_mode::OFFLINE_MESSAGE.to_owned()),
+                    Notes::default(),
+                    false,
+                );
+                return;
+            }
             let (request, cause) = {
                 let mut inner = playback.lock();
                 (inner.tracker.request(load_id), inner.tracker.cause(load_id))
@@ -1237,6 +1298,17 @@ impl PlaybackService {
                         }
                     };
                     match plan {
+                        // Offline Mode: a source elsewhere doesn't load (YouTube's player would go
+                        // to the network itself); the song is passed over as one not found.
+                        LoadPlan::Direct
+                            if raygun_net::network_mode::offline()
+                                && !on_this_device(&item.source) =>
+                        {
+                            if let Some(previous) = inner.active.take() {
+                                outbox.engine.push((previous, EngineCommand::Stop));
+                            }
+                            outbox.resolve = Some((load_id, Duration::ZERO));
+                        }
                         LoadPlan::Direct => {
                             let source = item.source.clone();
                             self.load_into(
@@ -1537,7 +1609,11 @@ impl PlaybackService {
     /// their own need nothing found. Nothing new is searched for in battery saver; searches for
     /// songs no longer around the current one stop.
     fn find_ahead(&self) {
-        let saver = crate::device_state::current().power_save;
+        // Nothing is found ahead in battery saver, in Offline Mode, or with Data Saver's part for
+        // it on.
+        let saver = crate::device_state::current().power_save
+            || raygun_net::network_mode::offline()
+            || crate::network_mode::saving(|saver| saver.no_prefetch);
         // What was found last: asking Android waits on its main thread, which may be this one.
         // The searches ask (for the quality they aim at), and say what they found.
         let mobile = crate::network::known_mobile_data().unwrap_or(false);

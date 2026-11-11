@@ -264,6 +264,9 @@ pub struct Settings {
     pub downloads_popover: u32,
     /// How good songs sound against the data they use, streaming and downloading.
     pub audio_quality: AudioQualityPrefs,
+    /// Offline Mode and Data Saver (this device only).
+    #[serde(default)]
+    pub network: NetworkPrefs,
     /// What the desktop sidebar shows and in what order (M46.29).
     pub rail: RailPrefs,
 }
@@ -1054,6 +1057,131 @@ impl Default for AudioQualityPrefs {
             cellular: AudioQuality::Normal,
             download: AudioQuality::VeryHigh,
         }
+    }
+}
+
+/// Offline Mode and Data Saver, for this device only (`raygun_db::sync::DEVICE_ONLY_SETTINGS`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NetworkPrefs {
+    /// Offline Mode: Raygun sends nothing over the network (`raygun_net::network_mode`). What's
+    /// on the device keeps working (downloads, local files, the library, what's cached), and
+    /// downloads wait for it to end.
+    pub offline: bool,
+    pub data_saver: DataSaverPrefs,
+}
+
+/// Data Saver: the same things for less data. Each part can be turned off on its own; with Data
+/// Saver on, the defaults save the most. It changes how other settings apply
+/// ([`Settings::with_data_saver`]) rather than the settings themselves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DataSaverPrefs {
+    pub enabled: bool,
+    /// Only while the device is on mobile data.
+    pub mobile_data_only: bool,
+    /// Videos play at most at `video_resolution`.
+    pub limit_video: bool,
+    pub video_resolution: VideoResolution,
+    /// Songs stream at `music_quality` at most.
+    pub limit_music: bool,
+    pub music_quality: AudioQuality,
+    /// Fewer sources asked at once, and fewer listing pages read for a search.
+    pub fewer_sources: bool,
+    /// The songs before and after the one playing aren't found ahead.
+    pub no_prefetch: bool,
+    /// Nothing is looked up in the background: covers, song tags, song lengths.
+    pub no_background_lookups: bool,
+    /// Smaller covers from sources that offer several sizes.
+    pub smaller_covers: bool,
+    /// Trailers on title pages don't play by themselves.
+    pub no_trailers: bool,
+    /// Pictures load only once they're on screen.
+    pub images_when_visible: bool,
+}
+
+impl Default for DataSaverPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mobile_data_only: false,
+            limit_video: true,
+            video_resolution: VideoResolution::P480,
+            limit_music: true,
+            music_quality: AudioQuality::Low,
+            fewer_sources: true,
+            no_prefetch: true,
+            no_background_lookups: true,
+            smaller_covers: true,
+            no_trailers: true,
+            images_when_visible: true,
+        }
+    }
+}
+
+/// What the network may be used for now, for the UI (`NetworkStatusEvent` on each change).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkStatus {
+    /// Offline Mode is on.
+    pub offline: bool,
+    /// Data Saver applies now (its switch, and mobile data when it's only for that).
+    pub data_saver: bool,
+    /// The device is on mobile data, as far as it's known.
+    pub mobile_data: bool,
+}
+
+/// Listing pages a search reads from one source while Data Saver asks for fewer.
+pub const DATA_SAVER_LISTING_PAGES: u32 = 1;
+
+impl DataSaverPrefs {
+    /// Whether Data Saver applies now, with the device on mobile data or not.
+    pub fn applies(&self, on_mobile_data: bool) -> bool {
+        self.enabled && (!self.mobile_data_only || on_mobile_data)
+    }
+}
+
+/// `quality`, no better than `cap`.
+fn at_most(quality: AudioQuality, cap: AudioQuality) -> AudioQuality {
+    let rank = |quality: AudioQuality| quality.target_kbps().unwrap_or(u32::MAX);
+    if rank(quality) > rank(cap) {
+        cap
+    } else {
+        quality
+    }
+}
+
+impl Settings {
+    /// The settings as they apply while Data Saver `saving` is on: songs stream and videos play
+    /// no better than its caps, searches read fewer listing pages, trailers wait to be played.
+    /// What's stored stays as it was; services read their settings through this.
+    pub fn with_data_saver(mut self, saving: bool) -> Self {
+        if !saving {
+            return self;
+        }
+        let saver = self.network.data_saver;
+        if saver.limit_music {
+            let quality = &mut self.audio_quality;
+            quality.streaming = at_most(quality.streaming, saver.music_quality);
+            quality.cellular = at_most(quality.cellular, saver.music_quality);
+        }
+        if saver.limit_video {
+            let preferred = &mut self.video_player.preferred_resolution;
+            let lower = match (preferred.max_height(), saver.video_resolution.max_height()) {
+                (_, None) => *preferred,
+                (None, Some(_)) => saver.video_resolution,
+                (Some(mine), Some(cap)) if mine > cap => saver.video_resolution,
+                _ => *preferred,
+            };
+            *preferred = lower;
+        }
+        if saver.fewer_sources {
+            self.search_listings.pages = self.search_listings.pages.min(DATA_SAVER_LISTING_PAGES);
+        }
+        if saver.no_trailers {
+            self.video_player.title_trailers = false;
+        }
+        self
     }
 }
 
@@ -2666,6 +2794,7 @@ impl Default for Settings {
             downloads_in_battery_saver: false,
             downloads_popover: 20,
             audio_quality: AudioQualityPrefs::default(),
+            network: NetworkPrefs::default(),
             rail: RailPrefs::default(),
         }
     }
@@ -2729,6 +2858,7 @@ impl Settings {
             SettingChange::DownloadsInBatterySaver(on) => self.downloads_in_battery_saver = on,
             SettingChange::DownloadsPopover(count) => self.downloads_popover = count,
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
+            SettingChange::Network(prefs) => self.network = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
             SettingChange::Notifications(prefs) => self.notifications = prefs,
@@ -2826,6 +2956,7 @@ pub enum SettingChange {
     DownloadsInBatterySaver(bool),
     DownloadsPopover(u32),
     AudioQuality(AudioQualityPrefs),
+    Network(NetworkPrefs),
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
     Privacy(PrivacyPrefs),
@@ -2895,6 +3026,7 @@ impl SettingChange {
             Self::DownloadsInBatterySaver(_) => "downloadsInBatterySaver",
             Self::DownloadsPopover(_) => "downloadsPopover",
             Self::AudioQuality(_) => "audioQuality",
+            Self::Network(_) => "network",
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
             Self::Privacy(_) => "privacy",
@@ -2932,6 +3064,7 @@ impl SettingChange {
             | Self::ResumeOnStart(_)
             | Self::DownloadsInBatterySaver(_)
             | Self::AudioQuality(_)
+            | Self::Network(_)
             | Self::LibraryDisplay(_)
             | Self::Privacy(_)
             | Self::Notifications(_) => Ok(()),
@@ -8411,6 +8544,49 @@ pub struct VideoDownloads {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_saver_lowers_what_applies_and_leaves_the_rest() {
+        let mut settings = Settings::default();
+        settings.network.data_saver.enabled = true;
+        assert_eq!(settings.clone().with_data_saver(false), settings);
+        let saving = settings.clone().with_data_saver(true);
+        assert_eq!(saving.audio_quality.streaming, AudioQuality::Low);
+        assert_eq!(saving.audio_quality.cellular, AudioQuality::Low);
+        // Downloads keep their quality: they're made once, on purpose.
+        assert_eq!(saving.audio_quality.download, AudioQuality::VeryHigh);
+        assert_eq!(
+            saving.video_player.preferred_resolution,
+            VideoResolution::P480
+        );
+        assert_eq!(saving.search_listings.pages, DATA_SAVER_LISTING_PAGES);
+        assert!(!saving.video_player.title_trailers);
+
+        // A lower choice of the user's own stays, and each part can be left out.
+        settings.video_player.preferred_resolution = VideoResolution::P360;
+        settings.network.data_saver.limit_music = false;
+        settings.network.data_saver.no_trailers = false;
+        let saving = settings.clone().with_data_saver(true);
+        assert_eq!(
+            saving.video_player.preferred_resolution,
+            VideoResolution::P360
+        );
+        assert_eq!(saving.audio_quality, settings.audio_quality);
+        assert!(saving.video_player.title_trailers);
+
+        let saver = DataSaverPrefs {
+            enabled: true,
+            mobile_data_only: true,
+            ..DataSaverPrefs::default()
+        };
+        assert!(saver.applies(true));
+        assert!(!saver.applies(false));
+        assert!(!DataSaverPrefs::default().applies(true), "off by default");
+        // A row saved before Offline Mode existed reads as off.
+        let old: NetworkPrefs = serde_json::from_str("{}").unwrap();
+        assert_eq!(old, NetworkPrefs::default());
+        assert!(!old.offline);
+    }
 
     #[test]
     fn songs_crossfade_for_two_seconds_unless_a_saved_row_says_otherwise() {

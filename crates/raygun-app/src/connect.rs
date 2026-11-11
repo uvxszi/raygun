@@ -939,7 +939,8 @@ impl ConnectService {
     /// Starts listening for devices the first time they're asked for. Android only lets an app
     /// hear multicast while it holds a lock.
     fn browse(self: &Arc<Self>) {
-        if self.browsing.swap(true, Ordering::SeqCst) {
+        // Offline Mode: the local network isn't asked (`stop_browsing`).
+        if raygun_net::network_mode::offline() || self.browsing.swap(true, Ordering::SeqCst) {
             return;
         }
         #[cfg(target_os = "android")]
@@ -979,7 +980,26 @@ impl ConnectService {
         }
     }
 
+    /// Offline Mode turned on: nothing is asked of the local network any more, and devices heard
+    /// are forgotten until it's off (the next list browses again).
+    pub fn stop_browsing(&self) {
+        if !self.browsing.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        raygun_remote::discovery::stop_browsing(None);
+        self.lock().found.clear();
+        #[cfg(target_os = "android")]
+        if let Err(error) = self
+            .app
+            .state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+            .multicast(false)
+        {
+            tracing::debug!(%error, "multicast lock kept");
+        }
+    }
+
     async fn check_network(&self, address: &str) -> Result<(), String> {
+        raygun_net::network_mode::check_online()?;
         self.app
             .state::<LocalNetwork>()
             .check(&format!("http://{address}/"), CONNECT_DENIED)

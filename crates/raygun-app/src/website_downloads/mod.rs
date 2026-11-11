@@ -638,6 +638,15 @@ impl WebsiteDownloadService {
                 entry.stored.item.resumable = resumable;
             });
             match result {
+                // Offline Mode pauses it: it goes on from where it was once Offline Mode is off.
+                Err(Failure::Transient(_) | Failure::Permanent(_))
+                    if raygun_net::network_mode::offline() =>
+                {
+                    tokio::select! {
+                        () = raygun_net::network_mode::wait_online() => {}
+                        () = fetch::cancelled(&mut cancel) => break Err(Failure::Cancelled),
+                    }
+                }
                 Err(Failure::Transient(reason)) if attempt < RETRIES => {
                     attempt += 1;
                     tracing::info!(%reason, attempt, "file download retried");

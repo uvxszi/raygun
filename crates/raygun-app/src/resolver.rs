@@ -673,7 +673,8 @@ impl ResolverService {
         let quality = match asked {
             Some(quality) => quality,
             None => {
-                let prefs = crate::settings::load(self.db())
+                // Data Saver caps it while it applies.
+                let prefs = crate::settings::load_in_effect(self.db())
                     .await
                     .map(|settings| settings.audio_quality)
                     .unwrap_or_default();

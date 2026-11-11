@@ -2810,3 +2810,75 @@ async fn a_call_still_finishes_when_another_into_the_same_extension_ends_first()
     assert_eq!(both.0.unwrap(), json!("slow"));
     assert_eq!(both.1.unwrap(), json!("quick"));
 }
+
+/// Offline Mode: a script's request to a site isn't sent (it fails at once with Offline Mode's
+/// message, whatever the script makes of it), this device is still reached, the call's failure
+/// is Offline Mode's own kind, and the source isn't counted as failing for it.
+#[tokio::test]
+async fn offline_mode_sends_no_request_and_blames_no_source() {
+    struct Online;
+    impl Drop for Online {
+        fn drop(&mut self) {
+            raygun_net::network_mode::set_offline(false);
+        }
+    }
+    let _online = Online;
+    let address = start_server();
+    let code = format!(
+        r#"raygun.providers.register({{ kind: 'music.metadata', id: 'p', name: 'P', run: async (args) => {{
+            if (args.here) return (await (await raygun.http.fetch('http://{address}/json')).json()).hello;
+            try {{ await raygun.http.fetch('https://site.example/catalog'); return 'sent'; }}
+            catch (e) {{ throw new Error('Couldn\'t load the catalogue: ' + e.message); }}
+        }} }});"#
+    );
+    let source = ExtensionSource::built_in(&[
+        (
+            "raygun-extension.json",
+            &manifest_json(json!({ "permissions": { "net": ["127.0.0.1", "site.example"] } })),
+        ),
+        ("index.js", &code),
+    ]);
+    let host = test_host();
+    let infos = host.load(vec![source]).await;
+    assert_eq!(
+        infos[0].status,
+        ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+
+    raygun_net::network_mode::set_offline(true);
+    let error = run(&host, json!({})).await.unwrap_err();
+    assert_eq!(error.kind(), Some(IssueKind::OfflineMode), "{error}");
+    assert!(
+        error.to_string().starts_with("Offline mode is on"),
+        "{error}"
+    );
+    assert_eq!(
+        run(&host, json!({ "here": true })).await.unwrap(),
+        json!("world"),
+        "this device is still reached"
+    );
+    // A server, even one on the local network, isn't asked either.
+    let base = reqwest::Url::parse("http://192.168.1.20:8096/").unwrap();
+    let server = crate::servers::http::Http::new(&base).unwrap();
+    let Err(failure) = server
+        .send(server.client().get(base.join("System/Info").unwrap()), 1024)
+        .await
+    else {
+        panic!("the server was asked");
+    };
+    assert_eq!(
+        failure.trouble.map(|trouble| trouble.kind),
+        Some(IssueKind::OfflineMode)
+    );
+    for _ in 0..4 {
+        host.health()
+            .record("dev.raygun.test/p", Err(&error), Duration::from_millis(5));
+    }
+    assert_eq!(
+        host.health().standing("dev.raygun.test/p"),
+        crate::fanout::Standing::Good
+    );
+    assert!(host.health().resting("dev.raygun.test/p").is_none());
+}

@@ -286,6 +286,10 @@ impl CollectionsService {
     /// No source played a song, however long playback looked: it's marked as one no source has,
     /// as songs no source had when imported are (lists offer Find a source for it).
     pub async fn mark_unplayable(&self, song: &TrackInput) {
+        // Offline Mode: no source was asked, so none is known not to have it.
+        if raygun_net::network_mode::offline() {
+            return;
+        }
         let keys = self.mark_keys(song).await;
         if let Err(error) = collections::mark_unavailable(self.db(), &keys, now_ms()).await {
             tracing::warn!(%error, "couldn't mark a song no source played");

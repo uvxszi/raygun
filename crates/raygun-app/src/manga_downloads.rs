@@ -126,6 +126,10 @@ impl MangaDownloadService {
                 manga_downloads::finish(&db, &unit_id, now_ms()).await
             }
             Err(Failure::Stopped) => manga_downloads::requeue(&db, &unit_id).await,
+            // Offline Mode pauses downloads: whatever stopped this one, it waits in the queue.
+            Err(Failure::Error(_)) if raygun_net::network_mode::offline() => {
+                manga_downloads::requeue(&db, &unit_id).await
+            }
             Err(Failure::Error(message)) => {
                 tracing::warn!(chapter = %unit_id, %message, "chapter download failed");
                 manga_downloads::fail(&db, &unit_id, &message).await

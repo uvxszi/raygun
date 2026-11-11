@@ -29,6 +29,7 @@ import { usePlaybackKeys } from '../player/usePlaybackKeys';
 import { useMediaSession } from '../engine/useMediaSession';
 import { usePlaybackSync } from '../player/usePlayback';
 import { useApplySize } from '../settings/useApplySize';
+import { useNetworkSync } from '../network/useNetworkMode';
 import { useIncognitoSync } from '../privacy/useIncognito';
 import { useApplyColors, useApplyFeel, useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings, useSettingsEvents } from '../settings/useSettings';
@@ -145,6 +146,8 @@ export const AppShell: FC = () => {
   useEngineHost();
   // Incognito (M47): Rust keeps nothing it's asked to remember while it's on.
   useIncognitoSync();
+  // Offline Mode and Data Saver, as Rust applies them.
+  useNetworkSync();
   // Phones keep their own layouts on their side: no side panel.
   const phone = useIsPhone();
   useSpeechHost();

@@ -624,6 +624,10 @@
         "title": "Privacy",
         "summary": "Listening history"
       },
+      "network": {
+        "title": "Offline mode & data saver",
+        "summary": "Nothing over the network, or less data"
+      },
       "devices": {
         "title": "Devices",
         "summary": "Linked devices"
@@ -1113,6 +1117,33 @@
     "hint": "What you play, watch, read or search isn't remembered",
     "turnOn": "Turn on incognito",
     "turnOff": "Turn off incognito"
+  },
+  "offline": {
+    "title": "Offline mode",
+    "hint": "Nothing goes over the network; downloads and your library still work",
+    "summary": "Raygun sends nothing over the network: downloads, files on this device, your library and what’s saved still work. Downloads wait until it’s off",
+    "turnOn": "Turn on offline mode",
+    "turnOff": "Turn off offline mode",
+    "note": "Offline mode is on",
+    "noteHint": "Only what’s on this device works until it’s off"
+  },
+  "dataSaver": {
+    "title": "Data saver",
+    "summary": "Uses less data for the same things; each part can be turned off",
+    "enabled": "Data saver",
+    "applies": "Saving data now",
+    "waits": "Saves data once you’re on mobile data",
+    "mobileDataOnly": "Only on mobile data",
+    "limitVideo": "Lower video resolution",
+    "videoResolution": "Videos play at most at",
+    "limitMusic": "Lower music quality",
+    "musicQuality": "Songs stream at most at",
+    "fewerSources": "Ask fewer sources at once",
+    "noPrefetch": "Don’t load the next song ahead",
+    "noBackgroundLookups": "No lookups in the background (covers, tags, song lengths)",
+    "smallerCovers": "Smaller covers",
+    "noTrailers": "Don’t play trailers by themselves",
+    "imagesWhenVisible": "Load pictures only once they’re on screen"
   },
   "player": {
     "nothingPlaying": "Nothing playing",
@@ -4622,6 +4653,7 @@
     "someSource": "The source",
     "kind": {
       "offline": "No internet connection",
+      "offline-mode": "Offline mode is on",
       "dns": "Couldn’t find {{source}}’s site — check your connection",
       "timeout": "{{source}} didn’t answer in time",
       "tls": "Couldn’t connect securely to {{source}}",

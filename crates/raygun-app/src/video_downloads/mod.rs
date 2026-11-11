@@ -207,8 +207,11 @@ impl VideoDownloadService {
                 let subtitles = serde_json::to_string(&subtitles).unwrap_or_else(|_| "[]".into());
                 store::set_done(&db, &row.id, &file, &subtitles, now_ms()).await
             }
-            // Paused: back in the queue, to continue where it stopped.
+            // Paused (or stopped by Offline Mode): back in the queue, to continue where it stopped.
             Err(Failure::Stopped) => store::requeue(&db, &row.id).await,
+            Err(Failure::Error(_)) if raygun_net::network_mode::offline() => {
+                store::requeue(&db, &row.id).await
+            }
             Err(Failure::Error(message)) => {
                 tracing::warn!(key = %row.download.key, %message, "video download failed");
                 store::set_failed(&db, &row.id, &message).await
@@ -762,7 +765,9 @@ impl VideoDownloadService {
     }
 
     fn is_stopped(&self, id: &str) -> bool {
+        // Offline Mode stops a download where it is; it goes on once it's off.
         self.paused.load(Ordering::SeqCst)
+            || raygun_net::network_mode::offline()
             || self
                 .cancelled
                 .lock()

@@ -182,6 +182,8 @@ impl CoverSearch {
     async fn run(&self) {
         let mut pacer = Pacer::default();
         loop {
+            // Offline Mode, or Data Saver's part for background lookups: none until they end.
+            crate::network_mode::wait_for_lookups().await;
             self.wait_until_quiet().await;
             let db = self.app.state::<AppDb>().0.clone();
             let waiting = song_memory::uncovered(
@@ -200,8 +202,8 @@ impl CoverSearch {
                 continue;
             }
             for song in waiting {
-                // Work started: the round stops here.
-                if !self.activity().quiet() {
+                // Work started, or lookups rest now: the round stops here.
+                if !self.activity().quiet() || crate::network_mode::lookups_rest() {
                     pacer.interrupted();
                     break;
                 }

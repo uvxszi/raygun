@@ -292,7 +292,7 @@ impl VideoSourceService {
     }
 
     async fn preferred_quality(&self) -> VideoResolution {
-        crate::settings::load(&self.catalog.db())
+        crate::settings::load_in_effect(&self.catalog.db())
             .await
             .map(|settings| settings.video_player.preferred_resolution)
             .unwrap_or_default()

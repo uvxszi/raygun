@@ -54,6 +54,7 @@ mod mihon_container;
 mod miniplayer;
 mod music_downloads;
 mod network;
+mod network_mode;
 mod notifications;
 mod novel;
 mod open_with;
@@ -541,6 +542,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::local_network_open_settings,
             device_state::device_state,
             device_state::device_set_visible,
+            network_mode::network_status,
+            network_mode::network_set_offline,
             permissions::permissions_list,
             permissions::permission_request,
             permissions::permission_open_settings,
@@ -616,6 +619,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::OpenRouteEvent,
             events::PermissionPromptEvent,
             device_state::DeviceStateEvent,
+            network_mode::NetworkStatusEvent,
             events::MadeForYouEvent,
             events::TrackDurationsEvent,
             events::LocalFilesEvent,

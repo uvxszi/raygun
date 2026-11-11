@@ -70,6 +70,9 @@ pub enum ModelError {
     Mismatch(String),
     #[error("the download was cancelled")]
     Cancelled,
+    /// Offline Mode turned on: the download stopped, nothing of it kept.
+    #[error("Offline mode is on")]
+    Offline,
 }
 
 /// The built-in catalogue.
@@ -108,6 +111,9 @@ pub async fn download(
     cancel: &CancellationToken,
     mut progress: impl FnMut(u64, u64),
 ) -> Result<(), ModelError> {
+    if raygun_net::network_mode::offline() {
+        return Err(ModelError::Offline);
+    }
     let target = model_dir(models_dir, model);
     let partial = models_dir.join(format!("{}.part", model.id));
     let _ = tokio::fs::remove_dir_all(&partial).await;
@@ -193,6 +199,7 @@ async fn write_body(
         let chunk = tokio::select! {
             biased;
             () = cancel.cancelled() => return Err(ModelError::Cancelled),
+            () = raygun_net::network_mode::went_offline() => return Err(ModelError::Offline),
             chunk = body.next() => chunk,
         };
         let Some(chunk) = chunk else {

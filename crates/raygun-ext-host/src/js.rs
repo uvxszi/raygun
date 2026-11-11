@@ -1175,6 +1175,18 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     if !shared.policy.allows(&url) {
         return Err(denied_message(&url));
     }
+    // Offline Mode: nothing is sent, and the call's failure says why (no source is to blame).
+    if !raygun_net::network_mode::allows(url.as_str()) {
+        let message = raygun_net::network_mode::OFFLINE_MESSAGE.to_owned();
+        shared.note(NetEvent::Trouble(
+            Trouble {
+                kind: IssueKind::OfflineMode,
+                detail: message.clone(),
+            },
+            None,
+        ));
+        return Err(message);
+    }
     let options: FetchOptions =
         serde_json::from_str(options).map_err(|error| format!("invalid fetch options: {error}"))?;
     let method = reqwest::Method::from_bytes(options.method.to_ascii_uppercase().as_bytes())

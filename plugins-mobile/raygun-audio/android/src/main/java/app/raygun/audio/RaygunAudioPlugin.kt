@@ -78,6 +78,11 @@ class MulticastArgs {
 }
 
 @InvokeArg
+class OfflineGateArgs {
+    var on: Boolean = false
+}
+
+@InvokeArg
 class CastKeepAliveArgs {
     var on: Boolean = false
     var title: String = ""
@@ -981,6 +986,14 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         } else {
             multicastLock?.release()
         }
+        invoke.resolve()
+    }
+
+    // ---- Offline Mode: the main webview loads nothing from the network while it's on ----
+
+    @Command
+    fun setOfflineGate(invoke: Invoke) {
+        OfflineGate.on = invoke.parseArgs(OfflineGateArgs::class.java).on
         invoke.resolve()
     }
 

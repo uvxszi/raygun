@@ -28,6 +28,10 @@ const write = (failures: Record<string, number>) => {
   }
 };
 
+/** Offline Mode, as the shell marks the document (`network/useNetworkMode`): nothing was asked. */
+const offlineMode = () =>
+  typeof document !== 'undefined' && document.documentElement.hasAttribute('data-offline');
+
 type SourceHealth = {
   /** Sources whose last search or listing failed, and when. */
   failures: Record<string, number>;
@@ -42,6 +46,8 @@ type SourceHealth = {
 export const useSourceHealth = create<SourceHealth>((set, get) => ({
   failures: read(),
   failed: (id) => {
+    // A failure while Offline Mode is on isn't the source's.
+    if (offlineMode()) return;
     const failures = { ...get().failures, [id]: Date.now() };
     write(failures);
     set({ failures });

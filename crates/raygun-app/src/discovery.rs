@@ -364,6 +364,8 @@ impl DiscoveryService {
         let mut skipped: HashSet<String> = HashSet::new();
         let mut failures = 0u32;
         loop {
+            // Offline Mode, or Data Saver's part for background lookups: none until they end.
+            crate::network_mode::wait_for_lookups().await;
             let waiting = if self.tagging_on().await {
                 raygun_db::track_tags::untagged(self.db(), TAGGER_BATCH + skipped.len() as i64)
                     .await

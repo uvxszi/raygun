@@ -30,7 +30,8 @@ pub fn effective(settings: &raygun_model::Settings) -> SearchFilterPrefs {
 /// (`Settings::search_listings`), as stored; the defaults when the settings can't be read.
 pub async fn listings(app: &tauri::AppHandle) -> SearchListingsPrefs {
     let db = app.state::<crate::startup::AppDb>().inner().0.clone();
-    crate::settings::load(&db)
+    // Data Saver reads fewer pages while it applies.
+    crate::settings::load_in_effect(&db)
         .await
         .map(|settings| settings.search_listings)
         .unwrap_or_default()

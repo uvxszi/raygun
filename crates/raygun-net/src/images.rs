@@ -112,6 +112,9 @@ pub async fn fetch_image(
     url: &str,
     headers: &BTreeMap<String, String>,
 ) -> Result<Image, ImageError> {
+    // Nothing's fetched while Offline Mode is on: pages come from the cache or downloads only.
+    crate::network_mode::check(source_marked(url).map_or(url, |(address, _)| address))
+        .map_err(|offline| ImageError::Network(offline.to_string()))?;
     if let Some((address, provider)) = source_marked(url) {
         return fetch_through_source(address, provider, headers).await;
     }
@@ -529,7 +532,8 @@ async fn save_page(
 ) -> Result<(), DownloadError> {
     let mut attempt = 0;
     let fetched = loop {
-        if should_stop() {
+        // Offline Mode pauses a download: what's saved stays for when it's off.
+        if should_stop() || !crate::network_mode::allows(&image.url) {
             return Err(DownloadError::Stopped);
         }
         match fetch_image(client, &image.url, &image.headers).await {

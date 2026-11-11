@@ -10,6 +10,8 @@ import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.WebViewCompat
+import app.raygun.audio.OfflineGateClient
 import app.raygun.audio.OpenWith
 import app.raygun.audio.RaygunWindow
 import app.raygun.audio.WebAwake
@@ -60,8 +62,16 @@ class MainActivity : TauriActivity() {
     super.onNewIntent(intent)
   }
 
-  /** wry hands over its webview here: it goes in a parent that can keep it playing off screen. */
+  /**
+   * wry hands over its webview here: it goes in a parent that can keep it playing off screen, and
+   * its client gets Offline Mode's gate in front (it loads nothing from the network while on).
+   */
   override fun setContentView(view: View?) {
+    (view as? WebView)?.let { webView ->
+      runCatching { WebViewCompat.getWebViewClient(webView) }
+        .getOrNull()
+        ?.let { client -> webView.webViewClient = OfflineGateClient(client) }
+    }
     super.setContentView(view?.let { WebAwake.host(this, it) })
   }
 
