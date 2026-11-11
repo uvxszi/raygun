@@ -10,7 +10,9 @@ import {
   URLPolyfill,
   URLSearchParamsPolyfill,
   atobPolyfill,
+  base64ToBytes,
   btoaPolyfill,
+  bytesToBase64,
 } from '../src/shim/polyfills';
 
 describe('URL', () => {
@@ -77,6 +79,28 @@ describe('text, base64 and headers', () => {
     expect(atobPolyfill(btoa('\u0000ÿ binary'))).toBe('\u0000ÿ binary');
   });
 
+  it('decodes broken UTF-8 as browsers do, and throws on it when fatal', () => {
+    const bytes = Uint8Array.from([0xef, 0xbb, 0xbf, 0x41, 0xc3, 0x28, 0xe2, 0x82, 0xac, 0xff]);
+    expect(new TextDecoderPolyfill().decode(bytes)).toBe(new TextDecoder().decode(bytes));
+    expect(() => new TextDecoderPolyfill('utf-8', { fatal: true }).decode(bytes)).toThrow(
+      'not valid UTF-8',
+    );
+    expect(() => new TextDecoderPolyfill('gbk')).toThrow(RangeError);
+    // A lone surrogate becomes U+FFFD, as TextEncoder makes it.
+    const lone = 'a\ud800b';
+    expect(Array.from(new TextEncoderPolyfill().encode(lone))).toEqual(
+      Array.from(new TextEncoder().encode(lone)),
+    );
+  });
+
+  it('turns a page-sized text into bytes and back in one piece', () => {
+    const page = `<li>夜に駆ける 🎵 ${'x'.repeat(50)}</li>`.repeat(20_000);
+    const bytes = new TextEncoderPolyfill().encode(page);
+    expect(bytes.length).toBe(new TextEncoder().encode(page).length);
+    expect(new TextDecoderPolyfill().decode(bytes)).toBe(page);
+    expect(base64ToBytes(bytesToBase64(bytes.subarray(0, 1001)))).toEqual(bytes.subarray(0, 1001));
+  });
+
   it('treats header names case-insensitively', () => {
     const headers = new HeadersPolyfill({ 'Content-Type': 'application/json' });
     headers.append('Set-Cookie', 'a=1');
@@ -105,5 +129,16 @@ describe('Blob → DecompressionStream → Response', () => {
     expect(response.headers.get('x-a')).toBe('1');
     expect(await response.json()).toEqual({ ok: true });
     expect(new ResponsePolyfill('', { status: 404 }).ok).toBe(false);
+  });
+
+  it('keeps a text body as the string it came as, with bytes only when asked', async () => {
+    const page = '<html>Señorita</html>';
+    const response = new ResponsePolyfill(page);
+    expect(await response.text()).toBe(page);
+    expect(await response.clone().text()).toBe(page);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new TextEncoder().encode(page));
+    const binary = new ResponsePolyfill(Uint8Array.from([0x1f, 0x8b, 0xff]));
+    expect(Array.from(await binary.bytes())).toEqual([0x1f, 0x8b, 0xff]);
+    expect(await binary.text()).toBe('\u001f��');
   });
 });

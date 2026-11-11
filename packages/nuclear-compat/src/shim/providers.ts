@@ -102,8 +102,20 @@ export const toRaygunLyrics = (lyrics: NuclearLyrics | undefined | null): Lyrics
   return synced.length > 0 ? { synced } : null;
 };
 
-/** Candidates are kept by id for `getStreamUrlV2`, which wants the whole candidate back. */
+/**
+ * Candidates are kept by id for `getStreamUrlV2`, which wants the whole candidate back: the
+ * latest few hundred, so a plugin's heap doesn't grow with every song looked up.
+ */
 const candidates = new Map<string, NuclearStreamCandidate>();
+const KEPT_CANDIDATES = 500;
+
+const keepCandidate = (candidate: NuclearStreamCandidate) => {
+  candidates.delete(candidate.id);
+  candidates.set(candidate.id, candidate);
+  if (candidates.size > KEPT_CANDIDATES) {
+    candidates.delete(candidates.keys().next().value as string);
+  }
+};
 
 /** A stream as a Raygun source, with the headers the host gave its address (YouTube's). */
 const sourceOf = (url: string) => ({
@@ -236,7 +248,7 @@ export const wrapProvider = (provider: NuclearProvider): Provider | null => {
               query.album ?? undefined,
             );
         const list = (found ?? []).filter((candidate) => !candidate.failed).slice(0, query.limit);
-        for (const candidate of list) candidates.set(candidate.id, candidate);
+        for (const candidate of list) keepCandidate(candidate);
         return {
           candidates: list.map((candidate): StreamCandidate => {
             // Nuclear's candidates name no artist; a YouTube search said whose each video is.

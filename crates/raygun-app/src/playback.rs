@@ -1497,7 +1497,9 @@ impl PlaybackService {
             let task = tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(crate::prefetch::AFTER).await;
                 let resolver = app.state::<Arc<ResolverService>>().inner().clone();
-                let (found, _) = resolver.find(&query, &exclusions).await;
+                // Nobody waits on it yet: slow sources get their background time.
+                let (found, _) =
+                    raygun_ext_host::in_background(resolver.find(&query, &exclusions)).await;
                 // The search asked which network this is, for the quality it aimed at.
                 let mobile = crate::network::known_mobile_data().unwrap_or(false);
                 app.state::<PlaybackService>()

@@ -7,10 +7,12 @@ mod content;
 pub mod cookies;
 mod failure;
 pub mod fanout;
+mod heap;
 mod host;
 mod html;
 mod js;
 pub mod kodi;
+mod late;
 pub mod listing_search;
 pub mod lnreader;
 pub mod manga;
@@ -33,7 +35,11 @@ pub mod youtube;
 #[cfg(test)]
 mod fixture_tests;
 #[cfg(test)]
+mod limits_tests;
+#[cfg(test)]
 mod many_tests;
+#[cfg(test)]
+mod nuclear_survey;
 #[cfg(test)]
 mod nuclear_tests;
 #[cfg(test)]
@@ -44,11 +50,13 @@ mod repo_tests;
 mod tests;
 
 pub use content::{ContentFilter, without_adult_sources};
+pub use heap::{Budget, HeapPool, HeapUse, device_memory};
 pub use host::{
-    CATALOG_SEARCH_TIMEOUT, CallError, ExtensionFiles, ExtensionHost, ExtensionSource, HostConfig,
-    INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS, MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS,
-    ProviderCandidates, ResolvedStream, ServerSecrets, StreamUse, UserSettings, discover_installed,
-    interactive_calls,
+    BACKGROUND_TIMEOUT, CATALOG_SEARCH_TIMEOUT, CallError, Exhaustion, ExtensionFiles,
+    ExtensionHost, ExtensionSource, HostConfig, INTERACTIVE_TIMEOUT, LYRICS, MUSIC_CHARTS,
+    MUSIC_METADATA, MUSIC_STREAM, MUSIC_TAGS, ProviderCandidates, ResolvedStream, ServerSecrets,
+    StreamUse, UserSettings, discover_installed, in_background, interactive_calls, is_background,
+    waiting_limit,
 };
 pub use js::{Limits, asked_wait};
 pub use manifest::{MANIFEST_FILE, Manifest, ManifestError};

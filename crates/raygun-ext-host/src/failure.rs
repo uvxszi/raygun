@@ -4,8 +4,8 @@
 
 use raygun_net::issue::{self, Issue, IssueKind};
 
-use crate::CallError;
 use crate::browser_check::CheckedRequest;
+use crate::{CallError, Exhaustion};
 
 /// Something a call's requests met: a failed request or a failed answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,21 +55,12 @@ pub fn into_error(failure: Failure, name: &str, provider: &str, method: &str) ->
             method: method.to_owned(),
         };
     }
-    if message.contains("interrupted") {
-        return failed(
-            IssueKind::ExtensionFailed,
-            name,
-            "the script ran too long without waiting",
-            &message,
-        );
-    }
-    if message.contains("out of memory") || message.contains("stack overflow") {
-        return failed(
-            IssueKind::ExtensionFailed,
-            name,
-            "the script ran out of memory",
-            &message,
-        );
+    if let Some(what) = exhaustion(&message) {
+        return CallError::Exhausted {
+            name: name.to_owned(),
+            what,
+            detail: message,
+        };
     }
     let said = issue::text_kind(&message);
     if let Some(trouble) = trouble {
@@ -96,6 +87,23 @@ pub fn into_error(failure: Failure, name: &str, provider: &str, method: &str) ->
             name: name.to_owned(),
             message,
         },
+    }
+}
+
+/// What a script ran out of, by what its runtime threw: QuickJS's "out of memory", "Maximum call
+/// stack size exceeded" (its regular expressions' "stack overflow"), or "interrupted" when it
+/// ran past its time without waiting.
+pub(crate) fn exhaustion(message: &str) -> Option<Exhaustion> {
+    if message.contains("out of memory") {
+        Some(Exhaustion::Memory)
+    } else if message.contains("Maximum call stack size exceeded")
+        || message.contains("stack overflow")
+    {
+        Some(Exhaustion::Stack)
+    } else if message.contains("interrupted") {
+        Some(Exhaustion::Time)
+    } else {
+        None
     }
 }
 
@@ -175,10 +183,58 @@ mod tests {
             kind(Failure::said(message)),
             Some(IssueKind::ExtensionFailed)
         );
+    }
+
+    #[test]
+    fn running_out_says_what_ran_out_with_the_runtime_s_account() {
+        let detail = "InternalError: out of memory\nits memory reached 96 MB, its limit";
+        let memory = error(Failure::said(detail));
         assert_eq!(
-            kind(Failure::said("InternalError: interrupted")),
-            Some(IssueKind::ExtensionFailed)
+            memory,
+            CallError::Exhausted {
+                name: "Example Comics".into(),
+                what: Exhaustion::Memory,
+                detail: detail.into(),
+            }
         );
+        assert_eq!(
+            memory.to_string(),
+            format!("Example Comics needed more memory than a source may use\n{detail}")
+        );
+        assert_eq!(memory.kind(), Some(IssueKind::ExtensionFailed));
+        assert_eq!(memory.detail(), detail);
+        // Even when a request on the way met trouble: running out is what stopped it.
+        let interrupted = error(Failure {
+            message: "InternalError: interrupted".into(),
+            trouble: Some(Trouble {
+                kind: IssueKind::NotFound,
+                detail: "x answered HTTP 404".into(),
+            }),
+            answered: true,
+            checked: None,
+        });
+        assert!(matches!(
+            interrupted,
+            CallError::Exhausted {
+                what: Exhaustion::Time,
+                ..
+            }
+        ));
+        assert!(
+            interrupted
+                .to_string()
+                .starts_with("Example Comics kept the processor busy too long"),
+            "{interrupted}"
+        );
+        assert!(matches!(
+            error(Failure::said(
+                "RangeError: Maximum call stack size exceeded"
+            )),
+            CallError::Exhausted {
+                what: Exhaustion::Stack,
+                ..
+            }
+        ));
     }
 
     #[test]

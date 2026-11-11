@@ -51,6 +51,8 @@ ctr = "0.9"
 sha1 = "0.11"
 hmac = "0.13"
 uuid.workspace = true
+# Random bytes for converted Nuclear plugins' `crypto.getRandomValues` (salts, keys).
+getrandom = "0.3"
 flate2 = "1"
 # Pictures converted sources draw (`mihon::pictures`, over `raygun_net::bitmap`), and the text
 # `lib:textinterceptor` draws on them in the system's own faces.

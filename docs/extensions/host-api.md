@@ -69,6 +69,22 @@ An element has `text` (all the text inside it), `html` (its outer HTML), `inner`
 HTML), `attrs` and `attr(name)` (`null` when missing), and `select(selector)`. `select` on an
 element parses its HTML again as a fragment, so select table rows (`tr`) from the document.
 
+## Limits
+
+- **Memory**: an extension's runtime holds at most a sixty-fourth of the device's memory, between
+  64 and 128 MB. Code converted from another app (Nuclear, Miru, LNReader, Mihon) gets a
+  twenty-fourth, between 96 and 256 MB, and all runtimes together an eighth (256 MB to 1 GB).
+  Keep pages as strings and read them with `raygun.html.select` or regular expressions; arrays of
+  numbers cost 16 bytes an item.
+- **CPU budget**: 5 s of script without waiting (a `fetch` or a `sleep` starts it again), regular
+  expressions included.
+- **Stack**: 1 MB of nested calls; deeper recursion stops with "Maximum call stack size
+  exceeded".
+
+A call that runs out says so ("… needed more memory than a source may use", "… kept the
+processor busy too long"), with what it held under More info. A source that keeps failing, or
+keeps running out, sits out a while so searches don't wait on it.
+
 ## `raygun.time.sleep(ms)`
 
 Waits without using the CPU budget, at most 10 s per call: to pace an API's rate limit, or to

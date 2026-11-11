@@ -387,9 +387,13 @@ impl SongDownloadService {
                 }
                 Err(error) => tracing::warn!(%error, "song downloads unreadable"),
             }
+            // Nobody waits on a download's lookups as on a play's: slow sources get their
+            // background time (`raygun_ext_host::in_background`).
             let recordings = service.clone();
-            tauri::async_runtime::spawn(async move { recordings.work(Lane::Recordings).await });
-            service.work(Lane::Files).await;
+            tauri::async_runtime::spawn(async move {
+                raygun_ext_host::in_background(recordings.work(Lane::Recordings)).await
+            });
+            raygun_ext_host::in_background(service.work(Lane::Files)).await;
         });
     }
 

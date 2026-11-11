@@ -24,8 +24,10 @@ without sources.
 | `searchPlaylists` | `{ query, limit, featured }`  | `{ playlists: Playlist[] }`             | no       |
 | `playlist`        | `{ id }`                      | `{ playlist: Playlist, tracks: Track[] }` | no     |
 
-A search waits 12 s for a source; `album` and `playlist` 30 s. Raygun leaves a source out of
-whatever it has no call for. `featured` asks for the service's own playlists only.
+A search waits 12 s for a source; `album` and `playlist` 30 s. A source still working then goes
+on in the background (30 s in all), and the same search again gets its answer at once. Raygun
+leaves a source out of whatever it has no call for. `featured` asks for the service's own
+playlists only.
 
 ### Songs
 
