@@ -241,7 +241,9 @@ pub const METHODS: &[&str] = &[
     "toJavaInstant", "toKotlinInstant", "stripTrailingZeros", "toPlainString", "noCache",
     "noStore", "maxStale", "maxAge", "onlyIfCached", "protocol", "subSequence", "inflate",
     "copyInto", "insertChildren", "atYear", "getResource", "getResourceAsStream", "openStream",
-    "serializer",
+    "serializer", "getDate", "getDayOfWeek", "getDisplayName", "getDisplayLanguage",
+    "toLanguageTag", "toBigDecimalOrNull", "randomOrNull", "minWith", "maxWith", "runningFold",
+    "siblingIndex", "normalName", "getName",
 ];
 
 fn quote(text: &str) -> String {
@@ -2730,6 +2732,7 @@ pub const GLOBALS: &[&str] = &[
     "CheckBoxPreference", "ListPreference", "EditTextPreference", "MultiSelectListPreference",
     "PreferenceCategory", "Cache", "SeedRandom", "showInfo", "askConfirm", "askInput",
     "askPassword", "askSelect", "askSelectOption", "GZIPInputStream", "InflaterInputStream",
+    "SoftReference", "WeakReference", "randomUUID", "launch",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2746,5 +2749,6 @@ pub const OBJECTS: &[&str] = &[
     "QuickJs", "JSON_MEDIA_TYPE", "Bitmap", "BitmapFactory", "Color", "Paint", "Typeface",
     "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper", "Collator", "Dispatchers",
     "Evaluator", "HttpUrl", "Uri", "Float", "Double", "Thread", "Response", "Protocol", "Year",
-    "OffsetDateTime", "Resources", "MonthDay", "javaClass", "jsonInstance",
+    "OffsetDateTime", "Resources", "MonthDay", "javaClass", "jsonInstance", "DayOfWeek",
+    "TextStyle", "Injekt", "GlobalScope", "SSLContext",
 ];

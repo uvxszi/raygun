@@ -641,6 +641,13 @@
     toBigInteger: (s) => Number(s),
     toULong: (s) => Number(s),
     subSequence: (s, [start, end = s.length]) => s.slice(start, end),
+    toBigDecimalOrNull: (s) => toFloat(s),
+    toUInt: (s, [radix]) => KT.nn(toInt(s, radix)) >>> 0,
+    toUIntOrNull: (s, [radix]) => {
+      const value = toInt(s, radix);
+      return value === null || value < 0 || value > 4294967295 ? null : value;
+    },
+    lineSequence: (s) => s.split(/\r?\n/),
     random: (s) => (s.length ? s[Math.floor(Math.random() * s.length)] : noSuch('empty text')),
     substringAfter: (s, [delimiter, missing = s]) =>
       K.substringAfter(s, KT.str(delimiter), missing),
@@ -1532,6 +1539,22 @@
       l.push(...list);
       return true;
     },
+    randomOrNull: (l) => (l.length ? l[Math.floor(Math.random() * l.length)] : null),
+    minWith: async (l, [order]) => {
+      if (!l.length) return noSuch('the list is empty');
+      return (await sortWith(l, order))[0];
+    },
+    maxWith: async (l, [order]) => {
+      if (!l.length) return noSuch('the list is empty');
+      const sorted = await sortWith(l, order);
+      return sorted[sorted.length - 1];
+    },
+    runningFold: async (l, [initial], lambda) => {
+      const out = [initial];
+      let acc = initial;
+      for (const item of l) out.push((acc = await lambda(acc, item)));
+      return out;
+    },
     // `MutableList.reverse()`: in place.
     reverse: (l) => {
       l.reverse();
@@ -1650,6 +1673,10 @@
 
   /// A JSON object, as kotlinx.serialization's `JsonObject` or a DTO.
   const OBJECT = {
+    // A locale's tag and names.
+    toLanguageTag: (o) => (o.country ? `${o.language}-${o.country}` : KT.str(o.language)),
+    getDisplayLanguage: (o) => LANGUAGE_NAMES[o.language] ?? KT.str(o.language),
+    getDisplayName: (o) => LANGUAGE_NAMES[o.language] ?? KT.str(o.language),
     // A `JsonObject`'s text is its JSON.
     toString: (o) => JSON.stringify(o),
     // Keiyoushi's `JsonElement.parseAs<T>()`: the element decoded as the type.
@@ -1709,6 +1736,8 @@
     toBigInteger: (n) => n,
     toULong: (n) => (n < 0 ? n + 18446744073709551616 : n),
     toUByte: (n) => n & 255,
+    toUInt: (n) => Math.trunc(n) >>> 0,
+    toULong: (n) => (n < 0 ? n + 18446744073709551616 : Math.trunc(n)),
     toUShort: (n) => n & 65535,
     multipliedBy: (n, [other]) => n * Number(other),
     toString: (n, [radix]) => (radix ? n.toString(radix) : K.str(n)),
@@ -1811,6 +1840,12 @@
 
   /// kotlinx.serialization's JSON elements, read off plain JSON values.
   const JSON_PROPS = {
+    // Keiyoushi's `obj` and `array` (`keiyoushi.utils`).
+    obj: (value) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? value
+        : KT.raise('not a JSON object'),
+    array: (value) => (Array.isArray(value) ? value : KT.raise('not a JSON array')),
     jsonObject: (value) =>
       value && typeof value === 'object' && !Array.isArray(value)
         ? value
@@ -1893,7 +1928,22 @@
     }
     return false;
   };
+  /// What `JsonNull` (a `JsonPrimitive`) answers.
+  const JSON_NULL_PROPS = {
+    contentOrNull: null,
+    content: 'null',
+    isString: false,
+    stringOrNull: null,
+    intOrNull: null,
+    longOrNull: null,
+    doubleOrNull: null,
+    floatOrNull: null,
+    booleanOrNull: null,
+    jsonPrimitive: null,
+  };
   KT.p = async (value, name) => {
+    if (value === null && Object.prototype.hasOwnProperty.call(JSON_NULL_PROPS, name))
+      return JSON_NULL_PROPS[name];
     if (value === null || value === undefined)
       throw new KotlinError(`read ${name} of null`, 'NullPointerException');
     const kind = kindOf(value);
@@ -1937,8 +1987,11 @@
         if (name === 'isSuccess') return value.isSuccess;
         if (name === 'isFailure') return !value.isSuccess;
       }
-      const getter = value[`get${name.charAt(0).toUpperCase()}${name.slice(1)}`];
+      const getterName = `get${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+      const getter = value[getterName];
       if (typeof getter === 'function') return getter.call(value);
+      // A plain value's Java getter from the runtime's table (`locale.displayLanguage`).
+      if (value.__class === undefined && OBJECT[getterName]) return OBJECT[getterName](value, []);
       if (value.__class !== undefined && !(name in value))
         throw new KotlinError(`${value.__class} has no ${name}`);
       return null;
@@ -2437,6 +2490,12 @@
   class Headers {
     constructor(pairs = []) {
       this.pairs = pairs;
+    }
+    /// OkHttp's `headers.getDate("Date")`: the header's time, or null.
+    getDate(name) {
+      const value = this.get(name);
+      const ms = value === null ? NaN : Date.parse(value);
+      return Number.isNaN(ms) ? null : ms;
     }
     get(name) {
       const found = [...this.pairs]
@@ -5558,6 +5617,75 @@
     made.classLoader = made;
     return made;
   };
+  /// java.time's `DayOfWeek`: Monday is 1.
+  const DAY_NAMES = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+  const dayOfWeek = (value) => {
+    const name = DAY_NAMES[(((Number(value) - 1) % 7) + 7) % 7];
+    const full = name.charAt(0) + name.slice(1).toLowerCase();
+    return {
+      __class: 'DayOfWeek',
+      __classes: ['DayOfWeek', 'Enum'],
+      name,
+      value: Number(value),
+      ordinal: Number(value) - 1,
+      getValue: () => Number(value),
+      // English names: Raygun shows sources' text as they give it.
+      getDisplayName: (style) =>
+        KT.str(style) === 'SHORT' || KT.str(style) === 'SHORT_STANDALONE'
+          ? full.slice(0, 3)
+          : KT.str(style) === 'NARROW'
+            ? full.charAt(0)
+            : full,
+      plus: (days) => dayOfWeek(Number(value) + Number(days)),
+      minus: (days) => dayOfWeek(Number(value) - Number(days)),
+      toString: () => name,
+    };
+  };
+  /// Languages' names in English, for `Locale("ja").displayLanguage`.
+  const LANGUAGE_NAMES = {
+    ar: 'Arabic',
+    bg: 'Bulgarian',
+    ca: 'Catalan',
+    cs: 'Czech',
+    da: 'Danish',
+    de: 'German',
+    el: 'Greek',
+    en: 'English',
+    es: 'Spanish',
+    fa: 'Persian',
+    fi: 'Finnish',
+    fil: 'Filipino',
+    fr: 'French',
+    he: 'Hebrew',
+    hi: 'Hindi',
+    hu: 'Hungarian',
+    id: 'Indonesian',
+    it: 'Italian',
+    ja: 'Japanese',
+    ko: 'Korean',
+    ms: 'Malay',
+    my: 'Burmese',
+    nl: 'Dutch',
+    no: 'Norwegian',
+    pl: 'Polish',
+    pt: 'Portuguese',
+    ro: 'Romanian',
+    ru: 'Russian',
+    sv: 'Swedish',
+    th: 'Thai',
+    tl: 'Tagalog',
+    tr: 'Turkish',
+    uk: 'Ukrainian',
+    vi: 'Vietnamese',
+    zh: 'Chinese',
+  };
+  /// A stand-in for Android's application: its name, and folders of Raygun's own.
+  const application = {
+    __class: 'Application',
+    __classes: ['Application', 'Context'],
+    packageName: 'app.raygun.player',
+    getPackageName: () => 'app.raygun.player',
+  };
   /// A pause (`delay(ms)`, `Thread.sleep(ms)`), at most ten seconds.
   const pause = async (ms) => {
     const wait = Math.max(0, Math.min(10000, Number(ms && ms.isDuration ? ms.ms : ms) || 0));
@@ -5659,6 +5787,11 @@
     PreferenceCategory: () => preferenceWidget('PreferenceCategory'),
     Cache: () => ({ __class: 'Cache', __classes: ['Cache'], evictAll: () => KT.unit }),
     SeedRandom: ([seed]) => seedRandom(seed),
+    SoftReference: ([value]) => ({ get: () => value ?? null, clear: () => KT.unit }),
+    WeakReference: ([value]) => ({ get: () => value ?? null, clear: () => KT.unit }),
+    randomUUID: () => OBJECTS.UUID.randomUUID(),
+    // `launch { … }` inside a coroutine scope: run alongside.
+    launch: (args, _named, lambda) => coroutineScope().launch(...args, lambda),
     showInfo: dialogClosed(KT.unit),
     askConfirm: dialogClosed(false),
     askInput: dialogClosed(null),
@@ -6270,6 +6403,7 @@
           ),
         ),
       getYear: () => new Date(ms).getUTCFullYear(),
+      getDayOfWeek: () => dayOfWeek(((new Date(ms).getUTCDay() + 6) % 7) + 1),
       getMonthValue: () => new Date(ms).getUTCMonth() + 1,
       getDayOfMonth: () => new Date(ms).getUTCDate(),
       format: (formatter) => formatter.format(value),
@@ -6685,6 +6819,20 @@
     },
     Protocol: { HTTP_1_0: 'http/1.0', HTTP_1_1: 'http/1.1', HTTP_2: 'h2', QUIC: 'quic' },
     Resources: { getSystem: () => ({ displayMetrics }) },
+    DayOfWeek: Object.fromEntries(DAY_NAMES.map((name, index) => [name, dayOfWeek(index + 1)])),
+    TextStyle: {
+      FULL: 'FULL',
+      SHORT: 'SHORT',
+      NARROW: 'NARROW',
+      FULL_STANDALONE: 'FULL',
+      SHORT_STANDALONE: 'SHORT',
+    },
+    Injekt: { get: () => application, getInstance: () => application },
+    GlobalScope: coroutineScope(),
+    // `SSLContext.getInstance("TLS")`: Raygun's client checks certificates itself.
+    SSLContext: {
+      getInstance: () => ({ init: () => KT.unit, socketFactory: {}, getSocketFactory: () => ({}) }),
+    },
     // `MonthDay.of(month, day).atYear(year)`.
     MonthDay: {
       of: (month, day) => ({
@@ -7984,6 +8132,19 @@
         return result;
       };
       const memos = titleMemos(source.id);
+      // What each chapter was listed with (its name, number, scanlator), by id: Mihon hands
+      // `getPageList` the whole chapter, and some sources read its name there.
+      const chapterFacts = new Map();
+      const keepFacts = (id, item) => {
+        chapterFacts.delete(id);
+        chapterFacts.set(id, {
+          name: item.name,
+          chapter_number: item.chapter_number,
+          scanlator: item.scanlator,
+          date_upload: item.date_upload,
+        });
+        if (chapterFacts.size > 4000) chapterFacts.delete(chapterFacts.keys().next().value);
+      };
       const titleOf = (id) => manga({ url: id, memo: memos.get(id) });
       const update = async (id, details) => {
         await ready();
@@ -8033,7 +8194,7 @@
           const answer = await update(id, false);
           return {
             chapters: (answer.chapters ?? []).map((item) => ({
-              id: chapterIdOf(item),
+              id: (keepFacts(chapterIdOf(item), item), chapterIdOf(item)),
               name: K.str(item.name).trim() || undefined,
               number: item.chapter_number >= 0 ? item.chapter_number : undefined,
               dateUpload: item.date_upload > 0 ? item.date_upload : undefined,
@@ -8043,7 +8204,10 @@
         },
         pages: async ({ chapterId }) => {
           await ready();
-          const pages = await self.call('getPageList', [chapterOf(chapterId)]);
+          const asked = chapterOf(chapterId);
+          const facts = chapterFacts.get(chapterId);
+          if (facts) Object.assign(asked, facts);
+          const pages = await self.call('getPageList', [asked]);
           // Pages that are sub pages (`Page(i, url)`): their pictures' addresses, as Mihon's
           // reader asks `getImageUrl` for them, a few at a time.
           const lazy = pages.filter((page) => !page.imageUrl && page.url);

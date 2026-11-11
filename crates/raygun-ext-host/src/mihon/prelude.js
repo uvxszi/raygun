@@ -1287,6 +1287,25 @@
     childNodeSize() {
       return this.childNodes().length;
     }
+    /** Jsoup's `siblingIndex()`: its place among its parent's child nodes. */
+    siblingIndex() {
+      const parent = this.parent();
+      if (!parent) return 0;
+      return Math.max(
+        0,
+        parent.childNodes().findIndex((node) => node instanceof Element && node.h === this.h),
+      );
+    }
+    /** Jsoup's `tag()`: the element's tag, by name. */
+    tag() {
+      const name = this.tagName();
+      return {
+        getName: () => name,
+        normalName: () => name.toLowerCase(),
+        name,
+        toString: () => name,
+      };
+    }
     /** Jsoup's `insertChildren(index, nodes)`: put before the element child at `index`. */
     insertChildren(index, nodes) {
       const list = Array.isArray(nodes) ? nodes : [...nodes];
