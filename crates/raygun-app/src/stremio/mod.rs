@@ -1474,7 +1474,10 @@ impl StremioService {
                     stream.filename.as_deref(),
                     stream.binge_group.as_deref(),
                 ]);
-                let size = stream.size.filter(|size| *size > 0.0).map(|size| size as u64);
+                let size = stream
+                    .size
+                    .filter(|size| *size > 0.0)
+                    .map(|size| size as u64);
                 let blocked = if youtube {
                     None
                 } else {

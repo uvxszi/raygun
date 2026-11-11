@@ -410,7 +410,10 @@ mod tests {
             ]
         }));
         assert_eq!(videos.len(), 3, "non-web URLs are dropped");
-        assert!(!videos[0].live && videos[2].live, "a source marks live streams");
+        assert!(
+            !videos[0].live && videos[2].live,
+            "a source marks live streams"
+        );
         assert_eq!(videos[0].label.as_deref(), Some("1080p"));
         assert_eq!(videos[0].format, None, "progressive files need no format");
         assert_eq!(

@@ -32,11 +32,7 @@ export const optionTitle = (link: SourceLink, t: TFunction): string => {
 };
 
 /** "HEVC 10-bit · DD+ 5.1 · 15.2 GB · needs ~20 Mb/s · 25 Mb/s measured · WEB-DL · playing". */
-export const optionDetail = (
-  link: SourceLink,
-  group: SourceGroup,
-  t: TFunction,
-): string | null => {
+export const optionDetail = (link: SourceLink, group: SourceGroup, t: TFunction): string | null => {
   const facts: Partial<LinkFacts> = link.facts ?? {};
   const codec =
     [facts.codec, facts.bitDepth && facts.bitDepth > 8 ? `${facts.bitDepth}-bit` : null]

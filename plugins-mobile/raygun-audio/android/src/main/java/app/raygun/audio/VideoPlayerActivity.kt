@@ -575,7 +575,7 @@ class VideoPlayerActivity : AppCompatActivity() {
                 player.setMediaSource(buildSource(current, cached = false))
                 player.prepare()
             }
-            controls.update()
+            if (::controls.isInitialized) controls.update()
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -1716,6 +1716,15 @@ class VideoPlayerActivity : AppCompatActivity() {
         )
     }
 
+    /** A step asked for in Quality that nothing else plays: the ring goes, the video plays on. */
+    internal fun pickedNothing() {
+        if (!pickedSource) return
+        pickedSource = false
+        loading.hide()
+        controls.setBusy(false)
+        updateWaiting()
+    }
+
     /** The name of the source playing, for the Quality sheet. */
     internal fun playingSourceName(): String? {
         for (group in 0 until sources.length()) {
@@ -1760,11 +1769,15 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** The next-episode prompt sits where the skip button does. */
     internal fun placeNextPrompt() {
         if (!::nextPrompt.isInitialized || !::controls.isInitialized) return
-        val params = nextPrompt.layoutParams as? FrameLayout.LayoutParams ?: return
         val bottom = controls.bottomOffset()
-        if (params.bottomMargin != bottom) {
-            params.bottomMargin = bottom
-            nextPrompt.layoutParams = params
+        // The live delay offer sits there too.
+        val prompts = if (::liveStream.isInitialized) listOf(nextPrompt, liveStream.prompt) else listOf(nextPrompt)
+        prompts.forEach { prompt ->
+            val params = prompt.layoutParams as? FrameLayout.LayoutParams ?: return@forEach
+            if (params.bottomMargin != bottom) {
+                params.bottomMargin = bottom
+                prompt.layoutParams = params
+            }
         }
     }
 

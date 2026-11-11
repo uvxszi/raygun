@@ -504,7 +504,12 @@ pub struct LiveHls {
 }
 
 impl LiveHls {
-    fn new(client: reqwest::Client, playlist: String, anchor: LiveAnchor, first: LivePlaylist) -> Self {
+    fn new(
+        client: reqwest::Client,
+        playlist: String,
+        anchor: LiveAnchor,
+        first: LivePlaylist,
+    ) -> Self {
         let mut live = Self {
             client,
             playlist,
@@ -556,9 +561,10 @@ impl LiveHls {
             .unwrap_or_else(counted);
         for (index, segment) in playlist.segments.into_iter().enumerate() {
             let start_ms = (offset + segment.start_ms as i64).max(0) as u64;
-            self.segments
-                .entry(sequence_of(index))
-                .or_insert(Segment { start_ms, ..segment });
+            self.segments.entry(sequence_of(index)).or_insert(Segment {
+                start_ms,
+                ..segment
+            });
         }
         while self.segments.len() > MAX_LIVE_SEGMENTS {
             self.segments.pop_first();
@@ -567,7 +573,8 @@ impl LiveHls {
 
     /// Reads the playlist again.
     fn refresh(&mut self) -> Result<(), String> {
-        let text = String::from_utf8_lossy(&fetch(&self.client, &self.playlist, None)?).into_owned();
+        let text =
+            String::from_utf8_lossy(&fetch(&self.client, &self.playlist, None)?).into_owned();
         let playlist = parse_live(&text, &self.playlist)?;
         self.fetched = Instant::now();
         self.place(playlist);
@@ -879,7 +886,11 @@ mod tests {
         if ended {
             text.push_str("#EXT-X-ENDLIST\n");
         }
-        parse_live(&text, "http://127.0.0.1:1/media/t/https/cdn.x/live/index.m3u8").unwrap()
+        parse_live(
+            &text,
+            "http://127.0.0.1:1/media/t/https/cdn.x/live/index.m3u8",
+        )
+        .unwrap()
     }
 
     fn starts(live: &LiveHls) -> Vec<(u64, u64)> {

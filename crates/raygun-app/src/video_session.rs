@@ -316,7 +316,10 @@ impl Session {
         let unwanted = |link: &Link| {
             self.wanted.is_some_and(|wanted| {
                 let facts = link.facts();
-                facts.height.map(|height| QualityKey::of(height, facts.range)) != Some(wanted)
+                facts
+                    .height
+                    .map(|height| QualityKey::of(height, facts.range))
+                    != Some(wanted)
             })
         };
         let best = self
@@ -358,8 +361,13 @@ impl Session {
     /// session tries them: not failed, not another episode's, with a known height.
     fn offers(&self, now: i64) -> Vec<Offer> {
         let ranking = self.ranking(now);
-        let mut found: Vec<(memory::RankKey, usize, usize, QualityKey, Option<&'static str>)> =
-            Vec::new();
+        let mut found: Vec<(
+            memory::RankKey,
+            usize,
+            usize,
+            QualityKey,
+            Option<&'static str>,
+        )> = Vec::new();
         for (group_index, group) in self.groups.iter().enumerate() {
             if group.state != GroupState::Ready {
                 continue;
@@ -554,9 +562,7 @@ fn source_order(session: &Session, ranking: &Ranking) -> Vec<usize> {
         let playable: Vec<&Link> = group
             .links
             .iter()
-            .filter(|link| {
-                link.failed.is_none() && !session.dead_urls.contains(&link.request.url)
-            })
+            .filter(|link| link.failed.is_none() && !session.dead_urls.contains(&link.request.url))
             .collect();
         let state = match &group.state {
             GroupState::Ready if !playable.is_empty() => 0,
@@ -1850,7 +1856,10 @@ impl VideoSessions {
                 return;
             };
             let now = now_ms();
-            (sources_update(session, now), session.quality_update(now, None))
+            (
+                sources_update(session, now),
+                session.quality_update(now, None),
+            )
         };
         let _ = crate::video::update_player(&self.app, &update);
         let _ = crate::video::update_player(&self.app, &qualities);
@@ -2974,7 +2983,10 @@ mod tests {
             "playing": { "height": 1076 }
         }));
         assert_eq!(variants.len(), 3);
-        assert_eq!(playing, Some(QualityKey::of(1080, video_quality::Range::Sdr)));
+        assert_eq!(
+            playing,
+            Some(QualityKey::of(1080, video_quality::Range::Sdr))
+        );
         let update = variants_update(&variants, playing);
         let items = update["items"].as_array().unwrap();
         let state = |key: &str| {
@@ -2992,7 +3004,9 @@ mod tests {
     #[test]
     fn the_sources_sheet_lists_sources_by_what_works_quality_and_speed() {
         let mut state = quality_session();
-        state.groups.push(Group::resolving("d".into(), "Delta".into()));
+        state
+            .groups
+            .push(Group::resolving("d".into(), "Delta".into()));
         state.groups.push(Group::finished(
             "e".into(),
             "Epsilon".into(),

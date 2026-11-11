@@ -188,8 +188,7 @@ export const sendReport = (id: string, state: ReportState, at: Position, error?:
       id,
       state,
       positionMs: Math.max(0, Math.round(at.positionMs)),
-      durationMs:
-        !at.live && at.durationMs && at.durationMs > 0 ? Math.round(at.durationMs) : null,
+      durationMs: !at.live && at.durationMs && at.durationMs > 0 ? Math.round(at.durationMs) : null,
       error: error ?? null,
       looping: at.looping ?? false,
       ...extras(at),

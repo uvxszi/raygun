@@ -30,11 +30,17 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
     /** Portrait: the picked source's options show instead of the list. */
     private var options = false
     private var sheet: PlayerSheet? = null
+    /** Landscape's panes, whose places are kept when new sources come in. */
+    private var sourcePane: ScrollView? = null
+    private var optionPane: ScrollView? = null
+    private var optionPaneFor: Int? = null
 
     fun open() {
         raw = false
         picked = null
         options = false
+        sourcePane = null
+        optionPane = null
         build()
     }
 
@@ -121,11 +127,21 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         val landscape = host.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         if (landscape) {
             val height = (host.resources.displayMetrics.heightPixels * 0.72f).toInt() - host.dp(120)
+            // New sources from Rust draw the sheet again: each pane stays where it was scrolled.
+            val sourcesAt = sourcePane?.scrollY ?: 0
+            val optionsAt = optionPane?.scrollY?.takeIf { optionPaneFor == chosen } ?: 0
+            val left = pane { list -> sourceRows(list, shown, chosen) }
+            val right = pane { list -> optionRows(list, chosen) }
+            sourcePane = left
+            optionPane = right
+            optionPaneFor = chosen
+            left.post { left.scrollTo(0, sourcesAt) }
+            right.post { right.scrollTo(0, optionsAt) }
             val panes = LinearLayout(host).apply {
                 orientation = LinearLayout.HORIZONTAL
-                addView(pane { list -> sourceRows(list, shown, chosen) }, LinearLayout.LayoutParams(0, -1, 0.42f))
+                addView(left, LinearLayout.LayoutParams(0, -1, 0.42f))
                 addView(View(host).apply { setBackgroundColor(0x33FFFFFF) }, LinearLayout.LayoutParams(host.dp(1), -1))
-                addView(pane { list -> optionRows(list, chosen) }, LinearLayout.LayoutParams(0, -1, 0.58f))
+                addView(right, LinearLayout.LayoutParams(0, -1, 0.58f))
             }
             sheet.fixed(panes, height.coerceAtLeast(host.dp(160)))
             return

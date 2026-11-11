@@ -64,7 +64,10 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
     /** Rust's `qualities` update. */
     fun onUpdate(update: JSONObject) {
         rows = update.optJSONArray("items") ?: JSONArray()
-        update.text("notice")?.let { host.showHint(it, 3_000) }
+        update.text("notice")?.let {
+            host.pickedNothing()
+            host.showHint(it, 3_000)
+        }
         if (host.sheetShown(sheet)) open()
     }
 

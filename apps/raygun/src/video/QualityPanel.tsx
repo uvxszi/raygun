@@ -50,7 +50,8 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
       // The best variant of this height and range.
       const variant = variants
         .filter(
-          (candidate) => ladderStep(candidate.height) === row.height && candidate.range === row.range,
+          (candidate) =>
+            ladderStep(candidate.height) === row.height && candidate.range === row.range,
         )
         .at(-1);
       if (variant) engine?.setQuality(variant.id);
@@ -61,9 +62,9 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
     const source =
       row.state === 'otherSource'
         ? row.source
-        : (useVideoPlayerStore.getState().sources.find((group) =>
-            group.links.some((link) => link.current),
-          )?.name ?? null);
+        : (useVideoPlayerStore
+            .getState()
+            .sources.find((group) => group.links.some((link) => link.current))?.name ?? null);
     onAsked(
       again
         ? t('videoPlayer.qualityNextSource', { n: name })

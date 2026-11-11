@@ -52,8 +52,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
       (group.state !== 'empty' || prefs.showEmptySources));
   const all = sources.map((_, index) => index);
   const listed = (order ?? []).filter(
-    (index, place, list) =>
-      index >= 0 && index < sources.length && list.indexOf(index) === place,
+    (index, place, list) => index >= 0 && index < sources.length && list.indexOf(index) === place,
   );
   const shown = [...listed, ...all.filter((index) => !listed.includes(index))].filter((index) => {
     const group = sources[index];

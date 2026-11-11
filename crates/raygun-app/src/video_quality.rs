@@ -233,9 +233,7 @@ fn release_of(words: &[String]) -> Option<&'static str> {
             _ => None,
         })
         .collect();
-    RELEASES
-        .into_iter()
-        .find(|release| found.contains(release))
+    RELEASES.into_iter().find(|release| found.contains(release))
 }
 
 /// A word without the channel count glued to it ("DDP5" from "DDP5.1").
@@ -294,7 +292,9 @@ fn audio_word(word: &str, next: Option<&str>) -> Option<&'static str> {
 
 /// Channel layouts a name gives as "5.1"; never a size ("2.1 GB") or part of a longer number.
 fn channels_of(text: &str) -> Option<&'static str> {
-    const LAYOUTS: [&str; 9] = ["7.1", "5.1", "2.0", "6.1", "1.0", "2.1", "5.0", "7.0", "4.0"];
+    const LAYOUTS: [&str; 9] = [
+        "7.1", "5.1", "2.0", "6.1", "1.0", "2.1", "5.0", "7.0", "4.0",
+    ];
     let bytes = text.as_bytes();
     for (at, byte) in bytes.iter().enumerate() {
         if *byte != b'.' || at == 0 || at + 1 >= bytes.len() {
@@ -334,7 +334,11 @@ pub fn size_of(text: &str) -> Option<u64> {
         while at < bytes.len() && (bytes[at].is_ascii_digit() || matches!(bytes[at], b'.' | b',')) {
             at += 1;
         }
-        let number: f64 = match text[start..at].replace(',', ".").trim_end_matches('.').parse() {
+        let number: f64 = match text[start..at]
+            .replace(',', ".")
+            .trim_end_matches('.')
+            .parse()
+        {
             Ok(number) => number,
             Err(_) => continue,
         };
@@ -421,7 +425,10 @@ impl QualityKey {
     pub fn parse(text: &str) -> Option<Self> {
         let (height, range) = text.split_once(':')?;
         Some(Self {
-            height: height.parse().ok().filter(|height| LADDER.contains(height))?,
+            height: height
+                .parse()
+                .ok()
+                .filter(|height| LADDER.contains(height))?,
             range: Range::from_key(range)?,
         })
     }
@@ -728,7 +735,10 @@ mod tests {
             }
         );
         let plain = link_facts(
-            &[Some("Show.S01E02.1080p.BluRay.x264.AAC2.0-X"), Some("1.4GiB")],
+            &[
+                Some("Show.S01E02.1080p.BluRay.x264.AAC2.0-X"),
+                Some("1.4GiB"),
+            ],
             Some(0),
             None,
         );
@@ -754,7 +764,10 @@ mod tests {
         assert_eq!(nothing, LinkFacts::default());
         assert_eq!(size_of("💾 700 MB"), Some(700_000_000));
         assert_eq!(size_of("x264 12 seeds"), None);
-        assert_eq!(bitrate_kbps(Some(1_350_000_000), Some(5_400_000)), Some(2_000));
+        assert_eq!(
+            bitrate_kbps(Some(1_350_000_000), Some(5_400_000)),
+            Some(2_000)
+        );
         assert_eq!(bitrate_kbps(Some(1), None), None);
     }
 
@@ -839,7 +852,10 @@ mod tests {
     #[test]
     fn the_streams_own_variants_come_before_other_links() {
         let names = vec!["Alpha".to_owned()];
-        let offers = [offer(0, 0, 1080, Range::Sdr, 0), offer(0, 1, 480, Range::Sdr, 1)];
+        let offers = [
+            offer(0, 0, 1080, Range::Sdr, 0),
+            offer(0, 1, 480, Range::Sdr, 1),
+        ];
         let variants = [
             Variant {
                 height: 1080,

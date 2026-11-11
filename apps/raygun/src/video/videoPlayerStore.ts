@@ -6,13 +6,7 @@ import { create } from 'zustand';
 import { PLAYER_DEFAULTS, withDefaults } from '../settings/playerOptions';
 import type { PlayerPrefs } from '../settings/playerOptions';
 import type { MediaEngine } from './mediaEngine';
-import type {
-  EpisodeItem,
-  PlayerRequest,
-  PlayerUpdate,
-  QualityRow,
-  SourceGroup,
-} from './protocol';
+import type { EpisodeItem, PlayerRequest, PlayerUpdate, QualityRow, SourceGroup } from './protocol';
 
 const DEFAULT_SEEK_STEP_MS = 10_000;
 const DEFAULT_PROMPT_MS = 15_000;
@@ -191,6 +185,8 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
           return {
             qualities: update.items,
             qualityNotice: update.notice ? { text: update.notice, at: Date.now() } : null,
+            // A step asked for that nothing else plays: the video playing goes on as it was.
+            pickedSource: update.notice ? false : state.pickedSource,
           };
         case 'prefs': {
           // Only what settings say; the session's own fields stay.
