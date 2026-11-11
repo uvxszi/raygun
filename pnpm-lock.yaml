@@ -300,6 +300,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/bccampus:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/blender-movies:
     devDependencies:
       '@raygun/sdk':
@@ -307,6 +313,18 @@ importers:
         version: link:../../packages/sdk
 
   extensions/fyyd:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/gnu-manuals:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/green-tea-press:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
@@ -384,7 +402,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/saylor:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/standard-ebooks:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/wikibooks:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

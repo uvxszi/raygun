@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.gnu-manuals",
+  "name": "GNU Manuals",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "GNU Free Documentation License (and other free licences, as each manual states): the GNU Project's manuals for Bash, Coreutils, Emacs, Gawk, Make, Tar and more, read node by node from www.gnu.org.",
+  "author": "Raygun",
+  "website": "https://www.gnu.org/manual/",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["www.gnu.org"]
+  },
+  "contentRating": "safe"
+}
