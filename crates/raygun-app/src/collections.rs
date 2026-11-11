@@ -887,10 +887,7 @@ impl CollectionsService {
         let items = tracks
             .into_iter()
             .map(|track| match local.remove(&track.track_key) {
-                Some(row) => QueueItemInput {
-                    explicit: track.explicit,
-                    ..library.queue_item(row)
-                },
+                Some(row) => library_item(library.queue_item(row), &track),
                 None => queue_item(track),
             })
             .collect();
@@ -915,12 +912,16 @@ impl CollectionsService {
         let mut keys = vec![saved.track_key.clone()];
         keys.extend(original);
         let mut local = self.local_matches(&keys).await?;
-        if let Some(row) = keys.iter().find_map(|key| local.remove(key)) {
-            let mut item = self.app.state::<LibraryService>().queue_item(row);
+        let found = keys.iter().find_map(|key| local.remove(key));
+        let mut tracks = self.saved(vec![saved]).await?;
+        if let Some(row) = found {
+            let mut item = library_item(
+                self.app.state::<LibraryService>().queue_item(row),
+                &tracks[0],
+            );
             item.explicit = explicit;
             return Ok(item);
         }
-        let mut tracks = self.saved(vec![saved]).await?;
         let mut item = queue_item(tracks.remove(0));
         item.explicit |= explicit;
         Ok(item)
@@ -1005,6 +1006,7 @@ impl CollectionsService {
                 track
             })
             .collect();
+        self.fill_found_covers(&mut tracks).await;
         self.fill_lengths(&mut tracks).await;
         let explicit = self.explicit_keys().await;
         for track in &mut tracks {
@@ -1030,6 +1032,29 @@ impl CollectionsService {
             track.play_count = (own + renamed) as u32;
         }
         Ok(tracks)
+    }
+
+    /// Covers found at other sources for songs without their own (M46.40), read with the list in
+    /// one go: rows show them with the list, and a song played from it carries the cover its row
+    /// showed, rather than each row asking for its own after it's drawn.
+    async fn fill_found_covers(&self, tracks: &mut [SavedTrack]) {
+        let keys: Vec<String> = tracks
+            .iter()
+            .filter(|track| track.artwork_url.is_none())
+            .flat_map(|track| [track.track_key.clone(), shown_key(track)])
+            .collect();
+        if keys.is_empty() {
+            return;
+        }
+        let found = self
+            .app
+            .state::<Arc<crate::cover_fallback::CoverFallbacks>>()
+            .remembered_songs(&keys)
+            .await;
+        let images = self.app.state::<raygun_net::ImageLinks>();
+        with_found_covers(tracks, &found, |url| {
+            images.kept_cover(url, &Default::default())
+        });
     }
 
     /// Lengths saved copies lack, from the ones Raygun learned from sources, lookups and playback
@@ -1178,6 +1203,37 @@ fn mosaic(candidates: Vec<CoverCandidate>) -> (Vec<String>, Vec<TrackQuery>) {
 }
 
 /// The resolver's key of the names a saved track shows.
+/// Gives songs without a cover the one found for them elsewhere (`found`, by track key: the
+/// song's stored key, else the names it shows), linked by `link`.
+fn with_found_covers(
+    tracks: &mut [SavedTrack],
+    found: &HashMap<String, String>,
+    link: impl Fn(&str) -> String,
+) {
+    for track in tracks
+        .iter_mut()
+        .filter(|track| track.artwork_url.is_none())
+    {
+        let url = found
+            .get(&track.track_key)
+            .or_else(|| found.get(&shown_key(track)));
+        if let Some(url) = url {
+            track.artwork_url = Some(link(url));
+        }
+    }
+}
+
+/// A song from a list as the queue plays it: the library's file when it has the song, with the
+/// cover the list showed for it (the file's, else a saved copy's, the user's or one found
+/// elsewhere), not only the file's own.
+fn library_item(item: QueueItemInput, track: &SavedTrack) -> QueueItemInput {
+    QueueItemInput {
+        explicit: track.explicit,
+        artwork_url: track.artwork_url.clone().or(item.artwork_url),
+        ..item
+    }
+}
+
 fn shown_key(track: &SavedTrack) -> String {
     raygun_resolver::track_key(&TrackQuery {
         title: track.title.clone(),
@@ -1639,6 +1695,86 @@ mod tests {
             url: url.into(),
             headers: BTreeMap::from([("Referer".into(), "https://archive.org".into())]),
         }
+    }
+
+    fn saved_track(key: &str, title: &str, artwork: Option<&str>) -> SavedTrack {
+        SavedTrack {
+            track_key: key.into(),
+            title: title.into(),
+            artist: Some("Nina Simone".into()),
+            album: Some("Pastel Blues".into()),
+            duration_ms: None,
+            artwork_url: artwork.map(String::from),
+            source: None,
+            local: false,
+            added_at: None,
+            play_count: 0,
+            explicit: false,
+        }
+    }
+
+    #[test]
+    fn songs_without_a_cover_show_the_one_found_elsewhere_with_the_list() {
+        let mut tracks = vec![
+            saved_track("nina simone|sinnerman", "Sinnerman", Some("own.jpg")),
+            saved_track("nina simone|be my husband", "Be My Husband", None),
+            // Renamed: found under the names it shows.
+            saved_track("nina simone|old name", "Images", None),
+            saved_track("nina simone|tell me more", "Tell Me More", None),
+        ];
+        let found = HashMap::from([
+            ("nina simone|sinnerman".to_owned(), "other.jpg".to_owned()),
+            (
+                "nina simone|be my husband".to_owned(),
+                "found.jpg".to_owned(),
+            ),
+            ("nina simone|images".to_owned(), "live.jpg".to_owned()),
+        ]);
+        with_found_covers(&mut tracks, &found, |url| format!("/cover/{url}"));
+        let covers: Vec<Option<&str>> = tracks
+            .iter()
+            .map(|track| track.artwork_url.as_deref())
+            .collect();
+        assert_eq!(
+            covers,
+            [
+                Some("own.jpg"),
+                Some("/cover/found.jpg"),
+                Some("/cover/live.jpg"),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn a_library_song_plays_with_the_cover_its_row_showed() {
+        let file = QueueItemInput {
+            explicit: false,
+            title: "Sinnerman".into(),
+            artist: Some("Nina Simone".into()),
+            album: Some("Pastel Blues".into()),
+            duration_ms: None,
+            artwork_url: None,
+            media_kind: MediaKind::Audio,
+            source: MediaSource::LocalFile {
+                path: "/sdcard/Music/sinnerman.flac".into(),
+            },
+        };
+        // The file has no picture; the row showed the saved copy's (or one found elsewhere).
+        let row = saved_track("nina simone|sinnerman", "Sinnerman", Some("/cover/album"));
+        let item = library_item(file.clone(), &row);
+        assert_eq!(item.artwork_url.as_deref(), Some("/cover/album"));
+        assert!(matches!(item.source, MediaSource::LocalFile { .. }));
+        // Nothing anywhere: the file's own stays.
+        let bare = saved_track("nina simone|sinnerman", "Sinnerman", None);
+        let file_art = QueueItemInput {
+            artwork_url: Some("/art/file.jpg".into()),
+            ..file
+        };
+        assert_eq!(
+            library_item(file_art, &bare).artwork_url.as_deref(),
+            Some("/art/file.jpg")
+        );
     }
 
     #[test]

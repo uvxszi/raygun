@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
+import { songCover } from '../library/coverTargets';
 import { coverTitle } from '../music/coverSheetStore';
 import { useCoverHold } from '../music/useCoverHold';
 import { hasVideo } from './hasVideo';
@@ -54,6 +55,9 @@ const HeldArtwork: FC<MediaArtProps> = ({ item, artworkClassName, iconSize, onTa
     <Artwork
       key={item.artworkUrl ?? 'none'}
       url={item.artworkUrl}
+      // Another source's cover when its own is missing or fails, as the bar and the song's row
+      // show it.
+      fallback={songCover(item)}
       className={artworkClassName}
       iconSize={iconSize}
     />

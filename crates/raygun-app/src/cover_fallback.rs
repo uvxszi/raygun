@@ -11,7 +11,7 @@ use std::sync::Arc;
 use raygun_db::song_memory::{self, FoundCover};
 use raygun_model::DetailTarget;
 use tauri::{AppHandle, Manager};
-use tokio::sync::{OnceCell, Semaphore};
+use tokio::sync::OnceCell;
 
 use crate::extensions::ExtensionService;
 use crate::startup::AppDb;
@@ -25,9 +25,94 @@ const AT_ONCE: usize = 2;
 /// Of what a background lookup found, this many pictures are tried until one downloads.
 const TRIED: usize = 3;
 
+/// Turns for lookups, newest ask first: a list scrolled past keeps asking for the rows it left,
+/// and the rows on screen now (asked last) go before them. A semaphore's queue is first come,
+/// first served, so the rows on screen waited for every row scrolled past.
+pub struct NewestFirst {
+    turns: std::sync::Mutex<Turns>,
+}
+
+struct Turns {
+    free: usize,
+    waiting: Vec<tokio::sync::oneshot::Sender<()>>,
+}
+
+/// A lookup's turn; the next waiting (newest) ask gets it when it's dropped.
+pub struct Turn<'a> {
+    gate: &'a NewestFirst,
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        self.gate.release();
+    }
+}
+
+/// An ask waiting for its turn; one given a turn just as it went away passes the turn on.
+struct Waiting<'a> {
+    gate: &'a NewestFirst,
+    turn: tokio::sync::oneshot::Receiver<()>,
+    given: bool,
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        if self.given {
+            return;
+        }
+        self.turn.close();
+        if self.turn.try_recv().is_ok() {
+            self.gate.release();
+        }
+    }
+}
+
+impl NewestFirst {
+    pub fn new(at_once: usize) -> Self {
+        Self {
+            turns: std::sync::Mutex::new(Turns {
+                free: at_once,
+                waiting: Vec::new(),
+            }),
+        }
+    }
+
+    pub async fn turn(&self) -> Turn<'_> {
+        let turn = {
+            let mut turns = self.turns.lock().unwrap_or_else(|p| p.into_inner());
+            if turns.free > 0 {
+                turns.free -= 1;
+                return Turn { gate: self };
+            }
+            let (give, turn) = tokio::sync::oneshot::channel();
+            turns.waiting.push(give);
+            turn
+        };
+        let mut waiting = Waiting {
+            gate: self,
+            turn,
+            given: false,
+        };
+        // The sender only goes away with a turn given: a closed channel is a turn too.
+        let _ = (&mut waiting.turn).await;
+        waiting.given = true;
+        Turn { gate: self }
+    }
+
+    fn release(&self) {
+        let mut turns = self.turns.lock().unwrap_or_else(|p| p.into_inner());
+        while let Some(next) = turns.waiting.pop() {
+            if next.send(()).is_ok() {
+                return;
+            }
+        }
+        turns.free += 1;
+    }
+}
+
 pub struct CoverFallbacks {
     app: AppHandle,
-    lookups: Semaphore,
+    lookups: NewestFirst,
     /// The old value moved into the table, once a run.
     moved: OnceCell<()>,
 }
@@ -74,7 +159,7 @@ impl CoverFallbacks {
     pub fn new(app: AppHandle) -> Arc<Self> {
         Arc::new(Self {
             app,
-            lookups: Semaphore::new(AT_ONCE),
+            lookups: NewestFirst::new(AT_ONCE),
             moved: OnceCell::new(),
         })
     }
@@ -184,7 +269,7 @@ impl CoverFallbacks {
         {
             return found.url;
         }
-        let _turn = self.lookups.acquire().await.ok()?;
+        let _turn = self.lookups.turn().await;
         // Another lookup may have found it while this one waited.
         if let Some(FoundCover { url: Some(url), .. }) = self.remembered(&key).await {
             return Some(url);
@@ -238,6 +323,78 @@ impl CoverFallbacks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Twenty rows scrolled past ask for lookups, then the row on screen does; each lookup takes
+    /// 20 ms, two at a time. Returns how long the row on screen waited for its cover.
+    async fn on_screen_wait<G, F, Fut>(gate: Arc<G>, lookup: F) -> std::time::Duration
+    where
+        G: Send + Sync + 'static,
+        F: Fn(Arc<G>) -> Fut + Copy + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        // Asked in row order: the test's runtime starts its tasks in the order they're spawned.
+        let mut asks = Vec::new();
+        for _ in 0..21 {
+            let gate = gate.clone();
+            asks.push(tokio::spawn(async move {
+                let start = std::time::Instant::now();
+                lookup(gate).await;
+                start.elapsed()
+            }));
+        }
+        let mut waits = Vec::new();
+        for ask in asks {
+            waits.push(ask.await.unwrap());
+        }
+        waits[20]
+    }
+
+    #[tokio::test]
+    async fn the_row_on_screen_is_looked_up_before_rows_scrolled_past() {
+        let lookup = std::time::Duration::from_millis(20);
+        let fifo = on_screen_wait(
+            Arc::new(tokio::sync::Semaphore::new(AT_ONCE)),
+            move |gate: Arc<tokio::sync::Semaphore>| async move {
+                let _turn = gate.acquire().await.unwrap();
+                tokio::time::sleep(lookup).await;
+            },
+        )
+        .await;
+        let newest = on_screen_wait(
+            Arc::new(NewestFirst::new(AT_ONCE)),
+            move |gate: Arc<NewestFirst>| async move {
+                let _turn = gate.turn().await;
+                tokio::time::sleep(lookup).await;
+            },
+        )
+        .await;
+        eprintln!(
+            "the row on screen waited {} ms first come first served, {} ms newest first",
+            fifo.as_millis(),
+            newest.as_millis()
+        );
+        assert!(newest * 3 < fifo, "{newest:?} vs {fifo:?}");
+    }
+
+    #[tokio::test]
+    async fn an_ask_that_goes_away_passes_its_turn_on() {
+        let gate = Arc::new(NewestFirst::new(1));
+        let held = gate.turn().await;
+        let gone = {
+            let gate = gate.clone();
+            tokio::spawn(async move {
+                let _turn = gate.turn().await;
+            })
+        };
+        tokio::task::yield_now().await;
+        gone.abort();
+        let _ = gone.await;
+        drop(held);
+        // The turn is free again, not lost with the ask that went away.
+        tokio::time::timeout(std::time::Duration::from_secs(1), gate.turn())
+            .await
+            .expect("the turn came back");
+    }
 
     #[test]
     fn keys_name_the_kind_and_its_names() {

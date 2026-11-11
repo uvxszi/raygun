@@ -38,6 +38,9 @@ type Gate = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 const KEEP: &str = "keep";
 const META: &str = "meta";
+/// How long a cover's source has to send it: a host that never answers would otherwise hold one
+/// of the webview's few connections to the proxy (six per host), and every row after it waits.
+const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 /// Versions made for requests that can't take JPEG XL are kept in memory up to this size.
 const SHOWN_BYTES: usize = 6 * 1024 * 1024;
 
@@ -138,9 +141,10 @@ async fn fetch(
     url: &str,
     headers: &BTreeMap<String, String>,
     known: Option<&Meta>,
+    timeout: Duration,
 ) -> Result<Fetched, String> {
     // A connected server's covers sign in (`server_auth`).
-    let mut request = crate::server_auth::get(client, url, headers);
+    let mut request = crate::server_auth::get(client, url, headers).timeout(timeout);
     if let Some(meta) = known {
         if let Some(etag) = &meta.etag {
             request = request.header(header::IF_NONE_MATCH, etag);
@@ -220,6 +224,8 @@ struct Queue {
 }
 
 type Making = Arc<tokio::sync::OnceCell<Option<Arc<Shown>>>>;
+/// A fetch of one cover that every request for it waits on.
+type Fetching = Arc<tokio::sync::OnceCell<Result<Vec<u8>, String>>>;
 
 /// Versions made for requests that can't take JPEG XL, least recently used out first, and those
 /// being made, so each is made once.
@@ -363,6 +369,10 @@ pub struct CoverCache {
     checking: Arc<Mutex<HashSet<String>>>,
     in_use: Arc<Mutex<Option<InUse>>>,
     jxl: Arc<Jxl>,
+    /// Fetches running, by token: rows of one album ask for one cover at once, and it's fetched
+    /// once for all of them.
+    fetching: Arc<Mutex<HashMap<String, Fetching>>>,
+    timeout: Duration,
 }
 
 impl CoverCache {
@@ -375,7 +385,15 @@ impl CoverCache {
             checking: Arc::new(Mutex::new(HashSet::new())),
             in_use: Arc::new(Mutex::new(None)),
             jxl: Arc::new(Jxl::default()),
+            fetching: Arc::new(Mutex::new(HashMap::new())),
+            timeout: FETCH_TIMEOUT,
         }
+    }
+
+    /// The same cache giving sources `timeout` to send a cover.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     /// What trimming leaves however long ago it was seen: the tokens `in_use` names when the
@@ -561,7 +579,38 @@ impl CoverCache {
             }
             return Ok(bytes);
         }
-        match fetch(client, url, headers, None).await? {
+        // One fetch per cover, whoever else asks meanwhile; a request that goes away leaves the
+        // fetch to the next one waiting.
+        let fetching = self
+            .fetching
+            .lock()
+            .expect("cover fetches poisoned")
+            .entry(token.to_owned())
+            .or_default()
+            .clone();
+        let result = fetching
+            .get_or_init(|| self.fetch_and_store(client, token, url, headers, kept))
+            .await
+            .clone();
+        let mut running = self.fetching.lock().expect("cover fetches poisoned");
+        if running
+            .get(token)
+            .is_some_and(|cell| Arc::ptr_eq(cell, &fetching))
+        {
+            running.remove(token);
+        }
+        result
+    }
+
+    async fn fetch_and_store(
+        &self,
+        client: &reqwest::Client,
+        token: &str,
+        url: &str,
+        headers: &BTreeMap<String, String>,
+        kept: bool,
+    ) -> Result<Vec<u8>, String> {
+        match fetch(client, url, headers, None, self.timeout).await? {
             Fetched::Image {
                 bytes,
                 etag,
@@ -822,7 +871,7 @@ impl CoverCache {
         let (cache, client) = (self.clone(), client.clone());
         let (token, url, headers) = (token.to_owned(), url.to_owned(), headers.clone());
         tokio::spawn(async move {
-            match fetch(&client, &url, &headers, Some(&meta)).await {
+            match fetch(&client, &url, &headers, Some(&meta), cache.timeout).await {
                 Ok(Fetched::Unchanged) => {
                     // Read again: a conversion may have recorded how the copy is stored.
                     let _files = cache.jxl.files.lock().await;

@@ -544,3 +544,108 @@ async fn covers_stored_before_jpeg_xl_convert_without_being_seen_again() {
     // Looked at once: nothing is queued again.
     assert_eq!(cache.convert_pending().await, 0);
 }
+
+/// A source whose covers take `delay` each (`/a/<name>`) and one that never answers
+/// (`/stuck.png`), counting requests.
+async fn slow_origin(delay: Duration) -> (SocketAddr, Arc<AtomicUsize>) {
+    async fn cover(State((delay, requests)): State<(Duration, Arc<AtomicUsize>)>) -> Response {
+        requests.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(delay).await;
+        ([(header::CONTENT_TYPE, "image/png")], PNG_A).into_response()
+    }
+    async fn stuck() -> Response {
+        tokio::time::sleep(Duration::from_secs(600)).await;
+        ([(header::CONTENT_TYPE, "image/png")], PNG_A).into_response()
+    }
+    let requests = Arc::new(AtomicUsize::new(0));
+    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = Router::new()
+        .route("/a/{name}", get(cover))
+        .route("/stuck.png", get(stuck))
+        .with_state((delay, requests.clone()));
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (address, requests)
+}
+
+/// A playlist's rows as a webview asks for their covers: in row order, `connections` at a time
+/// (a webview opens six to one host). Returns when each row's cover arrived, from the first ask.
+async fn rows_loaded(
+    cache: &CoverCache,
+    rows: &[(String, String)],
+    connections: usize,
+) -> Vec<Duration> {
+    let client = crate::http_client().unwrap();
+    let slots = Arc::new(tokio::sync::Semaphore::new(connections));
+    let start = std::time::Instant::now();
+    let asks = rows.iter().map(|(token, url)| {
+        let (cache, client, slots) = (cache.clone(), client.clone(), slots.clone());
+        let (token, url) = (token.clone(), url.clone());
+        async move {
+            let _slot = slots.acquire_owned().await.unwrap();
+            let _ = cache
+                .get(&client, &token, &url, &BTreeMap::new(), false)
+                .await;
+            start.elapsed()
+        }
+    });
+    futures_util::future::join_all(asks).await
+}
+
+/// Rows of the same album share a cover: it's fetched once however many rows ask at once (an
+/// album-heavy playlist asked its sources for each row's copy before).
+#[tokio::test]
+async fn rows_sharing_a_cover_fetch_it_once() {
+    let (origin, requests) = slow_origin(Duration::from_millis(150)).await;
+    let temp = tempfile::TempDir::new().unwrap();
+    let cache = CoverCache::new(temp.path().join("covers"), 1 << 24, Duration::ZERO);
+    // 24 rows: three albums of eight songs.
+    let rows: Vec<(String, String)> = (0..24)
+        .map(|row| {
+            let album = row / 8;
+            (
+                format!("a{album}"),
+                format!("http://{origin}/a/{album}.png"),
+            )
+        })
+        .collect();
+    let times = rows_loaded(&cache, &rows, 6).await;
+    let last = times.iter().max().unwrap();
+    eprintln!(
+        "shared covers: {} fetches, last row after {} ms",
+        requests.load(Ordering::SeqCst),
+        last.as_millis()
+    );
+    assert_eq!(requests.load(Ordering::SeqCst), 3);
+}
+
+/// A cover host that never answers gives up after the cache's timeout, so it doesn't keep one of
+/// the webview's few connections to the proxy (and the rows after it) waiting.
+#[tokio::test]
+async fn a_cover_host_that_never_answers_gives_up() {
+    let (origin, _) = slow_origin(Duration::from_millis(20)).await;
+    let temp = tempfile::TempDir::new().unwrap();
+    let cache = CoverCache::new(temp.path().join("covers"), 1 << 24, Duration::ZERO)
+        .with_timeout(Duration::from_millis(300));
+    // Two stuck covers in the first rows, with two connections: every row after waits on them.
+    let mut rows: Vec<(String, String)> = (0..2)
+        .map(|row| {
+            (
+                format!("5{row}"),
+                format!("http://{origin}/stuck.png?{row}"),
+            )
+        })
+        .collect();
+    rows.extend((0..10).map(|row| (format!("b{row}"), format!("http://{origin}/a/{row}.png"))));
+    let times = rows_loaded(&cache, &rows, 2).await;
+    let rest = times[2..].iter().max().unwrap();
+    eprintln!(
+        "behind stuck covers: they gave up after {} ms, the other rows loaded by {} ms",
+        times[0].as_millis(),
+        rest.as_millis()
+    );
+    assert!(times[0] < Duration::from_secs(2), "{:?}", times[0]);
+    assert!(*rest < Duration::from_secs(2), "{rest:?}");
+}
