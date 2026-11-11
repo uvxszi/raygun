@@ -140,8 +140,41 @@
     if (right && typeof right === 'object' && 'ms' in right) right = right.ms;
     return left - right;
   };
-  KT.and = (left, right) => (typeof left === 'boolean' ? left && right : left & right);
-  KT.or = (left, right) => (typeof left === 'boolean' ? left || right : left | right);
+  // Bits of whole numbers: JavaScript's operators work on 32 bits, Kotlin's Long on 64. Numbers
+  // that fit an Int (and shifts below 32) get the 32-bit operation, as Kotlin's Int does; a
+  // Long's (`(1664525L * state + 1013904223L) and 0xFFFFFFFFL`) the 64-bit one.
+  const isInt32 = (n) => Number.isInteger(n) && n >= -2147483648 && n <= 2147483647;
+  const big = (n) => BigInt(Math.trunc(Number(n)));
+  const fromBig = (n) => Number(BigInt.asIntN(64, n));
+  KT.and = (left, right) =>
+    typeof left === 'boolean'
+      ? left && right
+      : isInt32(left) && isInt32(right)
+        ? left & right
+        : fromBig(big(left) & big(right));
+  KT.or = (left, right) =>
+    typeof left === 'boolean'
+      ? left || right
+      : isInt32(left) && isInt32(right)
+        ? left | right
+        : fromBig(big(left) | big(right));
+  KT.xor = (left, right) =>
+    typeof left === 'boolean'
+      ? left !== right
+      : isInt32(left) && isInt32(right)
+        ? left ^ right
+        : fromBig(big(left) ^ big(right));
+  KT.shl = (left, bits) =>
+    isInt32(left) && bits < 32
+      ? left << bits
+      : fromBig(BigInt.asIntN(64, big(left) << BigInt(bits & 63)));
+  KT.shr = (left, bits) =>
+    isInt32(left) && bits < 32 ? left >> bits : fromBig(big(left) >> BigInt(bits & 63));
+  KT.ushr = (left, bits) =>
+    isInt32(left) && bits < 32
+      ? (left >>> bits) | 0
+      : fromBig(BigInt.asUintN(64, big(left)) >> BigInt(bits & 63));
+  KT.inv = (value) => (isInt32(value) ? ~value : fromBig(~big(value)));
 
   KT.pair = (first, second) => ({
     first,
@@ -868,6 +901,20 @@
     getOrNull: (s, [index]) => s.charAt(index) || null,
     filter: async (s, _args, lambda) => (await filterAll([...s], lambda)).join(''),
     map: async (s, _args, lambda) => mapAll([...s], lambda),
+    // A string's characters with their places (`text.mapIndexed { i, c -> … }`).
+    mapIndexed: async (s, _args, lambda) => {
+      const out = [];
+      const chars = [...s];
+      for (let index = 0; index < chars.length; index++)
+        out.push(await lambda(index, chars[index]));
+      return out;
+    },
+    forEachIndexed: async (s, _args, lambda) => {
+      const chars = [...s];
+      for (let index = 0; index < chars.length; index++) await lambda(index, chars[index]);
+      return KT.unit;
+    },
+    withIndex: (s) => [...s].map((value, index) => ({ index, value, isIndexed: true })),
     any: async (s, _args, lambda) => (await mapAll([...s], lambda)).some(KT.truthy),
     all: async (s, _args, lambda) => (await mapAll([...s], lambda)).every(KT.truthy),
     none: async (s, _args, lambda) => !(await mapAll([...s], lambda)).some(KT.truthy),
@@ -913,7 +960,15 @@
     groupValues: [...match].map((group) => group ?? ''),
     groups: [...match].map((group) => (group === undefined ? null : { value: group })),
     range: { first: match.index, last: match.index + match[0].length - 1, isRange: true, step: 1 },
-    destructured: { isMatchGroups: true, groupValues: [...match].map((group) => group ?? '') },
+    // `destructured`: its groups (the match left out), as parts (`val (a, b) = …`) and a list.
+    destructured: {
+      isMatchGroups: true,
+      groupValues: [...match].map((group) => group ?? ''),
+      toList: () => [...match].slice(1).map((group) => group ?? ''),
+      component1: () => match[1] ?? '',
+      component2: () => match[2] ?? '',
+      component3: () => match[3] ?? '',
+    },
   });
   const REGEX = {
     find: (regex, [text, start = 0]) => {
@@ -1797,10 +1852,22 @@
     toUShort: (n) => n & 65535,
     multipliedBy: (n, [other]) => n * Number(other),
     toString: (n, [radix]) => (radix ? n.toString(radix) : K.str(n)),
-    toInt: (n) => Math.trunc(n),
+    // A Long's `toInt()` keeps its low 32 bits, as Kotlin's does (a Double's is cut short).
+    toInt: (n) =>
+      Number.isInteger(n) && !isInt32(n) && Math.abs(n) <= Number.MAX_SAFE_INTEGER
+        ? Number(BigInt.asIntN(32, BigInt(n)))
+        : Math.trunc(n),
     toLong: (n) => Math.trunc(n),
     toFloat: (n) => n,
     toDouble: (n) => n,
+    // Bits as functions (`x.shl(3)`, `x.inv()`).
+    and: (n, [other]) => KT.and(n, other),
+    or: (n, [other]) => KT.or(n, other),
+    xor: (n, [other]) => KT.xor(n, other),
+    shl: (n, [bits]) => KT.shl(n, bits),
+    shr: (n, [bits]) => KT.shr(n, bits),
+    ushr: (n, [bits]) => KT.ushr(n, bits),
+    inv: (n) => KT.inv(n),
     toChar: (n) => String.fromCharCode(n),
     toByte: (n) => (Math.trunc(n) << 24) >> 24,
     toShort: (n) => (Math.trunc(n) << 16) >> 16,
@@ -2029,6 +2096,7 @@
       if (kind === 'string' && name === 'lastIndex') return value.length - 1;
       // A `Char`'s code (a one-letter string here).
       if (kind === 'string' && name === 'code') return value.length ? value.charCodeAt(0) : 0;
+      if (kind === 'string' && name === 'category') return charCategory(value);
       if (kind === 'string' && name === 'indices') return KT.range(0, value.length - 1);
       throw new KotlinError(`a value has no ${name}`);
     }
@@ -2337,10 +2405,17 @@
       return Object.fromEntries([...value].map(([key, item]) => [key, plain(item)]));
     if (value instanceof Set) return [...value].map(plain);
     if (Array.isArray(value)) return value.map(plain);
-    if (value && value.__fields)
+    if (value && value.__fields) {
+      // Each field by its own class's JSON name (another class's `@SerialName` for a field of
+      // the same name doesn't apply).
+      const own = CLASSES[value.__class]?.definition?.serialNames;
       return Object.fromEntries(
-        value.__fields.map((name) => [renames[name] ?? name, plain(value[name])]),
+        value.__fields.map((name) => [
+          (own ? own[name] : renames[name]) ?? name,
+          plain(value[name]),
+        ]),
       );
+    }
     // JSON objects (`buildJsonObject`, a request's fields) with maps or DTOs inside.
     if (
       value !== null &&
@@ -2782,10 +2857,20 @@
         pairs.push([decodeURIComponent(KT.str(name)), decodeURIComponent(KT.str(value))]);
         return builder;
       },
+      // OkHttp's `FormBody`: its fields read back (`body.size`, `name(i)`, `value(i)`).
       build: () => ({
+        __class: 'FormBody',
+        __classes: ['FormBody', 'RequestBody'],
         isBody: true,
         text: K.form(pairs),
         type: 'application/x-www-form-urlencoded',
+        size: pairs.length,
+        name: (index) => pairs[index]?.[0] ?? noSuch(`no field ${index}`),
+        value: (index) => pairs[index]?.[1] ?? noSuch(`no field ${index}`),
+        encodedName: (index) => encodeURIComponent(pairs[index]?.[0] ?? ''),
+        encodedValue: (index) => encodeURIComponent(pairs[index]?.[1] ?? ''),
+        contentType: () => 'application/x-www-form-urlencoded',
+        contentLength: () => K.bin.utf8(K.form(pairs)).length,
       }),
     };
     return builder;
@@ -2909,10 +2994,22 @@
   const decodeAs = async (value, type) => {
     if (value === null || value === undefined) return null;
     if (LISTS.has(type.name)) {
-      if (!Array.isArray(value)) return value;
+      const itemType = type.args[0] ?? { name: 'Any', args: [] };
+      if (!Array.isArray(value)) {
+        // One object where a list goes, as serializers that take either read it
+        // (`SingleResultSerializer`), and a PHP-style object of numbered entries.
+        if (value && typeof value === 'object' && classOf(itemType)) {
+          const keys = Object.keys(value);
+          const numbered = keys.length > 0 && keys.every((key) => /^\d+$/.test(key));
+          const items = numbered ? keys.map((key) => value[key]) : [value];
+          const out = [];
+          for (const item of items) out.push(await decodeAs(item, itemType));
+          return out;
+        }
+        return value;
+      }
       const out = [];
-      for (const item of value)
-        out.push(await decodeAs(item, type.args[0] ?? { name: 'Any', args: [] }));
+      for (const item of value) out.push(await decodeAs(item, itemType));
       return out;
     }
     if (type.name === 'Map' || type.name === 'HashMap' || type.name === 'MutableMap') {
@@ -4078,8 +4175,28 @@
     toByteArray: () => listOfBytes(bytes),
     utf8: () => K.bin.text(bytes),
     base64: () => K.bin.toBase64(bytes),
+    base64Url: () => K.bin.toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_'),
     hex: () => hexOf(listOfBytes(bytes)),
     string: () => K.bin.text(bytes),
+    get: (index) => (bytes[index] << 24) >> 24,
+    // okio's digests and MACs: a `ByteString` of the digest (`key.encodeUtf8().sha256().hex()`).
+    md5: () => byteString(u8Of(digestOf('md5', listOfBytes(bytes)))),
+    sha1: () => byteString(u8Of(digestOf('sha1', listOfBytes(bytes)))),
+    sha256: () => byteString(u8Of(digestOf('sha256', listOfBytes(bytes)))),
+    sha512: () => byteString(u8Of(digestOf('sha512', listOfBytes(bytes)))),
+    hmacSha256: (key) =>
+      byteString(
+        u8Of(
+          fromBase64(
+            crypto({
+              op: 'hmac',
+              algorithm: 'sha256',
+              key: base64Of(key && key.u8Now ? listOfBytes(key.u8Now()) : key),
+              data: base64Of(listOfBytes(bytes)),
+            }),
+          ),
+        ),
+      ),
   });
 
   /// Java's `InputStream` over bytes (`ByteArrayInputStream`, a body's `byteStream()`).
@@ -5516,6 +5633,50 @@
     return format;
   };
 
+  /// Kotlin's `CharCategory` of a character (`c.category == CharCategory.NON_SPACING_MARK`), by
+  /// its Unicode general category; the categories are their names here.
+  const CHAR_CATEGORIES = [
+    ['Lu', 'UPPERCASE_LETTER'],
+    ['Ll', 'LOWERCASE_LETTER'],
+    ['Lt', 'TITLECASE_LETTER'],
+    ['Lm', 'MODIFIER_LETTER'],
+    ['Lo', 'OTHER_LETTER'],
+    ['Mn', 'NON_SPACING_MARK'],
+    ['Me', 'ENCLOSING_MARK'],
+    ['Mc', 'COMBINING_SPACING_MARK'],
+    ['Nd', 'DECIMAL_DIGIT_NUMBER'],
+    ['Nl', 'LETTER_NUMBER'],
+    ['No', 'OTHER_NUMBER'],
+    ['Zs', 'SPACE_SEPARATOR'],
+    ['Zl', 'LINE_SEPARATOR'],
+    ['Zp', 'PARAGRAPH_SEPARATOR'],
+    ['Cc', 'CONTROL'],
+    ['Cf', 'FORMAT'],
+    ['Co', 'PRIVATE_USE'],
+    ['Cs', 'SURROGATE'],
+    ['Pd', 'DASH_PUNCTUATION'],
+    ['Ps', 'START_PUNCTUATION'],
+    ['Pe', 'END_PUNCTUATION'],
+    ['Pc', 'CONNECTOR_PUNCTUATION'],
+    ['Po', 'OTHER_PUNCTUATION'],
+    ['Sm', 'MATH_SYMBOL'],
+    ['Sc', 'CURRENCY_SYMBOL'],
+    ['Sk', 'MODIFIER_SYMBOL'],
+    ['So', 'OTHER_SYMBOL'],
+    ['Pi', 'INITIAL_QUOTE_PUNCTUATION'],
+    ['Pf', 'FINAL_QUOTE_PUNCTUATION'],
+  ];
+  const charCategory = (char) => {
+    const text = KT.str(char);
+    for (const [code, name] of CHAR_CATEGORIES) {
+      try {
+        if (new RegExp(`^\\p{${code}}`, 'u').test(text)) return name;
+      } catch {
+        break;
+      }
+    }
+    return 'UNASSIGNED';
+  };
   /// Java's `Collator`: text compared as a language orders it.
   const collator = (locale) => {
     const tag = locale && locale.language ? KT.str(locale.language) : undefined;
@@ -6133,7 +6294,14 @@
   };
 
   const GLOBALS = {
-    listOf: (args) => [...args],
+    // A parent's constructor arguments come as `listOf(…)` too, and may be named
+    // (`: UriSortFilter(name = "Sort", vals = arrayOf(…))`): those ride along.
+    listOf: (args, named_) => {
+      const list = [...args];
+      if (named_ && Object.keys(named_).length)
+        Object.defineProperty(list, '__named', { value: named_, enumerable: false });
+      return list;
+    },
     // Android's graphics, okio's `Buffer` and Java's byte streams (above).
     Canvas: ([bitmap]) => new Canvas(bitmap ?? null),
     Rect: (args) => new Rect(...args),
@@ -7358,6 +7526,7 @@
       ZERO: duration(0),
       INFINITE: duration(Infinity),
     },
+    CharCategory: Object.fromEntries(CHAR_CATEGORIES.map(([, name]) => [name, name])),
     DurationUnit: {
       NANOSECONDS: timeUnit('NANOSECONDS', 1e-6),
       MICROSECONDS: timeUnit('MICROSECONDS', 1e-3),
@@ -7831,6 +8000,17 @@
     'Separator',
   ]);
   const FILTER_STATES = { CheckBox: false, TriState: 0, Text: '', Header: null, Separator: null };
+  /// Mihon's filters' constructor parameters, in order.
+  const FILTER_PARAMS = {
+    Select: ['name', 'values', 'state'],
+    Sort: ['name', 'values', 'state'],
+    Group: ['name', 'state'],
+    Text: ['name', 'state'],
+    CheckBox: ['name', 'state'],
+    TriState: ['name', 'state'],
+    Header: ['name'],
+    Separator: ['name'],
+  };
   /// The kind of Mihon filter a class builds on (`Filter.Select<String>` → `Select`).
   const filterKindOf = (supers) => {
     for (const parent of supers ?? []) {
@@ -7997,17 +8177,47 @@
     LinkedHashMap: 'map',
     MutableMap: 'map',
   };
+  /// The class a declared class builds on when the source declares it too: by the name as
+  /// written (`Outer.Inner`), else by its last part. Mihon's own filters (`Filter.Group`) stay
+  /// Mihon's even when the source has a class of the same short name (a DTO's `Group`).
+  const parentOf = (definition) => {
+    const written = definition.supers[0]?.split('<')[0];
+    if (!written) return null;
+    const simple = written.split('.').pop();
+    if (simple === definition.name && written === simple) return null;
+    const parts = written.split('.');
+    if (parts.length > 1) {
+      const exact = CLASSES[written];
+      if (exact) return exact;
+      if (parts[parts.length - 2] === 'Filter') return null;
+    }
+    const found = CLASSES[simple] ?? null;
+    return found && found.definition === definition ? null : found;
+  };
   /// A declared class's own member `name` (a function or a getter), or the nearest parent's.
   const memberOf = (holder, name) => {
     for (let at = holder, depth = 0; at && at.definition && depth < 8; depth++) {
       const member = at.definition.members[name];
       if (member !== undefined) return member;
-      const parent = at.definition.supers[0]?.split('<')[0].split('.').pop();
-      at = parent && parent !== at.name ? CLASSES[parent] : null;
+      at = parentOf(at.definition);
     }
     return undefined;
   };
   KT.defineClass = (definition) => {
+    /// A field of an answer as this class reads it: by its own `@SerialName` (and `@JsonNames`)
+    /// when it has one, else by its name; conversions without the class's names read them all.
+    const jsonField = (json, name) => {
+      const own = definition.serialNames;
+      if (!own) return field(json, name);
+      const serial = own[name];
+      if (serial !== undefined && Object.prototype.hasOwnProperty.call(json, serial))
+        return json[serial];
+      if (serial === undefined && Object.prototype.hasOwnProperty.call(json, name))
+        return json[name];
+      for (const other of aliases[name] ?? [])
+        if (Object.prototype.hasOwnProperty.call(json, other)) return json[other];
+      return undefined;
+    };
     /// An instance with these fields (`undefined` ones take their defaults).
     const build = async (fields, json = null) => {
       // A class built on a collection (`class CdnSet : LinkedHashSet<String>()`) is one.
@@ -8029,12 +8239,17 @@
           );
         object[name] = value ?? null;
       }
-      const parentName = definition.supers.length
-        ? definition.supers[0].split('<')[0].split('.').pop()
-        : null;
-      const parentClass = parentName && parentName !== definition.name ? CLASSES[parentName] : null;
+      const parentClass = parentOf(definition);
       if (definition.superArgs) {
-        const parent = await definition.superArgs(...definition.params.map((name) => object[name]));
+        let parent = await definition.superArgs(...definition.params.map((name) => object[name]));
+        // Mihon's filters' parameters by name (`Filter.Select(name = …, values = …)`), in order.
+        if (Array.isArray(parent) && parent.__named && !parentClass) {
+          const order = FILTER_PARAMS[filterKindOf(definition.supers)] ?? ['name', 'state'];
+          const named_ = parent.__named;
+          const positional = parent;
+          parent = order.map((key, at) => (at < positional.length ? positional[at] : named_[key]));
+          while (parent.length && parent[parent.length - 1] === undefined) parent.pop();
+        }
         object.__super = parent;
         // Filters keep what Mihon's do: a name and a state (and a select's or a sort's values).
         if (Array.isArray(parent) && !parentClass) {
@@ -8077,7 +8292,7 @@
       if (parentClass) {
         const inherited = await parentClass.make(
           Array.isArray(object.__super) ? object.__super : [],
-          null,
+          (Array.isArray(object.__super) && object.__super.__named) || null,
           json,
         );
         for (const name of Object.getOwnPropertyNames(inherited)) {
@@ -8122,7 +8337,7 @@
           continue;
         }
         // Decoded from JSON: a body field the answer has takes its value, as kotlinx does.
-        const given = json ? field(json, name) : undefined;
+        const given = json ? jsonField(json, name) : undefined;
         Object.defineProperty(object, name, {
           value:
             given !== undefined
@@ -8158,7 +8373,7 @@
     const fromJson = async (json, typeArgs = []) => {
       const fields = {};
       for (const name of definition.params) {
-        const value = field(json, name);
+        const value = jsonField(json, name);
         const type = substitute(
           parseType(definition.types?.[name] ?? 'Any'),
           definition.typeParams ?? [],
@@ -8182,7 +8397,13 @@
     // instances.
     for (const [name, function_] of Object.entries(definition.statics ?? {}))
       holder[name] = (...rest) => function_(...rest);
-    CLASSES[definition.name] = holder;
+    // A nested class (`ChapterList.Manga`) takes its short name only while no top-level class
+    // has it: code naming `Manga` by itself means the top-level one.
+    const isNested = (holder_) =>
+      Boolean(holder_?.definition?.qualified) &&
+      holder_.definition.qualified !== holder_.definition.name;
+    const taken = CLASSES[definition.name];
+    if (!isNested(holder) || !taken || isNested(taken)) CLASSES[definition.name] = holder;
     if (definition.qualified) CLASSES[definition.qualified] = holder;
     // An enum's entries: their fields from their arguments, and the class's functions.
     definition.entries.forEach((entry, ordinal) => {
@@ -8195,7 +8416,13 @@
       };
       const args = definition.entryArgs?.[entry] ?? [];
       definition.params.forEach((param, index) => {
-        if (index < args.length && param !== 'name') value[param] = args[index];
+        if (param === 'name') return;
+        if (index < args.length && args[index] !== undefined) value[param] = args[index];
+        // A parameter left out takes its default (read when the code reads it).
+        else if (definition.defaults[param])
+          value[param] = Promise.resolve(
+            definition.defaults[param](...definition.params.map((other) => value[other])),
+          ).catch(() => null);
       });
       for (const [name, member] of Object.entries(definition.members)) {
         if (typeof member === 'function') value[name] = (...rest) => member(value, ...rest);
@@ -8288,7 +8515,8 @@
     if (kind === 'number' && NUMBER[name]) return true;
     if (typeof receiver[name] === 'function') return true;
     if (kind === 'object' && receiver[name] && receiver[name].isMethod) return true;
-    if (kind === 'object' && receiver.__class === undefined && OBJECT[name]) return true;
+    if (kind === 'object' && receiver.__class === undefined && (OBJECT[name] || objectAsMap(name)))
+      return true;
     return Boolean(receiver.isStringBuilder && (name in receiver || STRING[name]));
   };
   const hasField = (receiver, name) => {
@@ -8297,7 +8525,7 @@
     const kind = kindOf(receiver);
     if (kind === 'list' || kind === 'elements')
       return ['size', 'lastIndex', 'indices'].includes(name);
-    if (kind === 'string') return ['length', 'lastIndex', 'indices'].includes(name);
+    if (kind === 'string') return ['length', 'lastIndex', 'indices', 'category'].includes(name);
     if (kind === 'map') return ['size', 'keys', 'values', 'entries'].includes(name);
     return (
       typeof receiver === 'object' &&
@@ -8308,6 +8536,8 @@
   };
 
   KT.rget = async (receivers, name) => {
+    const last = receivers[receivers.length - 1];
+    const sourceHas = Boolean(last && last.isSource && last.has(name));
     for (const receiver of receivers) {
       if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
@@ -8315,8 +8545,25 @@
         continue;
       }
       if (hasField(receiver, name)) return KT.p(receiver, name);
+      // One of the source's extension properties on this receiver (`val Element.isValid`).
+      if (
+        last &&
+        last.isSource &&
+        last.hasExtension(name) &&
+        (last.extensionFits(name, receiver) || !last.extensionTyped(name))
+      )
+        return last.ext(name, receiver, []);
+      // What a JSON value has (`contentOrNull` in `fun JsonElement.text() = when (this) …`).
+      const kind = kindOf(receiver);
+      if (
+        JSON_PROPS[name] &&
+        !sourceHas &&
+        (['string', 'number', 'boolean', 'list'].includes(kind) ||
+          (kind === 'object' && receiver.__class === undefined && !receiver.isJsonBuilder))
+      )
+        return JSON_PROPS[name](receiver);
     }
-    const source = receivers[receivers.length - 1];
+    const source = last;
     if (source.constants && source.constants.has(name)) return source.constants.get(name);
     if (source.classes && source.classes[name]) return source.classes[name];
     // An object of Mihon's or Kotlin's (`SManga`, `Locale`).
@@ -8564,6 +8811,8 @@
         (extensionOverloads.get(name) ?? []).some(
           (entry) => entry.type && KT.is(receiver, entry.type),
         ),
+      /// Whether the extension's overloads say what they take (extension properties may not).
+      extensionTyped: (name) => (extensionOverloads.get(name) ?? []).some((entry) => entry.type),
       get: (name) => read(name, top),
       set: async (name, value) => {
         const at = findProperty(name, top);

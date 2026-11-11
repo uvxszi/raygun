@@ -1018,15 +1018,30 @@ fn class_definition(
         .entries
         .iter()
         .filter_map(|entry| {
-            let args: Option<Vec<String>> = entry
-                .args
-                .iter()
-                .map(|arg| {
-                    let js = writer.expr(&arg.value).ok()?;
-                    (arg.name.is_none() && !arg.spread && !js.contains("await")).then_some(js)
-                })
+            // In the parameters' order: positional ones first, named ones in their places, and
+            // the rest left out for their defaults (`ARTISTS("…", titleIsArtist = true)`).
+            let mut slots: Vec<Option<String>> = Vec::new();
+            for (at, arg) in entry.args.iter().enumerate() {
+                let js = writer.expr(&arg.value).ok()?;
+                if arg.spread || js.contains("await") {
+                    return None;
+                }
+                let index = match &arg.name {
+                    None => at,
+                    Some(name) => class.params.iter().position(|param| &param.name == name)?,
+                };
+                if slots.len() <= index {
+                    slots.resize(index + 1, None);
+                }
+                slots[index] = Some(js);
+            }
+            if slots.is_empty() {
+                return None;
+            }
+            let args: Vec<String> = slots
+                .into_iter()
+                .map(|slot| slot.unwrap_or_else(|| "undefined".to_owned()))
                 .collect();
-            let args = args.filter(|args| !args.is_empty())?;
             Some(format!("{}: [{}]", quote(&entry.name), args.join(", ")))
         })
         .collect();
@@ -1179,7 +1194,23 @@ fn class_definition(
         statics.push(format!("{}: {function}", quote(&fun.name)));
     }
     Ok(format!(
-        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], entryArgs: {{{entry_args}}}, members: {{{methods}}}, statics: {{{statics}}} }});",
+        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, serialNames: {serial_names}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], entryArgs: {{{entry_args}}}, members: {{{methods}}}, statics: {{{statics}}} }});",
+        // Its own properties' JSON names (`@SerialName("md_comic_md_genres") val genres`), which
+        // win over another class's property of the same name.
+        serial_names = serde_json::to_string(
+            &class
+                .params
+                .iter()
+                .filter_map(|param| {
+                    param
+                        .annotations
+                        .iter()
+                        .find_map(|annotation| annotation.strip_prefix("SerialName="))
+                        .map(|serial| (param.name.clone(), serial.to_owned()))
+                })
+                .collect::<BTreeMap<String, String>>()
+        )
+        .unwrap_or_else(|_| "{}".into()),
         extensions = extensions
             .iter()
             .map(|code| format!("{code} "))

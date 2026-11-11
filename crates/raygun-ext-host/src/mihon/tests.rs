@@ -1689,6 +1689,150 @@ async fn converted_code_reads_durations_units_and_collators() {
     );
 }
 
+/// 64-bit bits (a descrambler's `(1664525L * state + 1013904223L) and 0xFFFFFFFFL`), named
+/// constructor arguments to parents (Mihon's filters and the source's own classes), enum entries
+/// with named arguments and defaults, each class's own `@SerialName`s, nested classes beside
+/// top-level ones of the same name, one object where a list goes, extension properties and JSON
+/// properties on implicit receivers, constants imported by name, `destructured`, a string's
+/// `mapIndexed`, form bodies read back, okio's digests and characters' categories.
+#[tokio::test]
+async fn converted_code_reads_bits_names_and_entries() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport kotlin.text.RegexOption.IGNORE_CASE",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private val String.isShort get() = length < 6
+
+    private val String.shout get() = if (isShort) uppercase() else this
+
+    private fun JsonElement.text(): String? = when (this) {
+        is JsonPrimitive -> contentOrNull
+        else -> null
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        var state = 123456789L
+        state = (1664525L * state + 1013904223L) and 0xFFFFFFFFL
+        val answer = """{"genres":["a"],"other_genres":["b"]}"""
+        val names = listOf(
+            state.toString(),
+            (0x7FFFFFFF shl 1).toString(),
+            (-1 ushr 28).toString(),
+            (1L shl 40).toString(),
+            (5000000000L xor 1L).toString(),
+            Regex("id=(\\d+)").find("x id=42 y")!!.destructured.toList().joinToString(),
+            "abc".mapIndexed { i, c -> "$i$c" }.joinToString(""),
+            FormBody.Builder().add("a", "1").add("b", "2").build().let { "${it.size}${it.name(1)}${it.value(0)}" },
+            Shade.entries.joinToString("") { "${it.code}${it.dark}" },
+            Picked("n", arrayOf("x", "y")).let { "${it.name}${it.values.size}${it.state}" },
+            Child().let { it.a + it.b },
+            json.decodeFromString<Renamed>(answer).genres.joinToString() + json.decodeFromString<Plain>(answer).genres.joinToString(),
+            json.decodeFromString<List<Manga>>("""[{"title":"x"}]""").first().label(),
+            json.decodeFromString<Holder>("""{"items":{"n":1}}""").items.size.toString(),
+            "label".shout + "longer one".shout,
+            json.parseToJsonElement("\"hi\"").text().orEmpty(),
+            Regex("ABC", IGNORE_CASE).containsMatchIn("xabcx").toString(),
+            "abc".encodeUtf8().sha256().hex(),
+            ('́'.category == CharCategory.NON_SPACING_MARK).toString(),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        ) + r#"
+enum class Shade(val code: String, val dark: Boolean = false) {
+    LIGHT("l"),
+    DARK("d", dark = true),
+}
+
+class Picked(name: String, values: Array<String>) : Filter.Select<String>(name = name, values = values)
+
+open class Base(val a: String, val b: String)
+
+class Child : Base(b = "B", a = "A")
+
+@Serializable
+class Renamed(@SerialName("other_genres") val genres: List<String>)
+
+@Serializable
+class Plain(val genres: List<String>)
+
+@Serializable
+class Manga(val title: String) {
+    fun label() = "T:$title"
+}
+
+@Serializable
+class Wrapper(val manga: Manga) {
+    @Serializable
+    class Manga(val id: Int)
+}
+
+@Serializable
+class Holder(val items: List<Entry>)
+
+@Serializable
+class Entry(val n: Int)
+"#;
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "920370032",
+            "-2",
+            "15",
+            "1099511627776",
+            "5000000001",
+            "42",
+            "0a1b2c",
+            "2b1",
+            "lfalsedtrue",
+            "n20",
+            "AB",
+            "ba",
+            "T:x",
+            "1",
+            "LABELlonger one",
+            "hi",
+            "true",
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "true",
+        ]
+    );
+}
+
 /// Sequences that don't end, `init` blocks, `++` on properties, names written with their
 /// package, comparators and formats, as converted code uses them.
 #[tokio::test]

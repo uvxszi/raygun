@@ -146,6 +146,8 @@ pub const METHODS: &[&str] = &[
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
     "toDuration", "isNegative", "isPositive", "isInfinite", "isFinite", "toNanos", "toMicros",
     "toMillis", "toSeconds", "getSeconds", "toMinutes", "toHours", "toDays", "convert",
+    // Bits as functions (`x.shl(3)`, `x.inv()`)
+    "shl", "shr", "ushr", "inv",
     // Interceptors, cookies, more Jsoup
     "proceed", "intercept", "addInterceptor", "addNetworkInterceptor", "toResponseBody",
     "peekBody", "followSslRedirects", "retryOnConnectionFailure", "cookieJar", "interceptors",
@@ -1702,6 +1704,21 @@ impl<'a> Gen<'a> {
         if let Some(value) = self.companion_value(name) {
             return Ok(value);
         }
+        // `entries` in an enum's own code (its companion's `entries.firstOrNull { … }`).
+        if name == "entries"
+            && let Some(scope) = self.class_scope.as_deref()
+            && self.cx.enum_entries.contains_key(scope)
+        {
+            return Ok(format!("(await KT.p(D.{scope}, \"entries\"))"));
+        }
+        // A constant of the runtime's imported by name (`import kotlin.text.RegexOption.IGNORE_CASE`).
+        if name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            && let Some(value) = self.imported_runtime_member(name)
+        {
+            return Ok(value);
+        }
         // Implicit receivers first, as Kotlin resolves them, then the source.
         if !self.receivers.is_empty() {
             return Ok(format!(
@@ -1766,6 +1783,22 @@ impl<'a> Gen<'a> {
             .find(|(name, full)| name == alias && !full.ends_with(&format!(".{alias}")))
             .and_then(|(_, full)| full.rsplit('.').next())
             .map(str::to_owned)
+    }
+
+    /// A member of one of the runtime's objects imported by name (`import
+    /// kotlin.text.RegexOption.IGNORE_CASE`, `import java.util.concurrent.TimeUnit.SECONDS`).
+    fn imported_runtime_member(&self, name: &str) -> Option<String> {
+        let (_, full) = self.imports.iter().find(|(alias, _)| alias == name)?;
+        let mut parts = full.rsplit('.');
+        let member = parts.next()?;
+        let owner = parts.find(|part| *part != "Companion")?;
+        (OBJECTS.contains(&owner) && !self.cx.classes.contains(owner)).then(|| {
+            format!(
+                "(await KT.p(KT.global({}), {}))",
+                quote(owner),
+                quote(member)
+            )
+        })
     }
 
     /// An enum entry named by itself: of the enum whose code this is, or one imported by name.
@@ -2643,10 +2676,10 @@ impl<'a> Gen<'a> {
             "to" => format!("KT.pair({left}, {right})"),
             "and" => format!("KT.and({left}, {right})"),
             "or" => format!("KT.or({left}, {right})"),
-            "xor" => format!("({left} ^ {right})"),
-            "shl" => format!("({left} << {right})"),
-            "shr" => format!("({left} >> {right})"),
-            "ushr" => format!("({left} >>> {right})"),
+            "xor" => format!("KT.xor({left}, {right})"),
+            "shl" => format!("KT.shl({left}, {right})"),
+            "shr" => format!("KT.shr({left}, {right})"),
+            "ushr" => format!("KT.ushr({left}, {right})"),
             infix if self.known(infix) || self.cx.extensions.contains(infix) => {
                 if self.cx.extensions.contains(infix) {
                     format!("(await self.ext({}, {left}, [{right}]))", quote(infix))
@@ -2921,7 +2954,8 @@ pub const OBJECTS: &[&str] = &[
     "OffsetDateTime", "Resources", "MonthDay", "javaClass", "jsonInstance", "DayOfWeek",
     "TextStyle", "Injekt", "GlobalScope", "SSLContext", "TriState", "STATE_IGNORE",
     "STATE_INCLUDE", "STATE_EXCLUDE", "RequestBody", "CookieJar", "Credentials", "Html",
-    "HttpURLConnection", "Duration", "DurationUnit", "Collections", "LazyThreadSafetyMode",
+    "HttpURLConnection", "Duration", "DurationUnit", "CharCategory", "Collections",
+    "LazyThreadSafetyMode",
     "URLUtil", "Result",
     "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
     "applicationContext", "PreferenceManager", "BuildConfig", "File",
