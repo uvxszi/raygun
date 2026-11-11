@@ -135,7 +135,9 @@ describe('the extensions guide', () => {
   });
 
   it('has TypeScript snippets that compile against the SDK', async () => {
+    // Site scripts run in pages: their snippets have the DOM, the others QuickJS's ES2022 alone.
     const files: string[] = [];
+    const pageFiles: string[] = [];
     for (const page of await pages()) {
       for (const block of page.blocks.filter((candidate) => candidate.lang === 'ts')) {
         const file = join(work, 'snippets', `${page.file.replace('.md', '')}-${block.line}.ts`);
@@ -143,31 +145,40 @@ describe('the extensions guide', () => {
         // Each snippet is a module of its own, so their names never meet.
         const module = /^\s*(import|export)\s/m.test(block.code) ? '' : '\nexport {};\n';
         await writeFile(file, `${block.code}${module}`);
-        files.push(file);
+        (page.file === 'site-scripts.md' ? pageFiles : files).push(file);
       }
     }
     expect(files.length).toBeGreaterThan(20);
-    const program = ts.createProgram(files, {
-      target: ts.ScriptTarget.ES2022,
-      lib: ['lib.es2022.d.ts'],
-      types: [],
-      module: ts.ModuleKind.ESNext,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      strict: true,
-      noUncheckedIndexedAccess: true,
-      isolatedModules: true,
-      verbatimModuleSyntax: true,
-      skipLibCheck: true,
-      noEmit: true,
-      paths: { '@raygun/sdk': [join(SDK_DIR, 'src', 'index.ts')] },
-    });
-    const problems = ts.getPreEmitDiagnostics(program).map((diagnostic) => {
-      const where = diagnostic.file
-        ? `${diagnostic.file.fileName}:${diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1}`
-        : '';
-      return `${where} ${ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')}`;
-    });
-    expect(problems).toEqual([]);
+    expect(pageFiles.length).toBeGreaterThan(1);
+    const problemsOf = (sources: string[], lib: string[]) => {
+      const program = ts.createProgram(sources, {
+        target: ts.ScriptTarget.ES2022,
+        lib,
+        types: [],
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        strict: true,
+        noUncheckedIndexedAccess: true,
+        isolatedModules: true,
+        verbatimModuleSyntax: true,
+        skipLibCheck: true,
+        noEmit: true,
+        paths: {
+          '@raygun/sdk': [join(SDK_DIR, 'src', 'index.ts')],
+          '@raygun/sdk/site': [join(SDK_DIR, 'src', 'site.ts')],
+        },
+      });
+      return ts.getPreEmitDiagnostics(program).map((diagnostic) => {
+        const where = diagnostic.file
+          ? `${diagnostic.file.fileName}:${diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1}`
+          : '';
+        return `${where} ${ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')}`;
+      });
+    };
+    expect(problemsOf(files, ['lib.es2022.d.ts'])).toEqual([]);
+    expect(
+      problemsOf(pageFiles, ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts']),
+    ).toEqual([]);
   });
 
   it('has JSON snippets Raygun reads', async () => {

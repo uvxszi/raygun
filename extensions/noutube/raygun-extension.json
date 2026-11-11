@@ -1,0 +1,114 @@
+{
+  "id": "dev.raygun.noutube",
+  "name": "YouTube enhancements",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "site",
+  "entry": "dist/youtube.js",
+  "provides": ["site.scripts"],
+  "site": {
+    "scripts": [
+      {
+        "matches": [
+          "https://www.youtube.com/*",
+          "https://m.youtube.com/*",
+          "https://music.youtube.com/*"
+        ],
+        "js": ["dist/youtube.js"],
+        "runAt": "document-start",
+        "allFrames": false
+      }
+    ]
+  },
+  "settings": [
+    { "key": "blockAds", "type": "boolean", "label": "Block ads", "default": true },
+    {
+      "key": "backgroundPlay",
+      "type": "boolean",
+      "label": "Keep playing in the background",
+      "default": true
+    },
+    {
+      "key": "sponsorBlock",
+      "type": "boolean",
+      "label": "Skip sponsored segments (SponsorBlock)",
+      "default": true
+    },
+    {
+      "key": "originalAudio",
+      "type": "boolean",
+      "label": "Play the original audio track",
+      "default": true
+    },
+    { "key": "hideShorts", "type": "boolean", "label": "Hide Shorts", "default": true },
+    { "key": "preferH264", "type": "boolean", "label": "Prefer H.264 video", "default": false },
+    {
+      "key": "showOriginalTitles",
+      "type": "boolean",
+      "label": "Show original video titles",
+      "default": false
+    },
+    {
+      "key": "dislikes",
+      "type": "boolean",
+      "label": "Show dislike counts (Return YouTube Dislike)",
+      "default": false
+    },
+    {
+      "key": "thumbnails",
+      "type": "select",
+      "label": "Thumbnails",
+      "options": [
+        "As uploaded",
+        "Frame from the start",
+        "Frame from the middle",
+        "Frame from the end"
+      ],
+      "default": "As uploaded"
+    },
+    {
+      "key": "liveChat",
+      "type": "boolean",
+      "label": "Live chat on the mobile site",
+      "default": true
+    },
+    { "key": "disableAutoplay", "type": "boolean", "label": "Turn off autoplay", "default": false },
+    {
+      "key": "backSkipsWatched",
+      "type": "boolean",
+      "label": "Back skips watched videos",
+      "default": false
+    },
+    {
+      "key": "hiddenChannels",
+      "type": "text",
+      "label": "Hidden channels (names or @handles, comma-separated)",
+      "default": ""
+    },
+    {
+      "key": "hiddenWords",
+      "type": "text",
+      "label": "Hidden title words (comma-separated)",
+      "default": ""
+    },
+    { "key": "hideMixes", "type": "boolean", "label": "Hide mixes", "default": false },
+    {
+      "key": "hideCommunityPosts",
+      "type": "boolean",
+      "label": "Hide community posts",
+      "default": false
+    },
+    { "key": "hideAskButton", "type": "boolean", "label": "Hide the Ask button", "default": false },
+    { "key": "hideHomeFeed", "type": "boolean", "label": "Hide the home feed", "default": false },
+    {
+      "key": "hideRelatedVideos",
+      "type": "boolean",
+      "label": "Hide related videos",
+      "default": false
+    },
+    { "key": "hideEndScreens", "type": "boolean", "label": "Hide end screens", "default": false }
+  ],
+  "description": "Blocks ads, keeps playing in the background, skips sponsored segments and more on YouTube. Adapted from NouTube.",
+  "author": "Raygun (adapted from NouTube by nonbili)",
+  "website": "https://github.com/nonbili/NouTube"
+}

@@ -420,6 +420,38 @@ describe('Extensions', () => {
     ).toBeInTheDocument();
   });
 
+  it('says where site scripts run before they are installed', async () => {
+    commands.extensionCatalog.mockResolvedValue(
+      ok(
+        catalog([
+          entry({
+            id: 'dev.raygun.noutube',
+            name: 'YouTube enhancements',
+            provides: ['site.scripts'],
+            net: [],
+            sites: [
+              'https://m.youtube.com/*',
+              'https://www.youtube.com/*',
+              'https://*.youtube.com/*',
+            ],
+          }),
+        ]),
+      ),
+    );
+    await AppShellWrapper.mount('/extensions?tab=browse');
+
+    const row = await screen.findByTestId('catalog-entry');
+    await userEvent.click(within(row).getByRole('button', { name: 'About YouTube enhancements' }));
+    const runsOn = within(screen.getByTestId('entry-info')).getByTestId('runs-on');
+    expect(runsOn).toHaveTextContent('Runs on websites');
+    // Each site once, as people know it.
+    expect(
+      within(runsOn)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['m.youtube.com', 'youtube.com']);
+  });
+
   it('offers plugins converted by an older converter again', async () => {
     commands.extensionCatalog.mockResolvedValue(
       ok(

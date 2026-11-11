@@ -6,6 +6,7 @@ import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SDK_INDEX = fileURLToPath(new URL('../src/index.ts', import.meta.url));
+const SDK_SITE = fileURLToPath(new URL('../src/site.ts', import.meta.url));
 
 /** What the templates' tsconfig.json sets: QuickJS's ES2022 and nothing of a browser or Node. */
 const DEFAULTS = {
@@ -46,7 +47,7 @@ export const typeProblems = async (dir) => {
     ...parsed.options,
     noEmit: true,
     // The contracts this SDK checks against, wherever the extension's own copy comes from.
-    paths: { ...parsed.options.paths, '@raygun/sdk': [SDK_INDEX] },
+    paths: { ...parsed.options.paths, '@raygun/sdk': [SDK_INDEX], '@raygun/sdk/site': [SDK_SITE] },
   };
   const program = ts.createProgram(
     parsed.fileNames.length > 0 ? parsed.fileNames : [join(root, 'src', 'index.ts')],

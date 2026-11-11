@@ -467,6 +467,16 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Tells the built-in browser about its site scripts: the list after an install
+    /// (`{"site", "siteScripts", "installed"}`) or why one failed (`{"site", "extension",
+    /// "error"}`), in a package-only broadcast that its process hears while it's open.
+    #[cfg(target_os = "android")]
+    pub fn website_scripts(&self, update: &serde_json::Value) -> Result<(), String> {
+        self.run::<serde_json::Value>("websiteScripts", update.clone())
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Opens the request that met a browser check for the person to pass it by hand
     /// (`BrowserCheckActivity`; request `{url, method, headers, body, userAgent}`). Blocks until
     /// the browser closes; answers `{cookies, userAgent, seen}`: the address's cookies as a
@@ -1072,6 +1082,7 @@ mod tests {
             "notice",
             "noticeCancel",
             "websiteDownloads",
+            "websiteScripts",
             "captureStart",
             "captureStatus",
             "captureStop",

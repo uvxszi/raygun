@@ -9,6 +9,7 @@ import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
+import { SiteScriptsSettings } from './SiteScriptsSettings';
 import { useBlocklist, useClearWebsiteData, useUpdateBlocklist } from './useWebsites';
 
 const LISTS: Blocklist[] = ['hageziMulti', 'hageziLight', 'hageziPro', 'stevenBlack', 'custom'];
@@ -22,6 +23,8 @@ const WEBSITE_DEFAULTS: Prefs = {
   blocklist: 'hageziMulti',
   customListUrl: null,
   desktop: false,
+  backgroundPlay: true,
+  scriptsOff: {},
 };
 
 /** Settings → Browse → Websites (M46.3): the built-in browser's blocker and data. */
@@ -52,120 +55,132 @@ export const WebsiteSettings: FC = () => {
       : t('websites.listNone');
 
   return (
-    <PrefGroup title={t('websites.title')}>
-      <PrefSwitch
-        title={t('websites.blockAds')}
-        summary={t('websites.blockAdsHint')}
-        checked={prefs.blockAds}
-        disabled={busy}
-        onChange={(blockAds) => change({ blockAds })}
-      />
-      <PrefSwitch
-        title={t('websites.blockPopups')}
-        summary={t('websites.blockPopupsHint')}
-        checked={prefs.blockPopups}
-        disabled={busy}
-        onChange={(blockPopups) => change({ blockPopups })}
-      />
-      <PrefChoice<Blocklist>
-        title={t('websites.list')}
-        summary={listSummary}
-        value={prefs.blocklist}
-        disabled={busy || !prefs.blockAds}
-        options={LISTS.map((value) => ({
-          value,
-          label: t(`websites.lists.${value}`),
-          hint: t(`websites.listHints.${value}`),
-        }))}
-        onChange={(blocklist) => {
-          if (blocklist === 'custom') setCustomUrl(prefs.customListUrl ?? '');
-          else change({ blocklist });
-        }}
-      />
-      <PrefBlock>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={refresh.isPending || !prefs.blockAds}
-            onClick={() => refresh.mutate()}
-            className="bg-surface rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50"
-          >
-            {refresh.isPending ? t('websites.updating') : t('websites.updateList')}
-          </button>
-          <button
-            type="button"
-            disabled={clear.isPending}
-            onClick={() => clear.mutate()}
-            className="bg-surface rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50"
-          >
-            {t('websites.clearData')}
-          </button>
-        </div>
-        {(refresh.isError || status.data?.error) && (
-          <SourceIssue compact title={t('websites.listFailed')} className="mt-2">
-            {refresh.error?.message ?? status.data?.error}
-          </SourceIssue>
-        )}
-        {clear.isSuccess && (
-          <p role="status" className="text-muted mt-2 text-sm">
-            {t('websites.cleared')}
-          </p>
-        )}
-      </PrefBlock>
-      {android && (
+    <>
+      <PrefGroup title={t('websites.title')}>
         <PrefSwitch
-          title={t('websites.desktop')}
-          summary={t('websites.desktopHint')}
-          checked={prefs.desktop}
+          title={t('websites.blockAds')}
+          summary={t('websites.blockAdsHint')}
+          checked={prefs.blockAds}
           disabled={busy}
-          onChange={(desktop) => change({ desktop })}
+          onChange={(blockAds) => change({ blockAds })}
         />
-      )}
-      {customUrl !== null && (
-        <Sheet title={t('websites.lists.custom')} onClose={() => setCustomUrl(null)}>
-          <form
-            className="flex flex-col gap-3 text-sm"
-            onSubmit={(event) => {
-              event.preventDefault();
-              update.mutate(
-                {
-                  key: 'websites',
-                  value: { ...prefs, blocklist: 'custom', customListUrl: customUrl.trim() },
-                },
-                { onSuccess: () => setCustomUrl(null) },
-              );
-            }}
-          >
-            <TextField
-              type="text"
-              inputMode="url"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              autoFocus
-              value={customUrl}
-              onChange={setCustomUrl}
-              placeholder="https://…/list.txt"
-              aria-label={t('websites.customUrl')}
-              className={SHEET_FIELD}
-              inputClassName={SHEET_INPUT}
-            />
-            <p className="text-muted text-xs">{t('websites.customHint')}</p>
-            {update.isError && (
-              <SourceIssue compact title={t('websites.saveFailed')}>
-                {update.error.message}
-              </SourceIssue>
-            )}
+        <PrefSwitch
+          title={t('websites.blockPopups')}
+          summary={t('websites.blockPopupsHint')}
+          checked={prefs.blockPopups}
+          disabled={busy}
+          onChange={(blockPopups) => change({ blockPopups })}
+        />
+        <PrefChoice<Blocklist>
+          title={t('websites.list')}
+          summary={listSummary}
+          value={prefs.blocklist}
+          disabled={busy || !prefs.blockAds}
+          options={LISTS.map((value) => ({
+            value,
+            label: t(`websites.lists.${value}`),
+            hint: t(`websites.listHints.${value}`),
+          }))}
+          onChange={(blocklist) => {
+            if (blocklist === 'custom') setCustomUrl(prefs.customListUrl ?? '');
+            else change({ blocklist });
+          }}
+        />
+        <PrefBlock>
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              type="submit"
-              disabled={!customUrl.trim() || busy}
-              className="bg-primary text-background self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-60"
+              type="button"
+              disabled={refresh.isPending || !prefs.blockAds}
+              onClick={() => refresh.mutate()}
+              className="bg-surface rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50"
             >
-              {t('websites.save')}
+              {refresh.isPending ? t('websites.updating') : t('websites.updateList')}
             </button>
-          </form>
-        </Sheet>
-      )}
-    </PrefGroup>
+            <button
+              type="button"
+              disabled={clear.isPending}
+              onClick={() => clear.mutate()}
+              className="bg-surface rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50"
+            >
+              {t('websites.clearData')}
+            </button>
+          </div>
+          {(refresh.isError || status.data?.error) && (
+            <SourceIssue compact title={t('websites.listFailed')} className="mt-2">
+              {refresh.error?.message ?? status.data?.error}
+            </SourceIssue>
+          )}
+          {clear.isSuccess && (
+            <p role="status" className="text-muted mt-2 text-sm">
+              {t('websites.cleared')}
+            </p>
+          )}
+        </PrefBlock>
+        {android && (
+          <PrefSwitch
+            title={t('websites.desktop')}
+            summary={t('websites.desktopHint')}
+            checked={prefs.desktop}
+            disabled={busy}
+            onChange={(desktop) => change({ desktop })}
+          />
+        )}
+        <PrefSwitch
+          title={t('websites.backgroundPlay')}
+          summary={t(
+            android ? 'websites.backgroundPlayHint' : 'websites.backgroundPlayHintDesktop',
+          )}
+          checked={prefs.backgroundPlay}
+          disabled={busy}
+          onChange={(backgroundPlay) => change({ backgroundPlay })}
+        />
+        {customUrl !== null && (
+          <Sheet title={t('websites.lists.custom')} onClose={() => setCustomUrl(null)}>
+            <form
+              className="flex flex-col gap-3 text-sm"
+              onSubmit={(event) => {
+                event.preventDefault();
+                update.mutate(
+                  {
+                    key: 'websites',
+                    value: { ...prefs, blocklist: 'custom', customListUrl: customUrl.trim() },
+                  },
+                  { onSuccess: () => setCustomUrl(null) },
+                );
+              }}
+            >
+              <TextField
+                type="text"
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus
+                value={customUrl}
+                onChange={setCustomUrl}
+                placeholder="https://…/list.txt"
+                aria-label={t('websites.customUrl')}
+                className={SHEET_FIELD}
+                inputClassName={SHEET_INPUT}
+              />
+              <p className="text-muted text-xs">{t('websites.customHint')}</p>
+              {update.isError && (
+                <SourceIssue compact title={t('websites.saveFailed')}>
+                  {update.error.message}
+                </SourceIssue>
+              )}
+              <button
+                type="submit"
+                disabled={!customUrl.trim() || busy}
+                className="bg-primary text-background self-end rounded-full px-5 py-2.5 font-semibold disabled:opacity-60"
+              >
+                {t('websites.save')}
+              </button>
+            </form>
+          </Sheet>
+        )}
+      </PrefGroup>
+      <SiteScriptsSettings />
+    </>
   );
 };

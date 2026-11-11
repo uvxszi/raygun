@@ -4126,6 +4126,11 @@ pub struct ExtensionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub needs_setup: Option<SetupNeed>,
+    /// Where a site-scripts extension's scripts run in the websites browser: its match patterns
+    /// (`https://*.youtube.com/*`).
+    #[serde(default)]
+    #[specta(optional)]
+    pub sites: Vec<String>,
 }
 
 /// How much of a Nuclear plugin runs in Raygun (M17).
@@ -4336,6 +4341,11 @@ pub struct CatalogEntry {
     #[serde(default)]
     #[specta(optional)]
     pub unsupported: Option<String>,
+    /// Where a site-scripts extension's scripts would run in the websites browser: its match
+    /// patterns, as its repository lists them (checked against the package at install).
+    #[serde(default)]
+    #[specta(optional)]
+    pub sites: Vec<String>,
 }
 
 /// What kind of server a connection is: servers people own, added by address and sign-in.
@@ -6810,6 +6820,11 @@ pub struct WebsitePrefs {
     pub custom_list_url: Option<String>,
     /// Sites open in desktop mode.
     pub desktop: bool,
+    /// A page that plays keeps playing while the browser is off screen (Android: a media
+    /// notification with its controls; desktop: a minimized window).
+    pub background_play: bool,
+    /// Site scripts turned off on a site: extension ids by the site's id.
+    pub scripts_off: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 impl Default for WebsitePrefs {
@@ -6820,6 +6835,8 @@ impl Default for WebsitePrefs {
             blocklist: Blocklist::HageziMulti,
             custom_list_url: None,
             desktop: false,
+            background_play: true,
+            scripts_off: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -6857,6 +6874,30 @@ pub struct Website {
     /// Where it was left, when it opens there rather than at `url`.
     pub last_url: Option<String>,
     pub block_ads: bool,
+    /// The site-scripts extensions that run on its address, by name (turned off ones left out).
+    #[serde(default)]
+    pub scripts: Vec<String>,
+}
+
+/// An installed site-scripts extension, as Settings → Browse → Websites lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteScriptsInfo {
+    pub extension_id: String,
+    pub name: String,
+    /// The sites its scripts name, for people (`youtube.com`; `*` for every site).
+    pub sites: Vec<String>,
+    /// The user's websites its scripts run on, each with its switch.
+    pub websites: Vec<SiteScriptsWebsite>,
+}
+
+/// One of the user's websites a site-scripts extension runs on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteScriptsWebsite {
+    pub id: String,
+    pub name: String,
+    pub on: bool,
 }
 
 /// The downloaded blocklist.

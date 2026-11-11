@@ -517,6 +517,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::website_blocklist_status,
             commands::website_blocklist_update,
             commands::website_clear_data,
+            websites::scripts::website_site_scripts,
+            websites::scripts::website_set_site_scripts,
             website_downloads::website_downloads,
             website_downloads::website_download_cancel,
             website_downloads::website_download_retry,

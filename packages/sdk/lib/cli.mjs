@@ -15,16 +15,24 @@ import * as esbuild from 'esbuild';
 import { unzipSync, zipSync } from 'fflate';
 
 import { checkBundle } from './check.mjs';
-import { KINDS, checkManifest, manifestProblems } from './manifest.mjs';
+import {
+  KINDS,
+  SITE_KIND,
+  checkManifest,
+  manifestProblems,
+  siteFiles,
+  sitePatterns,
+} from './manifest.mjs';
 import { typeProblems } from './typecheck.mjs';
 
-export { KINDS, checkManifest, manifestProblems };
+export { KINDS, SITE_KIND, checkManifest, manifestProblems, siteFiles, sitePatterns };
 
 export const MANIFEST_FILE = 'raygun-extension.json';
 export const SOURCE_ENTRY = 'src/index.ts';
 export const ANDROID_PACKAGE = 'app.raygun.player';
 const SDK_DIR = fileURLToPath(new URL('..', import.meta.url));
 const SDK_INDEX = join(SDK_DIR, 'src', 'index.ts');
+const SDK_SITE = join(SDK_DIR, 'src', 'site.ts');
 const TEMPLATES_DIR = join(SDK_DIR, 'templates');
 /** The Raygun checkout the SDK sits in: its Cargo workspace runs `raygun-ext test`. */
 export const RAYGUN_ROOT = resolve(SDK_DIR, '..', '..');
@@ -83,30 +91,114 @@ const buildOptions = (dir, manifest) => ({
   },
 });
 
+/** Whether an extension is site scripts (runtime "site"), which run in pages, not in Raygun. */
+export const isSite = (/** @type {Manifest} */ manifest) => manifest.runtime === 'site';
+
 /**
- * Bundles an extension without writing it.
+ * The scripts of a site-scripts extension that are built, each from its source in `src/` (a
+ * script `dist/<name>.js` from `src/<name>.ts`, or `.js`); scripts without one are taken as they
+ * are, like its styles.
  * @param {string} dir
- * @returns {Promise<{ manifest: Manifest, code: string }>}
+ * @param {Manifest} manifest
+ * @returns {{ source: string, out: string }[]}
  */
-export const bundle = async (dir) => {
-  const manifest = await readManifest(dir);
-  const result = await esbuild.build(buildOptions(dir, manifest));
-  const output = result.outputFiles[0];
-  if (!output) throw new Error('esbuild produced no output');
-  return { manifest, code: output.text };
+export const siteBuilds = (dir, manifest) =>
+  siteFiles(/** @type {Record<string, unknown>} */ (manifest)).js.flatMap((out) => {
+    const name = basename(out, '.js');
+    const source = ['ts', 'js']
+      .map((type) => `src/${name}.${type}`)
+      .find((candidate) => existsSync(join(dir, candidate)));
+    return source ? [{ source, out }] : [];
+  });
+
+/**
+ * esbuild options for site scripts: each built script is one self-contained script for pages.
+ * @param {string} dir
+ * @param {Manifest} manifest
+ * @param {{ source: string, out: string }[]} builds
+ * @returns {esbuild.BuildOptions & { write: false }}
+ */
+const siteBuildOptions = (dir, manifest, builds) => ({
+  absWorkingDir: resolve(dir),
+  entryPoints: builds.map(({ source, out }) => ({ in: source, out: out.replace(/\.js$/, '') })),
+  outdir: resolve(dir),
+  alias: { '@raygun/sdk/site': SDK_SITE },
+  bundle: true,
+  write: false,
+  format: 'iife',
+  platform: 'browser',
+  target: 'es2022',
+  charset: 'utf8',
+  legalComments: 'inline',
+  logLevel: 'silent',
+  banner: {
+    js: `// ${manifest.id} ${manifest.version}. Built by raygun-ext from src/; do not edit.`,
+  },
+});
+
+/**
+ * The files a built extension's package holds besides its manifest, by path: the entry, or a
+ * site-scripts extension's scripts and styles.
+ * @param {string} dir
+ * @param {Manifest} manifest
+ * @param {Record<string, string>} built
+ * @returns {Promise<Record<string, string>>}
+ */
+const packageFiles = async (dir, manifest, built) => {
+  if (!isSite(manifest)) return built;
+  const { js, css } = siteFiles(/** @type {Record<string, unknown>} */ (manifest));
+  /** @type {Record<string, string>} */
+  const files = {};
+  for (const path of [...js, ...css]) {
+    files[path] = built[path] ?? (await readFile(join(dir, path), 'utf8'));
+  }
+  return files;
 };
 
 /**
- * Bundles an extension into its manifest's entry.
+ * Bundles an extension without writing it: `code` is its entry, `files` everything it builds
+ * (a site-scripts extension builds each of its scripts that has a source).
+ * @param {string} dir
+ * @returns {Promise<{ manifest: Manifest, code: string, files: Record<string, string> }>}
+ */
+export const bundle = async (dir) => {
+  const manifest = await readManifest(dir);
+  if (isSite(manifest)) {
+    const builds = siteBuilds(dir, manifest);
+    /** @type {Record<string, string>} */
+    const files = {};
+    if (builds.length > 0) {
+      const result = await esbuild.build(siteBuildOptions(dir, manifest, builds));
+      for (const output of result.outputFiles) {
+        files[relative(resolve(dir), output.path).split(sep).join('/')] = output.text;
+      }
+    }
+    const code =
+      files[manifest.entry] ?? (await readFile(join(dir, manifest.entry), 'utf8').catch(() => ''));
+    if (!code) throw new Error(`${manifest.entry} has no source in src/ and isn't there`);
+    return { manifest, code, files };
+  }
+  const result = await esbuild.build(buildOptions(dir, manifest));
+  const output = result.outputFiles[0];
+  if (!output) throw new Error('esbuild produced no output');
+  return { manifest, code: output.text, files: { [manifest.entry]: output.text } };
+};
+
+/**
+ * Bundles an extension into its manifest's entry (and a site-scripts extension's other scripts).
  * @param {string} dir
  * @returns {Promise<{ manifest: Manifest, outfile: string, bytes: number }>}
  */
 export const build = async (dir) => {
-  const { manifest, code } = await bundle(dir);
-  const outfile = join(dir, manifest.entry);
-  await mkdir(dirname(outfile), { recursive: true });
-  await writeFile(outfile, code);
-  return { manifest, outfile, bytes: Buffer.byteLength(code) };
+  const { manifest, files } = await bundle(dir);
+  let bytes = 0;
+  for (const [path, code] of Object.entries(files)) {
+    const outfile = join(dir, path);
+    await mkdir(dirname(outfile), { recursive: true });
+    await writeFile(outfile, code);
+    bytes += Buffer.byteLength(code);
+  }
+  return { manifest, outfile: join(dir, manifest.entry), bytes };
 };
 
 /**
@@ -133,9 +225,15 @@ export const installInto = async (dir, manifest, extensionsDir) => {
  * @param {string} staging
  */
 const stage = async (dir, manifest, staging) => {
-  await mkdir(dirname(join(staging, manifest.entry)), { recursive: true });
+  await mkdir(staging, { recursive: true });
   await cp(join(dir, MANIFEST_FILE), join(staging, MANIFEST_FILE));
-  await cp(join(dir, manifest.entry), join(staging, manifest.entry));
+  const paths = isSite(manifest)
+    ? Object.values(siteFiles(/** @type {Record<string, unknown>} */ (manifest))).flat()
+    : [manifest.entry];
+  for (const path of paths) {
+    await mkdir(dirname(join(staging, path)), { recursive: true });
+    await cp(join(dir, path), join(staging, path));
+  }
 };
 
 /** The adb executable: $ADB, else the SDK's platform-tools, else `adb` on PATH. */
@@ -220,8 +318,8 @@ export const dev = async (dir, target, onEvent) => {
     name: 'raygun-install',
     setup(pluginBuild) {
       pluginBuild.onEnd((result) => {
-        const output = result.outputFiles?.[0];
-        if (result.errors.length > 0 || !output) {
+        const outputs = result.outputFiles ?? [];
+        if (result.errors.length > 0 || outputs.length === 0) {
           const message = result.errors.map((error) => error.text).join('\n') || 'no output';
           onEvent({ kind: 'failed', message });
           return;
@@ -229,15 +327,20 @@ export const dev = async (dir, target, onEvent) => {
         const current = manifest;
         installing = installing.then(async () => {
           try {
-            const outfile = join(dir, current.entry);
-            await mkdir(dirname(outfile), { recursive: true });
-            await writeFile(outfile, output.text);
+            let bytes = 0;
+            for (const output of outputs) {
+              // A site-scripts extension's scripts land where esbuild names them.
+              const outfile = isSite(current) ? output.path : join(dir, current.entry);
+              await mkdir(dirname(outfile), { recursive: true });
+              await writeFile(outfile, output.text);
+              bytes += output.contents.length;
+            }
             const where =
               'into' in target
                 ? await installInto(dir, current, target.into)
                 : (await installAndroid(dir, current, { serial: target.serial }),
                   `${ANDROID_PACKAGE}:extensions/${current.id}`);
-            onEvent({ kind: 'installed', manifest: current, bytes: output.contents.length, where });
+            onEvent({ kind: 'installed', manifest: current, bytes, where });
           } catch (error) {
             onEvent({
               kind: 'failed',
@@ -249,7 +352,14 @@ export const dev = async (dir, target, onEvent) => {
     },
   };
 
-  const context = await esbuild.context({ ...buildOptions(dir, manifest), plugins: [install] });
+  const builds = isSite(manifest) ? siteBuilds(dir, manifest) : [];
+  if (isSite(manifest) && builds.length === 0) {
+    throw new Error(`${manifest.id} builds nothing from src/: install it with raygun-ext pack`);
+  }
+  const options = isSite(manifest)
+    ? siteBuildOptions(dir, manifest, builds)
+    : buildOptions(dir, manifest);
+  const context = await esbuild.context({ ...options, plugins: [install] });
   await context.watch();
   // esbuild only watches what it bundles; the manifest (permissions, version) matters too.
   const manifestWatcher = watch(join(dir, MANIFEST_FILE), async () => {
@@ -291,7 +401,9 @@ export const sdkDependency = (dir) => {
  * @param {string} dir
  * @param {{ id: string, name: string, kind?: string }} options
  */
-export const init = async (dir, { id, name, kind = DEFAULT_KIND }) => {
+export const init = async (dir, { id, name, kind: asked = DEFAULT_KIND }) => {
+  // A template folder's name names its kind too: `site-scripts` is `site.scripts`.
+  const kind = asked in KINDS ? asked : asked.replace(/-/g, '.');
   if (!(kind in KINDS)) {
     throw new Error(
       `there's no template for ${kind}; pick one of ${Object.keys(KINDS).join(', ')}`,
@@ -336,7 +448,7 @@ const fillTemplate = (file, text, values) => {
 
 /**
  * @typedef {{ manifest: Manifest | null, errors: string[], warnings: string[],
- *   providers: import('./check.mjs').FoundProvider[], bytes: number }} Validation
+ *   providers: import('./check.mjs').FoundProvider[], bytes: number, sites?: string[] }} Validation
  */
 
 /**
@@ -370,6 +482,7 @@ export const validate = async (dir, { types = true } = {}) => {
   }
   /** @type {Manifest} */
   const manifest = raw;
+  if (isSite(manifest)) return validateSite(dir, manifest, { errors, warnings, types });
   let code;
   try {
     code = (await bundle(dir)).code;
@@ -396,6 +509,57 @@ export const validate = async (dir, { types = true } = {}) => {
     providers: checked.providers,
     bytes,
   };
+};
+
+/**
+ * A site-scripts extension checked as Raygun would install it: the manifest, a build of its
+ * scripts, its files there, their types, and scripts that reach for the host API pages don't
+ * have.
+ * @param {string} dir
+ * @param {Manifest} manifest
+ * @param {{ errors: string[], warnings: string[], types: boolean }} checked
+ * @returns {Promise<Validation>}
+ */
+const validateSite = async (dir, manifest, { errors, warnings, types }) => {
+  const sites = sitePatterns(/** @type {Record<string, unknown>} */ (manifest));
+  let files;
+  try {
+    files = await packageFiles(dir, manifest, (await bundle(dir)).files);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      manifest,
+      errors: [`the build fails: ${message}`],
+      warnings,
+      providers: [],
+      bytes: 0,
+      sites,
+    };
+  }
+  const bytes = Object.values(files).reduce((sum, code) => sum + Buffer.byteLength(code), 0);
+  if (bytes > MAX_PACKAGE_BYTES) {
+    errors.push(
+      `the scripts and styles are ${bytes} bytes; Raygun takes packages of 10 MB at most`,
+    );
+  }
+  if (types) {
+    const problems = await typeProblems(dir);
+    if (problems === null) {
+      warnings.push("TypeScript isn't installed in this Raygun checkout: types weren't checked");
+    }
+    errors.push(...(problems ?? []).map((problem) => `type error: ${problem}`));
+  }
+  for (const [path, code] of Object.entries(files)) {
+    if (path.endsWith('.js') && /\braygun\.(http|providers|storage|settings|log)\b/.test(code)) {
+      warnings.push(
+        `${path} reaches for raygun.*, the host API of extensions that run in Raygun; site scripts run in pages and get raygunPage`,
+      );
+    }
+  }
+  if (sites.some((pattern) => /^(\*|https?):\/\/\*\//.test(pattern))) {
+    warnings.push('its scripts run on every site; people are told so before they install it');
+  }
+  return { manifest, errors, warnings, providers: [], bytes, sites };
 };
 
 /**
@@ -428,7 +592,7 @@ export const callArgs = (kind, method, words) => {
 
 /**
  * @typedef {{ provider?: string, method?: string, args?: unknown, settings?: string[],
- *   nsfw?: boolean, data?: string }} TestOptions
+ *   nsfw?: boolean, data?: string, address?: string, bundle?: string }} TestOptions
  */
 
 /**
@@ -439,7 +603,7 @@ export const callArgs = (kind, method, words) => {
  */
 export const testCommand = (
   dir,
-  { provider, method, args, settings = [], nsfw = false, data } = {},
+  { provider, method, args, settings = [], nsfw = false, data, address, bundle: bundleOut } = {},
 ) => ({
   command: 'cargo',
   args: [
@@ -453,6 +617,9 @@ export const testCommand = (
     'call',
     '--',
     resolve(dir),
+    // A site-scripts extension is tried on a page's address: what runs there.
+    ...(address ? [address] : []),
+    ...(address && bundleOut ? ['--bundle', resolve(bundleOut)] : []),
     ...(provider && method ? [provider, method] : []),
     ...(provider && method && args !== undefined ? [JSON.stringify(args)] : []),
     ...settings.flatMap((setting) => ['--set', setting]),
@@ -573,10 +740,17 @@ const packPackage = async (dir, repoDir) => {
   }
   const { manifest, outfile } = await build(dir);
   /** @type {Record<string, Uint8Array>} */
-  const files = {
-    [MANIFEST_FILE]: await readFile(join(dir, MANIFEST_FILE)),
-    [manifest.entry]: await readFile(outfile),
-  };
+  const files = { [MANIFEST_FILE]: await readFile(join(dir, MANIFEST_FILE)) };
+  if (isSite(manifest)) {
+    // Its scripts and styles, in the order the manifest names them.
+    for (const path of Object.values(
+      siteFiles(/** @type {Record<string, unknown>} */ (manifest)),
+    ).flat()) {
+      files[path] = await readFile(join(dir, path));
+    }
+  } else {
+    files[manifest.entry] = await readFile(outfile);
+  }
   /** @type {import('fflate').Zippable} */
   const zippable = Object.fromEntries(
     Object.entries(files).map(([name, bytes]) => [name, [bytes, { mtime: PACKAGE_TIME }]]),
@@ -702,6 +876,8 @@ export const writeIndex = async (repoDir, options = {}) => {
     /** @type {Manifest} */
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
     const icon = iconOf(repoDir, manifest.id);
+    // Where a site-scripts extension's scripts run, checked against the package at install.
+    const sites = sitePatterns(/** @type {Record<string, unknown>} */ (manifest));
     const entry = {
       id: manifest.id,
       name: manifest.name,
@@ -715,6 +891,7 @@ export const writeIndex = async (repoDir, options = {}) => {
         webview: manifest.permissions?.webview ?? false,
       },
       contentRating: manifest.contentRating ?? 'safe',
+      ...(sites.length > 0 ? { sites } : {}),
       package: `packages/${name}`,
       ...(icon ? { icon } : {}),
       sha256: createHash('sha256').update(bytes).digest('hex'),

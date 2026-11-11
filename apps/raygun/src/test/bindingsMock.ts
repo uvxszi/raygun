@@ -220,6 +220,8 @@ export const DEFAULT_SETTINGS: Settings = {
     blocklist: 'hageziMulti',
     customListUrl: null,
     desktop: false,
+    backgroundPlay: true,
+    scriptsOff: {},
   },
   layout: LAYOUT_DEFAULTS,
   accentColor: '#e5484d',
@@ -748,6 +750,8 @@ export const bindingsMock = {
     websiteBlocklistStatus: vi.fn(),
     websiteBlocklistUpdate: vi.fn(),
     websiteClearData: vi.fn(),
+    websiteSiteScripts: vi.fn(),
+    websiteSetSiteScripts: vi.fn(),
     websiteDownloads: vi.fn(),
     websiteDownloadCancel: vi.fn(),
     websiteDownloadRetry: vi.fn(),
@@ -1597,6 +1601,7 @@ export const seedBindings = () => {
   commands.coversWebviewJxl.mockResolvedValue(null);
   commands.songMemoryUsage.mockResolvedValue(ok({ songs: 0, coverSources: 0 }));
   commands.websiteList.mockResolvedValue(ok([]));
+  commands.websiteSiteScripts.mockResolvedValue(ok([]));
   commands.websiteDownloads.mockResolvedValue([]);
   commands.websiteDownloadCancel.mockResolvedValue(null);
   for (const command of [
@@ -1606,6 +1611,7 @@ export const seedBindings = () => {
     commands.websiteSetBlockAds,
     commands.websiteOpen,
     commands.websiteClearData,
+    commands.websiteSetSiteScripts,
     commands.websiteDownloadRetry,
     commands.websiteDownloadRemove,
     commands.websiteDownloadOpen,

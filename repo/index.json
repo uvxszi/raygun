@@ -292,6 +292,30 @@
       "size": 3890
     },
     {
+      "id": "dev.raygun.noutube",
+      "name": "YouTube enhancements",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Blocks ads, keeps playing in the background, skips sponsored segments and more on YouTube. Adapted from NouTube.",
+      "author": "Raygun (adapted from NouTube by nonbili)",
+      "provides": [
+        "site.scripts"
+      ],
+      "permissions": {
+        "net": [],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "sites": [
+        "https://m.youtube.com/*",
+        "https://music.youtube.com/*",
+        "https://www.youtube.com/*"
+      ],
+      "package": "packages/dev.raygun.noutube-1.0.0.zip",
+      "sha256": "04b795043ac479022b439e57994bc74286269ceff66ef748891fdb7b314f62b7",
+      "size": 28153
+    },
+    {
       "id": "dev.raygun.peppercarrot",
       "name": "Pepper&Carrot",
       "version": "1.0.0",

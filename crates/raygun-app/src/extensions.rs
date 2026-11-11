@@ -2090,6 +2090,51 @@ impl ExtensionService {
     }
 
     /// The site an extension's sources read, when it names one (M46.11).
+    /// The site-scripts extensions that loaded and are on (`raygun_ext_host::site`), for the
+    /// websites browser.
+    pub async fn site_extensions(&self) -> Vec<raygun_ext_host::site::SiteExtension> {
+        let _ready = self.loading.read().await;
+        self.host.site_extensions()
+    }
+
+    /// The site-scripts extensions as last loaded, without waiting for a load that's running
+    /// (none yet while the first one is): for lists that only name them.
+    pub fn site_extensions_now(&self) -> Vec<raygun_ext_host::site::SiteExtension> {
+        self.host.site_extensions()
+    }
+
+    /// The site-scripts extensions the repositories list whose scripts would run on one of
+    /// `pages` and that aren't on this device, each once (with its repository). Indexes read
+    /// lately are used as they are; a repository that can't be read is passed over.
+    pub async fn site_suggestions(
+        &self,
+        pages: &[reqwest::Url],
+    ) -> Vec<(ExtensionRepo, RepoEntry)> {
+        let Ok(repos) = self.repos().await else {
+            return Vec::new();
+        };
+        let installed = self.installed_versions().await;
+        let mut found: Vec<(ExtensionRepo, RepoEntry)> = Vec::new();
+        for repo in repos {
+            let Ok(index) = self.fetch_index(&repo.url, false).await else {
+                continue;
+            };
+            for entry in &index.extensions {
+                let fits = entry.format == repo::PackageFormat::Raygun
+                    && !entry.sites.is_empty()
+                    && !installed.contains_key(&entry.id)
+                    && !found.iter().any(|(_, known)| known.id == entry.id)
+                    && pages
+                        .iter()
+                        .any(|page| raygun_ext_host::site::any_matches(&entry.sites, page));
+                if fits {
+                    found.push((repo.clone(), entry.clone()));
+                }
+            }
+        }
+        found
+    }
+
     pub async fn website(&self, extension_id: &str) -> Option<String> {
         let _ready = self.loading.read().await;
         self.host
@@ -2405,6 +2450,7 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&Installed>) ->
             }
             _ => None,
         },
+        sites: entry.sites.clone(),
     }
 }
 
@@ -2868,6 +2914,7 @@ mod tests {
             sha256: "0".repeat(64),
             size: 1,
             format: Default::default(),
+            sites: Vec::new(),
         }
     }
 
