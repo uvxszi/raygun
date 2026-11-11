@@ -306,7 +306,25 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/fyyd:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/gutenberg:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/gutenberg-audiobooks:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/incompetech:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
@@ -325,6 +343,12 @@ importers:
         version: link:../../packages/sdk
 
   extensions/listenbrainz:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/live-music-archive:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*
@@ -349,6 +373,12 @@ importers:
         version: link:../../packages/sdk
 
   extensions/peppercarrot:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/podcast-index:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

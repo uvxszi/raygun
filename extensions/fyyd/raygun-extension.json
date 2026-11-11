@@ -1,0 +1,38 @@
+{
+  "id": "dev.raygun.fyyd",
+  "name": "fyyd podcasts",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "A podcast directory: finds podcasts in fyyd's open index of public feeds, and lists the most active ones in a language. Raygun reads each podcast's own feed. No account needed.",
+  "author": "Raygun",
+  "website": "https://fyyd.de",
+  "provides": ["podcast.directory"],
+  "permissions": { "net": ["api.fyyd.de"] },
+  "contentRating": "suggestive",
+  "settings": [
+    {
+      "key": "language",
+      "type": "select",
+      "label": "Popular podcasts in",
+      "options": [
+        "Any language",
+        "Arabic",
+        "Catalan",
+        "Dutch",
+        "English",
+        "French",
+        "German",
+        "Italian",
+        "Persian",
+        "Polish",
+        "Portuguese",
+        "Russian",
+        "Spanish",
+        "Swedish"
+      ],
+      "default": "English"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "id": "dev.raygun.podcast-index",
+  "name": "Podcast Index",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "A podcast directory: searches the Podcast Index, the open index of millions of public podcast feeds, and lists what's trending. Needs your own free API key and secret from api.podcastindex.org, entered in this source's settings. Raygun reads each podcast's own feed.",
+  "author": "Raygun",
+  "website": "https://podcastindex.org",
+  "provides": ["podcast.directory"],
+  "permissions": { "net": ["api.podcastindex.org"] },
+  "contentRating": "suggestive",
+  "settings": [
+    { "key": "apiKey", "type": "text", "label": "API key" },
+    { "key": "apiSecret", "type": "text", "label": "API secret" },
+    {
+      "key": "language",
+      "type": "select",
+      "label": "Trending podcasts in",
+      "options": [
+        "Any language",
+        "Arabic",
+        "Chinese",
+        "Dutch",
+        "English",
+        "French",
+        "German",
+        "Hindi",
+        "Italian",
+        "Japanese",
+        "Korean",
+        "Polish",
+        "Portuguese",
+        "Russian",
+        "Spanish",
+        "Swedish",
+        "Turkish"
+      ],
+      "default": "English"
+    }
+  ]
+}
