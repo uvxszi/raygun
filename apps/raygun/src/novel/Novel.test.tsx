@@ -478,6 +478,38 @@ describe('Novels', () => {
     expect(commands.novelChapter).toHaveBeenLastCalledWith('t1', 'c2');
   });
 
+  it('keeps its bars over the page area, beside the rail and the side panel', async () => {
+    // The page area starts 72 px in and is 800 px wide in a 1024 px window.
+    const page = (element: Element) => element.getAttribute('data-testid') === 'page-content';
+    const rect = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        return (page(this) ? { left: 72, width: 800 } : { left: 0, width: 0 }) as DOMRect;
+      });
+    const width = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return page(this) ? 800 : 0;
+      });
+    commands.novelChapter.mockResolvedValue(ok(CHAPTER));
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await within(reader).findByRole('heading', { name: 'Letter 1!!' });
+
+    const shell = screen.getByTestId('page-content').closest<HTMLElement>('[style]')!;
+    expect(shell.style.getPropertyValue('--main-left')).toBe('72px');
+    expect(shell.style.getPropertyValue('--main-right')).toBe(`${window.innerWidth - 872}px`);
+    expect(shell.style.getPropertyValue('--main-width')).toBe('800px');
+    const bottom = within(reader).getByTestId('novel-progress').closest('.fixed')!;
+    const header = within(reader).getByRole('button', { name: 'Close reader' }).closest('header')!;
+    for (const bar of [bottom, header]) {
+      expect(bar).toHaveClass('left-[var(--main-left,0px)]', 'right-[var(--main-right,0px)]');
+      expect(bar).not.toHaveClass('inset-x-0');
+    }
+    rect.mockRestore();
+    width.mockRestore();
+  });
+
   it('reads aloud from a paragraph held down', async () => {
     commands.ttsAvailable.mockResolvedValue(ok(true));
     commands.novelChapter.mockResolvedValue(
