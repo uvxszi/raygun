@@ -12,6 +12,11 @@ const NOTICE_MS = 8_000;
 /** A skip as the notice shows it: why, and which queue item nothing played. */
 type Skip = { reason: string; itemId: string | null };
 
+/** The skip last shown long enough or dismissed, kept while the bar is drawn again. */
+let done: Skip | null = null;
+const sameSkip = (a: Skip | null, b: Skip | null) =>
+  Boolean(a && b && a.reason === b.reason && a.itemId === b.itemId);
+
 /**
  * Why a song was skipped (M46.48): playback moves on when a song can't play (after looking for
  * another source for it), and the reason stays here for a while after the next song starts,
@@ -23,14 +28,22 @@ export const SkipNotice: FC = () => {
   const skippedId = usePlayerSelect((state) => state?.skippedItemId ?? null);
   const [seen, setSeen] = useState<Skip | null>(null);
   const [hidden, setHidden] = useState<Skip | null>(null);
-  // A new reason shows at once (state adjusted while rendering, not in an effect).
-  if (error && error !== seen?.reason) setSeen({ reason: error, itemId: skippedId });
+  // A new reason shows at once (state adjusted while rendering, not in an effect), unless this
+  // same skip was already shown before the bar was drawn again (a rotation, another page).
+  if (error && error !== seen?.reason) {
+    const next = { reason: error, itemId: skippedId };
+    setSeen(next);
+    if (sameSkip(done, next)) setHidden(next);
+  }
   const skipped = useQueueSelect((queue) =>
     seen?.itemId ? queue?.items.find((item) => item.id === seen.itemId) : undefined,
   );
   useEffect(() => {
     if (!seen) return undefined;
-    const timer = window.setTimeout(() => setHidden(seen), NOTICE_MS);
+    const timer = window.setTimeout(() => {
+      done = seen;
+      setHidden(seen);
+    }, NOTICE_MS);
     return () => window.clearTimeout(timer);
   }, [seen]);
   if (!seen || hidden === seen) return null;
@@ -46,6 +59,7 @@ export const SkipNotice: FC = () => {
           type="button"
           onClick={() => {
             useSourcePickerStore.getState().open(fromQueueItem(skipped));
+            done = seen;
             setHidden(seen);
           }}
           className="text-foreground shrink-0 font-medium hover:underline"
