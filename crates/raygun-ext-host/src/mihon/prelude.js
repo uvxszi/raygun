@@ -1020,6 +1020,8 @@
   /** The extension's cookie jar: what it sends to `url` (`[name, value]` pairs), and keeping
    * `Set-Cookie` lines for it. */
   K.cookies = (href) => unwrap(native.cookies(K.str(href)));
+  /** The User-Agent a request to `href` carries when it names none. */
+  K.userAgent = (href) => native.userAgent(K.str(href));
   K.setCookies = (href, lines) => unwrap(native.setCookies(K.str(href), JSON.stringify(lines)));
   K.base64Decode = (text) => {
     const binary = atob(K.str(text).replace(/\s+/g, ''));

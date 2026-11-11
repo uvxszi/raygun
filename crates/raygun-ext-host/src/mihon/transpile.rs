@@ -348,6 +348,11 @@ fn param_names(params: &[Param]) -> Vec<String> {
 }
 
 /// A property's value as a function body: its initializer, getter or delegate.
+/// Whether a property's delegate is `lazy { … }` or `lazy(::make)`: worked out once.
+fn lazy_delegate(delegate: Option<&Expr>) -> bool {
+    matches!(delegate, Some(Expr::Call { callee, .. }) if matches!(callee.as_ref(), Expr::Name(name) if name == "lazy"))
+}
+
 fn property_value(prop: &PropDecl) -> Option<Body> {
     if let Some(value) = &prop.value {
         return Some(Body::Expr(value.clone()));
@@ -1310,8 +1315,9 @@ fn class_definition(
                         line: prop.line,
                     };
                     // A `var` with a value is a field, set when the instance is made (a
-                    // serializable class's `val` too: JSON decodes into it); other properties are
-                    // worked out when read.
+                    // serializable class's `val` too: JSON decodes into it); a `val` with a value
+                    // or `by lazy` is worked out when first read and kept (one key pair, one cache
+                    // per instance, as Kotlin makes it once); a getter runs at each read.
                     let serializable = class
                         .annotations
                         .iter()
@@ -1321,6 +1327,10 @@ fn class_definition(
                         && prop.getter.is_none()
                     {
                         "KT.field"
+                    } else if prop.getter.is_none()
+                        && (prop.value.is_some() || lazy_delegate(prop.delegate.as_ref()))
+                    {
+                        "KT.value"
                     } else {
                         "KT.getter"
                     };

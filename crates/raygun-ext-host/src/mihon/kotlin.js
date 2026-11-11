@@ -439,6 +439,40 @@
       Object.prototype.hasOwnProperty.call(types, word) ? KT.str(types[word]) : word,
     );
   KT.getter = (function_) => ({ isGetter: true, function_ });
+  /// A class's `val` with a value (or `by lazy`): worked out when first read, then kept for that
+  /// instance (a key pair made once, a cache that keeps what's put in it).
+  KT.value = (function_) => ({ isGetter: true, once: true, function_ });
+  /// A getter member on an instance: run at each read, or once for a `val` with a value.
+  const defineGetter = (object, name, member) => {
+    if (!member.once) {
+      Object.defineProperty(object, name, {
+        get: () => member.function_(object),
+        enumerable: false,
+        configurable: true,
+      });
+      return;
+    }
+    let known;
+    let read = false;
+    Object.defineProperty(object, name, {
+      get: () => {
+        if (!read) {
+          read = true;
+          known = member.function_(object);
+          if (known instanceof Promise)
+            known.then(
+              (value) => {
+                known = value;
+              },
+              () => {},
+            );
+        }
+        return known;
+      },
+      enumerable: false,
+      configurable: true,
+    });
+  };
   /// A class's `var` with a value: a field set when an instance is made.
   KT.field = (function_) => ({ isField: true, function_ });
   /// A class's `init { … }`: run when an instance is made, in order with its fields.
@@ -3549,7 +3583,11 @@
       this.kind = kind;
     }
     header(name) {
-      return this.headers.get(name);
+      const value = this.headers.get(name);
+      // The User-Agent it's sent with, though it names none (OkHttp's requests carry one).
+      if ((value === null || value === undefined) && KT.str(name).toLowerCase() === 'user-agent')
+        return K.userAgent(this.url.toString());
+      return value;
     }
     /// What `tag(type, value)` put on it (`request.tag(Page::class.java)`).
     tag(type) {
@@ -10743,12 +10781,7 @@
       const fieldsToSet = [];
       for (const [name, member] of Object.entries(definition.members)) {
         if (member && (member.isField || member.isInit)) fieldsToSet.push([name, member]);
-        else if (member && member.isGetter)
-          Object.defineProperty(object, name, {
-            get: () => member.function_(object),
-            enumerable: false,
-            configurable: true,
-          });
+        else if (member && member.isGetter) defineGetter(object, name, member);
         else if (definition.params.includes(name)) {
           // A function named as one of its fields (`val title: RenderedDto` beside `fun title()`):
           // the field keeps the name, and the function is called by it.
@@ -10791,11 +10824,7 @@
               object[name] = (...rest) => member(object, ...rest);
               object[name].arity = Math.max(0, member.length - 1);
             } else if (member && member.isGetter) {
-              Object.defineProperty(object, name, {
-                get: () => member.function_(object),
-                enumerable: false,
-                configurable: true,
-              });
+              defineGetter(object, name, member);
             } else {
               Object.defineProperty(object, name, descriptor);
             }
@@ -10922,12 +10951,7 @@
       });
       for (const [name, member] of Object.entries(definition.members)) {
         if (typeof member === 'function') value[name] = (...rest) => member(value, ...rest);
-        else if (member && member.isGetter)
-          Object.defineProperty(value, name, {
-            get: () => member.function_(value),
-            enumerable: false,
-            configurable: true,
-          });
+        else if (member && member.isGetter) defineGetter(value, name, member);
       }
       holder[entry] = value;
     });
@@ -11003,6 +11027,18 @@
     )
       return true;
     if (hasNextJs(receiver, name)) return true;
+    // What `KT.m` deciphers on answers, bodies and okio sources (`aesDecrypt(cipher).buffer()`
+    // in `fun BufferedSource.decode()`).
+    if (
+      (name === 'aesDecrypt' || name === 'aesDecryptWithPrependedIv' || name === 'xor') &&
+      (receiver instanceof Response || receiver.isResponseBody)
+    )
+      return true;
+    if (
+      (name === 'cipherSource' || name === 'aesDecrypt' || name === 'rc4' || name === 'xor') &&
+      typeof receiver.u8Now === 'function'
+    )
+      return true;
     const kind = kindOf(receiver);
     if (kind === 'list' || kind === 'elements')
       return Boolean(LIST[name]) || (kind === 'elements' && typeof receiver[name] === 'function');

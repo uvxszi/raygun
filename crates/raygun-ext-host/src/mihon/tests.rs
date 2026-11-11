@@ -3550,8 +3550,9 @@ class Wrapper(val data: Results)
 
 /// Reads converted code makes most, answered at once: a library class's companion values read
 /// from another class's code (Publus's `B2y.V_CGH`), items of lists, texts and maps by index (and
-/// a missing one refused), constants and the source's values read in a loop; path segments
-/// written as OkHttp writes them.
+/// a missing one refused), constants and the source's values read in a loop; a class's `val`s
+/// worked out once (OneReader's key pair), its getters at each read; path segments written as
+/// OkHttp writes them.
 #[tokio::test]
 async fn converted_code_reads_indexes_companions_and_segments() {
     let library = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
@@ -3571,6 +3572,20 @@ class Unscrambler(private val seed: Int) {
         val picked = B2y.V_CGH[seed % B2y.V_CGH.size][2]
         return "$count $picked ${B2y().first(1)}"
     }
+}
+
+class Counter {
+    private var made = 0
+    val stamp = next()
+    val lazyStamp by lazy { next() }
+    val live get() = made
+
+    private fun next(): Int {
+        made += 1
+        return made
+    }
+
+    fun report(): String = "$stamp $stamp $lazyStamp $lazyStamp $live"
 }
 "##;
     let source = STANDALONE_SOURCE
@@ -3612,6 +3627,7 @@ class Unscrambler(private val seed: Int) {
             "${"text"[1]} $missing",
             Unscrambler(3).sizes(),
             address,
+            Counter().report(),
         )
         return MangasPage(list.map { name -> SManga.create().apply { title = name; url = "/x" } }, false)
     }
@@ -3663,6 +3679,7 @@ class Unscrambler(private val seed: Int) {
             "e refused",
             "6 15 10",
             "https://pages.example/full-list/o:popular~t:MANGA,MANHWA/a%20b%2Fc",
+            "1 1 2 2 2",
         ]
     );
 }

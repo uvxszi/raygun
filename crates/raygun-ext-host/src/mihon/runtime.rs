@@ -83,6 +83,18 @@ fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
             envelope(cookies_for(&jar, &url))
         })?,
     )?;
+    // The User-Agent a request to `url` goes with when it names none: the one a browser check
+    // there was passed with, else the one sources send (`chain.request().header("User-Agent")`).
+    let jar = hooks.cookies.clone();
+    native.set(
+        "userAgent",
+        Function::new(ctx.clone(), move |url: String| {
+            url::Url::parse(&url)
+                .ok()
+                .and_then(|url| jar.user_agent_for(&url))
+                .unwrap_or_else(raygun_net::user_agent)
+        })?,
+    )?;
     let jar = hooks.cookies;
     native.set(
         "setCookies",
