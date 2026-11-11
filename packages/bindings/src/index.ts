@@ -1373,6 +1373,8 @@ export const commands = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0). */
 	readerAi?: ReaderAiPrefs,
+	/**  Word lookups in the book reader. */
+	dictionary?: DictionaryPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**
@@ -1603,6 +1605,17 @@ export const commands = {
 	 *  `NetworkStatusEvent`.
 	 */
 	networkStatus: () => __TAURI_INVOKE<NetworkStatus>("network_status"),
+	/**  What the dictionaries say about a word or a few words selected in the book reader. */
+	dictionaryLookup: (request: DictionaryRequest) => typedError<DictionaryLookup, string>(__TAURI_INVOKE("dictionary_lookup", { request })),
+	/**  The dictionaries in the order they're asked, with whether each is on. */
+	dictionarySources: () => typedError<DictionarySourceInfo[], string>(__TAURI_INVOKE("dictionary_sources")),
+	/**  Opens a dictionary's page (an entry, a search) in Raygun's browser. */
+	dictionaryOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("dictionary_open_page", { url })),
+	/**
+	 *  Where words appear in a book: every chapter of an imported book, a source's downloaded
+	 *  chapters and the one open (`chapter_id`).
+	 */
+	novelSearchBook: (titleId: string, chapterId: string | null, query: string) => typedError<BookSearch, string>(__TAURI_INVOKE("novel_search_book", { titleId, chapterId, query })),
 	/**  Turns Offline Mode on or off: while it's on, Raygun sends nothing over the network. */
 	networkSetOffline: (offline: boolean) => typedError<NetworkStatus, string>(__TAURI_INVOKE("network_set_offline", { offline })),
 	/**  Every permission Raygun uses on this device, and where it stands. */
@@ -2300,6 +2313,30 @@ export type BookResume = {
 	positionMs: number | null,
 };
 
+/**  A search through a book's text. */
+export type BookSearch = {
+	hits: BookSearchHit[],
+	/**
+	 *  Chapters whose text was searched, out of `chapters`: a source's chapters are on this
+	 *  device only once downloaded (or while open).
+	 */
+	searched: number,
+	chapters: number,
+	/**  More places matched than are listed. */
+	more: boolean,
+};
+
+/**  Where a word appears in a book. */
+export type BookSearchHit = {
+	chapterId: string,
+	chapterName: string,
+	/**  The paragraph it's in, from 0, among the chapter's blocks. */
+	block: number,
+	before: string,
+	matched: string,
+	after: string,
+};
+
 /**  How a browser check opened by hand ended. */
 export type BrowserCheckOutcome = 
 /**  The check was passed, and the source answered when asked again. */
@@ -2933,6 +2970,141 @@ export type DeviceState = {
 
 /**  The device's state changed. */
 export type DeviceStateEvent = DeviceState;
+
+/**  A source that answered, credited under the answer with a link to its full entry. */
+export type DictionaryCredit = {
+	source: string,
+	name: string,
+	url: string | null,
+	license: DictionaryLicense | null,
+};
+
+/**  One sense of a word. */
+export type DictionaryDefinition = {
+	text: string,
+	/**  Sentences using the word in this sense. */
+	examples: string[],
+};
+
+/**  The word is a form of another (`went`: simple past of `go`). */
+export type DictionaryFormOf = {
+	/**  The form looked up. */
+	form: string,
+	/**  The word it's a form of, whose entry is shown. */
+	lemma: string,
+	/**  What the source says the form is (`simple past of go`). */
+	note: string,
+	/**
+	 *  Every sense the source gives is a form of the lemma (`ran`), so the lemma's entry is
+	 *  what's shown; otherwise (`building`) the word's own senses are, with the lemma offered.
+	 */
+	only?: boolean,
+};
+
+/**  The licence a source's text comes under. */
+export type DictionaryLicense = {
+	/**  `CC BY-SA 4.0`. */
+	name: string,
+	url: string | null,
+};
+
+/**  What the dictionaries say about a selection, merged in the order of the user's sources. */
+export type DictionaryLookup = {
+	/**  The selection, tidied (surrounding punctuation and spaces left out). */
+	query: string,
+	/**  The headword shown; empty when no source knew the word. */
+	word: string,
+	/**  The language looked up in, a BCP 47 tag. */
+	language: string,
+	languageName: string | null,
+	formOf: DictionaryFormOf | null,
+	pronunciations: DictionaryPronunciation[],
+	meanings: DictionaryMeaning[],
+	etymology: string | null,
+	credits: DictionaryCredit[],
+	/**  Searches the web's dictionaries for the selection (Wiktionary's search). */
+	onlineUrl: string,
+	/**  The answer is what this device kept from an earlier lookup. */
+	kept: boolean,
+	/**  Offline Mode is on and nothing was kept for the word. */
+	offline: boolean,
+	/**  Sources that had trouble, one sentence each. */
+	issues: string[],
+};
+
+/**  The word as one part of speech. */
+export type DictionaryMeaning = {
+	/**  As the source names it, in lower case (`noun`, `verb`, `proper noun`). */
+	partOfSpeech: string,
+	definitions: DictionaryDefinition[],
+	synonyms: string[],
+	antonyms: string[],
+	translations: DictionaryTranslation[],
+};
+
+/**  The book reader's dictionary (Settings → Reader). */
+export type DictionaryPrefs = {
+	/**
+	 *  Selecting words in the book reader looks them up; off, the text isn't selectable and a
+	 *  long press reads aloud from the paragraph, as before.
+	 */
+	enabled?: boolean,
+	/**
+	 *  Sources in the order they're asked and shown (`wiktionary`, `freeDictionary`, an
+	 *  extension's `<extension>/<provider>`); sources not listed come after them.
+	 */
+	order?: string[],
+	/**  Sources turned off. */
+	off?: string[],
+	/**  The words' language as a BCP 47 tag; empty takes the book's language, then the app's. */
+	language?: string,
+};
+
+/**  How a word sounds: a transcription, a recording, or both. */
+export type DictionaryPronunciation = {
+	/**  IPA, with its slashes or brackets (`/ˈhæpi/`). */
+	ipa: string | null,
+	/**  Whose pronunciation: an accent or a region (`UK`, `General American`). */
+	label: string | null,
+	/**  A recording. In a lookup's answer, a link through Raygun's own proxy. */
+	audioUrl: string | null,
+};
+
+/**  A word or phrase selected in the reader, to look up. */
+export type DictionaryRequest = {
+	/**  The selection as it was made. */
+	text: string,
+	/**  The book it's in: its language is the words' language. */
+	titleId: string | null,
+	/**
+	 *  The app's language as the UI resolved it (a BCP 47 tag): the words' language when the
+	 *  book's isn't known, and the language translations are shown in.
+	 */
+	appLanguage: string,
+	/**  Asks the sources again, even when this device kept a recent answer. */
+	refresh?: boolean,
+};
+
+/**  A dictionary source, for Settings. */
+export type DictionarySourceInfo = {
+	/**  `wiktionary`, `freeDictionary`, or an extension's `<extension>/<provider>`. */
+	id: string,
+	name: string,
+	/**  The languages it knows words of, as BCP 47 tags; empty for any. */
+	languages: string[],
+	/**  Raygun's own, or an extension's. */
+	builtIn: boolean,
+	enabled: boolean,
+};
+
+/**  The word in another language: the app's. */
+export type DictionaryTranslation = {
+	/**  The sense translated (`contented, joyous`), when the source tells senses apart. */
+	gloss: string | null,
+	/**  The language the terms are in, a BCP 47 tag. */
+	language: string,
+	terms: string[],
+};
 
 /**  Charts and song tags (M46.9). */
 export type DiscoveryPrefs = {
@@ -5777,7 +5949,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "dictionary"; value: DictionaryPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5901,6 +6073,8 @@ export type Settings = {
 	lyricsTranslation: LyricsTranslationPrefs,
 	/**  The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0). */
 	readerAi?: ReaderAiPrefs,
+	/**  Word lookups in the book reader. */
+	dictionary?: DictionaryPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**

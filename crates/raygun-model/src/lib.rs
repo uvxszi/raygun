@@ -6,8 +6,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+mod dictionary;
 mod years;
 
+pub use dictionary::*;
 pub use years::year_range_label;
 
 /// Build and runtime facts about the running app.
@@ -237,6 +239,9 @@ pub struct Settings {
     /// The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0).
     #[serde(default)]
     pub reader_ai: ReaderAiPrefs,
+    /// Word lookups in the book reader.
+    #[serde(default)]
+    pub dictionary: DictionaryPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
@@ -2812,6 +2817,7 @@ impl Default for Settings {
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
             reader_ai: ReaderAiPrefs::default(),
+            dictionary: DictionaryPrefs::default(),
             failing_sources_last: true,
             browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
@@ -2898,6 +2904,12 @@ impl Settings {
             SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::ReaderAi(prefs) => self.reader_ai = prefs,
+            SettingChange::Dictionary(prefs) => {
+                self.dictionary = DictionaryPrefs {
+                    language: prefs.language.trim().to_owned(),
+                    ..prefs
+                }
+            }
             SettingChange::LyricsTranslation(prefs) => {
                 self.lyrics_translation = LyricsTranslationPrefs {
                     language: prefs.language.trim().to_owned(),
@@ -2999,6 +3011,7 @@ pub enum SettingChange {
     LyricsCache(LyricsCachePrefs),
     LyricsTranslation(LyricsTranslationPrefs),
     ReaderAi(ReaderAiPrefs),
+    Dictionary(DictionaryPrefs),
 }
 
 impl SettingChange {
@@ -3070,6 +3083,7 @@ impl SettingChange {
             Self::LyricsCache(_) => "lyricsCache",
             Self::LyricsTranslation(_) => "lyricsTranslation",
             Self::ReaderAi(_) => "readerAi",
+            Self::Dictionary(_) => "dictionary",
         }
     }
 
@@ -3125,6 +3139,7 @@ impl SettingChange {
             }
             Self::Hidden(prefs) => prefs.validate(),
             Self::ReaderAi(prefs) => prefs.validate(),
+            Self::Dictionary(prefs) => prefs.validate(),
             Self::SearchListings(prefs) => prefs.validate(),
             Self::ContentOverrides(overrides) => overrides.validate(),
             Self::Rail(prefs) => prefs.validate(),

@@ -270,6 +270,11 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     );
     profiles.trim_later();
     app.manage(profiles);
+    // Word lookups in the book reader, their answers kept on the device.
+    app.manage(crate::dictionary::DictionaryService::new(
+        app.handle().clone(),
+        paths.cache(raygun_paths::CacheKind::Dictionary),
+    )?);
     // Covers from other sources when one's missing or fails (M46.40), and looked for in the
     // background for library songs without one.
     app.manage(crate::cover_fallback::CoverFallbacks::new(

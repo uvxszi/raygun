@@ -1,0 +1,33 @@
+{
+  "en": [
+    {
+      "partOfSpeech": "Verb",
+      "language": "English",
+      "definitions": [
+        {
+          "definition": "<span class=\"form-of-definition use-with-mention\"><a rel=\"mw:WikiLink\" href=\"/wiki/Appendix:Glossary#present_participle\" title=\"Appendix:Glossary\">present participle</a> and <a rel=\"mw:WikiLink\" href=\"/wiki/Appendix:Glossary#gerund\" title=\"Appendix:Glossary\">gerund</a> of <span class=\"form-of-definition-link\"><i class=\"Latn mention\" lang=\"en\"><a rel=\"mw:WikiLink\" href=\"/wiki/build#English\" title=\"build\">build</a></i></span></span>"
+        }
+      ]
+    },
+    {
+      "partOfSpeech": "Noun",
+      "language": "English",
+      "definitions": [
+        {
+          "definition": "A closed <a rel=\"mw:WikiLink\" href=\"/wiki/structure\" title=\"structure\">structure</a> with walls and a roof.\n<ol><li>A sub-sense listed again on its own below.</li></ol>",
+          "parsedExamples": [
+            { "example": "The <b>building</b> on the corner is a library." }
+          ]
+        },
+        {
+          "definition": "A sub-sense listed again on its own below."
+        },
+        {
+          "definition": "The act or process by which something is built.",
+          "examples": ["The <b>building</b> of the bridge took two years."]
+        },
+        { "definition": "<span class=\"usage-label-sense\"></span>" }
+      ]
+    }
+  ]
+}

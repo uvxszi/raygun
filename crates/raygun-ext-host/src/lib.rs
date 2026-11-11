@@ -5,6 +5,7 @@ pub mod audiobook;
 pub mod browser_check;
 mod content;
 pub mod cookies;
+pub mod dictionary;
 mod failure;
 pub mod fanout;
 mod heap;

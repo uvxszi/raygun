@@ -478,8 +478,14 @@ describe('Novels', () => {
     expect(commands.novelChapter).toHaveBeenLastCalledWith('t1', 'c2');
   });
 
-  it('reads aloud from a paragraph held down', async () => {
+  it('reads aloud from a paragraph held down while word lookups are off', async () => {
     commands.ttsAvailable.mockResolvedValue(ok(true));
+    commands.settingsGet.mockResolvedValue(
+      ok({
+        ...DEFAULT_SETTINGS,
+        dictionary: { enabled: false, order: [], off: [], language: '' },
+      }),
+    );
     commands.novelChapter.mockResolvedValue(
       ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
     );

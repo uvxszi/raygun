@@ -1,0 +1,23 @@
+{
+  "en": [
+    {
+      "partOfSpeech": "Verb",
+      "language": "English",
+      "definitions": [
+        {
+          "definition": "<span class=\"form-of-definition use-with-mention\" about=\"#mwt3\" typeof=\"mw:Transclusion\">simple <a rel=\"mw:WikiLink\" href=\"/wiki/Appendix:Glossary#past_tense\" title=\"Appendix:Glossary\">past</a> of <span class=\"form-of-definition-link\"><i class=\"Latn mention\" lang=\"en\"><a rel=\"mw:WikiLink\" href=\"/wiki/run#English\" title=\"run\">run</a></i></span></span>"
+        },
+        {
+          "definition": "<span class=\"usage-label-sense\"><span class=\"ib-brac\">(</span><span class=\"ib-content\">nonstandard</span><span class=\"ib-brac\">)</span></span> <span class=\"form-of-definition use-with-mention\"><a rel=\"mw:WikiLink\" href=\"/wiki/Appendix:Glossary#past_participle\" title=\"Appendix:Glossary\">past participle</a> of <span class=\"form-of-definition-link\"><i class=\"Latn mention\" lang=\"en\"><a rel=\"mw:WikiLink\" href=\"/wiki/run#English\" title=\"run\">run</a></i></span></span>"
+        }
+      ]
+    }
+  ],
+  "sv": [
+    {
+      "partOfSpeech": "Noun",
+      "language": "Swedish",
+      "definitions": [{ "definition": "a made-up sense for a test" }]
+    }
+  ]
+}

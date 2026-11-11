@@ -32,6 +32,7 @@ const DATA_KINDS = new Set([
   'lyrics',
   'stremio.subtitles',
   'stremio.meta',
+  'dictionary',
 ]);
 
 /** Whether a provider kind is data (as well as being for what `mediaOfKind` says). */
@@ -62,7 +63,8 @@ export const mediaOfKind = (kind: string): SourceMedia => {
   }
   if (kind.startsWith('video.') || kind.startsWith('stremio.')) return 'video';
   if (kind === 'manga.source') return 'manga';
-  if (kind === 'novel.source') return 'novel';
+  // Dictionaries are for the book reader's word lookups.
+  if (kind === 'novel.source' || kind === 'dictionary') return 'novel';
   return 'other';
 };
 

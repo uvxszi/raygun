@@ -223,6 +223,11 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.paged',
     'settings.speechRate',
   ),
+  ...on('reader', 'dictionary.settings.title')(
+    'dictionary.settings.enabled',
+    'dictionary.settings.sources',
+    'dictionary.settings.language',
+  ),
 
   ...on('browse', 'settings.content')(
     'settings.browseStartTab',

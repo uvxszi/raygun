@@ -77,6 +77,14 @@
       "radio": { "artist": "", "title": null, "limit": 40 }
     }
   },
+  "dictionary": {
+    "label": "Words looked up in the book reader",
+    "required": ["define"],
+    "optional": [],
+    "args": {
+      "define": { "word": "", "language": "en" }
+    }
+  },
   "manga.source": {
     "label": "Comics: lists, search, chapters and pages",
     "required": ["popular", "search", "details", "chapters", "pages"],

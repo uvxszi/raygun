@@ -28,6 +28,8 @@ pub enum CacheKind {
     Artists,
     /// Video exports being converted, until they're copied where they go.
     Convert,
+    /// What dictionaries answered for words looked up in the book reader.
+    Dictionary,
 }
 
 impl CacheKind {
@@ -43,6 +45,7 @@ impl CacheKind {
             Self::Captions => "captions",
             Self::Artists => "artists",
             Self::Convert => "convert",
+            Self::Dictionary => "dictionary",
         }
     }
 }

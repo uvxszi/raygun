@@ -34,6 +34,7 @@ a legal site. `raygun-ext init --kind <kind>` creates that example as a new exte
 | [`video.source`](video-source.md)               | Films and series: lists, search, episodes, videos               | Internet Archive         |
 | [`podcast.directory`](podcast-directory.md)     | Podcasts to find and follow                                     | NASA, LibriVox           |
 | [`audiobook.directory`](audiobook-directory.md) | Audiobooks to find, with their chapters                         | LibriVox                 |
+| [`dictionary`](dictionary.md)                   | Words looked up in the book reader                              | Free Dictionary API      |
 
 One extension may provide several kinds; it lists them all in its manifest's `provides`.
 MusicBrainz's genres, for example, are a `music.tags` provider with the id `genres`.

@@ -41,6 +41,8 @@ const VOLATILE = new Set([
   'localNetwork',
   'ytdlp',
   'incognito',
+  // Rust keeps dictionary answers; theirs hold proxy links that last one run.
+  'dictionary',
   // Offline Mode and Data Saver are Rust's to say on every start.
   'network',
   // What to continue watching and the history follow the player, which saves after this cache

@@ -24,6 +24,7 @@ mod details;
 mod device_link;
 mod device_state;
 mod device_sync;
+mod dictionary;
 mod discovery;
 mod durations;
 mod epub;
@@ -548,6 +549,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             device_state::device_state,
             device_state::device_set_visible,
             network_mode::network_status,
+            dictionary::dictionary_lookup,
+            dictionary::dictionary_sources,
+            dictionary::dictionary_open_page,
+            dictionary::novel_search_book,
             network_mode::network_set_offline,
             permissions::permissions_list,
             permissions::permission_request,
