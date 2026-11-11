@@ -191,6 +191,14 @@
       source = source.slice(inline[0].length);
       for (const flag of inline[1]) if (flag !== 'x' && !flags.includes(flag)) flags += flag;
     }
+    // Inline flags past the start (`^(?i)…`, `(?i:…)`): JavaScript has them for the whole
+    // pattern only, so they're read that way.
+    source = source.replace(/\(\?([imsx]+)(\)|:)/g, (match, inline, end, at, whole) => {
+      // `\(?i)` is an optional parenthesis, not flags.
+      if (whole[at - 1] === '\\') return match;
+      for (const flag of inline) if (flag !== 'x' && !flags.includes(flag)) flags += flag;
+      return end === ':' ? '(?:' : '';
+    });
     // Java's possessive quantifiers and atomic groups match the same here, more slowly.
     source = source.replace(/([*+?}])\+/g, '$1').replace(/\(\?>/g, '(?:');
     source = source.replace(/\\Z/g, '$').replace(/\\A/g, '^').replace(/\\h/g, '[ \\t\\u00a0]');
@@ -1017,6 +1025,7 @@
       __class: 'TextNode',
       __classes: ['TextNode', 'Node'],
       wholeText: raw,
+      nodeName: () => '#text',
       text: () => raw.replace(/\s+/g, ' '),
       getWholeText: () => raw,
       isBlank: () => raw.trim() === '',

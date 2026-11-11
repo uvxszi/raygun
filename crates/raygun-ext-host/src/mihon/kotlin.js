@@ -568,6 +568,7 @@
     return out;
   };
   const STRING = {
+    toString: (s) => s,
     prependIndent: (s, [indent = '    ']) =>
       s
         .split('\n')
@@ -1478,13 +1479,25 @@
     minus: (l, [other]) => KT.minus(l, other),
     plusElement: (l, [item]) => [...l, item],
     add: (l, args) => {
+      if (l.isSet && l.some((other) => KT.eq(other, args[args.length - 1]))) return false;
       if (args.length === 2) l.splice(args[0], 0, args[1]);
       else l.push(args[0]);
       return true;
     },
     addAll: (l, [items]) => {
-      l.push(...KT.iter(items));
+      const list = [...KT.iter(items)];
+      if (l.isSet) {
+        let added = false;
+        for (const item of list) added = LIST.add(l, [item]) || added;
+        return added;
+      }
+      l.push(...list);
       return true;
+    },
+    // `MutableList.reverse()`: in place.
+    reverse: (l) => {
+      l.reverse();
+      return KT.unit;
     },
     remove: (l, [item]) => {
       const index = l.findIndex((other) => KT.eq(other, item));
@@ -1519,6 +1532,9 @@
   };
 
   const MAP = {
+    // Kotlin's `{a=1, b=2}`.
+    toString: (m) =>
+      `{${[...m].map(([key, value]) => `${KT.str(key)}=${KT.str(value)}`).join(', ')}}`,
     get: (m, [key]) => (m.has(key) ? m.get(key) : null),
     toSortedMap: (m) => new Map([...m.entries()].sort(([left], [right]) => KT.cmp(left, right))),
     getOrDefault: (m, [key, fallback]) => (m.has(key) ? m.get(key) : fallback),
@@ -1528,6 +1544,7 @@
       return m.get(key);
     },
     containsKey: (m, [key]) => m.has(key),
+    getValue: (m, [key]) => (m.has(key) ? m.get(key) : noSuch(`no key ${KT.str(key)}`)),
     containsValue: (m, [value]) => [...m.values()].some((other) => KT.eq(other, value)),
     put: (m, [key, value]) => {
       m.set(key, value);
@@ -1595,6 +1612,8 @@
 
   /// A JSON object, as kotlinx.serialization's `JsonObject` or a DTO.
   const OBJECT = {
+    // A `JsonObject`'s text is its JSON.
+    toString: (o) => JSON.stringify(o),
     // Keiyoushi's `JsonElement.parseAs<T>()`: the element decoded as the type.
     parseAs: (o, _args, _lambda, _named, type) => decode(o, type),
     // Keiyoushi's `Element.toMarkdown(keepNewlines)`: its text with paragraphs, plain.
@@ -1915,7 +1934,19 @@
       throw new KotlinError(`set ${name} of null`, 'NullPointerException');
     if (value.isGetterHost && value.setters && value.setters[name])
       return value.setters[name](value, item);
-    value[name] = item;
+    try {
+      value[name] = item;
+    } catch (error) {
+      // A `var` with a getter and a setter the converter kept the getter of: the value set
+      // is kept as a field.
+      if (!(error instanceof TypeError)) throw error;
+      Object.defineProperty(value, name, {
+        value: item,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
   };
 
   /// A function passed in parentheses (`all(Char::isDigit)`, `fold(0, ::add)`): the lambda Kotlin
@@ -1949,6 +1980,14 @@
     }
     if (kind === 'elements' && typeof receiver[name] === 'function' && ELEMENTS_OWN.has(name))
       return receiver[name](...args);
+    // A declared class built on a collection: its own functions first.
+    if (
+      (kind === 'list' || kind === 'map') &&
+      receiver.__class !== undefined &&
+      Object.prototype.hasOwnProperty.call(receiver, name) &&
+      typeof receiver[name] === 'function'
+    )
+      return receiver[name](...args, ...(written ? [written] : []));
     const table = { string: STRING, list: LIST, elements: LIST, map: MAP, number: NUMBER }[kind];
     if (table && table[name]) return table[name](receiver, args, lambda, named, type);
     // A map's entries as a list (`map.count { … }`, `map.maxByOrNull { … }`), a text's
@@ -1989,7 +2028,8 @@
         return receiver.call(name, lambda && !args.includes(lambda) ? [...args, lambda] : args);
       if (receiver.isMatch && name === 'groupValues') return receiver.groupValues;
       const own = receiver[name];
-      if (typeof own === 'function') {
+      // Not JavaScript's own (a JSON object's `toString` is its JSON, below).
+      if (typeof own === 'function' && own !== Object.prototype[name]) {
         const all = [...args];
         if (named) all.push({ [NAMED]: true, ...named });
         if (written) all.push(written);
@@ -2683,6 +2723,9 @@
     const holder = classOf(type);
     if (holder && value && typeof value === 'object' && !Array.isArray(value))
       return polymorphic(holder, value).fromJson(value, type.args);
+    // A list where one object goes (`JsonTransformingSerializer`s taking an array's first).
+    if (holder && Array.isArray(value) && value.length && value[0] && typeof value[0] === 'object')
+      return decodeAs(value[0], type);
     return value;
   };
   /// A sealed or abstract class's subclass that an answer names in its `type` (kotlinx's class
@@ -6972,6 +7015,24 @@
       filterObject('Sort', { name, values: [...(values ?? [])], state }),
   };
   OBJECTS.Filter = FILTER_CONSTRUCTORS;
+  // A lookup by a Kotlin name never finds JavaScript's own (`"x".toString()` is the text, not
+  // `Object.prototype.toString`'s "[object Object]").
+  for (const table of [
+    STRING,
+    REGEX,
+    LIST,
+    MAP,
+    OBJECT,
+    NUMBER,
+    ANY,
+    NULLABLE,
+    JSON_PROPS,
+    NEXT_JS,
+    SEQUENCE,
+    GLOBALS,
+    OBJECTS,
+  ])
+    Object.setPrototypeOf(table, null);
   /// A source's filters as Raygun shows them, keyed by place (`f0`, `f1`…): a select or a sort
   /// picks one, a checkbox toggles, a group of checkboxes or three-state boxes is tags. Text
   /// fields aren't shown.
@@ -7076,17 +7137,42 @@
     Object.defineProperty(dispatch, 'length', { value: most + 1 });
     return dispatch;
   };
+  /// Collections a declared class may be built on, and what it then is.
+  const COLLECTION_BASES = {
+    ArrayList: 'list',
+    MutableList: 'list',
+    AbstractMutableList: 'list',
+    LinkedList: 'list',
+    HashSet: 'set',
+    LinkedHashSet: 'set',
+    MutableSet: 'set',
+    HashMap: 'map',
+    LinkedHashMap: 'map',
+    MutableMap: 'map',
+  };
+  /// A declared class's own member `name` (a function or a getter), or the nearest parent's.
+  const memberOf = (holder, name) => {
+    for (let at = holder, depth = 0; at && at.definition && depth < 8; depth++) {
+      const member = at.definition.members[name];
+      if (member !== undefined) return member;
+      const parent = at.definition.supers[0]?.split('<')[0].split('.').pop();
+      at = parent && parent !== at.name ? CLASSES[parent] : null;
+    }
+    return undefined;
+  };
   KT.defineClass = (definition) => {
     /// An instance with these fields (`undefined` ones take their defaults).
     const build = async (fields) => {
-      const object = {
-        __class: definition.name,
-        __classes: [
-          definition.name,
-          ...definition.supers.map((name) => name.split('<')[0].split('.').pop()),
-        ],
-        __fields: definition.params,
-      };
+      // A class built on a collection (`class CdnSet : LinkedHashSet<String>()`) is one.
+      const base = COLLECTION_BASES[definition.supers[0]?.split('<')[0].split('.').pop()];
+      const object = base === 'map' ? new Map() : base ? [] : {};
+      if (base === 'set') object.isSet = true;
+      object.__class = definition.name;
+      object.__classes = [
+        definition.name,
+        ...definition.supers.map((name) => name.split('<')[0].split('.').pop()),
+      ];
+      object.__fields = definition.params;
       for (const name of definition.params) {
         let value = fields[name];
         // A default reads the parameters before it, as they're set.
@@ -7172,7 +7258,21 @@
               configurable: true,
             });
           } else {
-            Object.defineProperty(object, name, descriptor);
+            // The parent's own functions and getters run on this object, so they reach what
+            // it overrides (an abstract `getCanvasDimensions()` a subclass has).
+            const member = memberOf(parentClass, name);
+            if (typeof member === 'function') {
+              object[name] = (...rest) => member(object, ...rest);
+              object[name].arity = Math.max(0, member.length - 1);
+            } else if (member && member.isGetter) {
+              Object.defineProperty(object, name, {
+                get: () => member.function_(object),
+                enumerable: false,
+                configurable: true,
+              });
+            } else {
+              Object.defineProperty(object, name, descriptor);
+            }
           }
         }
         for (const name of inherited.__classes)
@@ -7331,6 +7431,7 @@
 
   KT.rget = async (receivers, name) => {
     for (const receiver of receivers) {
+      if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
         if (receiver.has(name)) return receiver.get(name);
         continue;
@@ -7345,6 +7446,7 @@
   };
   KT.rset = async (receivers, name, value) => {
     for (const receiver of receivers) {
+      if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
         if (receiver.has(name)) return receiver.set(name, value);
         continue;
@@ -7354,7 +7456,22 @@
     throw new KotlinError(`Raygun's runtime doesn't know ${name}`);
   };
   KT.rcall = async (receivers, name, args, named_, lambda, type) => {
+    // One of the source's extensions goes to the receiver of its type (`infoRow(…)` on a
+    // `Document` inside `SManga.create().apply { … }`), when one is.
+    const last = receivers[receivers.length - 1];
+    const anyFits =
+      last &&
+      last.isSource &&
+      last.hasExtension(name) &&
+      receivers.some(
+        (receiver) =>
+          receiver !== null &&
+          receiver !== undefined &&
+          !receiver.isSource &&
+          last.extensionFits(name, receiver),
+      );
     for (const receiver of receivers) {
+      if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
         if (receiver.hasFunction(name))
           return receiver.call(name, lambda ? [...args, lambda] : args);
@@ -7364,7 +7481,11 @@
       if (hasMember(receiver, name) || (receiver.isJsonBuilder && name in receiver))
         return KT.m(receiver, name, args, named_, lambda, type);
       const source = receivers[receivers.length - 1];
-      if (source.isSource && source.hasExtension(name))
+      if (
+        source.isSource &&
+        source.hasExtension(name) &&
+        (!anyFits || source.extensionFits(name, receiver))
+      )
         return source.ext(name, receiver, lambda ? [...args, lambda] : args);
       // What any value has (`toJsonElement()` in `fun Foo.toJson() = toJsonElement()`).
       if (receiver !== null && receiver !== undefined && ANY[name])
@@ -7439,6 +7560,12 @@
       getImageRequest: async (page) =>
         new Request({ url: page.imageUrl, headers: await self.get('headers') }),
       imageRequest: async (page) => self.call('getImageRequest', [page]),
+      // KeiSource's deep links: none unless the source has them.
+      getMangaByUrl: async () => KT.raise('getMangaByUrl not implemented'),
+      getMangasByUrl: async (url, page) => {
+        const found = await self.call('getMangaByUrl', [url]);
+        return KT.call('MangasPage', [found === null || found === undefined ? [] : [found], false]);
+      },
       // KeiSource's `getSearchManga`: a search (an address typed in isn't looked up).
       getSearchManga: async (page, query, filters) =>
         self.call('getSearchMangaList', [page, query, filters]),
@@ -7554,6 +7681,11 @@
         layers.some((layer) => layer.functions.has(name)) ||
         Object.prototype.hasOwnProperty.call(baseFunctions, name),
       hasExtension: (name) => extensions.has(name),
+      /// Whether one of the extension's overloads takes `receiver` by its declared type.
+      extensionFits: (name, receiver) =>
+        (extensionOverloads.get(name) ?? []).some(
+          (entry) => entry.type && KT.is(receiver, entry.type),
+        ),
       get: (name) => read(name, top),
       set: async (name, value) => {
         const at = findProperty(name, top);

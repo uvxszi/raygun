@@ -1627,6 +1627,8 @@ async fn converted_code_reads_sequences_inits_and_qualified_names() {
         served = 10
     }
 
+    private fun Document.label(): String = selectFirst("b")!!.text()
+
     private fun pick(kind: Int): (String) -> String = when (kind) {
         0 -> { _ -> "none" }
         else -> { text -> text.uppercase() }
@@ -1663,10 +1665,30 @@ async fn converted_code_reads_sequences_inits_and_qualified_names() {
             "cb({\"n\":5})".parseAs<JsonObject> { it.substringAfter("(").substringBeforeLast(")") }["n"]!!.jsonPrimitive.int.toString(),
             listOf(1, 2, 3).groupBy({ it % 2 }, { it * 10 })[1]!!.sum().toString(),
             Jsoup.parse("<p><a>1</a><b>2</b><i>3</i></p>").select("p > :is(a, b)").size.toString(),
+            Square(3).describe(),
+            Names().apply { add("a"); add("a"); add("b") }.let { "${it.size}${it.firstName()}" },
+            Jsoup.parse("<p>x</p>").toString().contains("<p>x</p>").toString() + "x".toString() + mapOf("a" to 1).toString(),
+            mapOf("a" to 1).getValue("a").toString(),
+            Regex("^(?i)ch(apter)?").containsMatchIn("Chapter 1").toString(),
+            with(Jsoup.parse("<b>bold</b>")) { SManga.create().apply { title = label() } }.title,
         )
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
     }"##,
         ) + r#"
+abstract class Shape {
+    fun describe() = "area " + area()
+
+    abstract fun area(): Int
+}
+
+class Square(private val side: Int) : Shape() {
+    override fun area() = side * side
+}
+
+class Names : LinkedHashSet<String>() {
+    fun firstName() = first()
+}
+
 class Box(text: String) {
     lateinit var parts: List<String>
     var count = 0
@@ -1725,6 +1747,12 @@ class Box(text: String) {
             "5",
             "40",
             "2",
+            "area 9",
+            "2a",
+            "truex{a=1}",
+            "1",
+            "true",
+            "bold",
         ]
     );
 }

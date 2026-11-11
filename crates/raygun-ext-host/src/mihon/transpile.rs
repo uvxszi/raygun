@@ -31,7 +31,9 @@ const BASE_PROPERTIES: [&str; 12] = [
     "preferences",
     "imageFetch",
 ];
-const BASE_FUNCTIONS: [(&str, &[&str]); 7] = [
+const BASE_FUNCTIONS: [(&str, &[&str]); 9] = [
+    ("getMangaByUrl", &["url"]),
+    ("getMangasByUrl", &["url", "page"]),
     ("headersBuilder", &[]),
     ("getMangaUrl", &["manga"]),
     ("getChapterUrl", &["chapter"]),
@@ -44,12 +46,10 @@ const BASE_FUNCTIONS: [(&str, &[&str]); 7] = [
 /// Overrides that change nothing Raygun asks of a source: filters read from the site first,
 /// related titles, settings screens, deep links. (`getFilterList` is converted when it can be:
 /// Raygun shows its filters; else searches have none.)
-const SKIPPED: [&str; 9] = [
+const SKIPPED: [&str; 7] = [
     "fetchFilterData",
     "setupPreferenceScreen",
     "fetchRelatedMangaList",
-    "getMangaByUrl",
-    "getMangasByUrl",
     "supportsRelatedMangas",
     "supportRelatedMangasBySearch",
     "supportsFilterFetching",
