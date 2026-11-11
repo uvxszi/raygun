@@ -31,6 +31,9 @@ pub struct Context {
     pub companion_functions: HashMap<String, HashSet<String>>,
     /// `typealias ChaptersListDto = List<ChapterDto>`: what each alias stands for.
     pub type_aliases: HashMap<String, Type>,
+    /// Fields of the declared classes that are lists wherever a class declares them, for
+    /// `dto.titles.orEmpty()`.
+    pub list_fields: HashSet<String>,
 }
 
 impl Context {
@@ -281,6 +284,8 @@ pub struct Gen<'a> {
     /// The Kotlin function being written (`passCheck`), which tells a web view passing a
     /// browser check from one reading a page.
     function_name: String,
+    /// Its declared return type: what `return text.parseAs()` decodes into.
+    return_type: Option<Type>,
     /// Local functions with a receiver (`fun Builder.addParam(…)` in a body), by JavaScript name:
     /// their receiver is passed first.
     local_extensions: HashSet<String>,
@@ -406,6 +411,7 @@ impl<'a> Gen<'a> {
             next: 0,
             class_scope: None,
             function_name: String::new(),
+            return_type: None,
             local_extensions: HashSet::new(),
             loops: Vec::new(),
             jumped: HashSet::new(),
@@ -565,6 +571,53 @@ impl<'a> Gen<'a> {
         Some(out)
     }
 
+    /// Whether an expression's value is a list: a call answering one (`split(…)`, `map { … }`)
+    /// or a field the declared classes keep lists in.
+    fn gives_a_list(&self, expr: &Expr) -> bool {
+        const LIST_RESULTS: [&str; 30] = [
+            "split",
+            "map",
+            "mapNotNull",
+            "mapIndexed",
+            "mapIndexedNotNull",
+            "filterNotNull",
+            "select",
+            "toList",
+            "toMutableList",
+            "sortedBy",
+            "sortedByDescending",
+            "distinctBy",
+            "chunked",
+            "flatMap",
+            "flatten",
+            "lines",
+            "children",
+            "eachText",
+            "eachAttr",
+            "listOf",
+            "emptyList",
+            "groupValues",
+            "zip",
+            "windowed",
+            "toTypedArray",
+            "filterIsInstance",
+            "textNodes",
+            "parents",
+            "siblingElements",
+            "nextElementSiblings",
+        ];
+        match expr {
+            Expr::Call { callee, .. } => match callee.as_ref() {
+                Expr::Member { name, .. } | Expr::Name(name) => {
+                    LIST_RESULTS.contains(&name.as_str())
+                }
+                _ => false,
+            },
+            Expr::Member { name, .. } => self.cx.list_fields.contains(name),
+            _ => false,
+        }
+    }
+
     /// `Filter.Sort`: classes of the runtime's nested in one another, not a value of the source's.
     fn is_type_path(&self, expr: &Expr) -> bool {
         match expr {
@@ -714,6 +767,7 @@ impl<'a> Gen<'a> {
         );
         let outer_loops = std::mem::take(&mut self.loops);
         let outer_name = std::mem::replace(&mut self.function_name, fun.name.clone());
+        let outer_return = std::mem::replace(&mut self.return_type, fun.ret.clone());
         self.depth = 0;
         self.catches_return = false;
         let result = self.scoped(|writer| {
@@ -796,6 +850,7 @@ impl<'a> Gen<'a> {
         self.labels = labels;
         self.loops = outer_loops;
         self.function_name = outer_name;
+        self.return_type = outer_return;
         self.receivers.truncate(receivers);
         self.receiver_labels.truncate(receivers);
         result
@@ -1176,6 +1231,10 @@ impl<'a> Gen<'a> {
         label: Option<&str>,
         value: Option<&Expr>,
     ) -> Result<String, String> {
+        // `return client.get(url).parseAs()`: decoded as the function's return type.
+        if label.is_none() && self.depth == 0 && value.is_some_and(untyped_decoder) {
+            self.expected = self.return_type.clone();
+        }
         let value = match value {
             Some(value) => self.expr(value)?,
             None => "KT.unit".to_owned(),
@@ -1974,6 +2033,13 @@ impl<'a> Gen<'a> {
                 self.global_call(name, args, lambda_code, &type_arg)
             }
             Expr::Member { target, name, safe } => {
+                // `x?.split(";").orEmpty()`, `dto.titles.orEmpty()`: an empty list, not text.
+                let type_arg =
+                    if name == "orEmpty" && type_arg == "null" && self.gives_a_list(target) {
+                        quote("List")
+                    } else {
+                        type_arg
+                    };
                 // Scope functions with a receiver.
                 if let Some(lambda) = lambda
                     && args.is_empty()

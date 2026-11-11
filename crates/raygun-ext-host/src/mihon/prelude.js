@@ -140,8 +140,47 @@
 
   // ---- Regular expressions: Java's syntax, as far as JavaScript takes it ----
 
+  /** Java's nested character classes (`[^(['")]]` is one class in Java): their members merged
+   * into the class around them, as JavaScript nests none; a `]` first in a class is a member. */
+  const flattenClasses = (source) => {
+    let out = '';
+    let depth = 0;
+    for (let at = 0; at < source.length; at++) {
+      const char = source[at];
+      if (char === '\\') {
+        out += char + (source[at + 1] ?? '');
+        at++;
+        continue;
+      }
+      if (char === '[' && depth === 0) {
+        depth = 1;
+        out += char;
+        if (source[at + 1] === '^') {
+          out += '^';
+          at++;
+        }
+        if (source[at + 1] === ']') {
+          out += '\\]';
+          at++;
+        }
+        continue;
+      }
+      if (char === '[' && depth > 0) {
+        depth++;
+        if (source[at + 1] === '^') at++;
+        continue;
+      }
+      if (char === ']' && depth > 0) {
+        depth--;
+        if (depth === 0) out += char;
+        continue;
+      }
+      out += char;
+    }
+    return out;
+  };
   K.regex = (pattern, ...options) => {
-    let source = K.str(pattern);
+    let source = flattenClasses(K.str(pattern));
     let flags = 'u';
     for (const option of options.flat()) {
       if (option === 'i' || option === 'm' || option === 's') flags += option;

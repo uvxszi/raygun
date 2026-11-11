@@ -489,6 +489,22 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
     for (_, file) in files {
         classes(&file.members, chain, &mut cx);
     }
+    // Fields that are lists wherever a class declares them.
+    let mut others = HashSet::new();
+    for class in all_classes(files) {
+        for param in &class.params {
+            let short = param.ty.name.rsplit('.').next().unwrap_or_default();
+            if matches!(
+                short,
+                "List" | "MutableList" | "ArrayList" | "Set" | "MutableSet" | "Collection"
+            ) {
+                cx.list_fields.insert(param.name.clone());
+            } else {
+                others.insert(param.name.clone());
+            }
+        }
+    }
+    cx.list_fields.retain(|name| !others.contains(name));
     cx
 }
 

@@ -313,6 +313,8 @@
     Elements: (value) => value instanceof mihon.Elements,
     Document: (value) => value && typeof value.location === 'function',
     Response: (value) => value instanceof Response,
+    Request: (value) => value instanceof Request,
+    Headers: (value) => value instanceof Headers,
     HttpUrl: (value) => value instanceof HttpUrl,
     OkHttpClient: (value) => value instanceof Client,
     HttpSource: (value) => Boolean(value && value.isSource),
@@ -459,8 +461,10 @@
       updateAAD: (bytes) => {
         cipher.aad = [...(cipher.aad ?? []), ...bytesOf(bytes)];
       },
-      doFinal: (data = []) =>
-        fromBase64(
+      // A picture's bytes stay a `Uint8Array` on the way through (a list of numbers that size
+      // would fill the script's memory).
+      doFinalU8: (data = []) =>
+        K.bin.fromBase64(
           crypto({
             op: 'aes',
             mode: cipher.mode,
@@ -468,10 +472,11 @@
             iv: cipher.iv ? base64Of(cipher.iv) : null,
             padding: cipher.padding,
             encrypt: cipher.encrypt,
-            data: base64Of(data),
+            data: data instanceof Uint8Array ? K.bin.toBase64(data) : base64Of(data),
             aad: cipher.aad && cipher.aad.length ? base64Of(cipher.aad) : null,
           }),
         ),
+      doFinal: (data = []) => listOfBytes(cipher.doFinalU8(data)),
       getIV: () => cipher.iv,
       iv_: null,
     };
@@ -598,6 +603,7 @@
     toBigInteger: (s) => Number(s),
     toULong: (s) => Number(s),
     subSequence: (s, [start, end = s.length]) => s.slice(start, end),
+    random: (s) => (s.length ? s[Math.floor(Math.random() * s.length)] : noSuch('empty text')),
     substringAfter: (s, [delimiter, missing = s]) =>
       K.substringAfter(s, KT.str(delimiter), missing),
     substringBefore: (s, [delimiter, missing = s]) =>
@@ -720,7 +726,8 @@
       }
     },
     asJsoup: (s, [base = '']) => Jsoup.parse(s, KT.str(base)),
-    parseAs: (s, _args, _lambda, _named, type) => decode(JSON.parse(s), type),
+    parseAs: async (s, _args, lambda, _named, type) =>
+      decode(JSON.parse(lambda ? KT.str(await lambda(s)) : s), type),
     trimIndent: (s) => K.trimIndent(s),
     trimMargin: (s) => K.trimMargin(s),
     toCharArray: (s) => [...s],
@@ -985,6 +992,11 @@
   };
   const LIST = {
     size: (l) => l.length,
+    // Jsoup's `Elements` edits, on each element.
+    prepend: (l, [html]) => (l.forEach((element) => element.prepend(html)), l),
+    append: (l, [html]) => (l.forEach((element) => element.append(html)), l),
+    before: (l, [html]) => (l.forEach((element) => element.before(html)), l),
+    after: (l, [html]) => (l.forEach((element) => element.after(html)), l),
     // Removals from either end, and what a list keeps or drops while a test holds.
     removeLast: (l) => (l.length ? l.pop() : noSuch('the list is empty')),
     removeFirst: (l) => (l.length ? l.shift() : noSuch('the list is empty')),
@@ -1329,20 +1341,30 @@
     reversed: (l) => [...l].reverse(),
     asReversed: (l) => [...l].reverse(),
     flatten: (l) => l.flatMap((value) => KT.iter(value)),
-    groupBy: async (l, _args, lambda) => {
+    // `groupBy({ key }, { value })` too.
+    groupBy: async (l, args, lambda) => {
+      const [keyOf, valueOf] =
+        args.length >= 2 && typeof args[1] === 'function'
+          ? [args[0], args[1]]
+          : [lambda ?? args[0], args.length === 1 && lambda && lambda !== args[0] ? args[0] : null];
       const groups = new Map();
       for (const item of l) {
-        const key = await lambda(item);
+        const key = await keyOf(item);
         if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(item);
+        groups.get(key).push(valueOf ? await valueOf(item) : item);
       }
       return groups;
     },
     associate: async (l, _args, lambda) =>
       new Map((await mapAll(l, lambda)).map((pair) => [pair.first, pair.second])),
-    associateBy: async (l, _args, lambda) => {
+    // `associateBy({ key }, { value })` too.
+    associateBy: async (l, args, lambda) => {
+      const [keyOf, valueOf] =
+        args.length >= 2 && typeof args[1] === 'function'
+          ? [args[0], args[1]]
+          : [lambda ?? args[0], null];
       const map = new Map();
-      for (const item of l) map.set(await lambda(item), item);
+      for (const item of l) map.set(await keyOf(item), valueOf ? await valueOf(item) : item);
       return map;
     },
     associateWith: async (l, _args, lambda) => {
@@ -1535,6 +1557,22 @@
       (await mapAll(KT.iter(m), lambda)).filter((value) => value != null),
     filter: async (m, _args, lambda) =>
       new Map((await filterAll(KT.iter(m), lambda)).map((entry) => [entry.key, entry.value])),
+    filterNot: async (m, _args, lambda) => {
+      const out = new Map();
+      for (const entry of KT.iter(m))
+        if (!KT.truthy(await lambda(entry))) out.set(entry.key, entry.value);
+      return out;
+    },
+    filterKeys: async (m, _args, lambda) => {
+      const out = new Map();
+      for (const [key, value] of m) if (KT.truthy(await lambda(key))) out.set(key, value);
+      return out;
+    },
+    filterValues: async (m, _args, lambda) => {
+      const out = new Map();
+      for (const [key, value] of m) if (KT.truthy(await lambda(value))) out.set(key, value);
+      return out;
+    },
     mapValues: async (m, _args, lambda) => {
       const out = new Map();
       for (const entry of KT.iter(m)) out.set(entry.key, await lambda(entry));
@@ -1601,6 +1639,9 @@
     toMap: (o) => new Map(Object.entries(o)),
     toMutableMap: (o) => new Map(Object.entries(o)),
   };
+  /// What a map has, on a JSON object (`jsonObject.mapValues { … }`): read as a map.
+  const objectAsMap = (name) =>
+    MAP[name] ? (o, ...rest) => MAP[name](new Map(Object.entries(o)), ...rest) : null;
 
   const NUMBER = {
     // `BigDecimal`s are numbers here.
@@ -1903,12 +1944,19 @@
     if (receiver instanceof RegExp && REGEX[name]) return REGEX[name](receiver, args, lambda);
     // `response.parseAs<List<MangaDto>>()`, `json.decodeFromString<T>(text)`: as the type asked.
     if (type && DECODERS.has(name) && kind === 'object' && typeof receiver[name] === 'function') {
-      return decode(await receiver[name](...args), type);
+      const all = lambda && !args.includes(lambda) ? [...args, lambda] : args;
+      return decode(await receiver[name](...all), type);
     }
     if (kind === 'elements' && typeof receiver[name] === 'function' && ELEMENTS_OWN.has(name))
       return receiver[name](...args);
     const table = { string: STRING, list: LIST, elements: LIST, map: MAP, number: NUMBER }[kind];
     if (table && table[name]) return table[name](receiver, args, lambda, named, type);
+    // A map's entries as a list (`map.count { … }`, `map.maxByOrNull { … }`), a text's
+    // characters (`text.foldIndexed(0) { … }`).
+    if (kind === 'map' && LIST[name])
+      return LIST[name](KT.iter(receiver), args, lambda, named, type);
+    if (kind === 'string' && LIST[name] && !ANY[name])
+      return LIST[name]([...receiver], args, lambda, named, type);
     // A StringBuilder is a CharSequence too (`if (isNotEmpty()) append(", ")`).
     if (receiver.isStringBuilder && typeof receiver[name] !== 'function' && STRING[name])
       return STRING[name](receiver.text, args, lambda, named, type);
@@ -1927,7 +1975,11 @@
       name === 'cipherSource' ||
       (name === 'aesDecrypt' && receiver && typeof receiver.u8Now === 'function')
     )
-      return okioBuffer(u8Of(await args[0].doFinal(await streamBytes(receiver))));
+      return okioBuffer(
+        args[0].doFinalU8
+          ? args[0].doFinalU8(await streamBytes(receiver))
+          : u8Of(await args[0].doFinal(await streamBytes(receiver))),
+      );
     // OkHttp's `response.headers("Content-Type")`: that header's values.
     if (receiver instanceof Response && name === 'headers' && args.length)
       return receiver.headers.values(args[0]);
@@ -1946,6 +1998,8 @@
       if (own && own.isMethod) return own.function_(receiver, args, lambda, named, type);
       if (receiver.__class === undefined && OBJECT[name])
         return OBJECT[name](receiver, args, lambda, named, type);
+      if (receiver.__class === undefined && objectAsMap(name))
+        return objectAsMap(name)(receiver, args, lambda, named, type);
     }
     if (kind === 'function' && name === 'invoke') return receiver(...args);
     if (ANY[name]) return ANY[name](receiver, args, lambda, named, type);
@@ -2176,7 +2230,7 @@
       this.host_ = parts.host;
       this.port_ = parts.port;
       this.segments = parts.path.split('/').slice(1);
-      this.query = parts.query ? parts.query.split('&') : [];
+      this.queryPairs = parts.query ? parts.query.split('&') : [];
       this.fragment_ = parts.fragment;
     }
     scheme(value) {
@@ -2241,7 +2295,7 @@
       return this;
     }
     encodedQuery(query) {
-      this.query = query ? KT.str(query).split('&') : [];
+      this.queryPairs = query ? KT.str(query).split('&') : [];
       return this;
     }
     encodedPath(path) {
@@ -2249,29 +2303,32 @@
       return this;
     }
     addQueryParameter(name, value) {
-      if (value === null || value === undefined) this.query.push(encodeURIComponent(KT.str(name)));
+      if (value === null || value === undefined)
+        this.queryPairs.push(encodeURIComponent(KT.str(name)));
       else
-        this.query.push(`${encodeURIComponent(KT.str(name))}=${encodeURIComponent(KT.str(value))}`);
+        this.queryPairs.push(
+          `${encodeURIComponent(KT.str(name))}=${encodeURIComponent(KT.str(value))}`,
+        );
       return this;
     }
     addEncodedQueryParameter(name, value) {
-      this.query.push(value == null ? KT.str(name) : `${KT.str(name)}=${KT.str(value)}`);
+      this.queryPairs.push(value == null ? KT.str(name) : `${KT.str(name)}=${KT.str(value)}`);
       return this;
     }
     removeAllQueryParameters(name) {
       const key = encodeURIComponent(KT.str(name));
-      this.query = this.query.filter((pair) => pair.split('=')[0] !== key);
+      this.queryPairs = this.queryPairs.filter((pair) => pair.split('=')[0] !== key);
       return this;
     }
     setQueryParameter(name, value) {
       return this.removeAllQueryParameters(name).addQueryParameter(name, value);
     }
     setEncodedQueryParameter(name, value) {
-      this.query = this.query.filter((pair) => pair.split('=')[0] !== KT.str(name));
+      this.queryPairs = this.queryPairs.filter((pair) => pair.split('=')[0] !== KT.str(name));
       return this.addEncodedQueryParameter(name, value);
     }
     query(text) {
-      this.query = text ? KT.str(text).split('&') : [];
+      this.queryPairs = text ? KT.str(text).split('&') : [];
       return this;
     }
     fragment(value) {
@@ -2288,7 +2345,7 @@
           ? `:${this.port_}`
           : '';
       const path = `/${this.segments.join('/')}`;
-      const query = this.query.length ? `?${this.query.join('&')}` : '';
+      const query = this.queryPairs.length ? `?${this.queryPairs.join('&')}` : '';
       const fragment = this.fragment_ ? `#${this.fragment_}` : '';
       return HttpUrl.parse(`${this.scheme_}://${this.host_}${port}${path}${query}${fragment}`);
     }
@@ -2546,9 +2603,11 @@
     async asJsoup() {
       return Jsoup.parse(await this.raw.text(), this.request.url.toString());
     }
-    /// Plain JSON; `KT.m` decodes it as the type the call asks for.
-    async parseAs() {
-      return JSON.parse(await this.raw.text());
+    /// Plain JSON; `KT.m` decodes it as the type the call asks for. Keiyoushi's
+    /// `parseAs<T> { text -> … }` changes the text first (a JSONP answer's call around it).
+    async parseAs(transform) {
+      const text = await this.raw.text();
+      return JSON.parse(typeof transform === 'function' ? KT.str(await transform(text)) : text);
     }
     /// Keiyoushi's `parseGraphQLAs<T>()`: the answer's `data`, or its errors as a failure.
     async parseGraphQLAs() {
@@ -3823,7 +3882,7 @@
         ? await make(listOfBytes(iv))
         : aesCipher({ key: bytesOf(await key), iv: [...iv], encrypt: false });
     }
-    const plain = u8Of(await cipher.doFinal(bytes));
+    const plain = cipher.doFinalU8 ? cipher.doFinalU8(bytes) : u8Of(await cipher.doFinal(bytes));
     const next = bytesBody(
       async () => plain,
       type ?? (body.contentType ? body.contentType() : null),
@@ -6355,7 +6414,8 @@
       },
       altTitles: (titles, ...rest) => {
         const label = rest.find((arg) => typeof arg === 'string') ?? 'Alternative Names';
-        add(list(label, [...new Set((titles ?? []).map((title) => KT.str(title).trim()))]));
+        const names = Array.isArray(titles) ? titles : titles ? [titles] : [];
+        add(list(label, [...new Set(names.map((title) => KT.str(title).trim()))]));
         return builder;
       },
       links: (links, ...rest) => {
@@ -7235,6 +7295,12 @@
 
   const hasMember = (receiver, name) => {
     if (receiver === null || receiver === undefined) return false;
+    // Decoders `KT.m` answers for answers, bodies and bytes (`fun Response.read() = parseAsProto<T>()`).
+    if (
+      (PROTO_DECODERS.has(name) || DECODERS.has(name)) &&
+      (receiver instanceof Response || receiver.isResponseBody || Array.isArray(receiver))
+    )
+      return true;
     if (hasNextJs(receiver, name)) return true;
     const kind = kindOf(receiver);
     if (kind === 'list' || kind === 'elements')
@@ -7504,6 +7570,16 @@
         const own = receiver && receiver.__class !== undefined ? receiver[name] : undefined;
         if (typeof own === 'function' && (own.arity === undefined || args.length <= own.arity))
           return own(...args);
+        // An extension property beside a field of the same name: the field, as in Kotlin.
+        if (
+          !args.length &&
+          receiver &&
+          receiver.__class !== undefined &&
+          own !== undefined &&
+          typeof own !== 'function' &&
+          Object.prototype.hasOwnProperty.call(receiver, name)
+        )
+          return own;
         return function_(receiver, ...args);
       },
       base: {

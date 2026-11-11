@@ -58,6 +58,8 @@ enum Condition {
     AttrPrefix(String),
     Has(Box<Selector>),
     Not(Box<Selector>),
+    /// `:is(…)` and `:where(…)`: the element matches one of the selectors.
+    Is(Box<Selector>),
     Contains(String),
     ContainsOwn(String),
     /// Jsoup's `:containsData(…)`: a script's or a style's contents.
@@ -275,6 +277,7 @@ impl Condition {
                 })
             }
             Self::Not(inner) => !inner.matches(node, scope),
+            Self::Is(inner) => inner.matches(node, scope),
             Self::Contains(text) => lower(&element_text(node)).contains(&lower(text)),
             Self::ContainsOwn(text) => lower(&own_text(node)).contains(&lower(text)),
             Self::ContainsData(text) => lower(&data_text(node)).contains(&lower(text)),
@@ -790,6 +793,10 @@ impl Parser {
             "not" => {
                 let inner = self.argument()?;
                 Condition::Not(Box::new(Selector::parse(&inner)?))
+            }
+            "is" | "where" => {
+                let inner = self.argument()?;
+                Condition::Is(Box::new(Selector::parse(&inner)?))
             }
             "contains" => Condition::Contains(unquote(self.argument()?)),
             "containsown" => Condition::ContainsOwn(unquote(self.argument()?)),

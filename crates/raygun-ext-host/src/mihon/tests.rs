@@ -1657,6 +1657,12 @@ async fn converted_code_reads_sequences_inits_and_qualified_names() {
             price,
             pick(0)("x") + pick(1)("y"),
             preferences.getString("server", "first")!!,
+            json.parseToJsonElement("""{"a":1,"b":2}""").jsonObject.mapValues { it.value.jsonPrimitive.int + 1 }.values.sum().toString(),
+            Regex("[a-c[x-z]]+").find("--bxz--")!!.value,
+            mapOf("a" to 1, "b" to 2).count { it.value > 1 }.toString(),
+            "cb({\"n\":5})".parseAs<JsonObject> { it.substringAfter("(").substringBeforeLast(")") }["n"]!!.jsonPrimitive.int.toString(),
+            listOf(1, 2, 3).groupBy({ it % 2 }, { it * 10 })[1]!!.sum().toString(),
+            Jsoup.parse("<p><a>1</a><b>2</b><i>3</i></p>").select("p > :is(a, b)").size.toString(),
         )
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
     }"##,
@@ -1713,6 +1719,12 @@ class Box(text: String) {
             "12,345.68",
             "noneY",
             "second",
+            "5",
+            "bxz",
+            "1",
+            "5",
+            "40",
+            "2",
         ]
     );
 }
