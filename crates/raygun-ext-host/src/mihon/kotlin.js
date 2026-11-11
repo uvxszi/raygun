@@ -8280,7 +8280,11 @@
         throw new KotlinError(`Unsupported ZIP method: ${method}`, 'ZipException');
       if (all.length < 30 || (word(0) | (word(2) << 16)) >>> 0 !== 0x04034b50)
         throw new KotlinError('Not a local file header', 'ZipException');
-      if (word(6) & 1)
+      // An encrypted entry is refused, as Keiyoushi's reader refuses it, unless it's stored as
+      // long as its contents: no ZIP cipher (ZipCrypto adds a 12-byte header, AES is method 99),
+      // only the flag, over bytes the source deciphers itself (Manga Saison's AES-CBC pages).
+      const sizes = (at) => (word(at) | (word(at + 2) << 16)) >>> 0;
+      if (word(6) & 1 && !(Number(method) === 0 && sizes(18) > 0 && sizes(18) === sizes(22)))
         throw new KotlinError("Encrypted ZIP entries aren't supported", 'ZipException');
       const start = 30 + word(26) + word(28);
       const size = Number(compressedSize);

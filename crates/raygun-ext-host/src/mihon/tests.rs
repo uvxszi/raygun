@@ -2132,8 +2132,8 @@ fn stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     out
 }
 
-/// Java's `ZipInputStream`, `keiyoushi.zip`'s `readEntry` (the runtime's) and Keiyoushi's
-/// `graphQLGet`.
+/// Java's `ZipInputStream`, `keiyoushi.zip`'s `readEntry` (the runtime's; an entry only flagged
+/// encrypted read, a ZIP cipher's refused) and Keiyoushi's `graphQLGet`.
 #[tokio::test]
 async fn converted_code_reads_zips_and_graphql_over_get() {
     let archive = stored_zip(&[("1.txt", b"one"), ("2.txt", b"two")]);
@@ -2169,6 +2169,16 @@ async fn converted_code_reads_zips_and_graphql_over_get() {
             generateSequence { zis.nextEntry }.forEach { entry -> names += entry.name + "=" + String(zis.readBytes()) }
         }
         names += String(readEntry(bytes.inputStream().source().buffer(), 3L, 0).buffer().readByteArray())
+        // Flagged encrypted but stored as long as its contents (a source deciphers it): read.
+        val flagged = bytes.copyOf().also { it[6] = 1 }
+        names += String(readEntry(flagged.inputStream().source().buffer(), 3L, 0).buffer().readByteArray())
+        // A ZIP cipher's entry (longer than its contents): refused.
+        val sealed = flagged.copyOf().also { it[18] = 15 }
+        names += try {
+            String(readEntry(sealed.inputStream().source().buffer(), 3L, 0).buffer().readByteArray())
+        } catch (e: Exception) {
+            "refused"
+        }
         names += client.graphQLGet("$baseUrl/graphql", query = "{ a }", operationName = "A", fetch = Fetch.XHR).body.string()
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
     }"##,
@@ -2205,6 +2215,8 @@ async fn converted_code_reads_zips_and_graphql_over_get() {
             "1.txt=one",
             "2.txt=two",
             "one",
+            "one",
+            "refused",
             "operationName=A&query=%7B%20a%20%7D"
         ]
     );
