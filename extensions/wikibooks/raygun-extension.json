@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.wikibooks",
+  "name": "Wikibooks",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "CC BY-SA 4.0: open textbooks and manuals written by Wikibooks' volunteers, on programming, science, mathematics, languages and more, read chapter by chapter.",
+  "author": "Raygun",
+  "website": "https://en.wikibooks.org",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["en.wikibooks.org", "wikimedia.org"]
+  },
+  "contentRating": "safe"
+}

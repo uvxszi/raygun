@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.bccampus",
+  "name": "BCcampus Open Textbooks",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Creative Commons (CC BY, BY-SA, BY-NC, BY-NC-SA) or public domain, as each book states: open textbooks from BCcampus' collection for colleges, universities and the trades, read chapter by chapter.",
+  "author": "Raygun",
+  "website": "https://opentextbc.ca",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["opentextbc.ca"]
+  },
+  "contentRating": "safe"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.saylor",
+  "name": "Saylor Academy Open Textbooks",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "CC BY-NC-SA 3.0: Saylor Academy's open textbooks on business, economics, law, psychology, sociology, chemistry, writing and more, read chapter by chapter.",
+  "author": "Raygun",
+  "website": "https://saylordotorg.github.io",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["saylordotorg.github.io"]
+  },
+  "contentRating": "safe"
+}
