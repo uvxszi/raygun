@@ -9,6 +9,9 @@ use std::collections::{HashMap, HashSet};
 
 use super::ast::*;
 
+/// How a class declared in a body is written (the transpiler's class definition).
+pub type LocalClass = fn(&mut Gen<'_>, &ClassDecl) -> Result<String, String>;
+
 /// The names a source's class knows besides its locals.
 #[derive(Debug, Default)]
 pub struct Context {
@@ -51,6 +54,18 @@ pub struct Context {
     /// Functions that give a sequence (`fun countUp() = sequence { … }`, `: Sequence<T>`), which
     /// a `for` loop reads as it goes.
     pub sequence_functions: HashSet<String>,
+    /// Extension properties with a setter (`var SharedPreferences.slugMap … set(map) { … }`):
+    /// assigning one calls it (`set:<name>`).
+    pub extension_setters: HashSet<String>,
+    /// The source's extension functions' parameters by name, each overload's (as `functions`):
+    /// named arguments and a trailing lambda past defaults find their places by them.
+    pub extension_params: HashMap<String, Vec<Vec<String>>>,
+    /// Writes a class declared in a function (`data class Found(…)` in a body) where it's declared:
+    /// the transpiler's class definition, as for the files' classes.
+    pub local_class: Option<LocalClass>,
+    /// The source class's private extension properties (`private val SManga.slug`), which its
+    /// declared classes' code can't see: a DTO's own `slug` there is its field.
+    pub source_private_extensions: HashSet<String>,
     /// Methods of the declared classes whose last parameter is a function with a receiver
     /// (`fun getCollection(path: String, query: CollectionQuery.() -> Unit)`): a trailing lambda
     /// for one reads that receiver implicitly.
@@ -226,7 +241,15 @@ pub const METHODS: &[&str] = &[
     "initialize", "generateKeyPair", "genKeyPair", "generatePublic", "generatePrivate",
     "doPhase", "initSign", "initVerify", "sign", "verify", "getParameterSpec", "getPublic",
     "getPrivate", "getAlgorithm", "getFormat", "getW", "getS", "getAffineX", "getAffineY",
-    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet", "graphQLGet", "getNextEntry", "closeEntry", "zstdCompress", "zstdDecompress", "sink",
+    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet", "graphQLGet", "intersect",
+    "union", "subtract", "distance", "similarity", "show", "postDelayed", "getMainLooper",
+    "myLooper", "makeText", "getByName", "getAllByName", "elapsedRealtime", "elapsedRealtimeNanos",
+    "uptimeMillis", "currentThreadTimeMillis", "removeCallbacksAndMessages", "getHostAddress",
+    "getHostName", "lookup", "compile", "drawRoundRect", "setStrokeWidth", "setSaturation",
+    "authenticator", "proxyAuthenticator", "floorDiv", "floorMod", "toHeaders", "measureText",
+    "getSystemService", "getMemoryInfo", "drawText", "ensureActive", "setTextAlign",
+    "setTextScaleX", "toUri", "toUrl", "toASCIIString", "relativize",
+    "getNextEntry", "closeEntry", "zstdCompress", "zstdDecompress", "sink",
     "unescapeEntities", "getProperty", "getValue",
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
     "toDuration", "isNegative", "isPositive", "isInfinite", "isFinite", "toNanos", "toMicros",
@@ -406,11 +429,16 @@ pub struct Gen<'a> {
     function_name: String,
     /// Its declared return type: what `return text.parseAs()` decodes into.
     return_type: Option<Type>,
+    /// The type a branch's last value decodes into while a returned `if` or `when` is written
+    /// (`return if (…) { element.parseAs() } else { decoded.parseAs() }`).
+    tail_expected: Option<Type>,
     /// Its reified type parameters (`T`) and the JavaScript names their types are in.
     reified_types: Vec<(String, String)>,
     /// Local functions with a receiver (`fun Builder.addParam(…)` in a body), by JavaScript name:
     /// their receiver is passed first.
     local_extensions: HashSet<String>,
+    /// Classes declared in the code being written (`data class Found(…)` in a body).
+    local_classes: HashSet<String>,
     /// The lambda depth of each loop being written, innermost last.
     loops: Vec<Loop>,
     /// The loops a `break` or `continue` leaves from a lambda or an expression (by id): their
@@ -446,14 +474,24 @@ const DECODER_CALLS: [&str; 7] = [
     "decodeFromByteArray",
 ];
 
-/// Whether `expr` is a decoder called without a type argument (`text.parseAs()`).
+/// Whether `expr` is a decoder called without a type argument (`text.parseAs()`, or `parseAs(json)`
+/// on the implicit receiver).
 fn untyped_decoder(expr: &Expr) -> bool {
     matches!(
         expr,
         Expr::Call { callee, type_args, .. }
             if type_args.is_empty()
-                && matches!(&**callee, Expr::Member { name, .. } if DECODER_CALLS.contains(&name.as_str()))
+                && matches!(
+                    &**callee,
+                    Expr::Member { name, .. } | Expr::Name(name)
+                        if DECODER_CALLS.contains(&name.as_str())
+                )
     )
+}
+
+/// Whether an expression's value is one of its branches' (`if`, `when`, `try`).
+fn branches_value(expr: &Expr) -> bool {
+    matches!(expr, Expr::If { .. } | Expr::When { .. } | Expr::Try { .. })
 }
 
 /// Functions whose lambda has no parameter (`ifEmpty { … }`, `require(…) { "message" }`).
@@ -537,8 +575,10 @@ impl<'a> Gen<'a> {
             class_scope: None,
             function_name: String::new(),
             return_type: None,
+            tail_expected: None,
             reified_types: Vec::new(),
             local_extensions: HashSet::new(),
+            local_classes: HashSet::new(),
             loops: Vec::new(),
             jumped: HashSet::new(),
             replaced: HashMap::new(),
@@ -629,7 +669,8 @@ impl<'a> Gen<'a> {
 
     /// A class the source declares, as `name` means it here.
     fn declared_class(&self, name: &str) -> bool {
-        self.cx.classes.contains(name) && !self.imported_from_library(name)
+        (self.cx.classes.contains(name) || self.local_classes.contains(name))
+            && !self.imported_from_library(name)
     }
 
     /// The class a `typealias` names, when the source declares it
@@ -656,6 +697,18 @@ impl<'a> Gen<'a> {
     fn temp(&mut self) -> String {
         self.next += 1;
         format!("$t{}", self.next)
+    }
+
+    /// The runtime's method an import gives another name (`import keiyoushi.utils.parseAs as
+    /// parseAsRaw`), when the name is nothing of the source's own.
+    fn method_alias(&self, name: &str) -> Option<String> {
+        if self.known(name) || self.cx.extensions.contains(name) {
+            return None;
+        }
+        self.imports.iter().find_map(|(alias, full)| {
+            let real = full.rsplit('.').next()?;
+            (alias == name && real != name && METHODS.contains(&real)).then(|| real.to_owned())
+        })
     }
 
     /// Whether a member call by this name has somewhere to go: the runtime's tables, or a class
@@ -1081,6 +1134,7 @@ impl<'a> Gen<'a> {
         let outer_loops = std::mem::take(&mut self.loops);
         let outer_name = std::mem::replace(&mut self.function_name, fun.name.clone());
         let outer_return = std::mem::replace(&mut self.return_type, fun.ret.clone());
+        let outer_tail = self.tail_expected.take();
         // A function's reified type parameters: the types its call passes, taken first.
         let reified: Vec<(String, String)> = fun
             .modifiers
@@ -1158,6 +1212,9 @@ impl<'a> Gen<'a> {
                     if untyped_decoder(expr) {
                         writer.expected = fun.ret.clone();
                     }
+                    if branches_value(expr) {
+                        writer.tail_expected = fun.ret.clone();
+                    }
                     format!("return {};", writer.expr(expr)?)
                 }
                 Body::Block(block) => writer.block(block, Tail::Discard)?,
@@ -1192,6 +1249,7 @@ impl<'a> Gen<'a> {
         self.loops = outer_loops;
         self.function_name = outer_name;
         self.return_type = outer_return;
+        self.tail_expected = outer_tail;
         if let Some(outer) = outer_reified {
             self.reified_types = outer;
         }
@@ -1307,6 +1365,12 @@ impl<'a> Gen<'a> {
     }
 
     fn statement(&mut self, statement: &Stmt, returned: bool) -> Result<String, String> {
+        if !returned && self.tail_expected.is_some() {
+            let outer = self.tail_expected.take();
+            let code = self.statement(statement, false);
+            self.tail_expected = outer;
+            return code;
+        }
         Ok(match statement {
             Stmt::Val {
                 names,
@@ -1329,6 +1393,12 @@ impl<'a> Gen<'a> {
                     None => value_kind,
                 };
                 let wraps = kind == Some(Num::Int) && value.is_some() && value_kind != kind;
+                // `val list: List<MangaDto> = response.parseAs()`: decoded as declared.
+                if let Some(ty) = ty
+                    && value.as_ref().is_some_and(untyped_decoder)
+                {
+                    self.expected = Some(ty.clone());
+                }
                 let value = self.local_value(value.as_ref(), delegate.as_ref())?;
                 let value = if wraps {
                     format!("KT.i32({value})")
@@ -1415,6 +1485,19 @@ impl<'a> Gen<'a> {
                         format!(
                             "await KT.rset({receivers}, {}, {});",
                             quote(name),
+                            combined(current)
+                        )
+                    }
+                    // `preferences.slugMap += map`: the extension property's getter and setter.
+                    Expr::Member { target, name, .. }
+                        if self.cx.extension_setters.contains(name.as_str()) =>
+                    {
+                        let object = self.expr(target)?;
+                        let temp = self.temp();
+                        let current = format!("(await self.ext({}, {temp}, []))", quote(name));
+                        format!(
+                            "{{ const {temp} = {object}; await self.ext({}, {temp}, [{}]); }}",
+                            quote(&format!("set:{name}")),
                             combined(current)
                         )
                     }
@@ -1566,6 +1649,17 @@ impl<'a> Gen<'a> {
                     let function = self.function(fun)?;
                     format!("const {js} = {function};")
                 }
+                // A class declared here: defined when the code reaches it, named from then on.
+                Member::Class(class)
+                    if class.kind == ClassKind::Class
+                        && !class.modifiers.iter().any(|modifier| modifier == "inner") =>
+                {
+                    let Some(define) = self.cx.local_class else {
+                        return Err(unsupported("a local class"));
+                    };
+                    self.local_classes.insert(class.name.clone());
+                    define(self, class)?
+                }
                 _ => return Err(unsupported("a local class")),
             },
         })
@@ -1612,14 +1706,8 @@ impl<'a> Gen<'a> {
                 catches,
                 finally,
             } if !returned => self.try_statement(body, catches, finally.as_ref(), Tail::Discard),
-            _ => {
-                let value = self.expr(expr)?;
-                Ok(if returned {
-                    format!("return {value};")
-                } else {
-                    format!("{value};")
-                })
-            }
+            _ if returned => Ok(format!("return {};", self.branch_value(expr)?)),
+            _ => Ok(format!("{};", self.expr(expr)?)),
         }
     }
 
@@ -1632,10 +1720,24 @@ impl<'a> Gen<'a> {
         if label.is_none() && self.depth == 0 && value.is_some_and(untyped_decoder) {
             self.expected = self.return_type.clone();
         }
-        let value = match value {
-            Some(value) => self.expr(value)?,
-            None => "KT.unit".to_owned(),
+        // `return if (…) { ….parseAs() } else { ….parseAs() }`: each branch's last value too.
+        let outer_tail = if label.is_none() && self.depth == 0 && value.is_some_and(branches_value)
+        {
+            Some(std::mem::replace(
+                &mut self.tail_expected,
+                self.return_type.clone(),
+            ))
+        } else {
+            None
         };
+        let value = match value {
+            Some(value) => self.expr(value),
+            None => Ok("KT.unit".to_owned()),
+        };
+        if let Some(outer) = outer_tail {
+            self.tail_expected = outer;
+        }
+        let value = value?;
         match label {
             // From the lambda being made: its own `return`.
             Some(label) if self.labels.last().map(String::as_str) == Some(label) => {
@@ -1668,7 +1770,8 @@ impl<'a> Gen<'a> {
         let subject_name = self.temp();
         let mut code = String::new();
         if let Some(subject) = subject {
-            code.push_str(&format!("const {subject_name} = {};", self.expr(subject)?));
+            let value = self.without_tail(|writer| writer.expr(subject))?;
+            code.push_str(&format!("const {subject_name} = {value};"));
         }
         self.scoped(|writer| -> Result<(), String> {
             if let Some(binding) = binding {
@@ -1684,13 +1787,14 @@ impl<'a> Gen<'a> {
                 } else {
                     let mut tests = Vec::new();
                     for condition in &branch.conditions {
-                        tests.push(
-                            writer.condition(condition, subject.map(|_| subject_name.as_str()))?,
-                        );
+                        tests.push(writer.without_tail(|writer| {
+                            writer.condition(condition, subject.map(|_| subject_name.as_str()))
+                        })?);
                     }
                     let mut test = tests.join(" || ");
                     if let Some(guard) = &branch.guard {
-                        test = format!("({test}) && KT.truthy({})", writer.expr(guard)?);
+                        let guard = writer.without_tail(|writer| writer.expr(guard))?;
+                        test = format!("({test}) && KT.truthy({guard})");
                     }
                     Some(test)
                 };
@@ -1781,6 +1885,26 @@ impl<'a> Gen<'a> {
     }
 
     // ---- Expressions ----
+
+    /// Code written outside a returned branch's last value (a condition, a subject).
+    fn without_tail<T>(&mut self, work: impl FnOnce(&mut Self) -> T) -> T {
+        let outer = self.tail_expected.take();
+        let result = work(self);
+        self.tail_expected = outer;
+        result
+    }
+
+    /// A branch's value: a bare `parseAs()` decodes as the returned type while a returned `if`
+    /// or `when` is written, a nested one passes it on, anything else is written without it.
+    fn branch_value(&mut self, expr: &Expr) -> Result<String, String> {
+        if self.tail_expected.is_none() || branches_value(expr) {
+            return self.expr(expr);
+        }
+        if untyped_decoder(expr) {
+            self.expected = self.tail_expected.clone();
+        }
+        self.without_tail(|writer| writer.expr(expr))
+    }
 
     /// An async function of no arguments around a block, called at once: a block as a value.
     fn iife(
@@ -1888,13 +2012,13 @@ impl<'a> Gen<'a> {
                         };
                         format!(
                             "(KT.truthy({}) ? {} : {})",
-                            self.expr(condition)?,
-                            self.expr(then)?,
-                            self.expr(otherwise)?
+                            self.without_tail(|writer| writer.expr(condition))?,
+                            self.branch_value(then)?,
+                            self.branch_value(otherwise)?
                         )
                     }
                     _ => {
-                        let condition = self.expr(condition)?;
+                        let condition = self.without_tail(|writer| writer.expr(condition))?;
                         self.iife(|writer| {
                             let then = writer.block(then, Tail::Return)?;
                             let otherwise = match otherwise {
@@ -2031,10 +2155,14 @@ impl<'a> Gen<'a> {
         }
         // Implicit receivers first, as Kotlin resolves them, then the source.
         if !self.receivers.is_empty() {
+            // A declared class's code doesn't see the source's private extensions.
+            let unseen =
+                self.class_scope.is_some() && self.cx.source_private_extensions.contains(name);
             return Ok(format!(
-                "(await KT.rget({}, {}))",
+                "(await KT.rget({}, {}{}))",
                 self.receiver_list(),
-                quote(name)
+                quote(name),
+                if unseen { ", false" } else { "" }
             ));
         }
         if self.cx.properties.contains(name) {
@@ -2285,7 +2413,23 @@ impl<'a> Gen<'a> {
 
     /// The overload of one of the source's functions that takes these arguments.
     fn own_params(&self, name: &str, args: &[Arg]) -> Option<Vec<String>> {
-        let overloads = self.cx.functions.get(name)?;
+        Self::fitting_params(self.cx.functions.get(name)?, args)
+    }
+
+    /// The parameters of one of the source's extensions called with `args`: those of its one
+    /// overload, or of the one the named arguments fit.
+    fn extension_params(&self, name: &str, args: &[Arg]) -> Option<Vec<String>> {
+        let overloads = self.cx.extension_params.get(name)?;
+        let same = overloads
+            .windows(2)
+            .all(|pair| pair[0].len() == pair[1].len());
+        if !same && args.iter().all(|arg| arg.name.is_none()) {
+            return None;
+        }
+        Self::fitting_params(overloads, args)
+    }
+
+    fn fitting_params(overloads: &[Vec<String>], args: &[Arg]) -> Option<Vec<String>> {
         let named: Vec<&str> = args.iter().filter_map(|arg| arg.name.as_deref()).collect();
         overloads
             .iter()
@@ -2340,6 +2484,9 @@ impl<'a> Gen<'a> {
         };
         match callee {
             Expr::Name(name) => {
+                // `import keiyoushi.utils.parseAs as parseAsRaw` called on an implicit receiver.
+                let aliased = self.method_alias(name);
+                let name = aliased.as_ref().unwrap_or(name);
                 // Scope functions without a receiver.
                 match (name.as_str(), lambda) {
                     // `apply { … }` alone, in an extension or a scope: on `this`.
@@ -2607,9 +2754,55 @@ impl<'a> Gen<'a> {
                         args.join(", ")
                     ));
                 }
+                // A function of the companion of the class whose code this is (`convertStatus(…)`
+                // in a companion's own extension).
+                if let Some(scope) = self.class_scope.clone()
+                    && self
+                        .cx
+                        .companion_functions
+                        .get(&scope)
+                        .is_some_and(|functions| functions.contains(name.as_str()))
+                {
+                    let (mut args, _) = self.args(args, None)?;
+                    if let Some(lambda) = lambda_code {
+                        args.push(lambda);
+                    }
+                    return Ok(format!(
+                        "(await KT.m(D.{scope}, {}, [{}]))",
+                        quote(name),
+                        args.join(", ")
+                    ));
+                }
+                // One of the source's extensions on its own class, called on it
+                // (`fun Ikmmh.parseListItemMangas(…)` from the source's functions).
+                if aliased.is_none()
+                    && self.cx.extensions.contains(name)
+                    && !GLOBALS.contains(&name.as_str())
+                {
+                    let params = self.extension_params(name, args);
+                    let (mut args, _) = self.args(args, params.as_deref())?;
+                    if let Some(lambda) = lambda_code {
+                        while params
+                            .as_ref()
+                            .is_some_and(|params| args.len() + 1 < params.len())
+                        {
+                            args.push("undefined".to_owned());
+                        }
+                        args.push(lambda);
+                    }
+                    return Ok(format!(
+                        "(await self.ext({}, self, {}))",
+                        quote(name),
+                        typed_args(&args, passed_types.as_deref())
+                    ));
+                }
                 self.global_call(name, args, lambda_code, &type_arg)
             }
             Expr::Member { target, name, safe } => {
+                // `import keiyoushi.utils.parseAs as parseAsRaw`: the runtime's method by its own
+                // name.
+                let aliased = self.method_alias(name);
+                let name = aliased.as_ref().unwrap_or(name);
                 // `x?.split(";").orEmpty()`, `dto.titles.orEmpty()`: an empty list, not text.
                 let type_arg =
                     if name == "orEmpty" && type_arg == "null" && self.gives_a_list(target) {
@@ -2774,11 +2967,23 @@ impl<'a> Gen<'a> {
                         format!("(await (async ({temp}) => {call})({object}))")
                     });
                 }
-                let own_extension = self.cx.extensions.contains(name);
+                let own_extension = aliased.is_none() && self.cx.extensions.contains(name);
                 if !own_extension && !self.known(name) {
                     return Err(unsupported(format!("{name}()")));
                 }
-                let (args, named) = self.args(args, None)?;
+                // One of the source's extensions: named arguments in their places, and a
+                // trailing lambda past defaults left out (`response.toMangasPage { … }`).
+                let params = own_extension
+                    .then(|| self.extension_params(name, args))
+                    .flatten();
+                let (mut args, named) = self.args(args, params.as_deref())?;
+                if let Some(params) = &params
+                    && lambda.is_some()
+                {
+                    while args.len() + 1 < params.len() {
+                        args.push("undefined".to_owned());
+                    }
+                }
                 let lambda = lambda
                     .map(|lambda| self.trailing_lambda(lambda, name))
                     .transpose()?;
@@ -2885,6 +3090,20 @@ impl<'a> Gen<'a> {
             && let Some(js) = self.resolve(name)
         {
             return Ok(js);
+        }
+        // `::convertStatus` in a class's code: a function of its companion.
+        if target.is_none()
+            && let Some(scope) = self.class_scope.as_deref()
+            && self
+                .cx
+                .companion_functions
+                .get(scope)
+                .is_some_and(|functions| functions.contains(name))
+        {
+            return Ok(format!(
+                "(async (...args) => KT.m(D.{scope}, {}, args))",
+                quote(name)
+            ));
         }
         match target {
             // `::helper`: one of the source's functions.
@@ -3075,7 +3294,9 @@ impl<'a> Gen<'a> {
             return self.lambda(&without_it(lambda), label);
         }
         let label = lambda.label.clone().unwrap_or_else(|| label.to_owned());
-        self.scoped(|writer| {
+        // A lambda's last value is its own, not the branch's around it.
+        let outer_tail = self.tail_expected.take();
+        let result = self.scoped(|writer| {
             let mut params = Vec::new();
             let mut prologue = Vec::new();
             if lambda.implicit {
@@ -3118,7 +3339,9 @@ impl<'a> Gen<'a> {
                 params.join(", "),
                 prologue.join(" ")
             ))
-        })
+        });
+        self.tail_expected = outer_tail;
+        result
     }
 
     /// A lambda for a function type with a receiver (`HttpUrl.Builder.() -> Unit`): called with
@@ -3213,7 +3436,7 @@ fn is_plain(expr: &Expr) -> bool {
 }
 
 fn type_name(ty: &Type) -> String {
-    if ty.args.is_empty() {
+    let name = if ty.args.is_empty() {
         ty.name.clone()
     } else {
         format!(
@@ -3221,6 +3444,11 @@ fn type_name(ty: &Type) -> String {
             ty.name,
             ty.args.iter().map(type_name).collect::<Vec<_>>().join(",")
         )
+    };
+    // The serializer it's decoded with (`@Serializable(RankingSerializer::class)`), after an `@`.
+    match &ty.serializer {
+        Some(serializer) => format!("{name}@{serializer}"),
+        None => name,
     }
 }
 
@@ -3315,7 +3543,9 @@ pub const GLOBALS: &[&str] = &[
     "DeflaterOutputStream", "BigInteger", "X509EncodedKeySpec", "PKCS8EncodedKeySpec",
     "ECPublicKeySpec", "RSAPublicKeySpec", "ECGenParameterSpec", "ECPoint", "OAEPParameterSpec",
     "KeyPair", "SequenceInputStream", "ZipException", "EOFException", "CRC32",
-    "readEntry", "ZipInputStream", "BLAKE2b",
+    "readEntry", "ZipInputStream", "BLAKE2b", "StringSubstitutor", "Levenshtein",
+    "NormalizedLevenshtein", "JaroWinkler", "Handler", "ColorMatrix", "ColorMatrixColorFilter",
+    "currentCoroutineContext", "ListSerializer", "SetSerializer", "MapSerializer", "serializer",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -3339,9 +3569,12 @@ pub const OBJECTS: &[&str] = &[
     "LineBreaker", "Collections",
     "LazyThreadSafetyMode",
     "URLUtil", "Result",
-    "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
+    "FORCE_NETWORK", "FORCE_CACHE", "DEFAULT_CACHE_CONTROL", "TimeSource", "RoundingMode",
+    "Validate", "Runtime",
     "applicationContext", "PreferenceManager", "BuildConfig", "File", "Dns",
     "DEFAULT_BUFFER_SIZE", "InputType", "SignStyle", "FormatStyle", "YearMonth", "LocalTime",
     "WeekFields", "BigInteger", "KeyPairGenerator", "KeyFactory", "KeyAgreement", "Signature",
-    "AlgorithmParameters", "MGF1ParameterSpec", "PSource",
+    "AlgorithmParameters", "MGF1ParameterSpec", "PSource", "CaseInsensitiveSimpleNaturalComparator",
+    "CaseSensitiveSimpleNaturalComparator", "SystemClock", "Looper", "Toast", "InetAddress",
+    "QueryParser", "Collector", "ActivityManager",
 ];

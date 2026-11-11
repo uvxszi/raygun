@@ -423,50 +423,65 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
             .or_default()
             .push(params.iter().map(|param| (*param).to_owned()).collect());
     }
-    let add_members = |cx: &mut Context, members: &[Member], top: bool| {
-        for member in members {
-            // Functions with reified type parameters take the types their calls pass.
-            if let Member::Fun(fun) = member {
-                let count = fun
-                    .modifiers
-                    .iter()
-                    .filter(|modifier| modifier.starts_with("reified:"))
-                    .count();
-                if count > 0 {
-                    cx.reified.insert(fun.name.clone(), count);
-                }
-            }
-            match member {
-                Member::Fun(fun) if fun.receiver.is_some() => {
-                    cx.extensions.insert(fun.name.clone());
-                }
-                Member::Fun(fun) => {
-                    cx.functions
-                        .entry(fun.name.clone())
-                        .or_default()
-                        .push(param_names(&fun.params));
-                    note_function_number(cx, fun);
-                }
-                Member::Prop(prop) if prop.receiver.is_some() => {
-                    cx.extension_properties.insert(prop.name.clone());
-                }
-                Member::Prop(prop) if top => {
-                    cx.constants.insert(prop.name.clone());
-                    if let Some(kind) = Num::of_prop(prop) {
-                        cx.constant_numbers.insert(prop.name.clone(), kind);
+    let add_members =
+        |cx: &mut Context, members: &[Member], top: bool| {
+            for member in members {
+                // Functions with reified type parameters take the types their calls pass.
+                if let Member::Fun(fun) = member {
+                    let count = fun
+                        .modifiers
+                        .iter()
+                        .filter(|modifier| modifier.starts_with("reified:"))
+                        .count();
+                    if count > 0 {
+                        cx.reified.insert(fun.name.clone(), count);
                     }
                 }
-                Member::Prop(prop) => {
-                    cx.properties.insert(prop.name.clone());
+                match member {
+                    Member::Fun(fun) if fun.receiver.is_some() => {
+                        cx.extensions.insert(fun.name.clone());
+                        cx.extension_params
+                            .entry(fun.name.clone())
+                            .or_default()
+                            .push(param_names(&fun.params));
+                        // `fun Document.parseJson(transform: String.() -> String)`: a trailing lambda
+                        // for it reads that receiver.
+                        if fun.params.last().is_some_and(|param| {
+                            param.ty.name == super::kotlin::ast::RECEIVER_FUNCTION
+                        }) {
+                            cx.receiver_lambda_methods.insert(fun.name.clone());
+                        }
+                    }
+                    Member::Fun(fun) => {
+                        cx.functions
+                            .entry(fun.name.clone())
+                            .or_default()
+                            .push(param_names(&fun.params));
+                        note_function_number(cx, fun);
+                    }
+                    Member::Prop(prop) if prop.receiver.is_some() => {
+                        cx.extension_properties.insert(prop.name.clone());
+                        if prop.setter.is_some() {
+                            cx.extension_setters.insert(prop.name.clone());
+                        }
+                    }
+                    Member::Prop(prop) if top => {
+                        cx.constants.insert(prop.name.clone());
+                        if let Some(kind) = Num::of_prop(prop) {
+                            cx.constant_numbers.insert(prop.name.clone(), kind);
+                        }
+                    }
+                    Member::Prop(prop) => {
+                        cx.properties.insert(prop.name.clone());
+                    }
+                    Member::Class(inner) if inner.modifiers.iter().any(|m| m == "companion") => {}
+                    Member::Class(inner) => {
+                        cx.classes.insert(inner.name.clone());
+                    }
+                    _ => {}
                 }
-                Member::Class(inner) if inner.modifiers.iter().any(|m| m == "companion") => {}
-                Member::Class(inner) => {
-                    cx.classes.insert(inner.name.clone());
-                }
-                _ => {}
             }
-        }
-    };
+        };
     for (_, file) in files {
         add_members(&mut cx, &file.members, true);
         for member in &file.members {
@@ -475,9 +490,18 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
             }
         }
     }
+    cx.local_class = Some(local_class_definition);
     for class in chain {
         cx.source_classes.insert(class.name.clone());
         add_members(&mut cx, &class.members, false);
+        for member in &class.members {
+            if let Member::Prop(prop) = member
+                && prop.receiver.is_some()
+                && prop.modifiers.iter().any(|modifier| modifier == "private")
+            {
+                cx.source_private_extensions.insert(prop.name.clone());
+            }
+        }
         // A theme's constructor parameters (`MangaThemesiaAlt(randomUrlPrefKey = …)`) are its
         // properties.
         for param in &class.params {
@@ -626,7 +650,8 @@ fn members(
             ))
         }
     };
-    let mut overloads: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // Each function's overloads: `[required, total, function]` and its parameters' types.
+    let mut overloads: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     for member in members {
         match member {
             // The source's `init { … }`: run once, before Raygun's first call, base-most first.
@@ -700,10 +725,10 @@ fn members(
                     } else {
                         fun.params.len()
                     };
-                    overloads
-                        .entry(fun.name.clone())
-                        .or_default()
-                        .push(format!("[{required}, {total}, {function}]"));
+                    overloads.entry(fun.name.clone()).or_default().push((
+                        format!("{required}, {total}, {function}"),
+                        param_types(fun, &[]),
+                    ));
                 }
             }
             Member::Prop(prop) => {
@@ -724,7 +749,8 @@ fn members(
                     annotations: Vec::new(),
                     receiver: prop.receiver.clone(),
                     params: Vec::new(),
-                    ret: None,
+                    // `val list: List<MangaDto> get() = body.parseAs()` decodes as declared.
+                    ret: prop.ty.clone(),
                     body: Some(body),
                     line: prop.line,
                 };
@@ -734,11 +760,41 @@ fn members(
                 };
                 if let Some(receiver) = &prop.receiver {
                     // An extension property: read as one on a receiver of its type.
+                    let receiver_name = receiver.name.rsplit('.').next().unwrap_or(&receiver.name);
                     out.push(format!(
                         "self.extension({}, {function}, {}, null, true);",
                         quote(&prop.name),
-                        quote(receiver.name.rsplit('.').next().unwrap_or(&receiver.name)),
+                        quote(receiver_name),
                     ));
+                    // Its setter (`set(map) { … }`), which assignments call as `set:<name>`.
+                    if let Some((param, body)) = prop.setter.as_deref() {
+                        let setter = super::kotlin::ast::FunDecl {
+                            name: prop.name.clone(),
+                            modifiers: Vec::new(),
+                            annotations: Vec::new(),
+                            receiver: prop.receiver.clone(),
+                            params: vec![Param {
+                                name: param.clone(),
+                                ty: prop.ty.clone().unwrap_or_default(),
+                                default: None,
+                                vararg: false,
+                                property: false,
+                                annotations: Vec::new(),
+                            }],
+                            ret: None,
+                            body: Some(body.clone()),
+                            line: prop.line,
+                        };
+                        let function = match writer.function(&setter) {
+                            Ok(function) => function,
+                            Err(reason) => unreached(&prop.name, reason)?,
+                        };
+                        out.push(format!(
+                            "self.extension({}, {function}, {}, null, false);",
+                            quote(&format!("set:{}", prop.name)),
+                            quote(receiver_name),
+                        ));
+                    }
                 } else if companion || target == "C" {
                     out.push(format!("C.prop({}, {function});", quote(&prop.name)));
                 } else {
@@ -753,6 +809,19 @@ fn members(
         }
     }
     for (name, functions) in overloads {
+        // Overloads taking as many arguments (`getMangaUrl(manga: SManga)` beside
+        // `getMangaUrl(id: String)`) are told apart by their parameters' types.
+        let typed = functions.len() > 1;
+        let functions: Vec<String> = functions
+            .into_iter()
+            .map(|(function, types)| {
+                if typed {
+                    format!("[{function}, {types}]")
+                } else {
+                    format!("[{function}]")
+                }
+            })
+            .collect();
         out.push(format!(
             "self.define({}, [{}]);",
             quote(&name),
@@ -776,6 +845,12 @@ fn shape(fun: &super::kotlin::ast::FunDecl, type_params: &[String]) -> String {
     } else {
         fun.params.len()
     };
+    format!("[{required}, {total}, {}]", param_types(fun, type_params))
+}
+
+/// A function's parameters' types as the runtime checks them (`["SManga", "String"]`): `null`
+/// for a type parameter, which takes anything.
+fn param_types(fun: &super::kotlin::ast::FunDecl, type_params: &[String]) -> String {
     let types: Vec<String> = fun
         .params
         .iter()
@@ -792,7 +867,7 @@ fn shape(fun: &super::kotlin::ast::FunDecl, type_params: &[String]) -> String {
             }
         })
         .collect();
-    format!("[{required}, {total}, [{}]]", types.join(", "))
+    format!("[{}]", types.join(", "))
 }
 
 /// The values a class's companion object holds (`companion object { val OPTIONS = … }`).
@@ -897,7 +972,7 @@ fn qualified_type(ty: &super::kotlin::ast::Type, scope: &Enclosing<'_>) -> Strin
                 },
             )
     };
-    if ty.args.is_empty() {
+    let name = if ty.args.is_empty() {
         name
     } else {
         format!(
@@ -908,6 +983,11 @@ fn qualified_type(ty: &super::kotlin::ast::Type, scope: &Enclosing<'_>) -> Strin
                 .collect::<Vec<_>>()
                 .join(",")
         )
+    };
+    // The serializer the type is decoded with, after an `@` the runtime reads.
+    match &ty.serializer {
+        Some(serializer) => format!("{name}@{serializer}"),
+        None => name,
     }
 }
 
@@ -929,7 +1009,7 @@ fn own_class_code(
                 annotations: Vec::new(),
                 receiver: None,
                 params: Vec::new(),
-                ret: None,
+                ret: prop.ty.clone(),
                 body: Some(body),
                 line: prop.line,
             };
@@ -944,6 +1024,15 @@ fn own_class_code(
         code.push(class_definition(writer, class, outer)?);
         Ok(code.join(" "))
     })();
+    writer.class_scope = outer_scope;
+    result
+}
+
+/// A class declared in a function's body, defined there (`D.Name = …`) with its own code in its
+/// scope.
+fn local_class_definition(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, String> {
+    let outer_scope = writer.class_scope.replace(class.name.clone());
+    let result = class_definition(writer, class, &[]);
     writer.class_scope = outer_scope;
     result
 }
@@ -1019,10 +1108,19 @@ fn class_definition(
         .params
         .iter()
         .map(|param| {
+            // A field's own serializer (`@Serializable(PageListSerializer::class) val pages`).
+            let mut ty = writer.unaliased(&param.ty);
+            if let Some(serializer) = param
+                .annotations
+                .iter()
+                .find_map(|annotation| annotation.strip_prefix("Serializable="))
+            {
+                ty.serializer = Some(serializer.to_owned());
+            }
             format!(
                 "{}: {}",
                 quote(&param.name),
-                quote(&qualified_type(&writer.unaliased(&param.ty), &scope))
+                quote(&qualified_type(&ty, &scope))
             )
         })
         .collect();
@@ -1047,6 +1145,15 @@ fn class_definition(
         .iter()
         .map(|parent| quote(&parent.ty.name))
         .collect();
+    // `Iterable<Manga> by results`: the parameter or property the interface is delegated to.
+    let delegate = class
+        .supers
+        .iter()
+        .find_map(|parent| match &parent.delegate {
+            Some(Expr::Name(field)) => Some(quote(field)),
+            _ => None,
+        })
+        .unwrap_or_else(|| "null".to_owned());
     // The first parent's constructor arguments, over the class's parameters (`Filter.Select(…)`).
     let super_args = match class.supers.first().and_then(|parent| parent.args.as_ref()) {
         Some(args) if !args.is_empty() => {
@@ -1113,6 +1220,34 @@ fn class_definition(
     // Extensions the class declares for its own code (`private fun Float.formatNumber()`): the
     // source's, as they read nothing of the instance but their receiver.
     let mut extensions = Vec::new();
+    // Its companion's too (`companion object { fun MangaDataDto.createManga() }`, imported by
+    // name where they're used).
+    let companion_extensions = class
+        .members
+        .iter()
+        .filter_map(|member| match member {
+            Member::Class(inner) if inner.modifiers.iter().any(|m| m == "companion") => {
+                Some(inner.members.iter())
+            }
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|member| match member {
+            Member::Fun(fun) if fun.body.is_some() && fun.receiver.is_some() => Some(fun),
+            _ => None,
+        });
+    for fun in companion_extensions {
+        let receiver = fun.receiver.as_ref().map_or("", |ty| ty.name.as_str());
+        let function = writer
+            .function(fun)
+            .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?;
+        extensions.push(format!(
+            "self.extension({}, {function}, {}, {});",
+            quote(&fun.name),
+            quote(receiver.rsplit('.').next().unwrap_or(receiver)),
+            shape(fun, &class.type_params)
+        ));
+    }
     let mut inits = 0;
     for member in &class.members {
         match member {
@@ -1170,14 +1305,17 @@ fn class_definition(
                             ..Default::default()
                         }),
                         params: Vec::new(),
-                        ret: None,
+                        ret: prop.ty.clone(),
                         body: Some(body),
                         line: prop.line,
                     };
                     // A `var` with a value is a field, set when the instance is made (a
                     // serializable class's `val` too: JSON decodes into it); other properties are
                     // worked out when read.
-                    let serializable = class.annotations.iter().any(|name| name == "Serializable");
+                    let serializable = class
+                        .annotations
+                        .iter()
+                        .any(|name| name == "Serializable" || name.starts_with("Serializable="));
                     let wrapper = if (prop.mutable || serializable)
                         && prop.value.is_some()
                         && prop.getter.is_none()
@@ -1256,7 +1394,7 @@ fn class_definition(
         statics.push(format!("{}: {function}", quote(&fun.name)));
     }
     Ok(format!(
-        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, serialNames: {serial_names}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], entryArgs: {{{entry_args}}}, members: {{{methods}}}, statics: {{{statics}}} }});",
+        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, serialNames: {serial_names}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], delegate: {delegate}, superArgs: {super_args}, entries: [{entries}], entryArgs: {{{entry_args}}}, members: {{{methods}}}, statics: {{{statics}}} }});",
         // Its own properties' JSON names (`@SerialName("md_comic_md_genres") val genres`), which
         // win over another class's property of the same name.
         serial_names = serde_json::to_string(
@@ -1579,11 +1717,15 @@ const PICTURE_CALLS: [&str; 7] = [
 ];
 
 /// Whether the source's client changes the pictures it fetches: it draws them, or an interceptor
-/// decrypts answers (`response.aesDecrypt(cipher)`).
+/// decrypts answers (`response.aesDecrypt(cipher)`, Keiyoushi's `response.xor(key)`).
 fn images_from_source(code: &str) -> bool {
     PICTURE_CALLS.iter().any(|call| code.contains(call))
-        || ((code.contains("\"aesDecrypt") || code.contains("\"cipherSource\""))
-            && code.contains("\"intercept\""))
+        // An interceptor passing an answer on as a success (XOXO's pictures come with a 404).
+        || (code.contains("\"code\", [200]") && code.contains("\"newBuilder\""))
+        || ((code.contains("\"aesDecrypt")
+            || code.contains("\"cipherSource\"")
+            || code.contains("KT.m($response, \"xor\""))
+            && (code.contains("\"intercept\"") || code.contains("\"addInterceptor\"")))
 }
 
 /// Each member of the classes, their companions, the files and their classes (but the source

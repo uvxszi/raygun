@@ -226,20 +226,31 @@ const CHECK_MARKS: [&str; 16] = [
     "g-recaptcha",
 ];
 
-/// Whether an answer is a browser check rather than the site: Cloudflare's challenge header, or a
-/// check page from Cloudflare, DDoS-Guard, DataDome, PerimeterX, Imperva or Sucuri. Only failed
-/// answers (403, 429, 503 and the like) are looked at: a site that answers is no check.
+/// Whether an answer is a browser check rather than the site: Cloudflare's challenge header, AWS
+/// WAF's challenge or CAPTCHA (an empty 202 or a 405 naming its action), or a check page from
+/// Cloudflare, DDoS-Guard, DataDome, PerimeterX, Imperva or Sucuri. Otherwise only failed answers
+/// (403, 429, 503 and the like) are looked at: a site that answers is no check.
 pub fn is_bot_check<'a>(
     status: u16,
-    mut headers: impl Iterator<Item = (&'a str, &'a str)>,
+    headers: impl Iterator<Item = (&'a str, &'a str)>,
     body: &str,
 ) -> bool {
+    let headers: Vec<(&str, &str)> = headers.collect();
+    let named = |header: &str, values: &[&str]| {
+        headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case(header)
+                && values
+                    .iter()
+                    .any(|wanted| value.trim().eq_ignore_ascii_case(wanted))
+        })
+    };
+    if named("x-amzn-waf-action", &["challenge", "captcha"]) {
+        return true;
+    }
     if status < 400 {
         return false;
     }
-    if headers.any(|(name, value)| {
-        name.eq_ignore_ascii_case("cf-mitigated") && value.eq_ignore_ascii_case("challenge")
-    }) {
+    if named("cf-mitigated", &["challenge"]) {
         return true;
     }
     if !matches!(status, 403 | 429 | 503) {
@@ -569,6 +580,16 @@ mod tests {
             std::iter::empty(),
             "<html><title>DDoS-Guard</title></html>"
         ));
+        // AWS WAF's challenge answers an empty 202.
+        assert!(is_bot_check(
+            202,
+            [("x-amzn-waf-action", "challenge")].into_iter(),
+            "",
+        ));
+        assert_eq!(
+            answer_kind(405, [("X-Amzn-Waf-Action", "captcha")].into_iter(), ""),
+            Some(IssueKind::BotCheck)
+        );
         // A site that answers is no check, and a plain 403 is a refusal.
         assert!(!is_bot_check(200, std::iter::empty(), cloudflare));
         assert!(!is_bot_check(403, std::iter::empty(), "Forbidden"));

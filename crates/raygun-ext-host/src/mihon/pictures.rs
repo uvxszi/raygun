@@ -81,6 +81,12 @@ enum Op {
         height: u32,
         colors: Vec<i64>,
     },
+    /// Android's `ColorMatrix` (4 rows of 5: red, green, blue, alpha from the pixel's and an
+    /// offset) applied to every pixel of picture `id`, as a `ColorMatrixColorFilter` draws it.
+    Colors {
+        id: u32,
+        matrix: [f64; 20],
+    },
     /// Text laid out in lines `width` wide (Android's `StaticLayout`): its height.
     MeasureText {
         text: String,
@@ -107,6 +113,9 @@ enum Op {
         bold: bool,
         x: f32,
         y: f32,
+        /// `y` is the first line's baseline (`canvas.drawText(text, x, y, paint)`), not its top.
+        #[serde(default)]
+        baseline: bool,
         #[serde(default = "identity")]
         matrix: [f64; 6],
         color: u32,
@@ -214,6 +223,16 @@ fn run(bitmaps: &mut Bitmaps, op: Op) -> Result<serde_json::Value, String> {
                 .collect();
             json!(colors)
         }
+        Op::Colors { id, matrix } => {
+            let (width, height) = bitmaps.size(id)?;
+            let colors: Vec<u32> = bitmaps
+                .pixels_of(id, 0, 0, width, height)?
+                .into_iter()
+                .map(|color| color_matrix(color, &matrix))
+                .collect();
+            bitmaps.set_pixels(id, 0, 0, width, height, &colors)?;
+            json!(null)
+        }
         Op::SetPixels {
             id,
             x,
@@ -235,7 +254,11 @@ fn run(bitmaps: &mut Bitmaps, op: Op) -> Result<serde_json::Value, String> {
             bold,
         } => {
             let layout = text::Layout::new(&text, size, width, spacing, extra, bold)?;
-            json!({ "height": layout.height(), "lines": layout.line_count() })
+            json!({
+                "height": layout.height(),
+                "lines": layout.line_count(),
+                "width": layout.width(),
+            })
         }
         Op::DrawText {
             id,
@@ -247,10 +270,12 @@ fn run(bitmaps: &mut Bitmaps, op: Op) -> Result<serde_json::Value, String> {
             bold,
             x,
             y,
+            baseline,
             matrix,
             color,
         } => {
             let layout = text::Layout::new(&text, size, width, spacing, extra, bold)?;
+            let y = if baseline { y - layout.ascent() } else { y };
             let mut matrix = affine(matrix);
             // The layout's own origin, through the canvas's matrix.
             matrix.e += matrix.a * f64::from(x) + matrix.c * f64::from(y);
@@ -259,6 +284,21 @@ fn run(bitmaps: &mut Bitmaps, op: Op) -> Result<serde_json::Value, String> {
             json!(null)
         }
     })
+}
+
+/// An `ARGB` colour through Android's `ColorMatrix`, each channel kept within 0-255.
+fn color_matrix(color: u32, matrix: &[f64; 20]) -> u32 {
+    let [alpha, red, green, blue] = color.to_be_bytes().map(f64::from);
+    let channel = |row: usize| {
+        let at = row * 5;
+        let value = matrix[at] * red
+            + matrix[at + 1] * green
+            + matrix[at + 2] * blue
+            + matrix[at + 3] * alpha
+            + matrix[at + 4];
+        value.round().clamp(0.0, 255.0) as u8
+    };
+    u32::from_be_bytes([channel(3), channel(0), channel(1), channel(2)])
 }
 
 fn envelope(result: Result<serde_json::Value, String>) -> String {
@@ -372,4 +412,24 @@ pub(crate) fn install<'js>(ctx: &Ctx<'js>, native: &Object<'js>) -> rquickjs::Re
         })?,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::color_matrix;
+
+    #[test]
+    fn color_matrices_invert_and_grey_pixels() {
+        let invert = [
+            -1.0, 0.0, 0.0, 0.0, 255.0, 0.0, -1.0, 0.0, 0.0, 255.0, 0.0, 0.0, -1.0, 0.0, 255.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ];
+        assert_eq!(color_matrix(0xFF10_2030, &invert), 0xFFEF_DFCF);
+        // Alpha comes from the fourth row; channels stay within 0-255.
+        let scaled = [
+            2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -100.0, 0.0, 0.0,
+            0.0, 0.5, 0.0,
+        ];
+        assert_eq!(color_matrix(0xFFC0_4020, &scaled), 0x80FF_4000);
+    }
 }

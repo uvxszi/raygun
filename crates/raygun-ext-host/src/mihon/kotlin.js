@@ -63,6 +63,13 @@
       name === 'IllegalArgumentException'
     );
   };
+  /// A number read from text, else Java's `NumberFormatException` (which `catch` blocks for it
+  /// take, as for a bad `"x".toInt()`).
+  const numberOf = (value, text) => {
+    if (value === null || value === undefined)
+      throw new KotlinError(`For input string: "${K.str(text)}"`, 'NumberFormatException');
+    return value;
+  };
   KT.nn = (value) => {
     if (value === null || value === undefined)
       throw new KotlinError(
@@ -92,14 +99,29 @@
       return Array.isArray(right) ? left.concat(right) : left.concat([right]);
     if (left instanceof Map)
       return new Map([...left, ...(right instanceof Map ? right : [[right.first, right.second]])]);
+    // A JSON object read as a map (`text.parseAs<Map<Int, String>>()`) plus a map or a pair.
+    if (jsonMap(left) && (right instanceof Map || jsonMap(right) || (right && right.isPair)))
+      return KT.plus(
+        new Map(Object.entries(left)),
+        jsonMap(right) ? new Map(Object.entries(right)) : right,
+      );
     if (left && typeof left.plus === 'function') return left.plus(right);
     return left + right;
   };
+  /// A plain object standing for a map (JSON's, not a class's or the runtime's).
+  const jsonMap = (value) =>
+    Boolean(value) &&
+    typeof value === 'object' &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    value.__class === undefined &&
+    !value.isPair &&
+    typeof value.plus !== 'function';
   KT.minus = (left, right) => {
     if (Array.isArray(left)) {
       const drop = Array.isArray(right) ? right : [right];
       return left.filter((item) => !drop.some((other) => KT.eq(item, other)));
     }
+    if (left instanceof Map) return MAP.minus(left, [right]);
     // Instants and durations: `now - 1.days` is an instant, `end - start` a duration.
     if (
       left &&
@@ -220,12 +242,29 @@
   };
   KT.range = (from, to, step = 1) => ({ isRange: true, first: from, last: to, step });
   /// `from until to`, `from..<to`: of numbers or `BigInteger`s.
-  KT.until = (from, to) => KT.range(from, typeof to === 'bigint' ? to - 1n : to - 1);
+  KT.until = (from, to) =>
+    KT.range(
+      from,
+      typeof to === 'bigint'
+        ? to - 1n
+        : typeof to === 'string'
+          ? String.fromCharCode(to.charCodeAt(0) - 1)
+          : to - 1,
+    );
   KT.step = (range, step) => ({ ...range, step: range.step < 0 ? -step : step });
   KT.iter = (value) => {
     if (value == null) return [];
     if (value.isRange) {
       const out = [];
+      // A range of characters (`'a'..'z'`): by their codes.
+      if (typeof value.first === 'string') {
+        const [first, last] = [value.first.charCodeAt(0), KT.str(value.last).charCodeAt(0)];
+        const step = Number(value.step) || 1;
+        if (step > 0)
+          for (let code = first; code <= last; code += step) out.push(String.fromCharCode(code));
+        else for (let code = first; code >= last; code += step) out.push(String.fromCharCode(code));
+        return out;
+      }
       if (value.step > 0)
         for (let index = value.first; index <= value.last; index += value.step) out.push(index);
       else for (let index = value.first; index >= value.last; index += value.step) out.push(index);
@@ -355,6 +394,9 @@
     Object.defineProperty(args, '__types', { value: types, enumerable: false });
     return args;
   };
+  /// The type a call passed with its arguments (`element.parseAs<T>()` beside a source's own
+  /// `Response.parseAs()`), for the runtime's method of that name.
+  const typeOfCall = (args) => (args && args.__types && args.__types[0]) || null;
   /// Whether one of an extension's overloads takes `receiver` and `args`: its receiver's type
   /// and its parameters' (`[required, total, [types]]`).
   const extensionTakes = (entry, receiver, args) => {
@@ -362,10 +404,13 @@
     if (!entry.shape) return true;
     const [required, total, types] = entry.shape;
     if (args.length < required || args.length > total) return false;
-    return types.every(
+    return argsFit(types, args);
+  };
+  /// Whether arguments are of a function's parameters' types (`null`: any type).
+  const argsFit = (types, args) =>
+    types.every(
       (kind, at) => at >= args.length || kind === null || args[at] == null || KT.is(args[at], kind),
     );
-  };
   /// Calls `function_` with `args`, its types set aside for it to take.
   const enter = (function_, args, receiver = undefined) => {
     const types = args && args.__types;
@@ -611,8 +656,16 @@
       },
       // A picture's bytes stay a `Uint8Array` on the way through (a list of numbers that size
       // would fill the script's memory).
-      doFinalU8: (data = []) =>
-        K.bin.fromBase64(
+      // `doFinal(bytes, offset, length)` too: that part of them.
+      doFinalU8: (whole = [], offset = 0, length = undefined) => {
+        const data =
+          offset || length !== undefined
+            ? whole.slice(
+                Number(offset),
+                length === undefined ? undefined : Number(offset) + Number(length),
+              )
+            : whole;
+        return K.bin.fromBase64(
           crypto({
             op: 'aes',
             mode: cipher.mode,
@@ -623,8 +676,10 @@
             data: data instanceof Uint8Array ? K.bin.toBase64(data) : base64Of(data),
             aad: cipher.aad && cipher.aad.length ? base64Of(cipher.aad) : null,
           }),
-        ),
-      doFinal: (data = []) => listOfBytes(cipher.doFinalU8(data)),
+        );
+      },
+      doFinal: (data = [], offset = 0, length = undefined) =>
+        listOfBytes(cipher.doFinalU8(data, offset, length)),
       getIV: () => cipher.iv,
       iv_: null,
     };
@@ -1084,13 +1139,16 @@
     ifEmpty: async (s, args, lambda) => (s.length === 0 ? (lambda ? lambda() : args[0]) : s),
     orEmpty: (s) => s,
     // `toInt(16)` too.
-    toInt: (s, [radix]) => KT.nn(toInt(s, radix)),
+    toInt: (s, [radix]) => numberOf(toInt(s, radix), s),
     toIntOrNull: (s, [radix]) => toInt(s, radix),
-    toLong: (s, [radix]) => KT.nn(toInt(s, radix)),
+    toLong: (s, [radix]) => numberOf(toInt(s, radix), s),
     toLongOrNull: (s, [radix]) => toInt(s, radix),
-    toFloat: (s) => KT.nn(toFloat(s)),
+    // `"12".toShort()`, `"7".toByte()`: whole numbers kept to their sizes.
+    toShort: (s, [radix]) => (numberOf(toInt(s, radix), s) << 16) >> 16,
+    toByte: (s, [radix]) => (numberOf(toInt(s, radix), s) << 24) >> 24,
+    toFloat: (s) => numberOf(toFloat(s), s),
     toFloatOrNull: (s) => toFloat(s),
-    toDouble: (s) => KT.nn(toFloat(s)),
+    toDouble: (s) => numberOf(toFloat(s), s),
     toDoubleOrNull: (s) => toFloat(s),
     toBoolean: (s) => s.toLowerCase() === 'true',
     substring: (s, [start, end]) => (end === undefined ? s.slice(start) : s.slice(start, end)),
@@ -1109,7 +1167,14 @@
       return new RegExp(`^(?:${pattern.source})$`, pattern.flags.replace('g', '')).test(s);
     },
     toRegex: (s, args) => K.regex(s, ...args),
-    format: (s, args) => K.format(s, ...args),
+    // `"%.2f".format(Locale.US, n)` too: the locale changes nothing here.
+    format: (s, args) =>
+      K.format(
+        s,
+        ...(args[0] && typeof args[0] === 'object' && args[0].language !== undefined
+          ? args.slice(1)
+          : args),
+      ),
     capitalize: (s) => s.charAt(0).toUpperCase() + s.slice(1),
     replaceFirstChar: async (s, _args, lambda) =>
       s ? KT.str(await lambda(s.charAt(0))) + s.slice(1) : s,
@@ -1823,6 +1888,16 @@
       return out;
     },
     sorted: (l) => [...l].sort(KT.cmp),
+    // Sets' operations over lists: `a intersect b`, `a union b`, `a subtract b`.
+    intersect: (l, [other]) => {
+      const items = KT.iter(other);
+      return LIST.distinct(l).filter((item) => items.some((each) => KT.eq(each, item)));
+    },
+    union: (l, [other]) => LIST.distinct([...l, ...KT.iter(other)]),
+    subtract: (l, [other]) => {
+      const items = KT.iter(other);
+      return LIST.distinct(l).filter((item) => !items.some((each) => KT.eq(each, item)));
+    },
     toSortedSet: (l) => LIST.distinct(l).sort(KT.cmp),
     // `bytes.fill(0)`, `fill(value, from, to)`.
     fill: (l, [value, from = 0, to = l.length]) => {
@@ -1883,6 +1958,8 @@
     toList: (l) => [...l],
     toMutableList: (l) => [...l],
     toTypedArray: (l) => [...l],
+    // `chars.toCharArray()`: a list of characters stays one.
+    toCharArray: (l) => [...l],
     toByteArray: (l) => [...l],
     toIntArray: (l) => [...l],
     toSet: (l) => LIST.distinct(l),
@@ -2069,6 +2146,17 @@
       return m.get(key);
     },
     containsKey: (m, [key]) => m.has(key),
+    // OkHttp's `map.toHeaders()`: a header for each entry.
+    toHeaders: (m) => new Headers([...m].map(([name, value]) => [KT.str(name), KT.str(value)])),
+    // `map.orEmpty()`, `map.ifEmpty { … }`: the map itself (not its entries, as the lists' would
+    // give).
+    orEmpty: (m) => m,
+    ifEmpty: async (m, args, lambda) => (m.size ? m : lambda ? lambda() : args[0]),
+    // `map - key`, `map - listOf(…)`: a map without them.
+    minus: (m, [keys]) => {
+      const drop = Array.isArray(keys) ? keys : [keys];
+      return new Map([...m].filter(([key]) => !drop.some((other) => KT.eq(other, key))));
+    },
     getValue: async (m, [key]) =>
       m.has(key) ? m.get(key) : m.defaultOf ? m.defaultOf(key) : noSuch(`no key ${KT.str(key)}`),
     // `withDefault { key -> … }`: what `getValue` answers for a key it lacks.
@@ -2318,6 +2406,10 @@
     hashCode: (b) => Number(BigInt.asIntN(32, b)),
   };
   const NUMBER = {
+    // Kotlin's `a.floorDiv(b)` and `a.mod(b)` (Java's `Math.floorMod`): rounded toward minus
+    // infinity, the remainder taking the divisor's sign.
+    floorDiv: (n, [d]) => Math.floor(Number(n) / Number(d)),
+    floorMod: (n, [d]) => ((Number(n) % Number(d)) + Number(d)) % Number(d),
     // `BigDecimal`s are numbers here.
     stripTrailingZeros: (n) => n,
     setScale: (n, [scale = 0, mode = 'HALF_UP']) => {
@@ -2386,6 +2478,27 @@
   };
 
   const ANY = {
+    // okio's `source.buffer()` of a source's own `Source` (`read(sink, byteCount)`, a stream
+    // decrypting as it reads): all it gives, read into a buffer.
+    buffer: async (value) => {
+      if (
+        !value ||
+        (typeof value.read !== 'function' && !(value.__methods && value.__methods.read))
+      )
+        KT.raise("Raygun's runtime has no buffer() for this value");
+      const sink = okioBuffer();
+      for (let reads = 0; reads < 1_000_000; reads++) {
+        const count = Number(await KT.m(value, 'read', [sink, 65536]));
+        if (!(count > 0)) break;
+      }
+      return sink;
+    },
+    // A data class of Mihon's (`mangasPage.copy(mangas = …)`): the same with the named fields
+    // changed.
+    copy: (value, _args, _lambda, named) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? { ...value, ...(named ?? {}) }
+        : KT.raise("Raygun's runtime has no copy() for this value"),
     // `source().zstdDecompress()`, `sink().zstdCompress()`: what the runtime's own files hold
     // (its memory, never the device's) is kept as it is.
     zstdCompress: (value) => value,
@@ -2471,6 +2584,9 @@
     orEmpty: (_value, _args, _lambda, _named, type) => (type && type.startsWith('List') ? [] : ''),
     toString: () => 'null',
     let: () => null,
+    // `filter?.state.takeUnless(String?::isNullOrBlank)`: null either way.
+    takeIf: () => null,
+    takeUnless: () => null,
     equals: (_value, [other]) => other == null,
     ifEmpty: async (_value, args, lambda) => (lambda ? lambda() : args[0]),
   };
@@ -2604,6 +2720,14 @@
       if (BIGINT[name]) return BIGINT[name](value, []);
       throw new KotlinError(`a value has no ${name}`);
     }
+    // A declared class that is a collection (`class Results : Iterable<Manga> by results`): its
+    // own fields and getters first.
+    if (
+      (kind === 'list' || kind === 'map') &&
+      value.__class !== undefined &&
+      Object.prototype.hasOwnProperty.call(value, name)
+    )
+      return value[name];
     if (kind === 'list' || kind === 'elements') {
       if (LIST[name] && ['size', 'lastIndex', 'indices'].includes(name)) return LIST[name](value);
       if (JSON_PROPS[name]) return JSON_PROPS[name](value);
@@ -2619,6 +2743,9 @@
       if (value.isStringBuilder && (name === 'lastIndex' || name === 'indices'))
         return KT.p(value.text, name);
       const own = field(value, name);
+      // okio's `source.buffer` (the property, beside the `buffer()` making one): the buffer.
+      if (name === 'buffer' && typeof own === 'function' && typeof value.u8Now === 'function')
+        return own();
       if (own !== undefined) {
         if (own && own.isGetter) return own.function_(value);
         if (own && own.isDeferred) return own.value;
@@ -2643,6 +2770,9 @@
         throw new KotlinError(`${value.__class} has no ${name}`);
       return null;
     }
+    // A constructor's constants (`Filter.TriState.STATE_INCLUDE`).
+    if (kind === 'function' && Object.prototype.hasOwnProperty.call(value, name))
+      return value[name];
     throw new KotlinError(`a value has no ${name}`);
   };
   /// `Owner::name` on one of the runtime's objects: its own function when it has one, else a
@@ -2706,6 +2836,9 @@
       throw new KotlinError(`${name}() was called on null`, 'NullPointerException');
     }
     if (receiver.isLazySequence) return sequenceCall(receiver, name, args, lambda, named, type);
+    // `null.orEmpty()` of a map the converter couldn't tell (`locked[id] ?: false` over
+    // `firstNotNullOfOrNull { … associate { … } }.orEmpty()`) is empty text: read as a map, empty.
+    if (receiver === '' && EMPTY_MAP_READS[name]) return EMPTY_MAP_READS[name](args);
     if (hasNextJs(receiver, name)) return NEXT_JS[name](receiver, args, lambda, type);
     // Protobuf answers read as the type asked (`parseAsProto<T>()`), after a `transform` if any.
     if (type && PROTO_DECODERS.has(name)) {
@@ -2757,6 +2890,8 @@
       (name === 'aesDecrypt' || name === 'aesDecryptWithPrependedIv')
     )
       return decryptAnswer(receiver, name, args, lambda, named);
+    if ((receiver instanceof Response || (receiver && receiver.isResponseBody)) && name === 'xor')
+      return xorAnswer(receiver, args);
     // okio's `source.cipherSource(cipher)` (Keiyoushi's `source.aesDecrypt(cipher)`): the bytes
     // left, decrypted.
     if (
@@ -2768,10 +2903,23 @@
           ? args[0].doFinalU8(await streamBytes(receiver))
           : u8Of(await args[0].doFinal(await streamBytes(receiver))),
       );
+    // Keiyoushi's `source.rc4(key)` and `source.xor(key)`: the bytes left, deciphered.
+    if ((name === 'rc4' || name === 'xor') && receiver && typeof receiver.u8Now === 'function') {
+      const bytes = await streamBytes(receiver);
+      if (name === 'rc4') return okioBuffer(rc4(bytes, u8Of(args[0]), args[1] ?? 0));
+      const mask = typeof args[0] === 'number' ? [args[0] & 255] : Array.from(u8Of(args[0]));
+      return okioBuffer(bytes.map((byte, at) => byte ^ mask[at % mask.length]));
+    }
     // OkHttp's `response.headers("Content-Type")`: that header's values.
     if (receiver instanceof Response && name === 'headers' && args.length)
       return receiver.headers.values(args[0]);
     if (kind === 'object') {
+      // A function named as one of the object's fields.
+      if (receiver.__methods && receiver.__methods[name]) {
+        const all = [...args];
+        if (written) all.push(written);
+        return receiver.__methods[name](...all);
+      }
       // The source itself: its functions, then its extensions on nothing.
       if (receiver.isSource && receiver.hasFunction(name))
         return receiver.call(name, lambda && !args.includes(lambda) ? [...args, lambda] : args);
@@ -2793,6 +2941,12 @@
     if (kind === 'function' && name === 'invoke') return receiver(...args);
     if (ANY[name]) return ANY[name](receiver, args, lambda, named, type);
     throw new KotlinError(`Raygun's runtime has no ${name}() for this value`);
+  };
+  const EMPTY_MAP_READS = {
+    get: () => null,
+    getOrDefault: ([, fallback]) => fallback ?? null,
+    containsKey: () => false,
+    containsValue: () => false,
   };
   const ELEMENTS_OWN = new Set([
     'first',
@@ -2997,7 +3151,18 @@
           : 2;
       return labels.slice(-take).join('.');
     }
+    /// OkHttp's `fragment`: decoded (`{"name":…}` from `{%22name%22:…}`); `encodedFragment` as
+    /// written.
     get fragment() {
+      const raw = this.parts.fragment;
+      if (raw === null || raw === undefined || !raw.includes('%')) return raw;
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    get encodedFragment() {
       return this.parts.fragment;
     }
     get queryParameterNames() {
@@ -3024,6 +3189,13 @@
     }
     newBuilder() {
       return new HttpUrlBuilder(this);
+    }
+    /// OkHttp's `toUri()`/`toUrl()`: Java's `URI` of this address.
+    toUri() {
+      return javaUri(this.toString());
+    }
+    toUrl() {
+      return javaUri(this.toString());
     }
     resolve(link) {
       try {
@@ -3473,7 +3645,7 @@
     let at = 0;
     const read = () => {
       let name = '';
-      while (at < text.length && !'<>,'.includes(text[at])) name += text[at++];
+      while (at < text.length && !'<>,@'.includes(text[at])) name += text[at++];
       const args = [];
       if (text[at] === '<') {
         at++;
@@ -3487,10 +3659,26 @@
           break;
         }
       }
+      // The serializer it's decoded with (`Ranking@RankingSerializer`).
+      let serializer = null;
+      if (text[at] === '@') {
+        at++;
+        serializer = '';
+        while (at < text.length && !'<>,'.includes(text[at])) serializer += text[at++];
+        serializer = serializer.trim();
+      }
       const qualified = name.trim().replace(/\?$/, '');
-      return { name: qualified.split('.').pop(), qualified, args };
+      return { name: qualified.split('.').pop(), qualified, args, serializer };
     };
     return read();
+  };
+  /// JSON through a serializer of the source's (`JsonTransformingSerializer`'s
+  /// `transformDeserialize`), before it's decoded.
+  const throughSerializer = async (name, value) => {
+    const holder = CLASSES[name];
+    return holder && typeof holder.transformDeserialize === 'function'
+      ? holder.transformDeserialize(value)
+      : value;
   };
   /// A declared class by the name a type gives it (`ReaderDto.ChapterDto`, `ChapterDto`).
   const classOf = (type) => CLASSES[type.qualified] ?? CLASSES[type.name];
@@ -3504,7 +3692,12 @@
     'ArrayList',
     'Iterable',
   ]);
+  const NUMBER_TYPES = new Set(['Int', 'Long', 'Short', 'Byte', 'Double', 'Float']);
   const decodeAs = async (value, type) => {
+    if (type.serializer) {
+      value = await throughSerializer(type.serializer, value);
+      type = { ...type, serializer: null };
+    }
     if (value === null || value === undefined) return null;
     if (LISTS.has(type.name)) {
       const itemType = type.args[0] ?? { name: 'Any', args: [] };
@@ -3527,6 +3720,13 @@
     }
     if (type.name === 'Map' || type.name === 'HashMap' || type.name === 'MutableMap') {
       if (!value || typeof value !== 'object') return value;
+      // Numbered keys (`Map<Int, String>`) are numbers, as Kotlin's map has them.
+      if (NUMBER_TYPES.has(type.args[0]?.name)) {
+        const out = new Map();
+        for (const [key, item] of Object.entries(value))
+          out.set(Number(key), await decodeAs(item, type.args[1] ?? { name: 'Any', args: [] }));
+        return out;
+      }
       const out = {};
       for (const [key, item] of Object.entries(value))
         out[key] = await decodeAs(item, type.args[1] ?? { name: 'Any', args: [] });
@@ -3575,6 +3775,7 @@
       name: type.name,
       qualified: type.qualified,
       args: type.args.map((arg) => substitute(arg, names, args)),
+      serializer: type.serializer ?? null,
     };
   };
   /// A JSON answer as the type asked for: declared DTOs with their methods, the rest plain, names
@@ -4078,7 +4279,17 @@
           ? interceptor(chain)
           : KT.m(interceptor, 'intercept', [chain]);
       };
-      const response = await run(0, request);
+      let response = await run(0, request);
+      // OkHttp's `authenticator { route, response -> … }`: a request it gives for a 401 is sent
+      // in its place (a few times at most), until it gives none.
+      for (let tries = 0; this.authenticator && response.code === 401 && tries < 3; tries++) {
+        const next =
+          typeof this.authenticator === 'function'
+            ? await this.authenticator(null, response)
+            : await KT.m(this.authenticator, 'authenticate', [null, response]);
+        if (!next) break;
+        response = await run(0, next);
+      }
       if (ensureSuccess && !response.isSuccessful)
         throw new HttpError(response.code, response.request.url.toString());
       return response;
@@ -4194,6 +4405,7 @@
       const copy = new Client(this.owner);
       copy.interceptors = [...this.interceptors];
       copy.followsRedirects = this.followsRedirects;
+      copy.authenticator = this.authenticator;
       copy.defaultHeaders = () => (this.defaultHeaders ? this.defaultHeaders() : new Headers());
       return clientBuilder(copy);
     }
@@ -4223,6 +4435,11 @@
       cache: () => builder,
       dispatcher: () => builder,
       dns: () => builder,
+      authenticator: (authenticator) => {
+        client.authenticator = authenticator;
+        return builder;
+      },
+      proxyAuthenticator: () => builder,
       protocols: () => builder,
       hostnameVerifier: () => builder,
       sslSocketFactory: () => builder,
@@ -4716,6 +4933,8 @@
       readByteArray: (count) => listOfBytes(take(count)),
       readByteString: (count) => byteString(take(count)),
       readUtf8: (count) => K.bin.text(take(count)),
+      // `BufferedSource.parseAs<T>()`: what's left as JSON (`KT.m` decodes it as asked).
+      parseAs: () => JSON.parse(K.bin.text(take())),
       readString: (first, second) => K.bin.text(take(typeof first === 'number' ? first : second)),
       readUtf8Line: () => {
         const at = data.subarray(head, tail).indexOf(10);
@@ -4750,6 +4969,11 @@
         return KT.unit;
       },
       request: (count) => tail - head >= count,
+      // okio's `buffer[index]`: a byte (signed, as Kotlin's `Byte`) not yet read.
+      get: (index) =>
+        head + Number(index) < tail
+          ? (data[head + Number(index)] << 24) >> 24
+          : KT.raise(`no byte ${index} in the buffer`),
       indexOf: (byte, from = 0) => {
         const at = data.subarray(head + from, tail).indexOf(byte & 255);
         return at < 0 ? -1 : at + from;
@@ -4831,6 +5055,8 @@
         return listOfBytes(rest);
       },
       readAllBytes: () => stream.readBytes(),
+      // Keiyoushi's `InputStream.parseAs<T>()`: the rest as JSON (`KT.m` decodes it as asked).
+      parseAs: () => JSON.parse(K.bin.text(Uint8Array.from(stream.readBytes()))),
       readNBytes: (count) => {
         const part = bytes.subarray(at, at + count);
         at += part.length;
@@ -5043,6 +5269,20 @@
       async () => plain,
       type ?? (body.contentType ? body.contentType() : null),
     );
+    if (!(receiver instanceof Response)) return next;
+    const builder = await KT.m(receiver, 'newBuilder', []);
+    await KT.m(builder, 'body', [next]);
+    return KT.m(builder, 'build', []);
+  };
+  /// Keiyoushi's `response.xor(key)` (and a body's): its bytes XORed with a byte, or a key's bytes
+  /// in turn.
+  const xorAnswer = async (receiver, [key, type = null]) => {
+    const body = receiver instanceof Response ? receiver.body : receiver;
+    const bytes = await bodyU8(body);
+    const mask = typeof key === 'number' ? [key & 255] : Array.from(u8Of(key));
+    const out = new Uint8Array(bytes.length);
+    for (let at = 0; at < bytes.length; at++) out[at] = bytes[at] ^ mask[at % mask.length];
+    const next = bytesBody(async () => out, type ?? (body.contentType ? body.contentType() : null));
     if (!(receiver instanceof Response)) return next;
     const builder = await KT.m(receiver, 'newBuilder', []);
     await KT.m(builder, 'body', [next]);
@@ -5741,6 +5981,9 @@
       color: from && typeof from === 'object' ? from.color : -16777216,
       alpha: 255,
       style: 'FILL',
+      strokeWidth: from && typeof from === 'object' ? (from.strokeWidth ?? 0) : 0,
+      textAlign: from && typeof from === 'object' ? (from.textAlign ?? 'LEFT') : 'LEFT',
+      textScaleX: from && typeof from === 'object' ? (from.textScaleX ?? 1) : 1,
       textSize: from && typeof from === 'object' ? from.textSize : 12,
       typeface: from && typeof from === 'object' ? from.typeface : null,
       isAntiAlias: false,
@@ -5749,6 +5992,22 @@
       setColor: (color) => ((paint.color = color), KT.unit),
       setAlpha: (alpha) => ((paint.alpha = alpha), KT.unit),
       setStyle: (style) => ((paint.style = style), KT.unit),
+      setStrokeWidth: (width) => ((paint.strokeWidth = width), KT.unit),
+      setTextAlign: (align) => ((paint.textAlign = align), KT.unit),
+      setTextScaleX: (scale) => ((paint.textScaleX = scale), KT.unit),
+      // The text's width on one line at this paint's size (and `textScaleX`).
+      measureText: (text, start = null, end = null) => {
+        const all = KT.str(text ?? '');
+        const content = start !== null && end !== null ? all.slice(start, end) : all;
+        if (!content) return 0;
+        const measured = K.bitmap.run('measureText', {
+          text: content,
+          size: Number(paint.textSize ?? 12),
+          width: 0,
+          bold: Boolean(paint.typeface?.bold || paint.isFakeBoldText),
+        });
+        return measured.width * Number(paint.textScaleX ?? 1);
+      },
       setTextSize: (size) => ((paint.textSize = size), KT.unit),
       setTypeface: (typeface) => ((paint.typeface = typeface), typeface),
       setAntiAlias: (on) => ((paint.isAntiAlias = on), KT.unit),
@@ -5921,7 +6180,19 @@
       return this.clip[0] < this.clip[2] && this.clip[1] < this.clip[3];
     }
     /// `drawBitmap(bitmap, left, top, paint)`, `(bitmap, src, dst, paint)`, `(bitmap, matrix, paint)`.
-    drawBitmap(bitmap, second, third) {
+    drawBitmap(bitmap, second, third, ...rest) {
+      // A paint whose `ColorMatrixColorFilter` changes the colours: drawn from a changed copy.
+      const paint = [third, ...rest].find((value) => value && value.__class === 'Paint');
+      const colors = paint && paint.colorFilter && paint.colorFilter.colorMatrix;
+      if (colors) {
+        const copy = bitmap.copy();
+        try {
+          K.bitmap.run('colors', { id: copy.id, matrix: colors });
+          return this.drawBitmap(copy, second, third === paint ? null : third);
+        } finally {
+          copy.recycle();
+        }
+      }
       let part = [0, 0, bitmap.width, bitmap.height];
       let local;
       if (typeof second === 'number') local = translation(second, third);
@@ -5965,13 +6236,66 @@
       const paint = args.pop();
       const rect = rectFrom(args);
       if (!rect) return KT.unit;
-      K.bitmap.run('fill', {
+      const color = argbOf(paint ? paint.color : colorStatics.BLACK);
+      const fill = (left, top, right, bottom) =>
+        K.bitmap.run('fill', {
+          id: this.target(),
+          rect: [left, top, right, bottom],
+          matrix: this.matrix,
+          color,
+        });
+      // A stroke: its four sides, `strokeWidth` wide (centred on the edge, as Android draws).
+      if (paint && paint.style === 'STROKE') {
+        const half = Math.max(Number(paint.strokeWidth) || 1, 1) / 2;
+        const { left, top, right, bottom } = rect;
+        fill(left - half, top - half, right + half, top + half);
+        fill(left - half, bottom - half, right + half, bottom + half);
+        fill(left - half, top + half, left + half, bottom - half);
+        fill(right - half, top + half, right + half, bottom - half);
+        return KT.unit;
+      }
+      fill(rect.left, rect.top, rect.right, rect.bottom);
+      return KT.unit;
+    }
+    /// `drawText(text, x, y, paint)` (also a part: `(text, start, end, x, y, paint)`, or a char
+    /// array's `(chars, index, count, x, y, paint)`): one line on its baseline at `y`, placed by
+    /// the paint's alignment and stretched by its `textScaleX`.
+    drawText(text, ...rest) {
+      const paint = rest.pop();
+      const chars = Array.isArray(text);
+      let content = chars ? text.join('') : KT.str(text ?? '');
+      let [x, y] = rest;
+      if (rest.length >= 4) {
+        const [first, second] = rest;
+        content = chars ? text.slice(first, first + second).join('') : content.slice(first, second);
+        [x, y] = rest.slice(2);
+      }
+      if (!content) return KT.unit;
+      let left = Number(x);
+      const align = KT.str(paint?.textAlign ?? 'LEFT');
+      if (paint && align !== 'LEFT') {
+        const width = paint.measureText(content);
+        left -= align === 'CENTER' ? width / 2 : width;
+      }
+      K.bitmap.run('drawText', {
         id: this.target(),
-        rect: [rect.left, rect.top, rect.right, rect.bottom],
-        matrix: this.matrix,
+        text: content,
+        size: Number(paint?.textSize ?? 12),
+        width: 0,
+        bold: Boolean(paint?.typeface?.bold || paint?.isFakeBoldText),
+        x: 0,
+        y: 0,
+        baseline: true,
+        matrix: mul(this.matrix, [Number(paint?.textScaleX ?? 1), 0, 0, 1, left, Number(y)]),
         color: argbOf(paint ? paint.color : colorStatics.BLACK),
       });
       return KT.unit;
+    }
+    /// `drawRoundRect(rect, rx, ry, paint)`: a rectangle (its corners left square).
+    drawRoundRect(...args) {
+      const paint = args.pop();
+      const rect = rectFrom(args.length >= 4 ? args.slice(0, -2) : args.slice(0, 1));
+      return rect ? this.drawRect(rect, paint) : KT.unit;
     }
   }
 
@@ -6541,6 +6865,203 @@
   };
   /// A comparator's verdict on two values: a `Comparator { a, b -> … }`, a collator, or one made
   /// by `compareBy`.
+  /// commons-text's `StringSubstitutor`: `prefix + name + suffix` replaced by the name's value
+  /// (`name:-fallback` gives a fallback), one escaped (`$` before the prefix) kept as written
+  /// without its escape.
+  const stringSubstitutor = (values, prefix, suffix, escape) => {
+    const valueOf = (name) => {
+      if (values instanceof Map) return values.get(name);
+      if (
+        values &&
+        typeof values === 'object' &&
+        Object.prototype.hasOwnProperty.call(values, name)
+      )
+        return values[name];
+      return undefined;
+    };
+    const substitutor = {
+      __class: 'StringSubstitutor',
+      __classes: ['StringSubstitutor'],
+      isEnableUndefinedVariableException: false,
+      replace: (template) => {
+        if (template === null || template === undefined) return null;
+        const text = KT.str(template);
+        let out = '';
+        let at = 0;
+        while (at < text.length) {
+          const start = text.indexOf(prefix, at);
+          if (start < 0) break;
+          if (escape && start >= escape.length && text.startsWith(escape, start - escape.length)) {
+            out += text.slice(at, start - escape.length) + prefix;
+            at = start + prefix.length;
+            continue;
+          }
+          const end = text.indexOf(suffix, start + prefix.length);
+          if (end < 0) break;
+          const inside = text.slice(start + prefix.length, end);
+          const split = inside.indexOf(':-');
+          const name = split < 0 ? inside : inside.slice(0, split);
+          const value = valueOf(name);
+          out += text.slice(at, start);
+          if (value !== undefined && value !== null) out += KT.str(value);
+          else if (split >= 0) out += inside.slice(split + 2);
+          else if (substitutor.isEnableUndefinedVariableException)
+            throw new KotlinError(`Cannot resolve variable '${name}'`, 'IllegalArgumentException');
+          else out += text.slice(start, end + suffix.length);
+          at = end + suffix.length;
+        }
+        return out + text.slice(at);
+      },
+    };
+    return substitutor;
+  };
+  /// The Levenshtein distance between two texts (their UTF-16 units, as Java's).
+  const levenshtein = (left, right) => {
+    if (left === right) return 0;
+    let previous = Array.from({ length: right.length + 1 }, (_, at) => at);
+    for (let row = 0; row < left.length; row++) {
+      const current = [row + 1];
+      for (let column = 0; column < right.length; column++) {
+        const cost = left[row] === right[column] ? 0 : 1;
+        current.push(
+          Math.min(current[column] + 1, previous[column + 1] + 1, previous[column] + cost),
+        );
+      }
+      previous = current;
+    }
+    return previous[right.length];
+  };
+  const normalizedLevenshtein = (left, right) => {
+    const longest = Math.max(left.length, right.length);
+    return longest === 0 ? 0 : levenshtein(left, right) / longest;
+  };
+  /// Jaro–Winkler similarity (java-string-similarity's: the prefix boost above `threshold`).
+  const jaroWinkler = (first, second, threshold) => {
+    if (first === second) return 1;
+    const [max, min] = first.length > second.length ? [first, second] : [second, first];
+    const range = Math.max(Math.floor(max.length / 2) - 1, 0);
+    const matchedAt = new Array(min.length).fill(-1);
+    const taken = new Array(max.length).fill(false);
+    let matches = 0;
+    for (let at = 0; at < min.length; at++) {
+      const end = Math.min(at + range + 1, max.length);
+      for (let other = Math.max(at - range, 0); other < end; other++) {
+        if (!taken[other] && min[at] === max[other]) {
+          matchedAt[at] = other;
+          taken[other] = true;
+          matches++;
+          break;
+        }
+      }
+    }
+    if (!matches) return 0;
+    const fromMin = [...min].filter((_, at) => matchedAt[at] !== -1);
+    const fromMax = [...max].filter((_, at) => taken[at]);
+    let transpositions = 0;
+    for (let at = 0; at < fromMin.length; at++) if (fromMin[at] !== fromMax[at]) transpositions++;
+    let prefix = 0;
+    while (prefix < min.length && first[prefix] === second[prefix]) prefix++;
+    const half = Math.floor(transpositions / 2);
+    const jaro =
+      (matches / first.length + matches / second.length + (matches - half) / matches) / 3;
+    return jaro > threshold ? jaro + Math.min(0.1, 1 / max.length) * prefix * (1 - jaro) : jaro;
+  };
+  /// java-nat-sort's simple natural order: runs of digits by their number, the rest by character.
+  const naturalCompare = (left, right, ignoreCase) => {
+    const first = KT.str(left);
+    const second = KT.str(right);
+    const isDigit = (char) => char >= '0' && char <= '9';
+    let at = 0;
+    let other = 0;
+    while (at < first.length && other < second.length) {
+      if (isDigit(first[at]) && isDigit(second[other])) {
+        let end = at;
+        while (end < first.length && isDigit(first[end])) end++;
+        let otherEnd = other;
+        while (otherEnd < second.length && isDigit(second[otherEnd])) otherEnd++;
+        const number = first.slice(at, end).replace(/^0+(?=\d)/, '');
+        const otherNumber = second.slice(other, otherEnd).replace(/^0+(?=\d)/, '');
+        if (number.length !== otherNumber.length) return number.length - otherNumber.length;
+        if (number !== otherNumber) return number < otherNumber ? -1 : 1;
+        at = end;
+        other = otherEnd;
+        continue;
+      }
+      const char = ignoreCase ? first[at].toLowerCase() : first[at];
+      const otherChar = ignoreCase ? second[other].toLowerCase() : second[other];
+      if (char !== otherChar) return char < otherChar ? -1 : 1;
+      at++;
+      other++;
+    }
+    return first.length - at - (second.length - other);
+  };
+  const naturalComparator = (ignoreCase) => ({
+    __class: 'Comparator',
+    __classes: ['Comparator'],
+    compare: (left, right) => naturalCompare(left, right, ignoreCase),
+  });
+  /// Android's `ColorMatrix`: 20 numbers, the identity unless given.
+  const colorMatrix = (values) => {
+    const identity = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+    const matrix = {
+      __class: 'ColorMatrix',
+      __classes: ['ColorMatrix'],
+      isColorMatrix: true,
+      values:
+        values && values.isColorMatrix
+          ? [...values.values]
+          : values
+            ? Array.from(values, Number)
+            : identity,
+      getArray: () => [...matrix.values],
+      set: (other) => {
+        matrix.values =
+          other && other.isColorMatrix ? [...other.values] : Array.from(other, Number);
+        return KT.unit;
+      },
+      reset: () => ((matrix.values = [...identity]), KT.unit),
+      // `setSaturation(0f)`: greys, by the luminance Android weighs.
+      setSaturation: (saturation) => {
+        const s = Number(saturation);
+        const [r, g, b] = [0.213 * (1 - s), 0.715 * (1 - s), 0.072 * (1 - s)];
+        matrix.values = [r + s, g, b, 0, 0, r, g + s, b, 0, 0, r, g, b + s, 0, 0, 0, 0, 0, 1, 0];
+        return KT.unit;
+      },
+    };
+    return matrix;
+  };
+  const STARTED_AT = Date.now();
+  const mainLooper = { __class: 'Looper', __classes: ['Looper'] };
+  /// Android's `Handler`: work posted runs on the runtime's one thread, at once or after a delay.
+  const handler = () => ({
+    __class: 'Handler',
+    __classes: ['Handler'],
+    post: async (work) => {
+      await work();
+      return true;
+    },
+    postDelayed: (work, millis) => {
+      (async () => {
+        try {
+          await GLOBALS.delay([millis]);
+          await work();
+        } catch (error) {
+          console.log(`posted work failed: ${KT.str(error && error.message)}`);
+        }
+      })();
+      return true;
+    },
+    removeCallbacksAndMessages: () => {},
+  });
+  const inetAddress = (host) => ({
+    __class: 'InetAddress',
+    __classes: ['InetAddress'],
+    hostName: KT.str(host),
+    hostAddress: KT.str(host),
+    getHostName: () => KT.str(host),
+    getHostAddress: () => KT.str(host),
+    toString: () => `/${KT.str(host)}`,
+  });
   const compareWith = async (order, left, right) => {
     if (typeof order === 'function') return order(left, right);
     if (order && order.keys) return order.compare(left, right);
@@ -6667,7 +7188,21 @@
       toURI: () => uri,
       toHttpUrl: () => HttpUrl.parse(href),
       toExternalForm: () => href,
+      toASCIIString: () => href,
       buildUpon: () => HttpUrl.parse(href).newBuilder(),
+      // Java's `base.relativize(child)`: the child's path past this one's (with its query and
+      // fragment), or the child itself when it isn't under this one.
+      relativize: (other) => {
+        const child = other && other.__class === 'URI' ? other : javaUri(KT.str(other));
+        if (!parts || child.scheme !== uri.scheme || child.authority !== uri.authority)
+          return child;
+        const base = uri.path.endsWith('/') ? uri.path : `${uri.path}/`;
+        if (child.path !== uri.path && !child.path.startsWith(base)) return child;
+        const rest = child.path === uri.path ? '' : child.path.slice(base.length);
+        const query = child.rawQuery == null ? '' : `?${child.rawQuery}`;
+        const fragment = child.fragment == null ? '' : `#${child.fragment}`;
+        return javaUri(`${rest}${query}${fragment}`);
+      },
       toString: () => href,
       equals: (other) => KT.str(other) === href,
     };
@@ -6706,6 +7241,7 @@
     limitedParallelism: () => coroutineContext(name),
     cancel: () => KT.unit,
     cancelChildren: () => KT.unit,
+    ensureActive: () => KT.unit,
     isActive: true,
   });
   const dispatchers = {
@@ -7196,6 +7732,8 @@
         if (!bytes) throw missing();
         return inputStream(bytes);
       },
+      // Kotlin's `dir.resolve("a/b.json")`: a file inside this one.
+      resolve: (child) => javaFile(path, child && child.isFile ? child.path : KT.str(child)),
       // okio's `file.source()` and `file.sink()`: its bytes, and what's written kept when the
       // sink closes (or flushes).
       source: () => {
@@ -7251,6 +7789,25 @@
     filesDir: javaFile('/files'),
     getCacheDir: () => javaFile('/cache'),
     getFilesDir: () => javaFile('/files'),
+    // `getSystemService(ActivityManager::class.java)`: what reports the device's memory.
+    getSystemService: () => activityManager,
+  };
+  /// Android's `ActivityManager.MemoryInfo`, filled by `getMemoryInfo(info)` with a phone's
+  /// typical figures (4 GB).
+  const memoryInfo = () => ({
+    __class: 'MemoryInfo',
+    __classes: ['MemoryInfo'],
+    totalMem: 4 * 1073741824,
+    availMem: 2 * 1073741824,
+    threshold: 256 * 1048576,
+    lowMemory: false,
+  });
+  const activityManager = {
+    __class: 'ActivityManager',
+    __classes: ['ActivityManager'],
+    getMemoryInfo: (info) => Object.assign(info, memoryInfo(), { __class: info.__class }),
+    isLowRamDevice: () => false,
+    getMemoryClass: () => 256,
   };
   /// `AtomicInteger`, `AtomicLong`, `AtomicBoolean`, `AtomicReference`: a value, set and read
   /// on one thread here.
@@ -7397,6 +7954,45 @@
     BLAKE2b: ([bits = 512]) => blake2b(Number(bits)),
     // Java's `CRC32`: `update(bytes)` as often as it's called, then `value`.
     CRC32: () => crc32Checksum(),
+    // Android's `ColorMatrix` (4 rows of 5) and the filter a paint draws pictures through.
+    ColorMatrix: ([values = null]) => colorMatrix(values),
+    ColorMatrixColorFilter: ([matrix]) => ({
+      __class: 'ColorMatrixColorFilter',
+      __classes: ['ColorMatrixColorFilter', 'ColorFilter'],
+      colorMatrix: matrix && matrix.isColorMatrix ? [...matrix.values] : Array.from(matrix ?? []),
+    }),
+    // kotlinx.coroutines' `currentCoroutineContext()`: never cancelled here.
+    currentCoroutineContext: () => coroutineContext('CoroutineContext'),
+    // kotlinx's serializers, as `JsonTransformingSerializer`s take them (decoding goes by the
+    // declared types).
+    ListSerializer: ([item]) => ({ isSerializer: true, name: 'List', item }),
+    SetSerializer: ([item]) => ({ isSerializer: true, name: 'Set', item }),
+    MapSerializer: ([key, value]) => ({ isSerializer: true, name: 'Map', key, value }),
+    serializer: () => ({ isSerializer: true, name: 'Any' }),
+    // Android's `Handler(looper)`: `post { … }` and `postDelayed({ … }, ms)`.
+    Handler: () => handler(),
+    // commons-text's `StringSubstitutor(values, "{", "}")`: `replace(template)`.
+    StringSubstitutor: ([values, prefix = '${', suffix = '}', escape = '$']) =>
+      stringSubstitutor(values, KT.str(prefix), KT.str(suffix), KT.str(escape)),
+    // java-string-similarity's measures: `distance(a, b)` (and `similarity` for the normalized).
+    Levenshtein: () => ({
+      __class: 'Levenshtein',
+      __classes: ['Levenshtein'],
+      distance: (left, right, limit = Infinity) =>
+        Math.min(levenshtein(KT.str(left), KT.str(right)), Number(limit)),
+    }),
+    NormalizedLevenshtein: () => ({
+      __class: 'NormalizedLevenshtein',
+      __classes: ['NormalizedLevenshtein'],
+      distance: (left, right) => normalizedLevenshtein(KT.str(left), KT.str(right)),
+      similarity: (left, right) => 1 - normalizedLevenshtein(KT.str(left), KT.str(right)),
+    }),
+    JaroWinkler: ([threshold = 0.7]) => ({
+      __class: 'JaroWinkler',
+      __classes: ['JaroWinkler'],
+      similarity: (left, right) => jaroWinkler(KT.str(left), KT.str(right), Number(threshold)),
+      distance: (left, right) => 1 - jaroWinkler(KT.str(left), KT.str(right), Number(threshold)),
+    }),
     EOFException: ([message]) => new KotlinError(message, 'EOFException'),
     Error: ([message]) => new KotlinError(message, 'Error'),
     GeneralSecurityException: ([message]) => new KotlinError(message, 'GeneralSecurityException'),
@@ -7879,12 +8475,26 @@
     const ms = Date.parse(value);
     return Number.isNaN(ms) ? null : ms;
   };
+  /// The type a serializer passed first stands for (`Payload.serializer()`), else none.
+  const serializerType = (args) =>
+    args.length > 1 && args[0] && args[0].isSerializer && args[0].holder
+      ? args[0].holder.definition.qualified || args[0].name
+      : null;
   const jsonCodec = {
-    decodeFromString: (text) => JSON.parse(KT.str(text)),
+    // `decodeFromString(text)`, or `(Payload.serializer(), text)`: decoded as that class.
+    decodeFromString: async (...args) => {
+      const value = JSON.parse(KT.str(args[args.length - 1]));
+      const type = serializerType(args);
+      return type ? decode(value, type) : value;
+    },
     parseToJsonElement: (text) => JSON.parse(KT.str(text)),
     // `encodeToString(String.serializer(), value)` too.
     encodeToString: (...args) => JSON.stringify(plain(args[args.length - 1])),
-    decodeFromJsonElement: (...args) => args[args.length - 1],
+    decodeFromJsonElement: async (...args) => {
+      const value = args[args.length - 1];
+      const type = serializerType(args);
+      return type ? decode(value, type) : value;
+    },
     encodeToJsonElement: (value) => plain(value),
   };
   /// `awaitAll()`: deferred values (`async { … }`), worked out together.
@@ -8610,9 +9220,9 @@
     MIN_VALUE: -2147483648,
     SIZE: 32,
     BYTES: 4,
-    parseInt: (text, radix = 10) => KT.nn(toInt(text, radixOf(radix))),
+    parseInt: (text, radix = 10) => numberOf(toInt(text, radixOf(radix)), text),
     valueOf: (value, radix = 10) =>
-      typeof value === 'number' ? value : KT.nn(toInt(value, radixOf(radix))),
+      typeof value === 'number' ? value : numberOf(toInt(value, radixOf(radix)), value),
     parseUnsignedInt: (text, radix = 10) => parseInt(KT.str(text), radixOf(radix)) | 0,
     toString: (value, radix = 10) => (value | 0).toString(radixOf(radix)),
     toHexString: (value) => (value >>> 0).toString(16),
@@ -8916,6 +9526,8 @@
     },
     FORCE_NETWORK: { isCacheControl: true },
     FORCE_CACHE: { isCacheControl: true },
+    // Keiyoushi's `DEFAULT_CACHE_CONTROL` (10 minutes), the default of its request helpers.
+    DEFAULT_CACHE_CONTROL: { isCacheControl: true },
     // kotlin.time's `TimeSource.Monotonic.markNow().elapsedNow()`.
     // Java's `Runtime`: a phone's, for sources sizing work by it.
     File: {
@@ -8984,6 +9596,14 @@
     },
     OffsetDateTime: {
       parse: (text) => moment(wallClock(text, null, 'ZonedDateTime'), 'ZonedDateTime'),
+      now: () => moment(Date.now(), 'ZonedDateTime'),
+      // `OffsetDateTime.of(year, month, day, hour, minute, second, nanos, offset)`: that instant.
+      of: (year, month, day, hour = 0, minute = 0, second = 0, nanos = 0, offset = null) =>
+        moment(
+          Date.UTC(year, month - 1, day, hour, minute, second, Math.floor(Number(nanos) / 1e6)) -
+            Number(offset && offset.isZone ? offset.offset : 0) * 60000,
+          'ZonedDateTime',
+        ),
     },
     // Android's graphics and Java's `ByteBuffer` (above); `lib:imagedecoder`'s `ImageDecoder`
     // and `lib:textinterceptor`'s helper.
@@ -9017,6 +9637,19 @@
           __classes: ['QuickJs'],
           evaluate: (code) => {
             const script = KT.str(code);
+            const value = K.evaluate([...ran, script].join(';\n'));
+            ran.push(script);
+            return value;
+          },
+          // `compile(code, name)` gives "bytecode" that `execute` runs in an engine: here the
+          // script itself, run as `evaluate` would.
+          compile: (code) => ({
+            __class: 'CompiledScript',
+            __classes: ['CompiledScript'],
+            script: KT.str(code),
+          }),
+          execute: (bytecode) => {
+            const script = bytecode && bytecode.script !== undefined ? bytecode.script : '';
             const value = K.evaluate([...ran, script].join(';\n'));
             ran.push(script);
             return value;
@@ -9387,6 +10020,8 @@
       max: Math.max,
       min: Math.min,
       abs: Math.abs,
+      floorDiv: (a, b) => Math.floor(Number(a) / Number(b)),
+      floorMod: (a, b) => ((Number(a) % Number(b)) + Number(b)) % Number(b),
       floor: Math.floor,
       ceil: Math.ceil,
       round: Math.round,
@@ -9461,6 +10096,50 @@
     KeyPairGenerator: { getInstance: (name) => keyPairGenerator(name) },
     KeyFactory: { getInstance: (name) => keyFactory(name) },
     KeyAgreement: { getInstance: () => keyAgreement() },
+    // java-nat-sort's comparators (`CaseInsensitiveSimpleNaturalComparator.getInstance()`).
+    CaseInsensitiveSimpleNaturalComparator: { getInstance: () => naturalComparator(true) },
+    CaseSensitiveSimpleNaturalComparator: { getInstance: () => naturalComparator(false) },
+    // `ActivityManager.MemoryInfo()`, filled by the context's `ActivityManager`.
+    ActivityManager: { MemoryInfo: () => memoryInfo() },
+    // Jsoup's selectors parsed ahead (`QueryParser.parse(query)`) and run (`Collector`).
+    QueryParser: {
+      parse: (query) => ({
+        __class: 'Evaluator',
+        __classes: ['Evaluator'],
+        query: KT.str(query),
+        toString: () => KT.str(query),
+      }),
+    },
+    Collector: {
+      findFirst: (evaluator, root) => KT.m(root, 'selectFirst', [evaluator.query]),
+      collect: (evaluator, root) => KT.m(root, 'select', [evaluator.query]),
+    },
+    // Android's clocks since the runtime started (`SystemClock.elapsedRealtime()`).
+    SystemClock: {
+      elapsedRealtime: () => Date.now() - STARTED_AT,
+      uptimeMillis: () => Date.now() - STARTED_AT,
+      elapsedRealtimeNanos: () => (Date.now() - STARTED_AT) * 1e6,
+      currentThreadTimeMillis: () => Date.now() - STARTED_AT,
+    },
+    // Android's main thread (`Handler(Looper.getMainLooper()).post { … }`): the runtime's one.
+    Looper: { getMainLooper: () => mainLooper, myLooper: () => mainLooper },
+    // Android's toasts: nothing to show them on, so their text goes to the log.
+    Toast: {
+      LENGTH_SHORT: 0,
+      LENGTH_LONG: 1,
+      makeText: (_context, text) => ({
+        __class: 'Toast',
+        __classes: ['Toast'],
+        show: () => console.log(`toast: ${KT.str(text)}`),
+        cancel: () => {},
+      }),
+    },
+    // Java's `InetAddress.getByName(host)`: the host as an address (the runtime resolves names
+    // itself, so a source's own `Dns` only names them).
+    InetAddress: {
+      getByName: (host) => inetAddress(host),
+      getAllByName: (host) => [inetAddress(host)],
+    },
     Signature: { getInstance: (name) => javaSignature(name) },
     AlgorithmParameters: {
       getInstance: () => ({
@@ -9596,6 +10275,12 @@
     Sort: (name, values, state = null) =>
       filterObject('Sort', { name, values: [...(values ?? [])], state }),
   };
+  // `Filter.TriState.STATE_INCLUDE`: the states on the constructor too.
+  Object.assign(FILTER_CONSTRUCTORS.TriState, {
+    STATE_IGNORE: 0,
+    STATE_INCLUDE: 1,
+    STATE_EXCLUDE: 2,
+  });
   OBJECTS.Filter = FILTER_CONSTRUCTORS;
   // A lookup by a Kotlin name never finds JavaScript's own (`"x".toString()` is the text, not
   // `Object.prototype.toString`'s "[object Object]").
@@ -9732,6 +10417,16 @@
     LinkedHashMap: 'map',
     MutableMap: 'map',
   };
+  /// Collection interfaces a class may delegate to one of its fields (`: Iterable<Manga> by results`):
+  /// it's then that collection, as its items.
+  const DELEGATED_BASES = {
+    Iterable: 'list',
+    Collection: 'list',
+    MutableCollection: 'list',
+    List: 'list',
+    Set: 'set',
+    Map: 'map',
+  };
   /// The class a declared class builds on when the source declares it too: by the name as
   /// written (`Outer.Inner`), else by its last part. Mihon's own filters (`Filter.Group`) stay
   /// Mihon's even when the source has a class of the same short name (a DTO's `Group`).
@@ -9776,7 +10471,9 @@
     /// An instance with these fields (`undefined` ones take their defaults).
     const build = async (fields, json = null) => {
       // A class built on a collection (`class CdnSet : LinkedHashSet<String>()`) is one.
-      const base = COLLECTION_BASES[definition.supers[0]?.split('<')[0].split('.').pop()];
+      const baseName = definition.supers[0]?.split('<')[0].split('.').pop();
+      const base =
+        COLLECTION_BASES[baseName] ?? (definition.delegate ? DELEGATED_BASES[baseName] : undefined);
       const object = base === 'map' ? new Map() : base ? [] : {};
       if (base === 'set') object.isSet = true;
       object.__class = definition.name;
@@ -9793,6 +10490,12 @@
             ...definition.params.map((other) => (other in object ? object[other] : undefined)),
           );
         object[name] = value ?? null;
+      }
+      // The items of the field it's delegated to.
+      if (definition.delegate && base && object[definition.delegate]) {
+        const items = object[definition.delegate];
+        if (base === 'map') for (const entry of KT.iter(items)) object.set(entry.key, entry.value);
+        else for (const item of KT.iter(items)) object.push(item);
       }
       const parentClass = parentOf(definition);
       if (definition.superArgs) {
@@ -9834,7 +10537,12 @@
             enumerable: false,
             configurable: true,
           });
-        else {
+        else if (definition.params.includes(name)) {
+          // A function named as one of its fields (`val title: RenderedDto` beside `fun title()`):
+          // the field keeps the name, and the function is called by it.
+          object.__methods ??= {};
+          object.__methods[name] = (...rest) => member(object, ...rest);
+        } else {
           object[name] = (...rest) => member(object, ...rest);
           object[name].arity = Math.max(0, member.length - 1);
         }
@@ -9903,8 +10611,27 @@
           configurable: true,
         });
       }
-      object.toString = () =>
-        `${definition.name}(${definition.params.map((name) => `${name}=${KT.str(object[name])}`).join(', ')})`;
+      // A data class's text, unless the class (or a parent) writes its own
+      // (`override fun toString() = downloadUrl`).
+      if (
+        !Object.prototype.hasOwnProperty.call(definition.members, 'toString') &&
+        !Object.prototype.hasOwnProperty.call(object, 'toString')
+      )
+        object.toString = () =>
+          `${definition.name}(${definition.params.map((name) => `${name}=${KT.str(object[name])}`).join(', ')})`;
+      else if (typeof object.toString === 'function') {
+        // Its own text is worked out now (its code is async), so text templates and lists
+        // joined read it as they are written; `toString()` called still runs the code.
+        const own = object.toString;
+        object.__methods ??= {};
+        object.__methods.toString = own;
+        try {
+          const text = KT.str(await own());
+          object.toString = () => text;
+        } catch {
+          // Left as the call: it can't be worked out before the fields it reads.
+        }
+      }
       object.copy = (...rest) =>
         make(
           definition.params.map((name, index) =>
@@ -9948,6 +10675,8 @@
       serialName: definition.serialName ?? definition.name,
       supers: definition.supers.map((name) => name.split('<')[0].split('.').pop()),
     };
+    // kotlinx's `Payload.serializer()`, which the decoders take first.
+    holder.serializer = () => ({ isSerializer: true, name: definition.name, holder });
     // Its companion's functions, on the class and, as Kotlin lets its code call them, its
     // instances.
     for (const [name, function_] of Object.entries(definition.statics ?? {}))
@@ -10068,7 +10797,9 @@
     if (kind === 'string') return Boolean(STRING[name]);
     if (kind === 'map') return Boolean(MAP[name]);
     if (kind === 'number' && NUMBER[name]) return true;
+    if (kind === 'bigint' && BIGINT[name]) return true;
     if (typeof receiver[name] === 'function') return true;
+    if (receiver.__methods && receiver.__methods[name]) return true;
     if (kind === 'object' && receiver[name] && receiver[name].isMethod) return true;
     if (kind === 'object' && receiver.__class === undefined && (OBJECT[name] || objectAsMap(name)))
       return true;
@@ -10078,6 +10809,14 @@
     if (receiver === null || receiver === undefined) return false;
     // A list's, a string's or a map's own properties (`size` in `buildList { … }`).
     const kind = kindOf(receiver);
+    // A declared class that is a collection (`class Results : Iterable<Manga> by results`): its
+    // own fields too.
+    if (
+      (kind === 'list' || kind === 'map') &&
+      receiver.__class !== undefined &&
+      Object.prototype.hasOwnProperty.call(receiver, name)
+    )
+      return true;
     if (kind === 'list' || kind === 'elements')
       return ['size', 'lastIndex', 'indices'].includes(name);
     if (kind === 'string') return ['length', 'lastIndex', 'indices', 'category'].includes(name);
@@ -10090,7 +10829,11 @@
     );
   };
 
-  KT.rget = async (receivers, name) => {
+  /// Mihon's own Kotlin classes, whose `getX()` functions aren't properties.
+  const KOTLIN_MODELS = new Set(['SManga', 'SChapter', 'Page', 'MangasPage', 'SMangaUpdate']);
+  /// A name read from the implicit receivers, innermost first, then the source; `extensions`
+  /// false leaves out the source's extension properties (its private ones, unseen by its DTOs).
+  KT.rget = async (receivers, name, extensions = true) => {
     const last = receivers[receivers.length - 1];
     const sourceHas = Boolean(last && last.isSource && last.has(name));
     for (const receiver of receivers) {
@@ -10100,10 +10843,21 @@
         continue;
       }
       if (hasField(receiver, name)) return KT.p(receiver, name);
+      // A Java getter read as a property (`all` in `preferences.apply { … }` is `getAll()`); a
+      // Kotlin class's `getGenres()` (Mihon's models, the source's own) is no property.
+      if (
+        typeof receiver === 'object' &&
+        !receiver.isSource &&
+        !KOTLIN_MODELS.has(receiver.__class) &&
+        !CLASSES[receiver.__class] &&
+        typeof receiver[`get${name.charAt(0).toUpperCase()}${name.slice(1)}`] === 'function'
+      )
+        return KT.p(receiver, name);
       // One of the source's extension properties on this receiver (`val Element.isValid`);
       // extension functions are registered with their receivers' types and are never read as
       // properties (`slug` in `apply` beside `fun SManga.slug()` is a field).
       if (
+        extensions &&
         last &&
         last.isSource &&
         last.hasExtension(name) &&
@@ -10279,9 +11033,13 @@
       for (let index = below - 1; index >= 0; index--) {
         const overloads = layers[index].functions.get(name);
         if (!overloads) continue;
-        const fits = overloads.filter(
+        const counted = overloads.filter(
           ([required, total]) => args.length >= required && args.length <= total,
         );
+        // Overloads taking as many arguments, by their parameters' types (`getMangaUrl(manga)`
+        // beside `getMangaUrl(id)`), when one fits.
+        const typed = counted.filter(([, , , types]) => !types || argsFit(types, args));
+        const fits = typed.length ? typed : counted;
         const chosen = fits.find(([, total]) => total === args.length) ?? fits[0];
         if (chosen) return chosen[2];
         fallback ??= overloads[0][2];
@@ -10386,7 +11144,7 @@
       call: (name, args) => invoke(name, args, top),
       ext: async (name, receiver, args) => {
         const function_ = extensions.get(name);
-        if (!function_) return KT.m(receiver, name, args);
+        if (!function_) return KT.m(receiver, name, args, null, null, typeOfCall(args));
         // A member wins over an extension of the same name, as in Kotlin, when it takes the
         // arguments (`dto.toSManga(baseUrl)` beside the source's `Other.toSManga(manga)`).
         const own = receiver && receiver.__class !== undefined ? receiver[name] : undefined;
@@ -10413,7 +11171,7 @@
             extensionTakes(entry, receiver, args),
           )
         )
-          return KT.m(receiver, name, args);
+          return KT.m(receiver, name, args, null, null, typeOfCall(args));
         return enter(function_, args, receiver);
       },
       base: {
@@ -10590,7 +11348,9 @@
         });
         if (chapterFacts.size > 4000) chapterFacts.delete(chapterFacts.keys().next().value);
       };
-      const titleOf = (id) => manga({ url: id, memo: memos.get(id) });
+      // A title as Mihon's library hands it over: with the name it was listed under, which some
+      // sources' details read (GlobalComix's slug of the title).
+      const titleOf = (id) => manga({ url: id, memo: memos.get(id), title: memos.title(id) ?? '' });
       const update = async (id, details) => {
         await ready();
         const answer = await self.call('fetchMangaUpdate', [titleOf(id), [], details, !details]);

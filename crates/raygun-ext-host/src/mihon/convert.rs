@@ -149,10 +149,20 @@ pub const THEMES: [Theme; 2] = [
     },
 ];
 
-/// Keiyoushi's libraries the runtime has itself: `lib:i18n`'s messages come with the converted
-/// code; `lib:textinterceptor` (text drawn as a page) and `lib:imagedecoder` (pictures decoded) are
-/// the runtime's own (`mihon/kotlin.js`).
-const PROVIDED_LIBRARIES: [&str; 3] = ["lib:i18n", "lib:textinterceptor", "lib:imagedecoder"];
+/// Libraries the runtime has itself: `lib:i18n`'s messages come with the converted code;
+/// `lib:textinterceptor` (text drawn as a page) and `lib:imagedecoder` (pictures decoded) are the
+/// runtime's own (`mihon/kotlin.js`), as are the classes extensions use of commons-text
+/// (`StringSubstitutor`), java-string-similarity (`Levenshtein`, `NormalizedLevenshtein`,
+/// `JaroWinkler`) and java-nat-sort (its simple natural comparators); what else of those an
+/// extension uses is refused by name.
+const PROVIDED_LIBRARIES: [&str; 6] = [
+    "lib:i18n",
+    "lib:textinterceptor",
+    "lib:imagedecoder",
+    "org.apache.commons:commons-text",
+    "info.debatty:java-string-similarity",
+    "com.github.gpanther:java-nat-sort",
+];
 
 /// The parts of Keiyoushi's `core` (`keiyoushi.<module>`) that convert with the code importing
 /// them, as the runtime doesn't have them itself: `zip`, ZIP archives read whole or by HTTP range
