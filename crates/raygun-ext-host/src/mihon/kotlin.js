@@ -101,7 +101,11 @@
       return left.filter((item) => !drop.some((other) => KT.eq(item, other)));
     }
     // Instants and durations: `now - 1.days` is an instant, `end - start` a duration.
-    if (left && typeof left === 'object' && (left.isInstant || left.isDuration)) {
+    if (
+      left &&
+      typeof left === 'object' &&
+      (left.isInstant || left.isDuration || left.isTimeMark)
+    ) {
       if (left.isInstant && right && right.isInstant) return duration(left.ms - right.ms);
       return left.minus(right);
     }
@@ -3982,6 +3986,66 @@
     }
   }
   const duration = (ms) => new KDuration(ms);
+  /// `java.util.Random`: the 48-bit linear congruential generator Java specifies (seeded from the
+  /// clock when no seed is given).
+  const javaRandom = (seed) => {
+    const MULTIPLIER = 0x5deece66dn;
+    const MASK = (1n << 48n) - 1n;
+    let state =
+      (BigInt(Math.trunc(Number(seed ?? Date.now() * 1000 + Math.floor(Math.random() * 1000)))) ^
+        MULTIPLIER) &
+      MASK;
+    const next = (bits) => {
+      state = (state * MULTIPLIER + 0xbn) & MASK;
+      return Number(BigInt.asIntN(32, state >> BigInt(48 - bits)));
+    };
+    const random = {
+      __class: 'Random',
+      __classes: ['Random'],
+      nextInt: (bound, until) => {
+        if (until !== undefined) return bound + random.nextInt(until - bound);
+        if (bound === undefined) return next(32);
+        if ((bound & -bound) === bound) return Number((BigInt(bound) * BigInt(next(31))) >> 31n);
+        let bits;
+        let value;
+        do {
+          bits = next(31);
+          value = bits % bound;
+        } while (bits - value + (bound - 1) < 0 || bits - value + (bound - 1) > 2147483647);
+        return value;
+      },
+      nextLong: () => Number(BigInt.asIntN(64, (BigInt(next(32)) << 32n) + BigInt(next(32)))),
+      nextBoolean: () => next(1) !== 0,
+      nextDouble: () => (next(26) * 2 ** 27 + next(27)) / 2 ** 53,
+      nextFloat: () => next(24) / 2 ** 24,
+      nextBytes: (target) => {
+        for (let at = 0; at < target.length;) {
+          let word = next(32);
+          for (let left = Math.min(target.length - at, 4); left-- > 0; word >>= 8)
+            target[at++] = (word << 24) >> 24;
+        }
+        return KT.unit;
+      },
+    };
+    return random;
+  };
+  /// Kotlin's `TimeMark` (`TimeSource.Monotonic.markNow()`, moved by a duration): a moment on
+  /// the clock in milliseconds.
+  const timeMark = (at) => ({
+    __class: 'TimeMark',
+    __classes: ['TimeMark', 'ComparableTimeMark'],
+    ms: at,
+    isTimeMark: true,
+    elapsedNow: () => duration(Date.now() - at),
+    hasPassedNow: () => Date.now() >= at,
+    hasNotPassedNow: () => Date.now() < at,
+    plus: (other) => timeMark(at + (other && other.isDuration ? other.ms : Number(other))),
+    minus: (other) =>
+      other && other.isTimeMark
+        ? duration(at - other.ms)
+        : timeMark(at - (other && other.isDuration ? other.ms : Number(other))),
+    compareTo: (other) => Math.sign(at - other.ms),
+  });
 
   // ---- Streams: okio's `Buffer`, Java's byte streams and `ByteBuffer` ----
   // A `ByteArray` stays a list of numbers 0–255; streams and buffers hold `Uint8Array`s, so a
@@ -6378,6 +6442,8 @@
     CancellationException: ([message]) => new KotlinError(message, 'CancellationException'),
     // Sequences, formats, caches and coroutines (above).
     generateSequence: (args, _named, lambda) => generateSequence(args, lambda),
+    // `java.util.Random(seed)`: Java's own generator, so a seeded one gives Java's numbers.
+    Random: ([seed]) => javaRandom(seed),
     DecimalFormat: ([pattern]) => decimalFormat(pattern),
     SecureRandom: () => random,
     Any: () => ({ __class: 'Any', __classes: ['Any'] }),
@@ -7608,10 +7674,7 @@
     },
     TimeSource: {
       Monotonic: {
-        markNow: () => {
-          const start = Date.now();
-          return { elapsedNow: () => duration(Date.now() - start) };
-        },
+        markNow: () => timeMark(Date.now()),
       },
     },
     GlobalScope: coroutineScope(),

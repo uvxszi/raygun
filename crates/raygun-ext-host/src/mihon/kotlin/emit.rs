@@ -148,6 +148,8 @@ pub const METHODS: &[&str] = &[
     "toMillis", "toSeconds", "getSeconds", "toMinutes", "toHours", "toDays", "convert",
     // Bits as functions (`x.shl(3)`, `x.inv()`)
     "shl", "shr", "ushr", "inv",
+    // `LocalDate.isEqual`, Kotlin's `TimeMark`s (`markNow() + 30.seconds`), `yieldAll`
+    "isEqual", "hasPassedNow", "hasNotPassedNow", "yieldAll",
     // Interceptors, cookies, more Jsoup
     "proceed", "intercept", "addInterceptor", "addNetworkInterceptor", "toResponseBody",
     "peekBody", "followSslRedirects", "retryOnConnectionFailure", "cookieJar", "interceptors",
@@ -552,7 +554,10 @@ impl<'a> Gen<'a> {
     /// Whether a member call by this name has somewhere to go: the runtime's tables, or a class
     /// the source declares.
     fn known(&self, name: &str) -> bool {
-        METHODS.contains(&name) || self.cx.class_members.contains(name)
+        METHODS.contains(&name)
+            || self.cx.class_members.contains(name)
+            // The source passed around as a value (`source.toImage(url)` in a DTO).
+            || self.cx.functions.contains_key(name)
     }
 
     /// `java.net.URI`, `eu.kanade.tachiyomi.source.model.Filter.Header`: a name written with its
@@ -2201,6 +2206,24 @@ impl<'a> Gen<'a> {
                     .map(|lambda| self.trailing_lambda(lambda, name))
                     .transpose()?;
                 if !self.receivers.is_empty() && !self.cx.functions.contains_key(name) {
+                    // A value of the source's that's a function, called inside a scope
+                    // (`name = chapterTitleFormatter(n, title)` in `apply`).
+                    if !self.known(name)
+                        && !self.cx.extensions.contains(name)
+                        && !GLOBALS.contains(&name.as_str())
+                        && !self.is_local(name)
+                        && (self.cx.constants.contains(name) || self.cx.properties.contains(name))
+                    {
+                        let function = self.name(name)?;
+                        let (mut args, _) = self.args(args, None)?;
+                        if let Some(lambda) = lambda_code {
+                            args.push(lambda);
+                        }
+                        return Ok(format!(
+                            "(await KT.invoke({function}, [{}]))",
+                            args.join(", ")
+                        ));
+                    }
                     if !self.known(name) && !self.cx.extensions.contains(name) {
                         return self.global_call(name, args, lambda_code, &type_arg);
                     }
@@ -2902,6 +2925,7 @@ fn passes_a_check(function: &str) -> bool {
 /// Functions and objects the runtime has without a receiver (`mihon/kotlin.js`'s `GLOBALS`).
 #[rustfmt::skip]
 pub const GLOBALS: &[&str] = &[
+    "Random",
     "listOf", "mutableListOf", "arrayListOf", "arrayOf", "listOfNotNull", "emptyList", "emptyArray",
     "setOf", "mutableSetOf", "hashSetOf", "linkedSetOf", "setOfNotNull", "emptySet", "mapOf",
     "mutableMapOf", "hashMapOf", "linkedMapOf", "emptyMap", "Pair", "Triple", "error", "require",
