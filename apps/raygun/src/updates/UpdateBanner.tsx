@@ -19,14 +19,16 @@ const readDismissed = () => {
 
 /**
  * A newer Raygun is out (M46.47): a line at the top of Home leading to About's update card.
- * What's new opens its notes; × hides it until the next release.
+ * What's new opens its notes; × hides it until the next release, as skipping the version does.
  */
 export const UpdateBanner: FC = () => {
   const { t } = useTranslation();
   const update = useAppUpdate().data;
   const [dismissed, setDismissed] = useState(readDismissed);
   const [notesOpen, setNotesOpen] = useState(false);
-  if (!update?.available || !update.latest || dismissed === update.latest) return null;
+  if (!update?.available || !update.latest || update.skipped || dismissed === update.latest) {
+    return null;
+  }
   const latest = update.latest;
   return (
     <div

@@ -76,6 +76,11 @@ pub struct AppUpdate {
     /// 0 to 1 while downloading.
     pub progress: Option<f64>,
     pub message: Option<String>,
+    /// An automatic check found this release and Raygun offers it: neither skipped nor put off
+    /// ("Later") within the last day.
+    pub prompt: bool,
+    /// The newest release was skipped on this device: it isn't offered again (a newer one is).
+    pub skipped: bool,
 }
 
 /// One version's release notes (Markdown), bundled from `docs/releases` or read from GitHub.
@@ -258,6 +263,10 @@ pub struct Settings {
     pub keep_music_playing: bool,
     /// Opening Raygun shows what played last, paused where it was (M46.16).
     pub resume_on_start: bool,
+    /// Raygun looks for a newer version of itself at start and once a day, and offers it (this
+    /// device only); off, only About's Check for updates looks.
+    #[serde(default = "check_updates")]
+    pub check_updates: bool,
     /// Downloads keep going while battery saver is on; off, they wait for it to end.
     pub downloads_in_battery_saver: bool,
     /// How many downloads the desktop bar's Downloads popover lists, latest first (5 to 100).
@@ -2663,6 +2672,7 @@ impl Default for Settings {
             sound: SoundPrefs::default(),
             keep_music_playing: false,
             resume_on_start: true,
+            check_updates: true,
             downloads_in_battery_saver: false,
             downloads_popover: 20,
             audio_quality: AudioQualityPrefs::default(),
@@ -2726,6 +2736,7 @@ impl Settings {
             SettingChange::Sound(prefs) => self.sound = prefs,
             SettingChange::KeepMusicPlaying(on) => self.keep_music_playing = on,
             SettingChange::ResumeOnStart(on) => self.resume_on_start = on,
+            SettingChange::CheckUpdates(on) => self.check_updates = on,
             SettingChange::DownloadsInBatterySaver(on) => self.downloads_in_battery_saver = on,
             SettingChange::DownloadsPopover(count) => self.downloads_popover = count,
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
@@ -2823,6 +2834,7 @@ pub enum SettingChange {
     Sound(SoundPrefs),
     KeepMusicPlaying(bool),
     ResumeOnStart(bool),
+    CheckUpdates(bool),
     DownloadsInBatterySaver(bool),
     DownloadsPopover(u32),
     AudioQuality(AudioQualityPrefs),
@@ -2892,6 +2904,7 @@ impl SettingChange {
             Self::Sound(_) => "sound",
             Self::KeepMusicPlaying(_) => "keepMusicPlaying",
             Self::ResumeOnStart(_) => "resumeOnStart",
+            Self::CheckUpdates(_) => "checkUpdates",
             Self::DownloadsInBatterySaver(_) => "downloadsInBatterySaver",
             Self::DownloadsPopover(_) => "downloadsPopover",
             Self::AudioQuality(_) => "audioQuality",
@@ -2930,6 +2943,7 @@ impl SettingChange {
             | Self::RunSourceCode(_)
             | Self::KeepMusicPlaying(_)
             | Self::ResumeOnStart(_)
+            | Self::CheckUpdates(_)
             | Self::DownloadsInBatterySaver(_)
             | Self::AudioQuality(_)
             | Self::LibraryDisplay(_)
@@ -4499,6 +4513,18 @@ pub struct AudioOutput {
 pub struct AudioOutputs {
     pub outputs: Vec<AudioOutput>,
     pub chosen: Option<String>,
+    /// The output the playing song's sound goes to, as the system routes it; `None` while
+    /// nothing plays here or the system doesn't say.
+    pub routed: Option<String>,
+    /// Where the system sends music without a pick, when it says (Android 13 and later).
+    pub system: Option<String>,
+    /// The playing song is in YouTube's player, which plays where the system sends sound: a pick
+    /// doesn't move it.
+    #[serde(default)]
+    pub web: bool,
+    /// An output was picked and the system kept the playing song elsewhere.
+    #[serde(default)]
+    pub refused: bool,
 }
 
 /// An artist the user follows (M46.42): in the library and quick access, with alerts for new
@@ -6116,6 +6142,10 @@ pub const LAYOUT_BROWSE_TABS: [(&str, bool); 4] = [
 /// Browse all, the tab Browse opens on unless `Settings::browse_start_tab` names another.
 fn browse_start_tab() -> String {
     "discover".into()
+}
+
+fn check_updates() -> bool {
+    true
 }
 
 /// A Browse start tab must be one of `LAYOUT_BROWSE_TABS`.

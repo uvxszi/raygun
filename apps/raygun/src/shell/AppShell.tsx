@@ -41,6 +41,7 @@ import { AppBar } from './AppBar';
 import { setWindowDecorations, useWindowState } from './appWindow';
 import { BottomTabs } from './BottomTabs';
 import { ConnectPrompt } from '../connect/ConnectPrompt';
+import { UpdateOffer } from '../updates/UpdateOffer';
 import { WhatsNewOnStart } from '../updates/WhatsNewSheet';
 import { PermissionPromptHost } from '../permissions/PermissionPrompt';
 import { useNotificationRoutes } from '../permissions/useNotificationRoutes';
@@ -236,6 +237,7 @@ export const AppShell: FC = () => {
         <ToastHost />
         <ConnectPrompt />
         <WhatsNewOnStart />
+        <UpdateOffer />
         <PermissionPromptHost />
         {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}

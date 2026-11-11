@@ -8,6 +8,7 @@ import { EmptyState } from '../shell/EmptyState';
 import { chapterUpdateLink } from './chapterUpdateLink';
 import { DownloadButton } from './DownloadButton';
 import { groupByDay, useDayLabel } from './groupByDay';
+import { bookWords } from './bookWords';
 import { MangaCover } from './MangaCover';
 import { useMangaUpdates } from './useManga';
 import { SourceIssue } from '../shell/SourceIssue';
@@ -23,7 +24,11 @@ export const ChapterUpdateRow: FC<{ item: MangaUpdateItem }> = ({ item }) => {
         data-testid="update-row"
         className={`flex min-w-0 flex-1 items-center gap-3 py-2 ${item.chapter.read ? 'opacity-50' : ''}`}
       >
-        <MangaCover url={item.coverUrl} className="w-10 shrink-0 rounded" />
+        <MangaCover
+          url={item.coverUrl}
+          book={bookWords(item.medium, item.title)}
+          className="w-10 shrink-0 rounded"
+        />
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-medium">{item.title}</span>
           <span className="text-muted truncate text-xs">{item.chapter.name}</span>

@@ -4785,6 +4785,13 @@
     "title": "Where the sound comes out",
     "automatic": "Automatic",
     "numbered": "Output {{n}}",
+    "now": "Now: {{name}}",
+    "playingHere": "Playing here",
+    "refused": "Android kept the sound on {{name}}",
+    "refusedSomewhere": "Android kept the sound where it was",
+    "youTube": "YouTube's player plays where Android sends sound: {{name}}",
+    "youTubeSomewhere": "YouTube's player plays where Android sends sound",
+    "failed": "That output isn't connected any more",
     "kind": {
       "speaker": "Speaker",
       "wired": "Wired headphones",
@@ -4891,7 +4898,16 @@
     "versions": "Versions",
     "linkFailed": "Couldn't open the link",
     "banner": "Raygun {{latest}} is out: update",
-    "dismiss": "Hide until the next release"
+    "dismiss": "Hide until the next release",
+    "autoCheck": "Check for updates automatically",
+    "autoCheckSummary": "When Raygun starts and once a day, and offer new versions",
+    "skippedNote": "You skipped this version: it isn't offered again.",
+    "offerTitle": "Raygun {{latest}} is out",
+    "offerText": "You have {{current}}.",
+    "offerInstall": "Download and install",
+    "offerOpen": "Open the download page",
+    "later": "Later",
+    "skip": "Skip this version"
   },
   "link": {
     "title": "Your devices",

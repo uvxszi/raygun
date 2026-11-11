@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Sheet } from '../shell/Sheet';
 import { videoTitleLink } from '../watch/useVideoLibrary';
+import { bookWords } from './bookWords';
 import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
@@ -62,6 +63,7 @@ export const useDuplicateCheck = (medium: Medium) => {
                   <MangaCover
                     url={duplicate.coverUrl}
                     video={medium === 'video'}
+                    book={bookWords(medium, duplicate.title)}
                     className="w-full"
                   />
                 </span>

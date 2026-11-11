@@ -1670,6 +1670,24 @@ pub async fn app_update_install(
     updates.install().await
 }
 
+/// Later on the update offer: it comes back a day later at the earliest.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_update_later(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+) -> Result<raygun_model::AppUpdate, String> {
+    Ok(updates.put_off().await)
+}
+
+/// Skip this version: the newest release isn't offered again on this device.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_update_skip(
+    updates: tauri::State<'_, Arc<crate::updates::UpdateService>>,
+) -> Result<raygun_model::AppUpdate, String> {
+    Ok(updates.skip().await)
+}
+
 /// Opens Raygun's release page or repository in the system's browser (M46.47).
 #[tauri::command]
 #[specta::specta]

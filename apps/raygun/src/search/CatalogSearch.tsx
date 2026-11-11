@@ -342,6 +342,7 @@ const InYourLibrary: FC<{ medium: Medium; query: string; onMore: () => void }> =
           title: entry.title,
           coverUrl: entry.coverUrl,
           unread: entry.unread,
+          author: entry.authors.join(', ') || null,
         }))}
       />
     </section>

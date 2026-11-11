@@ -234,6 +234,7 @@ export const DEFAULT_SETTINGS: Settings = {
   userAgent: '',
   keepMusicPlaying: false,
   resumeOnStart: true,
+  checkUpdates: true,
   downloadsInBatterySaver: false,
   downloadsPopover: 20,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
@@ -405,6 +406,8 @@ export const bindingsMock = {
     devRemoveTestSources: vi.fn(),
     appUpdate: vi.fn(),
     appUpdateInstall: vi.fn(),
+    appUpdateLater: vi.fn(),
+    appUpdateSkip: vi.fn(),
     appOpenPage: vi.fn(),
     appOpenLink: vi.fn(),
     appWhatsNew: vi.fn(),
@@ -848,6 +851,8 @@ export const NO_UPDATE: AppUpdate = {
   state: 'idle',
   progress: null,
   message: null,
+  prompt: false,
+  skipped: false,
 };
 
 const answerOf = async <T>(call: () => unknown): Promise<T[]> => {
@@ -1150,7 +1155,12 @@ export const seedBindings = () => {
   commands.musicSearchAlbums.mockResolvedValue(ok([]));
   commands.musicArtistReleases.mockResolvedValue(ok([]));
   commands.musicFindAlbum.mockResolvedValue(ok(null));
-  commands.audioOutputs.mockResolvedValue({ outputs: [], chosen: null });
+  commands.audioOutputs.mockResolvedValue({
+    outputs: [],
+    chosen: null,
+    routed: null,
+    system: null,
+  });
   commands.audioOutputSet.mockResolvedValue(ok(null));
   commands.readerSystemBars.mockResolvedValue(ok(null));
   commands.artistsFollowed.mockResolvedValue(ok([]));
@@ -1188,6 +1198,8 @@ export const seedBindings = () => {
   commands.devRemoveTestSources.mockResolvedValue(ok(0));
   commands.appUpdate.mockResolvedValue(ok(NO_UPDATE));
   commands.appUpdateInstall.mockResolvedValue(ok(NO_UPDATE));
+  commands.appUpdateLater.mockResolvedValue(ok(NO_UPDATE));
+  commands.appUpdateSkip.mockResolvedValue(ok(NO_UPDATE));
   commands.appOpenPage.mockResolvedValue(ok(null));
   commands.appOpenLink.mockResolvedValue(ok(null));
   commands.appWhatsNew.mockResolvedValue(ok(null));

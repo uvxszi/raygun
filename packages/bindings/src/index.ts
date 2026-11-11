@@ -880,6 +880,10 @@ export const commands = {
 	devicesSetSharing: (on: boolean) => typedError<null, string>(__TAURI_INVOKE("devices_set_sharing", { on })),
 	/**  Downloads the newest release and starts its installer, or opens its page (M46.47). */
 	appUpdateInstall: () => typedError<AppUpdate, string>(__TAURI_INVOKE("app_update_install")),
+	/**  Later on the update offer: it comes back a day later at the earliest. */
+	appUpdateLater: () => typedError<AppUpdate, string>(__TAURI_INVOKE("app_update_later")),
+	/**  Skip this version: the newest release isn't offered again on this device. */
+	appUpdateSkip: () => typedError<AppUpdate, string>(__TAURI_INVOKE("app_update_skip")),
 	/**  Opens Raygun's release page or repository in the system's browser (M46.47). */
 	appOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("app_open_page", { url })),
 	/**  Opens an https link from release notes in the system's browser. */
@@ -1390,6 +1394,11 @@ export const commands = {
 	keepMusicPlaying: boolean,
 	/**  Opening Raygun shows what played last, paused where it was (M46.16). */
 	resumeOnStart: boolean,
+	/**
+	 *  Raygun looks for a newer version of itself at start and once a day, and offers it (this
+	 *  device only); off, only About's Check for updates looks.
+	 */
+	checkUpdates?: boolean,
 	/**  Downloads keep going while battery saver is on; off, they wait for it to end. */
 	downloadsInBatterySaver: boolean,
 	/**  How many downloads the desktop bar's Downloads popover lists, latest first (5 to 100). */
@@ -1927,6 +1936,13 @@ export type AppUpdate = {
 	/**  0 to 1 while downloading. */
 	progress: number | null,
 	message: string | null,
+	/**
+	 *  An automatic check found this release and Raygun offers it: neither skipped nor put off
+	 *  ("Later") within the last day.
+	 */
+	prompt: boolean,
+	/**  The newest release was skipped on this device: it isn't offered again (a newer one is). */
+	skipped: boolean,
 };
 
 /**  Raygun's own update changed: checked, downloading, installing (M46.47). */
@@ -2022,6 +2038,20 @@ export type AudioOutput = {
 export type AudioOutputs = {
 	outputs: AudioOutput[],
 	chosen: string | null,
+	/**
+	 *  The output the playing song's sound goes to, as the system routes it; `None` while
+	 *  nothing plays here or the system doesn't say.
+	 */
+	routed: string | null,
+	/**  Where the system sends music without a pick, when it says (Android 13 and later). */
+	system: string | null,
+	/**
+	 *  The playing song is in YouTube's player, which plays where the system sends sound: a pick
+	 *  doesn't move it.
+	 */
+	web?: boolean,
+	/**  An output was picked and the system kept the playing song elsewhere. */
+	refused?: boolean,
 };
 
 /**
@@ -5507,7 +5537,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5663,6 +5693,11 @@ export type Settings = {
 	keepMusicPlaying: boolean,
 	/**  Opening Raygun shows what played last, paused where it was (M46.16). */
 	resumeOnStart: boolean,
+	/**
+	 *  Raygun looks for a newer version of itself at start and once a day, and offers it (this
+	 *  device only); off, only About's Check for updates looks.
+	 */
+	checkUpdates?: boolean,
 	/**  Downloads keep going while battery saver is on; off, they wait for it to end. */
 	downloadsInBatterySaver: boolean,
 	/**  How many downloads the desktop bar's Downloads popover lists, latest first (5 to 100). */
