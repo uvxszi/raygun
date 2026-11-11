@@ -211,6 +211,8 @@ impl WebsiteService {
 
     /// Opens a site in the built-in browser, where it was left.
     pub async fn open(self: &Arc<Self>, id: &str) -> Result<(), String> {
+        // Sites are the network's: none opens while Offline Mode is on.
+        raygun_net::network_mode::check_online()?;
         let site = store::get(&self.db(), id)
             .await
             .map_err(to_message)?
@@ -222,6 +224,7 @@ impl WebsiteService {
     /// Opens an address that isn't one of the user's sites, such as a source's website (M46.11).
     /// `key` (starting with [`PAGE_PREFIX`]) names its window; nothing about it is stored.
     pub async fn open_page(self: &Arc<Self>, key: &str, url: &str) -> Result<(), String> {
+        raygun_net::network_mode::check_online()?;
         let url = normalize(url)?;
         self.show(key, url.as_str(), url.as_str(), true).await
     }
@@ -268,6 +271,10 @@ impl WebsiteService {
     /// Downloads the blocklist in the background when the blocker is on and the list is missing,
     /// a week old, or another list was chosen. A download already running isn't started twice.
     async fn refresh_list_later(self: &Arc<Self>) {
+        // Offline Mode: the list on the device stays until the next look once it's off.
+        if raygun_net::network_mode::offline() {
+            return;
+        }
         if !self.prefs().await.block_ads || !self.list_is_old().await {
             return;
         }
@@ -280,6 +287,13 @@ impl WebsiteService {
                 tracing::info!(%error, "blocklist not updated");
             }
         });
+    }
+
+    /// Offline Mode turned on: sites open on desktop close, as their pages would go on loading.
+    /// (Android's browser has a process of its own; new sites don't open while it's on.)
+    pub fn close_for_offline(&self) {
+        #[cfg(not(target_os = "android"))]
+        desktop::close_all(&self.app);
     }
 
     /// Clears the browser's cookies, storage and cache.

@@ -36,6 +36,7 @@ import { matchesSearch } from '../shell/useListSearch';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { BrowseAll } from '../music/BrowseAll';
+import { useOfflineItem } from '../network/useNetworkMode';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { useRememberSearch } from '../search/useRecentSearches';
 import { SearchPanel } from '../search/SearchPanel';
@@ -588,6 +589,7 @@ export const BrowsePage: FC = () => {
   const updateSetting = useUpdateSetting();
   const failingAtEnd = settings?.failingSourcesLast ?? true;
   const incognitoItem = useIncognitoItem();
+  const offlineItem = useOfflineItem();
   const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
   const catalogRefresh = useCatalogRefresh(list);
@@ -674,6 +676,7 @@ export const BrowsePage: FC = () => {
         },
         { label: t('sources.title'), icon: Puzzle, to: '/sources' },
         incognitoItem,
+        offlineItem,
         {
           label: t('layout.editBrowse'),
           icon: LayoutList,

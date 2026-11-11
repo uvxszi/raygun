@@ -836,3 +836,44 @@ async fn links_from_an_earlier_start_point_at_this_one() {
         assert_eq!(links.relink(url), url);
     }
 }
+
+/// Offline Mode: the proxy fetches nothing (a stream, a picture or a playlist answers 503 with its
+/// message, and the site sees no request), and serves again once it's off.
+#[tokio::test]
+async fn nothing_is_fetched_through_the_proxy_while_offline() {
+    let _switched = crate::network_mode::tests::switched();
+    let (origin, connections) = crate::network_mode::tests::counting_server().await;
+    let client = crate::network_mode::tests::client_reaching("site.example", origin);
+    let proxy = StreamProxy::start(client, None).await.unwrap();
+    let elsewhere = format!("http://site.example:{}/song.mp3", origin.port());
+    let stream = proxy.register(&MediaSource::Url {
+        url: elsewhere.clone(),
+        headers: BTreeMap::new(),
+    });
+    let picture = proxy.images().link(&elsewhere, &BTreeMap::new());
+    let media = proxy
+        .media()
+        .link(&elsewhere, &BTreeMap::new())
+        .expect("a remote address is linked");
+
+    crate::network_mode::set_offline(true);
+    for link in [&stream, &picture, &media] {
+        let refused = reqwest::get(link.as_str()).await.unwrap();
+        assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE, "{link}");
+        assert_eq!(
+            refused.text().await.unwrap(),
+            crate::network_mode::OFFLINE_MESSAGE
+        );
+    }
+    assert_eq!(
+        connections.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "nothing reached the site"
+    );
+
+    crate::network_mode::set_offline(false);
+    let answer = reqwest::get(stream.as_str()).await.unwrap();
+    assert_eq!(answer.status(), 200);
+    assert_eq!(answer.text().await.unwrap(), "ok");
+    assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1);
+}

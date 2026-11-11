@@ -5,6 +5,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useDataSaving, useNetworkStatus } from '../network/useNetworkMode';
 import { useSettings } from '../settings/useSettings';
 import { useVideoPlayerStore } from './videoPlayerStore';
 
@@ -23,7 +24,10 @@ type Props = {
  */
 export const TrailerWindow: FC<Props> = ({ videoId, title, onFull }) => {
   const { t } = useTranslation();
-  const enabled = useSettings().data?.videoPlayer.titleTrailers ?? false;
+  // Never while Offline Mode is on, nor while Data Saver keeps trailers from playing by themselves.
+  const offline = useNetworkStatus().offline;
+  const saving = useDataSaving('noTrailers');
+  const enabled = (useSettings().data?.videoPlayer.titleTrailers ?? false) && !offline && !saving;
   const embed = useQuery({
     queryKey: ['youtubeEmbed', false],
     queryFn: () => commands.youtubeEmbedUrl(false),

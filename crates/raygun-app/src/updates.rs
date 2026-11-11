@@ -123,6 +123,7 @@ impl UpdateService {
             tokio::time::sleep(crate::device_state::pace(FIRST_CHECK_AFTER)).await;
             let mut last_ok: Option<i64> = None;
             loop {
+                raygun_net::network_mode::wait_online().await;
                 let now = crate::catalog::now_ms();
                 let due = last_ok.is_none_or(|at| now - at >= CHECK_EVERY.as_millis() as i64);
                 if due && service.checks_by_itself().await {

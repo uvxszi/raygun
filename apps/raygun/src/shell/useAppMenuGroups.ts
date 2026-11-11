@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePlayerUiStore } from '../player/playerUiStore';
+import { useOfflineMode } from '../network/useNetworkMode';
 import { useIncognito } from '../privacy/useIncognito';
 import { runPlaybackAction } from '../player/usePlaybackKeys';
 import type { PlaybackAction } from '../player/usePlaybackKeys';
@@ -55,6 +56,7 @@ export const useAppMenuGroups = (actions: AppMenuActions) => {
   const client = useQueryClient();
   const lastField = useLastField();
   const incognito = useIncognito();
+  const offline = useOfflineMode();
   const [{ field, selected }, setSeen] = useState({ field: null as Field | null, selected: '' });
 
   const snapshot = () => {
@@ -90,6 +92,10 @@ export const useAppMenuGroups = (actions: AppMenuActions) => {
         {
           label: t(incognito.on ? 'incognito.turnOff' : 'incognito.turnOn'),
           onSelect: () => incognito.set(!incognito.on),
+        },
+        {
+          label: t(offline.on ? 'offline.turnOff' : 'offline.turnOn'),
+          onSelect: () => offline.set(!offline.on),
         },
         { kind: 'separator' },
         {

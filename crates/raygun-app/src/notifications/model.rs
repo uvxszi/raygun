@@ -619,7 +619,8 @@ impl Tracker {
                 route: kind.route().to_owned(),
             });
         }
-        // Ones held by battery saver: one notification, without a bar that would seem to load.
+        // Ones held by battery saver or Offline Mode: one notification, without a bar that would
+        // seem to load.
         let held: Vec<&Download> = active
             .iter()
             .copied()
@@ -629,7 +630,11 @@ impl Tracker {
             let kinds = kinds_of(held.iter().copied());
             shown.push(Shown {
                 key: "held".into(),
-                title: "Waiting for battery saver to end".into(),
+                title: if raygun_net::network_mode::offline() {
+                    "Waiting for Offline mode to end".into()
+                } else {
+                    "Waiting for battery saver to end".into()
+                },
                 text: kinds_text(held.iter().copied()),
                 info: None,
                 progress: None,

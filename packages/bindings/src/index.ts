@@ -1407,6 +1407,8 @@ export const commands = {
 	downloadsPopover: number,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
+	/**  Offline Mode and Data Saver (this device only). */
+	network?: NetworkPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
 	rail: RailPrefs,
 } | null, string>(__TAURI_INVOKE("songs_pick_folder")),
@@ -1587,6 +1589,13 @@ export const commands = {
 	deviceState: () => __TAURI_INVOKE<DeviceState>("device_state"),
 	/**  The webview's visibility (`document.visibilityState`): a hidden page counts as background. */
 	deviceSetVisible: (visible: boolean) => __TAURI_INVOKE<void>("device_set_visible", { visible }),
+	/**
+	 *  Offline Mode and whether Data Saver applies now. Afterwards, changes arrive as
+	 *  `NetworkStatusEvent`.
+	 */
+	networkStatus: () => __TAURI_INVOKE<NetworkStatus>("network_status"),
+	/**  Turns Offline Mode on or off: while it's on, Raygun sends nothing over the network. */
+	networkSetOffline: (offline: boolean) => typedError<NetworkStatus, string>(__TAURI_INVOKE("network_set_offline", { offline })),
 	/**  Every permission Raygun uses on this device, and where it stands. */
 	permissionsList: () => typedError<AppPermission[], string>(__TAURI_INVOKE("permissions_list")),
 	/**
@@ -1767,6 +1776,7 @@ export const events = {
 	mangaDownloadsEvent: makeEvent<MangaDownloadsEvent>("manga-downloads-event"),
 	mangaUpdateEvent: makeEvent<MangaUpdateEvent>("manga-update-event"),
 	mihonRuntimeEvent: makeEvent<MihonRuntimeEvent>("mihon-runtime-event"),
+	networkStatusEvent: makeEvent<NetworkStatusEvent>("network-status-event"),
 	openRouteEvent: makeEvent<OpenRouteEvent>("open-route-event"),
 	openWithEvent: makeEvent<OpenWithEvent>("open-with-event"),
 	permissionPromptEvent: makeEvent<PermissionPromptEvent>("permission-prompt-event"),
@@ -2791,6 +2801,35 @@ export type DataItem = "titles" | "chapters" | "read" | "episodes" | "watched" |
 "subtitles" | 
 /**  Songs other apps opened with Raygun, copied to play them. */
 "opened";
+
+/**
+ *  Data Saver: the same things for less data. Each part can be turned off on its own; with Data
+ *  Saver on, the defaults save the most. It changes how other settings apply
+ *  ([`Settings::with_data_saver`]) rather than the settings themselves.
+ */
+export type DataSaverPrefs = {
+	enabled?: boolean,
+	/**  Only while the device is on mobile data. */
+	mobileDataOnly?: boolean,
+	/**  Videos play at most at `video_resolution`. */
+	limitVideo?: boolean,
+	videoResolution?: VideoResolution,
+	/**  Songs stream at `music_quality` at most. */
+	limitMusic?: boolean,
+	musicQuality?: AudioQuality,
+	/**  Fewer sources asked at once, and fewer listing pages read for a search. */
+	fewerSources?: boolean,
+	/**  The songs before and after the one playing aren't found ahead. */
+	noPrefetch?: boolean,
+	/**  Nothing is looked up in the background: covers, song tags, song lengths. */
+	noBackgroundLookups?: boolean,
+	/**  Smaller covers from sources that offer several sizes. */
+	smallerCovers?: boolean,
+	/**  Trailers on title pages don't play by themselves. */
+	noTrailers?: boolean,
+	/**  Pictures load only once they're on screen. */
+	imagesWhenVisible?: boolean,
+};
 
 /**  Where clearing a category reaches. */
 export type DataScope = 
@@ -4514,6 +4553,30 @@ export type MusicTagSources_Serialize = {
 
 export type NavLabels = "always" | "selected";
 
+/**  Offline Mode and Data Saver, for this device only (`raygun_db::sync::DEVICE_ONLY_SETTINGS`). */
+export type NetworkPrefs = {
+	/**
+	 *  Offline Mode: Raygun sends nothing over the network (`raygun_net::network_mode`). What's
+	 *  on the device keeps working (downloads, local files, the library, what's cached), and
+	 *  downloads wait for it to end.
+	 */
+	offline?: boolean,
+	dataSaver?: DataSaverPrefs,
+};
+
+/**  What the network may be used for now, for the UI (`NetworkStatusEvent` on each change). */
+export type NetworkStatus = {
+	/**  Offline Mode is on. */
+	offline: boolean,
+	/**  Data Saver applies now (its switch, and mobile data when it's only for that). */
+	dataSaver: boolean,
+	/**  The device is on mobile data, as far as it's known. */
+	mobileData: boolean,
+};
+
+/**  Offline Mode was turned on or off, or Data Saver started or stopped applying. */
+export type NetworkStatusEvent = NetworkStatus;
+
 /**
  *  News that posts a notification, each kind on its own; all on by default. Downloads and other
  *  progress never alert and aren't listed here.
@@ -5579,7 +5642,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5746,6 +5809,8 @@ export type Settings = {
 	downloadsPopover: number,
 	/**  How good songs sound against the data they use, streaming and downloading. */
 	audioQuality: AudioQualityPrefs,
+	/**  Offline Mode and Data Saver (this device only). */
+	network?: NetworkPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
 	rail: RailPrefs,
 };

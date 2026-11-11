@@ -124,6 +124,16 @@ pub fn browse(
     Ok(())
 }
 
+/// Stops browsing for `service` (Connect's own when `None`), as Offline Mode does: the daemon asks
+/// the network no more and the browse's thread ends. A later browse starts again.
+pub fn stop_browsing(service: Option<&str>) {
+    if let Ok(daemon) = daemon()
+        && let Err(error) = daemon.stop_browse(service.unwrap_or(SERVICE))
+    {
+        tracing::debug!(%error, "browse not stopped");
+    }
+}
+
 /// A service of another kind heard on the network.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heard {

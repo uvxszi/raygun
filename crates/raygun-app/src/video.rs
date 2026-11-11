@@ -93,7 +93,10 @@ const STATE_KEYS: [&str; 8] = [
 ];
 
 async fn player_prefs(db: &raygun_db::Db) -> PlayerPrefs {
-    let settings = crate::settings::load(db).await.unwrap_or_default();
+    // As they apply: Data Saver caps the picture size while it's on.
+    let settings = crate::settings::load_in_effect(db)
+        .await
+        .unwrap_or_default();
     let app_language = match settings.language.as_str() {
         raygun_model::SYSTEM_LANGUAGE => String::new(),
         tag => tag.to_owned(),
@@ -179,6 +182,8 @@ pub async fn play_youtube(
     subtitle: Option<String>,
 ) -> Result<(), String> {
     use tauri_specta::Event;
+    // YouTube's embed goes to the network itself: not while Offline Mode is on.
+    raygun_net::network_mode::check_online()?;
     let embed_url = app
         .try_state::<raygun_net::MediaLinks>()
         .ok_or("The YouTube player isn't available")?
@@ -214,6 +219,8 @@ pub async fn prepare(
     start_at: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     let address = playable_address(app, &request.url)?;
+    // Offline Mode: only what's on this device plays (a download, a file, the proxy's).
+    raygun_net::network_mode::check(&address)?;
     let db = app.state::<AppDb>().0.clone();
     let prefs = player_prefs(&db).await;
     let saved = store::progress(&db, &request.key)

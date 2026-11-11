@@ -195,9 +195,16 @@ pub async fn wait_until_busy() {
     }
 }
 
-/// Whether downloads should wait now (battery saver, unless allowed).
+/// Whether downloads should wait now: Offline Mode, or battery saver unless allowed.
 pub fn downloads_held() -> bool {
-    current().power_save && !DOWNLOADS_ALLOWED.load(Ordering::Relaxed)
+    raygun_net::network_mode::offline()
+        || (current().power_save && !DOWNLOADS_ALLOWED.load(Ordering::Relaxed))
+}
+
+/// Something waits may depend on changed elsewhere (Offline Mode turned on or off): waits look
+/// again at once.
+pub fn poke() {
+    bump();
 }
 
 /// Waits while [`downloads_held`]; returns at once otherwise.

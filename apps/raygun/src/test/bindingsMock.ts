@@ -14,6 +14,7 @@ import type {
   FollowedArtist,
   PermissionPrompt,
   IncognitoStatus,
+  NetworkStatus,
   HiddenItem,
   HiddenPrefs,
   LibraryScanProgress,
@@ -91,6 +92,7 @@ type EventPayloads = {
   settingsChangedEvent: string;
   quickAccessChangedEvent: string;
   incognitoEvent: IncognitoStatus;
+  networkStatusEvent: NetworkStatus;
   artistReleasesEvent: null;
   artistProfileEvent: string;
   exportEvent: ExportJob | null;
@@ -150,6 +152,9 @@ export const EMPTY_QUEUE: QueueSnapshot = { items: [], order: [], context: null 
 
 /** Incognito off (M47). */
 export const INCOGNITO_OFF: IncognitoStatus = { on: false, sinceMs: null };
+
+/** Online, Data Saver not applying. */
+export const ONLINE: NetworkStatus = { offline: false, dataSaver: false, mobileData: false };
 
 export const ANDROID_INFO: AppInfo = {
   name: 'Raygun',
@@ -238,6 +243,23 @@ export const DEFAULT_SETTINGS: Settings = {
   downloadsInBatterySaver: false,
   downloadsPopover: 20,
   audioQuality: { streaming: 'high', cellular: 'normal', download: 'veryHigh' },
+  network: {
+    offline: false,
+    dataSaver: {
+      enabled: false,
+      mobileDataOnly: false,
+      limitVideo: true,
+      videoResolution: '480p',
+      limitMusic: true,
+      musicQuality: 'low',
+      fewerSources: true,
+      noPrefetch: true,
+      noBackgroundLookups: true,
+      smallerCovers: true,
+      noTrailers: true,
+      imagesWhenVisible: true,
+    },
+  },
   rail: RAIL_DEFAULTS,
   transcription: {
     engine: 'off',
@@ -545,6 +567,8 @@ export const bindingsMock = {
     historyClear: vi.fn(),
     incognitoStatus: vi.fn(),
     incognitoSetEnabled: vi.fn(),
+    networkStatus: vi.fn(),
+    networkSetOffline: vi.fn(),
     collectionPlay: vi.fn(),
     mcpStatus: vi.fn(),
     mcpSetEnabled: vi.fn(),
@@ -810,6 +834,7 @@ export const bindingsMock = {
     settingsChangedEvent: makeEvent('settingsChangedEvent'),
     quickAccessChangedEvent: makeEvent('quickAccessChangedEvent'),
     incognitoEvent: makeEvent('incognitoEvent'),
+    networkStatusEvent: makeEvent('networkStatusEvent'),
     artistReleasesEvent: makeEvent('artistReleasesEvent'),
     artistProfileEvent: makeEvent('artistProfileEvent'),
     exportEvent: makeEvent('exportEvent'),
@@ -1318,6 +1343,10 @@ export const seedBindings = () => {
   commands.historyRecent.mockResolvedValue(ok([]));
   commands.historyClear.mockResolvedValue(ok(null));
   commands.incognitoStatus.mockResolvedValue(INCOGNITO_OFF);
+  commands.networkStatus.mockResolvedValue(ONLINE);
+  commands.networkSetOffline.mockImplementation(async (offline: boolean) =>
+    ok({ ...ONLINE, offline }),
+  );
   commands.incognitoSetEnabled.mockImplementation(async (on: boolean) =>
     ok(on ? { on, sinceMs: Date.now() } : INCOGNITO_OFF),
   );

@@ -672,6 +672,10 @@ async fn serve_image(
         Some((url, headers)) if crate::images::source_marked(&url).is_some() => {
             match fetch_image(&state.client, &url, &headers).await {
                 Ok(image) => image_response(image.bytes),
+                Err(error) if crate::network_mode::offline() => {
+                    tracing::debug!(%error, "picture not fetched while offline");
+                    offline_response()
+                }
                 Err(error) => (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
             }
         }
@@ -729,6 +733,8 @@ async fn serve_cover(
         .await
     {
         Ok(served) => cover_response(served),
+        // Not cached, and Offline Mode is on: the page shows its placeholder.
+        Err(error) if crate::network_mode::mentions_offline(&error) => offline_response(),
         Err(error) => {
             tracing::debug!(%error, "cover request failed");
             (StatusCode::BAD_GATEWAY, error).into_response()
@@ -786,6 +792,7 @@ async fn fetch_subtitle(
     url: &str,
     headers: &BTreeMap<String, String>,
 ) -> Result<Vec<u8>, String> {
+    crate::network_mode::check(url)?;
     let request = crate::server_auth::get(client, url, headers).timeout(SUBTITLE_TIMEOUT);
     let response = request.send().await.map_err(|error| error.to_string())?;
     if !response.status().is_success() {
@@ -821,6 +828,9 @@ async fn cached_image(
 ) -> Response {
     if let Some(bytes) = cache.read(token).await {
         return image_response(bytes);
+    }
+    if !crate::network_mode::allows(url) {
+        return offline_response();
     }
     match fetch_image(client, url, headers).await {
         Ok(image) => {
@@ -887,12 +897,26 @@ fn client_status(status: reqwest::StatusCode, added_range: bool) -> u16 {
     }
 }
 
+/// What the proxy answers for something it would fetch while Offline Mode is on: only what's on
+/// this device (downloads, cached covers and pages) is served then.
+fn offline_response() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(header::CACHE_CONTROL, "no-store")],
+        crate::network_mode::OFFLINE_MESSAGE,
+    )
+        .into_response()
+}
+
 async fn forward(
     client: &reqwest::Client,
     url: &str,
     source_headers: &std::collections::BTreeMap<String, String>,
     request_headers: &HeaderMap,
 ) -> Response {
+    if !crate::network_mode::allows(url) {
+        return offline_response();
+    }
     // A connected server's address signs in (`server_auth`): stored addresses carry no secrets.
     let mut upstream = crate::server_auth::get(client, url, source_headers);
     let (range, added_range) = upstream_range(url, request_headers);
@@ -918,8 +942,12 @@ async fn forward(
             response = response.header(name, value.as_bytes());
         }
     }
+    // A stream being played stops when Offline Mode turns on.
     response
-        .body(Body::from_stream(upstream.bytes_stream()))
+        .body(Body::from_stream(crate::network_mode::until_offline(
+            url,
+            upstream.bytes_stream(),
+        )))
         .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
 }
 
@@ -957,6 +985,9 @@ async fn forward_media(
     source_headers: &BTreeMap<String, String>,
     request_headers: &HeaderMap,
 ) -> Response {
+    if !crate::network_mode::allows(url.as_str()) {
+        return offline_response();
+    }
     let mut upstream = crate::server_auth::get(&state.client, url.as_str(), source_headers);
     let (range, added_range) = upstream_range(url.as_str(), request_headers);
     if let Some(range) = range {
@@ -1008,7 +1039,10 @@ async fn forward_media(
             Ok::<_, reqwest::Error>(axum::body::Bytes::from(head))
         });
         return response
-            .body(Body::from_stream(first.chain(body)))
+            .body(Body::from_stream(crate::network_mode::until_offline(
+                url.as_str(),
+                first.chain(body),
+            )))
             .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response());
     };
 

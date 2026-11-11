@@ -8,6 +8,7 @@ pub mod images;
 pub mod issue;
 pub mod local_network;
 pub mod manifest;
+pub mod network_mode;
 pub mod page_cache;
 mod proxy;
 pub mod server_auth;
@@ -112,6 +113,8 @@ fn bundled_roots(provider: Arc<rustls::crypto::CryptoProvider>) -> rustls::Clien
         .with_no_client_auth()
 }
 
+/// Every client starts here, so every one goes through Offline Mode's gate
+/// ([`network_mode::GateLayer`]): while it's on, nothing connects anywhere but this device.
 pub fn client_builder() -> reqwest::ClientBuilder {
     // Also make ring the process-wide default, so any other client (or a library building its own)
     // finds a provider. Fails harmlessly if one is already installed.
@@ -123,6 +126,7 @@ pub fn client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .user_agent(DEFAULT_USER_AGENT)
+        .connector_layer(network_mode::GateLayer)
 }
 
 #[cfg(test)]

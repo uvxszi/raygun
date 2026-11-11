@@ -1290,7 +1290,7 @@ impl VideoSessions {
 
     /// The picture size links are ordered by (`VideoPlayerPrefs::preferred_resolution`).
     async fn resolution(&self) -> VideoResolution {
-        crate::settings::load(&self.db())
+        crate::settings::load_in_effect(&self.db())
             .await
             .map(|settings| settings.video_player.preferred_resolution)
             .unwrap_or_default()
@@ -1306,6 +1306,10 @@ impl VideoSessions {
     }
 
     async fn note_health(&self, change: impl FnOnce(&mut SourceHealth)) {
+        // Offline Mode says nothing about how sources do: none was asked.
+        if raygun_net::network_mode::offline() {
+            return;
+        }
         let mut health = self.health().await;
         change(&mut health);
         if let Ok(text) = serde_json::to_string(&health)

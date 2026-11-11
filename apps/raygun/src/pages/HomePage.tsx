@@ -23,6 +23,7 @@ import { pageKey, useHidden } from '../music/hidden';
 import { MixCard } from '../music/MixCard';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
+import { useOfflineItem } from '../network/useNetworkMode';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { useSettings } from '../settings/useSettings';
 import { HomeCarousel, HomeSection } from '../home/HomeSection';
@@ -345,6 +346,7 @@ export const HomePage: FC = () => {
   const { t } = useTranslation();
   const desktop = useIsDesktop();
   const incognitoItem = useIncognitoItem();
+  const offlineItem = useOfflineItem();
   const layout = useLayout();
   const watching = useContinueWatching();
   const history = useHistory(HOME_HISTORY_LIMIT);
@@ -383,6 +385,7 @@ export const HomePage: FC = () => {
             <OverflowMenu
               items={[
                 incognitoItem,
+                offlineItem,
                 {
                   label: t('layout.editHome'),
                   icon: LayoutList,

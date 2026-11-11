@@ -4,6 +4,8 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { issueKind, readIssue } from '../lib/issue';
+import { isOfflineError } from '../network/useNetworkMode';
+import { OfflineNote } from '../network/OfflineNote';
 import { BrowserCheckAction } from './BrowserCheckAction';
 
 type SourceIssueProps = {
@@ -43,6 +45,10 @@ export const SourceIssue: FC<SourceIssueProps> = ({
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [details, setDetails] = useState<HTMLDivElement | null>(null);
+  // Offline Mode isn't a source's failure: it says so, calmly, with no retry.
+  if (isOfflineError(children)) {
+    return <OfflineNote compact={compact} testId={testId} className={className} />;
+  }
   const issue =
     typeof children === 'string' && children.trim() ? readIssue(children, t, source) : null;
   // A browser check may be passed by hand when that's turned on (experimental).

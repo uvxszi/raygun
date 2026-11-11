@@ -95,6 +95,13 @@ impl Health {
     /// skipped ones) say nothing about it; one still going (`StillWorking`) says only that the
     /// source is slow, as its own outcome is noted when it comes.
     pub fn record(&self, provider: &str, outcome: Result<(), &CallError>, elapsed: Duration) {
+        // Offline Mode says nothing about a source: none was asked (a request it refused makes
+        // the call's failure its own kind, whatever the script made of it).
+        if let Err(CallError::Failed(issue)) = outcome
+            && issue.kind == IssueKind::OfflineMode
+        {
+            return;
+        }
         if let Err(CallError::StillWorking { .. }) = outcome {
             let mut records = self.records();
             let record = records.entry(provider.to_owned()).or_default();

@@ -311,6 +311,17 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
     if player && before.is_some() {
         crate::video::settings_changed(app).await;
     }
+    if differs("network", &|before| before.network == settings.network) {
+        crate::network_mode::apply(app, &settings.network);
+    }
+}
+
+/// The settings as services use them: what Data Saver changes while it applies
+/// (`Settings::with_data_saver`) changed; what's stored stays as it is.
+pub async fn load_in_effect(db: &Db) -> Result<Settings, SettingsError> {
+    Ok(load(db)
+        .await?
+        .with_data_saver(raygun_net::network_mode::data_saver()))
 }
 
 /// After rows arrived from elsewhere (a sync, a restored backup, an undone sync): what they

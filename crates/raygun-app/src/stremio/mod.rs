@@ -1772,6 +1772,10 @@ impl StremioService {
 
     /// Notes that an addon answered or failed; saved when that changes whether it's failing.
     async fn note_health(&self, addon_id: &str, ok: bool) {
+        // A failure while Offline Mode is on isn't the addon's: none was asked.
+        if !ok && raygun_net::network_mode::offline() {
+            return;
+        }
         let _ = self.health_now().await;
         let now = now_ms();
         let save = {
