@@ -1895,6 +1895,97 @@ async fn loops_jump_from_lambdas_and_cookies_are_read() {
     assert_eq!(titles, ["A", "B", "token abc, note First words"]);
 }
 
+const REDIRECTS_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixtureredirects
+
+import eu.kanade.tachiyomi.source.model.FilterList
+import keiyoushi.source.KeiSource
+
+@Source
+abstract class FixtureRedirects : KeiSource() {
+    override val supportsLatest = false
+
+    private val keyRegex = Regex("key=([^;]+)")
+
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        val noRedirectClient = client.newBuilder().followRedirects(false).build()
+        val response = noRedirectClient.get("$baseUrl/moved", headers, Fetch.DOCUMENT, ensureSuccess = false)
+        val key = response.headers("Set-Cookie").firstNotNullOfOrNull { keyRegex.find(it)?.groupValues?.get(1) } ?: "none"
+        val location = response.header("Location") ?: "nowhere"
+        val code = response.code
+        response.close()
+        val followed = client.get("$baseUrl/moved", Fetch.DOCUMENT).asJsoup().selectFirst("h2")?.text() ?: "lost"
+        val manga = SManga.create().apply {
+            title = "$code $key $location $followed"
+            url = "/x"
+        }
+        return MangasPage(listOf(manga), false)
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()
+
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage = getPopularManga(page)
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate = SMangaUpdate(manga, emptyList())
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> = emptyList()
+}
+"##;
+
+/// OkHttp's `followRedirects(false)` (MangaHub's key refresh): a client of its own gets the
+/// redirect as it came, its status, `Location` and cookies, while the source's keeps following.
+#[tokio::test]
+async fn a_client_built_not_to_follow_redirects_gets_them_as_they_came() {
+    use axum::http::header::{LOCATION, SET_COOKIE};
+    let app = Router::new()
+        .route(
+            "/moved",
+            get(|| async {
+                (
+                    axum::http::StatusCode::FOUND,
+                    [(LOCATION, "/target"), (SET_COOKIE, "key=fresh; Path=/")],
+                )
+            }),
+        )
+        .route("/target", get(|| async { Html("<h2>Arrived</h2>") }));
+    let address = serve(app);
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixtureredirects",
+        "https://redirects.example",
+    );
+    let build = "keiyoushi {\n    name = \"Fixture Redirects\"\n    versionCode = 1\n    libVersion = \"1.6\"\n    source {\n        lang = \"en\"\n        baseUrl = \"https://redirects.example\"\n    }\n}\n";
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            build,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixtureredirects/FixtureRedirects.kt",
+                REDIRECTS_SOURCE,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, address).await;
+    let popular = host
+        .manga_list(
+            "mihon.en.fixtureredirects/4242",
+            crate::manga::MangaList::Popular,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<&str> = popular
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(titles, ["302 fresh /target Arrived"]);
+}
+
 /// A source whose client puts its pictures back together (`BitmapFactory`, `Canvas`, okio's
 /// `Buffer`) and draws its notes as pages (`lib:textinterceptor`): its pages are fetched through
 /// it, and the pictures come back drawn.

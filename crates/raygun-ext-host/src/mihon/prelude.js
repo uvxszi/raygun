@@ -1479,6 +1479,7 @@
         from = null,
         ensureSuccess = true,
         form = null,
+        redirect = null,
       } = {},
     ) {
       await this.pace();
@@ -1503,6 +1504,7 @@
         body: payload,
         bodyBase64,
         binary: true,
+        redirect: redirect ?? undefined,
       });
       const response = new Response(raw, address);
       if (ensureSuccess && !response.isSuccessful)

@@ -3431,6 +3431,8 @@
     constructor(source) {
       this.owner = source;
       this.interceptors = [];
+      // OkHttp's `followRedirects(false)`: redirects come back as they are.
+      this.followsRedirects = true;
     }
     get cookieJar() {
       return cookieJar;
@@ -3474,6 +3476,7 @@
         kind: kind === 'none' ? null : kind,
         from: fetch && fetch.page ? fetch.page : null,
         ensureSuccess: false,
+        redirect: this.followsRedirects ? null : 'manual',
       });
       return new Response(raw, request);
     }
@@ -3525,8 +3528,14 @@
       }
       return this.send(new Request({ url, method, headers, body, kind: fetch }), ensureSuccess);
     }
+    /// OkHttp's `newBuilder()`: a client of its own, with this one's interceptors and settings
+    /// (changing it leaves this one as it is).
     newBuilder() {
-      return clientBuilder(this);
+      const copy = new Client(this.owner);
+      copy.interceptors = [...this.interceptors];
+      copy.followsRedirects = this.followsRedirects;
+      copy.defaultHeaders = () => (this.defaultHeaders ? this.defaultHeaders() : new Headers());
+      return clientBuilder(copy);
     }
   }
   const clientBuilder = (client) => {
@@ -3544,7 +3553,10 @@
       readTimeout: () => builder,
       writeTimeout: () => builder,
       callTimeout: () => builder,
-      followRedirects: () => builder,
+      followRedirects: (follow = true) => {
+        client.followsRedirects = follow !== false;
+        return builder;
+      },
       followSslRedirects: () => builder,
       retryOnConnectionFailure: () => builder,
       // Raygun's own client resolves names, picks protocols, checks certificates and caches.
