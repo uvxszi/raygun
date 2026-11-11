@@ -1239,6 +1239,15 @@
     childNodeSize() {
       return this.childNodes().length;
     }
+    /** Jsoup's `insertChildren(index, nodes)`: put before the element child at `index`. */
+    insertChildren(index, nodes) {
+      const list = Array.isArray(nodes) ? nodes : [...nodes];
+      const kids = this.children();
+      const at = index < 0 ? kids.length + 1 + index : index;
+      if (at >= kids.length) for (const node of list) this.append(node);
+      else for (const node of list) kids[at].before(node);
+      return this;
+    }
     /** Jsoup's `val()`: a form field's value. */
     val() {
       return this.tagName() === 'textarea' ? this.text() : this.attr('value');

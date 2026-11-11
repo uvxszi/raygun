@@ -230,7 +230,8 @@ pub const METHODS: &[&str] = &[
     "setDefaultValue", "setOnPreferenceChangeListener", "setOnPreferenceClickListener",
     "setOnBindEditTextListener", "addPreference", "parseBodyFragment", "nextDouble", "shuffle",
     "toJavaInstant", "toKotlinInstant", "stripTrailingZeros", "toPlainString", "noCache",
-    "noStore", "maxStale", "maxAge", "onlyIfCached",
+    "noStore", "maxStale", "maxAge", "onlyIfCached", "protocol", "subSequence", "inflate",
+    "copyInto", "insertChildren", "atYear",
 ];
 
 fn quote(text: &str) -> String {
@@ -2562,7 +2563,8 @@ pub const GLOBALS: &[&str] = &[
     "LruCache", "CompletableDeferred", "URI", "URL", "SupervisorJob", "Job", "delay", "assert",
     "runWebView", "getTurnstileToken", "getLocalStorage", "SwitchPreferenceCompat",
     "CheckBoxPreference", "ListPreference", "EditTextPreference", "MultiSelectListPreference",
-    "PreferenceCategory", "Cache", "SeedRandom",
+    "PreferenceCategory", "Cache", "SeedRandom", "showInfo", "askConfirm", "askInput",
+    "askPassword", "askSelect", "askSelectOption", "GZIPInputStream", "InflaterInputStream",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2579,5 +2581,5 @@ pub const OBJECTS: &[&str] = &[
     "QuickJs", "JSON_MEDIA_TYPE", "Bitmap", "BitmapFactory", "Color", "Paint", "Typeface",
     "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper", "Collator", "Dispatchers",
     "Evaluator", "HttpUrl", "Uri", "Float", "Double", "Thread", "Response", "Protocol", "Year",
-    "OffsetDateTime",
+    "OffsetDateTime", "Resources", "MonthDay",
 ];

@@ -597,6 +597,7 @@
     toBigDecimal: (s) => Number(s),
     toBigInteger: (s) => Number(s),
     toULong: (s) => Number(s),
+    subSequence: (s, [start, end = s.length]) => s.slice(start, end),
     substringAfter: (s, [delimiter, missing = s]) =>
       K.substringAfter(s, KT.str(delimiter), missing),
     substringBefore: (s, [delimiter, missing = s]) =>
@@ -1070,6 +1071,12 @@
     },
     rc4: (l, [key, skip = 0]) => listOfBytes(rc4(u8Of(l), u8Of(key), skip)),
     toByteString: (l) => byteString(u8Of(l)),
+    // Keiyoushi's `ByteArray.inflate(nowrap)`.
+    inflate: (l, [nowrap = false]) => listOfBytes(inflateBytes(l, nowrap ? 'raw' : 'zlib')),
+    copyInto: (l, [destination, offset = 0, start = 0, end = l.length]) => {
+      for (let index = start; index < end; index++) destination[offset + index - start] = l[index];
+      return destination;
+    },
     // A JSON array's `parseAs<List<T>>()`.
     parseAs: (l, _args, _lambda, _named, type) => decode(l, type),
     containsAll: (l, [other]) => KT.iter(other).every((item) => l.some((own) => KT.eq(own, item))),
@@ -3475,6 +3482,9 @@
       __class: 'Buffer',
       __classes: ['Buffer', 'BufferedSource', 'BufferedSink', 'Source', 'Sink'],
       u8Now: () => data.slice(head, tail),
+      /// Keiyoushi's `Source.inflate(nowrap)`: what's left, inflated.
+      inflate: (nowrap = false) =>
+        okioBuffer(inflateBytes(take(), nowrap === true ? 'raw' : 'zlib')),
       /// okio's `rangeEquals(offset, bytes)`: whether the bytes at `offset` are those.
       rangeEquals: (offset, other, otherOffset = 0, count = undefined) => {
         const wanted = u8Of(other);
@@ -5357,6 +5367,22 @@
       },
     };
   };
+  /// Bytes inflated in Rust (`runtime.rs`): Java's `Inflater` (`zlib`, `raw` without its
+  /// header) and `GZIPInputStream` (`gzip`).
+  const inflateBytes = (bytes, format) =>
+    u8Of(fromBase64(crypto({ op: 'inflate', data: K.bin.toBase64(u8Of(bytes)), format })));
+  /// Android's screen as a phone's, for sources sizing what they ask for by it.
+  const displayMetrics = {
+    widthPixels: 1080,
+    heightPixels: 2340,
+    density: 2.75,
+    densityDpi: 440,
+    scaledDensity: 2.75,
+    xdpi: 440,
+    ydpi: 440,
+  };
+  /// Keiyoushi's dialogs (`keiyoushi.utils.ui`): none shows, as if the person closed it.
+  const dialogClosed = (fallback) => () => fallback;
   /// A pause (`delay(ms)`, `Thread.sleep(ms)`), at most ten seconds.
   const pause = async (ms) => {
     const wait = Math.max(0, Math.min(10000, Number(ms && ms.isDuration ? ms.ms : ms) || 0));
@@ -5458,6 +5484,16 @@
     PreferenceCategory: () => preferenceWidget('PreferenceCategory'),
     Cache: () => ({ __class: 'Cache', __classes: ['Cache'], evictAll: () => KT.unit }),
     SeedRandom: ([seed]) => seedRandom(seed),
+    showInfo: dialogClosed(KT.unit),
+    askConfirm: dialogClosed(false),
+    askInput: dialogClosed(null),
+    askPassword: dialogClosed(null),
+    askSelect: dialogClosed(null),
+    askSelectOption: dialogClosed(null),
+    GZIPInputStream: async ([stream]) =>
+      inputStream(inflateBytes(await streamBytes(stream), 'gzip')),
+    InflaterInputStream: async ([stream]) =>
+      inputStream(inflateBytes(await streamBytes(stream), 'zlib')),
     HttpException: ([code]) => new KotlinError(`HTTP error ${code}`, 'HttpException'),
     GET: ([url, headers]) =>
       new Request({ url, headers: headers instanceof Headers ? headers : undefined }),
@@ -6468,6 +6504,17 @@
         }),
     },
     Protocol: { HTTP_1_0: 'http/1.0', HTTP_1_1: 'http/1.1', HTTP_2: 'h2', QUIC: 'quic' },
+    Resources: { getSystem: () => ({ displayMetrics }) },
+    // `MonthDay.of(month, day).atYear(year)`.
+    MonthDay: {
+      of: (month, day) => ({
+        __class: 'MonthDay',
+        __classes: ['MonthDay'],
+        monthValue: month,
+        dayOfMonth: day,
+        atYear: (year) => moment(Date.UTC(year, month - 1, day), 'LocalDate'),
+      }),
+    },
     // `Year.now().value`, `OffsetDateTime.parse(text)`.
     Year: {
       now: () => {

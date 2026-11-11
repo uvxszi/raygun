@@ -412,6 +412,11 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
     }
     for class in chain {
         add_members(&mut cx, &class.members, false);
+        // A theme's constructor parameters (`MangaThemesiaAlt(randomUrlPrefKey = …)`) are its
+        // properties.
+        for param in &class.params {
+            cx.properties.insert(param.name.clone());
+        }
     }
     for member in chain.iter().flat_map(|class| &class.members) {
         if let Member::Class(inner) = member
@@ -1140,6 +1145,13 @@ pub fn convert(
             .iter()
             .find_map(|parent| parent.ty.name.rsplit('.').next())
             .unwrap_or_default();
+        // `import ….ScanReader as ScanReaderTheme`: the class the alias names.
+        let parent = all_files
+            .iter()
+            .flat_map(|(_, file)| &file.imports)
+            .find(|(alias, full)| alias == parent && !full.ends_with(&format!(".{alias}")))
+            .and_then(|(_, full)| full.rsplit('.').next())
+            .unwrap_or(parent);
         if parent == "KeiSource" {
             break;
         }
@@ -1247,6 +1259,9 @@ pub fn convert(
             })
             .map(|(_, file)| file.imports.clone())
             .unwrap_or_default();
+        // Its constructor's parameters, as the class above passes them (else their defaults).
+        let child = chain.len().checked_sub(index + 2).map(|at| chain[at]);
+        constructor_properties(&mut writer, layer, child, &mut out)?;
         members(
             &mut writer,
             &layer.members,
@@ -1276,6 +1291,54 @@ pub fn convert(
         recipe = image_recipe.map_or_else(|| "null".to_owned(), quote),
     );
     Ok(Converted { theme: None, code })
+}
+
+/// A source class's constructor parameters (`abstract class MangaThemesiaAlt(private val
+/// randomUrlPrefKey: String = "…")`) as properties: what the class extending it passes
+/// (`: MangaThemesiaAlt("key")`, by place or by name), else the default.
+fn constructor_properties(
+    writer: &mut Gen<'_>,
+    class: &ClassDecl,
+    child: Option<&ClassDecl>,
+    out: &mut Vec<String>,
+) -> Result<(), String> {
+    let passed = child
+        .and_then(|child| {
+            child
+                .supers
+                .iter()
+                .find(|parent| parent.ty.name.rsplit('.').next().unwrap_or_default() == class.name)
+        })
+        .and_then(|parent| parent.args.clone())
+        .unwrap_or_default();
+    for (place, param) in class.params.iter().enumerate() {
+        let given = passed
+            .iter()
+            .find(|arg| arg.name.as_deref() == Some(param.name.as_str()))
+            .or_else(|| passed.get(place).filter(|arg| arg.name.is_none()))
+            .map(|arg| arg.value.clone());
+        let Some(value) = given.or_else(|| param.default.clone()) else {
+            continue;
+        };
+        let getter = super::kotlin::ast::FunDecl {
+            name: param.name.clone(),
+            modifiers: Vec::new(),
+            annotations: Vec::new(),
+            receiver: None,
+            params: Vec::new(),
+            ret: None,
+            body: Some(Body::Expr(value)),
+            line: class.line,
+        };
+        let function = writer
+            .function(&getter)
+            .map_err(|reason| format!("{}: {reason}", param.name))?;
+        out.push(format!(
+            "self.prop({}, {function}, true);",
+            quote(&param.name)
+        ));
+    }
+    Ok(())
 }
 
 /// Calls in converted code that mean its client draws, decodes or rewrites pictures: Android's
