@@ -247,7 +247,7 @@ export const DEFAULT_SETTINGS: Settings = {
     mono: false,
     normalize: false,
     normalizeTarget: -14,
-    crossfadeMs: 0,
+    crossfadeMs: 2000,
   },
   mangaUpdateHours: 12,
   novelReader: {

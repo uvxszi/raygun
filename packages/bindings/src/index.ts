@@ -5878,7 +5878,10 @@ export type SoundPrefs = {
 	normalize?: boolean,
 	/**  Loudness songs are brought to, LUFS (−23 to −8). */
 	normalizeTarget?: number,
-	/**  How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]). */
+	/**
+	 *  How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]; at first
+	 *  [`CROSSFADE_DEFAULT_MS`]).
+	 */
 	crossfadeMs?: number,
 };
 

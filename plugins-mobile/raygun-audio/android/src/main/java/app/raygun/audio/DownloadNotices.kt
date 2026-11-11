@@ -245,6 +245,7 @@ object DownloadNotices {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setCategory(if (finished.optBoolean("failed")) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
         openRaygunIntent(context, finished.optString("route", "/downloads"))?.let(builder::setContentIntent)
@@ -333,6 +334,8 @@ object DownloadNotices {
             NotificationChannelCompat.Builder(CHANNEL, NotificationManagerCompat.IMPORTANCE_LOW)
                 .setName("Downloads")
                 .setDescription("Download progress and finished downloads")
+                .setSound(null, null)
+                .setVibrationEnabled(false)
                 .setShowBadge(false)
                 .build(),
         )
@@ -407,7 +410,9 @@ class RaygunDownloadService : Service() {
             .setContentTitle("Downloads")
             .setContentText("Checking what's left to download")
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setProgress(0, 0, true)
             .build()
 

@@ -59,6 +59,11 @@ pub struct NoticeChannel {
     pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
+    /// Whether its notices may make a sound, vibrate and pop up. Only news of releases do (new
+    /// songs, chapters, episodes, Raygun's own update); everything else is silent. Android keeps a
+    /// channel's importance as first made, so a channel that goes quiet takes a new id and its old
+    /// one is listed in [`RETIRED_CHANNELS`].
+    pub alerts: bool,
 }
 
 /// Followed artists' new releases (M46.42).
@@ -66,14 +71,23 @@ pub const RELEASES: NoticeChannel = NoticeChannel {
     id: "raygun.releases",
     name: "New releases",
     description: "Releases from artists you follow",
+    alerts: true,
 };
 
 /// What waits for Raygun to be open: a song in YouTube's player paused, songs to record.
 pub const PLAYBACK: NoticeChannel = NoticeChannel {
-    id: "raygun.playback",
+    id: "raygun.playback.quiet",
     name: "Playback",
     description: "Songs that wait for Raygun to be open",
+    alerts: false,
 };
+
+/// Every channel [`Notice`]s use.
+#[cfg_attr(not(test), allow(dead_code))]
+pub const CHANNELS: [&NoticeChannel; 2] = [&RELEASES, &PLAYBACK];
+
+/// Channel ids no longer used (made with a sound before they went quiet): the plugin deletes them.
+pub const RETIRED_CHANNELS: [&str; 1] = ["raygun.playback"];
 
 /// A notification besides the downloads' own that opens a screen when tapped.
 pub struct Notice {
@@ -119,6 +133,8 @@ impl Notice {
             "channel": self.channel.id,
             "channelName": self.channel.name,
             "channelDescription": self.channel.description,
+            "alerts": self.channel.alerts,
+            "retiredChannels": RETIRED_CHANNELS,
             "title": self.title,
             "text": self.text,
             "route": self.route,
@@ -1275,7 +1291,7 @@ mod platform {
         }
     }
 
-    /// Only a batch's end, and only while Raygun's window isn't in front.
+    /// Only a batch's end, and only while Raygun's window isn't in front; silent (no sound named).
     pub async fn show(app: &AppHandle, _plan: &Plan, finished: Option<&Finished>) {
         let Some(finished) = finished else {
             return;
@@ -1299,15 +1315,19 @@ mod platform {
         }
     }
 
+    /// Without a sound named, Windows shows a toast silently: only channels that alert get one.
     pub async fn notice(app: &AppHandle, notice: &super::Notice) -> Result<(), String> {
-        app.notification()
+        let mut builder = app
+            .notification()
             .builder()
             .id(notice.id)
             .title(&notice.title)
             .body(&notice.text)
-            .extra("route", &notice.route)
-            .show()
-            .map_err(|error| error.to_string())
+            .extra("route", &notice.route);
+        if notice.channel.alerts {
+            builder = builder.sound("Default");
+        }
+        builder.show().map_err(|error| error.to_string())
     }
 
     /// The system keeps desktop notifications in its own list, which the person clears.

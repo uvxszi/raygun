@@ -137,8 +137,8 @@ const DetectedCard: FC<{ source: DetectedSource; address: string; onAdded: () =>
 /**
  * Sources → Add (M46.52): one field for any address. Look up asks Rust what it is (a Stremio
  * addon, a repository of any format Raygun reads, one extension, a server) and shows it before
- * it's added; a file or a folder picked beside the field is looked up at once. When nothing is
- * found, a server can still be connected by hand.
+ * it's added; a file or a folder picked beside the field is looked up at once. A server can also
+ * be connected by hand (its kind picked), before or after a look up.
  */
 export const AddSourceSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
   const { t } = useTranslation();
@@ -195,7 +195,7 @@ export const AddSourceSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
         {failed && <SourceIssue compact>{failed.message}</SourceIssue>}
         {!current && (
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {failed && (
+            {!looking && (
               <button
                 type="button"
                 onClick={() => setByHand(true)}

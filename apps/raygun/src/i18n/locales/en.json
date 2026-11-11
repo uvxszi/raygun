@@ -3416,7 +3416,7 @@
       "title": "Add a source",
       "address": "Address",
       "placeholder": "A repository, addon, server or extension",
-      "hint": "Paste an address or a GitHub project's page, or choose a file or a folder: Raygun works out what it is.",
+      "hint": "Paste an address (a repository, an addon, or your Subsonic, Navidrome, Jellyfin, Emby, Audiobookshelf or OPDS server) or a GitHub project's page, or choose a file or a folder: Raygun works out what it is.",
       "lookUp": "Look up",
       "looking": "Looking at the address…",
       "add": "Add",

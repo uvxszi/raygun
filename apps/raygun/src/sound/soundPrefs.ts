@@ -15,7 +15,8 @@ export const SOUND_DEFAULTS: FullSound = {
   mono: false,
   normalize: false,
   normalizeTarget: -14,
-  crossfadeMs: 0,
+  // Rust's CROSSFADE_DEFAULT_MS.
+  crossfadeMs: 2000,
 };
 
 export const withSoundDefaults = (sound?: SoundPrefs | null): FullSound => ({

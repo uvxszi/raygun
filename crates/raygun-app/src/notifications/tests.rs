@@ -987,3 +987,44 @@ fn a_model_downloading_can_be_cancelled_from_its_notification() {
     let failed = super::model_download(&progress(AiModelState::Failed), name()).unwrap();
     assert!(failed.abilities.retry && !failed.abilities.cancel);
 }
+
+// ---- Channels ----
+
+#[test]
+fn only_release_channels_alert() {
+    for channel in super::CHANNELS {
+        let alerts = channel.id == super::RELEASES.id;
+        assert_eq!(channel.alerts, alerts, "{}", channel.id);
+    }
+    const { assert!(super::RELEASES.alerts) };
+    const { assert!(!super::PLAYBACK.alerts) };
+}
+
+#[test]
+fn quiet_channels_never_reuse_a_retired_id() {
+    for channel in super::CHANNELS {
+        assert!(
+            !super::RETIRED_CHANNELS.contains(&channel.id),
+            "{}",
+            channel.id
+        );
+    }
+    // The plugin's downloads channel was made quiet from the start.
+    assert!(!super::RETIRED_CHANNELS.contains(&"raygun.downloads"));
+}
+
+#[test]
+fn notices_tell_the_plugin_whether_they_alert() {
+    let notice = |channel| super::Notice {
+        id: 1,
+        channel,
+        title: "Title".into(),
+        text: "Text".into(),
+        route: "/".into(),
+    };
+    let quiet = notice(&super::PLAYBACK).to_json();
+    assert_eq!(quiet["alerts"], false);
+    assert_eq!(quiet["channel"], "raygun.playback.quiet");
+    assert_eq!(quiet["retiredChannels"][0], "raygun.playback");
+    assert_eq!(notice(&super::RELEASES).to_json()["alerts"], true);
+}

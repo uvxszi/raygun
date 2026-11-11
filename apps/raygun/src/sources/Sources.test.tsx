@@ -317,6 +317,41 @@ describe('Sources', () => {
     expect(commands.sourcesAdd).not.toHaveBeenCalled();
   });
 
+  it('signs in to a Subsonic server found at its address', async () => {
+    const user = userEvent.setup();
+    commands.sourcesDetect.mockResolvedValue(
+      ok(
+        detected({
+          kind: 'server',
+          server: 'subsonic',
+          url: 'http://192.168.1.5:4533/',
+          name: '192.168.1.5',
+        }),
+      ),
+    );
+    const sheet = await openAddSheet(user);
+    await lookUp(user, sheet, '192.168.1.5:4533');
+    const card = await within(sheet).findByRole('region', { name: /Subsonic/ });
+    await user.type(within(card).getByRole('textbox', { name: 'User name' }), 'listener');
+    await user.type(within(card).getByLabelText('Password'), 'secret');
+    await user.click(within(card).getByRole('button', { name: 'Connect' }));
+    expect(commands.serversAdd).toHaveBeenCalledWith({
+      kind: 'subsonic',
+      address: 'http://192.168.1.5:4533/',
+      username: 'listener',
+      secret: 'secret',
+      apiKey: false,
+    });
+    expect(commands.sourcesAdd).not.toHaveBeenCalled();
+  });
+
+  it('connects a server by hand before looking anything up', async () => {
+    const user = userEvent.setup();
+    const sheet = await openAddSheet(user);
+    await user.click(within(sheet).getByRole('button', { name: 'Connect a server by hand' }));
+    expect(await screen.findByRole('dialog', { name: 'Add server' })).toBeInTheDocument();
+  });
+
   it('says when nothing it can add is there, and connects a server by hand', async () => {
     const user = userEvent.setup();
     commands.sourcesDetect.mockResolvedValue({

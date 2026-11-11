@@ -32,12 +32,39 @@ export const providerId = (id: string) =>
     .replace(/^[^a-z0-9]+/, '')
     .slice(0, 64) || 'provider';
 
-const call = <T>(provider: NuclearProvider, method: string, ...args: unknown[]): Promise<T> => {
+/**
+ * Errors that say the plugin has no server or sign-in yet: Nuclear sets these in its own settings
+ * screen (a connection widget), which converted plugins don't get.
+ */
+const NEEDS_CONNECTION =
+  /\bnot (?:connected|configured|set up|logged in|signed in|authenticated)\b|\b(?:no|missing) (?:server|credentials|url|address|username|password|token|api key)\b|\b(?:server|credentials|url|username|password) (?:is |are )?(?:not set|missing|required)\b/i;
+
+/** Where to connect a server in Raygun, for a plugin that has none. */
+export const CONNECT_HINT =
+  'Raygun connects servers itself: add yours in Sources → Add (Subsonic, Navidrome, Jellyfin, Emby, Audiobookshelf and OPDS sign in there).';
+
+/** `error` as it reaches Raygun: one that says the plugin isn't connected says where to connect. */
+export const explainError = (error: unknown): unknown => {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (!message || !NEEDS_CONNECTION.test(message) || message.includes(CONNECT_HINT)) return error;
+  const ends = /[.!?]$/.test(message.trim()) ? '' : '.';
+  return new Error(`${message.trim()}${ends} ${CONNECT_HINT}`);
+};
+
+const call = async <T>(
+  provider: NuclearProvider,
+  method: string,
+  ...args: unknown[]
+): Promise<T> => {
   const fn = provider[method];
   if (typeof fn !== 'function') {
     throw new Error(`${provider.name} has no ${method}`);
   }
-  return Promise.resolve(fn.apply(provider, args) as T);
+  try {
+    return (await fn.apply(provider, args)) as T;
+  } catch (error) {
+    throw explainError(error);
+  }
 };
 
 const has = (provider: NuclearProvider, method: string) => typeof provider[method] === 'function';
