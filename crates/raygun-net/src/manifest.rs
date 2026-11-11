@@ -337,6 +337,38 @@ http://proxy/media/t/https/other.example/low.m3u8?token=a&b=c\r\n\
     }
 
     #[test]
+    fn live_playlists_are_rewritten_afresh_each_time_they_grow() {
+        let base = Url::parse("https://live.example/ch/index.m3u8?_HLS_msn=41").unwrap();
+        let first = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:40\n\
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=3.0\n\
+#EXTINF:4.0,\nseg40.ts\n\
+#EXT-X-PART:DURATION=1.0,URI=\"seg41.part0.ts\"\n\
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"seg41.part1.ts\"\n\
+#EXT-X-RENDITION-REPORT:URI=\"../low/index.m3u8\",LAST-MSN=40\n";
+        let rewritten = rewrite_hls(first, &base, &link);
+        assert!(rewritten.contains("\nhttp://proxy/media/t/https/live.example/ch/seg40.ts\n"));
+        assert!(
+            rewritten.contains("URI=\"http://proxy/media/t/https/live.example/ch/seg41.part0.ts\"")
+        );
+        assert!(
+            rewritten.contains("URI=\"http://proxy/media/t/https/live.example/ch/seg41.part1.ts\"")
+        );
+        assert!(
+            rewritten.contains("URI=\"http://proxy/media/t/https/live.example/low/index.m3u8\"")
+        );
+        assert!(
+            !rewritten.contains("#EXT-X-ENDLIST"),
+            "a live playlist stays open"
+        );
+        // The next reload (no end tag yet) carries new segments, rewritten the same way.
+        let later = first.replace("#EXT-X-MEDIA-SEQUENCE:40", "#EXT-X-MEDIA-SEQUENCE:41")
+            + "#EXTINF:4.0,\nseg41.ts\n";
+        let again = rewrite_hls(&later, &base, &link);
+        assert!(again.contains("\nhttp://proxy/media/t/https/live.example/ch/seg41.ts\n"));
+        assert!(again.contains("#EXT-X-MEDIA-SEQUENCE:41"));
+    }
+
+    #[test]
     fn rewrites_absolute_dash_addresses_and_leaves_templates() {
         let base = Url::parse("https://cdn.example/v/manifest.mpd").unwrap();
         let manifest = r#"<?xml version="1.0"?>
