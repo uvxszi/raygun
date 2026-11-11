@@ -5,6 +5,7 @@ import { PlayerViewSettings } from '../../player/PlayerViewSettings';
 import { useIsDesktop } from '../../shell/useIsDesktop';
 import { usePanelSizes } from '../../shell/usePanelSizes';
 import { SoundSettings } from '../../sound/SoundSettings';
+import { YouTubeSettings } from '../../youtube/YouTubeSettings';
 import { AudioQualitySettings } from '../AudioQualitySettings';
 import { PrefGroup, PrefSlider, PrefSwitch } from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
@@ -13,8 +14,9 @@ import { useSettings, useUpdateSetting } from '../useSettings';
 const NEXT_UP_ROWS = { min: 1, max: 10 };
 
 /**
- * Settings → Music player: quality, what happens on start, the queue, the full player's look,
- * then the sound (equalizer, effects, levelling, crossfade). Also the music player's own sheet.
+ * Settings → Music player: quality, what happens on start, the queue, YouTube's videos
+ * (SponsorBlock, the audio track), the full player's look, then the sound (equalizer, effects,
+ * levelling, crossfade). Also the music player's own sheet.
  */
 export const MusicPlayerSettings: FC = () => {
   const { t } = useTranslation();
@@ -52,6 +54,7 @@ export const MusicPlayerSettings: FC = () => {
           />
         </PrefGroup>
       )}
+      <YouTubeSettings />
       <PlayerViewSettings title={t('player.view.musicTitle')} />
       <SoundSettings />
     </>

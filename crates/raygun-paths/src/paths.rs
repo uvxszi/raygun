@@ -28,6 +28,8 @@ pub enum CacheKind {
     Artists,
     /// Video exports being converted, until they're copied where they go.
     Convert,
+    /// SponsorBlock's parts of YouTube videos, kept a day and swept after a month unused.
+    SponsorBlock,
 }
 
 impl CacheKind {
@@ -43,6 +45,7 @@ impl CacheKind {
             Self::Captions => "captions",
             Self::Artists => "artists",
             Self::Convert => "convert",
+            Self::SponsorBlock => "sponsorblock",
         }
     }
 }

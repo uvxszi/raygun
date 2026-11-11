@@ -2113,6 +2113,7 @@ impl ExtensionHost {
         let prefs = crate::youtube::StreamPrefs {
             target_kbps: using.quality.kbps().map(f64::from),
             decodable: using.decodable,
+            ..crate::youtube::StreamPrefs::default()
         };
         let (reply, answer) = oneshot::channel();
         self.shared.lanes[lane]

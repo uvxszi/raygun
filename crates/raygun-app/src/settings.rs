@@ -314,6 +314,28 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
     if differs("network", &|before| before.network == settings.network) {
         crate::network_mode::apply(app, &settings.network);
     }
+    // YouTube's players: the audio track and codec (the next load's address), SponsorBlock's
+    // parts (the song playing follows at once).
+    if differs("youtube", &|before| before.youtube == settings.youtube)
+        || differs("videoPlayer", &|before| {
+            before.video_player.video_codec == settings.video_player.video_codec
+        })
+    {
+        crate::youtube_embed::apply(settings);
+    }
+    if differs("youtube", &|before| {
+        before.youtube.sponsor_block == settings.youtube.sponsor_block
+    }) {
+        if let Some(sponsorblock) =
+            app.try_state::<std::sync::Arc<crate::sponsorblock::SponsorBlock>>()
+        {
+            sponsorblock.set_prefs(settings.youtube.sponsor_block);
+        }
+        if before.is_some() {
+            app.state::<crate::playback::PlaybackService>()
+                .skips_changed();
+        }
+    }
 }
 
 /// The settings as services use them: what Data Saver changes while it applies

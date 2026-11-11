@@ -3,6 +3,8 @@ import { useState } from 'react';
 import type { FC, SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { SkipMarks } from '../youtube/SkipMarks';
+import { useSkipSegments } from '../youtube/useSongSkips';
 import { formatTime } from './formatTime';
 import { onSeekKey } from './seekKeys';
 import { useLiveValue, useLivePosition } from './useLivePosition';
@@ -31,6 +33,8 @@ export const SeekBar: FC<SeekBarProps> = ({ variant, onScrub, className = '' }) 
   const [seeking, setSeeking] = useState<Seeking | null>(null);
   const livePositionMs = useLivePosition(state);
   const durationMs = state?.durationMs ?? 0;
+  // SponsorBlock's parts of a song from YouTube, marked along the slider.
+  const skipSegments = useSkipSegments();
   const pending = seeking && seeking.from === state ? seeking.positionMs : null;
   const positionMs = scrubMs ?? pending ?? livePositionMs;
   const scrub = (value: number | null) => {
@@ -43,7 +47,7 @@ export const SeekBar: FC<SeekBarProps> = ({ variant, onScrub, className = '' }) 
     setSeeking({ positionMs: scrubMs, from: state });
     scrub(null);
   };
-  const slider = (
+  const input = (
     <input
       type="range"
       aria-label={t('player.seek')}
@@ -65,6 +69,17 @@ export const SeekBar: FC<SeekBarProps> = ({ variant, onScrub, className = '' }) 
       }`}
     />
   );
+  const slider =
+    skipSegments.length > 0 ? (
+      <span
+        className={`relative flex min-w-0 items-center ${variant === 'bar' ? 'flex-1' : 'w-full'}`}
+      >
+        {input}
+        <SkipMarks segments={skipSegments} durationMs={durationMs} />
+      </span>
+    ) : (
+      input
+    );
 
   if (variant === 'bar') {
     return (

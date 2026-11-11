@@ -90,6 +90,8 @@ struct Inner {
     /// The load whose end asked for the next song's stream to be found again if it was about to
     /// expire (once per load).
     refreshed_for: Option<u32>,
+    /// SponsorBlock's parts of the load playing, when it's a YouTube video's.
+    skips: Option<crate::sponsorblock::LoadSkips>,
 }
 
 pub struct PlaybackService {
@@ -153,6 +155,12 @@ struct Outbox {
     /// The songs around the current one may have changed (a song started, the queue changed):
     /// their streams are found ahead (M46.53).
     find_ahead: bool,
+    /// SponsorBlock's parts to look up for a load: its id, the item's and the video's.
+    skips_lookup: Option<(u32, String, String)>,
+    /// The parts of the song playing changed (`None`: it has none to show).
+    skip_segments: Option<Option<raygun_model::SkipSegments>>,
+    /// A part of the song playing was just skipped.
+    skipped: Option<raygun_model::SkippedSegment>,
 }
 
 impl Outbox {
@@ -185,6 +193,7 @@ impl PlaybackService {
                 ahead_tasks: HashMap::new(),
                 ahead_next: 0,
                 refreshed_for: None,
+                skips: None,
             }),
             proxy,
             app,
@@ -600,7 +609,7 @@ impl PlaybackService {
     /// The YouTube embed host page the player uses (a recording captures songs from hidden ones of
     /// its own, M46.52).
     pub fn youtube_embed_url(&self) -> String {
-        self.proxy.youtube_embed_url()
+        crate::youtube_embed::url(&self.proxy.youtube_embed_url())
     }
 
     /// Changes queued items in place (M46.48: a song given a source or names); `update` says
@@ -980,6 +989,7 @@ impl PlaybackService {
             let mut gave_up = None;
             let mut lost = None;
             let mut find_ahead = false;
+            let mut skip = None;
             let counted = current
                 && match &report.event {
                     EngineEvent::Progress {
@@ -1050,9 +1060,10 @@ impl PlaybackService {
                     position_ms,
                     duration_ms,
                 } if current => {
+                    let duration = duration_ms.or(inner.core.state().duration_ms);
+                    skip = self.skip_due(&mut inner, report.load_id, *position_ms, duration);
                     // Near its end, the next song's stream is found again if it would stop
                     // working before that song plays (M46.53).
-                    let duration = duration_ms.or(inner.core.state().duration_ms);
                     if let Some(left) = duration.map(|duration| duration - position_ms)
                         && left < REFRESH_BEFORE_END_MS
                         && inner.refreshed_for != Some(report.load_id)
@@ -1095,8 +1106,20 @@ impl PlaybackService {
                 }
                 _ => {}
             }
-            let effects = inner.core.report(report);
+            let reported = report.load_id;
+            let mut effects = inner.core.report(report);
+            // A part SponsorBlock lists that's skipped: the song goes on after it (unless the
+            // report ended it, at its end trim).
+            let still = inner.core.load_id() == reported;
+            let skipped = skip.filter(|_| still).map(|(item_id, skip)| {
+                effects.extend(inner.core.seek(skip.to_ms));
+                raygun_model::SkippedSegment {
+                    item_id,
+                    segment: skip.segment,
+                }
+            });
             let mut outbox = self.resolve(&mut inner, effects, cause);
+            outbox.skipped = skipped;
             outbox.verified = verified;
             outbox.played = played;
             outbox.rescued = rescued;
@@ -1462,6 +1485,206 @@ impl PlaybackService {
                 playback.hold_for_webview(load_id, &item).await;
             });
         }
+        if let Some((load_id, _, video)) = outbox.skips_lookup {
+            self.look_up_skips(load_id, video);
+        }
+        if let Some(segments) = outbox.skip_segments {
+            log_emit(crate::events::SkipSegmentsEvent(segments).emit(&self.app));
+        }
+        if let Some(skipped) = outbox.skipped {
+            tracing::debug!(category = ?skipped.segment.category, "skipped a part of the song");
+            log_emit(crate::events::SkippedSegmentEvent(skipped).emit(&self.app));
+        }
+    }
+
+    // ---- SponsorBlock ----
+
+    /// The YouTube video load `load_id` plays, when it plays one: in YouTube's embed, as its
+    /// audio file (the resolver's pick), or as a downloaded copy of either.
+    fn youtube_video_of(
+        &self,
+        inner: &Inner,
+        load_id: u32,
+        source: &MediaSource,
+    ) -> Option<String> {
+        match source {
+            MediaSource::YouTube { video_id } => Some(video_id.clone()),
+            MediaSource::LocalFile { path } => self
+                .app
+                .try_state::<Arc<crate::music_downloads::SongDownloadService>>()?
+                .youtube_video_of_file(path),
+            _ => inner
+                .tracker
+                .pick(load_id)
+                .and_then(|pick| crate::music_downloads::youtube_video_of(&pick.key))
+                .map(str::to_owned),
+        }
+    }
+
+    /// A load of a YouTube video: its SponsorBlock parts are looked up, and one where it starts
+    /// that's known already is passed at once (`start_ms` moves past it). Any other load has none.
+    fn begin_skips(
+        &self,
+        inner: &mut Inner,
+        outbox: &mut Outbox,
+        load_id: u32,
+        item: &QueueItem,
+        source: &MediaSource,
+        start_ms: &mut f64,
+    ) {
+        let sponsorblock = self
+            .app
+            .try_state::<Arc<crate::sponsorblock::SponsorBlock>>()
+            .map(|state| state.inner().clone())
+            .filter(|sponsorblock| sponsorblock.enabled());
+        let video = sponsorblock
+            .as_ref()
+            .and_then(|_| self.youtube_video_of(inner, load_id, source));
+        let (Some(sponsorblock), Some(video)) = (sponsorblock, video) else {
+            if inner.skips.take().is_some() {
+                outbox.skip_segments = Some(None);
+            }
+            return;
+        };
+        let mut skips = crate::sponsorblock::LoadSkips::new(load_id, &item.id, &video);
+        outbox.skip_segments = Some(None);
+        if let Some(kept) = sponsorblock.kept(&video) {
+            let shown = sponsorblock.shown(&kept, None);
+            skips.set_segments(kept);
+            if let Some(skip) = skips.due(&shown, *start_ms, None, self.now_ms()) {
+                *start_ms = skip.to_ms;
+                outbox.skipped = Some(raygun_model::SkippedSegment {
+                    item_id: item.id.clone(),
+                    segment: skip.segment,
+                });
+            }
+            outbox.skip_segments = Some(Some(raygun_model::SkipSegments {
+                item_id: item.id.clone(),
+                video_id: video.clone(),
+                segments: shown,
+            }));
+        }
+        outbox.skips_lookup = Some((load_id, item.id.clone(), video));
+        inner.skips = Some(skips);
+    }
+
+    /// Asks SponsorBlock for the parts of the video load `load_id` plays, in the background.
+    fn look_up_skips(&self, load_id: u32, video: String) {
+        let Some(sponsorblock) = self
+            .app
+            .try_state::<Arc<crate::sponsorblock::SponsorBlock>>()
+            .map(|state| state.inner().clone())
+        else {
+            return;
+        };
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            match sponsorblock
+                .segments(&video, crate::sponsorblock::Want::Now)
+                .await
+            {
+                Ok(segments) => app
+                    .state::<PlaybackService>()
+                    .skips_found(load_id, &video, segments),
+                Err(error) => tracing::debug!(%error, "no SponsorBlock parts for the song"),
+            }
+        });
+    }
+
+    /// SponsorBlock answered for load `load_id`: its parts are skipped from the next report on,
+    /// and shown on the seek bar.
+    fn skips_found(&self, load_id: u32, video: &str, segments: Vec<crate::sponsorblock::Segment>) {
+        let shown = {
+            let mut inner = self.lock();
+            let duration = inner.core.state().duration_ms;
+            let Some(skips) = inner
+                .skips
+                .as_mut()
+                .filter(|skips| skips.load_id == load_id && skips.video_id == video)
+            else {
+                return;
+            };
+            if skips.segments() == Some(segments.as_slice()) {
+                return;
+            }
+            let shown = self.shown_skips(&segments, duration);
+            skips.set_segments(segments);
+            raygun_model::SkipSegments {
+                item_id: skips.item_id.clone(),
+                video_id: video.to_owned(),
+                segments: shown,
+            }
+        };
+        log_emit(crate::events::SkipSegmentsEvent(Some(shown)).emit(&self.app));
+    }
+
+    fn shown_skips(
+        &self,
+        segments: &[crate::sponsorblock::Segment],
+        duration_ms: Option<f64>,
+    ) -> Vec<raygun_model::SkipSegment> {
+        self.app
+            .try_state::<Arc<crate::sponsorblock::SponsorBlock>>()
+            .map(|sponsorblock| sponsorblock.shown(segments, duration_ms))
+            .unwrap_or_default()
+    }
+
+    /// The part to skip for a report of load `load_id` at `position_ms`, with the item's id.
+    fn skip_due(
+        &self,
+        inner: &mut Inner,
+        load_id: u32,
+        position_ms: f64,
+        duration_ms: Option<f64>,
+    ) -> Option<(String, crate::sponsorblock::Skip)> {
+        let now = self.now_ms();
+        let skips = inner
+            .skips
+            .as_mut()
+            .filter(|skips| skips.load_id == load_id)?;
+        let shown = self.shown_skips(skips.segments()?, duration_ms);
+        let skip = skips.due(&shown, position_ms, duration_ms, now)?;
+        Some((skips.item_id.clone(), skip))
+    }
+
+    /// The parts of the song playing, for its seek bar.
+    pub fn skip_segments(&self) -> Option<raygun_model::SkipSegments> {
+        let inner = self.lock();
+        let skips = inner
+            .skips
+            .as_ref()
+            .filter(|skips| skips.load_id == inner.core.load_id())?;
+        let segments = skips.segments()?;
+        Some(raygun_model::SkipSegments {
+            item_id: skips.item_id.clone(),
+            video_id: skips.video_id.clone(),
+            segments: self.shown_skips(segments, inner.core.state().duration_ms),
+        })
+    }
+
+    /// Takes a skip of the song playing back (the note's Undo): it plays from the part's start,
+    /// which isn't skipped again while it plays.
+    pub fn undo_skip(&self, segment_id: &str) {
+        let start = {
+            let mut inner = self.lock();
+            let load_id = inner.core.load_id();
+            inner
+                .skips
+                .as_mut()
+                .filter(|skips| skips.load_id == load_id)
+                .and_then(|skips| skips.undo(segment_id))
+        };
+        if let Some(start) = start {
+            self.run(|core| core.seek(start));
+        }
+    }
+
+    /// SponsorBlock's settings changed: the song playing shows its parts as they say now.
+    pub fn skips_changed(&self) {
+        let shown = self.skip_segments();
+        if shown.is_some() {
+            log_emit(crate::events::SkipSegmentsEvent(shown).emit(&self.app));
+        }
     }
 
     /// Commands the right engine to load `source` for the current item.
@@ -1510,7 +1733,8 @@ impl PlaybackService {
         // The song's trims and gain (M46.12): a song from its top starts at its start trim.
         let tuning = self.tuning(&inner.sound, item);
         inner.core.set_end(load_id, tuning.end_ms);
-        let start_ms = start_ms.max(tuning.start_ms);
+        let mut start_ms = start_ms.max(tuning.start_ms);
+        self.begin_skips(inner, outbox, load_id, item, source, &mut start_ms);
         outbox.engine.push((
             engine,
             EngineCommand::SetEffects {
@@ -1520,7 +1744,7 @@ impl PlaybackService {
         let command = match source {
             MediaSource::YouTube { video_id } => EngineCommand::LoadYouTube {
                 load_id,
-                embed_url: self.proxy.youtube_embed_url(),
+                embed_url: self.youtube_embed_url(),
                 video_id: video_id.clone(),
                 start_ms,
                 autoplay,
