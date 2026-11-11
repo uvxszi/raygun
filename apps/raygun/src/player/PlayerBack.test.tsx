@@ -77,7 +77,7 @@ describe('The full player and Back', () => {
     AppShellWrapper.playing([makeItem('Intro')], 0);
     await AppShellWrapper.miniPlayer.open();
     const sheet = await AppShellWrapper.playerSheet.element;
-    expect(sheet.className).toContain('pt-[calc(0.75rem+env(safe-area-inset-top))]');
+    expect(sheet.className).toContain('pt-[calc(0.75rem+var(--safe-top))]');
   });
 
   it('slides long names in the Up next and Playing from pills instead of growing them', async () => {

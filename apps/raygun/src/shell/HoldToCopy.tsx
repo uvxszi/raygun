@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { claimHold } from './holdClaims';
 import { showToast } from './toastStore';
 
 /** How long a press is held to copy, ms. */
@@ -63,6 +64,7 @@ export const HoldToCopy: FC<HoldToCopyProps> = ({ text, children, className = ''
       data-pressed={pressed || copied ? '' : undefined}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
+        claimHold(event);
         release();
         const timer = setTimeout(() => {
           hold.current = null;

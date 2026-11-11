@@ -245,12 +245,12 @@ export const ServerPicker: FC<{
   const error = play.error ?? download.error;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] sm:items-center">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="servers-title"
-        className="bg-surface flex max-h-[85vh] w-full max-w-md flex-col gap-3 rounded-t-2xl pt-5 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:rounded-2xl"
+        className="bg-surface flex max-h-[85vh] w-full max-w-md flex-col gap-3 rounded-t-2xl pt-5 pb-[calc(1rem+var(--safe-bottom))] sm:rounded-2xl"
       >
         <div className="flex items-start justify-between gap-3 px-5">
           <div className="min-w-0">

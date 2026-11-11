@@ -189,7 +189,7 @@ export const TrackActionsSheet: FC = () => {
   }
   return (
     <div
-      className="motion-fade fixed inset-0 z-[60] flex items-end justify-center bg-black/60 sm:items-center"
+      className="motion-fade fixed inset-0 z-[60] flex items-end justify-center bg-black/60 pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] sm:items-center"
       onClick={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -286,7 +286,7 @@ const TrackActions: FC<{ track: TrackInput; sheet?: boolean }> = ({ track, sheet
       {sheet ? (
         <div
           data-testid="track-actions-rows"
-          className="-mx-4 flex min-h-0 touch-pan-y flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+          className="-mx-4 flex min-h-0 touch-pan-y flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-[calc(1rem+var(--safe-bottom))] [-webkit-overflow-scrolling:touch]"
         >
           {rows}
         </div>

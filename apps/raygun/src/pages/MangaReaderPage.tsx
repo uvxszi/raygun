@@ -366,10 +366,10 @@ export const MangaReaderPage: FC = () => {
         event.preventDefault();
         event.stopPropagation();
       }}
-      className="-mx-4 -mb-4 flex min-h-full flex-col bg-black pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] select-none [-webkit-touch-callout:none] lg:-mx-10"
+      className="-mx-4 -mb-4 flex min-h-full flex-col bg-black pr-[var(--safe-right)] pl-[var(--safe-left)] select-none [-webkit-touch-callout:none] lg:-mx-10"
     >
       {chrome && (
-        <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
+        <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 pt-[var(--safe-top)] pr-[calc(0.25rem+var(--safe-right))] pl-[calc(0.25rem+var(--safe-left))] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}
@@ -481,13 +481,13 @@ export const MangaReaderPage: FC = () => {
           <span
             data-testid="page-number"
             aria-hidden
-            className="pointer-events-none fixed inset-x-0 bottom-[calc(0.5rem+env(safe-area-inset-bottom))] z-20 mx-auto w-fit rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-medium text-white/90 tabular-nums"
+            className="pointer-events-none fixed inset-x-0 bottom-[calc(0.5rem+var(--safe-bottom))] z-20 mx-auto w-fit rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-medium text-white/90 tabular-nums"
           >
             {page + 1} / {total}
           </span>
         )}
       {data && chrome && total > 0 && (
-        <footer className="fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+env(safe-area-inset-right))] pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))]">
+        <footer className="fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+var(--safe-right))] pb-[calc(0.75rem+var(--safe-bottom))] pl-[calc(0.75rem+var(--safe-left))]">
           {/* AI layers: bottom right, above the bar's own buttons. */}
           <div className="flex w-full justify-end">
             <ReaderAiButton medium="comic" busy={pageAi.busy} error={pageAi.error} />
