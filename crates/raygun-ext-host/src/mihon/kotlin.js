@@ -92,14 +92,29 @@
       return Array.isArray(right) ? left.concat(right) : left.concat([right]);
     if (left instanceof Map)
       return new Map([...left, ...(right instanceof Map ? right : [[right.first, right.second]])]);
+    // A JSON object read as a map (`text.parseAs<Map<Int, String>>()`) plus a map or a pair.
+    if (jsonMap(left) && (right instanceof Map || jsonMap(right) || (right && right.isPair)))
+      return KT.plus(
+        new Map(Object.entries(left)),
+        jsonMap(right) ? new Map(Object.entries(right)) : right,
+      );
     if (left && typeof left.plus === 'function') return left.plus(right);
     return left + right;
   };
+  /// A plain object standing for a map (JSON's, not a class's or the runtime's).
+  const jsonMap = (value) =>
+    Boolean(value) &&
+    typeof value === 'object' &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    value.__class === undefined &&
+    !value.isPair &&
+    typeof value.plus !== 'function';
   KT.minus = (left, right) => {
     if (Array.isArray(left)) {
       const drop = Array.isArray(right) ? right : [right];
       return left.filter((item) => !drop.some((other) => KT.eq(item, other)));
     }
+    if (left instanceof Map) return MAP.minus(left, [right]);
     // Instants and durations: `now - 1.days` is an instant, `end - start` a duration.
     if (
       left &&
@@ -355,6 +370,9 @@
     Object.defineProperty(args, '__types', { value: types, enumerable: false });
     return args;
   };
+  /// The type a call passed with its arguments (`element.parseAs<T>()` beside a source's own
+  /// `Response.parseAs()`), for the runtime's method of that name.
+  const typeOfCall = (args) => (args && args.__types && args.__types[0]) || null;
   /// Whether one of an extension's overloads takes `receiver` and `args`: its receiver's type
   /// and its parameters' (`[required, total, [types]]`).
   const extensionTakes = (entry, receiver, args) => {
@@ -362,10 +380,13 @@
     if (!entry.shape) return true;
     const [required, total, types] = entry.shape;
     if (args.length < required || args.length > total) return false;
-    return types.every(
+    return argsFit(types, args);
+  };
+  /// Whether arguments are of a function's parameters' types (`null`: any type).
+  const argsFit = (types, args) =>
+    types.every(
       (kind, at) => at >= args.length || kind === null || args[at] == null || KT.is(args[at], kind),
     );
-  };
   /// Calls `function_` with `args`, its types set aside for it to take.
   const enter = (function_, args, receiver = undefined) => {
     const types = args && args.__types;
@@ -1823,6 +1844,16 @@
       return out;
     },
     sorted: (l) => [...l].sort(KT.cmp),
+    // Sets' operations over lists: `a intersect b`, `a union b`, `a subtract b`.
+    intersect: (l, [other]) => {
+      const items = KT.iter(other);
+      return LIST.distinct(l).filter((item) => items.some((each) => KT.eq(each, item)));
+    },
+    union: (l, [other]) => LIST.distinct([...l, ...KT.iter(other)]),
+    subtract: (l, [other]) => {
+      const items = KT.iter(other);
+      return LIST.distinct(l).filter((item) => !items.some((each) => KT.eq(each, item)));
+    },
     toSortedSet: (l) => LIST.distinct(l).sort(KT.cmp),
     // `bytes.fill(0)`, `fill(value, from, to)`.
     fill: (l, [value, from = 0, to = l.length]) => {
@@ -2069,6 +2100,15 @@
       return m.get(key);
     },
     containsKey: (m, [key]) => m.has(key),
+    // `map.orEmpty()`, `map.ifEmpty { … }`: the map itself (not its entries, as the lists' would
+    // give).
+    orEmpty: (m) => m,
+    ifEmpty: async (m, args, lambda) => (m.size ? m : lambda ? lambda() : args[0]),
+    // `map - key`, `map - listOf(…)`: a map without them.
+    minus: (m, [keys]) => {
+      const drop = Array.isArray(keys) ? keys : [keys];
+      return new Map([...m].filter(([key]) => !drop.some((other) => KT.eq(other, key))));
+    },
     getValue: async (m, [key]) =>
       m.has(key) ? m.get(key) : m.defaultOf ? m.defaultOf(key) : noSuch(`no key ${KT.str(key)}`),
     // `withDefault { key -> … }`: what `getValue` answers for a key it lacks.
@@ -2604,6 +2644,14 @@
       if (BIGINT[name]) return BIGINT[name](value, []);
       throw new KotlinError(`a value has no ${name}`);
     }
+    // A declared class that is a collection (`class Results : Iterable<Manga> by results`): its
+    // own fields and getters first.
+    if (
+      (kind === 'list' || kind === 'map') &&
+      value.__class !== undefined &&
+      Object.prototype.hasOwnProperty.call(value, name)
+    )
+      return value[name];
     if (kind === 'list' || kind === 'elements') {
       if (LIST[name] && ['size', 'lastIndex', 'indices'].includes(name)) return LIST[name](value);
       if (JSON_PROPS[name]) return JSON_PROPS[name](value);
@@ -2706,6 +2754,9 @@
       throw new KotlinError(`${name}() was called on null`, 'NullPointerException');
     }
     if (receiver.isLazySequence) return sequenceCall(receiver, name, args, lambda, named, type);
+    // `null.orEmpty()` of a map the converter couldn't tell (`locked[id] ?: false` over
+    // `firstNotNullOfOrNull { … associate { … } }.orEmpty()`) is empty text: read as a map, empty.
+    if (receiver === '' && EMPTY_MAP_READS[name]) return EMPTY_MAP_READS[name](args);
     if (hasNextJs(receiver, name)) return NEXT_JS[name](receiver, args, lambda, type);
     // Protobuf answers read as the type asked (`parseAsProto<T>()`), after a `transform` if any.
     if (type && PROTO_DECODERS.has(name)) {
@@ -2757,6 +2808,8 @@
       (name === 'aesDecrypt' || name === 'aesDecryptWithPrependedIv')
     )
       return decryptAnswer(receiver, name, args, lambda, named);
+    if ((receiver instanceof Response || (receiver && receiver.isResponseBody)) && name === 'xor')
+      return xorAnswer(receiver, args);
     // okio's `source.cipherSource(cipher)` (Keiyoushi's `source.aesDecrypt(cipher)`): the bytes
     // left, decrypted.
     if (
@@ -2768,10 +2821,23 @@
           ? args[0].doFinalU8(await streamBytes(receiver))
           : u8Of(await args[0].doFinal(await streamBytes(receiver))),
       );
+    // Keiyoushi's `source.rc4(key)` and `source.xor(key)`: the bytes left, deciphered.
+    if ((name === 'rc4' || name === 'xor') && receiver && typeof receiver.u8Now === 'function') {
+      const bytes = await streamBytes(receiver);
+      if (name === 'rc4') return okioBuffer(rc4(bytes, u8Of(args[0]), args[1] ?? 0));
+      const mask = typeof args[0] === 'number' ? [args[0] & 255] : Array.from(u8Of(args[0]));
+      return okioBuffer(bytes.map((byte, at) => byte ^ mask[at % mask.length]));
+    }
     // OkHttp's `response.headers("Content-Type")`: that header's values.
     if (receiver instanceof Response && name === 'headers' && args.length)
       return receiver.headers.values(args[0]);
     if (kind === 'object') {
+      // A function named as one of the object's fields.
+      if (receiver.__methods && receiver.__methods[name]) {
+        const all = [...args];
+        if (written) all.push(written);
+        return receiver.__methods[name](...all);
+      }
       // The source itself: its functions, then its extensions on nothing.
       if (receiver.isSource && receiver.hasFunction(name))
         return receiver.call(name, lambda && !args.includes(lambda) ? [...args, lambda] : args);
@@ -2793,6 +2859,12 @@
     if (kind === 'function' && name === 'invoke') return receiver(...args);
     if (ANY[name]) return ANY[name](receiver, args, lambda, named, type);
     throw new KotlinError(`Raygun's runtime has no ${name}() for this value`);
+  };
+  const EMPTY_MAP_READS = {
+    get: () => null,
+    getOrDefault: ([, fallback]) => fallback ?? null,
+    containsKey: () => false,
+    containsValue: () => false,
   };
   const ELEMENTS_OWN = new Set([
     'first',
@@ -3504,6 +3576,7 @@
     'ArrayList',
     'Iterable',
   ]);
+  const NUMBER_TYPES = new Set(['Int', 'Long', 'Short', 'Byte', 'Double', 'Float']);
   const decodeAs = async (value, type) => {
     if (value === null || value === undefined) return null;
     if (LISTS.has(type.name)) {
@@ -3527,6 +3600,13 @@
     }
     if (type.name === 'Map' || type.name === 'HashMap' || type.name === 'MutableMap') {
       if (!value || typeof value !== 'object') return value;
+      // Numbered keys (`Map<Int, String>`) are numbers, as Kotlin's map has them.
+      if (NUMBER_TYPES.has(type.args[0]?.name)) {
+        const out = new Map();
+        for (const [key, item] of Object.entries(value))
+          out.set(Number(key), await decodeAs(item, type.args[1] ?? { name: 'Any', args: [] }));
+        return out;
+      }
       const out = {};
       for (const [key, item] of Object.entries(value))
         out[key] = await decodeAs(item, type.args[1] ?? { name: 'Any', args: [] });
@@ -4716,6 +4796,8 @@
       readByteArray: (count) => listOfBytes(take(count)),
       readByteString: (count) => byteString(take(count)),
       readUtf8: (count) => K.bin.text(take(count)),
+      // `BufferedSource.parseAs<T>()`: what's left as JSON (`KT.m` decodes it as asked).
+      parseAs: () => JSON.parse(K.bin.text(take())),
       readString: (first, second) => K.bin.text(take(typeof first === 'number' ? first : second)),
       readUtf8Line: () => {
         const at = data.subarray(head, tail).indexOf(10);
@@ -4831,6 +4913,8 @@
         return listOfBytes(rest);
       },
       readAllBytes: () => stream.readBytes(),
+      // Keiyoushi's `InputStream.parseAs<T>()`: the rest as JSON (`KT.m` decodes it as asked).
+      parseAs: () => JSON.parse(K.bin.text(Uint8Array.from(stream.readBytes()))),
       readNBytes: (count) => {
         const part = bytes.subarray(at, at + count);
         at += part.length;
@@ -5043,6 +5127,20 @@
       async () => plain,
       type ?? (body.contentType ? body.contentType() : null),
     );
+    if (!(receiver instanceof Response)) return next;
+    const builder = await KT.m(receiver, 'newBuilder', []);
+    await KT.m(builder, 'body', [next]);
+    return KT.m(builder, 'build', []);
+  };
+  /// Keiyoushi's `response.xor(key)` (and a body's): its bytes XORed with a byte, or a key's bytes
+  /// in turn.
+  const xorAnswer = async (receiver, [key, type = null]) => {
+    const body = receiver instanceof Response ? receiver.body : receiver;
+    const bytes = await bodyU8(body);
+    const mask = typeof key === 'number' ? [key & 255] : Array.from(u8Of(key));
+    const out = new Uint8Array(bytes.length);
+    for (let at = 0; at < bytes.length; at++) out[at] = bytes[at] ^ mask[at % mask.length];
+    const next = bytesBody(async () => out, type ?? (body.contentType ? body.contentType() : null));
     if (!(receiver instanceof Response)) return next;
     const builder = await KT.m(receiver, 'newBuilder', []);
     await KT.m(builder, 'body', [next]);
@@ -7196,6 +7294,8 @@
         if (!bytes) throw missing();
         return inputStream(bytes);
       },
+      // Kotlin's `dir.resolve("a/b.json")`: a file inside this one.
+      resolve: (child) => javaFile(path, child && child.isFile ? child.path : KT.str(child)),
       // okio's `file.source()` and `file.sink()`: its bytes, and what's written kept when the
       // sink closes (or flushes).
       source: () => {
@@ -9732,6 +9832,16 @@
     LinkedHashMap: 'map',
     MutableMap: 'map',
   };
+  /// Collection interfaces a class may delegate to one of its fields (`: Iterable<Manga> by results`):
+  /// it's then that collection, as its items.
+  const DELEGATED_BASES = {
+    Iterable: 'list',
+    Collection: 'list',
+    MutableCollection: 'list',
+    List: 'list',
+    Set: 'set',
+    Map: 'map',
+  };
   /// The class a declared class builds on when the source declares it too: by the name as
   /// written (`Outer.Inner`), else by its last part. Mihon's own filters (`Filter.Group`) stay
   /// Mihon's even when the source has a class of the same short name (a DTO's `Group`).
@@ -9776,7 +9886,9 @@
     /// An instance with these fields (`undefined` ones take their defaults).
     const build = async (fields, json = null) => {
       // A class built on a collection (`class CdnSet : LinkedHashSet<String>()`) is one.
-      const base = COLLECTION_BASES[definition.supers[0]?.split('<')[0].split('.').pop()];
+      const baseName = definition.supers[0]?.split('<')[0].split('.').pop();
+      const base =
+        COLLECTION_BASES[baseName] ?? (definition.delegate ? DELEGATED_BASES[baseName] : undefined);
       const object = base === 'map' ? new Map() : base ? [] : {};
       if (base === 'set') object.isSet = true;
       object.__class = definition.name;
@@ -9793,6 +9905,12 @@
             ...definition.params.map((other) => (other in object ? object[other] : undefined)),
           );
         object[name] = value ?? null;
+      }
+      // The items of the field it's delegated to.
+      if (definition.delegate && base && object[definition.delegate]) {
+        const items = object[definition.delegate];
+        if (base === 'map') for (const entry of KT.iter(items)) object.set(entry.key, entry.value);
+        else for (const item of KT.iter(items)) object.push(item);
       }
       const parentClass = parentOf(definition);
       if (definition.superArgs) {
@@ -9834,7 +9952,12 @@
             enumerable: false,
             configurable: true,
           });
-        else {
+        else if (definition.params.includes(name)) {
+          // A function named as one of its fields (`val title: RenderedDto` beside `fun title()`):
+          // the field keeps the name, and the function is called by it.
+          object.__methods ??= {};
+          object.__methods[name] = (...rest) => member(object, ...rest);
+        } else {
           object[name] = (...rest) => member(object, ...rest);
           object[name].arity = Math.max(0, member.length - 1);
         }
@@ -10069,6 +10192,7 @@
     if (kind === 'map') return Boolean(MAP[name]);
     if (kind === 'number' && NUMBER[name]) return true;
     if (typeof receiver[name] === 'function') return true;
+    if (receiver.__methods && receiver.__methods[name]) return true;
     if (kind === 'object' && receiver[name] && receiver[name].isMethod) return true;
     if (kind === 'object' && receiver.__class === undefined && (OBJECT[name] || objectAsMap(name)))
       return true;
@@ -10078,6 +10202,14 @@
     if (receiver === null || receiver === undefined) return false;
     // A list's, a string's or a map's own properties (`size` in `buildList { … }`).
     const kind = kindOf(receiver);
+    // A declared class that is a collection (`class Results : Iterable<Manga> by results`): its
+    // own fields too.
+    if (
+      (kind === 'list' || kind === 'map') &&
+      receiver.__class !== undefined &&
+      Object.prototype.hasOwnProperty.call(receiver, name)
+    )
+      return true;
     if (kind === 'list' || kind === 'elements')
       return ['size', 'lastIndex', 'indices'].includes(name);
     if (kind === 'string') return ['length', 'lastIndex', 'indices', 'category'].includes(name);
@@ -10100,6 +10232,13 @@
         continue;
       }
       if (hasField(receiver, name)) return KT.p(receiver, name);
+      // A Java getter read as a property (`all` in `preferences.apply { … }` is `getAll()`).
+      if (
+        typeof receiver === 'object' &&
+        !receiver.isSource &&
+        typeof receiver[`get${name.charAt(0).toUpperCase()}${name.slice(1)}`] === 'function'
+      )
+        return KT.p(receiver, name);
       // One of the source's extension properties on this receiver (`val Element.isValid`);
       // extension functions are registered with their receivers' types and are never read as
       // properties (`slug` in `apply` beside `fun SManga.slug()` is a field).
@@ -10279,9 +10418,13 @@
       for (let index = below - 1; index >= 0; index--) {
         const overloads = layers[index].functions.get(name);
         if (!overloads) continue;
-        const fits = overloads.filter(
+        const counted = overloads.filter(
           ([required, total]) => args.length >= required && args.length <= total,
         );
+        // Overloads taking as many arguments, by their parameters' types (`getMangaUrl(manga)`
+        // beside `getMangaUrl(id)`), when one fits.
+        const typed = counted.filter(([, , , types]) => !types || argsFit(types, args));
+        const fits = typed.length ? typed : counted;
         const chosen = fits.find(([, total]) => total === args.length) ?? fits[0];
         if (chosen) return chosen[2];
         fallback ??= overloads[0][2];
@@ -10386,7 +10529,7 @@
       call: (name, args) => invoke(name, args, top),
       ext: async (name, receiver, args) => {
         const function_ = extensions.get(name);
-        if (!function_) return KT.m(receiver, name, args);
+        if (!function_) return KT.m(receiver, name, args, null, null, typeOfCall(args));
         // A member wins over an extension of the same name, as in Kotlin, when it takes the
         // arguments (`dto.toSManga(baseUrl)` beside the source's `Other.toSManga(manga)`).
         const own = receiver && receiver.__class !== undefined ? receiver[name] : undefined;
@@ -10413,7 +10556,7 @@
             extensionTakes(entry, receiver, args),
           )
         )
-          return KT.m(receiver, name, args);
+          return KT.m(receiver, name, args, null, null, typeOfCall(args));
         return enter(function_, args, receiver);
       },
       base: {

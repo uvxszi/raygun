@@ -230,6 +230,8 @@ pub struct PropDecl {
     pub ty: Option<Type>,
     pub value: Option<Expr>,
     pub getter: Option<Body>,
+    /// `set(value) { … }`: its parameter's name and its body.
+    pub setter: Option<Box<(String, Body)>>,
     pub delegate: Option<Expr>,
     pub line: u32,
 }
@@ -247,6 +249,8 @@ pub struct SuperRef {
     pub ty: Type,
     /// Constructor arguments; `None` for an interface.
     pub args: Option<Vec<Arg>>,
+    /// `Iterable<Manga> by results`: what the interface is delegated to.
+    pub delegate: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -560,6 +560,7 @@ impl Parser {
         }
         // Accessors, on the same line or the next ones.
         let mut getter = None;
+        let mut setter = None;
         loop {
             let save = self.at;
             self.skip_newlines();
@@ -576,15 +577,15 @@ impl Parser {
             }
             if self.eat_name("set") {
                 if self.eat_op("(") {
-                    self.with_nesting(true, |parser| {
-                        parser.name()?;
+                    let param = self.with_nesting(true, |parser| {
+                        let name = parser.name()?;
                         if parser.eat_op(":") {
                             parser.ty()?;
                         }
-                        Ok(())
+                        Ok(name)
                     })?;
                     self.expect_op(")")?;
-                    self.function_body()?;
+                    setter = self.function_body()?.map(|body| Box::new((param, body)));
                 }
                 continue;
             }
@@ -599,6 +600,7 @@ impl Parser {
             ty,
             value,
             getter,
+            setter,
             delegate,
             line,
         })
@@ -675,13 +677,15 @@ impl Parser {
                 None
             };
             // `Interface by delegate`, before the class's body.
-            if self.eat_name("by") {
+            let delegate = if self.eat_name("by") {
                 let outer = std::mem::replace(&mut self.no_trailing_lambda, true);
                 let delegate = self.expr();
                 self.no_trailing_lambda = outer;
-                delegate?;
-            }
-            supers.push(SuperRef { ty, args });
+                Some(delegate?)
+            } else {
+                None
+            };
+            supers.push(SuperRef { ty, args, delegate });
             if !self.eat_op(",") {
                 break;
             }

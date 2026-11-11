@@ -120,7 +120,11 @@ What else the converter reads as Kotlin does:
   entries with their constructor values and the class's functions, a theme's constructor
   parameters as properties (what the class above passes, else the defaults);
 - generics: functions with reified type parameters get the types their calls pass
-  (`inline fun <reified T> Response.parseData(): T = parseAs<ApiResponse<T>>().data`);
+  (`inline fun <reified T> Response.parseData(): T = parseAs<ApiResponse<T>>().data`), also to a
+  returned `if`'s branches (`return if (…) element.parseAs() else decoded.parseAs()`);
+- overloads taking as many arguments are told apart by their parameters' types
+  (`getMangaUrl(manga: SManga)` beside `getMangaUrl(id: String)`), and a companion's functions
+  reach its own extensions (`status_name?.let(::convertStatus)`);
 - decoding: a serializable class's body fields (and its parent's) take what JSON gives them,
   enums decode from their JSON names, subclasses by the class discriminator `Json { … }` names;
 - names: written with their package (`java.net.URI(…)`), nested (`Filter.Sort.Selection`,
@@ -318,10 +322,10 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 132 | 136 |
-| No theme | 835 | 862 |
-| All | 1556 (98.0%) | 1587 |
+| No theme | 838 | 862 |
+| All | 1559 (98.2%) | 1587 |
 
-The 31 refusals left are one or two extensions each, most of them on what has no stand-in:
+The 28 refusals left are one or two extensions each, most of them on what has no stand-in:
 Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
 own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three);
 one on Kotlin the converter doesn't read yet (a class declared in a function). Android's
