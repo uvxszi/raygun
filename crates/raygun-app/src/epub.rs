@@ -428,7 +428,14 @@ fn first_heading(html: &str) -> Option<String> {
 fn has_text(html: &str) -> bool {
     raygun_ext_host::novel::html_blocks(html, None)
         .iter()
-        .any(|block| matches!(block, raygun_ext_host::novel::PassageBlock::Paragraph(_)))
+        .any(|block| {
+            matches!(
+                block,
+                raygun_ext_host::novel::PassageBlock::Paragraph(_)
+                    | raygun_ext_host::novel::PassageBlock::Rich(_)
+                    | raygun_ext_host::novel::PassageBlock::Math(_)
+            )
+        })
 }
 
 /// Where a book path is unpacked: each segment limited to `[A-Za-z0-9._-]` (other characters
@@ -533,6 +540,9 @@ fn plain(text: &str) -> String {
         .filter_map(|block| match block {
             raygun_ext_host::novel::PassageBlock::Paragraph(text)
             | raygun_ext_host::novel::PassageBlock::Heading(text) => Some(text),
+            raygun_ext_host::novel::PassageBlock::Rich(parts) => {
+                Some(raygun_ext_host::novel::plain_text(&parts))
+            }
             _ => None,
         })
         .collect::<Vec<_>>()

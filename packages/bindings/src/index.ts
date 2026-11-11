@@ -1048,17 +1048,21 @@ export const commands = {
 	novelSetInLibrary: (titleId: string, inLibrary: boolean) => typedError<null, string>(__TAURI_INVOKE("novel_set_in_library", { titleId, inLibrary })),
 	novelLibrary: () => typedError<MangaLibraryEntry[], string>(__TAURI_INVOKE("novel_library")),
 	/**  One chapter's text as blocks, with its neighbours. */
-	novelChapter: (titleId: string, chapterId: string) => typedError<NovelChapter, string>(__TAURI_INVOKE("novel_chapter", { titleId, chapterId })),
+	novelChapter: (titleId: string, chapterId: string) => typedError<NovelChapter_Serialize, string>(__TAURI_INVOKE("novel_chapter", { titleId, chapterId })),
 	/**  Saves the character offset reached in a chapter of `total` characters. */
 	novelSetProgress: (chapterId: string, offset: number, total: number) => typedError<null, string>(__TAURI_INVOKE("novel_set_progress", { chapterId, offset, total })),
 	novelSetRead: (chapterId: string, read: boolean) => typedError<null, string>(__TAURI_INVOKE("novel_set_read", { chapterId, read })),
 	/**  Imports an EPUB (its contents as base64) into the novel library; returns its source and id. */
 	novelImportEpub: (contents: string) => typedError<ImportedBook, string>(__TAURI_INVOKE("novel_import_epub", { contents })),
 	/**
-	 *  Imports an uploaded EPUB (sent with `upload_*` in slices) into the novel library; returns its
-	 *  source and id.
+	 *  Imports an uploaded book, EPUB or PDF (sent with `upload_*` in slices), into the novel library;
+	 *  returns its source and id. `name` is the file's name (a PDF without a title takes it).
 	 */
-	novelImportEpubUpload: (uploadId: string) => typedError<ImportedBook, string>(__TAURI_INVOKE("novel_import_epub_upload", { uploadId })),
+	novelImportEpubUpload: (uploadId: string, name: string | null) => typedError<ImportedBook, string>(__TAURI_INVOKE("novel_import_epub_upload", { uploadId, name })),
+	/**  A PDF chapter's text, read from its pages: its blocks, and where each page starts. */
+	novelPdfText: (titleId: string, chapterId: string) => typedError<PdfChapterText_Serialize, string>(__TAURI_INVOKE("novel_pdf_text", { titleId, chapterId })),
+	/**  Where `query` appears in a PDF: a book's whole document, or a source chapter's pages. */
+	novelPdfSearch: (titleId: string, chapterId: string, query: string) => typedError<PdfSearchHit[], string>(__TAURI_INVOKE("novel_pdf_search", { titleId, chapterId, query })),
 	/**  Whether the device can read text aloud. */
 	ttsAvailable: () => typedError<boolean, string>(__TAURI_INVOKE("tts_available")),
 	/**
@@ -4665,14 +4669,40 @@ export type NotificationPrefs = {
 };
 
 /**  What the novel reader needs for one chapter. */
-export type NovelChapter = {
+export type NovelChapter = NovelChapter_Serialize | NovelChapter_Deserialize;
+
+/**  What the novel reader needs for one chapter. */
+export type NovelChapter_Deserialize = {
 	titleId: string,
 	title: string,
-	/**  `lastPage` and `totalPages` hold the character offset and length while partly read. */
+	/**
+	 *  `lastPage` and `totalPages` hold the character offset and length while partly read (the
+	 *  page and the page count for a PDF chapter).
+	 */
 	chapter: MangaChapterInfo,
-	blocks: TextBlock[],
+	/**  Empty for a PDF chapter, whose text `novel_pdf_text` reads. */
+	blocks: TextBlock_Deserialize[],
 	previousChapterId: string | null,
 	nextChapterId: string | null,
+	/**  Set when the chapter is pages of a PDF document. */
+	pdf?: PdfChapter | null,
+};
+
+/**  What the novel reader needs for one chapter. */
+export type NovelChapter_Serialize = {
+	titleId: string,
+	title: string,
+	/**
+	 *  `lastPage` and `totalPages` hold the character offset and length while partly read (the
+	 *  page and the page count for a PDF chapter).
+	 */
+	chapter: MangaChapterInfo,
+	/**  Empty for a PDF chapter, whose text `novel_pdf_text` reads. */
+	blocks: TextBlock_Serialize[],
+	previousChapterId: string | null,
+	nextChapterId: string | null,
+	/**  Set when the chapter is pages of a PDF document. */
+	pdf?: PdfChapter | null,
 };
 
 export type NovelFont = "serif" | "sans";
@@ -4793,6 +4823,67 @@ export type PanelPrefs = {
 	 *  scroll. 0: as tall as they are.
 	 */
 	railNavHeight?: number,
+};
+
+/**  A chapter read as the pages of a PDF document (a book from the device, or a source's chapter). */
+export type PdfChapter = {
+	/**
+	 *  Each page's picture through the local proxy (`/pdf/…`), in reading order; the reader adds
+	 *  `w=<pixels>` for the width it shows them at.
+	 */
+	pages: string[],
+	/**  The document's own number (from 1) of the chapter's first page. */
+	firstPage: number,
+	/**  How the pages are read: the title's own mode, else the comics reader's default. */
+	readerMode: ReaderMode,
+	ownReaderMode: ReaderMode | null,
+	/**  The document's bookmarks within the chapter. */
+	contents: PdfContentsEntry[],
+};
+
+/**  A PDF chapter's text, read from its pages. */
+export type PdfChapterText = PdfChapterText_Serialize | PdfChapterText_Deserialize;
+
+/**  A PDF chapter's text, read from its pages. */
+export type PdfChapterText_Deserialize = {
+	blocks: TextBlock_Deserialize[],
+	/**
+	 *  The block each page's text starts at, one per page (`blocks.len()` for a page without
+	 *  text at the end).
+	 */
+	pageStarts: number[],
+};
+
+/**  A PDF chapter's text, read from its pages. */
+export type PdfChapterText_Serialize = {
+	blocks: TextBlock_Serialize[],
+	/**
+	 *  The block each page's text starts at, one per page (`blocks.len()` for a page without
+	 *  text at the end).
+	 */
+	pageStarts: number[],
+};
+
+/**  One of a PDF's bookmarks. */
+export type PdfContentsEntry = {
+	title: string,
+	/**  The page it leads to, from 0, in the chapter's pages. */
+	page: number,
+	/**  0 for the top level. */
+	level: number,
+};
+
+/**  A place in a PDF's text that matched a search. */
+export type PdfSearchHit = {
+	/**  The chapter holding the page. */
+	chapterId: string,
+	/**  The page within the chapter, from 0. */
+	page: number,
+	/**  The document's own page number, from 1. */
+	pageNumber: number,
+	before: string,
+	matched: string,
+	after: string,
 };
 
 /**  A permission Raygun uses on this device. */
@@ -6941,9 +7032,54 @@ export type TapZones =
 export type TextAlign = "left" | "center";
 
 /**  One block of a novel chapter: text structure only, never source HTML. */
-export type TextBlock = { kind: "paragraph"; text: string } | { kind: "heading"; text: string } | { kind: "separator" } | 
+export type TextBlock = TextBlock_Serialize | TextBlock_Deserialize;
+
+/**  One block of a novel chapter: text structure only, never source HTML. */
+export type TextBlock_Deserialize = ({ kind: "paragraph"; text: string; 
+/**
+ *  The paragraph in parts when it holds formulas or raised or lowered text; `text` is
+ *  then its plain form (formulas as their text), which progress, search, translation
+ *  and exports read.
+ */
+parts?: TextPart[] | null }) & { mathml?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { mathml?: never; parts?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { mathml?: never; parts?: never; speech?: never; text?: never; url?: never } | 
 /**  Through the local image proxy. */
-{ kind: "image"; url: string };
+({ kind: "image"; url: string }) & { mathml?: never; parts?: never; speech?: never; text?: never } | 
+/**  A formula on a line of its own. */
+({ kind: "math"; 
+/**  `<math>…</math>`: MathML elements and attributes only. */
+mathml: string; 
+/**  The formula as text (its TeX, or a linear form such as `x² + 1`). */
+text: string; 
+/**  The formula in words, for reading aloud. */
+speech: string }) & { parts?: never; url?: never };
+
+/**  One block of a novel chapter: text structure only, never source HTML. */
+export type TextBlock_Serialize = ({ kind: "paragraph"; text: string; 
+/**
+ *  The paragraph in parts when it holds formulas or raised or lowered text; `text` is
+ *  then its plain form (formulas as their text), which progress, search, translation
+ *  and exports read.
+ */
+parts?: TextPart[] | null }) & { mathml?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { mathml?: never; parts?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { mathml?: never; parts?: never; speech?: never; text?: never; url?: never } | 
+/**  Through the local image proxy. */
+({ kind: "image"; url: string }) & { mathml?: never; parts?: never; speech?: never; text?: never } | 
+/**  A formula on a line of its own. */
+({ kind: "math"; 
+/**  `<math>…</math>`: MathML elements and attributes only. */
+mathml: string; 
+/**  The formula as text (its TeX, or a linear form such as `x² + 1`). */
+text: string; 
+/**  The formula in words, for reading aloud. */
+speech: string }) & { parts?: never; url?: never };
+
+/**  One part of a paragraph that holds more than plain text. */
+export type TextPart = { kind: "text"; text: string } | 
+/**  Raised text: an exponent, a footnote mark. */
+{ kind: "sup"; text: string } | 
+/**  Lowered text: an index, a chemical formula's count. */
+{ kind: "sub"; text: string } | 
+/**  A formula in the line. */
+{ kind: "math"; mathml: string; text: string; speech: string };
 
 /**  Color theme. `System` follows the OS light/dark preference. */
 export type Theme = "system" | "light" | "dark" | 

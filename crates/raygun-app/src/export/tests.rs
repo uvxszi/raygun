@@ -154,9 +154,7 @@ fn book() -> Book {
                     TextBlock::Heading {
                         text: "To Mrs. Saville".into(),
                     },
-                    TextBlock::Paragraph {
-                        text: "You will rejoice & be glad.".into(),
-                    },
+                    TextBlock::paragraph("You will rejoice & be glad."),
                     TextBlock::Separator,
                     TextBlock::Image {
                         url: "http://127.0.0.1/x".into(),
@@ -170,9 +168,7 @@ fn book() -> Book {
                     TextBlock::Heading {
                         text: "letter 2".into(),
                     },
-                    TextBlock::Paragraph {
-                        text: "How slowly the time passes".into(),
-                    },
+                    TextBlock::paragraph("How slowly the time passes"),
                 ],
             },
         ],

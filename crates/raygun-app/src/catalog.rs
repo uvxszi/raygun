@@ -553,6 +553,7 @@ impl Catalog {
             .collect();
         names.insert("stremio".into(), "Stremio".into());
         names.insert(crate::novel::LOCAL_EPUB.into(), "EPUB file".into());
+        names.insert(crate::novel::LOCAL_PDF.into(), "PDF file".into());
         names.insert(crate::comics::LOCAL_COMICS.into(), "Local comics".into());
         names
     }

@@ -249,6 +249,7 @@ pub fn review(kind: &str, method: &str, answer: &Value) -> Option<Review> {
                 manga::parse_units(value, "chapters", "Chapter").len()
             })
         }
+        (MANGA_SOURCE, "pages") if answer.get("pdf").is_some() => pdf_answer("pages", answer),
         (MANGA_SOURCE, "pages") => listing("pages", PAGE, answer, Some("pages"), |value| {
             manga::parse_pages(value).len()
         }),
@@ -467,7 +468,31 @@ fn lyrics(provider: &ProviderInfo, answer: &Value) -> Review {
     review
 }
 
+/// A chapter answered as a PDF document.
+fn pdf_answer(what: &'static str, answer: &Value) -> Review {
+    let pdf = manga::parse_pdf(answer);
+    let mut review = single(
+        what,
+        "a pdf: an http(s) address, or { url, headers, firstPage, lastPage }",
+        pdf.is_some(),
+    );
+    if let Some(pdf) = pdf {
+        review.notes.push(match (pdf.first_page, pdf.last_page) {
+            (None, None) => "a PDF, read as its pages".to_owned(),
+            (first, last) => format!(
+                "pages {} to {} of a PDF, read as pages",
+                first.unwrap_or(1),
+                last.map_or_else(|| "its end".to_owned(), |last| last.to_string())
+            ),
+        });
+    }
+    review
+}
+
 fn passage(answer: &Value) -> Review {
+    if answer.get("pdf").is_some() {
+        return pdf_answer("passage", answer);
+    }
     let blocks = parse_passage(answer);
     let count =
         |wanted: fn(&PassageBlock) -> bool| blocks.iter().filter(|block| wanted(block)).count();
@@ -479,11 +504,27 @@ fn passage(answer: &Value) -> Review {
     if !blocks.is_empty() {
         review.notes.push(format!(
             "{} paragraphs, {} headings, {} pictures, {} separators",
-            count(|block| matches!(block, PassageBlock::Paragraph(_))),
+            count(|block| matches!(block, PassageBlock::Paragraph(_) | PassageBlock::Rich(_))),
             count(|block| matches!(block, PassageBlock::Heading(_))),
             count(|block| matches!(block, PassageBlock::Image(_))),
             count(|block| matches!(block, PassageBlock::Separator)),
         ));
+        let formulas = blocks
+            .iter()
+            .map(|block| match block {
+                PassageBlock::Math(_) => 1,
+                PassageBlock::Rich(parts) => parts
+                    .iter()
+                    .filter(|part| matches!(part, crate::novel::Part::Math(_)))
+                    .count(),
+                _ => 0,
+            })
+            .sum::<usize>();
+        if formulas > 0 {
+            review.notes.push(format!(
+                "{formulas} formulas (MathML or TeX), drawn as MathML"
+            ));
+        }
     }
     review
 }

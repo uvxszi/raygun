@@ -91,6 +91,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             covers: Some(caches.covers.clone()),
             local: Some(paths.downloads()),
             port_file: Some(paths.root().join("proxy-port")),
+            pdf_dir: Some(caches.pdfs.clone()),
         },
     ))?;
     app.manage(caches);
@@ -104,6 +105,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     ));
     crate::caches::sweep_later(app.handle());
     app.manage(proxy.images());
+    app.manage(proxy.pdfs());
     app.manage(proxy.media());
     app.manage(proxy.lan());
     app.manage(crate::fonts::FontService::new(proxy.fonts()));

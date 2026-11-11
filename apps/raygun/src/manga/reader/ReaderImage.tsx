@@ -4,6 +4,7 @@ import type { CSSProperties, FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PageTextOverlay } from '../../readerAi/PageTextOverlay';
+import { pageIdentity } from './drawnPages';
 import { usePageAi } from '../../readerAi/useReaderAi';
 import { useSteadyPicture } from './steadyPicture';
 
@@ -45,7 +46,13 @@ const ReaderImageView: FC<ReaderImageProps> = ({
   const [state, setState] = useState<'loading' | 'loaded' | 'failed'>('loading');
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const ai = usePageAi(url);
-  const src = useSteadyPicture(url, ai.src ?? withAttempt(url, attempt), state === 'loaded');
+  // A drawn page asked for wider (zoomed in) is the same page: the one shown stays until the
+  // sharper one is ready.
+  const src = useSteadyPicture(
+    pageIdentity(url),
+    ai.src ?? withAttempt(url, attempt),
+    state === 'loaded',
+  );
   return (
     <>
       <img

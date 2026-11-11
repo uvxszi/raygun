@@ -59,6 +59,10 @@ const page: MangaPage = {
 - `pages` answers the pages in reading order, each an `http(s)` address, or `{ url, headers }`
   when the image host wants headers. An answer with no pages fails ("has no pages for this
   chapter").
+- A chapter that is a PDF answers `{ pdf: 'https://…/chapter.pdf' }` instead, or
+  `{ pdf: { url, headers, firstPage, lastPage } }` for some of a document's pages (counted from
+  1, both included). Raygun fetches the document once, draws its pages on the device as wide as
+  the screen shows them, and a download keeps the document itself.
 
 ### Filters
 

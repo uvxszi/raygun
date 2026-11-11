@@ -58,6 +58,38 @@ fn documents_go_by_their_type_then_their_name() {
 }
 
 #[test]
+fn books_go_to_the_reader() {
+    let document = "content://com.android.providers.downloads.documents/document/12";
+    assert_eq!(
+        route::kind_of(document, Some("application/pdf"), None),
+        Kind::Book
+    );
+    assert_eq!(
+        route::kind_of(document, Some("application/epub+zip"), None),
+        Kind::Book
+    );
+    assert_eq!(
+        route::kind_of(
+            document,
+            Some("application/octet-stream"),
+            Some("Notes.PDF")
+        ),
+        Kind::Book
+    );
+    assert_eq!(
+        route::kind_of("file:///home/me/Calculus.pdf", None, None),
+        Kind::Book
+    );
+    assert_eq!(
+        route::text_target("Read this https://example.org/papers/one.pdf now"),
+        Some(TextTarget::Media {
+            url: "https://example.org/papers/one.pdf".into(),
+            kind: Kind::Book
+        })
+    );
+}
+
+#[test]
 fn a_documents_address_can_name_it() {
     let named =
         "content://com.android.externalstorage.documents/document/primary%3AMusic%2FTrip.m3u";

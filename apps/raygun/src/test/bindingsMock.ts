@@ -635,6 +635,8 @@ export const bindingsMock = {
     novelSetRead: vi.fn(),
     novelImportEpub: vi.fn(),
     novelImportEpubUpload: vi.fn(),
+    novelPdfText: vi.fn(),
+    novelPdfSearch: vi.fn(),
     ttsAvailable: vi.fn(),
     ttsSpeak: vi.fn(),
     ttsStop: vi.fn(),
@@ -1459,6 +1461,8 @@ export const seedBindings = () => {
   commands.novelChapter.mockResolvedValue(ok(null));
   commands.novelSetProgress.mockResolvedValue(ok(null));
   commands.novelSetRead.mockResolvedValue(ok(null));
+  commands.novelPdfText.mockResolvedValue(ok({ blocks: [], pageStarts: [] }));
+  commands.novelPdfSearch.mockResolvedValue(ok([]));
   commands.novelImportEpub.mockResolvedValue(ok({ sourceId: 'local.epub', novelId: 'abc' }));
   commands.ttsAvailable.mockResolvedValue(ok(false));
   commands.ttsSpeak.mockResolvedValue(ok(null));

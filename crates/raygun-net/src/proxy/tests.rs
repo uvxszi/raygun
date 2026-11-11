@@ -286,6 +286,70 @@ async fn serves_local_files_by_plain_relative_paths() {
 }
 
 #[tokio::test]
+async fn draws_pdf_pages_of_local_and_web_documents() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let sample = include_bytes!("../pdf/fixtures/sample.pdf");
+    std::fs::create_dir_all(temp.path().join("books/abc")).unwrap();
+    std::fs::write(temp.path().join("books/abc/document.pdf"), sample).unwrap();
+    // A site serving the same document, once.
+    let fetched = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = fetched.clone();
+    let site = Router::new().route(
+        "/book.pdf",
+        get(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move { sample.to_vec() }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let site_address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, site).await });
+    let proxy = StreamProxy::start_with(
+        crate::http_client().unwrap(),
+        ProxyStorage {
+            local: Some(temp.path().to_path_buf()),
+            pdf_dir: Some(temp.path().join("cache/pdf")),
+            ..ProxyStorage::default()
+        },
+    )
+    .await
+    .unwrap();
+    let pdfs = proxy.pdfs();
+
+    let local = pdfs.local_token("books/abc/document.pdf");
+    let page = reqwest::get(format!("{}?w=480", pdfs.page_url(&local, 0)))
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    assert_eq!(page.headers()[header::CONTENT_TYPE], "image/png");
+    let picture = image::load_from_memory(&page.bytes().await.unwrap()).unwrap();
+    assert_eq!(picture.width(), 480);
+    let past_the_end = reqwest::get(pdfs.page_url(&local, 7)).await.unwrap();
+    assert_eq!(past_the_end.status(), 404);
+    assert!(images_is_page(&proxy, &pdfs.page_url(&local, 0)));
+
+    let web = pdfs.web_token(
+        &format!("http://{site_address}/book.pdf"),
+        &Default::default(),
+    );
+    for index in [0, 2] {
+        let page = reqwest::get(pdfs.page_url(&web, index)).await.unwrap();
+        assert_eq!(page.status(), 200, "page {index}");
+    }
+    assert_eq!(
+        fetched.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the document is fetched once and kept"
+    );
+    let unknown = reqwest::get(pdfs.page_url("w0123", 0)).await.unwrap();
+    assert_eq!(unknown.status(), 404);
+}
+
+fn images_is_page(proxy: &StreamProxy, url: &str) -> bool {
+    proxy.images().is_page(url)
+}
+
+#[tokio::test]
 async fn serves_the_youtube_embed_page_on_localhost() {
     let proxy = proxy().await;
 

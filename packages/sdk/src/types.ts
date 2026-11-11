@@ -404,6 +404,20 @@ export type MangaChapter = {
  */
 export type PageImage = string | { url: string; headers?: Record<string, string> };
 
+/**
+ * A chapter that is a PDF document, http(s) only, or some of its pages: `firstPage` and
+ * `lastPage` count from 1 and are both included (the whole document when left out). The app
+ * fetches it once, draws its pages on the device and reads its text; a download keeps the file.
+ */
+export type PdfDocument =
+  | string
+  | {
+      url: string;
+      headers?: Record<string, string>;
+      firstPage?: number;
+      lastPage?: number;
+    };
+
 // ---- Source filters (M40) ----
 
 /** A choice; `label` defaults to `value`. */
@@ -464,18 +478,23 @@ export type MangaSourceProvider = ProviderBase & {
   filters?(): Promise<SourceFilter[]>;
   details(args: { id: string }): Promise<MangaDetails>;
   chapters(args: { id: string }): Promise<{ chapters: MangaChapter[] }>;
-  /** A chapter's pages in reading order; an answer without pages fails. */
-  pages(args: { chapterId: string }): Promise<{ pages: PageImage[] }>;
+  /**
+   * A chapter's pages in reading order; an answer without pages fails. A chapter that is a PDF
+   * answers `{ pdf }` instead.
+   */
+  pages(args: { chapterId: string }): Promise<{ pages: PageImage[] } | { pdf: PdfDocument }>;
 };
 
 // ---- Novels (M31) ----
 
 /**
  * A chapter's text. Prefer `html`: the app keeps paragraphs, headings, rules and images (resolved
- * against `baseUrl`) and drops everything else, scripts and styles included. `text` is split
- * into paragraphs at blank lines. At most 2 MB of text.
+ * against `baseUrl`) and drops everything else, scripts and styles included. Formulas are kept
+ * and drawn: MathML, and TeX between `$$…$$`, `\[…\]`, `\(…\)` or `$…$` (MathJax's `math/tex`
+ * scripts too). `text` is split into paragraphs at blank lines. At most 2 MB of text. A chapter
+ * that is a PDF answers `pdf` instead, which wins over `html` and `text`.
  */
-export type Passage = { html?: string; text?: string; baseUrl?: string };
+export type Passage = { html?: string; text?: string; baseUrl?: string; pdf?: PdfDocument };
 
 /**
  * A book catalogue: the calls and shapes of `manga.source`, with `passage` in place of `pages`.

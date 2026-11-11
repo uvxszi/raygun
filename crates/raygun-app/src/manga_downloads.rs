@@ -1,6 +1,8 @@
 //! Chapter downloads (M28): a queue in `local_manga_download` worked by one background task.
 //! Pages land in `downloads/manga/<title>/<chapter>/` and are served back through the stream
-//! proxy's `/local` route, so a downloaded chapter reads without the network.
+//! proxy's `/local` route, so a downloaded chapter reads without the network. A chapter that is a
+//! PDF keeps the document itself (`document.pdf`, with `pdf.json` saying which of its pages are the
+//! chapter's, or beside a book chapter's `passage.json`), its pages drawn by the proxy's `/pdf/`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -30,6 +32,17 @@ const FOLDER: &str = "manga";
 const NOVEL_FOLDER: &str = "novel";
 /// A downloaded novel chapter's blocks, in its folder.
 const PASSAGE_FILE: &str = "passage.json";
+/// A downloaded PDF chapter's document, and (comics) which of its pages are the chapter's.
+const PDF_FILE: &str = "document.pdf";
+const PDF_PAGES_FILE: &str = "pdf.json";
+/// Where PDF chapters' pages are drawn for exports, under the downloads folder, and how wide.
+const DRAWN_PAGES: &str = ".pdf-pages";
+const EXPORT_WIDTH: u32 = 1600;
+
+/// Where a downloaded book chapter's PDF is, under the downloads folder.
+pub fn novel_pdf_path(title_id: &str, unit_id: &str) -> String {
+    format!("{NOVEL_FOLDER}/{title_id}/{unit_id}/{PDF_FILE}")
+}
 
 pub struct MangaDownloadService {
     app: AppHandle,
@@ -171,6 +184,12 @@ impl MangaDownloadService {
         if pages.is_empty() {
             return Err(Failure::Error("The source listed no pages".into()));
         }
+        if let [page] = pages.as_slice()
+            && let Some(pdf) = raygun_net::pdf::PdfRef::from_marked(&page.url, &page.headers)
+        {
+            let dir = self.chapter_dir(&row.title_id, &row.unit_id);
+            return self.fetch_pdf(row, &pdf, &dir).await;
+        }
         let total = pages.len();
         manga_downloads::set_progress(&db, &row.unit_id, 0, total as i64)
             .await
@@ -228,6 +247,59 @@ impl MangaDownloadService {
         }
     }
 
+    /// Downloads a comic chapter that is a PDF: the document, and which of its pages are the
+    /// chapter's, written through a `.part` folder.
+    async fn fetch_pdf(
+        &self,
+        row: &DownloadRow,
+        pdf: &raygun_net::pdf::PdfRef,
+        dir: &std::path::Path,
+    ) -> Result<usize, Failure> {
+        let failed = |error: raygun_db::DbError| Failure::Error(error.to_string());
+        manga_downloads::set_progress(&self.db(), &row.unit_id, 0, 1)
+            .await
+            .map_err(failed)?;
+        self.changed(&row.unit_id);
+        let io = |error: std::io::Error| Failure::Error(error.to_string());
+        let partial = dir.with_extension("part");
+        let _ = tokio::fs::remove_dir_all(&partial).await;
+        tokio::fs::create_dir_all(&partial).await.map_err(io)?;
+        let pdfs = self.app.state::<raygun_net::PdfStore>();
+        let token = pdfs.web_token(&pdf.url, &pdf.headers);
+        let saved = pdfs.save_copy(&token, &partial.join(PDF_FILE)).await;
+        let json = serde_json::to_vec(pdf).map_err(|error| Failure::Error(error.to_string()))?;
+        let written = match saved {
+            Ok(_) if self.is_cancelled(&row.unit_id) => Err(Failure::Stopped),
+            Ok(_) => tokio::fs::write(partial.join(PDF_PAGES_FILE), json)
+                .await
+                .map_err(io),
+            Err(error) => Err(Failure::Error(error.to_string())),
+        };
+        if let Err(failure) = written {
+            let _ = tokio::fs::remove_dir_all(&partial).await;
+            return Err(failure);
+        }
+        let _ = tokio::fs::remove_dir_all(dir).await;
+        tokio::fs::rename(&partial, dir).await.map_err(io)?;
+        Ok(1)
+    }
+
+    /// A downloaded comic chapter that is a PDF: its document's path under the downloads folder
+    /// and the pages that are the chapter's.
+    async fn pdf_download(
+        &self,
+        title_id: &str,
+        chapter_id: &str,
+    ) -> Option<(String, raygun_net::pdf::PdfRef)> {
+        let dir = self.chapter_dir(title_id, chapter_id);
+        let json = tokio::fs::read(dir.join(PDF_PAGES_FILE)).await.ok()?;
+        let pdf = serde_json::from_slice(&json).ok()?;
+        tokio::fs::try_exists(dir.join(PDF_FILE))
+            .await
+            .unwrap_or(false)
+            .then(|| (format!("{FOLDER}/{title_id}/{chapter_id}/{PDF_FILE}"), pdf))
+    }
+
     /// Downloads a novel chapter's text: its blocks, written through a `.part` folder.
     async fn fetch_passage(
         &self,
@@ -235,7 +307,7 @@ impl MangaDownloadService {
         source_id: &str,
         remote_id: &str,
     ) -> Result<usize, Failure> {
-        if source_id == crate::novel::LOCAL_EPUB {
+        if source_id == crate::novel::LOCAL_EPUB || source_id == crate::novel::LOCAL_PDF {
             return Err(Failure::Error("This book is already on the device".into()));
         }
         let failed = |error: raygun_db::DbError| Failure::Error(error.to_string());
@@ -260,6 +332,15 @@ impl MangaDownloadService {
         let io = |error: std::io::Error| Failure::Error(error.to_string());
         let _ = tokio::fs::remove_dir_all(&partial).await;
         tokio::fs::create_dir_all(&partial).await.map_err(io)?;
+        // A PDF chapter keeps its document beside the passage that names it.
+        if let [PassageBlock::Pdf(pdf)] = passage.as_slice() {
+            let pdfs = self.app.state::<raygun_net::PdfStore>();
+            let token = pdfs.web_token(&pdf.url, &pdf.headers);
+            if let Err(error) = pdfs.save_copy(&token, &partial.join(PDF_FILE)).await {
+                let _ = tokio::fs::remove_dir_all(&partial).await;
+                return Err(Failure::Error(error.to_string()));
+            }
+        }
         tokio::fs::write(partial.join(PASSAGE_FILE), json)
             .await
             .map_err(io)?;
@@ -298,6 +379,7 @@ impl MangaDownloadService {
             raygun_net::images::partial_folder(&chapter),
             chapter,
             self.novel_dir(title_id, unit_id),
+            self.root.join(DRAWN_PAGES).join(unit_id),
         ] {
             if tokio::fs::try_exists(&dir).await.unwrap_or(false)
                 && let Err(error) = tokio::fs::remove_dir_all(&dir).await
@@ -399,6 +481,16 @@ impl MangaDownloadService {
         if row.state != manga_downloads::DONE {
             return None;
         }
+        if let Some((path, pdf)) = self.pdf_download(title_id, chapter_id).await {
+            let pdfs = self.app.state::<raygun_net::PdfStore>();
+            let token = pdfs.local_token(&path);
+            let count = pdfs.document(&token).await.ok()?.page_count();
+            return Some(
+                pdf.pages(count)
+                    .map(|index| pdfs.page_url(&token, index))
+                    .collect(),
+            );
+        }
         let dir = self.chapter_dir(title_id, chapter_id);
         let names = tokio::task::spawn_blocking(move || downloaded_pages(&dir))
             .await
@@ -427,6 +519,9 @@ impl MangaDownloadService {
         if row.state != manga_downloads::DONE {
             return None;
         }
+        if let Some((path, pdf)) = self.pdf_download(title_id, chapter_id).await {
+            return self.drawn_pages(&path, &pdf, chapter_id).await;
+        }
         let dir = self.chapter_dir(title_id, chapter_id);
         let listed = dir.clone();
         let names = tokio::task::spawn_blocking(move || downloaded_pages(&listed))
@@ -434,6 +529,33 @@ impl MangaDownloadService {
             .ok()?
             .ok()?;
         (!names.is_empty()).then(|| names.iter().map(|name| dir.join(name)).collect())
+    }
+
+    /// A PDF chapter's pages drawn as pictures for an export (CBZ, a PDF of pictures, a folder
+    /// of them), into a folder of their own under the downloads.
+    async fn drawn_pages(
+        &self,
+        path: &str,
+        pdf: &raygun_net::pdf::PdfRef,
+        chapter_id: &str,
+    ) -> Option<Vec<PathBuf>> {
+        let pdfs = self.app.state::<raygun_net::PdfStore>();
+        let token = pdfs.local_token(path);
+        let count = pdfs.document(&token).await.ok()?.page_count();
+        let dir = self.root.join(DRAWN_PAGES).join(chapter_id);
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::create_dir_all(&dir).await.ok()?;
+        let mut files = Vec::new();
+        for (place, index) in pdf.pages(count).enumerate() {
+            let png = pdfs
+                .page_png(&token, index, Some(EXPORT_WIDTH))
+                .await
+                .ok()?;
+            let file = dir.join(format!("{:04}.png", place + 1));
+            tokio::fs::write(&file, png).await.ok()?;
+            files.push(file);
+        }
+        Some(files)
     }
 
     /// Whether the queue is paused (exports waiting on it say so).

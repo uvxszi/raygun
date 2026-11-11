@@ -21,6 +21,8 @@ rquickjs = { version = "0.14", features = ["futures"] }
 # do; Shosetsu and Miru scripts match patterns against that HTML.
 scraper = { version = "0.24", features = ["deterministic"] }
 ego-tree = "0.10"
+# Formulas in book text (`math`): TeX turned into MathML Core, which the webviews draw.
+pulldown-latex = "0.8"
 # Shosetsu (M32): building and renaming elements in scraper's tree, decoding bodies by charset,
 # and dates for `os.date`/`os.time` and chapter releases.
 html5ever = "0.35"

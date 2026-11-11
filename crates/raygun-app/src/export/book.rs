@@ -1,11 +1,12 @@
 //! Novels as files (M46.1): an EPUB 3 book (with an EPUB 2 table of contents for older readers)
 //! or plain text, from the chapters' text blocks. Images in chapters are left out: they aren't
-//! downloaded with the text.
+//! downloaded with the text. Formulas go in as MathML (their chapters marked `mathml` in the
+//! manifest, as EPUB 3 asks), and in plain text as their text.
 
 use std::fs::File;
 use std::io::{Seek, Write};
 
-use raygun_model::TextBlock;
+use raygun_model::{TextBlock, TextPart};
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
@@ -55,14 +56,48 @@ fn body_blocks(chapter: &BookChapter) -> &[TextBlock] {
     }
 }
 
+/// Whether a chapter holds formulas (its document is then marked `mathml`).
+fn has_math(chapter: &BookChapter) -> bool {
+    chapter.blocks.iter().any(|block| match block {
+        TextBlock::Math { .. } => true,
+        TextBlock::Paragraph {
+            parts: Some(parts), ..
+        } => parts
+            .iter()
+            .any(|part| matches!(part, TextPart::Math { .. })),
+        _ => false,
+    })
+}
+
+/// A paragraph's parts as XHTML: formulas as their MathML (already well-formed MathML only).
+fn parts_xhtml(parts: &[TextPart]) -> String {
+    parts
+        .iter()
+        .map(|part| match part {
+            TextPart::Text { text } => escape(text),
+            TextPart::Sup { text } => format!("<sup>{}</sup>", escape(text)),
+            TextPart::Sub { text } => format!("<sub>{}</sub>", escape(text)),
+            TextPart::Math { mathml, .. } => mathml.clone(),
+        })
+        .collect()
+}
+
 fn chapter_xhtml(chapter: &BookChapter, language: &str) -> String {
     let mut body = format!("<h2>{}</h2>\n", escape(&chapter.title));
     for block in body_blocks(chapter) {
         match block {
-            TextBlock::Paragraph { text } => body.push_str(&format!("<p>{}</p>\n", escape(text))),
+            TextBlock::Paragraph {
+                parts: Some(parts), ..
+            } => body.push_str(&format!("<p>{}</p>\n", parts_xhtml(parts))),
+            TextBlock::Paragraph { text, .. } => {
+                body.push_str(&format!("<p>{}</p>\n", escape(text)))
+            }
             TextBlock::Heading { text } => body.push_str(&format!("<h3>{}</h3>\n", escape(text))),
             TextBlock::Separator => body.push_str("<hr/>\n"),
             TextBlock::Image { .. } => {}
+            TextBlock::Math { mathml, .. } => {
+                body.push_str(&format!("<div class=\"formula\">{mathml}</div>\n"))
+            }
         }
     }
     format!(
@@ -77,7 +112,8 @@ fn chapter_xhtml(chapter: &BookChapter, language: &str) -> String {
 const STYLE: &str = "body { margin: 0 5%; line-height: 1.5; }\n\
     h2 { text-align: center; margin: 1.5em 0; }\n\
     p { margin: 0 0 0.8em; text-indent: 1.2em; }\n\
-    hr { margin: 1.5em 25%; }\n";
+    hr { margin: 1.5em 25%; }\n\
+    div.formula { text-align: center; margin: 0.8em 0; overflow-x: auto; }\n";
 
 fn write_into<W: Write + Seek>(zip: &mut ZipWriter<W>, book: &Book) -> std::io::Result<()> {
     let deflated =
@@ -127,8 +163,13 @@ fn write_into<W: Write + Seek>(zip: &mut ZipWriter<W>, book: &Book) -> std::io::
         let href = format!("chapters/{number:04}.xhtml");
         zip.start_file(format!("OEBPS/{href}"), deflated)?;
         zip.write_all(chapter_xhtml(chapter, &language).as_bytes())?;
+        let properties = if has_math(chapter) {
+            " properties=\"mathml\""
+        } else {
+            ""
+        };
         manifest.push_str(&format!(
-            "<item id=\"c{number}\" href=\"{href}\" media-type=\"application/xhtml+xml\"/>\n"
+            "<item id=\"c{number}\" href=\"{href}\" media-type=\"application/xhtml+xml\"{properties}/>\n"
         ));
         spine.push_str(&format!("<itemref idref=\"c{number}\"/>\n"));
         nav.push_str(&format!(
@@ -223,10 +264,11 @@ pub fn text(book: &Book) -> String {
         out.push_str(&format!("\n\n{}\n\n", chapter.title));
         for block in body_blocks(chapter) {
             match block {
-                TextBlock::Paragraph { text } => out.push_str(&format!("{text}\n\n")),
+                TextBlock::Paragraph { text, .. } => out.push_str(&format!("{text}\n\n")),
                 TextBlock::Heading { text } => out.push_str(&format!("{text}\n\n")),
                 TextBlock::Separator => out.push_str("* * *\n\n"),
                 TextBlock::Image { .. } => {}
+                TextBlock::Math { text, .. } => out.push_str(&format!("{text}\n\n")),
             }
         }
     }
