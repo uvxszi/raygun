@@ -97,7 +97,15 @@ mihon.source({
 });
 ```
 
-Every call is awaited, as a `suspend` function's would be. Member calls go through
+Every call may wait, as a `suspend` function's may. The runtime's reads and calls are written
+`(($$ = KT.p(…)) instanceof Promise ? await $$ : $$)`: most answer a value at once, and `await`
+on a value still waits a turn of the job queue, which costs several times the read itself in a
+loop over a picture's bytes (`$$` is each layer's scratch slot, read right after it's set).
+Indexing (`a[i]`, `a[i] = v`) goes through `KT.get`/`KT.set`, straight to plain lists, texts and
+maps; constants and the source's `val`s answer their value at once once it's known. Converted
+code may run twice as long as other extensions' scripts before it must wait
+(`js::CONVERTED_CPU_FACTOR`: decoding a chapter's pages character by character, a Publus
+unscrambler's passes). Member calls go through
 `mihon/kotlin.js` (`KT`), which knows at run time what a value is: Kotlin's standard library on
 strings, lists, maps and numbers, Jsoup on documents, OkHttp's requests, URLs and responses,
 kotlinx.serialization (JSON decoded into the declared classes, `@SerialName` and `@JsonNames`
@@ -110,10 +118,12 @@ arguments are worked out in the body, in order.
 
 What else the converter reads as Kotlin does:
 
-- classes: `init` blocks (the source's own run once before Raygun's first call), `lateinit`
-  fields, a parent built before the child's fields, a parent's functions reaching what a subclass
-  overrides, a class built on a collection (`class CdnSet : LinkedHashSet<String>()`, or
-  delegating one: `class PixivFilters : MutableList<Filter<*>> by mutableListOf()`), properties
+- classes: `init` blocks (the source's own run once before Raygun's first call), a `val` with
+  a value or `by lazy` worked out once per instance when first read (a key pair, a cache), a
+  getter at each read, `lateinit` fields, a parent built before the child's fields, a parent's
+  functions reaching what a subclass overrides, a class built on a collection
+  (`class CdnSet : LinkedHashSet<String>()`, or delegating one:
+  `class PixivFilters : MutableList<Filter<*>> by mutableListOf()`), properties
   delegated to another's (`val tags by tagsFilter::state`) or to a `PropertyDelegateProvider`,
   a declared class's function whose last parameter has a receiver
   (`firestore.getCollection("Series") { limit = 20 }`), enum
@@ -276,7 +286,7 @@ the themes:
 | Mihon leaned on | In Raygun |
 |---|---|
 | Jsoup | Documents parsed in Rust (the LNReader runtime's document store), Raygun's Jsoup-compatible selectors (`:contains`, `:has`, `:eq`…), Jsoup's `text()` and `ownText()` whitespace rules, `attr("abs:…")`, siblings and parents |
-| OkHttp, `KeiSource`'s client | `raygun.http` with the source's Referer and headers, the accept headers of a page load or an XHR, form bodies, its rate limit; Raygun's own limits beneath (6 requests at once per site, 32 in all) and the extension's cookie jar |
+| OkHttp, `KeiSource`'s client | `raygun.http` with the source's Referer and headers, the accept headers of a page load or an XHR, form bodies, its rate limit (by place or by name, for the requests its predicate takes); Raygun's own limits beneath (6 requests at once per site, 32 in all) and the extension's cookie jar |
 | Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones and optional sections (`[MMMM][MMM] d, yyyy`), month names in 20 languages, Thai Buddhist years; `DateTimeFormatterBuilder`'s values, fractions, month names and `parseDefaulting`; the ISO formats; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `YearMonth`, `LocalTime`, `Instant` as Unix milliseconds, `WeekFields` |
 | Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…); org.json's `JSONObject`/`JSONArray`; `BigInteger` as JavaScript's `BigInt` |
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
@@ -343,17 +353,18 @@ extensions use of commons-text (`StringSubstitutor`), java-string-similarity (`L
 Mango and Madokami convert.
 
 `mihon_popular_live` with a sample of 300 converted sources (2026-11-11) follows each listing
-through a title's details, its chapters and a chapter's pages: 215 of the 300 list their
-popular titles, and of those 96% give details, 93% chapters and 87% pages (176 first pictures
-load). Of the 85 that don't list, 32 meet a browser check, 16 refuse access (Japanese and Korean
-stores outside their countries, mostly), 9 are slow past 30 s, 10 are down or gone (DNS, refused
-connections, 5xx), 8 list nothing, 4 want a sign-in or a setting, and the rest stop on a site
-that changed or a server's own error. Past the listing, pages fail on purchases and sign-ins
-(locked chapters, "must be purchased"), sources that read their pages in a web view (Dilar,
-AllManga), sites that changed (ZeistManga blogs that load a chapter by script, sites moved),
-the 5 s a script may run without waiting (Nicomanga decoding a 1.5 MB page character by
-character), and a few decryptions that still differ from the site's (Manga Saison, Philia Scans,
-OneReader's signed requests).
+through a title's details, its chapters and a chapter's pages: 226 of the 300 list their
+popular titles, and of those 96% give details, 94% chapters and 88% pages (189 first pictures
+load). Of the 74 that don't list, 34 meet a browser check, 12 refuse access (Japanese and Korean
+stores outside their countries, mostly), 9 are down or gone (DNS, refused connections, 5xx),
+7 list nothing (sites whose markup changed: Jeaz Scans' cards, Manhwa Indo's titles), 5 answer
+that the site changed or the page is gone, 4 want a sign-in or a setting, 2 are slow past 30 s,
+and one runs a declared class's extension function that reads its own constructor parameter
+(NoxManga's signer). Past the listing, pages fail on browser checks, purchases and sign-ins
+(locked chapters, "must be purchased"), stores outside their countries, sites that changed
+(picture addresses that now answer the home page or 404, Peach BL's absolute addresses prefixed
+again by its own code), sources that read their pages in a web view (Dilar), and Manga Saison's
+chapters, encrypted ZIP entries that Keiyoushi's reader refuses too.
 
 Gaps the live samples showed and that are closed since: pictures sent as `text/plain` (Keyoapp's
 CDN), MangaHub's key refresh (GraphQL errors beside data, `followRedirects(false)`), Kotlin's
@@ -369,6 +380,16 @@ delegating to their list (Monochrome's `Results`), a companion's functions passe
 own `toString()` (Manta's page addresses), JSON transforming serializers (greenshit's pages),
 `doFinal(bytes, offset, length)`, `"%02x".format(…)`, character ranges, interceptors that XOR
 or RC4 pictures (Kodansha, CyComi), and AWS WAF's challenge, which now reads as a browser check.
+Since the last sample: rate limits given by name (`rateLimit(permits = 1, period = 2.seconds) {
+… }`, in 32 conversions, which waited forever: Chikari, SkyMangas, LectorManga.lat), a class's
+`val`s made once (OneReader's key pair, made anew for each header, so the site refused every
+page), a library class's companion values (Publus's unscramblers: Pash Up!, Comic Boost, Docomo),
+the script time converted code needs (Nicomanga, Docomo), PDF chapters (JabraScan), OkHttp's path
+segments (MyNimeku's `o:popular~t:MANGA` listing), okio buffers read into others (Philia Scans'
+pictures), reified functions typed by their use (Xipi Manhua), chapters read with the details
+(BenDezOmniHero), JSON with raw control characters in its strings and `append(text, start, end)`
+(LanorTrad), `toBoolean()` on null (Sagrado Império da Britannia), and selectors' escapes read as
+Jsoup reads them (`:containsData(\"6:\[)`).
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture
