@@ -79,6 +79,7 @@ mod settings;
 mod song_memory;
 mod sound;
 mod source_detect;
+mod sponsorblock;
 mod startup;
 mod stremio;
 mod system_ui;
@@ -96,6 +97,7 @@ mod video_sources;
 mod video_subtitles;
 mod website_downloads;
 mod websites;
+mod youtube_embed;
 mod ytdlp;
 
 use std::path::Path;
@@ -599,6 +601,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::cast_status,
             commands::video_find_subtitles,
             commands::youtube_embed_url,
+            commands::playback_skip_segments,
+            commands::playback_undo_skip,
+            commands::sponsorblock_segments,
             commands::tts_report,
             commands::tts_set_available
         ])
@@ -649,6 +654,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::VideoPlayerEvent,
             events::CastStatusEvent,
             events::YouTubeVideoEvent,
+            events::SkipSegmentsEvent,
+            events::SkippedSegmentEvent,
             events::OpenWithEvent,
             events::SpeechCommandEvent,
             events::ConnectEvent,

@@ -30,6 +30,8 @@ pub enum CacheKind {
     Convert,
     /// What dictionaries answered for words looked up in the book reader.
     Dictionary,
+    /// SponsorBlock's parts of YouTube videos, kept a day and swept after a month unused.
+    SponsorBlock,
 }
 
 impl CacheKind {
@@ -46,6 +48,7 @@ impl CacheKind {
             Self::Artists => "artists",
             Self::Convert => "convert",
             Self::Dictionary => "dictionary",
+            Self::SponsorBlock => "sponsorblock",
         }
     }
 }

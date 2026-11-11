@@ -8,6 +8,7 @@ import type {
   SubtitleStyle,
   TapAction,
   VideoAspect,
+  VideoCodec,
   VideoPlayerPrefs,
 } from '@raygun/bindings';
 import {
@@ -64,6 +65,7 @@ export const ASPECTS: VideoAspect[] = ['fit', 'crop', 'stretch'];
 export const TAP_ACTIONS: TapAction[] = ['seek', 'playPause', 'switchEpisode', 'off'];
 export const MEDIA_KEY_ACTIONS: MediaKeyAction[] = ['switchEpisode', 'seek'];
 export const DECODERS: DecoderMode[] = ['auto', 'software'];
+export const VIDEO_CODECS: VideoCodec[] = ['auto', 'h264'];
 export const SUBTITLE_EDGES: SubtitleEdge[] = ['none', 'outline', 'shadow', 'raised', 'depressed'];
 export const SUBTITLE_FONTS: SubtitleFont[] = ['default', 'sans', 'serif', 'mono'];
 export const SUBTITLE_MODES: SubtitleMode[] = ['foreign', 'always', 'never'];
@@ -151,12 +153,18 @@ export const DEFAULT_SUBTITLE_STYLE: Required<SubtitleStyle> = {
   bold: false,
   italic: false,
   textColor: 0xffffffff,
+  textColorChosen: false,
   edge: 'outline',
   edgeColor: 0xff000000,
   backgroundColor: 0,
+  backgroundColorChosen: false,
   position: 8,
+  maxWidth: 80,
   ignoreEmbedded: false,
 };
+
+/** The line widths offered, in percent of the picture's width (`SubtitleStyle::max_width`). */
+export const SUBTITLE_MAX_WIDTH = { min: 40, max: 100, step: 5 };
 
 /** Matches `VideoPlayerPrefs::default()` in raygun-model. */
 export const PLAYER_DEFAULTS: PlayerPrefs = {
@@ -197,6 +205,7 @@ export const PLAYER_DEFAULTS: PlayerPrefs = {
   pipOnLeave: true,
   pipOnBack: false,
   decoder: 'auto',
+  videoCodec: 'auto',
   externalPlayer: false,
   externalPackage: '',
   titleTrailers: true,

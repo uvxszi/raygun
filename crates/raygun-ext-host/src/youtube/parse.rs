@@ -479,8 +479,16 @@ pub(crate) struct Format {
     pub average_bitrate: Option<u64>,
     pub content_length: Option<u64>,
     pub is_drc: bool,
-    /// `Some(false)` for a dubbed or described track beside the video's own.
+    /// `Some(false)` for a dubbed or described track beside the video's own. Asked for in
+    /// English, YouTube may make a track dubbed into it the default.
     pub audio_is_default: Option<bool>,
+    /// The video's own audio, where it has dubbed tracks too: its track's name says "original",
+    /// or its address's tags do (`xtags=acont=original:…`).
+    pub original: bool,
+    /// A dubbed track, by people or translated automatically (`acont=dubbed`, `dubbed-auto`).
+    pub dubbed: bool,
+    /// An audio description for people who can't see the picture.
+    pub descriptive: bool,
     pub approx_duration_ms: Option<u64>,
 }
 
@@ -524,6 +532,19 @@ fn number(value: Option<&Value>) -> Option<u64> {
         .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
 }
 
+/// The audio content a stream address's tags name (`xtags=acont%3Ddubbed-auto%3Alang%3Des`):
+/// `original`, `dubbed`, `dubbed-auto`, `descriptive`, `secondary`.
+fn audio_content(url: &str) -> Option<String> {
+    let tags = url::Url::parse(url)
+        .ok()?
+        .query_pairs()
+        .find(|(name, _)| name == "xtags")
+        .map(|(_, tags)| tags.into_owned())?;
+    tags.split(':')
+        .find_map(|tag| tag.strip_prefix("acont="))
+        .map(str::to_ascii_lowercase)
+}
+
 /// The `clen` an address carries: the file's length.
 pub(crate) fn url_param<'a>(url: &'a str, name: &str) -> Option<&'a str> {
     let (_, query) = url.split_once('?')?;
@@ -550,6 +571,14 @@ pub(crate) fn formats(answer: &Value) -> Vec<Format> {
                     .and_then(|url| url_param(url, "clen"))
                     .and_then(|length| length.parse().ok())
             });
+            // Asked for in English: the track names say "original" and "descriptive" in it.
+            let track_name = format
+                .pointer("/audioTrack/displayName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_lowercase();
+            let content = url.as_deref().and_then(audio_content);
+            let content = content.as_deref();
             Some(Format {
                 itag: u32::try_from(number(format.get("itag"))?).ok()?,
                 mime_type: format.get("mimeType").and_then(text)?.to_owned(),
@@ -563,6 +592,13 @@ pub(crate) fn formats(answer: &Value) -> Vec<Format> {
                 audio_is_default: format
                     .pointer("/audioTrack/audioIsDefault")
                     .and_then(Value::as_bool),
+                original: content == Some("original") || track_name.contains("original"),
+                dubbed: content.is_some_and(|content| content.starts_with("dubbed"))
+                    || format
+                        .pointer("/audioTrack/isAutoDubbed")
+                        .and_then(Value::as_bool)
+                        == Some(true),
+                descriptive: content == Some("descriptive") || track_name.contains("descriptive"),
                 approx_duration_ms: number(format.get("approxDurationMs")),
                 url,
             })

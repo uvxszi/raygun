@@ -289,13 +289,17 @@ describe('AI subtitles and translations in the desktop player', () => {
     playAt(video, 1.5);
     expect(within(player).getByTestId('subtitle-lines')).toHaveTextContent('Hallo');
 
-    // The original stays a choice for the second subtitles, at the top.
-    await user.selectOptions(
-      within(panel).getByRole('combobox', { name: 'Second subtitles' }),
-      'file:0',
+    // The original stays a choice for the second subtitles, at the top: a tab of their own.
+    await user.click(within(panel).getByRole('tab', { name: 'Second subtitles' }));
+    expect(within(panel).queryByRole('button', { name: 'Translate subtitles' })).toBeNull();
+    await user.click(within(panel).getByRole('menuitemradio', { name: /^English/ }));
+    expect(within(panel).getByRole('menuitemradio', { name: /^English/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
     );
     playAt(video, 2);
     expect(within(player).getByTestId('second-subtitle-lines')).toHaveTextContent('Hello there');
+    await user.click(within(panel).getByRole('tab', { name: 'Subtitles' }));
 
     // Stopping keeps what's translated.
     await user.click(within(panel).getByRole('button', { name: 'Translate subtitles' }));

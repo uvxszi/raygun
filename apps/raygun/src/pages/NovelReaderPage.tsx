@@ -266,7 +266,7 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
     <div
       role="dialog"
       aria-label={t('novel.textSettings')}
-      className="bg-surface fixed top-[calc(4rem+var(--safe-top))] right-[max(0.5rem,var(--safe-right))] left-[max(0.5rem,var(--safe-left))] z-40 mx-auto flex max-w-md flex-col gap-3 rounded-xl p-4 shadow-xl"
+      className="bg-surface fixed top-[calc(var(--app-bar,0px)+4rem+var(--safe-top))] right-[calc(var(--main-right,0px)+max(0.5rem,var(--safe-right)))] left-[calc(var(--main-left,0px)+max(0.5rem,var(--safe-left)))] z-40 mx-auto flex max-w-md flex-col gap-3 rounded-xl p-4 shadow-xl"
     >
       <SizeField
         title={t('novel.fontSize')}
@@ -946,13 +946,13 @@ const ChapterView: FC<{
         {...textHandlers}
         // Pages as wide as the column the scrolled text reads in (M46.38), not the whole window.
         style={{ maxWidth: PAGE_WIDTH[prefs.width] }}
-        className={`mx-auto h-dvh overflow-hidden outline-none ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
+        className={`mx-auto h-[calc(100dvh-var(--app-bar,0px))] overflow-hidden outline-none ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
       >
         <div
           style={{
             ...textStyle,
             height: '100%',
-            columnWidth: `calc(min(100vw, ${PAGE_WIDTH[prefs.width]}) - ${PAGE_PADDING * 2}px)`,
+            columnWidth: `calc(min(var(--main-width, 100vw), ${PAGE_WIDTH[prefs.width]}) - ${PAGE_PADDING * 2}px)`,
             columnGap: `${PAGE_PADDING * 2}px`,
             columnFill: 'auto',
             padding: `0 ${PAGE_PADDING}px`,
@@ -1246,11 +1246,11 @@ export const NovelReaderPage: FC = () => {
       data-theme-page={prefs.theme ?? 'app'}
       // Edge to edge: the page area's side and bottom padding is the reader's too. In landscape
       // the text stays clear of a cutout and a navigation bar at the sides.
-      className="bg-background text-foreground -mx-4 -mb-4 flex min-h-dvh flex-col pr-[var(--safe-right)] pl-[var(--safe-left)] lg:-mx-10"
+      className="bg-background text-foreground -mx-4 -mb-4 flex min-h-[calc(100dvh-var(--app-bar,0px))] flex-col pr-[var(--safe-right)] pl-[var(--safe-left)] lg:-mx-10"
       style={theme ? { backgroundColor: theme.background, color: theme.text } : undefined}
     >
       {chrome && (
-        <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 pt-[var(--safe-top)] pr-[calc(0.25rem+var(--safe-right))] pl-[calc(0.25rem+var(--safe-left))] shadow-md backdrop-blur">
+        <header className="bg-surface/95 fixed left-[var(--main-left,0px)] right-[var(--main-right,0px)] top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 pt-[var(--safe-top)] pr-[calc(0.25rem+var(--safe-right))] pl-[calc(0.25rem+var(--safe-left))] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}
@@ -1356,7 +1356,7 @@ export const NovelReaderPage: FC = () => {
       {data && (chrome || reading || speechNotice) && (
         // The reader's bottom controls, one above another so none covers another: the AI
         // button (bottom right), reading aloud's controls, then the chapter bar.
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+var(--safe-right))] pb-[calc(0.75rem+var(--safe-bottom))] pl-[calc(0.75rem+var(--safe-left))]">
+        <div className="pointer-events-none fixed left-[var(--main-left,0px)] right-[var(--main-right,0px)] bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+var(--safe-right))] pb-[calc(0.75rem+var(--safe-bottom))] pl-[calc(0.75rem+var(--safe-left))]">
           {chrome && (
             <div className="pointer-events-auto flex w-full justify-end">
               <ReaderAiButton medium="novel" busy={novelAi.busy} error={novelAi.error} />

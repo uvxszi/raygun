@@ -83,10 +83,40 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         sheet.show()
     }
 
+    /** The subtitle sheet's tab: the subtitles (0) or the second subtitles (1). */
+    private var subtitleTab = 0
+
+    /** The subtitle sheet, on its first tab. */
     fun subtitles() {
+        subtitleTab = 0
+        drawSubtitles()
+    }
+
+    /**
+     * The subtitle sheet, drawn again after a choice or as AI subtitles move on, on the tab it
+     * was on: **Subtitles** (what adds them, the delay, the style, the track to show) and
+     * **Second subtitles** (a second track at the top of the picture).
+     */
+    private fun drawSubtitles() {
+        val sheet = PlayerSheet(host, label("subtitles", "Subtitles"))
+        sheet.chips(
+            listOf(label("subtitles", "Subtitles"), label("secondSubtitles", "Second subtitles")),
+            subtitleTab,
+        ) { tab ->
+            subtitleTab = tab
+            drawSubtitles()
+        }
+        if (subtitleTab == 1) secondSubtitles(sheet) else mainSubtitles(sheet)
+        watch(sheet, ::drawSubtitles)
+        sheet.show()
+    }
+
+    /** A track to list, filed under its language so the viewer's languages come first. */
+    private class Choice(val language: String?, val add: () -> Unit)
+
+    private fun mainSubtitles(sheet: PlayerSheet) {
         val tracks = host.tracks.list(C.TRACK_TYPE_TEXT)
         val live = host.liveTracks
-        val sheet = PlayerSheet(host, label("subtitles", "Subtitles"))
         // What adds subtitles comes first, as buttons of its own (each opens its sheet): the list
         // below only holds subtitles to show.
         sheet.subtitleTools(host, listOf(
@@ -104,7 +134,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         // Delay and style: what is changed most while watching.
         sheet.delayField(host, host.state.subtitleDelayMs) { delay ->
             host.setSubtitleDelay(delay)
-            subtitles()
+            drawSubtitles()
         }
         sheet.row(label("style", "Style")) { style() }
 
@@ -115,11 +145,10 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.tracks.select(C.TRACK_TYPE_TEXT, null)
             host.state.subtitleOff = true
             host.remember(JSONObject().put("subtitle", JSONObject().put("off", true)))
-            subtitles()
+            drawSubtitles()
         }
         // The video's tracks and files, then AI subtitles and translations once there are lines
         // or they're being made; the viewer's languages first, each language's tracks together.
-        class Choice(val language: String?, val add: () -> Unit)
         val choices = tracks.mapIndexedNotNull { index, track ->
             // The saved AI subtitles while the ones being made show.
             if (live.hides(track)) return@mapIndexedNotNull null
@@ -130,26 +159,29 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                     host.state.subtitleOff = false
                     host.state.subtitle = track.choice()
                     host.remember(JSONObject().put("subtitle", track.choice().toJson()))
-                    subtitles()
+                    drawSubtitles()
                 }
             }
         } + live.tracks.values.filter { it.shown }.map { track ->
             Choice(track.language) {
                 sheet.row(liveName(track), liveDetail(track), selected = live.primary == track.id) {
                     live.show(track.id)
-                    subtitles()
+                    drawSubtitles()
                 }
             }
         }
         byLanguages(choices, host.languages.listed) { it.language }.forEach { it.add() }
+    }
 
-        sheet.header(label("secondSubtitles", "Second subtitles"))
+    /** The second subtitles: a subtitle file or a track being made, shown at the top. */
+    private fun secondSubtitles(sheet: PlayerSheet) {
+        val live = host.liveTracks
         val second = host.second.current
         val secondLive = host.second.liveId
         sheet.row(label("off", "Off"), selected = second == null && secondLive == null) {
             host.second.clear()
             host.remember(JSONObject().put("secondarySubtitle", JSONObject.NULL))
-            subtitles()
+            drawSubtitles()
         }
         val seconds = host.sidecars.mapIndexedNotNull { index, sidecar ->
             if (live.isAiFile(sidecar) && live.aiListed) return@mapIndexedNotNull null
@@ -161,21 +193,23 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 sheet.row(name, selected = second == sidecar) {
                     host.loadSecond(sidecar)
                     host.remember(JSONObject().put("secondarySubtitle", sidecar.choice().toJson()))
-                    subtitles()
+                    drawSubtitles()
                 }
             }
         } + live.tracks.values.filter { it.shown }.map { track ->
             Choice(track.language) {
                 sheet.row(liveName(track), selected = secondLive == track.id) {
                     host.second.showLive(track.id)
-                    subtitles()
+                    drawSubtitles()
                 }
             }
         }
+        if (seconds.isEmpty()) {
+            // Only subtitle files (the source's, one added here) and tracks being made can show
+            // second: the video's own are read by the player one at a time.
+            sheet.row(label("secondNone", "No subtitle files for this video"), onClick = null)
+        }
         byLanguages(seconds, host.languages.listed) { it.language }.forEach { it.add() }
-
-        watch(sheet, ::subtitles)
-        sheet.show()
     }
 
     // ---- AI subtitles: transcribing and translating as the video plays ----
@@ -477,14 +511,20 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             "−" to { host.updateStyle(look.copy(position = (look.position - 2).coerceAtLeast(0))); style() },
             "+" to { host.updateStyle(look.copy(position = (look.position + 2).coerceAtMost(40))); style() },
         ))
-        // Each colour beside its name, and Custom for one of the viewer's own.
+        // The widest a line gets before it wraps, as a share of the picture's width.
+        sheet.stepper(label("lineWidth", "Line width"), "${look.maxWidth}%", listOf(
+            "−" to { host.updateStyle(look.copy(maxWidth = (look.maxWidth - 5).coerceAtLeast(40))); style() },
+            "+" to { host.updateStyle(look.copy(maxWidth = (look.maxWidth + 5).coerceAtMost(100))); style() },
+        ))
+        // Each colour beside its name, and Custom for one of the viewer's own. A colour picked
+        // here wins over the file's own colours, white too.
         val textColor = label("textColor", "Text colour")
         sheet.header(textColor)
         sheet.swatches(host, TEXT_SWATCHES, look.textColor, { color ->
-            host.updateStyle(look.copy(textColor = color))
+            host.updateStyle(look.withText(color))
             style()
         }) {
-            customColor(textColor, look.textColor, opacity = false) { base, color -> base.copy(textColor = color) }
+            customColor(textColor, look.textColor, opacity = false) { base, color -> base.withText(color) }
         }
         sheet.header(label("edge", "Edge"))
         sheet.chips(EDGES.map { edgeName(it) }, EDGES.indexOf(look.edge)) { picked ->
@@ -504,10 +544,10 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val background = label("background", "Background")
         sheet.header(background)
         sheet.swatches(host, BACKGROUND_SWATCHES, look.backgroundColor, { color ->
-            host.updateStyle(look.copy(backgroundColor = color))
+            host.updateStyle(look.withBackground(color))
             style()
         }) {
-            customColor(background, look.backgroundColor, opacity = true) { base, color -> base.copy(backgroundColor = color) }
+            customColor(background, look.backgroundColor, opacity = true) { base, color -> base.withBackground(color) }
         }
         sheet.row(label("bold", "Bold"), selected = look.bold) {
             host.updateStyle(look.copy(bold = !look.bold))

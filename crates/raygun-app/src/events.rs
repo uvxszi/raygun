@@ -209,6 +209,15 @@ pub struct SpeechCommandEvent(pub raygun_model::SpeechCommand);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct YouTubeVideoEvent(pub raygun_model::YouTubeVideo);
 
+/// SponsorBlock's parts of the song playing changed (its seek bar marks them); `None` when it has
+/// none to show.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SkipSegmentsEvent(pub Option<raygun_model::SkipSegments>);
+
+/// A part of the song playing was skipped: its note offers to take it back.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SkippedSegmentEvent(pub raygun_model::SkippedSegment);
+
 /// Something another app opened with Raygun or shared to it didn't play (`open_with`).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct OpenWithEvent(pub raygun_model::OpenWithProblem);

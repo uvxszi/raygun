@@ -59,9 +59,14 @@ const usePanelSize = (panel: HTMLElement | null): Size => {
 const placement = (box: SelectionBox, wide: boolean, size: Size): CSSProperties => {
   const safe = safeInsets();
   if (!wide) {
+    // Across the page area, as the reader's own bars are.
+    const sides = {
+      left: `calc(var(--main-left, 0px) + ${MARGIN}px)`,
+      right: `calc(var(--main-right, 0px) + ${MARGIN}px)`,
+    };
     return box.top > window.innerHeight / 2
-      ? { top: `calc(${safe.top + MARGIN}px + var(--app-bar, 0px))`, left: MARGIN, right: MARGIN }
-      : { bottom: safe.bottom + MARGIN, left: MARGIN, right: MARGIN };
+      ? { top: `calc(${safe.top + MARGIN}px + var(--app-bar, 0px))`, ...sides }
+      : { bottom: safe.bottom + MARGIN, ...sides };
   }
   const below = window.innerHeight - safe.bottom - box.bottom - MARGIN * 2;
   const above = box.top - safe.top - MARGIN * 2;

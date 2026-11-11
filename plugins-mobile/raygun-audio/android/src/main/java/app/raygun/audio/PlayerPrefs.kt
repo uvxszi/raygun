@@ -3,29 +3,59 @@ package app.raygun.audio
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** The text colour subtitles have unless one is picked. */
+internal const val DEFAULT_TEXT_COLOR = 0xFFFFFFFF.toInt()
+
+/** How wide subtitle lines get unless changed, in percent of the picture's width. */
+internal const val DEFAULT_MAX_WIDTH = 80
+
 /** How subtitles look (`SubtitleStyle` in raygun-model). Colours are 0xAARRGGBB. */
 internal data class SubtitleLook(
     val size: Int = 100,
     val font: String = "default",
     val bold: Boolean = false,
     val italic: Boolean = false,
-    val textColor: Int = 0xFFFFFFFF.toInt(),
+    val textColor: Int = DEFAULT_TEXT_COLOR,
+    /** The text colour was picked, white included. */
+    val textColorChosen: Boolean = false,
     val edge: String = "outline",
     val edgeColor: Int = 0xFF000000.toInt(),
     val backgroundColor: Int = 0,
+    /** The background was picked, "None" included. */
+    val backgroundColorChosen: Boolean = false,
     val position: Int = 8,
+    /** The widest a line gets, in percent of the picture's width; longer ones wrap. */
+    val maxWidth: Int = DEFAULT_MAX_WIDTH,
     val ignoreEmbedded: Boolean = false,
 ) {
+    /**
+     * The text colour wins over the colours a file gives its lines (an ASS style's, a TTML
+     * region's): once picked, white too. Only an unpicked white leaves them, as the default.
+     */
+    val ownText: Boolean get() = textColorChosen || textColor != DEFAULT_TEXT_COLOR
+
+    /** The background replaces the ones a file sets: once picked, "None" too. */
+    val ownBackground: Boolean get() = backgroundColorChosen || backgroundColor != 0
+
+    /** `color` picked for the text. */
+    fun withText(color: Int): SubtitleLook = copy(textColor = color, textColorChosen = true)
+
+    /** `color` picked for the background. */
+    fun withBackground(color: Int): SubtitleLook = copy(backgroundColor = color, backgroundColorChosen = true)
+
     fun toJson(): JSONObject = JSONObject()
         .put("size", size)
         .put("font", font)
         .put("bold", bold)
         .put("italic", italic)
         .put("textColor", textColor.toLong() and 0xFFFFFFFFL)
+        .put("textColorChosen", textColorChosen)
         .put("edge", edge)
         .put("edgeColor", edgeColor.toLong() and 0xFFFFFFFFL)
         .put("backgroundColor", backgroundColor.toLong() and 0xFFFFFFFFL)
+        .put("backgroundColorChosen", backgroundColorChosen)
         .put("position", position)
+        .put("maxWidth", maxWidth)
         .put("ignoreEmbedded", ignoreEmbedded)
 
     companion object {
@@ -38,10 +68,13 @@ internal data class SubtitleLook(
                 bold = json.optBoolean("bold", defaults.bold),
                 italic = json.optBoolean("italic", defaults.italic),
                 textColor = json.optLong("textColor", 0xFFFFFFFFL).toInt(),
+                textColorChosen = json.optBoolean("textColorChosen", false),
                 edge = json.optString("edge", defaults.edge),
                 edgeColor = json.optLong("edgeColor", 0xFF000000L).toInt(),
                 backgroundColor = json.optLong("backgroundColor", 0L).toInt(),
+                backgroundColorChosen = json.optBoolean("backgroundColorChosen", false),
                 position = json.optInt("position", defaults.position),
+                maxWidth = json.optInt("maxWidth", defaults.maxWidth).coerceIn(40, 100),
                 ignoreEmbedded = json.optBoolean("ignoreEmbedded", defaults.ignoreEmbedded),
             )
         }
@@ -96,6 +129,8 @@ internal class PlayerPrefs(json: JSONObject) {
     val pipOnBack: Boolean = json.optBoolean("pipOnBack", false)
 
     var decoder: String = json.optString("decoder", "auto")
+    /** `VideoCodec` in raygun-model: H.264 over VP9 and AV1 where a stream offers it. */
+    val preferH264: Boolean = json.optString("videoCodec", "auto") == "h264"
     val externalPlayer: Boolean = json.optBoolean("externalPlayer", false)
     val externalPackage: String = json.optString("externalPackage")
     val showFailedSources: Boolean = json.optBoolean("showFailedSources", true)

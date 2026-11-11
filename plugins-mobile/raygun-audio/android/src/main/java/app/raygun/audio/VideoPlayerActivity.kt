@@ -27,6 +27,7 @@ import android.view.KeyEvent
 import android.view.Surface
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -84,6 +85,8 @@ private const val REBUFFER_MS = 2_000L
 private const val SEEK_GRACE_MS = 600L
 /** An ending that reaches this close to the end is the credits: the next-episode prompt shows. */
 private const val CREDITS_SLACK_MS = 5_000L
+/** How long subtitles take to slide out of the controls' way and back. */
+private const val SUBTITLE_SLIDE_MS = 200L
 
 /**
  * Raygun's video player (M38): Media3 ExoPlayer, reporting progress to Rust through
@@ -148,6 +151,9 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** What each subtitle view shows, in the viewer's style. */
     internal lateinit var mainCues: StyledCues
     private lateinit var secondCues: StyledCues
+    /** Where the subtitle views slide to while the controls show (px; 0 when hidden). */
+    private var mainShift = 0f
+    private var secondShift = 0f
     /** The shade behind the controls, over the whole window. */
     private lateinit var vignette: PlayerVignette
     private lateinit var root: FrameLayout
@@ -813,7 +819,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             loading.hide()
             return
         }
-        tracks.reset(languages, prefs.maxHeight)
+        tracks.reset(languages, prefs.maxHeight, prefs.preferH264)
         // A live stream (or a start at 0) begins where Media3 begins it: a live stream's live edge.
         val source = buildSource(request, cached = !request.optBoolean("live"))
         if (liveStream.keepsStart(startMs)) player.setMediaSource(source, startMs) else player.setMediaSource(source)
@@ -1219,18 +1225,12 @@ class VideoPlayerActivity : AppCompatActivity() {
             else -> Typeface.DEFAULT
         }
         val styleFlags = (if (look.bold) Typeface.BOLD else 0) or (if (look.italic) Typeface.ITALIC else 0)
-        val edge = when (look.edge) {
-            "none" -> CaptionStyleCompat.EDGE_TYPE_NONE
-            "shadow" -> CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
-            "raised" -> CaptionStyleCompat.EDGE_TYPE_RAISED
-            "depressed" -> CaptionStyleCompat.EDGE_TYPE_DEPRESSED
-            else -> CaptionStyleCompat.EDGE_TYPE_OUTLINE
-        }
         val caption = CaptionStyleCompat(
             look.textColor,
-            look.backgroundColor,
+            // The background is drawn by the lines themselves, in rounded boxes (`restyled`).
+            if (look.roundedBackground()) Color.TRANSPARENT else look.backgroundColor,
             Color.TRANSPARENT,
-            edge,
+            edgeType(look.edge),
             look.edgeColor,
             Typeface.create(family, styleFlags),
         )
@@ -1240,8 +1240,10 @@ class VideoPlayerActivity : AppCompatActivity() {
             // `placeSubtitles`), whether or not the controls lift the lines; the size setting is
             // a factor of it.
             view.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * look.size / 100f, true)
-            view.setApplyEmbeddedStyles(!look.ignoreEmbedded)
-            view.setApplyEmbeddedFontSizes(!look.ignoreEmbedded)
+            // "Ignore the file's styles" is applied to the cues (`restyled`), so the background
+            // boxes drawn with them stay.
+            view.setApplyEmbeddedStyles(true)
+            view.setApplyEmbeddedFontSizes(true)
         }
         // The lines on screen take the style now, the file's own colours under the viewer's.
         mainCues.look = look
@@ -1287,10 +1289,13 @@ class VideoPlayerActivity : AppCompatActivity() {
     }
 
     /**
-     * Places subtitles at the chosen height, and above the bottom bar while the controls show.
-     * Media3 puts many cues (WebVTT's among them) on the last line, out of reach of its bottom
-     * padding fraction, so the view's own padding moves them instead. The controls call this as
-     * they show and hide, and the shade behind them follows.
+     * Places subtitles at the chosen height, and out of the controls' way while they show: the
+     * lines slide up above the bottom bar, the second subtitles (at the top) down below the top
+     * bar, and back as the controls hide. Media3 puts many cues (WebVTT's among them) on the last
+     * line, out of reach of its bottom padding fraction, so the view's own padding holds the
+     * chosen height; it changes only with that setting, and the controls only move the views
+     * (`translationY`), so the lines keep their size and wrapping. The controls call this as they
+     * show and hide, and the shade behind them follows.
      */
     internal fun liftSubtitles(controlsShown: Boolean) {
         if (::vignette.isInitialized) vignette.shown = controlsShown
@@ -1298,17 +1303,39 @@ class VideoPlayerActivity : AppCompatActivity() {
         // The place `placeSubtitles` gave the view, before it is laid out there.
         val params = subtitleView.layoutParams as? FrameLayout.LayoutParams
         val height = params?.height?.takeIf { it > 0 } ?: subtitleView.height.takeIf { it > 0 } ?: root.height
+        val top = params?.topMargin ?: subtitleView.top
         val chosen = (height * prefs.style.position / 100f).toInt()
-        val lift = if (controlsShown) {
-            // Where the bar covers the picture.
-            val pictureBottom = (params?.topMargin ?: subtitleView.top) + height
-            val barTop = root.height - controls.barHeight()
-            maxOf(chosen, pictureBottom - barTop + dp(8))
-        } else {
-            chosen
-        }
         subtitleView.setBottomPaddingFraction(0f)
-        if (subtitleView.paddingBottom != lift) subtitleView.setPadding(0, 0, 0, lift)
+        if (subtitleView.paddingBottom != chosen) subtitleView.setPadding(0, 0, 0, chosen)
+        val shown = controlsShown && ::controls.isInitialized
+        val up = if (shown) liftAbove(top + height, chosen, root.height - controls.barHeight(), dp(8)) else 0
+        val down = if (shown) {
+            dropBelow(top + (height * SECOND_LINE_TOP).toInt(), controls.topBarBottom(), dp(4))
+        } else {
+            0
+        }
+        mainShift = slide(subtitleView, -up.toFloat(), mainShift)
+        secondShift = slide(secondView, down.toFloat(), secondShift)
+    }
+
+    /**
+     * Moves a subtitle view to `target` px from its place, gliding where animations are on (not
+     * in picture-in-picture or before it's laid out); `current` is where it was going. Returns
+     * the new target.
+     */
+    private fun slide(view: View, target: Float, current: Float): Float {
+        if (target == current) return current
+        view.animate().cancel()
+        if (!DeviceState.animatorsEnabled() || !view.isLaidOut || isInPip()) {
+            view.translationY = target
+        } else {
+            view.animate()
+                .translationY(target)
+                .setDuration(SUBTITLE_SLIDE_MS)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
+        return target
     }
 
     /** A style change made in the player: shown at once and saved to Settings. */

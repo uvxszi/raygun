@@ -12,6 +12,12 @@
   "tap" (M46.52) passes { tap: "start" | "stop", session, speed, mode } on to Raygun's tap script
   inside YouTube's frame, which answers Raygun's page itself (music_downloads/capture/youtube_tap.js).
 
+  The page's address says which audio track and codec YouTube's player is to pick (`audio=original`,
+  `codec=h264` or `auto`); they go to YouTube's frame as player parameters, where Raygun's player
+  script reads them at document start (raygun-app youtube_embed/player.js). "segments" passes
+  { videoId, segments: [{ startMs, endMs, category }] } on to that script, which draws SponsorBlock's
+  parts on YouTube's own seek bar.
+
   `token` is the load the reply is about (sent with "load"), so the app can drop what the player
   says about the previous video after a new one was asked for (M46.7).
 -->
@@ -54,6 +60,18 @@
       var settled = false;
       // Playback speed (M46.8); a new video starts at 1, so it's set again once it plays.
       var rate = 1;
+      // What Raygun's player script in YouTube's frame is to do (this page's address).
+      var search = new URLSearchParams(window.location.search);
+      var playerPrefs = {
+        audio: search.get('audio') === 'original' ? 'original' : 'default',
+        codec: search.get('codec') === 'h264' ? 'h264' : 'auto',
+      };
+
+      /** A message for Raygun's scripts inside YouTube's frame. */
+      function toFrame(message) {
+        var frame = player && player.getIframe ? player.getIframe() : null;
+        if (frame && frame.contentWindow) frame.contentWindow.postMessage(message, '*');
+      }
 
       function post(message) {
         message.raygunEmbed = true;
@@ -113,23 +131,24 @@
           case 'mute':
             player.mute();
             break;
-          case 'tap': {
+          case 'tap':
             // Raygun's tap inside YouTube's frame (M46.52): start or stop hearing its player.
-            var frame = player.getIframe ? player.getIframe() : null;
-            if (frame && frame.contentWindow) {
-              frame.contentWindow.postMessage(
-                {
-                  raygunTap: true,
-                  type: command.tap,
-                  session: command.session,
-                  speed: command.speed,
-                  mode: command.mode,
-                },
-                '*',
-              );
-            }
+            toFrame({
+              raygunTap: true,
+              type: command.tap,
+              session: command.session,
+              speed: command.speed,
+              mode: command.mode,
+            });
             break;
-          }
+          case 'segments':
+            toFrame({
+              raygunPlayer: true,
+              type: 'segments',
+              videoId: command.videoId,
+              segments: command.segments || [],
+            });
+            break;
         }
       }
 
@@ -152,10 +171,19 @@
             rel: 0,
             iv_load_policy: 3,
             origin: window.location.origin,
+            // Read by Raygun's player script in YouTube's frame, from its address.
+            raygun_audio: playerPrefs.audio,
+            raygun_codec: playerPrefs.codec,
           },
           events: {
             onReady: function () {
               ready = true;
+              toFrame({
+                raygunPlayer: true,
+                type: 'prefs',
+                audio: playerPrefs.audio,
+                codec: playerPrefs.codec,
+              });
               post({ type: 'ready' });
               pending.splice(0).forEach(handle);
             },

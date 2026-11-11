@@ -4,6 +4,8 @@ import type { CSSProperties, FC } from 'react';
 import { cssColor } from '../settings/playerOptions';
 import { subtitleFontPx } from './pictureBox';
 import type { PictureBox } from './pictureBox';
+import { subtitlePlacement, subtitleSlide } from './subtitlePlacement';
+import type { SubtitlePlace } from './subtitlePlacement';
 
 const FONTS: Record<Required<SubtitleStyle>['font'], string> = {
   default: 'inherit',
@@ -30,41 +32,23 @@ const edgeShadow = (edge: Required<SubtitleStyle>['edge'], color: string) => {
 type Props = {
   lines: string[];
   style: Required<SubtitleStyle>;
-  /** Moved up while the controls show, so they don't cover the text. */
+  /**
+   * The controls show: the lines slide out of their way, keeping their size (up above the
+   * bottom bar, or for the second subtitles down below the top bar).
+   */
   lifted: boolean;
   /** The second subtitles show at the top of the picture. */
-  at?: 'bottom' | 'top';
+  at?: SubtitlePlace;
   /** Where the picture shows; null before the player has a size. */
   box?: PictureBox | null;
 };
 
-/** How far up the control bar reaches over the player's foot; lifted lines stay above it. */
-const BAR_PX = 110;
-
-/** Where the lines go: over the picture's own part of the player, at the chosen height in it. */
-const placement = (
-  box: PictureBox | null | undefined,
-  style: Required<SubtitleStyle>,
-  lifted: boolean,
-  at: 'bottom' | 'top',
-): CSSProperties => {
-  if (!box || box.height <= 0) {
-    return at === 'top'
-      ? { top: '6%', left: 0, right: 0 }
-      : {
-          bottom: lifted ? `max(${style.position}%, ${BAR_PX}px)` : `${style.position}%`,
-          left: 0,
-          right: 0,
-        };
-  }
-  const sides = { left: box.left, width: box.width };
-  if (at === 'top') return { ...sides, top: box.top + box.height * 0.06 };
-  const foot = box.stageHeight - (box.top + box.height);
-  const chosen = foot + (box.height * style.position) / 100;
-  return { ...sides, bottom: lifted ? Math.max(chosen, BAR_PX) : chosen };
-};
-
-/** The subtitles over the picture, as Settings → Player → Subtitles styles them. */
+/**
+ * The subtitles over the picture, as Settings → Player → Subtitles styles them. Each line wraps
+ * within the chosen width, and a background shows behind each line it wraps to in a box with
+ * rounded corners. Showing and hiding the controls slides the lines (a transform) rather than
+ * placing them again, so they keep their size and wrapping.
+ */
 export const SubtitleLines: FC<Props> = ({ lines, style, lifted, at = 'bottom', box }) => {
   if (lines.length === 0) return null;
   const textStyle: CSSProperties = {
@@ -78,22 +62,29 @@ export const SubtitleLines: FC<Props> = ({ lines, style, lifted, at = 'bottom', 
       box && box.height > 0
         ? `${subtitleFontPx(box, style.size)}px`
         : `calc(clamp(16px, 4.6vh, 56px) * ${style.size / 100})`,
+    padding: '0.06em 0.35em',
+    borderRadius: '0.25em',
+    boxDecorationBreak: 'clone',
+    WebkitBoxDecorationBreak: 'clone',
   };
+  const slide = subtitleSlide(box, style, lifted, at);
   return (
     <div
       data-testid={at === 'top' ? 'second-subtitle-lines' : 'subtitle-lines'}
+      data-slide={slide}
       aria-live="off"
-      className="pointer-events-none absolute flex flex-col items-center gap-1 px-[8%] text-center leading-snug transition-[bottom] duration-200"
-      style={placement(box, style, lifted, at)}
+      className="pointer-events-none absolute flex flex-col items-center gap-1 text-center leading-snug transition-transform duration-200 ease-out"
+      style={{
+        ...subtitlePlacement(box, style, lifted, at),
+        transform: slide === 0 ? undefined : `translateY(${slide}px)`,
+      }}
     >
       {lines.map((line, index) => (
-        <span
-          key={`${index}-${line}`}
-          className="rounded px-2 py-0.5 whitespace-pre-wrap"
-          style={textStyle}
-        >
-          {line}
-        </span>
+        <p key={`${index}-${line}`} className="max-w-full">
+          <span className="whitespace-pre-wrap" style={textStyle}>
+            {line}
+          </span>
+        </p>
       ))}
     </div>
   );
