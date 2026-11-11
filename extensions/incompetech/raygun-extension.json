@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.incompetech",
+  "name": "Incompetech",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Kevin MacLeod's music, free under CC BY 4.0: his whole catalogue from incompetech.com, searchable by title, genre, feel and instruments, with his collections as albums and charts by genre and mood. Credit: Kevin MacLeod (incompetech.com).",
+  "author": "Raygun",
+  "website": "https://incompetech.com/music/royalty-free/music.html",
+  "provides": ["music.metadata", "music.charts", "music.stream"],
+  "permissions": { "net": ["incompetech.com"] },
+  "contentRating": "safe"
+}

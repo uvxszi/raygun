@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.live-music-archive",
+  "name": "Live Music Archive",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Concert recordings from the Internet Archive's Live Music Archive, by trade-friendly artists who allow free non-commercial sharing of their shows: songs, and whole concerts as albums. Shows an artist keeps to streaming only are left out.",
+  "author": "Raygun",
+  "website": "https://archive.org/details/etree",
+  "provides": ["music.metadata"],
+  "permissions": { "net": ["archive.org", "*.archive.org"] },
+  "contentRating": "safe"
+}

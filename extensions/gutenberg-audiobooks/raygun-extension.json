@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.gutenberg-audiobooks",
+  "name": "Gutenberg open audiobooks",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public-domain books from Project Gutenberg read by neural voices: the Project Gutenberg Open Audiobook Collection, about 4,800 books made with Microsoft and MIT, kept by the Internet Archive. Free under the Project Gutenberg License; each book is one recording.",
+  "author": "Raygun",
+  "website": "https://archive.org/details/gutenberg-audiobooks",
+  "provides": ["audiobook.directory"],
+  "permissions": { "net": ["archive.org", "*.archive.org"] },
+  "contentRating": "safe"
+}

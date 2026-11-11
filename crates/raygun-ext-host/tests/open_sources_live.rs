@@ -12,9 +12,16 @@ use raygun_ext_host::manga::{MangaList, MangaListing};
 use raygun_ext_host::novel::{NOVEL_SOURCE, PassageBlock};
 use raygun_ext_host::video::VIDEO_SOURCE;
 use raygun_ext_host::{ExtensionHost, HostConfig, discover_installed};
-use raygun_model::{ExtensionStatus, FilterValue, MediaSource, TrackQuery};
+use raygun_model::{
+    ChartGroup, ExtensionStatus, FilterValue, MediaSource, MusicChart, OnlineTrack, ReleaseKind,
+    TrackQuery,
+};
 
 const STANDARD_EBOOKS: &str = "dev.raygun.standard-ebooks/books";
+const FYYD: &str = "dev.raygun.fyyd/podcasts";
+const PODCAST_INDEX: &str = "dev.raygun.podcast-index/podcasts";
+const INCOMPETECH_CHARTS: &str = "dev.raygun.incompetech/charts";
+const GUTENBERG_AUDIOBOOKS: &str = "dev.raygun.gutenberg-audiobooks/books";
 const WIKISOURCE: &str = "dev.raygun.wikisource/texts";
 const COMMONS_VIDEOS: &str = "dev.raygun.wikimedia-commons/videos";
 const NASA: &str = "dev.raygun.nasa/videos";
@@ -631,6 +638,337 @@ async fn open_sources_live_internet_archive() {
         .await
         .unwrap();
     assert_listing("Prelinger Archives", &prelinger);
+}
+
+/// The songs one extension found for a search, failing on its error.
+async fn songs_from(host: &ExtensionHost, extension: &str, query: &str) -> Vec<OnlineTrack> {
+    let results = host.search_music(query, 10).await;
+    let found = results
+        .iter()
+        .find(|result| result.provider.extension_id == extension)
+        .unwrap_or_else(|| panic!("{extension} isn't a music source"));
+    assert_eq!(found.error, None, "{extension}: {query}");
+    for track in &found.tracks {
+        println!(
+            "{query}: {} — {:?} ({:?} ms) {:?}",
+            track.title, track.artist, track.duration_ms, track.source
+        );
+    }
+    found.tracks.clone()
+}
+
+/// A track's playable address and the headers it goes with.
+fn url_of(track: &OnlineTrack) -> (&str, &BTreeMap<String, String>) {
+    match &track.source {
+        Some(MediaSource::Url { url, headers }) => (url, headers),
+        other => panic!("{} has no stream: {other:?}", track.title),
+    }
+}
+
+/// The charts one extension lists.
+async fn charts_of(host: &ExtensionHost, extension: &str) -> Vec<MusicChart> {
+    let mut charts = Vec::new();
+    for (provider, answer) in host.music_charts(None).await {
+        if provider.extension_id == extension {
+            charts.extend(answer.unwrap_or_else(|error| panic!("{extension}: {error}")));
+        }
+    }
+    for chart in &charts {
+        println!(
+            "chart {} {:?} {:?} {:?}",
+            chart.id, chart.name, chart.group, chart.tag
+        );
+    }
+    charts
+}
+
+#[tokio::test]
+#[ignore = "needs network access to api.fyyd.de"]
+async fn open_sources_live_fyyd() {
+    let host = host().await;
+    let found = host.podcast_search(FYYD, "radiolab", 10).await.unwrap();
+    for podcast in &found {
+        println!(
+            "{} — {:?} {}",
+            podcast.title, podcast.author, podcast.feed_url
+        );
+    }
+    assert!(
+        found
+            .first()
+            .is_some_and(|podcast| podcast.title.to_lowercase().contains("radiolab")),
+        "titles first"
+    );
+    let top = host.podcast_top(FYYD, 20).await.unwrap();
+    println!(
+        "{} hot podcasts, first {:?}",
+        top.len(),
+        top.first().map(|p| &p.title)
+    );
+    assert!(top.len() >= 10);
+    let mut feeds: Vec<&str> = top
+        .iter()
+        .map(|podcast| podcast.feed_url.as_str())
+        .collect();
+    feeds.sort_unstable();
+    feeds.dedup();
+    assert_eq!(feeds.len(), top.len(), "a feed repeats");
+    // A feed it names is a podcast feed.
+    let feed = raygun_net::http_client()
+        .unwrap()
+        .get(&found[0].feed_url)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        feed.contains("<rss") || feed.contains("<feed"),
+        "not a feed"
+    );
+}
+
+/// Podcast Index with the API key and secret in `PODCASTINDEX_KEY` and `PODCASTINDEX_SECRET` (each
+/// person's own, free from api.podcastindex.org); without them it only checks the source asks for
+/// them.
+#[tokio::test]
+#[ignore = "needs network access to api.podcastindex.org"]
+async fn open_sources_live_podcast_index() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions/podcast-index");
+    let credentials = std::env::var("PODCASTINDEX_KEY")
+        .ok()
+        .zip(std::env::var("PODCASTINDEX_SECRET").ok());
+    let mut settings = BTreeMap::new();
+    if let Some((key, secret)) = &credentials {
+        settings.insert("apiKey".to_owned(), serde_json::json!(key));
+        settings.insert("apiSecret".to_owned(), serde_json::json!(secret));
+    }
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host
+        .load_with_settings(
+            vec![raygun_ext_host::ExtensionSource::installed(dir)],
+            raygun_ext_host::UserSettings::from([(
+                "dev.raygun.podcast-index".to_owned(),
+                settings,
+            )]),
+        )
+        .await;
+    assert_eq!(
+        infos[0].status,
+        ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    let found = host.podcast_search(PODCAST_INDEX, "radiolab", 10).await;
+    let Some(_) = credentials else {
+        let error = found.unwrap_err();
+        println!("without a key: {error}");
+        assert!(error.contains("API key and secret"), "{error}");
+        return;
+    };
+    let found = found.unwrap();
+    for podcast in &found {
+        println!(
+            "{} — {:?} {}",
+            podcast.title, podcast.author, podcast.feed_url
+        );
+    }
+    assert!(
+        found
+            .iter()
+            .any(|podcast| podcast.title.to_lowercase().contains("radiolab"))
+    );
+    let trending = host.podcast_top(PODCAST_INDEX, 20).await.unwrap();
+    println!(
+        "{} trending, first {:?}",
+        trending.len(),
+        trending.first().map(|podcast| &podcast.title)
+    );
+    assert!(trending.len() >= 10);
+}
+
+/// Kevin MacLeod's music under CC BY 4.0: search, charts, collections and his pieces' streams.
+#[tokio::test]
+#[ignore = "needs network access to incompetech.com"]
+async fn open_sources_live_incompetech() {
+    let host = host().await;
+    let tracks = songs_from(&host, "dev.raygun.incompetech", "monkeys spinning").await;
+    assert_eq!(tracks[0].title, "Monkeys Spinning Monkeys");
+    assert_eq!(tracks[0].artist.as_deref(), Some("Kevin MacLeod"));
+    let (url, headers) = url_of(&tracks[0]);
+    assert_served("piece", url, headers).await;
+
+    let charts = charts_of(&host, "dev.raygun.incompetech").await;
+    assert!(
+        charts
+            .iter()
+            .any(|chart| chart.tag.as_deref() == Some("Soundtrack"))
+    );
+    assert!(charts.iter().any(|chart| chart.group == ChartGroup::Mood));
+    let known = host
+        .music_chart(INCOMPETECH_CHARTS, "well-known", None, 10)
+        .await
+        .unwrap();
+    assert_eq!(known.len(), 10);
+    assert_eq!(known[0].title, "Monkeys Spinning Monkeys");
+    let chill = host
+        .music_tag_songs("Chill", &["calm".to_owned()], "mood", None, 10)
+        .await;
+    let (_, answer) = chill
+        .iter()
+        .find(|(provider, _)| provider.extension_id == "dev.raygun.incompetech")
+        .unwrap();
+    assert!(answer.as_ref().is_ok_and(|(_, tracks)| tracks.len() == 10));
+
+    let albums: Vec<_> = host
+        .search_albums("hard electronic", 5)
+        .await
+        .into_iter()
+        .filter(|album| album.provider.extension_id == "dev.raygun.incompetech")
+        .collect();
+    assert_eq!(albums[0].title, "Hard Electronic");
+    let album = host
+        .music_album(&albums[0].provider.id, &albums[0].id)
+        .await
+        .unwrap();
+    println!("{}: {} pieces", album.album.title, album.tracks.len());
+    assert!(album.tracks.len() > 10);
+
+    let query = TrackQuery {
+        title: "Sneaky Snitch".into(),
+        artist: Some("Kevin MacLeod".into()),
+        album: None,
+        duration_ms: None,
+    };
+    let candidates: Vec<_> = host
+        .stream_candidates(&query, 5, raygun_resolver::QualityTarget::Any)
+        .await
+        .into_iter()
+        .filter(|answer| answer.provider.extension_id == "dev.raygun.incompetech")
+        .flat_map(|answer| answer.result.unwrap())
+        .collect();
+    assert_eq!(candidates.len(), 1, "{candidates:?}");
+    assert_eq!(candidates[0].title, "Sneaky Snitch");
+}
+
+/// Concerts by artists who allow sharing them, never one they keep to streaming.
+#[tokio::test]
+#[ignore = "needs network access to archive.org"]
+async fn open_sources_live_live_music_archive() {
+    let host = host().await;
+    let tracks = songs_from(
+        &host,
+        "dev.raygun.live-music-archive",
+        "grateful dead scarlet begonias",
+    )
+    .await;
+    assert!(tracks.len() >= 3);
+    assert!(tracks.iter().all(|track| track.title == "Scarlet Begonias"));
+    let (url, headers) = url_of(&tracks[0]);
+    assert_served("song", url, headers).await;
+
+    let albums: Vec<_> = host
+        .search_albums("dark star orchestra 2007", 10)
+        .await
+        .into_iter()
+        .filter(|album| album.provider.extension_id == "dev.raygun.live-music-archive")
+        .collect();
+    assert!(!albums.is_empty());
+    let concert = host
+        .music_album(&albums[0].provider.id, &albums[0].id)
+        .await
+        .unwrap();
+    println!(
+        "{}: {:?}",
+        concert.album.title,
+        concert
+            .tracks
+            .iter()
+            .map(|track| &track.title)
+            .collect::<Vec<_>>()
+    );
+    assert!(concert.tracks.len() > 5);
+    assert_eq!(concert.album.kind, Some(ReleaseKind::Live));
+
+    let releases: Vec<_> = host
+        .artist_releases("Grateful Dead", 10)
+        .await
+        .into_iter()
+        .filter(|album| album.provider.extension_id == "dev.raygun.live-music-archive")
+        .collect();
+    println!(
+        "{:?}",
+        releases
+            .iter()
+            .map(|album| &album.title)
+            .collect::<Vec<_>>()
+    );
+    assert!(releases.len() >= 5);
+    assert!(
+        releases
+            .iter()
+            .all(|album| album.artist.as_deref() == Some("Grateful Dead"))
+    );
+    // Not one is kept to streaming only.
+    let client = raygun_net::http_client().unwrap();
+    for album in releases.iter().take(5) {
+        let item: serde_json::Value = serde_json::from_str(
+            &client
+                .get(format!(
+                    "https://archive.org/metadata/{}/metadata",
+                    album.id
+                ))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let collections = item["result"]["collection"].to_string();
+        assert!(collections.contains("etree"), "{}", album.id);
+        assert!(!collections.contains("stream_only"), "{}", album.id);
+    }
+}
+
+/// Project Gutenberg's books read by neural voices.
+#[tokio::test]
+#[ignore = "needs network access to archive.org"]
+async fn open_sources_live_gutenberg_audiobooks() {
+    let host = host().await;
+    let popular = host
+        .audiobooks(GUTENBERG_AUDIOBOOKS, "popular", "", 1)
+        .await
+        .unwrap();
+    println!(
+        "popular: {:?}",
+        popular
+            .books
+            .iter()
+            .take(5)
+            .map(|book| (&book.title, &book.author))
+            .collect::<Vec<_>>()
+    );
+    assert!(popular.books.len() >= 20);
+    assert!(popular.has_more);
+    let verne = host
+        .audiobooks(GUTENBERG_AUDIOBOOKS, "search", "jules verne", 1)
+        .await
+        .unwrap();
+    assert!(
+        verne
+            .books
+            .iter()
+            .any(|book| book.author.as_deref() == Some("Jules Verne"))
+    );
+    let (provider, id) = raygun_ext_host::audiobook::parse_listed_key(&verne.books[0].feed_url)
+        .expect("books are listed by the source");
+    let book = host.audiobook_details(provider, id).await.unwrap();
+    println!("{} by {:?}: {:?}", book.title, book.author, book.chapters);
+    assert!(!book.chapters.is_empty());
+    assert_served("book", &book.chapters[0].audio_url, &BTreeMap::new()).await;
 }
 
 /// This year, from the system clock (no date crate here).

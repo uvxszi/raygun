@@ -2718,6 +2718,37 @@ mod tests {
         .unwrap();
         assert_eq!(manifest.provides, ["music.charts"]);
         assert!(include_str!("../../../extensions/listenbrainz/dist/index.js").contains("charts"));
+        for (manifest, bundle, kinds) in [
+            (
+                include_str!("../../../extensions/fyyd/raygun-extension.json"),
+                include_str!("../../../extensions/fyyd/dist/index.js"),
+                &["podcast.directory"][..],
+            ),
+            (
+                include_str!("../../../extensions/podcast-index/raygun-extension.json"),
+                include_str!("../../../extensions/podcast-index/dist/index.js"),
+                &["podcast.directory"][..],
+            ),
+            (
+                include_str!("../../../extensions/incompetech/raygun-extension.json"),
+                include_str!("../../../extensions/incompetech/dist/index.js"),
+                &["music.metadata", "music.charts", "music.stream"][..],
+            ),
+            (
+                include_str!("../../../extensions/live-music-archive/raygun-extension.json"),
+                include_str!("../../../extensions/live-music-archive/dist/index.js"),
+                &["music.metadata"][..],
+            ),
+            (
+                include_str!("../../../extensions/gutenberg-audiobooks/raygun-extension.json"),
+                include_str!("../../../extensions/gutenberg-audiobooks/dist/index.js"),
+                &["audiobook.directory"][..],
+            ),
+        ] {
+            let manifest = raygun_ext_host::Manifest::parse(manifest).unwrap();
+            assert_eq!(manifest.provides, kinds, "{}", manifest.id);
+            assert!(bundle.contains("registerProvider") || bundle.contains("providers.register"));
+        }
     }
 
     /// Every source earlier versions carried is moved to an install, and nothing else is.
