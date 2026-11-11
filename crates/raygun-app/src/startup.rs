@@ -68,6 +68,17 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     crate::device_state::set_downloads_allowed(startup_settings.downloads_in_battery_saver);
     // Offline Mode and Data Saver, before anything can send a request.
     crate::network_mode::start_with(&startup_settings.network);
+    // YouTube's players: the audio track and codec they pick, and SponsorBlock's parts.
+    crate::youtube_embed::apply(&startup_settings);
+    let incognito_app = app.handle().clone();
+    let sponsorblock = crate::sponsorblock::SponsorBlock::new(
+        raygun_net::http_client()?,
+        paths.cache(raygun_paths::CacheKind::SponsorBlock),
+        move || crate::privacy::incognito(&incognito_app),
+    );
+    sponsorblock.set_prefs(startup_settings.youtube.sponsor_block);
+    sponsorblock.sweep_later();
+    app.manage(std::sync::Arc::new(sponsorblock));
     let caches = crate::caches::Caches::new(&paths, &cache_prefs);
     let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start_with(
         raygun_net::http_client()?,
@@ -593,10 +604,12 @@ fn create_main_window(app: &tauri::AppHandle, paths: &Paths) -> Result<(), Box<d
     // Honored by WebView2 (Windows) and WebKitGTK (Linux). Android keeps webview data in
     // the app sandbox anyway; macOS/iOS ignore it (documented limitation, ARCHITECTURE §3.3).
     // The YouTube tap runs in every frame, idle except inside Raygun's own hidden capture
-    // players (M46.52).
+    // players (M46.52); the player script, idle except in YouTube's players in Raygun's embed
+    // host page (the audio track, the codec, SponsorBlock's parts on the seek bar).
     WebviewWindowBuilder::from_config(app, &config)?
         .data_directory(paths.webview())
         .initialization_script_for_all_frames(crate::music_downloads::capture::youtube::TAP_SCRIPT)
+        .initialization_script_for_all_frames(crate::youtube_embed::PLAYER_SCRIPT)
         .build()?;
     Ok(())
 }

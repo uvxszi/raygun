@@ -281,6 +281,9 @@ pub struct Settings {
     /// Torrent links playing in the video player (this device only).
     #[serde(default)]
     pub torrents: TorrentPrefs,
+    /// YouTube's videos and songs: parts skipped with SponsorBlock, the audio track that plays.
+    #[serde(default)]
+    pub youtube: YouTubePrefs,
 }
 
 /// Torrent streaming (`raygun_torrent`): videos that sources give as torrents (Stremio addons'
@@ -1267,6 +1270,182 @@ impl Settings {
         }
         self
     }
+}
+
+/// YouTube's videos and songs, played in YouTube's embedded player or as their own files: parts
+/// skipped with SponsorBlock, and which audio track plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct YouTubePrefs {
+    pub sponsor_block: SponsorBlockPrefs,
+    /// A video's original audio plays rather than a dubbed or auto-translated track.
+    pub original_audio: bool,
+}
+
+impl Default for YouTubePrefs {
+    fn default() -> Self {
+        Self {
+            sponsor_block: SponsorBlockPrefs::default(),
+            original_audio: true,
+        }
+    }
+}
+
+/// SponsorBlock (sponsor.ajay.app, its data under CC BY-NC-SA 4.0): parts of YouTube videos its
+/// users marked, such as sponsor reads and a music video's non-music parts. Each kind of part is
+/// skipped, only marked on the seek bar, or left alone. Lookups send a short prefix of the video
+/// id's SHA-256, so SponsorBlock never learns which video plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SponsorBlockPrefs {
+    pub enabled: bool,
+    pub sponsor: SegmentAction,
+    pub selfpromo: SegmentAction,
+    pub interaction: SegmentAction,
+    pub intro: SegmentAction,
+    pub outro: SegmentAction,
+    pub preview: SegmentAction,
+    pub music_offtopic: SegmentAction,
+    pub filler: SegmentAction,
+    /// Song downloads of YouTube videos are saved without their non-music parts.
+    pub trim_downloads: bool,
+}
+
+impl Default for SponsorBlockPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sponsor: SegmentAction::Skip,
+            selfpromo: SegmentAction::Skip,
+            interaction: SegmentAction::Skip,
+            intro: SegmentAction::Show,
+            outro: SegmentAction::Show,
+            preview: SegmentAction::Show,
+            music_offtopic: SegmentAction::Skip,
+            filler: SegmentAction::Off,
+            trim_downloads: false,
+        }
+    }
+}
+
+impl SponsorBlockPrefs {
+    /// What's done with parts of `category` (nothing while SponsorBlock is off).
+    pub fn action(&self, category: SegmentCategory) -> SegmentAction {
+        if !self.enabled {
+            return SegmentAction::Off;
+        }
+        match category {
+            SegmentCategory::Sponsor => self.sponsor,
+            SegmentCategory::Selfpromo => self.selfpromo,
+            SegmentCategory::Interaction => self.interaction,
+            SegmentCategory::Intro => self.intro,
+            SegmentCategory::Outro => self.outro,
+            SegmentCategory::Preview => self.preview,
+            SegmentCategory::MusicOfftopic => self.music_offtopic,
+            SegmentCategory::Filler => self.filler,
+        }
+    }
+}
+
+/// What's done with a kind of SponsorBlock part.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SegmentAction {
+    /// Not looked at.
+    Off,
+    /// Skipped as it's reached, with a note that takes it back.
+    Skip,
+    /// Marked on the seek bar only.
+    #[default]
+    Show,
+}
+
+/// The kinds of parts SponsorBlock lists that Raygun handles (`SponsorBlockPrefs`).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum SegmentCategory {
+    /// A paid promotion.
+    Sponsor,
+    /// Unpaid self-promotion: merchandise, other channels, donations.
+    Selfpromo,
+    /// Reminders to like, subscribe or follow.
+    Interaction,
+    /// An intro animation or an intermission with no content.
+    Intro,
+    /// Credits or end cards.
+    Outro,
+    /// A recap or a preview of what's coming.
+    Preview,
+    /// A music video's parts without its music.
+    MusicOfftopic,
+    /// Tangents and jokes the video doesn't need.
+    Filler,
+}
+
+impl SegmentCategory {
+    pub const ALL: [Self; 8] = [
+        Self::Sponsor,
+        Self::Selfpromo,
+        Self::Interaction,
+        Self::Intro,
+        Self::Outro,
+        Self::Preview,
+        Self::MusicOfftopic,
+        Self::Filler,
+    ];
+
+    /// SponsorBlock's own name for it.
+    pub fn api_name(self) -> &'static str {
+        match self {
+            Self::Sponsor => "sponsor",
+            Self::Selfpromo => "selfpromo",
+            Self::Interaction => "interaction",
+            Self::Intro => "intro",
+            Self::Outro => "outro",
+            Self::Preview => "preview",
+            Self::MusicOfftopic => "music_offtopic",
+            Self::Filler => "filler",
+        }
+    }
+
+    pub fn from_api(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|category| category.api_name() == name)
+    }
+}
+
+/// A part of a YouTube video SponsorBlock knows, and what's done with it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkipSegment {
+    /// SponsorBlock's id of it.
+    pub id: String,
+    pub category: SegmentCategory,
+    pub start_ms: f64,
+    pub end_ms: f64,
+    /// `Skip` or `Show` (parts left alone aren't listed).
+    pub action: SegmentAction,
+}
+
+/// The parts of the song playing now (of its YouTube video), for its seek bar.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkipSegments {
+    /// The queue item they're of.
+    pub item_id: String,
+    pub video_id: String,
+    pub segments: Vec<SkipSegment>,
+}
+
+/// A part of the song playing that was just skipped, for the note that takes it back.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedSegment {
+    pub item_id: String,
+    pub segment: SkipSegment,
 }
 
 /// Centre frequencies of the equalizer's bands in Hz (M46.12): ten octaves, as most players have.
@@ -2539,6 +2718,19 @@ pub enum DecoderMode {
     Software,
 }
 
+/// The codec looked for among a video's formats.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoCodec {
+    /// The player's own choice; YouTube's player keeps to H.264 where VP9 and AV1 have no
+    /// hardware decoder.
+    #[default]
+    Auto,
+    /// H.264 (AVC) wherever a video offers it: the codec every device decodes in hardware, for
+    /// devices where VP9 or AV1 play slowly or fail.
+    H264,
+}
+
 /// The edge drawn around subtitle text.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -2589,15 +2781,25 @@ pub struct SubtitleStyle {
     pub italic: bool,
     /// Colours are 0xAARRGGBB.
     pub text_color: u32,
+    /// The text colour was picked (white included): it wins over the colours a subtitle file
+    /// gives its lines. Unpicked, only a colour other than white does.
+    pub text_color_chosen: bool,
     pub edge: SubtitleEdge,
     pub edge_color: u32,
-    /// Behind each line; fully transparent by default.
+    /// Behind each line, in boxes with rounded corners; fully transparent by default.
     pub background_color: u32,
+    /// The background was picked ("None" included): it replaces the backgrounds a file sets.
+    pub background_color_chosen: bool,
     /// Distance from the bottom, in percent of the picture's height, 0–40.
     pub position: u32,
+    /// The widest a line gets, in percent of the picture's width, 40–100; longer ones wrap.
+    pub max_width: u32,
     /// Ignores the colours, fonts and positions a subtitle file sets itself.
     pub ignore_embedded: bool,
 }
+
+/// The line width subtitles keep to unless changed, in percent of the picture's width.
+pub const SUBTITLE_MAX_WIDTH: u32 = 80;
 
 impl Default for SubtitleStyle {
     fn default() -> Self {
@@ -2607,10 +2809,13 @@ impl Default for SubtitleStyle {
             bold: false,
             italic: false,
             text_color: 0xFFFF_FFFF,
+            text_color_chosen: false,
             edge: SubtitleEdge::Outline,
             edge_color: 0xFF00_0000,
             background_color: 0,
+            background_color_chosen: false,
             position: 8,
+            max_width: SUBTITLE_MAX_WIDTH,
             ignore_embedded: false,
         }
     }
@@ -2689,6 +2894,8 @@ pub struct VideoPlayerPrefs {
     pub pip_on_back: bool,
 
     pub decoder: DecoderMode,
+    /// The codec looked for among a video's formats: here and in YouTube's player.
+    pub video_codec: VideoCodec,
     /// Videos open in another app instead.
     pub external_player: bool,
     /// That app's package; empty asks each time.
@@ -2739,6 +2946,7 @@ impl Default for VideoPlayerPrefs {
             pip_on_leave: true,
             pip_on_back: false,
             decoder: DecoderMode::Auto,
+            video_codec: VideoCodec::Auto,
             external_player: false,
             external_package: String::new(),
             title_trailers: true,
@@ -2797,6 +3005,9 @@ impl VideoPlayerPrefs {
         let style = &self.subtitle_style;
         if !(50..=200).contains(&style.size) || style.position > 40 {
             return Err("That subtitle size or position isn't offered".into());
+        }
+        if !(40..=100).contains(&style.max_width) {
+            return Err("Subtitle lines are 40 % to 100 % of the picture's width".into());
         }
         for tag in [
             &self.subtitle_fallback,
@@ -2887,6 +3098,7 @@ impl Default for Settings {
             network: NetworkPrefs::default(),
             rail: RailPrefs::default(),
             torrents: TorrentPrefs::default(),
+            youtube: YouTubePrefs::default(),
         }
     }
 }
@@ -2952,6 +3164,7 @@ impl Settings {
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Network(prefs) => self.network = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
+            SettingChange::YouTube(prefs) => self.youtube = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
             SettingChange::Notifications(prefs) => self.notifications = prefs,
             SettingChange::Hidden(prefs) => self.hidden = prefs,
@@ -3060,6 +3273,8 @@ pub enum SettingChange {
     LyricsTranslation(LyricsTranslationPrefs),
     ReaderAi(ReaderAiPrefs),
     Torrents(TorrentPrefs),
+    #[serde(rename = "youtube")]
+    YouTube(YouTubePrefs),
 }
 
 impl SettingChange {
@@ -3132,6 +3347,7 @@ impl SettingChange {
             Self::LyricsTranslation(_) => "lyricsTranslation",
             Self::ReaderAi(_) => "readerAi",
             Self::Torrents(_) => "torrents",
+            Self::YouTube(_) => "youtube",
         }
     }
 
@@ -3165,7 +3381,8 @@ impl SettingChange {
             | Self::Network(_)
             | Self::LibraryDisplay(_)
             | Self::Privacy(_)
-            | Self::Notifications(_) => Ok(()),
+            | Self::Notifications(_)
+            | Self::YouTube(_) => Ok(()),
             Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
                 Err("Lyrics can be kept for at most ten years".into())
             }
@@ -8844,6 +9061,52 @@ pub struct VideoDownloads {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sponsorblock_skips_what_is_chosen_and_nothing_while_off() {
+        let mut prefs = SponsorBlockPrefs::default();
+        assert_eq!(
+            prefs.action(SegmentCategory::MusicOfftopic),
+            SegmentAction::Skip
+        );
+        assert_eq!(prefs.action(SegmentCategory::Intro), SegmentAction::Show);
+        assert_eq!(prefs.action(SegmentCategory::Filler), SegmentAction::Off);
+        prefs.enabled = false;
+        assert!(
+            SegmentCategory::ALL
+                .iter()
+                .all(|category| prefs.action(*category) == SegmentAction::Off)
+        );
+        for category in SegmentCategory::ALL {
+            assert_eq!(
+                SegmentCategory::from_api(category.api_name()),
+                Some(category)
+            );
+        }
+        assert_eq!(SegmentCategory::from_api("poi_highlight"), None);
+    }
+
+    #[test]
+    fn youtube_settings_are_one_row_whose_missing_fields_keep_their_defaults() {
+        let change: SettingChange = serde_json::from_value(serde_json::json!({
+            "key": "youtube",
+            "value": { "sponsorBlock": { "intro": "skip" } }
+        }))
+        .unwrap();
+        assert_eq!(change.key(), "youtube");
+        let mut settings = Settings::default();
+        settings.apply(change);
+        assert_eq!(settings.youtube.sponsor_block.intro, SegmentAction::Skip);
+        assert_eq!(
+            settings.youtube.sponsor_block.sponsor,
+            SegmentAction::Skip,
+            "the rest stays as it was"
+        );
+        assert!(settings.youtube.original_audio);
+        let codec: VideoPlayerPrefs =
+            serde_json::from_value(serde_json::json!({ "videoCodec": "h264" })).unwrap();
+        assert_eq!(codec.video_codec, VideoCodec::H264);
+    }
 
     #[test]
     fn data_saver_lowers_what_applies_and_leaves_the_rest() {

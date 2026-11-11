@@ -940,6 +940,8 @@
       "colorPicker": "Pick a colour",
       "opacity": "Opacity",
       "subtitlePosition": "Height from the bottom",
+      "subtitleMaxWidth": "Line width",
+      "subtitleMaxWidthHint": "Longer lines wrap within this share of the picture's width",
       "ignoreEmbedded": "Ignore the file's own styles",
       "ignoreEmbeddedHint": "Colours, fonts and positions set in ASS and WebVTT files",
       "resetStyle": "Reset the style",
@@ -976,6 +978,12 @@
       "decoders": {
         "auto": "Hardware, then software",
         "software": "Software first"
+      },
+      "videoCodec": "Video codec",
+      "videoCodecHint": "What the phone’s player and YouTube’s player pick first when a video comes in several",
+      "videoCodecs": {
+        "auto": "Automatic",
+        "h264": "Prefer H.264 (for devices where VP9 or AV1 stutters or fails)"
       },
       "otherApps": "Other apps",
       "externalPlayer": "Always use another app",
@@ -2590,11 +2598,13 @@
     "off": "Off",
     "track": "Track {{n}}",
     "secondSubtitles": "Second subtitles",
+    "secondNone": "No subtitle files for this video",
     "addSubtitleFile": "Add a subtitle file",
     "secondFailed": "Couldn't load those subtitles",
     "style": "Style",
     "size": "Size",
     "height": "Height",
+    "lineWidth": "Line width",
     "textColor": "Text colour",
     "edge": "Edge",
     "background": "Background",
@@ -2673,6 +2683,7 @@
     "qualityNoOther": "No other source has {{n}}",
     "sourcesTab": "Sources",
     "sourcesRaw": "Raw details",
+    "sourcesUnavailable": "Couldn't show the sources",
     "allSources": "All sources",
     "sourcePlaying": "Playing",
     "sourceBest": "Up to {{n}}",
@@ -5153,5 +5164,34 @@
     "downloading": "{{percent}}%",
     "cancel": "Cancel",
     "moreModels": "More models in Settings → AI"
+  },
+  "sponsorBlock": {
+    "title": "SponsorBlock",
+    "summary": "Parts of YouTube videos people marked, in songs and videos played from YouTube",
+    "enabled": "Use SponsorBlock",
+    "categories": {
+      "sponsor": "Sponsors",
+      "selfpromo": "Self-promotion",
+      "interaction": "Reminders to subscribe",
+      "intro": "Intros",
+      "outro": "End cards and credits",
+      "preview": "Previews and recaps",
+      "musicOfftopic": "Non-music parts of music videos",
+      "filler": "Tangents and jokes"
+    },
+    "actions": {
+      "skip": "Skip",
+      "show": "Show on the seek bar",
+      "off": "Off"
+    },
+    "trimDownloads": "Leave non-music parts out of downloads",
+    "trimDownloadsHint": "Songs downloaded as a music video’s M4A file are saved without them",
+    "credit": "Parts from SponsorBlock",
+    "creditHint": "sponsor.ajay.app, shared under CC BY-NC-SA 4.0. Raygun sends only part of a hash of the video’s id.",
+    "youtube": "YouTube",
+    "originalAudio": "Original audio",
+    "originalAudioHint": "Videos with dubbed or auto-translated tracks play in their own language",
+    "linkHint": "Skipping sponsors and other parts, the audio track",
+    "skipped": "Skipped: {{part}}"
   }
 }

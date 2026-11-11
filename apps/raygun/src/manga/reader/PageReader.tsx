@@ -403,7 +403,7 @@ export const PageReader: FC<PageReaderProps> = ({
       className="-mx-4 -mb-4 flex min-h-full flex-col bg-black pr-[var(--safe-right)] pl-[var(--safe-left)] select-none [-webkit-touch-callout:none] lg:-mx-10"
     >
       {chrome && (
-        <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 pt-[var(--safe-top)] pr-[calc(0.25rem+var(--safe-right))] pl-[calc(0.25rem+var(--safe-left))] shadow-md backdrop-blur">
+        <header className="bg-surface/95 fixed left-[var(--main-left,0px)] right-[var(--main-right,0px)] top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 pt-[var(--safe-top)] pr-[calc(0.25rem+var(--safe-right))] pl-[calc(0.25rem+var(--safe-left))] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}
@@ -461,7 +461,7 @@ export const PageReader: FC<PageReaderProps> = ({
         />
       )}
       {data && total === 0 && (
-        <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-3 px-6 text-center text-white">
+        <div className="flex min-h-[calc(100dvh-var(--app-bar,0px))] flex-col items-center justify-center gap-3 px-6 text-center text-white">
           <ImageOff aria-hidden size={32} className="text-white/60" />
           <p className="text-sm">{t('manga.noPages')}</p>
           <button
@@ -516,13 +516,13 @@ export const PageReader: FC<PageReaderProps> = ({
           <span
             data-testid="page-number"
             aria-hidden
-            className="pointer-events-none fixed inset-x-0 bottom-[calc(0.5rem+var(--safe-bottom))] z-20 mx-auto w-fit rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-medium text-white/90 tabular-nums"
+            className="pointer-events-none fixed left-[var(--main-left,0px)] right-[var(--main-right,0px)] bottom-[calc(0.5rem+var(--safe-bottom))] z-20 mx-auto w-fit rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-medium text-white/90 tabular-nums"
           >
             {page + 1} / {total}
           </span>
         )}
       {data && chrome && total > 0 && (
-        <footer className="fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+var(--safe-right))] pb-[calc(0.75rem+var(--safe-bottom))] pl-[calc(0.75rem+var(--safe-left))]">
+        <footer className="fixed left-[var(--main-left,0px)] right-[var(--main-right,0px)] bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+var(--safe-right))] pb-[calc(0.75rem+var(--safe-bottom))] pl-[calc(0.75rem+var(--safe-left))]">
           {/* AI layers: bottom right, above the bar's own buttons. */}
           <div className="flex w-full justify-end">
             <ReaderAiButton medium="comic" busy={pageAi.busy} error={pageAi.error} />

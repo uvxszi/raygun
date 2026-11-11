@@ -1,5 +1,25 @@
-import { cuesAt, parseSubtitles, parseTimestamp } from './subtitles';
+import { cuesAt, latestCueAt, parseSubtitles, parseTimestamp } from './subtitles';
 import { languageCode, matchChoice, pickByLanguage } from './trackPicking';
+
+describe('tracks made as the video plays', () => {
+  // A stretch heard again: a newer line over the end of the one before.
+  const cues = [
+    { startMs: 1_000, endMs: 4_000, lines: ['and then he'] },
+    { startMs: 3_000, endMs: 6_000, lines: ['then he said'] },
+    { startMs: 8_000, endMs: 9_000, lines: ['Later'] },
+  ];
+
+  it('shows one cue at a time: the last to start, until it ends', () => {
+    expect(latestCueAt(cues, 500)).toEqual([]);
+    expect(latestCueAt(cues, 2_000)).toEqual(['and then he']);
+    // Both would show here; the newer one does, alone, and the older doesn't come back.
+    expect(cuesAt(cues, 3_500)).toEqual(['and then he', 'then he said']);
+    expect(latestCueAt(cues, 3_500)).toEqual(['then he said']);
+    expect(latestCueAt(cues, 7_000)).toEqual([]);
+    expect(latestCueAt(cues, 8_500)).toEqual(['Later']);
+    expect(latestCueAt([], 8_500)).toEqual([]);
+  });
+});
 
 describe('subtitle files', () => {
   it('reads timestamps in every common form', () => {

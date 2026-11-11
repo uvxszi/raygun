@@ -470,6 +470,15 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
     /** The bottom bar's height with what's below it (a cutout), for lifting subtitles above it. */
     fun barHeight(): Int = (bottomBar.height.takeIf { it > 0 } ?: context.dp(108)) + root.paddingBottom
 
+    /**
+     * Where the top bar's buttons end, from the window's top (a cutout's room included), for
+     * keeping the second subtitles below them; its lower padding is only shade.
+     */
+    fun topBarBottom(): Int {
+        val bottom = topBar.bottom.takeIf { topBar.height > 0 } ?: (root.paddingTop + context.dp(84))
+        return root.top + bottom - topBar.paddingBottom
+    }
+
     /** The skip button sits above the bottom bar while the controls show. */
     private fun placeSkip() {
         val params = skipRow.layoutParams as FrameLayout.LayoutParams

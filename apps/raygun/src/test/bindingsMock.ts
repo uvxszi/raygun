@@ -32,6 +32,8 @@ import type {
   QuickAccessNames,
   SearchProgress,
   Settings,
+  SkipSegments,
+  SkippedSegment,
   SongCaptureRequest,
   SongDownload,
   SpeechCommand,
@@ -50,6 +52,7 @@ import { LAYOUT_DEFAULTS } from '../layout/layout';
 import { LIBRARY_DISPLAY_DEFAULTS } from '../manga/libraryDisplay';
 import { PLAYER_DEFAULTS } from '../settings/playerOptions';
 import { pageKey, RAIL_DEFAULTS, withRailDefaults } from '../shell/railPrefs';
+import { YOUTUBE_DEFAULTS } from '../youtube/youtubeDefaults';
 
 /**
  * Stand-in for `@raygun/bindings` (the Rust IPC layer). Use with
@@ -108,6 +111,8 @@ type EventPayloads = {
   ytDlpEvent: string;
   websiteDownloadsEvent: string;
   mihonRuntimeEvent: MihonRuntimeState;
+  skipSegmentsEvent: SkipSegments | null;
+  skippedSegmentEvent: SkippedSegment;
 };
 type EventName = keyof EventPayloads;
 type Listener = (event: { payload: unknown }) => void;
@@ -264,6 +269,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   rail: RAIL_DEFAULTS,
   torrents: { enabled: false, wifiOnly: true, cacheGb: 4, seed: false, port: 0, dht: true },
+  youtube: YOUTUBE_DEFAULTS,
   transcription: {
     engine: 'off',
     localModel: 'whisper-tiny',
@@ -419,6 +425,9 @@ export const bindingsMock = {
     lyricsTranslationPick: vi.fn(),
     songDownloadUseSource: vi.fn(),
     youtubeLink: vi.fn(),
+    playbackSkipSegments: vi.fn(),
+    playbackUndoSkip: vi.fn(),
+    sponsorblockSegments: vi.fn(),
     youtubePlay: vi.fn(),
     ytdlpStatus: vi.fn(),
     ytdlpInstall: vi.fn(),
@@ -855,6 +864,8 @@ export const bindingsMock = {
     ytDlpEvent: makeEvent('ytDlpEvent'),
     websiteDownloadsEvent: makeEvent('websiteDownloadsEvent'),
     mihonRuntimeEvent: makeEvent('mihonRuntimeEvent'),
+    skipSegmentsEvent: makeEvent('skipSegmentsEvent'),
+    skippedSegmentEvent: makeEvent('skippedSegmentEvent'),
   },
 };
 
@@ -1218,6 +1229,9 @@ export const seedBindings = () => {
   commands.lyricsTranslationPick.mockResolvedValue(ok(null));
   commands.songDownloadUseSource.mockResolvedValue(ok(null));
   commands.youtubeLink.mockResolvedValue(ok(null));
+  commands.playbackSkipSegments.mockResolvedValue(null);
+  commands.playbackUndoSkip.mockResolvedValue(null);
+  commands.sponsorblockSegments.mockResolvedValue(ok([]));
   commands.youtubePlay.mockResolvedValue(ok(null));
   commands.ytdlpStatus.mockResolvedValue(ok(YTDLP_OFF));
   commands.ytdlpInstall.mockResolvedValue(ok(YTDLP_OFF));

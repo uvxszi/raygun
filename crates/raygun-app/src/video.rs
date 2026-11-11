@@ -219,10 +219,11 @@ pub async fn play_youtube(
     use tauri_specta::Event;
     // YouTube's embed goes to the network itself: not while Offline Mode is on.
     raygun_net::network_mode::check_online()?;
-    let embed_url = app
-        .try_state::<raygun_net::MediaLinks>()
-        .ok_or("The YouTube player isn't available")?
-        .youtube_embed_url();
+    let embed_url = crate::youtube_embed::url(
+        &app.try_state::<raygun_net::MediaLinks>()
+            .ok_or("The YouTube player isn't available")?
+            .youtube_embed_url(),
+    );
     crate::playback::other_media_started(app).await;
     crate::events::YouTubeVideoEvent(raygun_model::YouTubeVideo {
         video_id: video_id.to_owned(),

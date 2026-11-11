@@ -1320,11 +1320,13 @@ impl StremioService {
             // Trailers and YouTube streams get their own full-window player (M46.4); the music
             // queue is left alone.
             StremioStreamKind::YouTube => {
-                let embed_url = self
-                    .app
-                    .try_state::<raygun_net::MediaLinks>()
-                    .ok_or("The YouTube player isn't available")?
-                    .youtube_embed_url();
+                let embed_url = crate::youtube_embed::url(
+                    &self
+                        .app
+                        .try_state::<raygun_net::MediaLinks>()
+                        .ok_or("The YouTube player isn't available")?
+                        .youtube_embed_url(),
+                );
                 crate::playback::other_media_started(&self.app).await;
                 YouTubeVideoEvent(YouTubeVideo {
                     video_id: stream.target.clone(),

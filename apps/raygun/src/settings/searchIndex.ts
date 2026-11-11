@@ -68,6 +68,19 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
   ...on('music', 'sound.effects')('sound.bassBoost', 'sound.reverb', 'sound.balance', 'sound.mono'),
   ...on('music', 'sound.volume')('sound.normalize', 'sound.level'),
   ...on('music')('sound.crossfade'),
+  ...on('music', 'sponsorBlock.title')(
+    'sponsorBlock.enabled',
+    'sponsorBlock.categories.sponsor',
+    'sponsorBlock.categories.selfpromo',
+    'sponsorBlock.categories.interaction',
+    'sponsorBlock.categories.intro',
+    'sponsorBlock.categories.outro',
+    'sponsorBlock.categories.preview',
+    'sponsorBlock.categories.musicOfftopic',
+    'sponsorBlock.categories.filler',
+    'sponsorBlock.trimDownloads',
+  ),
+  ...on('music', 'sponsorBlock.youtube')('sponsorBlock.originalAudio'),
 
   ...on('video', 'settings.videoPlayback')(
     'settings.videoQuality',
@@ -127,6 +140,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.textColor',
     'settings.player.backgroundColor',
     'settings.player.subtitlePosition',
+    'settings.player.subtitleMaxWidth',
   ),
   ...onlyOn(
     'phone',
@@ -162,10 +176,10 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
       'settings.player.externalPackage',
     ),
   ]),
-  ...on(
-    player('advanced'),
-    'settings.player.section.advanced.title',
-  )('settings.player.titleTrailers'),
+  ...on(player('advanced'), 'settings.player.section.advanced.title')(
+    'settings.player.videoCodec',
+    'settings.player.titleTrailers',
+  ),
 
   ...on('library')(
     'library.display.mode',

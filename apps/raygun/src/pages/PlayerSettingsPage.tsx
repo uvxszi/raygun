@@ -1,4 +1,4 @@
-import type { SubtitleMode, SubtitleStyle } from '@raygun/bindings';
+import type { SubtitleMode, SubtitleStyle, VideoCodec } from '@raygun/bindings';
 import { useParams } from '@tanstack/react-router';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -21,9 +21,11 @@ import {
   SKIP_WAIT_SECONDS,
   SUBTITLE_EDGES,
   SUBTITLE_FONTS,
+  SUBTITLE_MAX_WIDTH,
   SUBTITLE_MODES,
   TAP_ACTIONS,
   TEXT_COLORS,
+  VIDEO_CODECS,
   VIDEO_SETTINGS_PATH,
   withDefaults,
 } from '../settings/playerOptions';
@@ -110,7 +112,9 @@ const PAGE_RESETS: Record<
     ],
   },
   pip: { fields: ['pipOnLeave', 'pipOnBack'] },
-  advanced: { fields: ['decoder', 'externalPlayer', 'externalPackage', 'titleTrailers'] },
+  advanced: {
+    fields: ['decoder', 'videoCodec', 'externalPlayer', 'externalPackage', 'titleTrailers'],
+  },
 };
 
 const pageReset =
@@ -430,12 +434,13 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           disabled={busy}
           onChange={(italic) => setStyle({ italic })}
         />
+        {/* A colour picked wins over the file's own colours, white and "None" too. */}
         <PrefColor
           title={t('settings.player.textColor')}
           value={style.textColor}
           disabled={busy}
           colors={colorOptions(TEXT_COLORS, t)}
-          onChange={(textColor) => setStyle({ textColor })}
+          onChange={(textColor) => setStyle({ textColor, textColorChosen: true })}
         />
         <PrefChoice
           title={t('settings.player.edge')}
@@ -460,7 +465,7 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           disabled={busy}
           colors={colorOptions(BACKGROUND_COLORS, t)}
           opacity
-          onChange={(backgroundColor) => setStyle({ backgroundColor })}
+          onChange={(backgroundColor) => setStyle({ backgroundColor, backgroundColorChosen: true })}
         />
         <PrefSlider
           title={t('settings.player.subtitlePosition')}
@@ -471,6 +476,17 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           format={(value) => `${value}%`}
           disabled={busy}
           onChange={(position) => setStyle({ position })}
+        />
+        <PrefSlider
+          title={t('settings.player.subtitleMaxWidth')}
+          summary={t('settings.player.subtitleMaxWidthHint')}
+          value={style.maxWidth}
+          min={SUBTITLE_MAX_WIDTH.min}
+          max={SUBTITLE_MAX_WIDTH.max}
+          step={SUBTITLE_MAX_WIDTH.step}
+          format={(value) => `${value}%`}
+          disabled={busy}
+          onChange={(maxWidth) => setStyle({ maxWidth })}
         />
         {phone && (
           <PrefSwitch
@@ -641,8 +657,8 @@ const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy, phone }) => {
   const { t } = useTranslation();
   return (
     <>
-      {phone && (
-        <PrefGroup title={t('settings.player.decoding')}>
+      <PrefGroup title={t('settings.player.decoding')}>
+        {phone && (
           <PrefChoice
             title={t('settings.player.decoder')}
             summary={t('settings.player.decoderHint')}
@@ -654,8 +670,20 @@ const AdvancedScreen: FC<ScreenProps> = ({ prefs, set, busy, phone }) => {
             }))}
             onChange={(decoder) => set({ decoder })}
           />
-        </PrefGroup>
-      )}
+        )}
+        {/* The phone's player and YouTube's player in Raygun look for this codec first. */}
+        <PrefChoice<VideoCodec>
+          title={t('settings.player.videoCodec')}
+          summary={t('settings.player.videoCodecHint')}
+          value={prefs.videoCodec}
+          disabled={busy}
+          options={VIDEO_CODECS.map((value) => ({
+            value,
+            label: t(`settings.player.videoCodecs.${value}`),
+          }))}
+          onChange={(videoCodec) => set({ videoCodec })}
+        />
+      </PrefGroup>
       <PrefGroup title={t('settings.player.titlePages')}>
         <PrefSwitch
           title={t('settings.player.titleTrailers')}

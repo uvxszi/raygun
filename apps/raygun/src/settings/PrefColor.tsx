@@ -67,9 +67,13 @@ export const PrefColor: FC<{
   const hexId = useId();
   // A colour of one's own starts opaque, or half see-through for a background that was none.
   const alpha = (shown >>> 24) & 0xff;
-  const keep = (next: number) => {
+  /**
+   * Keeps `next`. A colour picked from the list is kept even when it's the one in use: picking
+   * the default colour marks it chosen, over a subtitle file's own colours.
+   */
+  const keep = (next: number, picked = false) => {
     setDraft(null);
-    if (next !== value) onChange(next >>> 0);
+    if (picked || next !== value) onChange(next >>> 0);
   };
   const picker = useCommit((text) => {
     const rgb = parseHex(text);
@@ -121,7 +125,7 @@ export const PrefColor: FC<{
                   onClick={() => {
                     if (color) {
                       setOwnChosen(false);
-                      keep(color.value);
+                      keep(color.value, true);
                       close();
                     } else {
                       setOwnChosen(true);
@@ -137,6 +141,15 @@ export const PrefColor: FC<{
                   </span>
                   {color ? (
                     <Swatch color={color.value} />
+                  ) : own ? (
+                    // The colour of one's own as it's picked, not the hues it's picked from.
+                    <span
+                      data-testid="custom-swatch"
+                      data-color={hexOf(shown)}
+                      className="flex shrink-0"
+                    >
+                      <Swatch color={shown} />
+                    </span>
                   ) : (
                     <span
                       aria-hidden

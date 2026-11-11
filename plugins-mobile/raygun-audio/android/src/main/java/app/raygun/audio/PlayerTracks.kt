@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Looper
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
@@ -16,6 +17,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.text.Cue
+import androidx.media3.common.text.LanguageFeatureSpan
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
@@ -23,6 +25,7 @@ import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.text.TextRenderer
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.text.SubtitleParser
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.SubtitleView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -119,31 +122,83 @@ internal fun <T> byLanguages(items: List<T>, languages: List<String>, language: 
     }
 }
 
+/** Media3's edge type for a style's edge. */
+internal fun edgeType(edge: String): Int = when (edge) {
+    "none" -> CaptionStyleCompat.EDGE_TYPE_NONE
+    "shadow" -> CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
+    "raised" -> CaptionStyleCompat.EDGE_TYPE_RAISED
+    "depressed" -> CaptionStyleCompat.EDGE_TYPE_DEPRESSED
+    else -> CaptionStyleCompat.EDGE_TYPE_OUTLINE
+}
+
+/** Whether the style's background is drawn here, in rounded boxes ([RoundedLineBackground]). */
+internal fun SubtitleLook.roundedBackground(): Boolean = (backgroundColor ushr 24) != 0
+
 /**
- * Cues in the viewer's style over the file's own: a text colour or a background picked in the
- * player wins over the colours a file gives its lines (an ASS style's, a TTML region's), and the
- * size setting scales the sizes a file sets. Texts are copied, so nothing of one style stays on a
- * cue when the style changes (Media3's painter adds spans to a `SpannableStringBuilder` it draws).
+ * Cues in the viewer's style over the file's own:
+ * - a text colour or a background picked wins over the colours a file gives its lines (an ASS
+ *   style's, a TTML region's), white and "None" too once picked ([SubtitleLook.ownText]);
+ * - "Ignore the file's styles" strips them here (Media3's own stripping would take the boxes
+ *   below with it), keeping only ruby and the like;
+ * - the size setting scales the sizes a file sets;
+ * - lines wrap within the widest share of the picture's width ([narrowedBox]);
+ * - the background is drawn behind each line in a box with rounded corners.
+ * Texts are copied, so nothing of one style stays on a cue when the style changes (Media3's
+ * painter adds spans to a `SpannableStringBuilder` it draws).
  */
 internal fun restyled(cues: List<Cue>, look: SubtitleLook): List<Cue> {
-    val defaults = SubtitleLook()
-    val ownText = look.textColor != defaults.textColor
-    val ownBackground = look.backgroundColor != defaults.backgroundColor
+    val ownText = look.ownText
+    val ownBackground = look.ownBackground
     val scale = look.size / 100f
-    if (!ownText && !ownBackground && look.size == defaults.size) return cues
+    val widest = look.maxWidth.coerceIn(40, 100) / 100f
+    val edge = edgeType(look.edge)
     return cues.map { cue ->
+        val source = cue.text
+        if (cue.bitmap != null || source == null) return@map cue
         val builder = cue.buildUpon()
-        val text = cue.text
-        if (text is Spanned && (ownText || ownBackground)) {
-            val copy = SpannableString(text)
-            if (ownText) copy.getSpans(0, copy.length, ForegroundColorSpan::class.java).forEach(copy::removeSpan)
-            if (ownBackground) copy.getSpans(0, copy.length, BackgroundColorSpan::class.java).forEach(copy::removeSpan)
-            builder.setText(copy)
+        var text: CharSequence = source
+        if (look.ignoreEmbedded) {
+            if (text is Spanned) {
+                val copy = SpannableString(text)
+                copy.getSpans(0, copy.length, Any::class.java)
+                    .filter { it !is LanguageFeatureSpan }
+                    .forEach(copy::removeSpan)
+                text = copy
+            }
+            builder.clearWindowColor()
+            builder.setTextSize(Cue.DIMEN_UNSET, Cue.TYPE_UNSET)
+        } else {
+            if (text is Spanned && (ownText || ownBackground)) {
+                val copy = SpannableString(text)
+                if (ownText) copy.getSpans(0, copy.length, ForegroundColorSpan::class.java).forEach(copy::removeSpan)
+                if (ownBackground) copy.getSpans(0, copy.length, BackgroundColorSpan::class.java).forEach(copy::removeSpan)
+                text = copy
+            }
+            if (ownBackground) builder.clearWindowColor()
+            if (scale != 1f && cue.textSizeType != Cue.TYPE_UNSET && cue.textSize != Cue.DIMEN_UNSET) {
+                builder.setTextSize(cue.textSize * scale, cue.textSizeType)
+            }
         }
-        if (ownBackground) builder.clearWindowColor()
-        if (scale != 1f && cue.textSizeType != Cue.TYPE_UNSET && cue.textSize != Cue.DIMEN_UNSET) {
-            builder.setTextSize(cue.textSize * scale, cue.textSizeType)
+        val align = lineAlignment(cue.textAlignment)
+        // Vertical text is laid out by its own rules; a cue with a window keeps that box's width.
+        if (cue.verticalType == Cue.TYPE_UNSET && (!cue.windowColorSet || ownBackground || look.ignoreEmbedded)) {
+            narrowedBox(cue.position, cue.positionAnchor, cue.size, align, widest)?.let { box ->
+                builder.setPosition(box.position)
+                builder.setPositionAnchor(box.anchor)
+                builder.setSize(box.size)
+            }
         }
+        if (look.roundedBackground() && text.isNotEmpty()) {
+            val boxed = SpannableString(text)
+            boxed.setSpan(
+                RoundedLineBackground(look.backgroundColor, edge, align),
+                0,
+                boxed.length,
+                Spanned.SPAN_INCLUSIVE_INCLUSIVE,
+            )
+            text = boxed
+        }
+        builder.setText(text)
         builder.build()
     }
 }
@@ -254,9 +309,12 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
 
     /**
      * Before a new video: no choices from the last one, the audio languages in place, and
-     * subtitles off until [pick] decides (Media3 would turn on a track marked default).
+     * subtitles off until [pick] decides (Media3 would turn on a track marked default). With
+     * [preferH264] (Settings → Video player → Advanced → Video codec), a stream offering H.264
+     * plays it over VP9 and AV1, which some devices decode slowly or not at all; otherwise Media3
+     * picks, preferring formats with a hardware decoder.
      */
-    fun reset(languages: LanguagePrefs, maxHeight: Int?) {
+    fun reset(languages: LanguagePrefs, maxHeight: Int?, preferH264: Boolean) {
         val builder = host.player.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
@@ -265,6 +323,11 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
             .setPreferredTextLanguages()
             .setPreferredAudioLanguages(*languages.audio.toTypedArray())
+        if (preferH264) {
+            builder.setPreferredVideoMimeType(MimeTypes.VIDEO_H264)
+        } else {
+            builder.setPreferredVideoMimeTypes()
+        }
         // Automatic quality stays at or below the preferred resolution; with nothing that small
         // Media3 takes the smallest above it. A picture counts by its long side against a 16:9
         // one's (1920×800 is 1080p, as `video_quality::picture_height` in raygun-app counts it).
@@ -461,9 +524,12 @@ internal object SubtitleFiles {
     }
 }
 
+/** Where the second subtitles' lines start, as a share of the picture's height from its top. */
+internal const val SECOND_LINE_TOP = 0.04f
+
 /** A cue at the top of the picture, where the second subtitles show. */
 private fun Cue.atTop(): Cue = buildUpon()
-    .setLine(0.04f, Cue.LINE_TYPE_FRACTION)
+    .setLine(SECOND_LINE_TOP, Cue.LINE_TYPE_FRACTION)
     .setLineAnchor(Cue.ANCHOR_TYPE_START)
     .build()
 
@@ -527,7 +593,22 @@ internal class SecondSubtitles(private val host: VideoPlayerActivity, private va
         }
         if (timed.isEmpty()) return
         val at = (positionMs - delayMs) * 1000
-        view.set(timed.filter { at >= it.startUs && at < it.endUs }.flatMap { it.cues }.map { it.atTop() })
+        view.set(together(timed.filter { at >= it.startUs && at < it.endUs }.flatMap { it.cues }).map { it.atTop() })
+    }
+
+    /**
+     * Cues showing at once as one, their lines one under the other: each is put on the same top
+     * line, where they would be drawn one over the other.
+     */
+    private fun together(cues: List<Cue>): List<Cue> {
+        val texts = cues.mapNotNull { cue -> cue.text?.takeIf { it.isNotEmpty() } }
+        if (texts.size < 2) return cues
+        val joined = SpannableStringBuilder()
+        texts.forEachIndexed { index, text ->
+            if (index > 0) joined.append('\n')
+            joined.append(text)
+        }
+        return listOf(cues.first { !it.text.isNullOrEmpty() }.buildUpon().setText(joined).build())
     }
 }
 
@@ -583,24 +664,21 @@ internal class LiveTrack(val id: String, val kind: String) {
         cues.sortWith(compareBy({ it.startMs }, { it.endMs }))
     }
 
-    /** The cues showing at `positionMs`. */
-    fun at(positionMs: Long): List<LiveCue> {
-        // The first cue starting after the position; those before it may still show.
+    /**
+     * The cue showing at `positionMs`: the last one to start, until it ends. One shows at a
+     * time: a stretch heard again (the viewer went back, a window met a line cut at the end of
+     * the one before) brings a cue over one already here, and both at once would be drawn one
+     * on the other.
+     */
+    fun at(positionMs: Long): LiveCue? {
+        // The first cue starting after the position; the one before it is the last to start.
         var low = 0
         var high = cues.size
         while (low < high) {
             val middle = (low + high) / 2
             if (cues[middle].startMs <= positionMs) low = middle + 1 else high = middle
         }
-        val out = ArrayList<LiveCue>(2)
-        var index = low - 1
-        // Cues rarely overlap by more than a few; a long one is found within that window.
-        while (index >= 0 && low - index <= 8) {
-            val cue = cues[index]
-            if (positionMs < cue.endMs) out.add(0, cue)
-            index -= 1
-        }
-        return out
+        return cues.getOrNull(low - 1)?.takeIf { positionMs < it.endMs }
     }
 }
 
@@ -629,7 +707,7 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
     /** Shown first when its cues come: what the viewer just asked for. */
     private var wantAi = false
     private var wantLanguage: String? = null
-    private var shown: List<LiveCue> = emptyList()
+    private var shown: LiveCue? = null
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -690,7 +768,7 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
     /** Shows `id` as the main subtitles (Media3's text track off), or none. */
     fun show(id: String?) {
         primary = id
-        shown = emptyList()
+        shown = null
         host.main.removeCallbacks(ticker)
         host.mainCues.set(null)
         if (id != null) {
@@ -710,14 +788,14 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
         }
         // A live stream's cues are timed by its own clock (`PlayerLive.clockMs`).
         val now = track.at(host.liveStream.clockMs() - host.state.subtitleDelayMs)
-        if (now == shown) return
+        if (now === shown) return
         shown = now
-        host.mainCues.set(now.map { Cue.Builder().setText(it.text).build() })
+        host.mainCues.set(listOfNotNull(now).map { Cue.Builder().setText(it.text).build() })
     }
 
-    /** The cues of live track `id` at `positionMs`, for the second subtitles. */
+    /** The cue of live track `id` at `positionMs` (one at a time), for the second subtitles. */
     fun cuesAt(id: String, positionMs: Long): List<Cue> =
-        tracks[id]?.at(positionMs)?.map { Cue.Builder().setText(it.text).build() } ?: emptyList()
+        listOfNotNull(tracks[id]?.at(positionMs)).map { Cue.Builder().setText(it.text).build() }
 
     /** Asks Rust to transcribe from here; the AI subtitles show as they come. */
     fun transcribe(confirmed: Boolean = false) {

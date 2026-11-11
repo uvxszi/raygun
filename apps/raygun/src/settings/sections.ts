@@ -83,7 +83,14 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     icon: Music,
     screen: MusicPlayerSettings,
     reset: resetAll(
-      resetKeys('audioQuality', 'resumeOnStart', 'keepMusicPlaying', 'playerView', 'sound'),
+      resetKeys(
+        'audioQuality',
+        'resumeOnStart',
+        'keepMusicPlaying',
+        'playerView',
+        'sound',
+        'youtube',
+      ),
       // Of the panel sizes, only the queue's rows are this screen's.
       (current, defaults) => [
         {
