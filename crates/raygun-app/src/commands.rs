@@ -1003,6 +1003,8 @@ const SEARCH_LIBRARY_LIMIT: u32 = 8;
 /// Searches the local library and every online music provider at once. Each provider answers
 /// with tracks or an error; songs several providers found are merged into `top`. Each answer is
 /// also sent as a [`crate::events::SearchProgressEvent`] as it comes, in the order they came.
+/// With `filtered` (Search), Audio's "Explicit only" and "Playable only" narrow each source's
+/// songs; Find a source asks without them.
 #[tauri::command]
 #[specta::specta]
 pub async fn online_search(
@@ -1011,11 +1013,17 @@ pub async fn online_search(
     library: tauri::State<'_, LibraryService>,
     durations: tauri::State<'_, Arc<crate::durations::DurationService>>,
     query: String,
+    filtered: bool,
 ) -> Result<SearchResults, String> {
     let trimmed = query.trim();
     let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(&app);
     // Search's "No 18+": 18+ music sources aren't asked (explicit songs follow the setting).
     let filter = crate::search_filter::current(&app).await;
+    let filter = if filtered {
+        filter
+    } else {
+        crate::search_filter::without_song_filters(filter)
+    };
     let listings = crate::search_filter::listings(&app).await;
     let songs = extensions.search_as_answered(trimmed, listings, |result, total| {
         // Lengths the sources sent are kept for lists that lack them (M46.26).
@@ -1027,7 +1035,10 @@ pub async fn online_search(
             &app,
             trimmed,
             total,
-            raygun_model::SearchPart::Songs { result },
+            raygun_model::SearchPart::Songs {
+                result,
+                unfiltered: !filtered,
+            },
         );
     });
     let songs = raygun_ext_host::without_adult_sources(

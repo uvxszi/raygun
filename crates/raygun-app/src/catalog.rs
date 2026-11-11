@@ -203,9 +203,10 @@ impl Catalog {
     /// each source's popular titles. Sources take turns, a few at a time and the good ones first
     /// (M46.48: the host's catalogue turns), none for longer than
     /// [`raygun_ext_host::CATALOG_SEARCH_TIMEOUT`]. A source that fails reports why and the
-    /// others still show. Search's "No 18+" (`filter`) leaves adult sources unasked and adult
-    /// titles out. A source whose search fails or finds nothing gets matches from its listings
-    /// as `listings` allows ([`Self::search_row`]).
+    /// others still show. Search's filters (`filter`) leave sources unasked and titles out
+    /// (`search_filter::keep_cards`: "No 18+", "18+ only", "Not in library"). A source whose
+    /// search fails or finds nothing gets matches from its listings as `listings` allows
+    /// ([`Self::search_row`]).
     pub async fn global_search(
         &self,
         query: &str,
@@ -221,10 +222,11 @@ impl Catalog {
             sources.retain(|source| only.contains(&source.id));
         }
         sources.retain(|source| crate::search_filter::asks_source(filter, source));
+        let medium = self.kind;
         let searches = sources.into_iter().map(|source| async move {
             match self.search_row(&source.id, query, listings).await {
                 Ok((mut page, listed)) => {
-                    crate::search_filter::keep_cards(filter, &mut page.items);
+                    crate::search_filter::keep_cards(filter, medium, &source, &mut page.items);
                     SourceSearchResult {
                         from_listings: listed && !page.items.is_empty(),
                         items: page.items,

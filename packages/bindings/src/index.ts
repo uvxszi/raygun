@@ -282,8 +282,10 @@ export const commands = {
 	 *  Searches the local library and every online music provider at once. Each provider answers
 	 *  with tracks or an error; songs several providers found are merged into `top`. Each answer is
 	 *  also sent as a [`crate::events::SearchProgressEvent`] as it comes, in the order they came.
+	 *  With `filtered` (Search), Audio's "Explicit only" and "Playable only" narrow each source's
+	 *  songs; Find a source asks without them.
 	 */
-	onlineSearch: (query: string) => typedError<SearchResults_Serialize, string>(__TAURI_INVOKE("online_search", { query })),
+	onlineSearch: (query: string, filtered: boolean) => typedError<SearchResults_Serialize, string>(__TAURI_INVOKE("online_search", { query, filtered })),
 	/**  Searches kept on this device, newest first. */
 	searchRecent: () => typedError<RecentSearch[], string>(__TAURI_INVOKE("search_recent")),
 	/**
@@ -1365,7 +1367,7 @@ export const commands = {
 	 *  (`discover`) by default; a hidden choice falls back to the first shown tab.
 	 */
 	browseStartTab?: string,
-	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
+	/**  Search's own switches: the "No 18+" pill and each kind's Filters; all off by default. */
 	searchFilter: SearchFilterPrefs,
 	/**
 	 *  Sources whose search fails or finds nothing are looked through instead: their listings
@@ -5383,11 +5385,36 @@ export type ScrollbarStyle = "thin" | "wide" | "hidden" |
 /**
  *  Search's "No 18+" pill, shown only while 18+ content is on (`Settings::show_nsfw`); turning
  *  that on switches the pill on again (`raygun-app::settings::update_many`). Explicit songs follow
- *  `Settings::explicit_music` alone. Older rows' `noExplicit` is ignored.
+ *  `Settings::explicit_music` alone. Older rows' `noExplicit` is ignored. The other fields are
+ *  what each kind's Filters sheet switches on (`raygun-app::search_filter` applies them).
  */
 export type SearchFilterPrefs = {
 	/**  "No 18+": sources rated for adults aren't asked, and titles marked adult are left out. */
 	noAdult?: boolean,
+	/**
+	 *  "18+ only" (videos, comics, books): only titles marked adult and those of sources rated
+	 *  for adults. Counts only while 18+ content is on; it and `no_adult` turn each other off.
+	 */
+	adultOnly?: boolean,
+	/**
+	 *  Audio's "Explicit only": only songs their source marks explicit. Counts only while
+	 *  Explicit music is on (`Settings::explicit_music`).
+	 */
+	explicitOnly?: boolean,
+	/**
+	 *  Audio's "Playable only": only songs that come with a stream of their own (an address, a
+	 *  file or a YouTube video), not those a source only describes.
+	 */
+	playableSongs?: boolean,
+	/**
+	 *  Videos' "Playable only": movies and series from Stremio addons only when an addon that's
+	 *  on gives streams for them (`StremioItem::playable`); video sources play their own titles.
+	 */
+	playableVideos?: boolean,
+	/**  Comics' "Not in library": titles already in the library are left out. */
+	hideSavedComics?: boolean,
+	/**  Books' "Not in library". */
+	hideSavedBooks?: boolean,
 };
 
 /**
@@ -5407,10 +5434,20 @@ export type SearchListingsPrefs = {
 export type SearchPart = SearchPart_Serialize | SearchPart_Deserialize;
 
 /**  What one source answered, by kind of search. */
-export type SearchPart_Deserialize = ({ kind: "songs"; result: ProviderSearchResult_Deserialize }) & { albums?: never; artists?: never; featured?: never; playlists?: never; provider?: never } | ({ kind: "artists"; provider: ProviderInfo_Deserialize; artists: MusicArtist_Deserialize[] }) & { albums?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "albums"; provider: ProviderInfo_Deserialize; albums: MusicAlbum_Deserialize[] }) & { artists?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "playlists"; provider: ProviderInfo_Deserialize; featured: boolean; playlists: MusicPlaylist_Deserialize[] }) & { albums?: never; artists?: never; result?: never };
+export type SearchPart_Deserialize = ({ kind: "songs"; result: ProviderSearchResult_Deserialize; 
+/**
+ *  A search asked without Search's song filters (Find a source), kept apart from
+ *  Search's own answers for the same words.
+ */
+unfiltered?: boolean }) & { albums?: never; artists?: never; featured?: never; playlists?: never; provider?: never } | ({ kind: "artists"; provider: ProviderInfo_Deserialize; artists: MusicArtist_Deserialize[] }) & { albums?: never; featured?: never; playlists?: never; result?: never; unfiltered?: never } | ({ kind: "albums"; provider: ProviderInfo_Deserialize; albums: MusicAlbum_Deserialize[] }) & { artists?: never; featured?: never; playlists?: never; result?: never; unfiltered?: never } | ({ kind: "playlists"; provider: ProviderInfo_Deserialize; featured: boolean; playlists: MusicPlaylist_Deserialize[] }) & { albums?: never; artists?: never; result?: never; unfiltered?: never };
 
 /**  What one source answered, by kind of search. */
-export type SearchPart_Serialize = ({ kind: "songs"; result: ProviderSearchResult_Serialize }) & { albums?: never; artists?: never; featured?: never; playlists?: never; provider?: never } | ({ kind: "artists"; provider: ProviderInfo_Serialize; artists: MusicArtist_Serialize[] }) & { albums?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "albums"; provider: ProviderInfo_Serialize; albums: MusicAlbum_Serialize[] }) & { artists?: never; featured?: never; playlists?: never; result?: never } | ({ kind: "playlists"; provider: ProviderInfo_Serialize; featured: boolean; playlists: MusicPlaylist_Serialize[] }) & { albums?: never; artists?: never; result?: never };
+export type SearchPart_Serialize = ({ kind: "songs"; result: ProviderSearchResult_Serialize; 
+/**
+ *  A search asked without Search's song filters (Find a source), kept apart from
+ *  Search's own answers for the same words.
+ */
+unfiltered: boolean }) & { albums?: never; artists?: never; featured?: never; playlists?: never; provider?: never } | ({ kind: "artists"; provider: ProviderInfo_Serialize; artists: MusicArtist_Serialize[] }) & { albums?: never; featured?: never; playlists?: never; result?: never; unfiltered?: never } | ({ kind: "albums"; provider: ProviderInfo_Serialize; albums: MusicAlbum_Serialize[] }) & { artists?: never; featured?: never; playlists?: never; result?: never; unfiltered?: never } | ({ kind: "playlists"; provider: ProviderInfo_Serialize; featured: boolean; playlists: MusicPlaylist_Serialize[] }) & { albums?: never; artists?: never; result?: never; unfiltered?: never };
 
 /**
  *  One source's answer while a search still waits for the others, so Search shows the first
@@ -5638,7 +5675,7 @@ export type Settings = {
 	 *  (`discover`) by default; a hidden choice falls back to the first shown tab.
 	 */
 	browseStartTab?: string,
-	/**  Search's own switches: no 18+ sources or titles, no explicit songs; both off by default. */
+	/**  Search's own switches: the "No 18+" pill and each kind's Filters; all off by default. */
 	searchFilter: SearchFilterPrefs,
 	/**
 	 *  Sources whose search fails or finds nothing are looked through instead: their listings
@@ -6198,6 +6235,11 @@ export type StremioItem = {
 	posterShape: string,
 	releaseInfo: string | null,
 	rating: string | null,
+	/**
+	 *  An addon that's on gives streams for it (its type, and its id among the addon's id
+	 *  prefixes), so it can play: Search's "Playable only" keeps these.
+	 */
+	playable?: boolean,
 };
 
 export type StremioMeta = {

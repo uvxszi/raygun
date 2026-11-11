@@ -1,5 +1,5 @@
-import type { MangaCard, OnlineTrack, Settings } from '@raygun/bindings';
-import { screen, waitFor } from '@testing-library/react';
+import type { MangaCard, OnlineTrack, Settings, StremioItem } from '@raygun/bindings';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -117,7 +117,7 @@ describe('Search filter pill', () => {
 
     expect(commands.settingsUpdate).toHaveBeenCalledWith({
       key: 'searchFilter',
-      value: { noAdult: true },
+      value: expect.objectContaining({ noAdult: true, adultOnly: false }),
     });
     await waitFor(() => expect(screen.queryByText('Frieren Uncut')).not.toBeInTheDocument());
     expect(screen.queryByText('Frieren Nights')).not.toBeInTheDocument();
@@ -171,5 +171,241 @@ describe('Search filter pill', () => {
     await AppShellWrapper.mount('/browse?tab=search&type=music&q=song');
     expect((await screen.findAllByText('Clean Song')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Rude Song')).not.toBeInTheDocument();
+  });
+});
+
+/** A song with a stream of its own. */
+const streaming = (title: string, explicit = false): OnlineTrack => ({
+  ...track(title, explicit),
+  source: { kind: 'url', url: `https://example.com/${title}.mp3`, headers: {} },
+});
+
+const movie = (id: string, name: string, playable: boolean): StremioItem => ({
+  kind: 'movie',
+  id,
+  name,
+  poster: null,
+  posterShape: 'poster',
+  releaseInfo: null,
+  rating: null,
+  playable,
+});
+
+const openFilters = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(await screen.findByRole('button', { name: /^Search filters/ }));
+  return screen.findByRole('dialog', { name: 'Search filters' });
+};
+
+describe('Search filters', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+    commands.mangaSources.mockResolvedValue(ok([SAFE, ADULT]));
+    commands.catalogGlobalSearch.mockImplementation(async (_medium, _query, sources: string[]) =>
+      ok(
+        sources[0] === ADULT.id
+          ? [
+              {
+                source: ADULT,
+                items: [card('a1', 'Frieren Nights', ADULT.id)],
+                hasNextPage: false,
+                error: null,
+              },
+            ]
+          : [
+              {
+                source: SAFE,
+                items: [
+                  card('s1', 'Frieren', SAFE.id),
+                  card('s2', 'Frieren Uncut', SAFE.id, true),
+                  { ...card('s3', 'Frieren Saved', SAFE.id), inLibrary: true },
+                ],
+                hasNextPage: false,
+                error: null,
+              },
+            ],
+      ),
+    );
+  });
+
+  it('shows only 18+ titles under 18+ only, which turns No 18+ off, and counts on the button', async () => {
+    const user = userEvent.setup();
+    keepSettings({ showNsfw: true, searchFilter: { noAdult: true } });
+    await AppShellWrapper.mount('/browse?tab=search&type=manga&q=frieren');
+    expect(await screen.findByText('Frieren')).toBeInTheDocument();
+    expect(screen.queryByText('Frieren Nights')).not.toBeInTheDocument();
+
+    const sheet = await openFilters(user);
+    const adultOnly = within(sheet).getByRole('switch', { name: '18+ only' });
+    expect(adultOnly).not.toBeChecked();
+    await user.click(adultOnly);
+
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'searchFilter',
+      value: expect.objectContaining({ noAdult: false, adultOnly: true }),
+    });
+    expect(within(sheet).getByRole('switch', { name: '18+ only' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'No 18+' })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Search filters, 1 on' })).toBeInTheDocument();
+    // Titles marked 18+, and everything the 18+ source has (it's asked now).
+    expect(await screen.findByText('Frieren Nights')).toBeInTheDocument();
+    expect(screen.getByText('Frieren Uncut')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Frieren')).not.toBeInTheDocument());
+
+    // Switching the pill on again turns 18+ only off.
+    await user.click(screen.getByRole('switch', { name: 'No 18+' }));
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'searchFilter',
+      value: expect.objectContaining({ noAdult: true, adultOnly: false }),
+    });
+    expect(within(sheet).getByRole('switch', { name: '18+ only' })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Search filters' })).toBeInTheDocument();
+    expect(await screen.findByText('Frieren')).toBeInTheDocument();
+    expect(screen.queryByText('Frieren Nights')).not.toBeInTheDocument();
+  });
+
+  it('leaves titles in the library out under Not in library, for comics alone', async () => {
+    const user = userEvent.setup();
+    keepSettings({ showNsfw: false });
+    await AppShellWrapper.mount('/browse?tab=search&type=manga&q=frieren');
+    expect(await screen.findByText('Frieren Saved')).toBeInTheDocument();
+
+    const sheet = await openFilters(user);
+    // 18+ content is off: there's nothing 18+ to ask for.
+    expect(within(sheet).queryByRole('switch', { name: '18+ only' })).not.toBeInTheDocument();
+    await user.click(within(sheet).getByRole('switch', { name: 'Not in library' }));
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'searchFilter',
+      value: expect.objectContaining({ hideSavedComics: true, hideSavedBooks: false }),
+    });
+    await waitFor(() => expect(screen.queryByText('Frieren Saved')).not.toBeInTheDocument());
+    expect(screen.getByText('Frieren')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Search filters, 1 on' })).toBeInTheDocument();
+  });
+
+  it('keeps the titles an addon gives streams for under Playable only, and says how', async () => {
+    const user = userEvent.setup();
+    keepSettings({});
+    commands.videoSources.mockResolvedValue(ok([]));
+    commands.stremioCatalogs.mockResolvedValue(
+      ok([
+        {
+          addonId: 'cinemeta',
+          addonName: 'Cinemeta',
+          kind: 'movie',
+          catalogId: 'top',
+          name: 'Popular',
+          extras: [],
+          board: true,
+          searchable: true,
+          discoverable: true,
+          pages: true,
+          failing: false,
+        },
+      ]),
+    );
+    commands.stremioSearchCatalog.mockResolvedValue(
+      ok({
+        addonId: 'cinemeta',
+        addonName: 'Cinemeta',
+        kind: 'movie',
+        catalogId: 'top',
+        name: 'Popular',
+        items: [movie('tt1', 'Sintel', true), movie('yt1', 'Sintel Trailer', false)],
+        genres: [],
+        hasMore: false,
+        error: null,
+      }),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=video&q=sintel');
+    const results = await screen.findByTestId('video-results');
+    expect(within(results).getByText('Sintel Trailer')).toBeInTheDocument();
+
+    const sheet = await openFilters(user);
+    expect(within(sheet).getByText(/an addon you have gives streams/)).toBeInTheDocument();
+    await user.click(within(sheet).getByRole('switch', { name: 'Playable only' }));
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'searchFilter',
+      value: expect.objectContaining({ playableVideos: true }),
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('video-results')).not.toHaveTextContent('Sintel Trailer'),
+    );
+    expect(within(screen.getByTestId('video-results')).getByText('Sintel')).toBeInTheDocument();
+  });
+
+  it("narrows Audio's songs to explicit ones, or to ones that stream", async () => {
+    const user = userEvent.setup();
+    keepSettings({ explicitMusic: true });
+    commands.onlineSearch.mockResolvedValue(
+      ok({
+        library: [],
+        top: [],
+        providers: [
+          {
+            provider: TUNES,
+            tracks: [
+              streaming('Clean Song'),
+              streaming('Rude Song', true),
+              track('Described Song'),
+            ],
+            error: null,
+          },
+        ],
+      }),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=song');
+    expect((await screen.findAllByText('Described Song')).length).toBeGreaterThan(0);
+    expect(commands.onlineSearch).toHaveBeenCalledWith('song', true);
+
+    const sheet = await openFilters(user);
+    await user.click(within(sheet).getByRole('switch', { name: 'Explicit only' }));
+    await waitFor(() => expect(screen.queryByText('Clean Song')).not.toBeInTheDocument());
+    expect(screen.queryByText('Described Song')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Rude Song').length).toBeGreaterThan(0);
+
+    await user.click(within(sheet).getByRole('switch', { name: 'Explicit only' }));
+    await user.click(within(sheet).getByRole('switch', { name: 'Playable only' }));
+    expect(commands.settingsUpdate).toHaveBeenLastCalledWith({
+      key: 'searchFilter',
+      value: expect.objectContaining({ explicitOnly: false, playableSongs: true }),
+    });
+    expect((await screen.findAllByText('Clean Song')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Rude Song').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Described Song')).not.toBeInTheDocument();
+  });
+
+  it('offers each kind its own filters, and no button where nothing could be filtered', async () => {
+    const user = userEvent.setup();
+    keepSettings({ explicitMusic: false });
+    await AppShellWrapper.mount('/browse?tab=search&type=music&q=song');
+    const sheet = await openFilters(user);
+    // Explicit songs are off in Settings: nothing explicit to keep.
+    expect(within(sheet).queryByRole('switch', { name: 'Explicit only' })).not.toBeInTheDocument();
+    expect(within(sheet).getByRole('switch', { name: 'Playable only' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    // Artists carry nothing the song filters look at.
+    await user.click(screen.getByRole('button', { name: 'Artists' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^Search filters/ })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("lists every kind's filters in All", async () => {
+    const user = userEvent.setup();
+    keepSettings({ showNsfw: true, searchFilter: { noAdult: false, hideSavedBooks: true } });
+    await AppShellWrapper.mount('/browse?tab=search&q=frieren');
+    expect(await screen.findByRole('button', { name: 'Search filters, 1 on' })).toBeInTheDocument();
+    const sheet = await openFilters(user);
+    expect(within(sheet).getByRole('switch', { name: '18+ only' })).toBeInTheDocument();
+    for (const group of ['Songs', 'Videos', 'Comics', 'Books']) {
+      expect(within(sheet).getByRole('region', { name: group })).toBeInTheDocument();
+    }
+    expect(
+      within(within(sheet).getByRole('region', { name: 'Books' })).getByRole('switch', {
+        name: 'Not in library',
+      }),
+    ).toBeChecked();
   });
 });

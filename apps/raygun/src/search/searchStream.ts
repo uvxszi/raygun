@@ -19,6 +19,8 @@ import { ONLINE_SEARCH } from '../extensions/useExtensions';
  */
 export const SEARCH_KEYS = {
   songs: (query: string): QueryKey => [...ONLINE_SEARCH, query.trim()],
+  /** The same words asked without Search's song filters (Find a source). */
+  allSongs: (query: string): QueryKey => [...ONLINE_SEARCH, query.trim(), 'unfiltered'],
   artists: (query: string): QueryKey => ['music', 'searchArtists', query.trim()],
   albums: (query: string): QueryKey => ['music', 'searchAlbums', query.trim()],
   playlists: (query: string, featured: boolean): QueryKey => [
@@ -93,7 +95,7 @@ export const useStreamedAnswers = (key: QueryKey): StreamedAnswers | undefined =
 const keyOf = ({ query, part }: SearchProgress): QueryKey => {
   switch (part.kind) {
     case 'songs':
-      return SEARCH_KEYS.songs(query);
+      return part.unfiltered ? SEARCH_KEYS.allSongs(query) : SEARCH_KEYS.songs(query);
     case 'artists':
       return SEARCH_KEYS.artists(query);
     case 'albums':

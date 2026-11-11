@@ -69,7 +69,7 @@ describe('The desktop app bar', () => {
     expect(search).toHaveAttribute('placeholder', 'What do you want to play?');
     await user.type(search, 'daft punk{Enter}');
     await screen.findByTestId('browse-page');
-    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenCalledWith('daft punk'));
+    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenCalledWith('daft punk', true));
     // Browse's own field is the bar's on desktop.
     expect(screen.getAllByRole('searchbox', { name: 'Search' })).toHaveLength(1);
 
@@ -85,7 +85,9 @@ describe('The desktop app bar', () => {
     await vi.waitFor(() => expect(search).toHaveValue('old song'));
     await user.clear(search);
     await user.type(search, 'new song');
-    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenLastCalledWith('new song'));
+    await vi.waitFor(() =>
+      expect(commands.onlineSearch).toHaveBeenLastCalledWith('new song', true),
+    );
     await new Promise((resolve) => setTimeout(resolve, 900));
     expect(search).toHaveValue('new song');
   });

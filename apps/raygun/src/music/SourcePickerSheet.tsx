@@ -65,7 +65,8 @@ const SourcePickerBody: FC<{ song: TrackInput; download: string | null; onClose:
   const client = useQueryClient();
   const [names, setNames] = useState({ title: song.title, artist: song.artist ?? '' });
   const [query, setQuery] = useState([song.artist, song.title].filter(Boolean).join(' '));
-  const search = useOnlineSearch(query);
+  // Every source's answer: Search's song filters don't narrow what a song may be found on.
+  const search = useOnlineSearch(query, false);
   const why = useSongDownloadsSelect(
     (list) => list.find((item) => item.id === download)?.error ?? null,
   ).data;
