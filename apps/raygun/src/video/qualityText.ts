@@ -2,10 +2,19 @@ import type { TFunction } from 'i18next';
 
 import type { LinkFacts, QualityRange, SourceGroup, SourceLink } from './protocol';
 
-/** "2160p (4K) · HDR", "720p": a step of the Quality menu or an option's picture. */
-export const stepName = (height: number, range: QualityRange, t: TFunction): string => {
-  const name =
-    height >= 4000
+/**
+ * "2160p (4K) · HDR", "720p", "1080p (1920×816)": a row of the Quality menu or an option's
+ * picture, by its tier, with the picture's own size when Rust names one (`exact`).
+ */
+export const stepName = (
+  height: number,
+  range: QualityRange,
+  t: TFunction,
+  exact?: string | null,
+): string => {
+  const name = exact
+    ? `${height}p (${exact})`
+    : height >= 4000
       ? t('videoPlayer.quality8k', { n: height })
       : height >= 2000
         ? t('videoPlayer.quality4k', { n: height })
@@ -26,7 +35,7 @@ export const formatSize = (bytes: number): string =>
 /** An option's name in the clean list: its picture, or its own short name when that's unknown. */
 export const optionTitle = (link: SourceLink, t: TFunction): string => {
   const facts = link.facts;
-  if (facts?.height) return stepName(facts.height, facts.range, t);
+  if (facts?.height) return stepName(facts.height, facts.range, t, facts.exact);
   const own = link.label.split(' · ')[0]?.trim() ?? '';
   return own.slice(0, 60) || t('watch.video');
 };

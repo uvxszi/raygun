@@ -316,15 +316,22 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         }
     }
 
-    /** "2160p (4K) · HDR", or the link's own short name when its height isn't known. */
+    /**
+     * "2160p (4K) · HDR", "1080p (1920×816)" (a picture's own size beside its tier), or the
+     * link's own short name when its height isn't known.
+     */
     private fun optionTitle(link: JSONObject): String {
         val facts = link.optJSONObject("facts")
         val height = facts?.number("height")?.toInt()
-        val name = when {
-            height == null -> link.optString("label").substringBefore(" · ").trim().take(60).ifBlank { label("video", "Video") }
+        val nickname = when {
+            height == null -> null
             height >= 4000 -> label("quality8k", "{n}p (8K)", height.toString())
             height >= 2000 -> label("quality4k", "{n}p (4K)", height.toString())
-            else -> "${height}p"
+            else -> null
+        }
+        val name = when (height) {
+            null -> link.optString("label").substringBefore(" · ").trim().take(60).ifBlank { label("video", "Video") }
+            else -> qualityName(height, facts?.text("exact"), nickname)
         }
         return when (facts?.optString("range")) {
             "hdr" -> "$name · HDR"

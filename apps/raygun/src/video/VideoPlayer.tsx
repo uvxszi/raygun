@@ -44,13 +44,7 @@ import { CastPanel, CastStage } from './Cast';
 import { LiveBadge, LiveDelayPrompt } from './LiveControls';
 import { DVR_MIN_MS, HOLD_STEP_MS, readLive, useLiveStream } from './liveStream';
 import type { LiveView } from './liveStream';
-import {
-  attachMedia,
-  embeddedCueLines,
-  engineKind,
-  ladderStep,
-  pictureHeight,
-} from './mediaEngine';
+import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
 import type { MediaEngine, StreamProblem } from './mediaEngine';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { QualityPanel } from './QualityPanel';
@@ -694,21 +688,26 @@ const VideoStage: FC<StageProps> = ({
   };
 
   // ---- The stream ----
-  /** The stream's own sizes and the one playing go to Rust, for the Quality menu. */
+  /** The stream's own sizes and the one playing go to Rust, for the Quality menu: their own
+   * sides, which Rust groups into tiers. */
   const reportVariants = () => {
     const video = videoRef.current;
-    const items = (engineRef.current?.variants() ?? []).map(({ height, range, codec }) => ({
+    const items = (engineRef.current?.variants() ?? []).map(({ width, height, range, codec }) => ({
+      width,
       height,
       range,
       codec,
     }));
-    const height = video ? pictureHeight(video.videoWidth, video.videoHeight) : 0;
+    const width = video?.videoWidth ?? 0;
+    const height = video?.videoHeight ?? 0;
     const playing =
-      height > 0
+      width > 0 || height > 0
         ? {
+            width,
             height,
+            // The variant of the same size says its range.
             range:
-              items.find((item) => ladderStep(item.height) === ladderStep(height))?.range ?? 'sdr',
+              items.find((item) => item.width === width && item.height === height)?.range ?? 'sdr',
           }
         : null;
     const json = JSON.stringify({ items, playing });

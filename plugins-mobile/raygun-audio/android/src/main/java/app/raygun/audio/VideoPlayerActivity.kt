@@ -632,6 +632,8 @@ class VideoPlayerActivity : AppCompatActivity() {
                     choices.select(C.TRACK_TYPE_TEXT, track)
                 }
             }
+            // An open subtitle sheet shows what Media3 settled on.
+            sheets.tracksChanged()
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -1719,7 +1721,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** The subtitle file on, by its index in the video's `subtitles`, for the TV. */
     internal fun chosenSubtitleIndex(): Int? {
         if (tracks.textOff()) return null
-        val format = tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { it.selected }?.format ?: return null
+        val format = tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { tracks.chosen(it) }?.format ?: return null
         val count = current.optJSONArray("subtitles")?.length() ?: 0
         return sidecars.take(count).indexOfFirst {
             it.label == format.label && (it.language == format.language || sameLanguage(it.language, format.language))

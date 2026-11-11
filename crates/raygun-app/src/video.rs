@@ -258,12 +258,16 @@ pub async fn prepare(
     let torrent = raygun_torrent::is_torrent(&request.url, request.format.as_deref());
     let downloaded = crate::video_downloads::offline(app, &request.key).await;
     let torrents = app.try_state::<std::sync::Arc<crate::torrents::TorrentService>>();
-    let address = match (&downloaded, &torrents) {
+    // A torrent's own subtitle files ("Sintel.en.srt") come with its video as tracks.
+    let (address, torrent_subtitles) = match (&downloaded, &torrents) {
         // Its download plays: nothing is fetched.
-        (Some(offline), _) if torrent => offline.url.clone(),
-        (None, Some(torrents)) if torrent => torrents.address_for(request).await?,
+        (Some(offline), _) if torrent => (offline.url.clone(), Vec::new()),
+        (None, Some(torrents)) if torrent => {
+            let stream = torrents.address_for(request).await?;
+            (stream.address, stream.subtitles)
+        }
         (None, None) if torrent => return Err(crate::torrents::TORRENTS_OFF.into()),
-        _ => playable_address(app, &request.url)?,
+        _ => (playable_address(app, &request.url)?, Vec::new()),
     };
     // Anything else the player loads closes the torrent it played.
     if !(torrent && downloaded.is_none())
@@ -326,7 +330,10 @@ pub async fn prepare(
             address,
             Default::default(),
             None,
-            proxied_subtitles(app, &request.subtitles),
+            proxied_subtitles(
+                app,
+                &[torrent_subtitles, request.subtitles.clone()].concat(),
+            ),
         ),
         None => (
             address,

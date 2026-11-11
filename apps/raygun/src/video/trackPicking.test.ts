@@ -8,6 +8,8 @@ import {
   pickAudio,
   pickSubtitles,
   pickVariant,
+  pictureHeight,
+  shownTrackName,
 } from './trackPicking';
 import type { LanguagePrefs, TrackOption } from './trackPicking';
 
@@ -219,5 +221,27 @@ describe('subtitle lists', () => {
       'ai',
     ]);
     expect(byLanguages(options, [])).toBe(options);
+  });
+});
+
+describe('shownTrackName', () => {
+  it('shows a language code as its language name and any other name as it is', () => {
+    // A torrent's Sintel.en.srt, a subtitle site's eng.
+    expect(shownTrackName('en', 'en')).toBe('English');
+    expect(shownTrackName('eng', null)).toBe('English');
+    expect(shownTrackName('pt-BR', 'pt-BR')).toBe('Portuguese');
+    expect(shownTrackName('Español', 'es')).toBe('Español');
+    expect(shownTrackName('Forced', 'en')).toBe('Forced');
+    // A code that isn't the track's language stays.
+    expect(shownTrackName('de', 'fr')).toBe('de');
+  });
+});
+
+describe('pictureHeight', () => {
+  it('counts wide films by their width and narrower pictures by their height', () => {
+    expect(pictureHeight(1920, 800)).toBe(1080);
+    expect(pictureHeight(1080, 1920)).toBe(1080);
+    expect(pictureHeight(640, 480)).toBe(480);
+    expect(pictureHeight(1440, 1080)).toBe(1080);
   });
 });

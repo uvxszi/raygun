@@ -2,10 +2,11 @@
 //! once nothing is open, streaming, downloading or sharing.
 //!
 //! Opening a torrent asks peers for its details (a magnet link's metadata), picks the file to
-//! play ([`crate::pick_file`]), and adds the torrent with only that file selected. Readers of the
-//! file ([`Engine::read_from`]) wait for the pieces they need; librqbit fetches the pieces just
-//! ahead of each reader first, so a seek starts fetching where it lands. Closing removes the
-//! torrent and its pieces unless they're shared on (seeding).
+//! play ([`crate::pick_file`]), and adds the torrent with only that file selected, and the
+//! subtitle files that come with it ([`crate::subtitles_for`]), each readable by a token of its
+//! own. Readers of a file ([`Engine::read_from`]) wait for the pieces they need; librqbit fetches
+//! the pieces just ahead of each reader first, so a seek starts fetching where it lands. Closing
+//! removes the torrent and its pieces unless they're shared on (seeding).
 
 use std::collections::{HashMap, HashSet};
 use std::io::SeekFrom;
@@ -27,6 +28,7 @@ use tokio::io::{AsyncRead, AsyncSeekExt, ReadBuf};
 
 use crate::link::{FileHint, Magnet};
 use crate::pick::{TorrentFile, pick_file};
+use crate::subtitles::subtitles_for;
 
 /// How long peers get to send a magnet link's details.
 const METADATA_TIMEOUT: Duration = Duration::from_secs(60);
@@ -105,6 +107,23 @@ pub struct Opened {
     pub name: String,
     pub len: u64,
     pub info_hash: String,
+    /// The subtitle files that came with it, open while it is.
+    pub subtitles: Vec<OpenedSubtitle>,
+}
+
+/// A subtitle file opened with a video.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedSubtitle {
+    /// What its readers are asked by ([`Engine::read_from`]).
+    pub token: String,
+    /// The file's name (without folders).
+    pub name: String,
+    /// `srt`, `vtt`, `ass`, `ssa`, `ttml`.
+    pub format: String,
+    /// The language its name gives, as written there ("en", "English", "pt-BR").
+    pub language: Option<String>,
+    /// What else its name says ("Forced", "SDH"), or its name when it names no language.
+    pub label: Option<String>,
 }
 
 /// How a torrent is doing.
@@ -171,6 +190,8 @@ struct Open {
     len: u64,
     info_hash: String,
     readers: Vec<Arc<Gate>>,
+    /// The tokens of the subtitle files opened with this video: they close with it.
+    subtitles: Vec<String>,
 }
 
 /// A torrent kept running after its video closed: shared on until room is needed.
@@ -380,13 +401,13 @@ impl Engine {
         }
     }
 
-    /// Adds the torrent with only `file` selected, its pieces kept in `folder`.
+    /// Adds the torrent with only `files` selected, its pieces kept in `folder`.
     async fn add(
         &self,
         session: &Arc<Session>,
         listed: librqbit::ListOnlyResponse,
         source: &Source,
-        file: usize,
+        files: &[usize],
         folder: &Path,
     ) -> Result<(usize, Arc<ManagedTorrent>), TorrentError> {
         let https = self.config().https_trackers;
@@ -395,7 +416,7 @@ impl Engine {
             Source::File(_) => Vec::new(),
         };
         let options = AddTorrentOptions {
-            only_files: Some(vec![file]),
+            only_files: Some(files.to_vec()),
             output_folder: Some(folder.to_string_lossy().into_owned()),
             overwrite: true,
             initial_peers: Some(listed.seen_peers),
@@ -410,16 +431,18 @@ impl Engine {
         let (id, torrent) = match added {
             AddTorrentResponse::Added(id, torrent) => (id, torrent),
             AddTorrentResponse::AlreadyManaged(id, torrent) => {
-                // Opened before (another episode of the same torrent, or shared on): this file
-                // joins the ones selected.
-                let mut files: HashSet<usize> = torrent
+                // Opened before (another episode of the same torrent, or shared on): these files
+                // join the ones selected.
+                let mut selected: HashSet<usize> = torrent
                     .only_files()
                     .unwrap_or_default()
                     .into_iter()
                     .collect();
-                if files.insert(file) {
+                let before = selected.len();
+                selected.extend(files.iter().copied());
+                if selected.len() > before {
                     session
-                        .update_only_files(&torrent, &files)
+                        .update_only_files(&torrent, &selected)
                         .await
                         .map_err(engine_error)?;
                 }
@@ -440,8 +463,8 @@ impl Engine {
     }
 
     /// Opens a torrent's video for playing: the file the hint names, else the episode's, else
-    /// the largest video. `cap` is what the cache holds: older torrents' pieces make room, and
-    /// a bigger file isn't opened.
+    /// the largest video, with the subtitle files that come with it. `cap` is what the cache
+    /// holds: older torrents' pieces make room, and a bigger file isn't opened.
     pub async fn open(
         &self,
         source: Source,
@@ -464,15 +487,46 @@ impl Engine {
                 cap,
             });
         }
+        let subtitles = subtitles_for(&files, &file);
         let info_hash = listed.info_hash.as_string();
-        self.make_room(&session, file.len, cap, &info_hash).await;
+        let needed = subtitles
+            .iter()
+            .fold(file.len, |total, subtitle| total + subtitle.file.len);
+        self.make_room(&session, needed, cap, &info_hash).await;
         let folder = self.config().dir.join(&info_hash);
+        let selected: Vec<usize> = std::iter::once(file.index)
+            .chain(subtitles.iter().map(|subtitle| subtitle.file.index))
+            .collect();
         let (id, torrent) = self
-            .add(&session, listed, &source, file.index, &folder)
+            .add(&session, listed, &source, &selected, &folder)
             .await?;
         let token = uuid::Uuid::new_v4().simple().to_string();
+        let opened: Vec<OpenedSubtitle> = subtitles
+            .iter()
+            .map(|subtitle| OpenedSubtitle {
+                token: uuid::Uuid::new_v4().simple().to_string(),
+                name: subtitle.file.name().to_owned(),
+                format: subtitle.format.clone(),
+                language: subtitle.language.clone(),
+                label: subtitle.label.clone(),
+            })
+            .collect();
         let mut state = self.state();
         state.sharing.retain(|shared| shared.info_hash != info_hash);
+        for (subtitle, opened) in subtitles.iter().zip(&opened) {
+            state.open.insert(
+                opened.token.clone(),
+                Open {
+                    torrent: torrent.clone(),
+                    id,
+                    file: subtitle.file.index,
+                    len: subtitle.file.len,
+                    info_hash: info_hash.clone(),
+                    readers: Vec::new(),
+                    subtitles: Vec::new(),
+                },
+            );
+        }
         state.open.insert(
             token.clone(),
             Open {
@@ -482,14 +536,22 @@ impl Engine {
                 len: file.len,
                 info_hash: info_hash.clone(),
                 readers: Vec::new(),
+                subtitles: opened.iter().map(|opened| opened.token.clone()).collect(),
             },
         );
-        tracing::info!(%info_hash, file = %file.name(), len = file.len, "torrent opened");
+        tracing::info!(
+            %info_hash,
+            file = %file.name(),
+            len = file.len,
+            subtitles = opened.len(),
+            "torrent opened"
+        );
         Ok(Opened {
             token,
             name: file.name().to_owned(),
             len: file.len,
             info_hash,
+            subtitles: opened,
         })
     }
 
@@ -548,14 +610,25 @@ impl Engine {
         Some(progress_of(&torrent, file, len))
     }
 
-    /// Closes the file behind `token`. Its torrent is removed with its pieces, unless `share`
-    /// keeps it running for other peers (until room is needed or the engine stops). The session
-    /// keeps running (another torrent may open next): [`Self::stop_if_idle`] stops it.
+    /// Closes the file behind `token`, and the subtitle files opened with it. Its torrent is
+    /// removed with its pieces, unless `share` keeps it running for other peers (until room is
+    /// needed or the engine stops). The session keeps running (another torrent may open next):
+    /// [`Self::stop_if_idle`] stops it.
     pub async fn close(&self, token: &str, share: bool) {
-        let Some(open) = self.state().open.remove(token) else {
-            return;
+        let (open, readers) = {
+            let mut state = self.state();
+            let Some(open) = state.open.remove(token) else {
+                return;
+            };
+            let mut readers = open.readers.clone();
+            for subtitle in &open.subtitles {
+                if let Some(closed) = state.open.remove(subtitle) {
+                    readers.extend(closed.readers);
+                }
+            }
+            (open, readers)
         };
-        for reader in &open.readers {
+        for reader in &readers {
             reader.close();
         }
         let still_open = self
@@ -714,7 +787,7 @@ impl Engine {
         stopped: &(dyn Fn() -> bool + Sync),
     ) -> Result<PathBuf, TorrentError> {
         let (id, torrent) = self
-            .add(session, listed, source, file.index, folder)
+            .add(session, listed, source, &[file.index], folder)
             .await?;
         let mut last = (0u64, Instant::now());
         loop {

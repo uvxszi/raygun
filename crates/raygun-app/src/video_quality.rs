@@ -1,12 +1,15 @@
-//! Picture sizes of video links and stream variants: read from labels, file names and playlist
-//! attributes, and the one rule that picks among a video's sizes for playing and downloading
-//! (`VideoPlayerPrefs::preferred_resolution`). The players cap adaptive streams the same way
-//! (`PlayerTracks.kt`, `video/mediaEngine.ts`).
+//! Picture sizes of video links and stream variants: read from labels, file names, playlist
+//! attributes and the sizes sources and streams give, and grouped into the standard tiers
+//! (2160p, 1080p, 720p…) that the Quality menu lists and the preferred resolution names. A
+//! picture keeps its own size beside its tier: a film cropped to 1920×816 is 1080p, shown as
+//! "1080p (1920×816)" ([`Picture`]). The one rule that picks among a video's sizes for playing
+//! and downloading (`VideoPlayerPrefs::preferred_resolution`, [`rank`]); the players cap adaptive
+//! streams the same way (`PlayerTracks.kt`, `video/mediaEngine.ts`).
 //!
 //! Also what the players' Sources and Quality sheets show: a link's facts read from its names
-//! (dynamic range, codec, sound, size, release; [`link_facts`]), and the Quality menu: the
-//! resolution ladder, which of the stream's variants or the session's links plays each step
-//! ([`rows`]), and the link a tapped step plays ([`pick`]).
+//! (dynamic range, codec, sound, size, release; [`link_facts`]), and the Quality menu: the tiers
+//! the stream's variants and the session's links have, which of them plays each ([`rows`]), and
+//! the link a tapped tier plays, the nearest tier any source has when none has it ([`pick`]).
 
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashSet};
@@ -14,18 +17,115 @@ use std::collections::{BTreeSet, HashSet};
 use raygun_model::VideoResolution;
 use serde::{Deserialize, Serialize};
 
-/// The height a picture counts as: what a 16:9 picture with the same long side has, so 1920×800
-/// (a wide film) and 1080×1920 (an upright video) are both 1080p. Rounded, so 854×480 is 480p.
-pub fn picture_height(width: u32, height: u32) -> u32 {
-    let long = u64::from(width.max(height));
-    ((long * 9 + 8) / 16) as u32
+/// The standard tiers by the height of a 16:9 picture, largest first: what the Quality menu
+/// lists and the preferred resolution names.
+pub const TIERS: [u32; 9] = [4320, 2160, 1440, 1080, 720, 480, 360, 240, 144];
+
+/// 16:9 heights between tiers that pictures are made at (PAL's 576, qHD's 540): they count as the
+/// nearest tier, where other heights between tiers are taken for cropped films ([`step`]).
+const PLAIN_HEIGHTS: [u32; 4] = [576, 540, 270, 180];
+
+/// The share of its tier's height a film cropped in a 16:9 frame keeps at least, in percent
+/// (2.40:1 keeps 74 %: 1920×800).
+const CROP_PERCENT: u64 = 74;
+/// How far past its tier's height a picture may go and still be it, in percent: encoders store
+/// 1080 lines as 1088.
+const PADDED_PERCENT: u64 = 103;
+
+/// The tier nearest `height`, ties going up.
+fn nearest_tier(height: u32) -> u32 {
+    TIERS
+        .into_iter()
+        .min_by_key(|tier| (tier.abs_diff(height), Reverse(*tier)))
+        .unwrap_or(height)
 }
 
-/// A height from an HLS `RESOLUTION` value ("1920x1080").
+/// The height a picture with both sides counts as: a 16:9 picture's with its long side, so
+/// 1920×800 (a wide film) and 1080×1920 (an upright video) are both 1080; or its short side when
+/// that is more, so 640×480 and 1440×1080 (narrower than 16:9) are 480 and 1080. Rounded, so
+/// 854×480 is 480.
+pub fn picture_height(width: u32, height: u32) -> u32 {
+    let (short, long) = (width.min(height), width.max(height));
+    let wide = ((u64::from(long) * 9 + 8) / 16) as u32;
+    wide.max(short)
+}
+
+/// The tier a height alone counts as. A tier's own height, and the plain 16:9 heights between
+/// tiers, count as the nearest tier; any other height is taken for a film cropped from a wider
+/// frame, the smallest tier it fits (1036, 816 and 800 lines are 1080p films, 1600 a 2160p one,
+/// 1088 a padded 1080); a height that fits none counts as the nearest.
+pub fn step(height: u32) -> u32 {
+    if TIERS.contains(&height) || PLAIN_HEIGHTS.contains(&height) {
+        return nearest_tier(height);
+    }
+    let lines = u64::from(height) * 100;
+    TIERS
+        .into_iter()
+        .rev()
+        .find(|tier| {
+            let tier = u64::from(*tier);
+            lines >= tier * CROP_PERCENT && lines <= tier * PADDED_PERCENT
+        })
+        .unwrap_or_else(|| nearest_tier(height))
+}
+
+/// What's known of a picture's size: both sides (a stream's, a name's "1920x816"), its height (a
+/// source's, a name's "816p"), its width (a stream that only says that), or only the tier a name
+/// gives ("4K", "Full HD").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Picture {
+    Size { width: u32, height: u32 },
+    Height(u32),
+    Width(u32),
+    Tier(u32),
+}
+
+impl Picture {
+    /// A stream's picture, either side of which may be unknown (0); none when both are.
+    pub fn of(width: u32, height: u32) -> Option<Self> {
+        match (width > 0, height > 0) {
+            (true, true) => Some(Self::Size { width, height }),
+            (false, true) => Some(Self::Height(height)),
+            (true, false) => Some(Self::Width(width)),
+            (false, false) => None,
+        }
+    }
+
+    /// The tier it counts as.
+    pub fn tier(self) -> u32 {
+        match self {
+            Self::Size { width, height } => nearest_tier(picture_height(width, height)),
+            Self::Height(height) => step(height),
+            Self::Width(width) => nearest_tier(picture_height(width, 0)),
+            Self::Tier(tier) => nearest_tier(tier),
+        }
+    }
+
+    /// Its own size as shown beside its tier ("1920×816", "816p"), when that isn't the tier's
+    /// plain 16:9 size; a width or a name alone says nothing the tier doesn't.
+    pub fn exact(self) -> Option<String> {
+        let tier = self.tier();
+        match self {
+            Self::Size { width, height } => {
+                let plain = height == tier && width.abs_diff(tier * 16 / 9) <= 8;
+                (!plain).then(|| format!("{width}×{height}"))
+            }
+            Self::Height(height) => (height != tier).then(|| format!("{height}p")),
+            Self::Width(_) | Self::Tier(_) => None,
+        }
+    }
+}
+
+/// The tier of an HLS `RESOLUTION` value ("1920x1080", "1920x816").
 pub fn resolution_height(value: &str) -> Option<u32> {
+    resolution_size(value).map(Picture::tier)
+}
+
+/// Both sides of a `RESOLUTION`-like value ("1920x1080").
+fn resolution_size(value: &str) -> Option<Picture> {
     let (width, height) = value.trim().split_once(['x', 'X'])?;
     let (width, height) = (width.parse().ok()?, height.parse().ok()?);
-    (width > 0 && height > 0).then(|| picture_height(width, height))
+    (width > 0 && height > 0).then_some(Picture::Size { width, height })
 }
 
 /// A rough height for a stream known only by its bit rate (an HLS variant without
@@ -44,30 +144,32 @@ pub fn bandwidth_height(bits_per_second: u64) -> u32 {
 /// Heights a bare number in a label can mean.
 const KNOWN_HEIGHTS: [u32; 9] = [4320, 2160, 1440, 1080, 720, 576, 480, 360, 240];
 
-/// The height a label, name or file name gives: "1080p", "720i", "1920x1080", "4K", "UHD",
-/// "Full HD", "FHD", "QHD", then a bare "1080" or "720", then "HD" (720) or "SD" (480).
-pub fn label_height(text: &str) -> Option<u32> {
+/// The picture a label, name or file name gives: "1080p", "720i", "816p", "1920x1080", "4K",
+/// "UHD", "Full HD", "FHD", "QHD", then a bare "1080" or "720", then "HD" (720) or "SD" (480).
+pub fn label_picture(text: &str) -> Option<Picture> {
     let tokens: Vec<String> = text
         .split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|token| !token.is_empty())
         .map(str::to_ascii_lowercase)
         .collect();
-    let explicit = |index: usize, token: &str| -> Option<u32> {
+    let explicit = |index: usize, token: &str| -> Option<Picture> {
         if let Some(number) = token
             .strip_suffix(['p', 'i'])
             .and_then(|number| number.parse::<u32>().ok())
         {
-            return (100..=4320).contains(&number).then_some(number);
+            return (100..=4320)
+                .contains(&number)
+                .then_some(Picture::Height(number));
         }
-        if let Some(height) = resolution_height(token) {
-            return Some(height);
+        if let Some(size) = resolution_size(token) {
+            return Some(size);
         }
         match token {
-            "8k" | "4320" => Some(4320),
-            "4k" | "uhd" | "2160" => Some(2160),
-            "2k" | "qhd" | "1440" => Some(1440),
-            "fhd" | "fullhd" => Some(1080),
-            "hd" if index > 0 && tokens[index - 1] == "full" => Some(1080),
+            "8k" | "4320" => Some(Picture::Tier(4320)),
+            "4k" | "uhd" | "2160" => Some(Picture::Tier(2160)),
+            "2k" | "qhd" | "1440" => Some(Picture::Tier(1440)),
+            "fhd" | "fullhd" => Some(Picture::Tier(1080)),
+            "hd" if index > 0 && tokens[index - 1] == "full" => Some(Picture::Tier(1080)),
             _ => None,
         }
     };
@@ -76,13 +178,14 @@ pub fn label_height(text: &str) -> Option<u32> {
             .parse::<u32>()
             .ok()
             .filter(|number| KNOWN_HEIGHTS.contains(number))
+            .map(Picture::Height)
     };
     let loose = |token: &str| match token {
-        "hd" => Some(720),
-        "sd" => Some(480),
+        "hd" => Some(Picture::Tier(720)),
+        "sd" => Some(Picture::Tier(480)),
         _ => None,
     };
-    let first = |find: &dyn Fn(usize, &str) -> Option<u32>| {
+    let first = |find: &dyn Fn(usize, &str) -> Option<Picture>| {
         tokens
             .iter()
             .enumerate()
@@ -93,15 +196,22 @@ pub fn label_height(text: &str) -> Option<u32> {
         .or_else(|| first(&|_, token| loose(token)))
 }
 
-/// The first height any of `texts` gives.
+/// The tier a label, name or file name gives ([`label_picture`]): "816p" and "1920x816" are 1080.
+pub fn label_height(text: &str) -> Option<u32> {
+    label_picture(text).map(Picture::tier)
+}
+
+/// The first tier any of `texts` gives.
 pub fn texts_height<'a>(texts: impl IntoIterator<Item = Option<&'a str>>) -> Option<u32> {
     texts.into_iter().flatten().find_map(label_height)
 }
 
 /// How well a height suits `preferred`, lower first: with Highest the highest; otherwise the
 /// highest at or below the preferred height, then the lowest above it; unknown sizes last.
+/// Heights count by their tier ([`step`]), so a 1088-line or a cropped 816-line 1080p picture
+/// is 1080p.
 pub fn rank(height: Option<u32>, preferred: VideoResolution) -> (u8, u32) {
-    match (height, preferred.max_height()) {
+    match (height.map(step), preferred.max_height()) {
         (None, _) => (2, 0),
         (Some(height), None) => (0, u32::MAX - height),
         (Some(height), Some(limit)) if height <= limit => (0, limit - height),
@@ -148,7 +258,12 @@ impl Range {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkFacts {
+    /// The tier its picture counts as.
     pub height: Option<u32>,
+    /// Its picture's own size beside the tier, when that isn't the tier's plain one ("1920×816").
+    pub exact: Option<String>,
+    #[serde(skip)]
+    pub picture: Option<Picture>,
     pub range: Range,
     /// "HEVC", "H.264", "AV1", "VP9".
     pub codec: Option<&'static str>,
@@ -366,12 +481,23 @@ pub fn size_of(text: &str) -> Option<u64> {
 }
 
 /// What `texts` (a link's label, name, description, file name) say about it; `size` and
-/// `height` are what the source says outright.
+/// `height` are what the source says outright (a height in pixels, or the tier its names gave).
+/// A name's "1920x816" stays the picture of a link whose height is that tier.
 pub fn link_facts(texts: &[Option<&str>], size: Option<u64>, height: Option<u32>) -> LinkFacts {
     let texts: Vec<&str> = texts.iter().copied().flatten().collect();
     let words: Vec<String> = texts.iter().flat_map(|text| words(text)).collect();
+    let named = texts.iter().find_map(|text| label_picture(text));
+    let picture = match height {
+        Some(height) => Some(match named {
+            Some(found @ Picture::Size { .. }) if found.tier() == step(height) => found,
+            _ => Picture::Height(height),
+        }),
+        None => named,
+    };
     LinkFacts {
-        height: height.or_else(|| texts_height(texts.iter().map(|text| Some(*text)))),
+        height: picture.map(Picture::tier),
+        exact: picture.and_then(Picture::exact),
+        picture,
         range: range_of(&words),
         codec: codec_of(&words),
         bit_depth: bit_depth_of(&words),
@@ -391,29 +517,39 @@ pub fn bitrate_kbps(size_bytes: Option<u64>, duration_ms: Option<i64>) -> Option
 
 // ---- The Quality menu ----
 
-/// The steps the Quality menu lists, largest first; 8K only when something has it.
-pub const LADDER: [u32; 9] = [4320, 2160, 1440, 1080, 720, 480, 360, 240, 144];
-
-/// The ladder step a height counts as: the nearest one, ties going up.
-pub fn step(height: u32) -> u32 {
-    LADDER
-        .into_iter()
-        .min_by_key(|step| (step.abs_diff(height), Reverse(*step)))
-        .unwrap_or(height)
-}
-
-/// A step of the Quality menu: a height on the ladder and a dynamic range ("1080:sdr").
+/// A row of the Quality menu: a tier and a dynamic range ("1080:sdr").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct QualityKey {
     pub height: u32,
     pub range: Range,
 }
 
+/// How far a tier is from another: tiers between them, whether it's the larger, whether its
+/// range differs. Lower is nearer: the lower of two tiers as far, the same range first.
+pub type Distance = (usize, bool, bool);
+
+/// A tier's place among [`TIERS`].
+fn tier_index(height: u32) -> usize {
+    let tier = nearest_tier(height);
+    TIERS
+        .iter()
+        .position(|known| *known == tier)
+        .unwrap_or_default()
+}
+
 impl QualityKey {
-    /// The step `height` counts as, in `range`.
+    /// The tier `height` counts as ([`step`]), in `range`.
     pub fn of(height: u32, range: Range) -> Self {
         Self {
             height: step(height),
+            range,
+        }
+    }
+
+    /// The tier `picture` counts as, in `range`.
+    pub fn of_picture(picture: Picture, range: Range) -> Self {
+        Self {
+            height: picture.tier(),
             range,
         }
     }
@@ -428,27 +564,42 @@ impl QualityKey {
             height: height
                 .parse()
                 .ok()
-                .filter(|height| LADDER.contains(height))?,
+                .filter(|height| TIERS.contains(height))?,
             range: Range::from_key(range)?,
         })
     }
+
+    /// How far `other` is from this one.
+    pub fn distance(&self, other: QualityKey) -> Distance {
+        (
+            tier_index(self.height).abs_diff(tier_index(other.height)),
+            other.height > self.height,
+            other.range != self.range,
+        )
+    }
 }
 
-/// A link the menu can play: its place in the session and its step.
+/// A link the menu can play: its place in the session, its tier and its own picture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Offer {
     pub group: usize,
     pub link: usize,
     pub key: QualityKey,
     pub codec: Option<&'static str>,
+    /// What its source or names say of its picture.
+    pub picture: Option<Picture>,
     /// Its place in the order the session tries links (lower first).
     pub rank: usize,
 }
 
-/// A variant of the stream playing (HLS or DASH), as the player reports it.
+/// A variant of the stream playing (HLS or DASH), as the player reports it: its picture's own
+/// sides (0 when unknown).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Variant {
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
     pub height: u32,
     #[serde(default)]
     pub range: Range,
@@ -456,7 +607,27 @@ pub struct Variant {
     pub codec: Option<String>,
 }
 
-/// How a step of the menu plays.
+impl Variant {
+    pub fn picture(&self) -> Option<Picture> {
+        Picture::of(self.width, self.height)
+    }
+
+    /// Its row of the menu; none when its size isn't known.
+    pub fn key(&self) -> Option<QualityKey> {
+        self.picture()
+            .map(|picture| QualityKey::of_picture(picture, self.range))
+    }
+}
+
+/// A variant's sides as the player reported them, so it can tell which of its tracks a row
+/// means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct VariantSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// How a row of the menu plays.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum RowState {
@@ -474,26 +645,31 @@ pub enum RowState {
         link: usize,
         source: String,
     },
-    /// No source has it.
-    Missing,
 }
 
-/// A step of the Quality menu.
+/// A row of the Quality menu.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualityRow {
     pub key: String,
+    /// The tier.
     pub height: u32,
     pub range: Range,
     /// The codec of what would play, when known.
     pub codec: Option<String>,
+    /// The picture of what would play, beside its tier, when that isn't the tier's plain size
+    /// ("1920×816", "816p").
+    pub exact: Option<String>,
+    /// The stream's own variants in this row, by their sides as reported: the one to switch to
+    /// is among them.
+    pub sizes: Vec<VariantSize>,
     #[serde(flatten)]
     pub state: RowState,
 }
 
 /// What the Quality menu is made from.
 pub struct Menu<'a> {
-    /// The session's links that can play, with their steps.
+    /// The session's links that can play, with their tiers.
     pub offers: &'a [Offer],
     /// The sources' names, by group.
     pub names: &'a [String],
@@ -505,11 +681,12 @@ pub struct Menu<'a> {
     pub playing: Option<QualityKey>,
 }
 
-/// The menu's rows, largest first: every step of the ladder from 4K down (8K when something has
-/// it), each range a step comes in on its own row (Dolby Vision, HDR, then SDR). A step plays
-/// from the stream playing when it has that variant, else from another link of the source
-/// playing, else from another source (the first a session would try); steps no source has are
-/// listed as missing.
+/// The menu's rows, largest first: the tiers the stream's variants and the session's links have,
+/// each range a tier comes in on its own row (Dolby Vision, HDR, then SDR). A row plays from the
+/// stream playing when it has that variant, else from another link of the source playing, else
+/// from another source (the first a session would try); a tier only the link playing claims
+/// while its stream plays another isn't listed. Each row names the picture that would play when
+/// it isn't its tier's plain size.
 pub fn rows(menu: &Menu) -> Vec<QualityRow> {
     let current_group = menu.current.map(|(group, _)| group);
     let current_offer = menu
@@ -520,16 +697,10 @@ pub fn rows(menu: &Menu) -> Vec<QualityRow> {
                 .find(|offer| offer.group == group && offer.link == link)
         })
         .copied();
-    let variants: Vec<(QualityKey, Option<&str>)> = menu
+    let variants: Vec<(QualityKey, &Variant)> = menu
         .variants
         .iter()
-        .filter(|variant| variant.height > 0)
-        .map(|variant| {
-            (
-                QualityKey::of(variant.height, variant.range),
-                variant.codec.as_deref(),
-            )
-        })
+        .filter_map(|variant| variant.key().map(|key| (key, variant)))
         .collect();
     let playing = menu
         .playing
@@ -550,64 +721,76 @@ pub fn rows(menu: &Menu) -> Vec<QualityRow> {
             .min_by_key(|offer| offer.rank)
     };
     let mut out = Vec::new();
-    for height in LADDER {
-        let mut ranges: Vec<Range> = known
+    for key in known.into_iter().rev() {
+        let held: Vec<&Variant> = variants
             .iter()
-            .filter(|key| key.height == height)
-            .map(|key| key.range)
+            .filter(|(found, _)| *found == key)
+            .map(|(_, variant)| *variant)
             .collect();
-        if ranges.is_empty() {
-            if height == 4320 {
-                continue;
-            }
-            ranges.push(Range::Sdr);
-        }
-        ranges.sort_by_key(|range| Reverse(*range));
-        for range in ranges {
-            let key = QualityKey { height, range };
-            let variant = variants.iter().find(|(found, _)| *found == key);
-            let (state, codec) = if playing == Some(key) {
-                let codec = variant
-                    .and_then(|(_, codec)| *codec)
-                    .or(current_offer.and_then(|offer| offer.codec));
-                (RowState::Playing, codec)
-            } else if let Some((_, codec)) = variant {
-                (RowState::Variant, *codec)
-            } else if let Some(offer) = best(true, key) {
-                (
-                    RowState::ThisSource {
-                        group: offer.group,
-                        link: offer.link,
-                    },
-                    offer.codec,
-                )
-            } else if let Some(offer) = best(false, key) {
-                (
-                    RowState::OtherSource {
-                        group: offer.group,
-                        link: offer.link,
-                        source: menu.names.get(offer.group).cloned().unwrap_or_default(),
-                    },
-                    offer.codec,
-                )
-            } else {
-                (RowState::Missing, None)
-            };
-            out.push(QualityRow {
-                key: key.text(),
-                height,
-                range,
-                codec: codec.map(str::to_owned),
-                state,
-            });
-        }
+        // The largest picture of the stream's variants in this row.
+        let variant = held
+            .iter()
+            .max_by_key(|variant| (variant.height, variant.width))
+            .copied();
+        let (state, codec, picture) = if playing == Some(key) {
+            let offer = current_offer.filter(|offer| offer.key == key);
+            (
+                RowState::Playing,
+                variant
+                    .and_then(|variant| variant.codec.clone())
+                    .or_else(|| offer.and_then(|offer| offer.codec).map(str::to_owned)),
+                variant
+                    .and_then(Variant::picture)
+                    .or_else(|| offer.and_then(|offer| offer.picture)),
+            )
+        } else if let Some(variant) = variant {
+            (RowState::Variant, variant.codec.clone(), variant.picture())
+        } else if let Some(offer) = best(true, key) {
+            (
+                RowState::ThisSource {
+                    group: offer.group,
+                    link: offer.link,
+                },
+                offer.codec.map(str::to_owned),
+                offer.picture,
+            )
+        } else if let Some(offer) = best(false, key) {
+            (
+                RowState::OtherSource {
+                    group: offer.group,
+                    link: offer.link,
+                    source: menu.names.get(offer.group).cloned().unwrap_or_default(),
+                },
+                offer.codec.map(str::to_owned),
+                offer.picture,
+            )
+        } else {
+            continue;
+        };
+        out.push(QualityRow {
+            key: key.text(),
+            height: key.height,
+            range: key.range,
+            codec,
+            exact: picture.and_then(Picture::exact),
+            sizes: held
+                .iter()
+                .map(|variant| VariantSize {
+                    width: variant.width,
+                    height: variant.height,
+                })
+                .collect(),
+            state,
+        });
     }
     out
 }
 
-/// The link a tapped step plays: the source playing first, then the others in the order a session
-/// tries them. Links already tried for this step are passed over (once all were, the first comes
-/// round again); never the link playing.
+/// The link a tapped row plays: one with its tier and range, from the source playing first, then
+/// the others in the order a session tries them. When no source has it (a tier asked for before
+/// the links changed), the nearest any has ([`QualityKey::distance`]), again the source playing's
+/// first. Links already tried for this row are passed over (once all were, the first comes round
+/// again); never the link playing.
 pub fn pick(
     offers: &[Offer],
     key: QualityKey,
@@ -615,9 +798,14 @@ pub fn pick(
     tried: &HashSet<(usize, usize)>,
 ) -> Option<(usize, usize)> {
     let current_group = current.map(|(group, _)| group);
-    let mut candidates: Vec<&Offer> = offers
+    let others: Vec<&Offer> = offers
         .iter()
-        .filter(|offer| offer.key == key && Some((offer.group, offer.link)) != current)
+        .filter(|offer| Some((offer.group, offer.link)) != current)
+        .collect();
+    let nearest = others.iter().map(|offer| key.distance(offer.key)).min()?;
+    let mut candidates: Vec<&Offer> = others
+        .into_iter()
+        .filter(|offer| key.distance(offer.key) == nearest)
         .collect();
     candidates.sort_by_key(|offer| (Some(offer.group) != current_group, offer.rank));
     candidates
@@ -670,10 +858,83 @@ mod tests {
         assert_eq!(picture_height(1080, 1920), 1080);
         assert_eq!(picture_height(854, 480), 480);
         assert_eq!(picture_height(3840, 1600), 2160);
+        // Narrower than 16:9: by their height.
+        assert_eq!(picture_height(640, 480), 480);
+        assert_eq!(picture_height(1440, 1080), 1080);
         assert_eq!(resolution_height("1280x720"), Some(720));
+        assert_eq!(resolution_height("1920x816"), Some(1080));
+        assert_eq!(resolution_height("1280x800"), Some(720));
         assert_eq!(resolution_height("0x0"), None);
         assert_eq!(bandwidth_height(5_000_000), 1080);
         assert_eq!(bandwidth_height(800_000), 360);
+    }
+
+    #[test]
+    fn cropped_and_padded_heights_count_as_their_tier() {
+        // Films cropped from a 1080p frame (2.40:1, 2.35:1, 1.85:1), and a padded 1080.
+        for height in [800, 816, 1036, 1076, 1080, 1088] {
+            assert_eq!(step(height), 1080, "{height}");
+        }
+        assert_eq!(step(1600), 2160);
+        assert_eq!(step(2076), 2160);
+        for height in [536, 544, 696, 720] {
+            assert_eq!(step(height), 720, "{height}");
+        }
+        // Plain 16:9 heights between tiers go to the nearest.
+        assert_eq!(step(576), 480);
+        assert_eq!(step(540), 480);
+        assert_eq!(step(270), 240);
+        // A height fitting no tier as a crop: the nearest.
+        assert_eq!(step(530), 480);
+        assert_eq!(step(3000), 2160);
+    }
+
+    #[test]
+    fn pictures_keep_their_own_size_beside_their_tier() {
+        let cropped = Picture::Size {
+            width: 1920,
+            height: 816,
+        };
+        assert_eq!(cropped.tier(), 1080);
+        assert_eq!(cropped.exact().as_deref(), Some("1920×816"));
+        let plain = Picture::Size {
+            width: 1920,
+            height: 1080,
+        };
+        assert_eq!((plain.tier(), plain.exact()), (1080, None));
+        assert_eq!(
+            Picture::Size {
+                width: 854,
+                height: 480
+            }
+            .exact(),
+            None
+        );
+        let old = Picture::Size {
+            width: 640,
+            height: 480,
+        };
+        assert_eq!((old.tier(), old.exact().as_deref()), (480, Some("640×480")));
+        let wide = Picture::Size {
+            width: 1280,
+            height: 800,
+        };
+        assert_eq!(wide.tier(), 720);
+        assert_eq!(Picture::Height(816).tier(), 1080);
+        assert_eq!(Picture::Height(816).exact().as_deref(), Some("816p"));
+        assert_eq!(Picture::Height(1080).exact(), None);
+        // A width alone, or a name, gives the tier and nothing more.
+        assert_eq!(Picture::Width(1920).tier(), 1080);
+        assert_eq!(Picture::Width(1920).exact(), None);
+        assert_eq!(Picture::Tier(2160).exact(), None);
+        assert_eq!(Picture::of(0, 0), None);
+        assert_eq!(Picture::of(1280, 0), Some(Picture::Width(1280)));
+        // Names: a size, a cropped height, a tier's name.
+        assert_eq!(label_picture("Film.2010.1920x816.mkv"), Some(cropped));
+        assert_eq!(label_picture("816p"), Some(Picture::Height(816)));
+        assert_eq!(label_height("816p"), Some(1080));
+        assert_eq!(label_picture("Full HD"), Some(Picture::Tier(1080)));
+        assert_eq!(label_picture("Episode 3"), None);
     }
 
     fn pick(heights: &[Option<u32>], preferred: VideoResolution) -> Option<u32> {
@@ -707,6 +968,12 @@ mod tests {
             pick(&[None, Some(480)], VideoResolution::Highest),
             Some(480)
         );
+        // Heights count by their tier: a padded or cropped 1080p is 1080p, not past it or below.
+        assert_eq!(
+            pick(&[Some(720), Some(1088)], VideoResolution::P1080),
+            Some(1088)
+        );
+        assert_eq!(rank(Some(816), VideoResolution::P1080), (0, 0));
         assert_eq!(VideoResolution::default(), VideoResolution::P1080);
     }
 
@@ -726,6 +993,8 @@ mod tests {
             torrent,
             LinkFacts {
                 height: Some(2160),
+                exact: None,
+                picture: Some(Picture::Tier(2160)),
                 range: Range::Dv,
                 codec: Some("HEVC"),
                 bit_depth: None,
@@ -733,6 +1002,23 @@ mod tests {
                 size_bytes: Some(15_200_000_000),
                 release: Some("WEB-DL"),
             }
+        );
+        // A cropped film's own size stays beside its tier, from its name or its source.
+        let cropped = link_facts(&[Some("Film.2010.1080p.1920x800.mkv")], None, None);
+        assert_eq!(
+            (cropped.height, cropped.exact.as_deref()),
+            (Some(1080), None),
+            "the first size named, 1080p, is plain"
+        );
+        let cropped = link_facts(&[Some("Film 1920x800 x264")], None, Some(1080));
+        assert_eq!(
+            (cropped.height, cropped.exact.as_deref()),
+            (Some(1080), Some("1920×800"))
+        );
+        let source = link_facts(&[Some("Server 1")], None, Some(816));
+        assert_eq!(
+            (source.height, source.exact.as_deref()),
+            (Some(1080), Some("816p"))
         );
         let plain = link_facts(
             &[
@@ -772,18 +1058,33 @@ mod tests {
     }
 
     #[test]
-    fn heights_fall_on_the_ladder_and_keys_read_back() {
+    fn heights_fall_on_tiers_and_keys_read_back() {
         assert_eq!(step(1080), 1080);
         assert_eq!(step(1076), 1080);
         assert_eq!(step(576), 480);
-        assert_eq!(step(900), 1080, "a tie goes up");
+        assert_eq!(step(900), 1080);
         assert_eq!(step(100), 144);
         assert_eq!(step(5000), 4320);
         let key = QualityKey::of(2160, Range::Hdr);
         assert_eq!(key.text(), "2160:hdr");
         assert_eq!(QualityKey::parse("2160:hdr"), Some(key));
-        assert_eq!(QualityKey::parse("1000:sdr"), None, "only ladder steps");
+        assert_eq!(QualityKey::parse("1000:sdr"), None, "only tiers");
         assert_eq!(QualityKey::parse("1080:hdr10"), None);
+        // Nearer is fewer tiers apart, then the lower, then the same range.
+        let wanted = QualityKey::of(1080, Range::Sdr);
+        assert!(
+            wanted.distance(QualityKey::of(720, Range::Sdr))
+                < wanted.distance(QualityKey::of(1440, Range::Sdr))
+        );
+        assert!(
+            wanted.distance(QualityKey::of(1440, Range::Sdr))
+                < wanted.distance(QualityKey::of(480, Range::Sdr))
+        );
+        assert!(
+            wanted.distance(QualityKey::of(1080, Range::Hdr))
+                < wanted.distance(QualityKey::of(720, Range::Sdr))
+        );
+        assert_eq!(wanted.distance(wanted), (0, false, false));
     }
 
     fn offer(group: usize, link: usize, height: u32, range: Range, rank: usize) -> Offer {
@@ -792,7 +1093,17 @@ mod tests {
             link,
             key: QualityKey::of(height, range),
             codec: None,
+            picture: Some(Picture::Height(height)),
             rank,
+        }
+    }
+
+    fn variant(width: u32, height: u32, codec: Option<&str>) -> Variant {
+        Variant {
+            width,
+            height,
+            range: Range::Sdr,
+            codec: codec.map(str::to_owned),
         }
     }
 
@@ -804,15 +1115,20 @@ mod tests {
                     RowState::Variant => "variant".to_owned(),
                     RowState::ThisSource { group, link } => format!("here {group}/{link}"),
                     RowState::OtherSource { source, .. } => format!("from {source}"),
-                    RowState::Missing => "missing".to_owned(),
                 };
                 (row.key.clone(), state)
             })
             .collect()
     }
 
+    fn owned(rows: &[(&str, &str)]) -> Vec<(String, String)> {
+        rows.iter()
+            .map(|(key, state)| ((*key).to_owned(), (*state).to_owned()))
+            .collect()
+    }
+
     #[test]
-    fn the_menu_lists_the_ladder_from_the_source_playing_then_the_others() {
+    fn the_menu_lists_what_the_sources_have_from_the_source_playing_first() {
         let names = vec!["Alpha".to_owned(), "Beta".to_owned()];
         let offers = [
             offer(0, 0, 1080, Range::Sdr, 0),
@@ -828,25 +1144,58 @@ mod tests {
             variants: &[],
             playing: None,
         };
-        let shown = states(&rows(&menu));
-        let expected = [
-            ("2160:dv", "from Beta"),
-            ("2160:sdr", "from Beta"),
-            ("1440:sdr", "missing"),
-            ("1080:sdr", "playing"),
-            ("720:sdr", "here 0/1"),
-            ("480:sdr", "missing"),
-            ("360:sdr", "missing"),
-            ("240:sdr", "missing"),
-            ("144:sdr", "missing"),
-        ];
+        // No row for a tier nobody has (1440p, 480p and below).
         assert_eq!(
-            shown,
-            expected
-                .iter()
-                .map(|(key, state)| ((*key).to_owned(), (*state).to_owned()))
-                .collect::<Vec<_>>()
+            states(&rows(&menu)),
+            owned(&[
+                ("2160:dv", "from Beta"),
+                ("2160:sdr", "from Beta"),
+                ("1080:sdr", "playing"),
+                ("720:sdr", "here 0/1"),
+            ])
         );
+    }
+
+    #[test]
+    fn cinema_crops_group_under_their_tier_with_their_own_size() {
+        let names = vec!["Alpha".to_owned(), "Beta".to_owned()];
+        let mut offers = vec![
+            // Alpha plays a 1920×816 film; Beta has 1036 and 800 lines, and a 1600-line 4K.
+            offer(0, 0, 816, Range::Sdr, 0),
+            offer(1, 0, 1036, Range::Sdr, 1),
+            offer(1, 1, 800, Range::Sdr, 2),
+            offer(1, 2, 1600, Range::Sdr, 3),
+        ];
+        offers[0].picture = Some(Picture::Size {
+            width: 1920,
+            height: 816,
+        });
+        offers[3].picture = Some(Picture::Size {
+            width: 3840,
+            height: 1600,
+        });
+        let menu = Menu {
+            offers: &offers,
+            names: &names,
+            current: Some((0, 0)),
+            variants: &[],
+            playing: None,
+        };
+        let rows = rows(&menu);
+        assert_eq!(
+            states(&rows),
+            owned(&[("2160:sdr", "from Beta"), ("1080:sdr", "playing")])
+        );
+        assert_eq!(rows[0].exact.as_deref(), Some("3840×1600"));
+        assert_eq!(rows[1].exact.as_deref(), Some("1920×816"));
+        // Tapped again, the 1080p row plays Beta's first 1080p link: 1036 lines.
+        let again = super::pick(
+            &offers,
+            QualityKey::of(1080, Range::Sdr),
+            Some((0, 0)),
+            &HashSet::new(),
+        );
+        assert_eq!(again, Some((1, 0)));
     }
 
     #[test]
@@ -857,21 +1206,9 @@ mod tests {
             offer(0, 1, 480, Range::Sdr, 1),
         ];
         let variants = [
-            Variant {
-                height: 1080,
-                range: Range::Sdr,
-                codec: Some("H.264".into()),
-            },
-            Variant {
-                height: 720,
-                range: Range::Sdr,
-                codec: None,
-            },
-            Variant {
-                height: 480,
-                range: Range::Sdr,
-                codec: None,
-            },
+            variant(1920, 1080, Some("H.264")),
+            variant(1280, 720, None),
+            variant(854, 480, None),
         ];
         let menu = Menu {
             offers: &offers,
@@ -881,12 +1218,30 @@ mod tests {
             playing: Some(QualityKey::of(720, Range::Sdr)),
         };
         let rows = rows(&menu);
-        let shown = states(&rows);
-        assert!(shown.contains(&("720:sdr".into(), "playing".into())));
-        assert!(shown.contains(&("1080:sdr".into(), "variant".into())));
-        assert!(shown.contains(&("480:sdr".into(), "variant".into())));
-        assert_eq!(rows[2].codec.as_deref(), Some("H.264"));
-        // Without a session, the variants alone.
+        assert_eq!(
+            states(&rows),
+            owned(&[
+                ("1080:sdr", "variant"),
+                ("720:sdr", "playing"),
+                ("480:sdr", "variant"),
+            ])
+        );
+        assert_eq!(rows[0].codec.as_deref(), Some("H.264"));
+        assert_eq!(
+            rows[0].sizes,
+            vec![VariantSize {
+                width: 1920,
+                height: 1080
+            }]
+        );
+        assert_eq!(rows[0].exact, None);
+        // Without a session, the variants alone; a cropped variant keeps its size, a variant
+        // known only by its width counts by it.
+        let variants = [
+            variant(1920, 800, None),
+            variant(1280, 0, None),
+            variant(0, 0, None),
+        ];
         let alone = Menu {
             offers: &[],
             names: &[],
@@ -894,13 +1249,23 @@ mod tests {
             variants: &variants,
             playing: Some(QualityKey::of(1080, Range::Sdr)),
         };
-        let shown = states(&super::rows(&alone));
-        assert_eq!(shown[2], ("1080:sdr".into(), "playing".into()));
-        assert_eq!(shown[3], ("720:sdr".into(), "variant".into()));
+        let rows = super::rows(&alone);
+        assert_eq!(
+            states(&rows),
+            owned(&[("1080:sdr", "playing"), ("720:sdr", "variant")])
+        );
+        assert_eq!(rows[0].exact.as_deref(), Some("1920×800"));
+        assert_eq!(
+            rows[1].sizes,
+            vec![VariantSize {
+                width: 1280,
+                height: 0
+            }]
+        );
     }
 
     #[test]
-    fn a_step_tapped_again_tries_the_next_source_with_it() {
+    fn a_tier_tapped_again_tries_the_next_source_with_it() {
         let offers = [
             offer(0, 0, 1080, Range::Sdr, 2),
             offer(1, 0, 720, Range::Sdr, 0),
@@ -922,9 +1287,53 @@ mod tests {
         tried.insert(third);
         // Every one was tried: round again, never the one playing.
         assert_eq!(super::pick(&offers, key, Some(third), &tried), Some((1, 0)));
+        assert_eq!(super::pick(&[], key, None, &tried), None);
+    }
+
+    #[test]
+    fn a_tier_no_source_has_plays_the_nearest_from_the_source_playing_first() {
+        let offers = [
+            offer(0, 0, 2160, Range::Sdr, 0),
+            offer(1, 0, 1440, Range::Sdr, 1),
+            offer(1, 1, 720, Range::Sdr, 2),
+            offer(0, 1, 720, Range::Sdr, 3),
+            offer(2, 0, 360, Range::Sdr, 4),
+        ];
+        let tried = HashSet::new();
+        // 1080p: 1440p and 720p are as near; the lower, from the source playing.
         assert_eq!(
-            super::pick(&offers, QualityKey::of(2160, Range::Sdr), None, &tried),
-            None
+            super::pick(
+                &offers,
+                QualityKey::of(1080, Range::Sdr),
+                Some((0, 0)),
+                &tried
+            ),
+            Some((0, 1))
+        );
+        // Nothing playing: the order a session tries them.
+        assert_eq!(
+            super::pick(&offers, QualityKey::of(1080, Range::Sdr), None, &tried),
+            Some((1, 1))
+        );
+        // 480p: 360p and 720p are as near; the lower.
+        assert_eq!(
+            super::pick(
+                &offers,
+                QualityKey::of(480, Range::Sdr),
+                Some((0, 0)),
+                &tried
+            ),
+            Some((2, 0))
+        );
+        // HDR asked for, none has it: the same tier in SDR before another tier.
+        assert_eq!(
+            super::pick(
+                &offers,
+                QualityKey::of(1440, Range::Hdr),
+                Some((0, 0)),
+                &tried
+            ),
+            Some((1, 0))
         );
     }
 }

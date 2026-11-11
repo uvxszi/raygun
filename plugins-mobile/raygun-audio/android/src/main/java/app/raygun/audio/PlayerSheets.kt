@@ -73,7 +73,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val sheet = PlayerSheet(host, label("audio", "Audio"))
         if (tracks.isEmpty()) sheet.row(label("off", "Off"), onClick = null)
         tracks.forEachIndexed { index, track ->
-            sheet.row(host.tracks.name(track, index + 1), host.tracks.audioDetail(track), track.selected) {
+            sheet.row(host.tracks.name(track, index + 1), host.tracks.audioDetail(track), host.tracks.chosen(track)) {
                 host.tracks.select(C.TRACK_TYPE_AUDIO, track)
                 host.state.audio = track.choice()
                 host.remember(JSONObject().put("audio", track.choice().toJson()))
@@ -86,6 +86,9 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     /** The subtitle sheet's tab: the subtitles (0) or the second subtitles (1). */
     private var subtitleTab = 0
 
+    /** The subtitle sheet last drawn, followed as the video's tracks change. */
+    private var subtitleSheet: PlayerSheet? = null
+
     /** The subtitle sheet, on its first tab. */
     fun subtitles() {
         subtitleTab = 0
@@ -93,12 +96,22 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     }
 
     /**
+     * Media3 settled on the tracks asked for (or loaded new ones): an open subtitle sheet shows
+     * what plays now, in place.
+     */
+    fun tracksChanged() {
+        if (host.sheetShown(subtitleSheet)) drawSubtitles()
+    }
+
+    /**
      * The subtitle sheet, drawn again after a choice or as AI subtitles move on, on the tab it
      * was on: **Subtitles** (what adds them, the delay, the style, the track to show) and
-     * **Second subtitles** (a second track at the top of the picture).
+     * **Second subtitles** (a second track at the top of the picture). A choice shows ticked at
+     * once ([PlayerTracks.chosen]), before Media3 reports it.
      */
     private fun drawSubtitles() {
         val sheet = PlayerSheet(host, label("subtitles", "Subtitles"))
+        subtitleSheet = sheet
         sheet.chips(
             listOf(label("subtitles", "Subtitles"), label("secondSubtitles", "Second subtitles")),
             subtitleTab,
@@ -153,7 +166,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             // The saved AI subtitles while the ones being made show.
             if (live.hides(track)) return@mapIndexedNotNull null
             Choice(track.language) {
-                sheet.row(host.tracks.name(track, index + 1), selected = !off && live.primary == null && track.selected) {
+                sheet.row(host.tracks.name(track, index + 1), selected = !off && live.primary == null && host.tracks.chosen(track)) {
                     live.show(null)
                     host.tracks.select(C.TRACK_TYPE_TEXT, track)
                     host.state.subtitleOff = false
@@ -185,9 +198,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         }
         val seconds = host.sidecars.mapIndexedNotNull { index, sidecar ->
             if (live.isAiFile(sidecar) && live.aiListed) return@mapIndexedNotNull null
-            val name = sidecar.label?.takeIf { !Languages.onlyNames(it, sidecar.language) }
-                ?: languageName(sidecar.language)
-                ?: sidecar.label
+            val name = trackName(sidecar.label, sidecar.language, languageName(sidecar.language))
                 ?: label("track", "Track {n}", (index + 1).toString())
             Choice(sidecar.language ?: sidecar.label) {
                 sheet.row(name, selected = second == sidecar) {
@@ -436,7 +447,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 null to label("translateFromOriginal", "Show the subtitles to translate first, not a translation")
             }
         }
-        val selected = host.tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { it.selected }
+        val selected = host.tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { host.tracks.chosen(it) }
         if (host.tracks.textOff() || selected == null) {
             return null to label("translateNeedsTrack", "Turn on the subtitles to translate first")
         }
@@ -459,7 +470,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val live = host.liveTracks
         val language = translateLanguage()
         val primary = live.primary?.let { live.tracks[it] }
-        val selected = host.tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { it.selected }
+        val selected = host.tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { host.tracks.chosen(it) }
         val sidecar = selected?.let { mainSidecar(it) }
         if (primary?.kind == "ai" || (primary == null && sidecar != null && live.isAiFile(sidecar))) {
             live.translate(JSONObject().put("kind", "ai"), language, translator)

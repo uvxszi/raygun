@@ -44,7 +44,7 @@ const EXTRA_WORDS: [&str; 6] = [
     "preview",
 ];
 
-fn is_extra(file: &TorrentFile) -> bool {
+pub(crate) fn is_extra(file: &TorrentFile) -> bool {
     file.path
         .to_ascii_lowercase()
         .split(|character: char| !character.is_ascii_alphanumeric())

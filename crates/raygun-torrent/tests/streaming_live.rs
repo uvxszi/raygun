@@ -116,6 +116,44 @@ async fn streams_a_film_and_seeks_live() {
         progress.download / 1024
     );
 
+    // The subtitle files that come with it (Sintel has nine), read whole as players read them:
+    // through the proxy's `/subtitle/` route (`video::proxied_subtitles`), which reads the
+    // file's own `/torrent/` address.
+    if std::env::var("TORRENT_LINK").is_err() {
+        let languages: Vec<&str> = opened
+            .subtitles
+            .iter()
+            .filter_map(|subtitle| subtitle.language.as_deref())
+            .collect();
+        assert!(languages.contains(&"en"), "{languages:?}");
+    }
+    for subtitle in &opened.subtitles {
+        let address = proxy.images().subtitle(
+            &links.link(&subtitle.token, &subtitle.name),
+            &Default::default(),
+        );
+        let text = tokio::time::timeout(Duration::from_secs(180), async {
+            client.get(&address).send().await?.text().await
+        })
+        .await
+        .expect("the subtitles in time")
+        .unwrap();
+        assert!(
+            text.contains("-->"),
+            "{}: {}",
+            subtitle.name,
+            text.chars().take(200).collect::<String>()
+        );
+        println!(
+            "{} ({:?}, {}): {} bytes after {:?}",
+            subtitle.name,
+            subtitle.language,
+            subtitle.format,
+            text.len(),
+            started.elapsed()
+        );
+    }
+
     // A seek to the middle: its pieces are fetched first.
     let middle = opened.len / 2;
     let seek = Instant::now();
@@ -140,9 +178,15 @@ async fn streams_a_film_and_seeks_live() {
     assert_eq!(bytes.len(), 256 * 1024);
     println!("seek answered in {:?}", seek.elapsed());
 
-    // Closing removes the torrent and its pieces.
+    // Closing removes the torrent and its pieces, its subtitle files with it.
     engine.close(&opened.token, false).await;
     assert!(engine.file_len(&opened.token).is_none());
+    assert!(
+        opened
+            .subtitles
+            .iter()
+            .all(|subtitle| engine.file_len(&subtitle.token).is_none())
+    );
     assert!(
         !cache
             .path()

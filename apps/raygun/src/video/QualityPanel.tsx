@@ -1,7 +1,6 @@
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { ladderStep } from './mediaEngine';
 import type { MediaEngine } from './mediaEngine';
 import { PanelOption, PlayerPanel } from './PlayerPanel';
 import { sendRequest } from './protocol';
@@ -19,10 +18,12 @@ type Props = {
 };
 
 /**
- * The Quality button's panel: resolutions from 4K down, as Rust lists them (`qualities`,
- * `video_quality::rows`). A step the stream playing has (an HLS variant) switches here; one the
- * source playing has as another link, or only another source has, is asked of Rust, which plays
- * it from where the video is. Tapping the step that plays again tries the next source with it.
+ * The Quality button's panel: the tiers the stream and the sources have, largest first, as Rust
+ * lists them (`qualities`, `video_quality::rows`), each with the picture's own size when it
+ * isn't the tier's plain one ("1080p (1920×816)"). A row the stream playing has (an HLS variant)
+ * switches here; one the source playing has as another link, or only another source has, is
+ * asked of Rust, which plays it from where the video is. Tapping the row that plays again tries
+ * the next source with it.
  */
 export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose, onAsked }) => {
   const { t } = useTranslation();
@@ -37,21 +38,23 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
         return [t('videoPlayer.qualityPlaying'), row.codec].filter(Boolean).join(' · ');
       case 'otherSource':
         return t('videoPlayer.qualityElsewhere', { n: row.source });
-      case 'missing':
-        return t('videoPlayer.qualityMissing');
       default:
         return row.codec;
     }
   };
 
   const pick = (row: QualityRow) => {
-    const name = stepName(row.height, row.range, t);
+    const name = stepName(row.height, row.range, t, row.exact);
     if (row.state === 'variant') {
-      // The best variant of this height and range.
+      // The best of the variants this row holds, by their own sides as reported.
+      const sizes = row.sizes ?? [];
       const variant = variants
         .filter(
           (candidate) =>
-            ladderStep(candidate.height) === row.height && candidate.range === row.range,
+            candidate.range === row.range &&
+            sizes.some(
+              (size) => size.width === candidate.width && size.height === candidate.height,
+            ),
         )
         .at(-1);
       if (variant) engine?.setQuality(variant.id);
@@ -92,10 +95,10 @@ export const QualityPanel: FC<Props> = ({ videoKey, positionMs, engine, onClose,
       {rows.map((row) => (
         <PanelOption
           key={row.key}
-          label={stepName(row.height, row.range, t)}
+          label={stepName(row.height, row.range, t, row.exact)}
           hint={detail(row)}
           selected={row.state === 'playing' && !auto}
-          disabled={row.state === 'missing' || (row.state === 'playing' && !session)}
+          disabled={row.state === 'playing' && !session}
           onSelect={() => pick(row)}
         />
       ))}

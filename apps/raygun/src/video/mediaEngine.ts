@@ -48,18 +48,10 @@ export type MediaEngine = {
   livePoint: () => number | null;
   /** The connection's measured speed, kb/s. */
   bandwidthKbps: () => number | null;
-  /** The stream's variants as the Quality menu counts them, by their `qualities()` ids. */
+  /** The stream's variants with their own sides (Rust groups them into the Quality menu's
+   * tiers), by their `qualities()` ids. */
   variants: () => (VariantInfo & { id: number })[];
   destroy: () => void;
-};
-
-/** The height a picture counts as: a 16:9 one's with the same long side (1920×800 is 1080p), as
- * `video_quality::picture_height` counts it. */
-export const pictureHeight = (width: number | undefined, height: number | undefined): number => {
-  const tall = height ?? 0;
-  const wide = width ?? 0;
-  if (wide <= 0 || tall <= 0) return tall;
-  return Math.floor((Math.max(wide, tall) * 9 + 8) / 16);
 };
 
 /** "HEVC", "H.264", "AV1", "VP9" from a codecs string ("hvc1.2.4.L153"). */
@@ -81,17 +73,6 @@ const rangeOf = (videoRange: string | undefined, codecs: string | undefined): Qu
   if (/(^|,)\s*(dvh|dva|dav1)/i.test(codecs ?? '')) return 'dv';
   return videoRange === 'PQ' || videoRange === 'HLG' ? 'hdr' : 'sdr';
 };
-
-/** The steps of the resolution ladder, as `video_quality::LADDER`. */
-const LADDER = [4320, 2160, 1440, 1080, 720, 480, 360, 240, 144];
-
-/** The ladder step a height counts as: the nearest, ties going up. */
-export const ladderStep = (height: number): number =>
-  LADDER.reduce((best, step) => {
-    const distance = Math.abs(step - height);
-    const bestDistance = Math.abs(best - height);
-    return distance < bestDistance || (distance === bestDistance && step > best) ? step : best;
-  }, LADDER[0] ?? height);
 
 /** Why a stream can't play, in the viewer's terms: its format or codec, the network, or its
  * server (refusing it, not having it, failing). */
@@ -335,11 +316,12 @@ const attachHls = async (
       hls.levels
         .map((level, index) => ({
           id: index,
-          height: pictureHeight(level.width, level.height),
+          width: Math.max(0, level.width || 0),
+          height: Math.max(0, level.height || 0),
           range: rangeOf(level.videoRange, level.videoCodec),
           codec: codecName(level.videoCodec),
         }))
-        .filter((variant) => variant.height > 0),
+        .filter((variant) => variant.height > 0 || variant.width > 0),
     destroy: () => {
       hls.destroy();
       video.removeAttribute('src');

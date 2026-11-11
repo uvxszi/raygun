@@ -97,6 +97,24 @@ internal class TrackRef(val group: Tracks.Group, val index: Int) {
     fun choice(): TrackChoice = TrackChoice(format.language ?: language, format.label)
 }
 
+/**
+ * Whether track `index` of `group` counts as chosen. Media3 applies a choice on its playback
+ * thread and reports it a moment later (`onTracksChanged`), so until then `selected` still says
+ * what played before: the choice asked for wins. Never while its type is turned off (`disabled`);
+ * else `override` (the one asked for its type, when its group is still listed) decides; else what
+ * Media3 plays.
+ */
+internal fun isChosen(
+    group: Tracks.Group,
+    index: Int,
+    disabled: Boolean,
+    override: TrackSelectionOverride?,
+): Boolean = when {
+    disabled -> false
+    override != null -> override.mediaTrackGroup == group.mediaTrackGroup && index in override.trackIndices
+    else -> group.isTrackSelected(index)
+}
+
 /** A subtitle file beside the video: from the source, or added from the device. */
 internal data class Sidecar(val uri: Uri, val mime: String, val language: String?, val label: String?) {
     fun choice(): TrackChoice = TrackChoice(language, label)
@@ -110,6 +128,24 @@ internal fun sameLanguage(a: String?, b: String?): Boolean {
 
 /** A language's name in the device's language ("German" for "ger"). */
 internal fun languageName(tag: String?): String? = Languages.name(tag)
+
+/**
+ * A track's name for the sheets, from its `label` and `language` (`languageName` is the
+ * language's name): a label that only names the language reads as the language's name ("eng" is
+ * "English"); one that names no language follows the language's name ("English (Forced)" for a
+ * torrent's "Film.en.forced.srt", labelled "Forced"); any other stays as it is ("English
+ * (Forced)"). Null when there is neither.
+ */
+internal fun trackName(label: String?, language: String?, languageName: String?): String? {
+    val own = label?.trim()?.takeIf { it.isNotEmpty() }
+    return when {
+        own == null -> languageName
+        languageName == null -> own
+        Languages.onlyNames(own, language) -> languageName
+        Languages.code(own) == null -> "$languageName ($own)"
+        else -> own
+    }
+}
 
 /**
  * `items` with those in the first of `languages` at the top, then the next language's, then the
@@ -291,9 +327,22 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
         .filter { it.type == type }
         .flatMap { group -> (0 until group.length).filter { group.isTrackSupported(it) }.map { TrackRef(group, it) } }
 
-    fun textOff(): Boolean =
-        host.player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT) ||
-            list(C.TRACK_TYPE_TEXT).none { it.selected }
+    /**
+     * Whether `track` plays or was just asked for ([isChosen]): a sheet drawn again right after a
+     * tap shows the tap's choice, not the one Media3 hasn't let go of yet.
+     */
+    fun chosen(track: TrackRef): Boolean {
+        val parameters = host.player.trackSelectionParameters
+        val type = track.group.type
+        val listed = host.player.currentTracks.groups
+        val override = parameters.overrides.values.firstOrNull { asked ->
+            asked.type == type && listed.any { it.mediaTrackGroup == asked.mediaTrackGroup }
+        }
+        return isChosen(track.group, track.index, parameters.disabledTrackTypes.contains(type), override)
+    }
+
+    /** No subtitle track plays or was asked for. */
+    fun textOff(): Boolean = list(C.TRACK_TYPE_TEXT).none { chosen(it) }
 
     /** Plays `track`, or turns the type off when null. */
     fun select(type: Int, track: TrackRef?) {
@@ -432,20 +481,11 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
         host.player.trackSelectionParameters = builder.build()
     }
 
-    /** "1080p", or the bit rate when the height isn't known. */
-    fun qualityName(track: TrackRef): String {
-        val format = track.format
-        return if (format.height > 0) "${format.height}p" else "${format.bitrate / 1000} kb/s"
-    }
-
-    /** A track's name for the sheets: its label, else its language, else "Track n". */
+    /** A track's name for the sheets ([trackName]), else "Track n". */
     fun name(track: TrackRef, ordinal: Int): String {
         val format = track.format
-        val language = languageName(format.language)
-        // A label that only names the language ("eng") reads better as the language's name;
-        // "English (Forced)" stays as it is.
-        val label = format.label?.takeIf { !Languages.onlyNames(it, format.language) || language == null }
-        return label ?: language ?: host.label("track", "Track {n}", ordinal.toString())
+        return trackName(format.label, format.language, languageName(format.language))
+            ?: host.label("track", "Track {n}", ordinal.toString())
     }
 
     /** Extra facts about an audio track: channels and codec. */

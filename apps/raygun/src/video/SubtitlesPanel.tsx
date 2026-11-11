@@ -8,7 +8,7 @@ import { PanelHeading, PanelOption } from './PlayerPanel';
 import { parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import { TranslateSubtitles } from './TranslateSubtitles';
-import { byLanguages } from './trackPicking';
+import { byLanguages, shownTrackName } from './trackPicking';
 import type { TrackOption } from './trackPicking';
 
 /** A track the subtitles panel offers: the video's own, a file, AI subtitles, a translation. */
@@ -117,7 +117,7 @@ export const SubtitlesPanel: FC<Props> = ({
         {seconds.map((option) => (
           <PanelOption
             key={option.key}
-            label={option.label}
+            label={shownTrackName(option.label, option.language)}
             hint={option.hint ?? option.language}
             selected={option.key === second}
             onSelect={() => onSecond(option.key)}
@@ -230,7 +230,7 @@ export const SubtitlesPanel: FC<Props> = ({
       {listed.map((option) => (
         <PanelOption
           key={option.key}
-          label={option.label}
+          label={shownTrackName(option.label, option.language)}
           hint={
             option.hint ??
             (option.key.startsWith('embedded:') ? t('desktopPlayer.inTheVideo') : option.language)

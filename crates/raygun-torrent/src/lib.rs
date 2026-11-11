@@ -4,6 +4,7 @@
 //!
 //! - [`link`]: magnet links and `.torrent` addresses, with the file or episode wanted.
 //! - [`pick`]: which of a torrent's files plays.
+//! - [`subtitles`]: the subtitle files that come with it, offered as subtitle tracks.
 //! - [`engine`]: the session: opening, reading, progress, closing, downloading whole files.
 //! - [`announce`]: a `.torrent` file's trackers kept to those the engine can use.
 //!
@@ -14,12 +15,16 @@ pub mod announce;
 pub mod engine;
 pub mod link;
 pub mod pick;
+pub mod subtitles;
 
 use std::sync::LazyLock;
 
-pub use engine::{Engine, EngineConfig, Opened, Progress, Reader, Source, TorrentError, gigabytes};
+pub use engine::{
+    Engine, EngineConfig, Opened, OpenedSubtitle, Progress, Reader, Source, TorrentError, gigabytes,
+};
 pub use link::{FORMAT, FileHint, Magnet, TorrentLink, is_torrent, parse, with_episodes};
 pub use pick::{TorrentFile, is_video, pick_file};
+pub use subtitles::{SubtitleFile, subtitles_for};
 
 static SEEDS: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)(?:👤|\bseed(?:er)?s?\b\s*[:=]?)\s*(\d[\d,.]*)").expect("valid pattern")

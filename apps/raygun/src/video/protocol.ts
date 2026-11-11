@@ -64,7 +64,10 @@ export type PlayerRequest = {
 
 /** What a link's names say about it (`video_quality::LinkFacts`). */
 export type LinkFacts = {
+  /** The tier its picture counts as (1080 for 1920×816). */
   height: number | null;
+  /** The picture's own size beside its tier, when that isn't the tier's plain one ("1920×816"). */
+  exact?: string | null;
   range: QualityRange;
   codec: string | null;
   bitDepth: number | null;
@@ -75,21 +78,31 @@ export type LinkFacts = {
 
 export type QualityRange = 'sdr' | 'hdr' | 'dv';
 
-/** A step of the Quality menu (`video_quality::QualityRow`). */
+/** A variant's own sides as the player reported them (0 when unknown). */
+export type VariantSize = { width: number; height: number };
+
+/** A row of the Quality menu (`video_quality::QualityRow`): a tier the sources have. */
 export type QualityRow = {
-  /** `<height>:<range>`, as the `quality` request names it. */
+  /** `<tier>:<range>`, as the `quality` request names it. */
   key: string;
+  /** The tier: 2160, 1440, 1080, 720… */
   height: number;
   range: QualityRange;
   codec: string | null;
+  /** The picture that would play, beside its tier, when that isn't the tier's plain size
+   * ("1920×816", "816p"). */
+  exact?: string | null;
+  /** The stream's own variants in this row: the one to switch to is among them. */
+  sizes?: VariantSize[];
 } & (
-  | { state: 'playing' | 'variant' | 'missing' }
+  | { state: 'playing' | 'variant' }
   | { state: 'thisSource'; group: number; link: number }
   | { state: 'otherSource'; group: number; link: number; source: string }
 );
 
-/** One of the playing stream's own variants, for the `variants` request. */
-export type VariantInfo = { height: number; range: QualityRange; codec: string | null };
+/** One of the playing stream's own variants, for the `variants` request: its own sides (0 when
+ * unknown), which Rust groups into tiers. */
+export type VariantInfo = VariantSize & { range: QualityRange; codec: string | null };
 
 /** Where one live segment starts on the player's clock (`video_audio::LiveAnchor`). */
 export type LiveAnchor = { sequence: number; startMs: number };

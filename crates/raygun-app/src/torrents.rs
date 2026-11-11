@@ -5,10 +5,12 @@
 //! [`TorrentService::address_for`] opens the torrent when the player is about to load it (a
 //! `.torrent` file is fetched with the app's client, so Offline Mode and the local network's
 //! permission apply), picks its file, and gives the stream proxy's `/torrent/<token>/<name>`
-//! address, which players read with byte ranges as the pieces arrive. While it plays, how it's
-//! doing goes to the player once a second (`transfer` updates: peers, seeds, speed). The file
-//! closes when the player closes or loads something else; its pieces are deleted unless sharing
-//! on is turned on (never in battery saver).
+//! address, which players read with byte ranges as the pieces arrive. The subtitle files that
+//! come with the video ("Sintel.en.srt") are subtitle tracks of their own, at addresses of the
+//! same kind; their pieces are fetched first so the player has them as it starts. While it
+//! plays, how it's doing goes to the player once a second (`transfer` updates: peers, seeds,
+//! speed). The file closes when the player closes or loads something else; its pieces are
+//! deleted unless sharing on is turned on (never in battery saver).
 //!
 //! `Settings::torrents` decides: off until turned on (Settings → Video player → Torrents explains
 //! first), only on Wi-Fi by default, the cache's size, sharing on, the port and the DHT. Offline
@@ -20,12 +22,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use raygun_model::{StorageArea, StorageUsage, TorrentPrefs, VideoRequest};
-use raygun_torrent::{Engine, EngineConfig, Source, TorrentError, TorrentLink};
+use raygun_model::{StorageArea, StorageUsage, TorrentPrefs, VideoRequest, VideoSubtitle};
+use raygun_torrent::{Engine, EngineConfig, OpenedSubtitle, Source, TorrentError, TorrentLink};
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
 use crate::startup::AppDb;
+
+/// How long a torrent's subtitle file is read in the background before it's left to the player.
+const SUBTITLE_WARM: Duration = Duration::from_secs(180);
+
+/// A torrent's video as the player opens it: its address, and the subtitle files that came with
+/// it as tracks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentStream {
+    pub address: String,
+    pub subtitles: Vec<VideoSubtitle>,
+}
 
 /// What the engine uploads at most while a video plays: enough for peers to trade with.
 const UPLOAD_LIMIT: u32 = 256 * 1024;
@@ -53,6 +66,7 @@ struct Playing {
     key: String,
     url: String,
     address: String,
+    subtitles: Vec<VideoSubtitle>,
 }
 
 pub struct TorrentService {
@@ -188,10 +202,10 @@ impl TorrentService {
         unavailable(&self.app, &self.prefs().await)
     }
 
-    /// The address the player opens for a torrent link: the torrent's file through the stream
-    /// proxy. The torrent opens now (its details asked of peers for a magnet link); the file
-    /// playing before closes.
-    pub async fn address_for(&self, request: &VideoRequest) -> Result<String, String> {
+    /// What the player opens for a torrent link: the torrent's file through the stream proxy,
+    /// with the subtitle files that came with it. The torrent opens now (its details asked of
+    /// peers for a magnet link); the file playing before closes.
+    pub async fn address_for(&self, request: &VideoRequest) -> Result<TorrentStream, String> {
         let prefs = self.prefs().await;
         if let Some(reason) = unavailable(&self.app, &prefs) {
             return Err(reason);
@@ -202,7 +216,10 @@ impl TorrentService {
             && playing.url == request.url
             && self.engine.file_len(&playing.token).is_some()
         {
-            return Ok(playing.address.clone());
+            return Ok(TorrentStream {
+                address: playing.address.clone(),
+                subtitles: playing.subtitles.clone(),
+            });
         }
         self.release().await;
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -226,14 +243,39 @@ impl TorrentService {
             return Err("The player moved on before the torrent opened".into());
         }
         let address = self.links.link(&opened.token, &opened.name);
+        let subtitles = subtitle_tracks(&self.links, &opened.subtitles);
+        self.warm_subtitles(&opened.subtitles);
         *self.playing.lock().expect("playing poisoned") = Some(Playing {
             token: opened.token,
             key: request.key.clone(),
             url: request.url.clone(),
             address: address.clone(),
+            subtitles: subtitles.clone(),
         });
         self.follow();
-        Ok(address)
+        Ok(TorrentStream { address, subtitles })
+    }
+
+    /// Reads the subtitle files through once, in the background: their pieces are fetched
+    /// before the rest (a reader's are), so the player finds them as it starts, wherever they sit
+    /// in the torrent. A file that closes or doesn't come in time is left to the player's own
+    /// read, which gets an empty track then (`/subtitle/`).
+    fn warm_subtitles(&self, subtitles: &[OpenedSubtitle]) {
+        for subtitle in subtitles {
+            let engine = self.engine.clone();
+            let token = subtitle.token.clone();
+            tauri::async_runtime::spawn(async move {
+                let read = async {
+                    let mut reader = engine.read_from(&token, 0).await?;
+                    tokio::io::copy(&mut reader, &mut tokio::io::sink()).await
+                };
+                match tokio::time::timeout(SUBTITLE_WARM, read).await {
+                    Ok(Ok(bytes)) => tracing::debug!(bytes, "torrent subtitle file here"),
+                    Ok(Err(error)) => tracing::debug!(%error, "torrent subtitle file not read"),
+                    Err(_) => tracing::debug!("torrent subtitle file still coming"),
+                }
+            });
+        }
     }
 
     /// The torrent to open: a magnet link as it is, a `.torrent` file fetched.
@@ -440,6 +482,23 @@ pub enum DownloadError {
     Failed(String),
 }
 
+/// A torrent's subtitle files as the player's subtitle tracks, read through the stream proxy
+/// (`prepare` hands them to the player through `/subtitle/`, which never fails).
+fn subtitle_tracks(
+    links: &raygun_net::TorrentLinks,
+    subtitles: &[OpenedSubtitle],
+) -> Vec<VideoSubtitle> {
+    subtitles
+        .iter()
+        .map(|subtitle| VideoSubtitle {
+            url: links.link(&subtitle.token, &subtitle.name),
+            lang: subtitle.language.clone(),
+            label: subtitle.label.clone(),
+            format: Some(subtitle.format.clone()),
+        })
+        .collect()
+}
+
 /// Why torrents can't play now under `prefs`, if they can't.
 fn unavailable(app: &AppHandle, prefs: &TorrentPrefs) -> Option<String> {
     if !prefs.enabled {
@@ -530,6 +589,45 @@ mod tests {
         assert_eq!(too_large(Some(12_000_000_000), 4_000_000_000), Some(text));
         assert_eq!(too_large(Some(1_000_000_000), 4_000_000_000), None);
         assert_eq!(too_large(None, 4_000_000_000), None);
+    }
+
+    #[tokio::test]
+    async fn subtitle_files_become_tracks_at_the_proxys_torrent_addresses() {
+        let proxy = raygun_net::StreamProxy::start(raygun_net::http_client().unwrap(), None)
+            .await
+            .unwrap();
+        let opened = [
+            OpenedSubtitle {
+                token: "a1".into(),
+                name: "Sintel.en.srt".into(),
+                format: "srt".into(),
+                language: Some("en".into()),
+                label: None,
+            },
+            OpenedSubtitle {
+                token: "b2".into(),
+                name: "Commentary (forced).ass".into(),
+                format: "ass".into(),
+                language: None,
+                label: Some("Forced".into()),
+            },
+        ];
+        let tracks = subtitle_tracks(&proxy.torrents(), &opened);
+        assert_eq!(tracks.len(), 2);
+        assert!(
+            tracks[0].url.ends_with("/torrent/a1/Sintel.en.srt"),
+            "{}",
+            tracks[0].url
+        );
+        assert_eq!(tracks[0].lang.as_deref(), Some("en"));
+        assert_eq!(tracks[0].format.as_deref(), Some("srt"));
+        // Names stay one path segment; the label says the kind.
+        assert!(
+            tracks[1]
+                .url
+                .ends_with("/torrent/b2/Commentary__forced_.ass")
+        );
+        assert_eq!(tracks[1].label.as_deref(), Some("Forced"));
     }
 
     #[test]

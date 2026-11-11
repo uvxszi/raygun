@@ -204,11 +204,23 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         addView(scroll, LinearLayout.LayoutParams(-1, -2))
     }
 
-    /** How far its rows are scrolled, kept when the same sheet is shown again after a change. */
+    /**
+     * How far its rows are scrolled, kept when the same sheet is shown again after a change. Set
+     * once its rows are laid out but before they're drawn: a sheet drawn again after a tap shows
+     * at the place it was in its first frame, without a frame at the top (a jump) or the place
+     * lost (scrolling before the rows have a height scrolls nowhere).
+     */
     var scrolled: Int
         get() = scroll.scrollY
         set(value) {
-            scroll.post { scroll.scrollTo(0, value) }
+            if (value <= 0) return
+            scroll.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (scroll.viewTreeObserver.isAlive) scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                    scroll.scrollTo(0, value)
+                    return true
+                }
+            })
         }
 
     /** Opens scrolled so `row` (the chosen one) sits in the middle, not at the top. */

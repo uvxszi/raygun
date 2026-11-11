@@ -209,8 +209,16 @@ describe('the desktop player’s sources, quality and live streams', () => {
           link: 1,
           source: 'Beta',
         },
-        { key: '1440:sdr', height: 1440, range: 'sdr', codec: null, state: 'missing' },
-        { key: '1080:sdr', height: 1080, range: 'sdr', codec: 'H.264', state: 'playing' },
+        // A cropped film: its tier, with its own size.
+        {
+          key: '1080:sdr',
+          height: 1080,
+          range: 'sdr',
+          codec: 'H.264',
+          exact: '1920×816',
+          sizes: [],
+          state: 'playing',
+        },
         {
           key: '720:sdr',
           height: 720,
@@ -227,10 +235,11 @@ describe('the desktop player’s sources, quality and live streams', () => {
     expect(
       within(panel).getByRole('menuitemradio', { name: /2160p \(4K\) · HDR/ }),
     ).toHaveTextContent('Not in this source · plays from Beta');
-    expect(within(panel).getByRole('menuitemradio', { name: /1440p/ })).toBeDisabled();
-    expect(within(panel).getByRole('menuitemradio', { name: /1080p/ })).toHaveTextContent(
-      'Playing · H.264',
-    );
+    // Only the tiers the sources have are listed.
+    expect(within(panel).queryByRole('menuitemradio', { name: /1440p/ })).not.toBeInTheDocument();
+    expect(
+      within(panel).getByRole('menuitemradio', { name: /1080p \(1920×816\)/ }),
+    ).toHaveTextContent('Playing · H.264');
     await user.click(within(panel).getByRole('menuitemradio', { name: /2160p/ }));
     expect(reports()).toContainEqual(
       expect.objectContaining({ state: 'request', action: 'quality', key: '2160:hdr' }),

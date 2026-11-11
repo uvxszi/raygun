@@ -7,16 +7,27 @@ import androidx.media3.common.util.UnstableApi
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** The resolution ladder, as `video_quality::LADDER` in raygun-app. */
-private val LADDER = listOf(4320, 2160, 1440, 1080, 720, 480, 360, 240, 144)
+/** A row's name: its tier, the picture's own size beside it when Rust names one ("1080p (1920×816)"). */
+internal fun qualityName(height: Int, exact: String?, nickname: String?): String = when {
+    exact != null -> "${height}p ($exact)"
+    nickname != null -> nickname
+    else -> "${height}p"
+}
 
-/** The ladder step a height counts as: the nearest, ties going up. */
-internal fun ladderStep(height: Int): Int =
-    LADDER.minWith(compareBy<Int> { kotlin.math.abs(it - height) }.thenByDescending { it })
-
-/** The height a picture counts as: what a 16:9 one with the same long side has (1920×800 is 1080p). */
-internal fun pictureHeight(width: Int, height: Int): Int =
-    if (width > 0 && height > 0) ((maxOf(width, height).toLong() * 9 + 8) / 16).toInt() else height
+/**
+ * The variant tracks a row holds: those whose own sides are among the row's `sizes` (as they
+ * were reported), in its range; the best of them plays.
+ */
+internal fun <T> heldVariants(
+    tracks: List<T>,
+    sizes: List<Pair<Int, Int>>,
+    range: String,
+    sides: (T) -> Pair<Int, Int>,
+    rangeOf: (T) -> String,
+): List<T> = tracks.filter { track ->
+    val (width, height) = sides(track)
+    rangeOf(track) == range && sizes.any { (w, h) -> w == width.coerceAtLeast(0) && h == height.coerceAtLeast(0) }
+}
 
 /** "HEVC", "H.264", "AV1", "VP9" from a codecs string ("hvc1.2.4.L153"). */
 internal fun codecName(codecs: String?): String? {
@@ -46,12 +57,13 @@ internal fun rangeOf(format: Format): String {
 }
 
 /**
- * The Quality button's sheet: resolutions from 4K down, as Rust lists them (`qualities` updates,
- * `video_quality::rows` in raygun-app). A step the stream playing has (an HLS or DASH variant)
- * switches here; one the source playing has as another link, or only another source has, is
- * asked of Rust (`quality`), which plays it from where the video is. Tapping the step that plays
- * again tries the next source with it. The stream's variants go to Rust as they become known
- * (`variants`).
+ * The Quality button's sheet: the tiers the stream and the sources have, largest first, as Rust
+ * lists them (`qualities` updates, `video_quality::rows` in raygun-app), each with the picture's
+ * own size when it isn't the tier's plain one ("1080p (1920×816)"). A row the stream playing has
+ * (an HLS or DASH variant) switches here; one the source playing has as another link, or only
+ * another source has, is asked of Rust (`quality`), which plays it from where the video is.
+ * Tapping the row that plays again tries the next source with it. The stream's variants go to
+ * Rust with their own sides as they become known (`variants`).
  */
 internal class PlayerQuality(private val host: VideoPlayerActivity) {
     private var rows = JSONArray()
@@ -77,22 +89,27 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
         rows = JSONArray()
     }
 
-    /** Tells Rust the stream's variants and the one playing, when they changed. */
+    /**
+     * Tells Rust the stream's variants and the one playing, when they changed: their own sides
+     * (0 when unknown), which Rust groups into tiers.
+     */
     fun reportVariants() {
         val items = JSONArray()
         host.tracks.qualities().forEach { track ->
             val format = track.format
-            if (format.height <= 0) return@forEach
+            if (format.height <= 0 && format.width <= 0) return@forEach
             items.put(
                 JSONObject()
-                    .put("height", pictureHeight(format.width, format.height))
+                    .put("width", format.width.coerceAtLeast(0))
+                    .put("height", format.height.coerceAtLeast(0))
                     .put("range", rangeOf(format))
                     .put("codec", codecName(format.codecs) ?: JSONObject.NULL),
             )
         }
-        val playing = host.player.videoFormat?.takeIf { it.height > 0 }?.let { format ->
+        val playing = host.player.videoFormat?.takeIf { it.height > 0 || it.width > 0 }?.let { format ->
             JSONObject()
-                .put("height", pictureHeight(format.width, format.height))
+                .put("width", format.width.coerceAtLeast(0))
+                .put("height", format.height.coerceAtLeast(0))
                 .put("range", rangeOf(format))
         }
         val json = JSONObject().put("items", items).put("playing", playing ?: JSONObject.NULL)
@@ -104,11 +121,12 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
 
     private fun stepName(row: JSONObject): String {
         val height = row.optInt("height")
-        val name = when (height) {
+        val nickname = when (height) {
             4320 -> host.label("quality8k", "{n}p (8K)", height.toString())
             2160 -> host.label("quality4k", "{n}p (4K)", height.toString())
-            else -> "${height}p"
+            else -> null
         }
+        val name = qualityName(height, row.text("exact"), nickname)
         return when (row.optString("range")) {
             "hdr" -> "$name · HDR"
             "dv" -> "$name · Dolby Vision"
@@ -139,11 +157,9 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
                     "Not in this source · plays from {n}",
                     row.optString("source"),
                 )
-                "missing" -> host.label("qualityMissing", "No source has it")
                 else -> codec
             }
             val onClick: (() -> Unit)? = when (state) {
-                "missing" -> null
                 "variant" -> { { pickVariant(row); sheet.dismiss() } }
                 "playing" -> if (host.session) { { ask(row, again = true); sheet.dismiss() } } else null
                 else -> { { ask(row, again = false); sheet.dismiss() } }
@@ -154,14 +170,19 @@ internal class PlayerQuality(private val host: VideoPlayerActivity) {
         sheet.show()
     }
 
-    /** The stream's own variant of this step: the best one of its height and range. */
+    /** The stream's own variant of this row: the best of those it holds ([heldVariants]). */
     private fun pickVariant(row: JSONObject) {
-        val height = row.optInt("height")
-        val range = row.optString("range")
-        val track = host.tracks.qualities()
-            .filter { ladderStep(pictureHeight(it.format.width, it.format.height)) == height && rangeOf(it.format) == range }
-            .maxByOrNull { it.format.bitrate }
-            ?: return
+        val list = row.optJSONArray("sizes") ?: JSONArray()
+        val sizes = (0 until list.length()).mapNotNull { index ->
+            list.optJSONObject(index)?.let { it.optInt("width") to it.optInt("height") }
+        }
+        val track = heldVariants(
+            host.tracks.qualities(),
+            sizes,
+            row.optString("range"),
+            { it.format.width to it.format.height },
+            { rangeOf(it.format) },
+        ).maxByOrNull { it.format.bitrate } ?: return
         host.tracks.selectQuality(track)
     }
 

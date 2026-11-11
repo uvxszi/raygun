@@ -308,18 +308,18 @@ impl Session {
 
     /// The best untried link: what played last time, the same release, sources that worked,
     /// untried ones, then those that failed lately; links whose names say they're another episode
-    /// after every other one, and ties in list order. The step asked for in the Quality menu
-    /// comes before all of those. While a source that could hold a better one is still
-    /// resolving, nothing (for a few seconds: [`PATIENCE_MS`]).
+    /// after every other one, and ties in list order. The tier asked for in the Quality menu
+    /// comes before all of those, then the tiers nearest it (fewest tiers away; unknown sizes
+    /// last). While a source that could hold a better one is still resolving, nothing (for a few
+    /// seconds: [`PATIENCE_MS`]).
     fn next_candidate(&self, now: i64) -> Option<(usize, usize)> {
         let ranking = self.ranking(now);
         let unwanted = |link: &Link| {
-            self.wanted.is_some_and(|wanted| {
+            self.wanted.map(|wanted| {
                 let facts = link.facts();
-                facts
-                    .height
-                    .map(|height| QualityKey::of(height, facts.range))
-                    != Some(wanted)
+                facts.height.map_or(usize::MAX, |height| {
+                    wanted.distance(QualityKey::of(height, facts.range)).0
+                })
             })
         };
         let best = self
@@ -361,13 +361,7 @@ impl Session {
     /// session tries them: not failed, not another episode's, with a known height.
     fn offers(&self, now: i64) -> Vec<Offer> {
         let ranking = self.ranking(now);
-        let mut found: Vec<(
-            memory::RankKey,
-            usize,
-            usize,
-            QualityKey,
-            Option<&'static str>,
-        )> = Vec::new();
+        let mut found: Vec<(memory::RankKey, usize, usize, QualityKey, LinkFacts)> = Vec::new();
         for (group_index, group) in self.groups.iter().enumerate() {
             if group.state != GroupState::Ready {
                 continue;
@@ -385,7 +379,7 @@ impl Session {
                     group_index,
                     link_index,
                     QualityKey::of(height, facts.range),
-                    facts.codec,
+                    facts,
                 ));
             }
         }
@@ -393,11 +387,12 @@ impl Session {
         found
             .into_iter()
             .enumerate()
-            .map(|(rank, (_, group, link, key, codec))| Offer {
+            .map(|(rank, (_, group, link, key, facts))| Offer {
                 group,
                 link,
                 key,
-                codec,
+                codec: facts.codec,
+                picture: facts.picture,
                 rank,
             })
             .collect()
@@ -606,8 +601,7 @@ fn reported_variants(report: &Value) -> (Vec<Variant>, Option<QualityKey>) {
         .get("playing")
         .cloned()
         .and_then(|playing| serde_json::from_value::<Variant>(playing).ok())
-        .filter(|variant| variant.height > 0)
-        .map(|variant| QualityKey::of(variant.height, variant.range));
+        .and_then(|variant| variant.key());
     (variants, playing)
 }
 
@@ -2990,9 +2984,13 @@ mod tests {
         assert_eq!(row("2160:hdr")["state"], "otherSource");
         assert_eq!(row("2160:hdr")["source"], "Beta");
         assert_eq!(row("2160:hdr")["codec"], "HEVC");
-        assert_eq!(row("480:sdr")["state"], "missing");
+        assert!(
+            items.iter().all(|item| item["key"] != "480:sdr"),
+            "no row for a tier nobody has"
+        );
         // The stream's own variants come first.
         state.variants = vec![Variant {
+            width: 1280,
             height: 720,
             range: video_quality::Range::Sdr,
             codec: None,
@@ -3009,29 +3007,29 @@ mod tests {
     fn variants_reported_without_a_session_make_a_menu_of_their_own() {
         let (variants, playing) = reported_variants(&json!({
             "items": [
-                { "height": 1080, "range": "hdr", "codec": "HEVC" },
+                { "width": 3840, "height": 2160, "range": "hdr", "codec": "HEVC" },
+                { "width": 1920, "height": 800 },
                 { "height": 720 },
                 { "height": 0 }
             ],
-            "playing": { "height": 1076 }
+            "playing": { "width": 1920, "height": 800 }
         }));
-        assert_eq!(variants.len(), 3);
+        assert_eq!(variants.len(), 4);
         assert_eq!(
             playing,
             Some(QualityKey::of(1080, video_quality::Range::Sdr))
         );
         let update = variants_update(&variants, playing);
         let items = update["items"].as_array().unwrap();
-        let state = |key: &str| {
-            items
-                .iter()
-                .find(|item| item["key"] == key)
-                .map(|item| item["state"].clone())
-        };
-        assert_eq!(state("1080:hdr"), Some(json!("variant")));
-        assert_eq!(state("1080:sdr"), Some(json!("playing")));
-        assert_eq!(state("720:sdr"), Some(json!("variant")));
-        assert_eq!(state("2160:sdr"), Some(json!("missing")));
+        let row = |key: &str| items.iter().find(|item| item["key"] == key).cloned();
+        assert_eq!(row("2160:hdr").unwrap()["state"], "variant");
+        // A cropped film plays: its tier, with its own size.
+        let playing = row("1080:sdr").unwrap();
+        assert_eq!(playing["state"], "playing");
+        assert_eq!(playing["exact"], "1920×800");
+        assert_eq!(playing["sizes"], json!([{ "width": 1920, "height": 800 }]));
+        assert_eq!(row("720:sdr").unwrap()["state"], "variant");
+        assert_eq!(items.len(), 3, "only the tiers the stream has");
     }
 
     #[test]

@@ -211,6 +211,28 @@ export const languageCode = (value: string | null | undefined): string | null =>
 export const languageOf = (option: TrackOption): string | null =>
   languageCode(option.language) ?? languageCode(option.label);
 
+/**
+ * How a track's name shows: a name that is only its language's code ("en", "eng", "pt-BR", as a
+ * torrent's "Film.en.srt" or a subtitle site names it) as the language's name in the device's
+ * language ("English"); any other as it is ("Español", "English (Forced)", "Dub").
+ */
+export const shownTrackName = (label: string, language: string | null | undefined): string => {
+  const lower = label.trim().toLowerCase().replace(/_/g, '-');
+  const code = languageCode(lower);
+  if (!code || !CODE_SHAPE.test(lower) || (language && languageCode(language) !== code)) {
+    return label;
+  }
+  const device = typeof navigator === 'undefined' ? 'en' : navigator.language || 'en';
+  let name: string | undefined;
+  try {
+    name = displayNames(device)?.of(code);
+  } catch {
+    name = undefined;
+  }
+  if (!name || name.toLowerCase() === code) return label;
+  return name.charAt(0).toLocaleUpperCase(device) + name.slice(1);
+};
+
 /** Which languages tracks are chosen in (`LanguagePrefs` in the Android player). */
 export type LanguagePrefs = {
   /** Audio languages in order; empty plays the video's own track. */
@@ -387,9 +409,10 @@ export const choiceOf = (option: TrackOption): TrackChoice => ({
 export type Variant = { width?: number; height?: number; bitrate?: number };
 
 /** The height a picture counts as: a 16:9 picture's with the same long side, so 1920×800 is
- * 1080p (`video_quality::picture_height` in raygun-app). */
+ * 1080p, or its short side when that's more, so 640×480 is 480p
+ * (`video_quality::picture_height` in raygun-app). */
 export const pictureHeight = (width: number, height: number): number =>
-  Math.round((Math.max(width, height) * 9) / 16);
+  Math.max(Math.round((Math.max(width, height) * 9) / 16), Math.min(width, height));
 
 /** A rough height from a bit rate, for variants without a size (`bandwidth_height`). */
 export const bitrateHeight = (bitsPerSecond: number): number => {
