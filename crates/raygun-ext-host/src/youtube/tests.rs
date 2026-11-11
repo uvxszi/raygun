@@ -218,22 +218,67 @@ fn formats_are_picked_by_bitrate_and_what_decodes() {
     // Nearest the target.
     let near = |kbps: f64| StreamPrefs {
         target_kbps: Some(kbps),
-        decodable: false,
+        ..StreamPrefs::default()
     };
     assert_eq!(picked(near(64.0)), (249, false));
     assert_eq!(picked(near(80.0)), (250, false));
     // Raygun decodes AAC itself; the original language's.
     let decodable = StreamPrefs {
-        target_kbps: None,
         decodable: true,
+        ..StreamPrefs::default()
     };
     assert_eq!(picked(decodable), (140, false));
     assert_eq!(
         picked(StreamPrefs {
             target_kbps: Some(48.0),
-            decodable: true
+            decodable: true,
+            ..StreamPrefs::default()
         }),
         (139, false)
+    );
+}
+
+/// An audio format of a video with dubbed tracks, as YouTube lists them asked for in English.
+fn track(itag: u32, kbps: u64, name: &str, default: bool, content: &str) -> serde_json::Value {
+    serde_json::json!({
+        "itag": itag,
+        "url": format!("https://rr1---sn-x.googlevideo.com/videoplayback?itag={itag}&xtags=acont%3D{content}%3Alang%3Dx"),
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "bitrate": kbps * 1000,
+        "audioTrack": { "displayName": name, "id": format!("{content}.{itag}"), "audioIsDefault": default }
+    })
+}
+
+#[test]
+fn a_dubbed_videos_original_audio_plays_unless_youtubes_default_is_wanted() {
+    let answer = serde_json::json!({ "streamingData": { "adaptiveFormats": [
+        track(251, 160, "English (United States) (dubbed-auto)", true, "dubbed-auto"),
+        track(250, 70, "Spanish (Spain) original", false, "original"),
+        track(249, 50, "Spanish (Spain) descriptive", false, "descriptive"),
+    ] } });
+    let formats = parse::formats(&answer);
+    assert!(formats[1].original && !formats[1].dubbed);
+    assert!(formats[0].dubbed && !formats[0].original);
+    assert!(formats[2].descriptive);
+    let pick = |prefs: StreamPrefs| pick_format(&formats, prefs).unwrap().itag;
+    assert_eq!(pick(StreamPrefs::default()), 250);
+    assert_eq!(
+        pick(StreamPrefs {
+            default_track: true,
+            ..StreamPrefs::default()
+        }),
+        251
+    );
+
+    // Only the tags say which is the original; the names are plain.
+    let answer = serde_json::json!({ "streamingData": { "adaptiveFormats": [
+        track(251, 160, "English", true, "dubbed"),
+        track(250, 70, "Japanese", false, "original"),
+    ] } });
+    let formats = parse::formats(&answer);
+    assert_eq!(
+        pick_format(&formats, StreamPrefs::default()).unwrap().itag,
+        250
     );
 }
 

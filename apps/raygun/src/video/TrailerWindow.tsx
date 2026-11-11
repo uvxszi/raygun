@@ -7,6 +7,8 @@ import { useTranslation } from 'react-i18next';
 
 import { useDataSaving, useNetworkStatus } from '../network/useNetworkMode';
 import { useSettings } from '../settings/useSettings';
+import { PartSkipper } from '../youtube/skipParts';
+import { useSponsorParts } from '../youtube/useSponsorParts';
 import { useVideoPlayerStore } from './videoPlayerStore';
 
 type Props = {
@@ -40,6 +42,10 @@ export const TrailerWindow: FC<Props> = ({ videoId, title, onFull }) => {
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(true);
   const playerOpen = useVideoPlayerStore((state) => Boolean(state.request) || state.session);
+  // SponsorBlock's parts are passed over quietly here: the window has no seek bar to undo on.
+  const [durationMs, setDurationMs] = useState<number | null>(null);
+  const parts = useSponsorParts(videoId, durationMs, enabled);
+  const [skipper] = useState(() => new PartSkipper());
 
   const send = (command: Record<string, unknown>) =>
     frameRef.current?.contentWindow?.postMessage({ raygunCommand: true, ...command }, '*');
@@ -47,9 +53,20 @@ export const TrailerWindow: FC<Props> = ({ videoId, title, onFull }) => {
   const onMessage = useEffectEvent((event: MessageEvent) => {
     const frame = frameRef.current?.contentWindow;
     if (!frame || event.source !== frame) return;
-    const data = event.data as { raygunEmbed?: boolean; type?: string; state?: string } | null;
+    const data = event.data as {
+      raygunEmbed?: boolean;
+      type?: string;
+      state?: string;
+      positionMs?: number;
+      durationMs?: number | null;
+    } | null;
     if (!data?.raygunEmbed) return;
-    if (data.type === 'ready') {
+    if (data.type === 'progress' && typeof data.positionMs === 'number') {
+      const length = data.durationMs ?? null;
+      if (length && length > 0 && durationMs === null) setDurationMs(length);
+      const skip = skipper.due(parts, data.positionMs, length, performance.now());
+      if (skip) send({ type: 'seek', positionMs: skip.toMs });
+    } else if (data.type === 'ready') {
       // Back after the film: paused, as it was left.
       send({ type: 'load', videoId, startMs: 0, autoplay: playing, volume: 0 });
     } else if (data.type === 'error') {

@@ -228,6 +228,13 @@ pub enum Source {
     },
     /// One downloaded file.
     File(PathBuf),
+    /// One downloaded file with stretches left out (`cuts`, seconds from its start): their
+    /// samples are dropped and what follows moves back to close each gap (a song download without
+    /// its video's non-music parts).
+    Cut {
+        file: PathBuf,
+        cuts: Vec<(f64, f64)>,
+    },
 }
 
 impl Source {
@@ -273,7 +280,90 @@ impl Source {
                 })
             }
             Self::File(path) => open_file(path),
+            Self::Cut { file, cuts } => Ok(Box::new(Cut::new(open_file(file)?, cuts))),
         }
+    }
+}
+
+/// A reader without the samples in some stretches, the rest moved back over them.
+struct Cut<'a> {
+    inner: Box<dyn Demux + 'a>,
+    /// In order, without overlaps, in seconds.
+    cuts: Vec<(f64, f64)>,
+}
+
+impl<'a> Cut<'a> {
+    fn new(inner: Box<dyn Demux + 'a>, cuts: &[(f64, f64)]) -> Self {
+        let mut sorted: Vec<(f64, f64)> = cuts
+            .iter()
+            .copied()
+            .filter(|(from, to)| from.is_finite() && to.is_finite() && to > from)
+            .collect();
+        sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut merged: Vec<(f64, f64)> = Vec::new();
+        for (from, to) in sorted {
+            match merged.last_mut() {
+                Some(last) if from <= last.1 => last.1 = last.1.max(to),
+                _ => merged.push((from, to)),
+            }
+        }
+        Self {
+            inner,
+            cuts: merged,
+        }
+    }
+
+    /// How much is cut before `seconds`, when it isn't cut itself.
+    fn cut_before(&self, seconds: f64) -> Option<f64> {
+        let mut removed = 0.0;
+        for (from, to) in &self.cuts {
+            if seconds >= *from && seconds < *to {
+                return None;
+            }
+            if *to <= seconds {
+                removed += to - from;
+            }
+        }
+        Some(removed)
+    }
+}
+
+impl Demux for Cut<'_> {
+    fn next(&mut self) -> Result<Option<Packet>> {
+        while let Some(mut packet) = self.inner.next()? {
+            let timescale = f64::from(
+                self.inner
+                    .tracks()
+                    .get(packet.track)
+                    .map_or(1, |track| track.timescale.max(1)),
+            );
+            let Some(removed) = self.cut_before(packet.pts as f64 / timescale) else {
+                continue;
+            };
+            let shift = (removed * timescale).round() as i64;
+            packet.pts -= shift;
+            packet.dts = packet.dts.map(|dts| dts - shift);
+            return Ok(Some(packet));
+        }
+        Ok(None)
+    }
+
+    fn tracks(&self) -> &[Track] {
+        self.inner.tracks()
+    }
+
+    fn seconds(&self) -> Option<f64> {
+        let total = self.inner.seconds()?;
+        let removed: f64 = self
+            .cuts
+            .iter()
+            .map(|(from, to)| (to.min(total) - from).max(0.0))
+            .sum();
+        Some((total - removed).max(0.0))
+    }
+
+    fn skipped(&self) -> Vec<(bool, String)> {
+        self.inner.skipped()
     }
 }
 
@@ -593,7 +683,7 @@ pub fn probe(source: &Source) -> Result<Probe> {
     }
     found.seconds = match source {
         Source::Hls { video, .. } => video.seconds(),
-        Source::File(_) => demux.seconds(),
+        Source::File(_) | Source::Cut { .. } => demux.seconds(),
     };
     found.skipped = demux.skipped();
     Ok(found)

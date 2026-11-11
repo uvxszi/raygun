@@ -37,6 +37,7 @@ import { VideoPlayer } from '../video/VideoPlayer';
 import { useVideoPlayerEvents } from '../video/videoPlayerStore';
 import { useYouTubeVideoEvents } from '../video/trailerStore';
 import { YouTubeOverlay } from '../video/YouTubeOverlay';
+import { useSongSkips } from '../youtube/useSongSkips';
 import { usePlayerLabels } from '../watch/usePlayerLabels';
 import { AppBar } from './AppBar';
 import { setWindowDecorations, useWindowState } from './appWindow';
@@ -172,6 +173,8 @@ export const AppShell: FC = () => {
   usePlayerLabels();
   useVideoPlayerEvents();
   useYouTubeVideoEvents();
+  // SponsorBlock's parts of songs from YouTube: their marks, and a note for each one skipped.
+  useSongSkips();
   useNotificationRoutes();
   useOpenWithProblems();
   // Covers are stored as JPEG XL: whether this webview shows it as it is.

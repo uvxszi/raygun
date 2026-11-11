@@ -813,7 +813,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             loading.hide()
             return
         }
-        tracks.reset(languages, prefs.maxHeight)
+        tracks.reset(languages, prefs.maxHeight, prefs.preferH264)
         // A live stream (or a start at 0) begins where Media3 begins it: a live stream's live edge.
         val source = buildSource(request, cached = !request.optBoolean("live"))
         if (liveStream.keepsStart(startMs)) player.setMediaSource(source, startMs) else player.setMediaSource(source)

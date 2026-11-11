@@ -1420,6 +1420,8 @@ export const commands = {
 	network?: NetworkPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
 	rail: RailPrefs,
+	/**  YouTube's videos and songs: parts skipped with SponsorBlock, the audio track that plays. */
+	youtube?: YouTubePrefs,
 } | null, string>(__TAURI_INVOKE("songs_pick_folder")),
 	/**  Whether Raygun may still write to the picked folder. */
 	saveFolderState: (uri: string) => typedError<SaveFolderState, string>(__TAURI_INVOKE("save_folder_state", { uri })),
@@ -1753,6 +1755,24 @@ export const commands = {
 	 *  title pages play in a small window of Raygun's own).
 	 */
 	youtubeEmbedUrl: (controls: boolean) => __TAURI_INVOKE<string>("youtube_embed_url", { controls }),
+	/**
+	 *  SponsorBlock's parts of the song playing, for its seek bar (none for a song that isn't a
+	 *  YouTube video's, or before they're known).
+	 */
+	playbackSkipSegments: () => __TAURI_INVOKE<{
+	/**  The queue item they're of. */
+	itemId: string,
+	videoId: string,
+	segments: SkipSegment[],
+} | null>("playback_skip_segments"),
+	/**  Takes the skip of a part of the song playing back (the note's Undo). */
+	playbackUndoSkip: (segmentId: string) => __TAURI_INVOKE<void>("playback_undo_skip", { segmentId }),
+	/**
+	 *  SponsorBlock's parts of a YouTube video as Settings handle them, for YouTube's players in
+	 *  Raygun's windows (trailers, YouTube links), which skip them themselves. `duration_ms`, the
+	 *  video's length once known, leaves out parts marked on another cut of it.
+	 */
+	sponsorblockSegments: (videoId: string, durationMs: number | null) => typedError<SkipSegment[], string>(__TAURI_INVOKE("sponsorblock_segments", { videoId, durationMs })),
 	/**  A report from the webview's speech engine (desktop, M46.6), in the Android engine's JSON. */
 	ttsReport: (report: string) => __TAURI_INVOKE<void>("tts_report", { report }),
 	/**  Whether the webview can speak (desktop, M46.6); its speech engine says so when it starts. */
@@ -1795,6 +1815,8 @@ export const events = {
 	quickAccessChangedEvent: makeEvent<QuickAccessChangedEvent>("quick-access-changed-event"),
 	searchProgressEvent: makeEvent<SearchProgressEvent_Deserialize>("search-progress-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
+	skipSegmentsEvent: makeEvent<SkipSegmentsEvent>("skip-segments-event"),
+	skippedSegmentEvent: makeEvent<SkippedSegmentEvent>("skipped-segment-event"),
 	songCaptureEvent: makeEvent<SongCaptureEvent>("song-capture-event"),
 	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
@@ -5742,6 +5764,34 @@ export type SearchResults_Serialize = {
 	providers: ProviderSearchResult_Serialize[],
 };
 
+/**  What's done with a kind of SponsorBlock part. */
+export type SegmentAction = 
+/**  Not looked at. */
+"off" | 
+/**  Skipped as it's reached, with a note that takes it back. */
+"skip" | 
+/**  Marked on the seek bar only. */
+"show";
+
+/**  The kinds of parts SponsorBlock lists that Raygun handles (`SponsorBlockPrefs`). */
+export type SegmentCategory = 
+/**  A paid promotion. */
+"sponsor" | 
+/**  Unpaid self-promotion: merchandise, other channels, donations. */
+"selfpromo" | 
+/**  Reminders to like, subscribe or follow. */
+"interaction" | 
+/**  An intro animation or an intermission with no content. */
+"intro" | 
+/**  Credits or end cards. */
+"outro" | 
+/**  A recap or a preview of what's coming. */
+"preview" | 
+/**  A music video's parts without its music. */
+"musicOfftopic" | 
+/**  Tangents and jokes the video doesn't need. */
+"filler";
+
 /**  A connected server, as Browse → Sources → Servers lists it. */
 export type ServerInfo = {
 	/**  The connection's extension id. */
@@ -5777,7 +5827,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "youtube"; value: YouTubePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5948,6 +5998,8 @@ export type Settings = {
 	network?: NetworkPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
 	rail: RailPrefs,
+	/**  YouTube's videos and songs: parts skipped with SponsorBlock, the audio track that plays. */
+	youtube?: YouTubePrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -5973,6 +6025,40 @@ export type SetupReason =
 "refused" | 
 /**  A connected server without its sign-in: sign in again from Sources. */
 "signIn";
+
+/**  A part of a YouTube video SponsorBlock knows, and what's done with it. */
+export type SkipSegment = {
+	/**  SponsorBlock's id of it. */
+	id: string,
+	category: SegmentCategory,
+	startMs: number | null,
+	endMs: number | null,
+	/**  `Skip` or `Show` (parts left alone aren't listed). */
+	action: SegmentAction,
+};
+
+/**  The parts of the song playing now (of its YouTube video), for its seek bar. */
+export type SkipSegments = {
+	/**  The queue item they're of. */
+	itemId: string,
+	videoId: string,
+	segments: SkipSegment[],
+};
+
+/**
+ *  SponsorBlock's parts of the song playing changed (its seek bar marks them); `None` when it has
+ *  none to show.
+ */
+export type SkipSegmentsEvent = SkipSegments | null;
+
+/**  A part of the song playing that was just skipped, for the note that takes it back. */
+export type SkippedSegment = {
+	itemId: string,
+	segment: SkipSegment,
+};
+
+/**  A part of the song playing was skipped: its note offers to take it back. */
+export type SkippedSegmentEvent = SkippedSegment;
 
 /**  Titles of one Mihon source that Raygun has no source for. */
 export type SkippedSource = {
@@ -6379,6 +6465,26 @@ export type SpokenItem = {
 };
 
 export type SpokenKind = "podcast" | "audiobook";
+
+/**
+ *  SponsorBlock (sponsor.ajay.app, its data under CC BY-NC-SA 4.0): parts of YouTube videos its
+ *  users marked, such as sponsor reads and a music video's non-music parts. Each kind of part is
+ *  skipped, only marked on the seek bar, or left alone. Lookups send a short prefix of the video
+ *  id's SHA-256, so SponsorBlock never learns which video plays.
+ */
+export type SponsorBlockPrefs = {
+	enabled?: boolean,
+	sponsor?: SegmentAction,
+	selfpromo?: SegmentAction,
+	interaction?: SegmentAction,
+	intro?: SegmentAction,
+	outro?: SegmentAction,
+	preview?: SegmentAction,
+	musicOfftopic?: SegmentAction,
+	filler?: SegmentAction,
+	/**  Song downloads of YouTube videos are saved without their non-music parts. */
+	trimDownloads?: boolean,
+};
 
 export type StartScreen = "home" | "library" | "browse" | 
 /**  Tabs that can be added (M46.5). */
@@ -7175,6 +7281,19 @@ export type VideoChapter = {
 	kind: ChapterKind,
 };
 
+/**  The codec looked for among a video's formats. */
+export type VideoCodec = 
+/**
+ *  The player's own choice; YouTube's player keeps to H.264 where VP9 and AV1 have no
+ *  hardware decoder.
+ */
+"auto" | 
+/**
+ *  H.264 (AVC) wherever a video offers it: the codec every device decodes in hardware, for
+ *  devices where VP9 or AV1 play slowly or fail.
+ */
+"h264";
+
 /**  One comment on a video (M46.45), as the source shows it. */
 export type VideoComment = {
 	author: string,
@@ -7350,6 +7469,8 @@ export type VideoPlayerPrefs = {
 	/**  Back shrinks the player into a small window instead of closing it. */
 	pipOnBack?: boolean,
 	decoder?: DecoderMode,
+	/**  The codec looked for among a video's formats: here and in YouTube's player. */
+	videoCodec?: VideoCodec,
 	/**  Videos open in another app instead. */
 	externalPlayer?: boolean,
 	/**  That app's package; empty asks each time. */
@@ -7563,6 +7684,16 @@ export type YouTubeLink = {
 
 /**  What a YouTube address points at (M46.47). */
 export type YouTubeLinkKind = "video" | "playlist" | "channel";
+
+/**
+ *  YouTube's videos and songs, played in YouTube's embedded player or as their own files: parts
+ *  skipped with SponsorBlock, and which audio track plays.
+ */
+export type YouTubePrefs = {
+	sponsorBlock?: SponsorBlockPrefs,
+	/**  A video's original audio plays rather than a dubbed or auto-translated track. */
+	originalAudio?: boolean,
+};
 
 /**  A YouTube video to watch in its own player (trailers, YouTube streams; M46.4). */
 export type YouTubeVideo = {

@@ -140,6 +140,22 @@ pub struct StreamPrefs {
     /// Raygun reads the file itself (a download, captions): AAC, which it decodes, over Opus.
     #[serde(default)]
     pub decodable: bool,
+    /// YouTube's default audio track rather than the video's original one, where it has dubbed
+    /// tracks too (`set_original_audio`, never from an extension).
+    #[serde(skip)]
+    pub default_track: bool,
+}
+
+/// Whether videos with dubbed tracks play their original audio (Settings, on by default).
+static ORIGINAL_AUDIO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Says whether a video's original audio plays over a dubbed or auto-translated track.
+pub fn set_original_audio(on: bool) {
+    ORIGINAL_AUDIO.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn original_audio() -> bool {
+    ORIGINAL_AUDIO.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Results a search gives at most.
@@ -424,8 +440,9 @@ impl YouTube {
         &self,
         http: &impl Http,
         video: &str,
-        prefs: StreamPrefs,
+        mut prefs: StreamPrefs,
     ) -> Result<Stream, String> {
+        prefs.default_track = !original_audio();
         let id = video_id(video).ok_or_else(|| format!("{video:?} isn't a YouTube video"))?;
         let error = match self.innertube_stream(http, &id, prefs).await {
             Ok(stream) => return Ok(stream),
@@ -675,18 +692,36 @@ fn distance(kbps: u32, target: f64) -> f64 {
 
 /// The audio format to hand out: the nearest to the target bitrate (the highest without one), AAC
 /// where it's wanted (`wants_aac`), else Opus on a tie. Plain addresses only, the regular sound
-/// (not "stable volume") and the video's own language first.
+/// (not "stable volume", no audio description), and of a video with dubbed tracks its original
+/// audio (NouTube's "Play original audio", nonbili/NouTube, AGPL-3.0), unless YouTube's default
+/// track is wanted (`StreamPrefs::default_track`).
 pub(crate) fn pick_format(formats: &[Format], prefs: StreamPrefs) -> Option<&Format> {
     let audio: Vec<&Format> = formats
         .iter()
         .filter(|format| format.is_audio() && format.url.is_some())
         .collect();
-    let regular: Vec<&Format> = audio
-        .iter()
-        .copied()
-        .filter(|format| !format.is_drc && format.audio_is_default != Some(false))
-        .collect();
-    let usable = if regular.is_empty() { audio } else { regular };
+    let only = |keep: &dyn Fn(&Format) -> bool| -> Vec<&Format> {
+        audio
+            .iter()
+            .copied()
+            .filter(|format| !format.is_drc && !format.descriptive && keep(format))
+            .collect()
+    };
+    let youtube_default = only(&|format| format.audio_is_default != Some(false));
+    let tiers = if prefs.default_track {
+        vec![youtube_default, only(&|_| true)]
+    } else {
+        vec![
+            only(&|format| format.original),
+            only(&|format| format.audio_is_default != Some(false) && !format.dubbed),
+            youtube_default,
+            only(&|_| true),
+        ]
+    };
+    let usable = tiers
+        .into_iter()
+        .find(|tier| !tier.is_empty())
+        .unwrap_or(audio);
     let aac = wants_aac(prefs);
     let in_aac: Vec<&Format> = usable
         .iter()

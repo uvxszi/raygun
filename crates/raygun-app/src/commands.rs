@@ -270,6 +270,40 @@ pub fn playback_engine_report(playback: tauri::State<'_, PlaybackService>, repor
     playback.report(report);
 }
 
+/// SponsorBlock's parts of the song playing, for its seek bar (none for a song that isn't a
+/// YouTube video's, or before they're known).
+#[tauri::command]
+#[specta::specta]
+pub fn playback_skip_segments(
+    playback: tauri::State<'_, PlaybackService>,
+) -> Option<raygun_model::SkipSegments> {
+    playback.skip_segments()
+}
+
+/// Takes the skip of a part of the song playing back (the note's Undo).
+#[tauri::command]
+#[specta::specta]
+pub fn playback_undo_skip(playback: tauri::State<'_, PlaybackService>, segment_id: String) {
+    playback.undo_skip(&segment_id);
+}
+
+/// SponsorBlock's parts of a YouTube video as Settings handle them, for YouTube's players in
+/// Raygun's windows (trailers, YouTube links), which skip them themselves. `duration_ms`, the
+/// video's length once known, leaves out parts marked on another cut of it.
+#[tauri::command]
+#[specta::specta]
+pub async fn sponsorblock_segments(
+    sponsorblock: tauri::State<'_, std::sync::Arc<crate::sponsorblock::SponsorBlock>>,
+    video_id: String,
+    duration_ms: Option<f64>,
+) -> Result<Vec<raygun_model::SkipSegment>, String> {
+    let sponsorblock = sponsorblock.inner().clone();
+    let segments = sponsorblock
+        .segments(&video_id, crate::sponsorblock::Want::Now)
+        .await?;
+    Ok(sponsorblock.shown(&segments, duration_ms))
+}
+
 /// Library folders, track count and whether a scan is running.
 #[tauri::command]
 #[specta::specta]
@@ -5700,11 +5734,12 @@ pub fn youtube_embed_url(
     controls: bool,
 ) -> String {
     let url = media.youtube_embed_url();
-    if controls {
+    let url = if controls {
         url
     } else {
         url.replace("?controls=1", "")
-    }
+    };
+    crate::youtube_embed::url(&url)
 }
 
 /// The video players installed on this computer, best first (desktop, M46.33).
