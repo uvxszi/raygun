@@ -1950,6 +1950,126 @@ async fn converted_code_wraps_whole_numbers_as_kotlin_does() {
     );
 }
 
+/// Java's date formats with optional sections, defaults and month names of their own, ISO
+/// formats, locales, `Integer`'s unsigned and bit helpers, `System.arraycopy`, Java's `Base64`,
+/// far instants, API levels and XML read with Jsoup's `Parser.xmlParser()`.
+#[tokio::test]
+async fn converted_code_reads_formats_xml_and_java_helpers() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport java.time.format.DateTimeFormatterBuilder\nimport java.time.temporal.ChronoField\nimport java.time.format.SignStyle\nimport org.jsoup.parser.Parser\nimport android.os.Build",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private val optional = DateTimeFormatter.ofPattern("[MMMM][MMM] d, yyyy", Locale.ENGLISH)
+    private val shortYear = DateTimeFormatter.ofPattern("[dd ]MMM [yyyy][yy]", Locale.ENGLISH)
+    private val french = SimpleDateFormat("d MMMM yyyy", Locale.FRENCH)
+    private val thisYear = DateTimeFormatterBuilder()
+        .appendPattern("dd MMM")
+        .parseDefaulting(ChronoField.YEAR, 2021)
+        .toFormatter(Locale.ENGLISH)
+    private val built = DateTimeFormatterBuilder()
+        .parseCaseInsensitive()
+        .optionalStart()
+        .appendValue(ChronoField.DAY_OF_MONTH, 1, 2, SignStyle.NOT_NEGATIVE)
+        .appendLiteral(' ')
+        .appendText(ChronoField.MONTH_OF_YEAR, mapOf(1L to "uno", 2L to "dos", 3L to "tres"))
+        .appendLiteral(' ')
+        .appendValue(ChronoField.YEAR, 4)
+        .optionalEnd()
+        .toFormatter(Locale.ENGLISH)
+    private val fraction = DateTimeFormatterBuilder()
+        .appendPattern("yyyy-MM-dd'T'HH:mm:ss")
+        .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+        .toFormatter()
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val copied = byteArrayOf(1, 2, 3, 4, 5)
+        System.arraycopy(copied, 0, copied, 1, 3)
+        val feed = Jsoup.parse(
+            "<rss><channel><item><title>One</title><link>https://a.example/1</link></item><item><title>Two</title><link>https://a.example/2</link></item></channel></rss>",
+            "",
+            Parser.xmlParser(),
+        )
+        val names = listOf(
+            LocalDate.parse("February 3, 2024", optional).toEpochDay().toString(),
+            LocalDate.parse("Feb 3, 2024", optional).toEpochDay().toString(),
+            LocalDate.parse("05 Mar 24", shortYear).toEpochDay().toString(),
+            (french.parse("2 février 2023")!!.time / 86400000L).toString(),
+            LocalDate.parse("04 Jan", thisYear).year.toString(),
+            LocalDate.parse("7 dos 2020", built).toEpochDay().toString(),
+            LocalDateTime.parse("2024-01-02T03:04:05.678", fraction).toString().take(10),
+            ZonedDateTime.parse("2024-01-02T03:04:05.678+02:00", DateTimeFormatter.ISO_DATE_TIME).toInstant().toEpochMilli().toString(),
+            Integer.rotateLeft(0x40000001, 2).toString(),
+            Integer.compareUnsigned(-1, 1).toString(),
+            Integer.remainderUnsigned(-1, 7).toString(),
+            Integer.numberOfLeadingZeros(255).toString(),
+            copied.joinToString(""),
+            String(java.util.Base64.getDecoder().decode("UmF5Z3Vu")),
+            (Instant.DISTANT_PAST < Clock.System.now()).toString(),
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S).toString(),
+            feed.select("item").joinToString(" ") { it.selectFirst("link")!!.text() },
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "19756",
+            "19756",
+            "19787",
+            "19390",
+            "2021",
+            "18299",
+            "2024-01-02",
+            "1704157445678",
+            "5",
+            "1",
+            "3",
+            "24",
+            "11235",
+            "Raygun",
+            "true",
+            "true",
+            "https://a.example/1 https://a.example/2",
+        ]
+    );
+}
+
 /// Sequences that don't end, `init` blocks, `++` on properties, names written with their
 /// package, comparators and formats, as converted code uses them.
 #[tokio::test]

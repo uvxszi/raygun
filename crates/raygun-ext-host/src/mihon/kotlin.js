@@ -550,6 +550,18 @@
     if (!(flags & 2) && flags !== -1) text = `${text.replace(/(.{76})/g, '$1\n')}\n`;
     return text;
   };
+  /// Java's `Base64.Decoder` and `Base64.Encoder` (flags as Android's: 1 no padding, 2 no wraps,
+  /// 8 URL-safe).
+  const javaBase64Decoder = {
+    __class: 'Decoder',
+    decode: (value) => fromBase64(Array.isArray(value) ? binaryOf(value) : value),
+  };
+  const javaBase64Encoder = (flags) => ({
+    __class: 'Encoder',
+    encodeToString: (value) => base64Encode(value, flags),
+    encode: (value) => utf8Encode(base64Encode(value, flags)),
+    withoutPadding: () => javaBase64Encoder(flags | 1),
+  });
   const crypto = (args) => K.crypto(args);
   const digestOf = (algorithm, data) =>
     fromBase64(crypto({ op: 'digest', algorithm, data: base64Of(data) }));
@@ -1122,22 +1134,104 @@
       out.push(typeof init === 'function' ? await init(index) : (init ?? null));
     return out;
   };
-  /// `DateTimeFormatterBuilder()…toFormatter()`: its pattern pieces, as one date format.
+  /// java.time's `ChronoField`s a date format reads: each one's pattern letter and the part of a
+  /// date it is (what `parseDefaulting` sets).
+  const CHRONO_FIELDS = {
+    YEAR: ['y', 'year'],
+    YEAR_OF_ERA: ['y', 'year'],
+    MONTH_OF_YEAR: ['M', 'month'],
+    DAY_OF_MONTH: ['d', 'day'],
+    HOUR_OF_DAY: ['H', 'hour'],
+    CLOCK_HOUR_OF_AMPM: ['h', 'hour'],
+    HOUR_OF_AMPM: ['h', 'hour'],
+    MINUTE_OF_HOUR: ['m', 'minute'],
+    SECOND_OF_MINUTE: ['s', 'second'],
+    NANO_OF_SECOND: ['S', 'ms'],
+    MILLI_OF_SECOND: ['S', 'ms'],
+    AMPM_OF_DAY: ['a', 'ampm'],
+    DAY_OF_WEEK: ['E', 'dayOfWeek'],
+    DAY_OF_YEAR: ['D', 'dayOfYear'],
+    EPOCH_DAY: ['', 'epochDay'],
+  };
+  /// `DateTimeFormatterBuilder()…toFormatter()`: its pattern pieces, as one date format, with
+  /// optional sections, the values a text may leave out and month names of its own.
   const dateFormatterBuilder = () => {
     let pattern = '';
+    const defaults = {};
+    let monthNames = null;
+    const letterOf = (field) => (CHRONO_FIELDS[KT.str(field)] ?? ['', ''])[0];
     const builder = {
       appendPattern: (text) => ((pattern += KT.str(text)), builder),
       appendLiteral: (text) => ((pattern += `'${KT.str(text).replace(/'/g, "''")}'`), builder),
+      // `appendValue(ChronoField.YEAR, 4)`, `appendValue(DAY_OF_MONTH, 1, 2, SignStyle…)`.
+      appendValue: (field, width = 1) => {
+        const letter = letterOf(field);
+        if (letter)
+          pattern += letter.repeat(letter === 'y' ? (width === 2 ? 2 : 4) : Math.max(1, width));
+        return builder;
+      },
+      // `appendFraction(NANO_OF_SECOND, 0, 9, true)`: a fraction of a second, with its point.
+      appendFraction: (_field, min = 0, _max = 9, point = true) => {
+        const piece = `${point ? '.' : ''}S`;
+        pattern += Number(min) > 0 ? piece : `[${piece}]`;
+        return builder;
+      },
+      // `appendText(MONTH_OF_YEAR, mapOf(1L to "январь", …))`: names, as the map gives them.
+      appendText: (field, names = null) => {
+        const letter = letterOf(field);
+        if (letter === 'M' && names instanceof Map) {
+          monthNames = [];
+          for (const [number, name] of names) monthNames[Number(number) - 1] = KT.str(name);
+        }
+        if (letter) pattern += letter === 'M' ? 'MMMM' : letter.repeat(4);
+        return builder;
+      },
       parseCaseInsensitive: () => builder,
       parseCaseSensitive: () => builder,
       parseLenient: () => builder,
       parseStrict: () => builder,
-      optionalStart: () => builder,
-      optionalEnd: () => builder,
-      parseDefaulting: () => builder,
-      toFormatter: (locale) => K.dateFormat(pattern, locale),
+      optionalStart: () => ((pattern += '['), builder),
+      optionalEnd: () => ((pattern += ']'), builder),
+      parseDefaulting: (field, value) => {
+        const part = (CHRONO_FIELDS[KT.str(field)] ?? ['', ''])[1];
+        if (part === 'month') defaults.month = Number(value) - 1;
+        else if (['year', 'day', 'hour', 'minute', 'second'].includes(part))
+          defaults[part] = Number(value);
+        return builder;
+      },
+      toFormatter: (locale) => {
+        const format = K.dateFormat(pattern, locale);
+        format.defaults = { ...defaults };
+        format.monthNames = monthNames;
+        return format;
+      },
     };
     return builder;
+  };
+  /// `DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT)`'s patterns, as English writes them.
+  const LOCALIZED_DATES = {
+    FULL: 'MMMM d, yyyy',
+    LONG: 'MMMM d, yyyy',
+    MEDIUM: 'MMM d, yyyy',
+    SHORT: 'M/d/yy',
+  };
+  /// java.time's ISO formats (`ISO_DATE_TIME`, `ISO_OFFSET_DATE_TIME`, `ISO_INSTANT`): ISO 8601
+  /// with or without a fraction, an offset, or a zone's name in brackets.
+  const isoFormat = (pattern, offset = 0) => {
+    const format = K.dateFormat(pattern).withOffset(offset);
+    format.parse = (text) => {
+      if (text === null || text === undefined) return null;
+      const plain = KT.str(text)
+        .trim()
+        .replace(/\[[^\]]*\]$/, '');
+      const ms = isoInstant(plain);
+      if (ms === null) return null;
+      // A time without an offset is the format's zone's wall clock.
+      const zoned = /([Zz]|[+-]\d{2}(:?\d{2})?)$/.test(plain.slice(10));
+      return zoned ? ms : ms - format.offsetMinutes * 60000;
+    };
+    format.withZone = (zone) => isoFormat(pattern, offsetOf(zone));
+    return format;
   };
   const LIST = {
     size: (l) => l.length,
@@ -4946,13 +5040,26 @@
       outMimeType: null,
     }),
   };
-  /// Keiyoushi's `lib:imagedecoder` (`ImageDecoder.decode(bytes)`): Raygun's own decoder.
+  /// Keiyoushi's `lib:imagedecoder` (`ImageDecoder.decode(bytes)`) and Android's own
+  /// (`ImageDecoder.decodeBitmap(ImageDecoder.createSource(bytes)) { … }`): Raygun's decoder.
   const imageDecoder = {
     decode: (bytes) => {
       const bitmap = decodeBitmap(bytes);
       if (!bitmap) throw new KotlinError('No decoder could read the image', 'IOException');
       return bitmap;
     },
+    createSource: (bytes) => ({ __class: 'Source', bytes }),
+    decodeBitmap: async (source, listener = null) => {
+      const bitmap = decodeBitmap(source && source.bytes !== undefined ? source.bytes : source);
+      if (!bitmap) throw new KotlinError('No decoder could read the image', 'IOException');
+      // The listener sets the decoder's options (`allocator`), which change nothing here.
+      if (typeof listener === 'function') await listener({}, {}, source);
+      return bitmap;
+    },
+    ALLOCATOR_DEFAULT: 0,
+    ALLOCATOR_SOFTWARE: 1,
+    ALLOCATOR_SHARED_MEMORY: 2,
+    ALLOCATOR_HARDWARE: 3,
   };
   const bitmapStatics = {
     Config: {
@@ -5282,6 +5389,9 @@
     BOLD_ITALIC: 3,
     create: (_family, style) => ({ __class: 'Typeface', bold: style === 1 || style === 3 }),
     defaultFromStyle: (style) => ({ __class: 'Typeface', bold: style === 1 || style === 3 }),
+    // A font file a source fetched: text is drawn in the system's face here.
+    createFromFile: () => ({ __class: 'Typeface', bold: false }),
+    createFromAsset: () => ({ __class: 'Typeface', bold: false }),
   };
 
   /// Android's `Canvas` over a picture: draws through its matrix, inside its clip.
@@ -7551,8 +7661,116 @@
   };
   random.Default = random;
   /// Android's `Build`: a phone's, as an extension asks for a User-Agent's parts.
+  /// Java's `Integer` and `Long` helpers on 32 and 64 bits (unsigned readings, rotations, bit
+  /// counts), as hashes and shuffles use them.
+  const radixOf = (radix) => Number(radix ?? 10);
+  const javaInteger = {
+    MAX_VALUE: 2147483647,
+    MIN_VALUE: -2147483648,
+    SIZE: 32,
+    BYTES: 4,
+    parseInt: (text, radix = 10) => KT.nn(toInt(text, radixOf(radix))),
+    valueOf: (value, radix = 10) =>
+      typeof value === 'number' ? value : KT.nn(toInt(value, radixOf(radix))),
+    parseUnsignedInt: (text, radix = 10) => parseInt(KT.str(text), radixOf(radix)) | 0,
+    toString: (value, radix = 10) => (value | 0).toString(radixOf(radix)),
+    toHexString: (value) => (value >>> 0).toString(16),
+    toBinaryString: (value) => (value >>> 0).toString(2),
+    toOctalString: (value) => (value >>> 0).toString(8),
+    toUnsignedString: (value, radix = 10) => (value >>> 0).toString(radixOf(radix)),
+    toUnsignedLong: (value) => value >>> 0,
+    compare: (left, right) => (left < right ? -1 : left > right ? 1 : 0),
+    compareUnsigned: (left, right) => {
+      const [a, b] = [left >>> 0, right >>> 0];
+      return a < b ? -1 : a > b ? 1 : 0;
+    },
+    divideUnsigned: (left, right) => Math.trunc((left >>> 0) / (right >>> 0)) | 0,
+    remainderUnsigned: (left, right) => ((left >>> 0) % (right >>> 0)) | 0,
+    rotateLeft: (value, distance) => (value << distance) | (value >>> -distance) | 0,
+    rotateRight: (value, distance) => (value >>> distance) | (value << -distance) | 0,
+    numberOfLeadingZeros: (value) => Math.clz32(value),
+    numberOfTrailingZeros: (value) => (value === 0 ? 32 : 31 - Math.clz32(value & -value)),
+    bitCount: (value) => {
+      let bits = value >>> 0;
+      let count = 0;
+      for (; bits; bits >>>= 1) count += bits & 1;
+      return count;
+    },
+    highestOneBit: (value) => (value === 0 ? 0 : (1 << (31 - Math.clz32(value))) | 0),
+    lowestOneBit: (value) => value & -value,
+    reverseBytes: (value) =>
+      ((value & 255) << 24) | ((value & 0xff00) << 8) | ((value >>> 8) & 0xff00) | (value >>> 24),
+    signum: (value) => Math.sign(value),
+    sum: (left, right) => (left + right) | 0,
+    max: (left, right) => Math.max(left, right),
+    min: (left, right) => Math.min(left, right),
+    hashCode: (value) => value | 0,
+  };
+  const javaLong = {
+    MAX_VALUE: Number.MAX_SAFE_INTEGER,
+    MIN_VALUE: -Number.MAX_SAFE_INTEGER,
+    SIZE: 64,
+    BYTES: 8,
+    SIZE_BITS: 64,
+    SIZE_BYTES: 8,
+    parseLong: (text, radix = 10) => KT.nn(toInt(text, radixOf(radix))),
+    valueOf: (value, radix = 10) =>
+      typeof value === 'number' ? value : KT.nn(toInt(value, radixOf(radix))),
+    toString: (value, radix = 10) => big(value).toString(radixOf(radix)),
+    toHexString: (value) => BigInt.asUintN(64, big(value)).toString(16),
+    toBinaryString: (value) => BigInt.asUintN(64, big(value)).toString(2),
+    toUnsignedString: (value, radix = 10) =>
+      BigInt.asUintN(64, big(value)).toString(radixOf(radix)),
+    compare: (left, right) => (left < right ? -1 : left > right ? 1 : 0),
+    compareUnsigned: (left, right) => {
+      const [a, b] = [BigInt.asUintN(64, big(left)), BigInt.asUintN(64, big(right))];
+      return a < b ? -1 : a > b ? 1 : 0;
+    },
+    divideUnsigned: (left, right) =>
+      fromBig(BigInt.asUintN(64, big(left)) / BigInt.asUintN(64, big(right))),
+    remainderUnsigned: (left, right) =>
+      fromBig(BigInt.asUintN(64, big(left)) % BigInt.asUintN(64, big(right))),
+    rotateLeft: (value, distance) => {
+      const bits = BigInt.asUintN(64, big(value));
+      const shift = BigInt(distance & 63);
+      return fromBig(BigInt.asUintN(64, (bits << shift) | (bits >> ((64n - shift) & 63n))));
+    },
+    numberOfLeadingZeros: (value) => {
+      const bits = BigInt.asUintN(64, big(value));
+      return bits === 0n ? 64 : 64 - bits.toString(2).length;
+    },
+    numberOfTrailingZeros: (value) => {
+      const bits = BigInt.asUintN(64, big(value));
+      if (bits === 0n) return 64;
+      let count = 0;
+      for (let rest = bits; (rest & 1n) === 0n; rest >>= 1n) count += 1;
+      return count;
+    },
+    bitCount: (value) =>
+      [...BigInt.asUintN(64, big(value)).toString(2)].filter((d) => d === '1').length,
+    signum: (value) => Math.sign(value),
+    max: (left, right) => Math.max(left, right),
+    min: (left, right) => Math.min(left, right),
+    hashCode: (value) => Number(BigInt.asIntN(32, big(value) ^ (big(value) >> 32n))),
+  };
   const build = {
     VERSION: { RELEASE: '14', SDK_INT: 34, CODENAME: 'REL', INCREMENTAL: '1' },
+    // Android's API levels by name (`Build.VERSION.SDK_INT >= Build.VERSION_CODES.S`).
+    VERSION_CODES: {
+      LOLLIPOP: 21,
+      M: 23,
+      N: 24,
+      O: 26,
+      O_MR1: 27,
+      P: 28,
+      Q: 29,
+      R: 30,
+      S: 31,
+      S_V2: 32,
+      TIRAMISU: 33,
+      UPSIDE_DOWN_CAKE: 34,
+      VANILLA_ICE_CREAM: 35,
+    },
     MODEL: 'Pixel 4',
     MANUFACTURER: 'Google',
     BRAND: 'google',
@@ -7911,18 +8129,40 @@
     },
     SChapter: { create: () => chapter() },
     Jsoup: {
-      parse: (html, base = '') => Jsoup.parse(html, KT.str(base)),
+      // `Jsoup.parse(text, base, Parser.xmlParser())`, or `(text, parser)`.
+      parse: (html, base = '', parser = null) => {
+        if (base && base.__class === 'Parser') [base, parser] = ['', base];
+        return Jsoup.parse(html, KT.str(base ?? ''), Boolean(parser && parser.xml));
+      },
       parseBodyFragment: (html, base = '') =>
         Jsoup.parse(`<body>${KT.str(html)}</body>`, KT.str(base)),
       clean: (html) => Jsoup.parse(html).text(),
     },
     Fetch,
+    // Java's locale constants (`Locale.FRENCH` reads French month names).
     Locale: {
       ENGLISH: K.locale('en'),
       US: K.locale('en', 'US'),
       ROOT: K.locale('root'),
       UK: K.locale('en', 'GB'),
+      CANADA: K.locale('en', 'CA'),
+      FRENCH: K.locale('fr'),
+      FRANCE: K.locale('fr', 'FR'),
+      CANADA_FRENCH: K.locale('fr', 'CA'),
+      GERMAN: K.locale('de'),
+      GERMANY: K.locale('de', 'DE'),
+      ITALIAN: K.locale('it'),
+      ITALY: K.locale('it', 'IT'),
       JAPANESE: K.locale('ja'),
+      JAPAN: K.locale('ja', 'JP'),
+      KOREAN: K.locale('ko'),
+      KOREA: K.locale('ko', 'KR'),
+      CHINESE: K.locale('zh'),
+      CHINA: K.locale('zh', 'CN'),
+      PRC: K.locale('zh', 'CN'),
+      SIMPLIFIED_CHINESE: K.locale('zh', 'CN'),
+      TRADITIONAL_CHINESE: K.locale('zh', 'TW'),
+      TAIWAN: K.locale('zh', 'TW'),
       getDefault: () => K.locale('en'),
       forLanguageTag: (tag) => K.locale(tag),
       of: (language, country) => K.locale(language, country),
@@ -8011,7 +8251,7 @@
     // The Mihon release a source may name in its User-Agent.
     AppInfo: { getVersionName: () => '0.19.1', getVersionCode: () => 19 },
     // Android's log: nothing kept.
-    Log: { e: () => 0, w: () => 0, i: () => 0, d: () => 0, v: () => 0 },
+    Log: { e: () => 0, w: () => 0, i: () => 0, d: () => 0, v: () => 0, wtf: () => 0 },
     // `Regex.escape(text)`: the text matched as it is.
     Regex: {
       escape: (text) => KT.str(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
@@ -8027,7 +8267,15 @@
       MONTHS: 'MONTHS',
       YEARS: 'YEARS',
     },
-    ChronoField: {},
+    ChronoField: Object.fromEntries(Object.keys(CHRONO_FIELDS).map((name) => [name, name])),
+    SignStyle: {
+      NORMAL: 'NORMAL',
+      ALWAYS: 'ALWAYS',
+      NEVER: 'NEVER',
+      NOT_NEGATIVE: 'NOT_NEGATIVE',
+      EXCEEDS_PAD: 'EXCEEDS_PAD',
+    },
+    FormatStyle: { FULL: 'FULL', LONG: 'LONG', MEDIUM: 'MEDIUM', SHORT: 'SHORT' },
     LocalDate: {
       now: () =>
         moment(Math.floor((Date.now() + localOffset() * 60000) / DAY_MS) * DAY_MS, 'LocalDate'),
@@ -8052,17 +8300,44 @@
           'ZonedDateTime',
         ),
     },
-    Parser: { unescapeEntities: (text) => unescapeEntities(text) },
+    // Jsoup's `Parser`: `Jsoup.parse(text, base, Parser.xmlParser())` reads XML (an RSS feed's
+    // `<link>` keeps its text).
+    Parser: {
+      unescapeEntities: (text) => unescapeEntities(text),
+      xmlParser: () => ({ __class: 'Parser', xml: true }),
+      htmlParser: () => ({ __class: 'Parser', xml: false }),
+    },
     DateTimeFormatter: {
       ofPattern: (pattern, locale) => K.dateFormat(pattern, locale),
       ISO_LOCAL_DATE: K.dateFormat('yyyy-MM-dd'),
-      ISO_LOCAL_DATE_TIME: K.dateFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_DATE: K.dateFormat('yyyy-MM-dd'),
+      BASIC_ISO_DATE: K.dateFormat('yyyyMMdd'),
+      ISO_LOCAL_TIME: K.dateFormat('HH:mm[:ss]'),
+      ISO_LOCAL_DATE_TIME: isoFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_DATE_TIME: isoFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_OFFSET_DATE_TIME: isoFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_ZONED_DATE_TIME: isoFormat("yyyy-MM-dd'T'HH:mm:ss"),
+      ISO_INSTANT: isoFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+      RFC_1123_DATE_TIME: K.dateFormat('EEE, d MMM yyyy HH:mm:ss z'),
+      // English's styles: Raygun shows dates as it formats them.
+      ofLocalizedDate: (style) => K.dateFormat(LOCALIZED_DATES[KT.str(style)] ?? 'M/d/yy'),
+      ofLocalizedDateTime: (style) =>
+        K.dateFormat(`${LOCALIZED_DATES[KT.str(style)] ?? 'M/d/yy'}, HH:mm`),
     },
     // `System.getProperty("http.agent")`: the agent Android's own HTTP stack names.
     System: {
       currentTimeMillis: () => Date.now(),
+      nanoTime: () => Date.now() * 1e6,
       getProperty: (name) =>
         KT.str(name) === 'http.agent' ? 'Dalvik/2.1.0 (Linux; U; Android 14)' : null,
+      getenv: () => null,
+      lineSeparator: () => '\n',
+      // `System.arraycopy(src, from, dest, to, length)`, overlapping ranges too.
+      arraycopy: (source, from, target, to, length) => {
+        const part = Array.prototype.slice.call(source, from, from + length);
+        for (let index = 0; index < length; index++) target[to + index] = part[index];
+        return KT.unit;
+      },
     },
     FormBody: { Builder: () => formBody() },
     Headers: {
@@ -8088,9 +8363,24 @@
       round: Math.round,
       pow: Math.pow,
     },
-    Integer: { parseInt: (text) => parseInt(text, 10), MAX_VALUE: 2147483647 },
-    Long: { MAX_VALUE: Number.MAX_SAFE_INTEGER },
-    Int: { MAX_VALUE: 2147483647 },
+    Integer: javaInteger,
+    Long: javaLong,
+    Int: { MAX_VALUE: 2147483647, MIN_VALUE: -2147483648, SIZE_BITS: 32, SIZE_BYTES: 4 },
+    // OkHttp's `Dns.SYSTEM` (Raygun's client resolves names itself), Kotlin's buffer size,
+    // Android's text input types (settings screens).
+    Dns: { SYSTEM: { __class: 'Dns', lookup: (host) => [KT.str(host)] } },
+    DEFAULT_BUFFER_SIZE: 8192,
+    InputType: {
+      TYPE_CLASS_TEXT: 1,
+      TYPE_CLASS_NUMBER: 2,
+      TYPE_CLASS_PHONE: 3,
+      TYPE_TEXT_VARIATION_URI: 16,
+      TYPE_TEXT_VARIATION_EMAIL_ADDRESS: 32,
+      TYPE_TEXT_VARIATION_PASSWORD: 128,
+      TYPE_TEXT_VARIATION_VISIBLE_PASSWORD: 144,
+      TYPE_NUMBER_FLAG_DECIMAL: 8192,
+      TYPE_TEXT_FLAG_NO_SUGGESTIONS: 524288,
+    },
     URLEncoder: { encode: (text) => encodeURIComponent(KT.str(text)).replace(/%20/g, '+') },
     URLDecoder: { decode: (text) => decodeURIComponent(KT.str(text).replace(/\+/g, ' ')) },
     Charsets: { UTF_8: 'UTF-8' },
@@ -8117,6 +8407,13 @@
         decode: (value) => fromBase64(Array.isArray(value) ? binaryOf(value) : value),
         encode: (value) => base64Encode(value, 0),
       },
+      // Java's `java.util.Base64.getDecoder().decode(…)`, `getEncoder().encodeToString(…)`.
+      getDecoder: () => javaBase64Decoder,
+      getUrlDecoder: () => javaBase64Decoder,
+      getMimeDecoder: () => javaBase64Decoder,
+      getEncoder: () => javaBase64Encoder(2),
+      getUrlEncoder: () => javaBase64Encoder(2 | 8),
+      getMimeEncoder: () => javaBase64Encoder(0),
     },
     // Java's `Cipher`, `MessageDigest`, `Mac` and `SecretKeyFactory`, over the Rust natives.
     Cipher: {
@@ -8161,6 +8458,12 @@
       ofEpochMilli: (ms) => instant(ms),
       ofEpochSecond: (seconds) => instant(seconds * 1000),
       now: () => instant(Date.now()),
+      // kotlinx's far ends and java.time's (as far as a date reaches here).
+      DISTANT_PAST: instant(-8.64e15),
+      DISTANT_FUTURE: instant(8.64e15),
+      MIN: instant(-8.64e15),
+      MAX: instant(8.64e15),
+      EPOCH: instant(0),
     },
     Clock: { System: { now: () => instant(Date.now()) } },
   };

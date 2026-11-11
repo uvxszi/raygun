@@ -226,7 +226,8 @@ pub const METHODS: &[&str] = &[
     // Ordering, JSON bodies, date builders
     "sortWith", "sortBy", "sortByDescending", "thenBy", "thenByDescending", "toJsonRequestBody",
     "getStringOrNull", "getIntOrNull", "getLongOrNull", "getBooleanOrNull", "getVersionName",
-    "getVersionCode", "truncatedTo", "appendPattern", "appendLiteral", "parseCaseInsensitive",
+    "getVersionCode", "truncatedTo", "appendPattern", "appendLiteral", "appendValue",
+    "appendFraction", "appendText", "withoutPadding", "parseCaseInsensitive",
     "parseCaseSensitive", "parseLenient", "parseStrict", "optionalStart", "optionalEnd",
     "parseDefaulting", "toFormatter", "maxOfOrNull", "minOfOrNull", "maxBy", "minBy", "closeQuietly",
     "toByte", "toShort", "toByteArray", "toIntArray",
@@ -3261,5 +3262,6 @@ pub const OBJECTS: &[&str] = &[
     "LazyThreadSafetyMode",
     "URLUtil", "Result",
     "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
-    "applicationContext", "PreferenceManager", "BuildConfig", "File",
+    "applicationContext", "PreferenceManager", "BuildConfig", "File", "Dns",
+    "DEFAULT_BUFFER_SIZE", "InputType", "SignStyle", "FormatStyle",
 ];

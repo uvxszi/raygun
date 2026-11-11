@@ -559,11 +559,24 @@
         },
         enumerable: false,
       });
+      // What `parseDefaulting` gives the fields a text leaves out, and month names a
+      // `DateTimeFormatterBuilder.appendText` lists.
+      this.defaults = {};
+      this.monthNames = null;
       const fields = [];
       let source = '';
-      const tokens = this.pattern.match(/'[^']*'|''|([a-zA-Z])\1*|[^a-zA-Z']+/g) || [];
+      // DateTimeFormatter's optional sections (`[dd ]MMM [yyyy][yy]`) are groups that may match
+      // nothing; a section's four-letter year wants all four digits, as Java's does.
+      let optional = 0;
+      const tokens = this.pattern.match(/'[^']*'|''|([a-zA-Z])\1*|\[|\]|[^a-zA-Z'[\]]+/g) || [];
       for (const token of tokens) {
-        if (token === "''") {
+        if (token === '[') {
+          source += '(?:';
+          optional += 1;
+        } else if (token === ']' && optional > 0) {
+          source += ')?';
+          optional -= 1;
+        } else if (token === "''") {
           source += "'";
         } else if (token.startsWith("'")) {
           source += token.slice(1, -1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -579,7 +592,7 @@
               fields.push('month');
             }
           } else if (letter === 'y' || letter === 'u' || letter === 'Y') {
-            source += width === 2 ? '(\\d{2})' : '(\\d{1,4})';
+            source += width === 2 ? '(\\d{2})' : optional && width >= 3 ? '(\\d{4})' : '(\\d{1,4})';
             fields.push(width === 2 ? 'year2' : 'year');
           } else if (letter === 'd') {
             source += '(\\d{1,2})';
@@ -620,6 +633,7 @@
           source += token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
         }
       }
+      source += ')?'.repeat(optional);
       this.fields = fields;
       this.matcher = new RegExp(`^\\s*${source}\\s*$`, 'iu');
     }
@@ -628,13 +642,14 @@
       if (text == null) return null;
       const found = K.str(text).trim().match(this.matcher);
       if (!found) return null;
+      const defaults = this.defaults || {};
       const parts = {
-        year: 1970,
-        month: 0,
-        day: 1,
-        hour: 0,
-        minute: 0,
-        second: 0,
+        year: defaults.year ?? 1970,
+        month: defaults.month ?? 0,
+        day: defaults.day ?? 1,
+        hour: defaults.hour ?? 0,
+        minute: defaults.minute ?? 0,
+        second: defaults.second ?? 0,
         ms: 0,
         pm: null,
         zone: null,
@@ -644,7 +659,10 @@
         if (value === undefined) return;
         switch (field) {
           case 'monthName': {
-            const month = monthOf(value, this.locale);
+            const listed = this.monthNames
+              ? this.monthNames.findIndex((name) => fold(name) === fold(value))
+              : -1;
+            const month = listed >= 0 ? listed : monthOf(value, this.locale);
             if (month < 0) parts.invalid = true;
             parts.month = month;
             break;
@@ -740,7 +758,10 @@
     }
 
     withLocale(locale) {
-      return new DateFormat(this.pattern, locale).withOffset(this.offsetMinutes);
+      const copy = new DateFormat(this.pattern, locale).withOffset(this.offsetMinutes);
+      copy.defaults = this.defaults;
+      copy.monthNames = this.monthNames;
+      return copy;
     }
 
     withOffset(offset) {
@@ -756,7 +777,8 @@
       const date = new Date(value + (local ? 0 : this.offsetMinutes * 60000));
       const names = MONTHS[this.locale.language] || MONTHS.en;
       const pad = (value, width) => String(value).padStart(width, '0');
-      return this.pattern.replace(/'[^']*'|([a-zA-Z])\1*/g, (token) => {
+      return this.pattern.replace(/'[^']*'|([a-zA-Z])\1*|\[|\]/g, (token) => {
+        if (token === '[' || token === ']') return '';
         if (token.startsWith("'")) return token.slice(1, -1);
         const width = token.length;
         switch (token[0]) {
@@ -810,6 +832,8 @@
   K.withZone = (format, offset) => {
     const zoned = new DateFormat(format.pattern, format.locale);
     zoned.offsetMinutes = offset;
+    zoned.defaults = format.defaults;
+    zoned.monthNames = format.monthNames;
     return zoned;
   };
 
@@ -1373,7 +1397,9 @@
   }
 
   const Jsoup = Object.freeze({
-    parse: (html, location = '') => new Document(dom('load', { html: K.str(html) }), location),
+    /** A page; with `xml`, an XML document (`Parser.xmlParser()`). */
+    parse: (html, location = '', xml = false) =>
+      new Document(dom('load', { html: K.str(html), xml: Boolean(xml) }), location),
     /** A snippet's elements (`Jsoup.parseBodyFragment`). */
     fragment: (html, location = '') => {
       const doc = new Document(dom('load', { html: `<body>${K.str(html)}</body>` }), location);

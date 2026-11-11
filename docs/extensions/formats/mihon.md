@@ -264,7 +264,7 @@ the themes:
 |---|---|
 | Jsoup | Documents parsed in Rust (the LNReader runtime's document store), Raygun's Jsoup-compatible selectors (`:contains`, `:has`, `:eq`…), Jsoup's `text()` and `ownText()` whitespace rules, `attr("abs:…")`, siblings and parents |
 | OkHttp, `KeiSource`'s client | `raygun.http` with the source's Referer and headers, the accept headers of a page load or an XHR, form bodies, its rate limit; Raygun's own limits beneath (6 requests at once per site, 32 in all) and the extension's cookie jar |
-| Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones, month names in 20 languages, Thai Buddhist years; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `Instant` as Unix milliseconds |
+| Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones and optional sections (`[MMMM][MMM] d, yyyy`), month names in 20 languages, Thai Buddhist years; `DateTimeFormatterBuilder`'s values, fractions, month names and `parseDefaulting`; the ISO formats; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `Instant` as Unix milliseconds |
 | Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…) |
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
 | Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256` in Rust (`runtime.rs`'s `crypto`) |
@@ -308,16 +308,16 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 130 | 134 |
-| No theme | 805 | 858 |
-| All | 1520 (96.4%) | 1577 |
+| No theme | 807 | 858 |
+| All | 1522 (96.5%) | 1577 |
 
-The 57 refusals left are one or two extensions each, most of them on what has no stand-in:
+The 55 refusals left are one or two extensions each, most of them on what has no stand-in:
 Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java's key pairs
 (`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
 `zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
 own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
 and zstd; a few on Kotlin the converter doesn't read yet (`sequence { yieldAll(…) }`, java.time's
-`YearMonth`/`LocalTime`/`WeekFields`, `DateTimeFormatterBuilder.appendValue`). Android's
+`YearMonth`/`LocalTime`/`WeekFields`). Android's
 `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) is the runtime's text
 layout, so captions and speech bubbles drawn on pictures convert.
 
@@ -357,7 +357,10 @@ only those packages, and `MIHON_SURVEY_DUMP=<dir>` keeps the code of conversions
 (`MIHON_SAMPLE`, 24 by default; `MIHON_SAMPLE_ONLY=<pkg>,…` picks them) of the converted sources
 and follows each from its first popular page to the first page's picture (drawn by the source
 when it draws them); `MIHON_SAMPLE_FULL=1` prints failures whole, with the script's stack, and
-the first title's id and page's address.
+the first title's id and page's address. `mihon_runtime_members_survey` reads the conversions a
+survey kept (`MIHON_SURVEY_DUMP` with `MIHON_SURVEY_DUMP_ALL=1`) and lists what their code asks
+of the runtime's objects that they lack (`Integer.rotateLeft`, `Parser.xmlParser` once), which
+loading a conversion doesn't show.
 
 ## Running source code in a container
 

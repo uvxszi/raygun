@@ -75,6 +75,9 @@ struct Args {
     any: bool,
     #[serde(default)]
     text: String,
+    /// `load` reads XML instead of HTML (Jsoup's `Parser.xmlParser()`).
+    #[serde(default)]
+    xml: bool,
 }
 
 /// A node's text content: every text node under it, as it is (cheerio's `text()`).
@@ -318,6 +321,73 @@ fn jsoup_data(node: NodeRef<'_, Node>) -> String {
         .collect()
 }
 
+/// An XML document (Jsoup's `Parser.xmlParser()`): elements as written, without HTML's rules (an
+/// RSS item's `<link>` keeps its text, a `<title>` anywhere is just an element), text and CDATA
+/// as text, names lowercased as selectors match them. A mistake ends the tree where it's met.
+fn parse_xml(text: &str) -> Html {
+    use quick_xml::events::{BytesStart, Event};
+    let element = |start: &BytesStart<'_>| {
+        let name = start.name().as_ref().to_owned();
+        let attributes = start
+            .attributes()
+            .flatten()
+            .map(|attribute| {
+                let key = attribute.key.as_ref().to_owned();
+                let value = attribute
+                    .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                    .map(std::borrow::Cow::into_owned)
+                    .unwrap_or_else(|_| attribute.value.to_string());
+                (key, value)
+            })
+            .collect();
+        new_element(&name, attributes)
+    };
+    let mut html = Html::new_document();
+    let mut open = vec![html.tree.root().id()];
+    let add = |html: &mut Html, open: &[NodeId], node: Node| -> Option<NodeId> {
+        let parent = *open.last()?;
+        Some(html.tree.get_mut(parent)?.append(node).id())
+    };
+    let text_node = |text: &str| Node::Text(scraper::node::Text { text: text.into() });
+    let mut reader = quick_xml::Reader::from_str(text);
+    reader.config_mut().check_end_names = false;
+    let mut buffer = Vec::new();
+    while let Ok(event) = reader.read_event_into(&mut buffer) {
+        match event {
+            Event::Start(start) => {
+                if let Some(id) = add(&mut html, &open, element(&start)) {
+                    open.push(id);
+                }
+            }
+            Event::Empty(start) => {
+                add(&mut html, &open, element(&start));
+            }
+            Event::End(_) => {
+                if open.len() > 1 {
+                    open.pop();
+                }
+            }
+            Event::Text(content) => {
+                add(&mut html, &open, text_node(&content));
+            }
+            Event::CData(content) => {
+                add(&mut html, &open, text_node(&content));
+            }
+            Event::GeneralRef(reference) => {
+                let escaped = format!("&{};", &*reference);
+                let text = quick_xml::escape::unescape(&escaped)
+                    .map(std::borrow::Cow::into_owned)
+                    .unwrap_or(escaped);
+                add(&mut html, &open, text_node(&text));
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buffer.clear();
+    }
+    html
+}
+
 /// The nodes `html` parses into, as a fragment: inside its wrapping `<html>`.
 fn fragment_nodes(fragment: &Html) -> Vec<NodeRef<'_, Node>> {
     let root = fragment.tree.root();
@@ -508,7 +578,12 @@ impl Documents {
         let nodes = &args.nodes;
         Ok(match op {
             "load" => {
-                let number = self.keep(Html::parse_document(&args.html), args.html.len());
+                let parsed = if args.xml {
+                    parse_xml(&args.html)
+                } else {
+                    Html::parse_document(&args.html)
+                };
+                let number = self.keep(parsed, args.html.len());
                 let mut documents = self.documents.borrow_mut();
                 let document = &mut documents.back_mut().expect("just kept").1;
                 let root = document.html.tree.root().id();
