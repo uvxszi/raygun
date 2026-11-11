@@ -311,6 +311,8 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     private var controller: MediaController? = null
     private val pending = mutableListOf<(MediaController) -> Unit>()
     private var connecting = false
+    /** Actions [withController] posted that haven't run yet: a later one waits behind them. */
+    private val queued = java.util.concurrent.atomic.AtomicInteger(0)
     private var loadId: Int? = null
     /** The playing song's end trim, ms (M46.12), and whether it was reached. */
     private var endMs: Double? = null
@@ -1817,7 +1819,19 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
 
     /** Runs [action] on the main thread once the controller is connected to the service. */
     private fun withController(action: (MediaController) -> Unit) {
+        // Already on the main thread (where Rust's commands run) with the controller connected and
+        // nothing ahead of it: at once, not a turn of the main loop later, so a Play or Pause
+        // reaches the player as it's pressed.
+        if (Looper.myLooper() == Looper.getMainLooper() && queued.get() == 0 && pending.isEmpty()) {
+            val ready = controller
+            if (ready != null) {
+                action(ready)
+                return
+            }
+        }
+        queued.incrementAndGet()
         main.post {
+            queued.decrementAndGet()
             val connected = controller
             if (connected != null) {
                 action(connected)

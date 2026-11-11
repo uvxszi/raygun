@@ -6,6 +6,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+mod years;
+
+pub use years::year_range_label;
+
 /// Build and runtime facts about the running app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1665,8 +1669,8 @@ pub enum WindowFrame {
     System,
 }
 
-/// Scrollbars (M46.7): thin over a clear track by default, the system's width, or none at all
-/// (scrolling still works).
+/// Scrollbars (M46.7): thin over a clear track by default, the system's width, none at all
+/// (scrolling still works), or thin ones shown only while scrolling.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ScrollbarStyle {
@@ -1674,6 +1678,9 @@ pub enum ScrollbarStyle {
     Thin,
     Wide,
     Hidden,
+    /// Thin, shown while scrolled by hand (wheel, touch, keys, the bar dragged) and fading out a
+    /// second after, or while the pointer is on the bar; the app's own scrolls don't show it.
+    WhileScrolling,
 }
 
 /// How the full player arranges itself (M46.7).
@@ -4335,7 +4342,7 @@ pub struct ArtistInfo {
     pub url: Option<String>,
     /// Where they're from.
     pub origin: Option<String>,
-    /// "1975–", "1962–1970".
+    /// The years they were active: "1975" while still active, "1962–1970".
     pub active: Option<String>,
     /// A group's members.
     pub members: Vec<String>,

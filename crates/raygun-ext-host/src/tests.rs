@@ -1758,6 +1758,27 @@ async fn artist_info_and_credits_come_from_music_info_providers() {
     assert_eq!(credits.url.as_deref(), Some("https://mb.example/r"));
 }
 
+#[test]
+fn an_artist_still_active_shows_the_year_they_began_alone() {
+    let years = |active: &str| {
+        crate::host::parse_artist_info(
+            &json!({ "artist": { "name": "Band", "active": active } }),
+            "Facts",
+        )
+        .and_then(|info| info.active)
+    };
+    // MusicBrainz's way for an artist still active, and others'.
+    assert_eq!(years("1980–").as_deref(), Some("1980"));
+    assert_eq!(years("1980-").as_deref(), Some("1980"));
+    assert_eq!(years(" 1980 — ").as_deref(), Some("1980"));
+    // A span that ended stays a span; a year stays a year.
+    assert_eq!(years("1980–2003").as_deref(), Some("1980–2003"));
+    assert_eq!(years("1980").as_deref(), Some("1980"));
+    // A dash alone says nothing.
+    assert_eq!(years("–"), None);
+    assert_eq!(years(" "), None);
+}
+
 /// `cargo test -p raygun-ext-host -- --ignored music_info_live --nocapture`.
 #[tokio::test]
 #[ignore = "needs network access to MusicBrainz, Wikidata and Wikipedia"]

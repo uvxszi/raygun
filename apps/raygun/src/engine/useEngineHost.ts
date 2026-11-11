@@ -15,7 +15,10 @@ type WebviewEngine = { handle: (command: EngineCommand) => void; dispose: () => 
 const soundBackend = (): SoundBackend => {
   if (typeof AudioContext === 'undefined') return elementSound();
   try {
-    const context = new AudioContext({ latencyHint: 'playback' });
+    // Interactive output: Play, Pause and seeks are heard about 20 ms sooner than with
+    // `playback`'s larger buffers (Chromium on Windows: 10 ms instead of 20 ms base latency, and
+    // sound reaching the graph about 5 ms after play() instead of 15 ms).
+    const context = new AudioContext({ latencyHint: 'interactive' });
     // The output picked in Devices (M46.43).
     registerSink(context);
     return new WebAudioSound(context);

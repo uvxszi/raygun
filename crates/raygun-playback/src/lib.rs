@@ -634,10 +634,16 @@ impl PlaybackCore {
                 self.load_at(cursor, self.position_ms, true)
             }
             Some(_) => {
-                // Answers at once (M46.16); the engine's report says when sound comes.
+                // Answers at once (M46.16); the engine's report says when a stream's sound comes.
+                // A file on this device only resumes: it plays at once, never loading or waiting.
                 let mut effects = vec![Effect::Engine(EngineCommand::Play)];
                 if self.status == PlaybackStatus::Paused {
-                    effects.extend(self.set_status(PlaybackStatus::Loading));
+                    let resumed = if self.on_device {
+                        PlaybackStatus::Playing
+                    } else {
+                        PlaybackStatus::Loading
+                    };
+                    effects.extend(self.set_status(resumed));
                 }
                 effects
             }

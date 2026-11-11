@@ -2,6 +2,7 @@ import type { Accent, CustomColors, MotionLevel, ScrollbarStyle, Theme } from '@
 import { useEffect } from 'react';
 
 import { useAppActive, useEffectiveMotion } from '../shell/deviceState';
+import { startScrollbarReveal } from '../shell/scrollbarReveal';
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -64,7 +65,8 @@ export const useApplyColors = (colors: Partial<CustomColors> | undefined) => {
  * Puts the scrollbar style, the animation level in effect and whether Raygun is on screen on the
  * page (M46.7; styles.css): `data-motion` is the setting lowered by the system's animation
  * settings, battery saver and reduced motion (`lively`, `calm`, `reduced` or `off`), and
- * `data-active="false"` pauses every CSS animation while Raygun is in the background.
+ * `data-active="false"` pauses every CSS animation while Raygun is in the background. Bars shown
+ * while scrolling follow scrolls by hand (shell/scrollbarReveal) only while that's the style.
  */
 export const useApplyFeel = (
   scrollbars: ScrollbarStyle | undefined = 'thin',
@@ -74,6 +76,7 @@ export const useApplyFeel = (
   const active = useAppActive();
   useEffect(() => {
     document.documentElement.dataset.scrollbars = scrollbars;
+    return scrollbars === 'whileScrolling' ? startScrollbarReveal() : undefined;
   }, [scrollbars]);
   useEffect(() => {
     document.documentElement.dataset.motion = effective;

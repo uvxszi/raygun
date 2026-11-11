@@ -161,6 +161,34 @@ describe('Player with resolved streams', () => {
     ).toHaveTextContent('via Internet Archive');
   });
 
+  it('finds nothing for a downloaded song: it plays its file', async () => {
+    const { emitEvent, IDLE_STATE } = await import('../test/bindingsMock');
+    const song = {
+      ...makeItem('Saved Song', 'Some Band'),
+      source: {
+        kind: 'lookup' as const,
+        title: 'Saved Song',
+        artist: 'Some Band',
+        album: null,
+        durationMs: 200_000,
+      },
+    };
+    await AppShellWrapper.mount();
+    emitEvent('queueEvent', { items: [song], order: [0], context: null });
+    // Rust gave the engine the song's file: loading, but waiting for nothing.
+    emitEvent('playbackStateEvent', {
+      ...IDLE_STATE,
+      status: 'loading',
+      currentItemId: song.id,
+      waiting: false,
+    });
+
+    const bar = await screen.findByTestId('mini-player');
+    expect(await within(bar).findByText('Some Band')).toBeInTheDocument();
+    expect(within(bar).queryByTestId('source-note')).not.toBeInTheDocument();
+    expect(within(bar).queryByTestId('play-waiting')).not.toBeInTheDocument();
+  });
+
   it('says it looks for another source, then offers to find one for a song nothing played', async () => {
     const { emitEvent, IDLE_STATE } = await import('../test/bindingsMock');
     const user = userEvent.setup();
@@ -419,7 +447,7 @@ describe('Cards under the player', () => {
         imageUrl: null,
         url: 'https://en.wikipedia.org/wiki/Raygun',
         origin: 'Detroit',
-        active: '1999–',
+        active: '1999',
         members: [],
         providerName: 'MusicBrainz',
       }),
@@ -444,7 +472,7 @@ describe('Cards under the player', () => {
     expect(within(lyrics).getByText('First line')).not.toHaveAttribute('data-current');
     const artist = within(sheet).getByTestId('artist-card');
     expect(await within(artist).findByText('A band from the tests.')).toBeInTheDocument();
-    expect(artist).toHaveTextContent('Detroit · 1999–');
+    expect(artist).toHaveTextContent('Detroit · 1999');
     expect(bindingsMock.commands.musicArtistInfo).toHaveBeenCalledWith('Raygun');
     const credits = within(sheet).getByTestId('credits-card');
     expect(await within(credits).findByText('Someone Else')).toBeInTheDocument();

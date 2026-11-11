@@ -321,7 +321,7 @@ export type ArtistInfo = {
   /** Where to read more; http(s) only. */
   url?: string | null;
   origin?: string | null;
-  /** "1975–", "1962–1970". */
+  /** The years they were active: "1975" while still active, "1962–1970". */
   active?: string | null;
   members?: string[];
 };

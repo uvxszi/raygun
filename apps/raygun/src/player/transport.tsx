@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -6,6 +7,7 @@ import {
   isActive,
   isWaiting,
   NEXT_REPEAT,
+  pressPlayPause,
   sendControl,
   useCurrentItemId,
   usePlayerSelect,
@@ -108,9 +110,10 @@ export const NextButton: FC<ButtonProps & { filled?: boolean }> = ({
 };
 
 /**
- * Play or Pause, by whether something plays (or is about to). While the player really waits for
- * its song (a stream being found or buffering, see {@link isWaiting}) a ring turns around it, so
- * a Pause that isn't playing yet shows it; a downloaded song starts at once and shows none.
+ * Play or Pause, by whether something plays (or is about to). It flips on the tap, before Rust
+ * answers ({@link pressPlayPause}). While the player really waits for its song (a stream being
+ * found or buffering, see {@link isWaiting}) a ring turns around it, so a Pause that isn't playing
+ * yet shows it; a downloaded song or a local file starts at once and shows none.
  */
 export const PlayPauseButton: FC<ButtonProps & { filled?: boolean }> = ({
   className = '',
@@ -118,6 +121,7 @@ export const PlayPauseButton: FC<ButtonProps & { filled?: boolean }> = ({
   filled = true,
 }) => {
   const { t } = useTranslation();
+  const client = useQueryClient();
   const active = usePlayerSelect(isActive);
   const waiting = usePlayerSelect(isWaiting);
   const playing = useCurrentItemId() !== null;
@@ -128,7 +132,7 @@ export const PlayPauseButton: FC<ButtonProps & { filled?: boolean }> = ({
       disabled={!playing}
       aria-label={active ? t('player.pause') : t('player.play')}
       aria-busy={waiting || undefined}
-      onClick={() => void sendControl({ type: 'toggle' })}
+      onClick={() => void pressPlayPause(client, { type: 'toggle' })}
       className={`relative grid shrink-0 place-items-center disabled:opacity-40 ${className}`}
     >
       {waiting && (

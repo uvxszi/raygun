@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
+import { receivePlayerState } from '../player/playPress';
 
 const STATUS_KEY = ['connect', 'status'] as const;
 const DEVICES_KEY = ['connect', 'devices'] as const;
@@ -15,8 +16,11 @@ const DEVICES_REFRESH_MS = 3000;
 export const useConnectSync = () => {
   const queryClient = useQueryClient();
   useEffect(() => {
+    // A Play or Pause pressed for the other device shows until its answer agrees.
     const unlisten = events.connectEvent.listen((event) =>
-      queryClient.setQueryData(STATUS_KEY, event.payload),
+      receivePlayerState('connected', event.payload.session?.state ?? undefined, () =>
+        queryClient.setQueryData(STATUS_KEY, event.payload),
+      ),
     );
     return () => {
       void unlisten.then((stop) => stop());

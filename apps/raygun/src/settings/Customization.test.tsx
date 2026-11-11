@@ -255,5 +255,16 @@ describe('Customization', () => {
     await user.click(screen.getByRole('button', { name: /^Scrollbars/ }));
     await user.click(screen.getByRole('radio', { name: /^Hidden/ }));
     await vi.waitFor(() => expect(document.documentElement.dataset.scrollbars).toBe('hidden'));
+
+    // Shown while scrolling: a list scrolled with the wheel shows its bar.
+    await user.click(screen.getByRole('button', { name: /^Scrollbars/ }));
+    await user.click(screen.getByRole('radio', { name: /^Show while scrolling/ }));
+    await vi.waitFor(() =>
+      expect(document.documentElement.dataset.scrollbars).toBe('whileScrolling'),
+    );
+    const main = document.querySelector('main') as HTMLElement;
+    main.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+    main.dispatchEvent(new Event('scroll'));
+    expect(main).toHaveAttribute('data-scrollbar', 'shown');
   });
 });

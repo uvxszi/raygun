@@ -35,6 +35,6 @@ export const shownCredits = (
   return names.length > 0 ? [{ role: performedBy, names }] : [];
 };
 
-/** "Detroit · 1954–": where an artist is from and when they were active. */
+/** "Detroit · 1954", "Detroit · 1954–1970": where an artist is from and when they were active. */
 export const artistFacts = (info: ArtistInfo | null | undefined) =>
   [info?.origin, info?.active].filter(Boolean).join(' · ');
