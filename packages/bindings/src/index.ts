@@ -1100,7 +1100,7 @@ export const commands = {
 	 *  Reads a chapter aloud sentence by sentence, replacing anything being read. Progress arrives
 	 *  as `TtsEvent`s.
 	 */
-	ttsSpeak: (request: TtsRequest) => typedError<null, string>(__TAURI_INVOKE("tts_speak", { request })),
+	ttsSpeak: (request: TtsRequest_Deserialize) => typedError<null, string>(__TAURI_INVOKE("tts_speak", { request })),
 	/**  Pauses reading aloud on the sentence (and word) being read. */
 	ttsPause: () => typedError<null, string>(__TAURI_INVOKE("tts_pause")),
 	/**  Goes on reading from where it paused. */
@@ -1116,9 +1116,15 @@ export const commands = {
 	start: number,
 	end: number,
 	notice: TtsNotice | null,
+	/**  The language the book is read in (BCP 47), when known. */
+	language?: string | null,
 } | null>("tts_now"),
 	/**  The voices this device can download to read aloud with. */
 	ttsVoices: () => __TAURI_INVOKE<TtsVoices>("tts_voices"),
+	/**  The language a book is read aloud in: the one chosen for it, and the one it says it's in. */
+	ttsLanguage: (titleId: string) => __TAURI_INVOKE<TtsLanguage>("tts_language", { titleId }),
+	/**  Reads a book aloud in `language` (none: its own); a reading of it goes on in it at once. */
+	ttsSetLanguage: (titleId: string, language: string | null) => typedError<null, string>(__TAURI_INVOKE("tts_set_language", { titleId, language })),
 	/**
 	 *  Reads a sample sentence with a downloaded voice (`key`, `<model>/<voice>`) or, without one,
 	 *  the device's own voice in `language`, at the reading speed and pitch.
@@ -1924,10 +1930,10 @@ export const events = {
 	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
 	sourcesSetupEvent: makeEvent<SourcesSetupEvent>("sources-setup-event"),
-	speechCommandEvent: makeEvent<SpeechCommandEvent>("speech-command-event"),
+	speechCommandEvent: makeEvent<SpeechCommandEvent_Deserialize>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
 	trackDurationsEvent: makeEvent<TrackDurationsEvent>("track-durations-event"),
-	ttsEvent: makeEvent<TtsEvent>("tts-event"),
+	ttsEvent: makeEvent<TtsEvent_Deserialize>("tts-event"),
 	unavailableEvent: makeEvent<UnavailableEvent>("unavailable-event"),
 	videoDownloadsEvent: makeEvent<VideoDownloadsEvent>("video-downloads-event"),
 	videoPlayerEvent: makeEvent<VideoPlayerEvent>("video-player-event"),
@@ -5759,7 +5765,10 @@ export type ReadAloudEngine =
 /**  Kokoro's voices, downloaded to this device. */
 "kokoro";
 
-/**  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). */
+/**
+ *  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). Set in
+ *  Settings → AI → Reading aloud and in the reader's options.
+ */
 export type ReadAloudPrefs = {
 	engine?: ReadAloudEngine,
 	/**
@@ -5769,6 +5778,16 @@ export type ReadAloudPrefs = {
 	voices?: { [key in string]: string },
 	/**  Pitch in tenths, 5–20 (0.5–2). */
 	pitch?: number,
+	/**  Volume in percent, within [`READ_ALOUD_VOLUMES`]. */
+	volume?: number,
+	/**  Long passages clearly in another language than the book's are read in that language. */
+	detectLanguages?: boolean,
+	/**  Roman numerals in titles ("Chapter IV", a heading "II.") are read as numbers. */
+	romanTitles?: boolean,
+	/**  Also wherever one is clearly a numeral ("Henry VIII", "World War II"). */
+	romanEverywhere?: boolean,
+	/**  Numbered titles as ordinals ("Chapter the fourth"). */
+	romanOrdinals?: boolean,
 };
 
 /**  What an AI layer in a reader does. */
@@ -6834,27 +6853,68 @@ export type SourceSetup = {
 export type SourcesSetupEvent = SourceSetup[];
 
 /**  What the webview's speech engine does on desktop (M46.6). */
-export type SpeechCommand = 
+export type SpeechCommand = SpeechCommand_Serialize | SpeechCommand_Deserialize;
+
+/**  What the webview's speech engine should do (read-aloud on desktop, M46.6). */
+export type SpeechCommandEvent = SpeechCommandEvent_Serialize | SpeechCommandEvent_Deserialize;
+
+/**  What the webview's speech engine should do (read-aloud on desktop, M46.6). */
+export type SpeechCommandEvent_Deserialize = SpeechCommand_Deserialize;
+
+/**  What the webview's speech engine should do (read-aloud on desktop, M46.6). */
+export type SpeechCommandEvent_Serialize = SpeechCommand_Serialize;
+
+/**  What the webview's speech engine does on desktop (M46.6). */
+export type SpeechCommand_Deserialize = 
 /**
- *  Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal),
- *  in `language` when it has a voice for it, after stopping anything playing.
+ *  Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal) and
+ *  `volume` (0–1), in `language` when it has a voice for it, after stopping anything playing.
  */
-{ type: "speak"; items: SpeechLine[]; rate: number | null; pitch: number | null; language: string | null } | 
+({ type: "speak"; items: SpeechLine_Deserialize[]; rate: number | null; pitch: number | null; volume: number | null; language: string | null }) & { id?: never; last?: never; pcm?: never; sampleRate?: never } | 
+/**  The clips' volume (0–1), at once. */
+({ type: "volume"; volume: number | null }) & { id?: never; items?: never; language?: never; last?: never; pcm?: never; pitch?: never; rate?: never; sampleRate?: never } | 
 /**
  *  Plays speech a downloaded voice made after the clips before it: 16-bit mono PCM as
  *  base64. `id` comes back in reports as it starts.
  */
-{ type: "clip"; id: string; sampleRate: number; pcm: string; last: boolean } | 
+({ type: "clip"; id: string; sampleRate: number; pcm: string; last: boolean }) & { items?: never; language?: never; pitch?: never; rate?: never; volume?: never } | 
 /**  Holds the clips where they are, and goes on. */
-{ type: "pause" } | { type: "resume" } | { type: "stop" };
+({ type: "pause" }) & { id?: never; items?: never; language?: never; last?: never; pcm?: never; pitch?: never; rate?: never; sampleRate?: never; volume?: never } | ({ type: "resume" }) & { id?: never; items?: never; language?: never; last?: never; pcm?: never; pitch?: never; rate?: never; sampleRate?: never; volume?: never } | ({ type: "stop" }) & { id?: never; items?: never; language?: never; last?: never; pcm?: never; pitch?: never; rate?: never; sampleRate?: never; volume?: never };
 
-/**  What the webview's speech engine should do (read-aloud on desktop, M46.6). */
-export type SpeechCommandEvent = SpeechCommand;
+/**  What the webview's speech engine does on desktop (M46.6). */
+export type SpeechCommand_Serialize = 
+/**
+ *  Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal) and
+ *  `volume` (0–1), in `language` when it has a voice for it, after stopping anything playing.
+ */
+({ type: "speak"; items: SpeechLine_Serialize[]; rate: number | null; pitch: number | null; volume: number | null; language: string | null }) & { id?: never; last?: never; pcm?: never; sampleRate?: never } | 
+/**  The clips' volume (0–1), at once. */
+({ type: "volume"; volume: number | null }) & { id?: never; items?: never; language?: never; last?: never; pcm?: never; pitch?: never; rate?: never; sampleRate?: never } | 
+/**
+ *  Plays speech a downloaded voice made after the clips before it: 16-bit mono PCM as
+ *  base64. `id` comes back in reports as it starts.
+ */
+({ type: "clip"; id: string; sampleRate: number; pcm: string; last: boolean }) & { items?: never; language?: never; pitch?: never; rate?: never; volume?: never } | 
+/**  Holds the clips where they are, and goes on. */
+({ type: "pause" }) & { id?: never; items?: never; language?: never; last?: never; pcm?: never; pitch?: never; rate?: never; sampleRate?: never; volume?: never } | ({ type: "resume" }) & { id?: never; items?: never; language?: never; last?: never; pcm?: never; pitch?: never; rate?: never; sampleRate?: never; volume?: never } | ({ type: "stop" }) & { id?: never; items?: never; language?: never; last?: never; pcm?: never; pitch?: never; rate?: never; sampleRate?: never; volume?: never };
 
 /**  One piece for a speech engine: `id` names it in reports (`:end` on the very last one). */
-export type SpeechLine = {
+export type SpeechLine = SpeechLine_Serialize | SpeechLine_Deserialize;
+
+/**  One piece for a speech engine: `id` names it in reports (`:end` on the very last one). */
+export type SpeechLine_Deserialize = {
 	id: string,
 	text: string,
+	/**  A passage in another language than the rest (BCP 47). */
+	language?: string | null,
+};
+
+/**  One piece for a speech engine: `id` names it in reports (`:end` on the very last one). */
+export type SpeechLine_Serialize = {
+	id: string,
+	text: string,
+	/**  A passage in another language than the rest (BCP 47). */
+	language?: string | null,
 };
 
 /**  What a queue item is when it's spoken word: a podcast episode or a book's chapter (M46.32). */
@@ -7729,41 +7789,112 @@ export type TranslateChoice = {
 };
 
 /**  Progress reading a chapter aloud (M33). */
-export type TtsEvent = TtsUpdate;
+export type TtsEvent = TtsEvent_Serialize | TtsEvent_Deserialize;
+
+/**  Progress reading a chapter aloud (M33). */
+export type TtsEvent_Deserialize = TtsUpdate_Deserialize;
+
+/**  Progress reading a chapter aloud (M33). */
+export type TtsEvent_Serialize = TtsUpdate_Serialize;
+
+/**  The language a book is read aloud in (the reader's options). */
+export type TtsLanguage = {
+	/**  Chosen for the book (BCP 47); none: Auto. */
+	chosen: string | null,
+	/**  The language the book says it's in (its EPUB's, or its source's), which Auto reads in. */
+	book: string | null,
+};
 
 /**  Why reading aloud uses another voice than the one set, or stopped. */
 export type TtsNotice = 
 /**  No downloaded voice speaks the book's language: the device's own voice reads it. */
 { kind: "noVoice"; language: string | null } | 
+/**  No voice here speaks `language` (the book's, or a passage's): another voice reads it. */
+{ kind: "otherVoice"; language: string | null } | 
 /**  The downloaded voice couldn't be used: the device's own voice reads it. */
 { kind: "voiceFailed" } | 
 /**  The voice engine stopped (no voice for the language, or it was taken away). */
 { kind: "engineFailed" };
 
 /**  One paragraph to read aloud; `id` is the block's index in the chapter. */
-export type TtsParagraph = {
+export type TtsParagraph = TtsParagraph_Serialize | TtsParagraph_Deserialize;
+
+/**  One paragraph to read aloud; `id` is the block's index in the chapter. */
+export type TtsParagraph_Deserialize = {
 	id: number,
 	text: string,
+	/**  A title (a heading block): Roman numerals heading it are read as numbers. */
+	heading?: boolean,
 };
 
-/**  What reading aloud is asked to read (`tts_speak`). */
-export type TtsRequest = {
+/**  One paragraph to read aloud; `id` is the block's index in the chapter. */
+export type TtsParagraph_Serialize = {
+	id: number,
+	text: string,
+	/**  A title (a heading block): Roman numerals heading it are read as numbers. */
+	heading?: boolean,
+};
+
+/**
+ *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
+ *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ */
+export type TtsRequest = TtsRequest_Serialize | TtsRequest_Deserialize;
+
+/**
+ *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
+ *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ */
+export type TtsRequest_Deserialize = {
 	/**  The chapter read: reports name it, and where reading stopped is kept for it. */
 	chapterId: string,
+	/**  The book: the language chosen for it (`tts_set_language`), else the one it says it's in. */
+	titleId?: string,
 	/**  The book's and the chapter's names, for the notification. */
 	title: string,
 	chapter: string,
 	/**  The chapter's paragraphs, as speech gets them. */
-	paragraphs: TtsParagraph[],
+	paragraphs: TtsParagraph_Deserialize[],
 	/**  The paragraph reading starts from. */
 	from: number,
+	/**
+	 *  Where in paragraph `from` reading starts (UTF-16, a tap or a selection): from the
+	 *  sentence holding it.
+	 */
+	offset?: number | null,
 	/**
 	 *  Started by the Read aloud button: where this chapter was left aloud, when it's around
 	 *  `from`, goes on from its sentence (and word) instead.
 	 */
 	resume: boolean,
-	/**  Speed, 1 = normal. */
-	rate: number | null,
+};
+
+/**
+ *  What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
+ *  settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
+ */
+export type TtsRequest_Serialize = {
+	/**  The chapter read: reports name it, and where reading stopped is kept for it. */
+	chapterId: string,
+	/**  The book: the language chosen for it (`tts_set_language`), else the one it says it's in. */
+	titleId: string,
+	/**  The book's and the chapter's names, for the notification. */
+	title: string,
+	chapter: string,
+	/**  The chapter's paragraphs, as speech gets them. */
+	paragraphs: TtsParagraph_Serialize[],
+	/**  The paragraph reading starts from. */
+	from: number,
+	/**
+	 *  Where in paragraph `from` reading starts (UTF-16, a tap or a selection): from the
+	 *  sentence holding it.
+	 */
+	offset: number | null,
+	/**
+	 *  Started by the Read aloud button: where this chapter was left aloud, when it's around
+	 *  `from`, goes on from its sentence (and word) instead.
+	 */
+	resume: boolean,
 };
 
 export type TtsState = 
@@ -7776,7 +7907,9 @@ export type TtsState =
 /**  Stopped (from the reader, the notification or a headset). */
 "stopped" | "error";
 
-export type TtsUpdate = {
+export type TtsUpdate = TtsUpdate_Serialize | TtsUpdate_Deserialize;
+
+export type TtsUpdate_Deserialize = {
 	state: TtsState,
 	chapterId: string,
 	paragraph: number,
@@ -7784,6 +7917,20 @@ export type TtsUpdate = {
 	start: number,
 	end: number,
 	notice: TtsNotice | null,
+	/**  The language the book is read in (BCP 47), when known. */
+	language?: string | null,
+};
+
+export type TtsUpdate_Serialize = {
+	state: TtsState,
+	chapterId: string,
+	paragraph: number,
+	/**  The sentence being read, as UTF-16 offsets into the paragraph's text. */
+	start: number,
+	end: number,
+	notice: TtsNotice | null,
+	/**  The language the book is read in (BCP 47), when known. */
+	language?: string | null,
 };
 
 /**  A downloaded-voice model's voice, as Settings lists it. */

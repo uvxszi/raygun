@@ -12,6 +12,7 @@ const { commands } = bindingsMock;
 class FakeUtterance {
   rate = 1;
   pitch = 1;
+  volume = 1;
   lang = '';
   voice: unknown = null;
   onstart: (() => void) | null = null;
@@ -50,10 +51,21 @@ class FakeSource {
 
 const sources: FakeSource[] = [];
 
+class FakeGain {
+  gain = { value: 1 };
+  connect = vi.fn();
+}
+
 class FakeContext {
   destination = {};
+  gains: FakeGain[] = [];
   suspend = vi.fn(async () => {});
   resume = vi.fn(async () => {});
+  createGain = () => {
+    const gain = new FakeGain();
+    this.gains.push(gain);
+    return gain;
+  };
   createBuffer = (_channels: number, length: number, sampleRate: number) => {
     const samples = new Float32Array(length);
     return { sampleRate, samples, copyToChannel: (data: Float32Array) => samples.set(data) };
@@ -106,18 +118,18 @@ describe('Read-aloud on desktop', () => {
       type: 'speak',
       rate: 1.25,
       pitch: 0.9,
+      volume: 0.6,
       language: 'de',
       items: [
         { id: '4:0', text: 'Kapitel eins.' },
-        { id: '4:3:end', text: 'Die letzte Zeile.' },
+        { id: '4:3:end', text: 'The last line.', language: 'en' },
       ],
     });
     expect(synth.cancel).toHaveBeenCalled();
-    expect(spoken.map((utterance) => utterance.text)).toEqual([
-      'Kapitel eins.',
-      'Die letzte Zeile.',
-    ]);
-    expect(spoken[0]).toMatchObject({ rate: 1.25, pitch: 0.9, lang: 'de-DE' });
+    expect(spoken.map((utterance) => utterance.text)).toEqual(['Kapitel eins.', 'The last line.']);
+    expect(spoken[0]).toMatchObject({ rate: 1.25, pitch: 0.9, volume: 0.6, lang: 'de-DE' });
+    // A passage in another language is read by a voice of its own.
+    expect(spoken[1]).toMatchObject({ volume: 0.6, lang: 'en-US' });
 
     spoken[0]!.onstart?.();
     spoken[0]!.onboundary?.({ name: 'word', charIndex: 8, charLength: 4 });
@@ -163,6 +175,11 @@ describe('Read-aloud on desktop', () => {
 
     // The player's own audio context (the music engine has its own) is held and let go.
     const context = sources[0]!.owner;
+    // Its volume turns at once, the clip playing included.
+    const [gain] = context.gains;
+    expect(sources[0]!.connect).toHaveBeenCalledWith(gain);
+    emitEvent('speechCommandEvent', { type: 'volume', volume: 0.4 });
+    expect(gain!.gain.value).toBe(0.4);
     emitEvent('speechCommandEvent', { type: 'pause' });
     expect(context.suspend).toHaveBeenCalled();
     context.resume.mockClear();

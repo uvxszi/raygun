@@ -675,6 +675,8 @@ export const bindingsMock = {
     ttsStep: vi.fn(),
     ttsNow: vi.fn(),
     ttsVoices: vi.fn(),
+    ttsLanguage: vi.fn(),
+    ttsSetLanguage: vi.fn(),
     ttsPreview: vi.fn(),
     ttsStop: vi.fn(),
     aiProviders: vi.fn(),
@@ -1549,6 +1551,8 @@ export const seedBindings = () => {
   commands.ttsStep.mockResolvedValue(ok(null));
   commands.ttsNow.mockResolvedValue(null);
   commands.ttsVoices.mockResolvedValue({ runtimeId: null, voices: [] });
+  commands.ttsLanguage.mockResolvedValue({ chosen: null, book: null });
+  commands.ttsSetLanguage.mockResolvedValue(ok(null));
   commands.ttsPreview.mockResolvedValue(ok(null));
   commands.ttsStop.mockResolvedValue(ok(null));
   commands.aiProviders.mockResolvedValue(ok([]));

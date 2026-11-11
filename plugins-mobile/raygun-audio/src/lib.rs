@@ -191,11 +191,14 @@ fn deliver_tts(json: String) {
     }
 }
 
-/// One piece of text to read aloud; `id` comes back in progress reports.
+/// One piece of text to read aloud; `id` comes back in progress reports. `language` (BCP 47)
+/// marks a passage in another language than the rest.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SpeechItem {
     pub id: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 /// Installs the receiver for engine reports (JSON in the `EngineReport` shape). It is called on
@@ -963,14 +966,15 @@ impl<R: Runtime> NativeAudio<R> {
         false
     }
 
-    /// Replaces what is being read with `items`, at `rate` and `pitch` (1 = normal), in
-    /// `language` (a BCP 47 tag) when the phone has a voice for it.
+    /// Replaces what is being read with `items`, at `rate` and `pitch` (1 = normal) and `volume`
+    /// (0–1), in `language` (a BCP 47 tag) when the phone has a voice for it.
     #[cfg(target_os = "android")]
     pub fn tts_speak(
         &self,
         items: &[SpeechItem],
         rate: f64,
         pitch: f64,
+        volume: f64,
         language: Option<&str>,
     ) -> Result<(), String> {
         self.run::<serde_json::Value>(
@@ -979,6 +983,7 @@ impl<R: Runtime> NativeAudio<R> {
                 "items": items,
                 "rate": rate,
                 "pitch": pitch,
+                "volume": volume,
                 "language": language.unwrap_or_default(),
             }),
         )
@@ -992,14 +997,15 @@ impl<R: Runtime> NativeAudio<R> {
         _items: &[SpeechItem],
         _rate: f64,
         _pitch: f64,
+        _volume: f64,
         _language: Option<&str>,
     ) -> Result<(), String> {
         Err("text-to-speech is only available on Android".into())
     }
 
     /// Reading aloud's other commands (`ttsClip`, `ttsClipPause`, `ttsClipResume`,
-    /// `ttsClipStop`, `ttsNotice`, `ttsNoticeEnd`): the player of downloaded voices' speech and
-    /// the notification with its controls.
+    /// `ttsClipStop`, `ttsClipVolume`, `ttsNotice`, `ttsNoticeEnd`): the player of downloaded
+    /// voices' speech and the notification with its controls.
     #[cfg(target_os = "android")]
     pub fn tts(&self, command: &str, payload: serde_json::Value) -> Result<(), String> {
         debug_assert!(
@@ -1154,6 +1160,7 @@ mod tests {
             "ttsClipPause",
             "ttsClipResume",
             "ttsClipStop",
+            "ttsClipVolume",
             "ttsNotice",
             "ttsNoticeEnd",
         ];

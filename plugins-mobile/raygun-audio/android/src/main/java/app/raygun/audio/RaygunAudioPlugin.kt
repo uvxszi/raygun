@@ -163,6 +163,8 @@ class HoldArgs {
 class SpeechItem {
     var id: String = ""
     var text: String = ""
+    /** A passage in another language than the book's (BCP 47), or null. */
+    var language: String? = null
 }
 
 @InvokeArg
@@ -170,8 +172,16 @@ class SpeakArgs {
     var items: List<SpeechItem> = emptyList()
     var rate: Double = 1.0
     var pitch: Double = 1.0
+    /** 0–1. */
+    var volume: Double = 1.0
     /** The book's language (BCP 47), or empty. */
     var language: String = ""
+}
+
+@InvokeArg
+class ClipVolumeArgs {
+    /** 0–1. */
+    var volume: Double = 1.0
 }
 
 /** Speech a downloaded voice made: 16-bit mono PCM as base64. */
@@ -883,8 +893,15 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     fun ttsSpeak(invoke: Invoke) {
         val args = invoke.parseArgs(SpeakArgs::class.java)
         speech.whenReady { available ->
-            val items = args.items.map { it.id to it.text }
-            if (available && speech.speak(items, args.rate.toFloat(), args.pitch.toFloat(), args.language)) {
+            val items = args.items.map { Speech.Item(it.id, it.text, it.language) }
+            val spoken = available && speech.speak(
+                items,
+                args.rate.toFloat(),
+                args.pitch.toFloat(),
+                args.volume.toFloat(),
+                args.language,
+            )
+            if (spoken) {
                 invoke.resolve()
             } else {
                 invoke.reject("Text-to-speech isn't available")
@@ -925,6 +942,14 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     @Command
     fun ttsClipStop(invoke: Invoke) {
         speechClips.stop()
+        invoke.resolve()
+    }
+
+    /** The clips' volume, at once (the clips playing and those to come). */
+    @Command
+    fun ttsClipVolume(invoke: Invoke) {
+        val args = invoke.parseArgs(ClipVolumeArgs::class.java)
+        speechClips.setVolume(args.volume.toFloat())
         invoke.resolve()
     }
 

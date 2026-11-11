@@ -3994,6 +3994,24 @@ pub fn tts_voices() -> raygun_model::TtsVoices {
     crate::tts::voice_list()
 }
 
+/// The language a book is read aloud in: the one chosen for it, and the one it says it's in.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_language(app: tauri::AppHandle, title_id: String) -> raygun_model::TtsLanguage {
+    crate::tts::language_of(&app, &title_id).await
+}
+
+/// Reads a book aloud in `language` (none: its own); a reading of it goes on in it at once.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_set_language(
+    app: tauri::AppHandle,
+    title_id: String,
+    language: Option<String>,
+) -> Result<(), String> {
+    crate::tts::set_language(&app, &title_id, language).await
+}
+
 /// Reads a sample sentence with a downloaded voice (`key`, `<model>/<voice>`) or, without one,
 /// the device's own voice in `language`, at the reading speed and pitch.
 #[tauri::command]

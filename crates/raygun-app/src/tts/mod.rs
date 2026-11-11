@@ -6,18 +6,27 @@
 //! paragraphs, the notification's controls (Android's `ReadAloudService`), and the place each
 //! chapter was left, so reading it aloud again goes on from there. Progress reaches the UI as
 //! `TtsEvent`s.
+//!
+//! A book is read in the language chosen for it in the reader, else the one it says it's in (its
+//! EPUB's, its source's), else the one its chapter's text is in; long passages clearly in another
+//! language get that language's voice only when settings ask. Roman numerals in titles are read
+//! as numbers (`raygun_ai::tts::numerals`). Speed, pitch, volume and voice changes apply to the
+//! reading at once ([`settings_changed`]), from the sentence (or word) being read.
 
 mod session;
 mod voices;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use raygun_ai::tts::language;
+use raygun_ai::tts::{language, numerals};
+use raygun_model::{
+    ReadAloudPrefs, TtsLanguage, TtsNotice, TtsParagraph, TtsRequest, TtsState, TtsUpdate,
+    TtsVoice, TtsVoices,
+};
 #[cfg(not(target_os = "android"))]
 use raygun_model::{SpeechCommand, SpeechLine};
-use raygun_model::{TtsNotice, TtsRequest, TtsState, TtsUpdate, TtsVoice, TtsVoices};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_raygun_audio::SpeechItem;
 use tauri_specta::Event;
@@ -31,6 +40,10 @@ use crate::startup::AppDb;
 const MARKS: &str = "reader.readAloud.marks";
 /// How many chapters' places are kept.
 const MARKS_KEPT: usize = 300;
+/// `local_meta` key of the language each book is read in, where one was chosen.
+const LANGUAGES: &str = "reader.readAloud.languages";
+/// How many books' languages are kept.
+const LANGUAGES_KEPT: usize = 1000;
 /// How long the notification waits for the next chapter after one ends, ms.
 const NEXT_CHAPTER_WAIT_MS: u64 = 15_000;
 
@@ -39,11 +52,20 @@ pub struct ReadAloud {
     app: AppHandle,
     state: Mutex<State>,
     /// Engine reports and controls, handled in the order they came.
-    reports: mpsc::UnboundedSender<String>,
+    reports: mpsc::UnboundedSender<Incoming>,
     /// Whether the webview's speech engine can speak (desktop).
     #[cfg_attr(target_os = "android", allow(dead_code))]
     webview_speech: AtomicBool,
     voices: voices::Voices,
+}
+
+/// What the service handles in order.
+enum Incoming {
+    /// An engine's report or a control, as JSON.
+    Report(String),
+    /// Run `run`'s reader changed (the device's voices couldn't read): it starts again from the
+    /// sentence it's at.
+    Restart(u64),
 }
 
 #[derive(Default)]
@@ -52,6 +74,7 @@ struct State {
     run: u64,
     session: Option<Session>,
     marks: Option<BTreeMap<String, Mark>>,
+    languages: Option<BTreeMap<String, String>>,
 }
 
 /// What reads the session.
@@ -63,22 +86,76 @@ enum Reader {
     Model(Box<ModelVoice>),
 }
 
+/// What a session was made with: when settings change, what differs decides whether reading
+/// starts again from where it is.
+#[derive(Debug, Clone, PartialEq)]
+struct Made {
+    prefs: ReadAloudPrefs,
+    /// Speed in tenths.
+    rate: u32,
+    /// The language chosen for the book.
+    chosen: Option<String>,
+}
+
+impl Made {
+    fn of(settings: &raygun_model::Settings, chosen: Option<String>) -> Self {
+        Self {
+            prefs: settings.read_aloud.clone(),
+            rate: settings.novel_reader.tts_rate,
+            chosen,
+        }
+    }
+
+    /// The same, but for the volume (which the clips' player changes as it plays).
+    fn but_volume(&self) -> Self {
+        let mut made = self.clone();
+        made.prefs.volume = 0;
+        made
+    }
+
+    fn rate(&self) -> f64 {
+        f64::from(self.rate.clamp(5, 20)) / 10.0
+    }
+
+    fn pitch(&self) -> f64 {
+        f64::from(self.prefs.pitch.clamp(5, 20)) / 10.0
+    }
+
+    fn volume(&self) -> f64 {
+        f64::from(self.prefs.volume.clamp(10, 100)) / 100.0
+    }
+}
+
+/// What a chapter is read as and with, from the settings and the book's language.
+struct Prepared {
+    items: Vec<Utterance>,
+    language: Option<String>,
+    reader: Reader,
+    /// Downloaded voices for passages in other languages, by language.
+    passages: BTreeMap<String, Box<ModelVoice>>,
+    notice: Option<TtsNotice>,
+    made: Made,
+}
+
 struct Session {
+    title_id: String,
     chapter_id: String,
     title: String,
     chapter: String,
+    /// The chapter as it came, to read it again when settings change.
+    paragraphs: Vec<TtsParagraph>,
     items: Vec<Utterance>,
     /// The sentence being read (or paused on).
     at: usize,
-    /// The word reached in it (UTF-16), as the device's voices report words.
+    /// The word reached in it (UTF-16 in what's spoken), as the device's voices report words.
     word: u32,
     /// The sentence the run now playing started at, and the word its text was cut at.
     cut: (usize, u32),
     paused: bool,
     reader: Reader,
-    rate: f64,
-    pitch: f64,
+    passages: BTreeMap<String, Box<ModelVoice>>,
     language: Option<String>,
+    made: Made,
     notice: Option<TtsNotice>,
     /// A downloaded voice's synthesis, for the run now playing.
     worker: Option<VoiceWorker>,
@@ -96,6 +173,7 @@ impl Session {
             start: item.map_or(0, |item| item.start),
             end: item.map_or(0, |item| item.end),
             notice: self.notice.clone(),
+            language: self.language.clone(),
         }
     }
 
@@ -107,6 +185,36 @@ impl Session {
             word: self.word,
             at: chrono_now(),
         })
+    }
+
+    /// Takes what `prepared` reads with, keeping the place: the same sentence, and the word in
+    /// it while it reads the same.
+    fn take(&mut self, prepared: Prepared) {
+        let place = self
+            .items
+            .get(self.at)
+            .map(|item| (item.paragraph, item.start, item.spoken.clone()));
+        let at = place
+            .as_ref()
+            .and_then(|(paragraph, start, _)| {
+                prepared
+                    .items
+                    .iter()
+                    .position(|item| item.paragraph == *paragraph && item.start == *start)
+            })
+            .unwrap_or(self.at)
+            .min(prepared.items.len().saturating_sub(1));
+        let same_words = place.as_ref().map(|(_, _, spoken)| spoken.as_str())
+            == prepared.items.get(at).map(|item| item.spoken.as_str());
+        self.word = if same_words { self.word } else { 0 };
+        self.at = at;
+        self.cut = (at, self.word);
+        self.items = prepared.items;
+        self.reader = prepared.reader;
+        self.passages = prepared.passages;
+        self.language = prepared.language;
+        self.notice = prepared.notice;
+        self.made = prepared.made;
     }
 }
 
@@ -125,7 +233,7 @@ fn service(app: &AppHandle) -> Option<Arc<ReadAloud>> {
 /// Starts the service: engine reports (Android's over JNI, the webview's through `tts_report`)
 /// are handled in order.
 pub fn install(app: &AppHandle) {
-    let (sender, mut receiver) = mpsc::unbounded_channel::<String>();
+    let (sender, mut receiver) = mpsc::unbounded_channel::<Incoming>();
     let service = Arc::new(ReadAloud {
         app: app.clone(),
         state: Mutex::new(State::default()),
@@ -135,9 +243,14 @@ pub fn install(app: &AppHandle) {
     });
     app.manage(service.clone());
     tauri::async_runtime::spawn(async move {
-        while let Some(json) = receiver.recv().await {
-            if let Some(report) = session::parse_report(&json) {
-                service.handle(report).await;
+        while let Some(incoming) = receiver.recv().await {
+            match incoming {
+                Incoming::Report(json) => {
+                    if let Some(report) = session::parse_report(&json) {
+                        service.handle(report).await;
+                    }
+                }
+                Incoming::Restart(run) => service.restart(run).await,
             }
         }
     });
@@ -151,7 +264,7 @@ pub fn install(app: &AppHandle) {
 /// A report from an engine, or a control from the notification.
 pub fn report(app: &AppHandle, json: &str) {
     if let Some(service) = service(app) {
-        let _ = service.reports.send(json.to_owned());
+        let _ = service.reports.send(Incoming::Report(json.to_owned()));
     }
 }
 
@@ -164,9 +277,11 @@ pub fn set_available(app: &AppHandle, available: bool) {
 
 /// Whether books can be read aloud here: by the device's voices, or a downloaded one.
 pub async fn available(app: &AppHandle) -> bool {
-    if voices::usable(app).await {
-        return true;
-    }
+    voices::usable(app).await || system_available(app).await
+}
+
+/// Whether the device's own voices can read.
+async fn system_available(app: &AppHandle) -> bool {
     #[cfg(target_os = "android")]
     {
         let app = app.clone();
@@ -212,6 +327,50 @@ pub async fn stop(app: &AppHandle) -> Result<(), String> {
     if let Some(service) = service(app) {
         service.stop(false).await;
     }
+    Ok(())
+}
+
+/// Settings changed: what's being read goes on with them, from where it is.
+pub async fn settings_changed(app: &AppHandle) {
+    if let Some(service) = service(app) {
+        service.refresh().await;
+    }
+}
+
+/// The language `title_id` is read in: the one chosen for it, and the one it says it's in.
+pub async fn language_of(app: &AppHandle, title_id: &str) -> TtsLanguage {
+    let Some(service) = service(app) else {
+        return TtsLanguage {
+            chosen: None,
+            book: None,
+        };
+    };
+    TtsLanguage {
+        chosen: service.chosen_language(title_id).await,
+        book: service.stated_language(title_id).await,
+    }
+}
+
+/// Reads `title_id` in `language` from now on (none: the book's own); a reading of it goes on
+/// in it at once.
+pub async fn set_language(
+    app: &AppHandle,
+    title_id: &str,
+    language: Option<String>,
+) -> Result<(), String> {
+    let language = language.filter(|tag| !tag.is_empty());
+    if let Some(tag) = &language {
+        let well_formed = (2..=35).contains(&tag.len())
+            && tag
+                .split('-')
+                .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric()));
+        if !well_formed {
+            return Err(format!("\"{tag}\" is not a language tag"));
+        }
+    }
+    let service = service(app).ok_or("Reading aloud isn't ready")?;
+    service.keep_language(title_id, language).await;
+    service.refresh().await;
     Ok(())
 }
 
@@ -315,12 +474,135 @@ impl ReadAloud {
         });
     }
 
+    /// The languages chosen for books, by title.
+    async fn languages(&self) -> BTreeMap<String, String> {
+        if let Some(languages) = &self
+            .state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .languages
+        {
+            return languages.clone();
+        }
+        let db = self.app.state::<AppDb>().0.clone();
+        let loaded: BTreeMap<String, String> = raygun_db::local_value(&db, LANGUAGES)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.languages.get_or_insert(loaded).clone()
+    }
+
+    async fn chosen_language(&self, title_id: &str) -> Option<String> {
+        if title_id.is_empty() {
+            return None;
+        }
+        self.languages().await.get(title_id).cloned()
+    }
+
+    async fn keep_language(&self, title_id: &str, language: Option<String>) {
+        self.languages().await;
+        let text = {
+            let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            let languages = state.languages.get_or_insert_with(BTreeMap::new);
+            match language {
+                Some(language) => {
+                    languages.insert(title_id.to_owned(), language);
+                }
+                None => {
+                    languages.remove(title_id);
+                }
+            }
+            // Old choices go first when there are too many (titles' ids sort by when they were
+            // made, UUIDv7).
+            while languages.len() > LANGUAGES_KEPT {
+                languages.pop_first();
+            }
+            serde_json::to_string(languages).unwrap_or_default()
+        };
+        let db = self.app.state::<AppDb>().0.clone();
+        let _ = raygun_db::set_local_value(&db, LANGUAGES, &text).await;
+    }
+
+    /// The language the book says it's in: its EPUB's, or its source's.
+    async fn stated_language(&self, title_id: &str) -> Option<String> {
+        if title_id.is_empty() {
+            return None;
+        }
+        let dictionary = self
+            .app
+            .try_state::<crate::dictionary::DictionaryService>()?;
+        dictionary.book_language(title_id).await
+    }
+
+    /// What `paragraphs` of `title_id` are read as and with, by the settings now.
+    async fn prepare(&self, title_id: &str, paragraphs: &[TtsParagraph]) -> Prepared {
+        let settings = self.settings().await;
+        let chosen = self.chosen_language(title_id).await;
+        let made = Made::of(&settings, chosen.clone());
+        let language = match chosen {
+            Some(chosen) => Some(chosen),
+            None => match self.stated_language(title_id).await {
+                Some(stated) => Some(stated),
+                None => language::guess(&session::language_sample(paragraphs)).map(str::to_owned),
+            },
+        };
+        let prefs = &made.prefs;
+        // Everywhere and ordinals go with titles (the reader's options turn them off together).
+        let rules = numerals::Rules {
+            titles: prefs.roman_titles,
+            everywhere: prefs.roman_titles && prefs.roman_everywhere,
+            ordinals: prefs.roman_ordinals,
+        };
+        let items = session::utterances(
+            paragraphs,
+            &session::Reading {
+                language: language.as_deref(),
+                detect_languages: prefs.detect_languages,
+                rules,
+            },
+        );
+        let system = system_available(&self.app).await;
+        let (reader, mut notice) = voices::choose(&self.app, prefs, language.as_deref(), system);
+        let mut passages = BTreeMap::new();
+        if let Reader::Model(voice) = &reader {
+            let others: BTreeSet<&String> = items
+                .iter()
+                .filter_map(|item| item.language.as_ref())
+                .collect();
+            for other in others {
+                match voices::passage_voice(&self.app, prefs, voice, other) {
+                    Some(passage) => {
+                        passages.insert(other.clone(), Box::new(passage));
+                    }
+                    // The book's voice reads it.
+                    None if notice.is_none() => {
+                        notice = Some(TtsNotice::OtherVoice {
+                            language: Some(other.clone()),
+                        });
+                    }
+                    None => {}
+                }
+            }
+        }
+        Prepared {
+            items,
+            language,
+            reader,
+            passages,
+            notice,
+            made,
+        }
+    }
+
     async fn speak(self: &Arc<Self>, request: TtsRequest) -> Result<(), String> {
-        let items = session::utterances(&request.paragraphs);
-        if items.is_empty() {
+        let prepared = self.prepare(&request.title_id, &request.paragraphs).await;
+        if prepared.items.is_empty() {
             return Err("There is nothing to read".into());
         }
-        // The chapter being read now (a new speed, say) goes on from the sentence it's at; else
+        // The chapter being read now (opened again, say) goes on from the sentence it's at; else
         // from where it was left aloud.
         let live = {
             let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
@@ -332,18 +614,14 @@ impl ReadAloud {
         };
         let marks = self.marks().await;
         let mark = live.or_else(|| marks.get(&request.chapter_id).copied());
-        let (at, word) = session::start_point(&items, request.from, request.resume, mark.as_ref())
-            .ok_or("There is nothing to read")?;
-        let settings = self.settings().await;
-        let sample: String = items
-            .iter()
-            .skip(at)
-            .take(40)
-            .map(|item| item.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
-        let language = language::guess(&sample).map(str::to_owned);
-        let (reader, notice) = voices::choose(&self.app, &settings.read_aloud, language.as_deref());
+        let (at, word) = session::start_point(
+            &prepared.items,
+            request.from,
+            request.offset,
+            request.resume,
+            mark.as_ref(),
+        )
+        .ok_or("There is nothing to read")?;
         crate::playback::other_media_started(&self.app).await;
         // Whatever read before stops, whichever voices read it.
         system_stop(&self.app).await;
@@ -358,25 +636,97 @@ impl ReadAloud {
                 worker.cancel();
             }
             state.session = Some(Session {
+                title_id: request.title_id,
                 chapter_id: request.chapter_id,
                 title: request.title,
                 chapter: request.chapter,
-                items,
+                paragraphs: request.paragraphs,
+                items: prepared.items,
                 at,
                 word,
                 cut: (at, word),
                 paused: false,
-                reader,
-                rate: request.rate.clamp(0.5, 2.0),
-                pitch: f64::from(settings.read_aloud.pitch.clamp(5, 20)) / 10.0,
-                language,
-                notice,
+                reader: prepared.reader,
+                passages: prepared.passages,
+                language: prepared.language,
+                made: prepared.made,
+                notice: prepared.notice,
                 worker: None,
                 held: false,
             });
         }
         self.start_run(at, word).await;
         Ok(())
+    }
+
+    /// Settings (or the book's language) changed: reading goes on with them from where it is.
+    /// The volume alone turns the downloaded voices' player at once.
+    async fn refresh(self: &Arc<Self>) {
+        let (title_id, chapter_id, paragraphs, made) = {
+            let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            let Some(session) = state.session.as_ref() else {
+                return;
+            };
+            (
+                session.title_id.clone(),
+                session.chapter_id.clone(),
+                session.paragraphs.clone(),
+                session.made.clone(),
+            )
+        };
+        let settings = self.settings().await;
+        let now = Made::of(&settings, self.chosen_language(&title_id).await);
+        if now == made {
+            return;
+        }
+        if now.but_volume() == made.but_volume() {
+            let model = {
+                let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                let Some(session) = state.session.as_mut() else {
+                    return;
+                };
+                let model = matches!(session.reader, Reader::Model(_));
+                if model {
+                    session.made = now.clone();
+                }
+                model
+            };
+            if model {
+                clips(&self.app, ClipCommand::Volume(now.volume())).await;
+                return;
+            }
+        }
+        let prepared = self.prepare(&title_id, &paragraphs).await;
+        if prepared.items.is_empty() {
+            return;
+        }
+        let restart = {
+            let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            let fresh = state
+                .session
+                .as_ref()
+                .is_some_and(|session| session.chapter_id == chapter_id);
+            if !fresh {
+                return;
+            }
+            state.run += 1;
+            let Some(session) = state.session.as_mut() else {
+                return;
+            };
+            if let Some(worker) = session.worker.take() {
+                worker.cancel();
+            }
+            let old = session.reader.clone();
+            session.take(prepared);
+            session.held = false;
+            (old, (!session.paused).then_some((session.at, session.word)))
+        };
+        let (old, start) = restart;
+        self.stop_engines(&old).await;
+        match start {
+            Some((at, word)) => self.start_run(at, word).await,
+            None => self.emit_now(TtsState::Paused),
+        }
     }
 
     /// Plays the session from sentence `at` (the word `word` in it) as a new run.
@@ -388,6 +738,7 @@ impl ReadAloud {
         self.notify(&plan.title, &plan.chapter, true).await;
         match (&plan.reader, worker) {
             (Reader::Model(voice), Some(worker)) => {
+                clips(&self.app, ClipCommand::Volume(plan.volume)).await;
                 let (service, voice) = (self.clone(), voice.clone());
                 tauri::async_runtime::spawn(async move {
                     service.synthesize(run, voice, plan, worker).await;
@@ -397,7 +748,7 @@ impl ReadAloud {
         }
     }
 
-    /// Has the device's voices read run `run`.
+    /// Has the device's voices read run `run`; when they can't, a downloaded voice reads on.
     async fn speak_system(self: &Arc<Self>, run: u64, plan: Plan) {
         let speech: Vec<SpeechItem> = plan
             .items
@@ -408,18 +759,71 @@ impl ReadAloud {
                 SpeechItem {
                     id: session::item_id(run, index, index == plan.last),
                     text: if offset == 0 {
-                        session::from_word(&item.text, plan.word).0
+                        session::from_word(&item.spoken, plan.word).0
                     } else {
-                        item.text.clone()
+                        item.spoken.clone()
                     },
+                    language: item.language.clone(),
                 }
             })
             .collect();
-        let spoken = system_speak(&self.app, speech, plan.rate, plan.pitch, plan.language).await;
+        let spoken = system_speak(
+            &self.app,
+            speech,
+            plan.rate,
+            plan.pitch,
+            plan.volume,
+            plan.language,
+        )
+        .await;
         if let Err(error) = spoken {
             tracing::warn!(%error, "the device's voices couldn't read aloud");
-            self.fail(run, TtsNotice::EngineFailed).await;
+            if !self.fall_forward(run).await {
+                self.fail(run, TtsNotice::EngineFailed).await;
+            }
         }
+    }
+
+    /// The device's voices couldn't read run `run`: a downloaded voice reads on from the same
+    /// sentence, when there is one (and none failed already). Whether one does.
+    async fn fall_forward(self: &Arc<Self>, run: u64) -> bool {
+        let prefs = self.settings().await.read_aloud;
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        if state.run != run {
+            return true;
+        }
+        let Some(session) = state.session.as_mut() else {
+            return true;
+        };
+        if matches!(session.notice, Some(TtsNotice::VoiceFailed)) {
+            return false;
+        }
+        let Some(voice) = voices::any_voice(&self.app, &prefs, session.language.as_deref()) else {
+            return false;
+        };
+        let speaks = voice.speaks(session.language.as_deref());
+        session.reader = Reader::Model(Box::new(voice));
+        session.notice = (!speaks).then(|| TtsNotice::OtherVoice {
+            language: session.language.clone(),
+        });
+        // Started from the queue: this run's own call can't start the next.
+        let _ = self.reports.send(Incoming::Restart(run));
+        true
+    }
+
+    /// Starts run `run`'s session again from the sentence it's at, when nothing newer started.
+    async fn restart(self: &Arc<Self>, run: u64) {
+        let at = {
+            let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            if state.run != run {
+                return;
+            }
+            match state.session.as_ref() {
+                Some(session) if !session.paused => session.at,
+                _ => return,
+            }
+        };
+        self.start_run(at, 0).await;
     }
 
     /// A new run from sentence `at` (the word `word` in it): what it plays, and for a downloaded
@@ -436,7 +840,7 @@ impl ReadAloud {
         let item = session.items.get(at)?;
         // The device's voices start at the word's start; downloaded ones at the sentence's.
         let word = match session.reader {
-            Reader::System => session::from_word(&item.text, word).1,
+            Reader::System => session::from_word(&item.spoken, word).1,
             Reader::Model(_) => 0,
         };
         session.at = at;
@@ -455,12 +859,14 @@ impl ReadAloud {
         };
         let plan = Plan {
             reader: session.reader.clone(),
+            passages: session.passages.clone(),
             items: session.items[at..].to_vec(),
             first: at,
             last: session.items.len() - 1,
             word,
-            rate: session.rate,
-            pitch: session.pitch,
+            rate: session.made.rate(),
+            pitch: session.made.pitch(),
+            volume: session.made.volume(),
             language: session.language.clone(),
             title: session.title.clone(),
             chapter: session.chapter.clone(),
@@ -757,8 +1163,8 @@ impl ReadAloud {
     ) -> Result<(), String> {
         self.stop(false).await;
         let settings = self.settings().await;
-        let rate = f64::from(settings.novel_reader.tts_rate.clamp(5, 20)) / 10.0;
-        let pitch = f64::from(settings.read_aloud.pitch.clamp(5, 20)) / 10.0;
+        let made = Made::of(&settings, None);
+        let (rate, pitch, volume) = (made.rate(), made.pitch(), made.volume());
         let run = {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             state.run += 1;
@@ -769,13 +1175,15 @@ impl ReadAloud {
             let item = SpeechItem {
                 id: session::item_id(run, 0, true),
                 text,
+                language: None,
             };
-            return system_speak(&self.app, vec![item], rate, pitch, language).await;
+            return system_speak(&self.app, vec![item], rate, pitch, volume, language).await;
         };
         let voice =
             voices::installed_voice(&self.app, &key).ok_or("This voice isn't downloaded")?;
         let text = voices::sample_text(Some(&voice.voice.language)).to_owned();
         clips(&self.app, ClipCommand::Stop).await;
+        clips(&self.app, ClipCommand::Volume(volume)).await;
         let clip = self.voices.speak(&voice, &text, rate, pitch).await;
         self.voices.release_later();
         send_clip(&self.app, &session::item_id(run, 0, true), clip?, true).await
@@ -785,12 +1193,14 @@ impl ReadAloud {
 /// What a run plays.
 struct Plan {
     reader: Reader,
+    passages: BTreeMap<String, Box<ModelVoice>>,
     items: Vec<Utterance>,
     first: usize,
     last: usize,
     word: u32,
     rate: f64,
     pitch: f64,
+    volume: f64,
     language: Option<String>,
     title: String,
     chapter: String,
@@ -811,6 +1221,7 @@ async fn system_speak(
     items: Vec<SpeechItem>,
     rate: f64,
     pitch: f64,
+    volume: f64,
     language: Option<String>,
 ) -> Result<(), String> {
     #[cfg(target_os = "android")]
@@ -819,7 +1230,7 @@ async fn system_speak(
         tauri::async_runtime::spawn_blocking(move || {
             plugin(&app)
                 .ok_or_else(|| "Text-to-speech isn't available".to_owned())?
-                .tts_speak(&items, rate, pitch, language.as_deref())
+                .tts_speak(&items, rate, pitch, volume, language.as_deref())
         })
         .await
         .map_err(|error| error.to_string())?
@@ -837,10 +1248,12 @@ async fn system_speak(
                 .map(|item| SpeechLine {
                     id: item.id,
                     text: item.text,
+                    language: item.language,
                 })
                 .collect(),
             rate,
             pitch,
+            volume,
             language,
         })
         .emit(app)
@@ -868,20 +1281,26 @@ enum ClipCommand {
     Pause,
     Resume,
     Stop,
+    /// 0–1, at once.
+    Volume(f64),
 }
 
-/// Tells the player of downloaded voices' speech to pause, go on or stop. Whether it could.
+/// Tells the player of downloaded voices' speech to pause, go on, stop or change its volume.
+/// Whether it could.
 async fn clips(app: &AppHandle, command: ClipCommand) -> bool {
     #[cfg(target_os = "android")]
     {
-        let name = match command {
-            ClipCommand::Pause => "ttsClipPause",
-            ClipCommand::Resume => "ttsClipResume",
-            ClipCommand::Stop => "ttsClipStop",
+        let (name, payload) = match command {
+            ClipCommand::Pause => ("ttsClipPause", serde_json::json!({})),
+            ClipCommand::Resume => ("ttsClipResume", serde_json::json!({})),
+            ClipCommand::Stop => ("ttsClipStop", serde_json::json!({})),
+            ClipCommand::Volume(volume) => {
+                ("ttsClipVolume", serde_json::json!({ "volume": volume }))
+            }
         };
         let app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            plugin(&app).is_some_and(|engine| engine.tts(name, serde_json::json!({})).is_ok())
+            plugin(&app).is_some_and(|engine| engine.tts(name, payload).is_ok())
         })
         .await
         .unwrap_or(false)
@@ -892,6 +1311,7 @@ async fn clips(app: &AppHandle, command: ClipCommand) -> bool {
             ClipCommand::Pause => SpeechCommand::Pause,
             ClipCommand::Resume => SpeechCommand::Resume,
             ClipCommand::Stop => SpeechCommand::Stop,
+            ClipCommand::Volume(volume) => SpeechCommand::Volume { volume },
         };
         crate::events::SpeechCommandEvent(command).emit(app).is_ok()
     }

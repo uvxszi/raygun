@@ -36,6 +36,8 @@ internal class SpeechClips(private val context: Context) {
     private var generation = 0
     private var writing = false
     private var paused = false
+    /** 0–1, for the track playing and those made later. */
+    private var volume = 1f
     private var track: AudioTrack? = null
     private var trackRate = 0
     private var framesWritten = 0L
@@ -92,6 +94,16 @@ internal class SpeechClips(private val context: Context) {
         }
         lock.notifyAll()
         true
+    }
+
+    /** Plays the clips at [level] (0–1), at once. */
+    fun setVolume(level: Float) = synchronized(lock) {
+        volume = level.coerceIn(0f, 1f)
+        try {
+            track?.setVolume(volume)
+        } catch (_: IllegalStateException) {
+        }
+        Unit
     }
 
     /** Stops and forgets every clip. */
@@ -221,6 +233,7 @@ internal class SpeechClips(private val context: Context) {
                         } catch (_: Exception) {
                         }
                     }
+                    it.setVolume(volume)
                     if (!paused) it.play()
                     track = it
                     trackRate = rate
