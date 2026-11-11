@@ -2126,6 +2126,109 @@ async fn loops_jump_from_lambdas_and_cookies_are_read() {
     assert_eq!(titles, ["A", "B", "token abc, note First words"]);
 }
 
+const COMPRESSED_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixturegzip
+
+import eu.kanade.tachiyomi.source.model.FilterList
+import keiyoushi.source.KeiSource
+
+@Source
+abstract class FixtureGzip : KeiSource() {
+    override val supportsLatest = false
+
+    override val client = network.client.newBuilder()
+        .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("Accept-Encoding", "br, gzip").build()) }
+        .build()
+
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        val document = client.get("$baseUrl/list", Fetch.DOCUMENT).asJsoup()
+        val mangas = document.select(".item").map { element ->
+            SManga.create().apply {
+                title = element.selectFirst("h2")!!.text()
+                url = element.attr("data-url")
+            }
+        }
+        return MangasPage(mangas, false)
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()
+
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage = getPopularManga(page)
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate = SMangaUpdate(manga, emptyList())
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> = emptyList()
+}
+"##;
+
+/// A source asking for compressed answers (`Accept-Encoding: br, gzip`, as Questionable
+/// Content's interceptor does) gets what Raygun reads, unpacked.
+#[tokio::test]
+async fn compressed_answers_a_source_asks_for_are_unpacked() {
+    use axum::http::HeaderMap;
+    use axum::http::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_TYPE};
+    use axum::response::IntoResponse;
+    let app = Router::new().route(
+        "/list",
+        get(|headers: HeaderMap| async move {
+            let accepted = headers
+                .get(ACCEPT_ENCODING)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            if accepted.contains("br") || !accepted.contains("gzip") {
+                return Html("<p>not what was asked</p>").into_response();
+            }
+            let mut packed =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            packed
+                .write_all(br#"<div class="item" data-url="/a"><h2>Packed</h2></div>"#)
+                .unwrap();
+            (
+                [(CONTENT_TYPE, "text/html"), (CONTENT_ENCODING, "gzip")],
+                packed.finish().unwrap(),
+            )
+                .into_response()
+        }),
+    );
+    let address = serve(app);
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturegzip",
+        "https://gzip.example",
+    );
+    let build = "keiyoushi {\n    name = \"Fixture Gzip\"\n    versionCode = 1\n    libVersion = \"1.6\"\n    source {\n        lang = \"en\"\n        baseUrl = \"https://gzip.example\"\n    }\n}\n";
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            build,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturegzip/FixtureGzip.kt",
+                COMPRESSED_SOURCE,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, address).await;
+    let popular = host
+        .manga_list(
+            "mihon.en.fixturegzip/4242",
+            crate::manga::MangaList::Popular,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<&str> = popular
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(titles, ["Packed"]);
+}
+
 const REDIRECTS_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixtureredirects
 
 import eu.kanade.tachiyomi.source.model.FilterList

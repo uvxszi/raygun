@@ -50,6 +50,13 @@
       ['Exception', 'Throwable', 'Error', 'RuntimeException', 'IOException', 'Any'].includes(name)
     )
       return true;
+    // Text that isn't JSON fails as kotlinx's `SerializationException` does (an
+    // `IllegalArgumentException`): `catch (e: SerializationException)` takes it.
+    if (
+      error instanceof SyntaxError &&
+      ['SerializationException', 'JsonDecodingException', 'JsonException'].includes(name)
+    )
+      return true;
     return (
       (error && error.kind === name) ||
       name === 'IllegalStateException' ||
@@ -2144,7 +2151,9 @@
   /// `Owner::name` on one of the runtime's objects: its own function when it has one, else a
   /// member of the first argument (`String::isNotBlank`).
   KT.ref = async (object, name, args) => {
-    if (object && typeof object[name] === 'function') return KT.m(object, name, args);
+    // `Int::toString` is the number's `toString`, not JavaScript's on the `Int` object.
+    if (object && typeof object[name] === 'function' && object[name] !== Object.prototype[name])
+      return KT.m(object, name, args);
     const [receiver, ...rest] = args;
     return KT.member(receiver, name, rest);
   };

@@ -1203,6 +1203,18 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     };
     let mut request = client.request(method.clone(), url);
     for (name, value) in &options.headers {
+        // Compression is the client's to ask for: an extension asking for some (`br, gzip`, as a
+        // browser does) gets what Raygun can read (gzip and deflate), unpacked before it reads it.
+        if name.eq_ignore_ascii_case("accept-encoding") {
+            let wanted = value.to_ascii_lowercase();
+            if ["gzip", "deflate", "br"]
+                .iter()
+                .any(|encoding| wanted.contains(encoding))
+            {
+                request = request.header(reqwest::header::ACCEPT_ENCODING, "gzip, deflate");
+            }
+            continue;
+        }
         request = request.header(name, value);
     }
     if own_agent.is_none() {
@@ -1342,6 +1354,17 @@ async fn exchange(
         }
         body.extend_from_slice(&chunk);
     }
+    // An answer compressed as asked (gzip, deflate) is unpacked, as OkHttp's are.
+    if let Some(encoding) = headers.get("content-encoding").cloned()
+        && let Some(unpacked) = decompressed(&encoding, &body)
+    {
+        if unpacked.len() > MAX_RESPONSE_BYTES {
+            return Err(too_large());
+        }
+        body = unpacked;
+        headers.remove("content-encoding");
+        headers.remove("content-length");
+    }
     // Valid UTF-8 (nearly every page) becomes the string without a copy. Bytes that aren't
     // text are kept as they are when asked for, and spelled out only for a textual answer.
     let (body, bytes) = match String::from_utf8(body) {
@@ -1393,6 +1416,34 @@ fn url_host(address: &str) -> String {
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
         .unwrap_or_else(|| address.to_owned())
+}
+
+/// A gzip or deflate (zlib, or raw as some servers send it) body unpacked, at most a little past
+/// the answer limit; `None` for other encodings or bytes that don't unpack.
+fn decompressed(encoding: &str, body: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let limit = MAX_RESPONSE_BYTES as u64 + 1;
+    let mut out = Vec::new();
+    let read = match encoding.trim().to_ascii_lowercase().as_str() {
+        "gzip" | "x-gzip" => flate2::read::MultiGzDecoder::new(body)
+            .take(limit)
+            .read_to_end(&mut out),
+        "deflate" => {
+            let zlib = flate2::read::ZlibDecoder::new(body)
+                .take(limit)
+                .read_to_end(&mut out);
+            if zlib.is_err() {
+                out.clear();
+                flate2::read::DeflateDecoder::new(body)
+                    .take(limit)
+                    .read_to_end(&mut out)
+            } else {
+                zlib
+            }
+        }
+        _ => return None,
+    };
+    read.ok().map(|_| out)
 }
 
 /// Whether a `Content-Type` names text (a page, JSON, a script), which is read as such even when
