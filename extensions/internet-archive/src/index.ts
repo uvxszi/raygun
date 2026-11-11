@@ -1,11 +1,13 @@
 // Internet Archive audio search: finds audio items with the advanced-search API, reads each hit's
-// file list in parallel and returns its MP3s as directly playable tracks. Only netlabel releases
-// and Musopen's recordings that carry a public-domain mark or a Creative Commons licence are
-// searched or played. Films are in `films.ts`.
+// file list in parallel and returns its MP3s as directly playable tracks. Only netlabel releases,
+// Musopen's recordings and the Free Music Archive's albums that carry a public-domain mark or a
+// Creative Commons licence are searched or played. Films are in `films.ts`, MIT OpenCourseWare's
+// lectures in `lectures.ts`.
 import { defineProvider, fetchJson, registerProvider } from '@raygun/sdk';
 import type { Track } from '@raygun/sdk';
 
 import { films } from './films';
+import { lectures } from './lectures';
 
 const API = 'https://archive.org';
 /** A public-domain mark or dedication, or a Creative Commons licence. */
@@ -13,13 +15,14 @@ const OPEN_LICENCE = /creativecommons\.org|publicdomain/i;
 /** The Great 78 Project's transfers, whose rights are disputed. */
 const LEFT_OUT = ['78rpm', 'georgeblood'];
 /**
- * The search terms for the audio songs come from: netlabel releases and Musopen's recordings
- * under that rule. Open community uploads are left out (their licences are self-declared, and
+ * The search terms for the audio songs come from: netlabel releases, Musopen's recordings and the
+ * Free Music Archive's albums (its mirror, each album under the licence its artist chose) under
+ * that rule. Open community uploads are left out (their licences are self-declared, and
  * commercial recordings marked CC0 turn up among them), and so is the Great 78 Project.
  */
 const OPEN_AUDIO = [
   'mediatype:audio',
-  'collection:(netlabels OR musopen)',
+  'collection:(netlabels OR musopen OR freemusicarchive)',
   '(licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)',
   `-collection:(${LEFT_OUT.join(' OR ')})`,
 ].join(' AND ');
@@ -255,3 +258,4 @@ const streams = defineProvider({
 registerProvider(search);
 registerProvider(streams);
 registerProvider(films);
+registerProvider(lectures);

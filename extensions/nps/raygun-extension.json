@@ -1,0 +1,15 @@
+{
+  "id": "dev.raygun.nps",
+  "name": "National Park Service",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain (US government works): videos from the National Park Service's multimedia library, with captions and audio-described versions, only those credited to the Park Service, a park or another federal agency (or not credited at all) that name no one else's rights. Needs your own free API key from nps.gov/subjects/developer/get-started.htm, entered in this source's settings.",
+  "author": "Raygun",
+  "website": "https://www.nps.gov/media/multimedia-search.htm",
+  "provides": ["video.source"],
+  "permissions": { "net": ["developer.nps.gov"] },
+  "contentRating": "safe",
+  "settings": [{ "key": "apiKey", "type": "text", "label": "API key", "required": true }]
+}

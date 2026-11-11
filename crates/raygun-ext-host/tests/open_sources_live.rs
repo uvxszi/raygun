@@ -524,7 +524,8 @@ async fn open_sources_live_blender_movies() {
     assert_served("Big Buck Bunny", &video.url, &video.headers).await;
 }
 
-/// The Internet Archive's songs and films stay within open licences and the public domain.
+/// The Internet Archive's songs (netlabels, Musopen, the Free Music Archive), films and MIT
+/// lectures stay within open licences and the public domain.
 #[tokio::test]
 #[ignore = "needs network access to archive.org"]
 async fn open_sources_live_internet_archive() {
@@ -557,7 +558,8 @@ async fn open_sources_live_internet_archive() {
         }
     };
 
-    for query in ["kai engel", "ambient", "beethoven"] {
+    let mut free_music_archive = false;
+    for query in ["kai engel", "ambient", "beethoven", "dj harrison"] {
         let results = host.search_music(query, 12).await;
         let archive = results
             .iter()
@@ -585,19 +587,25 @@ async fn open_sources_live_internet_archive() {
             let kept = collections(&item);
             println!("  {identifier}: {licence} {kept:?}");
             assert!(
-                kept.iter()
-                    .any(|name| name == "musopen" || name == "netlabels")
+                kept.iter().any(|name| name == "musopen"
+                    || name == "netlabels"
+                    || name == "freemusicarchive")
                     && (licence.contains("creativecommons.org")
                         || licence.contains("publicdomain")),
-                "{identifier} isn't an openly licensed netlabel or Musopen recording"
+                "{identifier} isn't an openly licensed netlabel, Musopen or Free Music Archive recording"
             );
             assert!(
                 !kept
                     .iter()
                     .any(|name| name == "78rpm" || name == "georgeblood")
             );
+            free_music_archive |= kept.iter().any(|name| name == "freemusicarchive");
         }
     }
+    assert!(
+        free_music_archive,
+        "the Free Music Archive's albums are searched"
+    );
 
     let popular = host
         .manga_list(ARCHIVE_FILMS, MangaList::Popular, 1)
@@ -638,6 +646,45 @@ async fn open_sources_live_internet_archive() {
         .await
         .unwrap();
     assert_listing("Prelinger Archives", &prelinger);
+
+    // MIT OpenCourseWare's lectures: MIT's own uploads, each under a Creative Commons licence.
+    let lectures = "dev.raygun.internet-archive/lectures";
+    let courses = host
+        .manga_list(lectures, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_listing("MIT OpenCourseWare", &courses);
+    for listed in courses.items.iter().take(6) {
+        let item = metadata(listed.id.clone()).await;
+        let uploader = item["uploader"].as_str().unwrap_or_default();
+        let licence = item["licenseurl"].as_str().unwrap_or_default();
+        println!("  {} ({uploader}): {licence}", listed.title);
+        assert_eq!(uploader, "ocw-prod@mit.edu", "{}", listed.id);
+        assert!(licence.contains("creativecommons.org/"), "{}", listed.id);
+    }
+    let found = host
+        .manga_search(lectures, "linear algebra", 1)
+        .await
+        .unwrap();
+    assert_listing("linear algebra", &found);
+    let id = &courses.items[0].id;
+    let details = host.manga_details(lectures, id).await.unwrap();
+    let description = details.description.clone().unwrap_or_default();
+    println!("{}:\n{description}", details.title);
+    assert!(description.contains("Licence: CC "));
+    let episodes = host.video_episodes(lectures, id).await.unwrap();
+    println!(
+        "  {} lectures, first {:?}",
+        episodes.len(),
+        episodes.first().map(|episode| &episode.name)
+    );
+    assert!(episodes.len() > 1);
+    let servers = host.video_servers(lectures, &episodes[0].id).await.unwrap();
+    let video = &servers[0].videos.as_ref().expect("resolved at once")[0];
+    assert_served("lecture", &video.url, &video.headers).await;
+    if let Some(subtitles) = video.subtitles.first() {
+        assert_served("lecture subtitles", &subtitles.url, &BTreeMap::new()).await;
+    }
 }
 
 /// The songs one extension found for a search, failing on its error.
@@ -1654,4 +1701,182 @@ async fn open_sources_live_lastfm() {
             .is_some_and(|url| url.starts_with("https://www.last.fm/music/"))
     );
     assert_eq!(info.image_url, None);
+}
+
+// ---- National Park Service, ESA/Hubble and ESA/Webb ----
+
+const NPS_VIDEOS: &str = "dev.raygun.nps/videos";
+
+/// National Park Service videos with the API key in `NPS_API_KEY` (each person's own, free from
+/// nps.gov/subjects/developer/get-started.htm; the API's `DEMO_KEY` works for trying it, ten
+/// requests a day): two API requests, the library's list and a park's search, then a video from
+/// the list opened, played and captioned without another. Without a key it checks the source
+/// waits for one, asked nothing.
+#[tokio::test]
+#[ignore = "needs network access to developer.nps.gov"]
+async fn open_sources_live_nps() {
+    let key = key_from("NPS_API_KEY");
+    let host = keyed_host("nps", "dev.raygun.nps", key.as_deref()).await;
+    let popular = host.manga_list(NPS_VIDEOS, MangaList::Popular, 1).await;
+    if key.is_none() {
+        let error = popular.unwrap_err();
+        println!("without a key: {error}");
+        assert_eq!(
+            raygun_ext_host::needs_setup_in(&error),
+            Some("dev.raygun.nps")
+        );
+        assert!(host.needs_setup("dev.raygun.nps").is_some());
+        return;
+    }
+    let popular = popular.unwrap();
+    assert_listing("the library's videos", &popular);
+    assert!(popular.has_next_page);
+    let bison = host
+        .manga_search_filtered(
+            NPS_VIDEOS,
+            "bison",
+            1,
+            &BTreeMap::from([("park".to_owned(), select("yell"))]),
+        )
+        .await
+        .unwrap();
+    assert_listing("bison at Yellowstone", &bison);
+
+    let id = &bison.items[0].id;
+    let details = host.manga_details(NPS_VIDEOS, id).await.unwrap();
+    let description = details.description.clone().unwrap_or_default();
+    println!(
+        "details: {:?}, {:?}\n{description}",
+        details.title, details.genres
+    );
+    assert!(description.contains("Public domain in the United States"));
+    let episodes = host.video_episodes(NPS_VIDEOS, id).await.unwrap();
+    let servers = host
+        .video_servers(NPS_VIDEOS, &episodes[0].id)
+        .await
+        .unwrap();
+    let videos = servers[0].videos.as_ref().expect("resolved at once");
+    for video in videos {
+        println!(
+            "  {:?} {:?} {} captions {}",
+            video.label,
+            video.quality,
+            video.url,
+            video.subtitles.len()
+        );
+    }
+    assert!(
+        videos
+            .iter()
+            .all(|video| video.url.starts_with("https://www.nps.gov/"))
+    );
+    let smallest = videos.last().unwrap();
+    assert_served("video", &smallest.url, &smallest.headers).await;
+    if let Some(captions) = videos[0].subtitles.first() {
+        assert_served("captions", &captions.url, &BTreeMap::new()).await;
+    }
+}
+
+const ESA_HUBBLE: &str = "dev.raygun.esa-hubble/hubble";
+const ESA_WEBB: &str = "dev.raygun.esa-hubble/webb";
+
+/// The first of a list's videos that opens (one under another licence is refused), with its
+/// details' text.
+async fn first_opening(
+    host: &ExtensionHost,
+    provider: &str,
+    listing: &MangaListing,
+) -> (String, String) {
+    for item in listing.items.iter().take(8) {
+        match host.manga_details(provider, &item.id).await {
+            Ok(details) => return (item.id.clone(), details.description.unwrap_or_default()),
+            Err(error) => println!("  {} refused: {error}", item.id),
+        }
+    }
+    panic!("none of {provider}'s first videos opens");
+}
+
+/// ESA/Hubble's and ESA/Webb's videos: lists, search in a category, a video's credit and CC BY
+/// 4.0 licence, its MP4 and subtitles served, and a video under another licence refused.
+#[tokio::test]
+#[ignore = "needs network access to esahubble.org and esawebb.org"]
+async fn open_sources_live_esa_hubble() {
+    let host = keyed_host("esa-hubble", "dev.raygun.esa-hubble", None).await;
+    let popular = host
+        .manga_list(ESA_HUBBLE, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_listing("ESA/Hubble's videos", &popular);
+    assert!(popular.has_next_page);
+    let latest = host
+        .manga_list(ESA_HUBBLE, MangaList::Latest, 1)
+        .await
+        .unwrap();
+    assert_listing("ESA/Hubble's newest", &latest);
+    let orion = host
+        .manga_search_filtered(
+            ESA_HUBBLE,
+            "orion",
+            1,
+            &BTreeMap::from([("category".to_owned(), select("nebulae"))]),
+        )
+        .await
+        .unwrap();
+    assert_listing("Orion among the nebulae", &orion);
+
+    let (id, description) = first_opening(&host, ESA_HUBBLE, &latest).await;
+    println!("{id}:\n{description}");
+    assert!(description.contains("Credit: "));
+    assert!(description.contains("Licence: CC BY 4.0 (https://esahubble.org/copyright/)."));
+    let servers = host.video_servers(ESA_HUBBLE, &id).await.unwrap();
+    let videos = servers[0].videos.as_ref().expect("resolved at once");
+    for video in videos {
+        println!("  {:?} {:?} {}", video.label, video.quality, video.url);
+    }
+    assert!(
+        videos
+            .iter()
+            .all(|video| video.url.starts_with("https://cdn.esahubble.org/"))
+    );
+    let full_hd = videos
+        .iter()
+        .find(|video| video.quality == Some(1080))
+        .unwrap_or(&videos[0]);
+    assert_served("video", &full_hd.url, &full_hd.headers).await;
+
+    // A Hubblecast with subtitles in several languages.
+    let hubblecast = host.video_servers(ESA_HUBBLE, "heic1717a").await.unwrap();
+    let subtitles = &hubblecast[0].videos.as_ref().unwrap()[0].subtitles;
+    println!(
+        "heic1717a subtitles: {:?}",
+        subtitles
+            .iter()
+            .map(|track| &track.label)
+            .collect::<Vec<_>>()
+    );
+    let english = subtitles
+        .iter()
+        .find(|track| track.lang.as_deref() == Some("en"))
+        .expect("English subtitles");
+    assert_served("subtitles", &english.url, &BTreeMap::new()).await;
+
+    // "Eyes on the Skies" is released under CC BY-ND.
+    let refused = host
+        .manga_details(ESA_HUBBLE, "eyes_skies_full")
+        .await
+        .unwrap_err();
+    assert!(refused.contains("licence other than CC BY"), "{refused}");
+
+    let webb = host
+        .manga_list(ESA_WEBB, MangaList::Latest, 1)
+        .await
+        .unwrap();
+    assert_listing("ESA/Webb's newest", &webb);
+    let (id, description) = first_opening(&host, ESA_WEBB, &webb).await;
+    println!("{id}:\n{description}");
+    assert!(description.contains("Licence: CC BY 4.0 (https://esawebb.org/copyright/)."));
+    let servers = host.video_servers(ESA_WEBB, &id).await.unwrap();
+    let video = &servers[0].videos.as_ref().expect("resolved at once")[0];
+    assert!(video.url.starts_with("https://cdn.esawebb.org/"));
+    assert_served("Webb video", &video.url, &video.headers).await;
 }

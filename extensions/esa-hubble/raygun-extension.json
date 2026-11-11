@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.esa-hubble",
+  "name": "ESA/Hubble and ESA/Webb",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Creative Commons Attribution 4.0: the European Space Agency's Hubble and Webb videos (Hubblecasts, zooms and pans, animations, Space Sparks), credited as ESA/Hubble and ESA/Webb give them; videos whose page names another licence are left out.",
+  "author": "Raygun",
+  "website": "https://esahubble.org/videos/",
+  "provides": ["video.source"],
+  "permissions": { "net": ["esahubble.org", "esawebb.org"] },
+  "contentRating": "safe"
+}

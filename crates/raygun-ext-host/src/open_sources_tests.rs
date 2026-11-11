@@ -1,7 +1,8 @@
 //! The public-domain and openly licensed sources (Standard Ebooks, Wikisource, Wikimedia Commons,
-//! NASA, Blender open movies, the Internet Archive's open audio and public-domain films, OpenStax)
-//! and the keyed ones (National Archives, Europeana, Last.fm) against local fixture servers: the
-//! real bundles, their API bases pointed at this machine.
+//! NASA, Blender open movies, the Internet Archive's open audio, public-domain films and MIT
+//! lectures, the Library of Congress, OpenStax, ESA/Hubble and ESA/Webb) and the keyed ones (the
+//! National Archives, Europeana, the National Park Service, Last.fm) against local fixture servers:
+//! the real bundles, their API bases pointed at this machine.
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
@@ -1268,32 +1269,86 @@ async fn blender_movies_lists_the_films_and_plays_them_from_commons() {
 
 // ---- Internet Archive ----
 
+/// An MIT OpenCourseWare item's record: `uploader` and `licence` decide whether it's offered.
+fn ocw_item(uploader: &str, licence: Option<&str>) -> Value {
+    let mpeg4 = |name: &str, title: &str, height: &str| json!({ "name": name, "format": "MPEG4", "source": "original", "height": height, "title": title });
+    let mut item = json!({
+        "metadata": {
+            "identifier": "MIT6.034F10",
+            "title": "MIT 6.034 F10 Artificial Intelligence, Fall 2010",
+            "mediatype": "movies",
+            "collection": ["mit_ocw", "culturalandacademicfilms"],
+            "creator": "MIT OpenCourseWare",
+            "date": "2010",
+            "description": "View the complete course: http://ocw.mit.edu/6-034F10<br />Instructor: Patrick Winston<br /><br />In these lectures, Prof. Winston introduces the material.",
+            "subject": ["artificial intelligence", "search"],
+            "uploader": uploader,
+        },
+        "files": [
+            mpeg4("MIT6_034F10_lec10_300k.mp4", "10. Introduction to Learning", "270"),
+            mpeg4("MIT6_034F10_lec2_300k.mp4", "2. Reasoning: Goal Trees", "270"),
+            mpeg4("MIT6_034F10_lec12A_300k.mp4", "12a. Neural Nets", "600"),
+            mpeg4("MIT6_034F10_lec12_300k.mp4", "12. Learning: Neural Nets", "270"),
+            { "name": "MIT6_034F10_lec12A_300k.srt", "format": "SubRip", "source": "original", "title": "12a. Neural Nets" },
+            { "name": "MIT6_034F10_lec12A_300k.ogv", "format": "Ogg Video", "source": "derivative", "original": "MIT6_034F10_lec12A_300k.mp4" },
+            // An older lecture: its MPEG4 original and the archive's copy of its RealMedia original.
+            mpeg4("OCW_7.01.07_Godel-220k.mp4", "Lecture 1: Formal Systems", "240"),
+            { "name": "OCW_7.01.07_Godel-220k.rm", "format": "Real Media", "source": "original" },
+            { "name": "OCW_7.01.07_Godel-220k_512kb.mp4", "format": "512Kb MPEG4", "source": "derivative",
+              "original": "OCW_7.01.07_Godel-220k.rm", "height": "480" },
+        ],
+    });
+    if let Some(licence) = licence {
+        item["metadata"]["licenseurl"] = json!(licence);
+    }
+    item
+}
+
 #[tokio::test]
 async fn internet_archive_asks_for_open_audio_and_public_domain_films_only() {
     let seen: Seen = Arc::default();
     let searches = seen.clone();
-    let app = Router::new().route(
-        "/advancedsearch.php",
-        get(move |uri: Uri| {
-            let searches = searches.clone();
-            async move {
-                searches.lock().unwrap().push(query_params(&uri));
-                json_response(
-                    StatusCode::OK,
-                    json!({ "response": { "numFound": 0, "docs": [] } }),
-                )
-            }
-        }),
-    );
+    let app = Router::new()
+        .route(
+            "/advancedsearch.php",
+            get(move |uri: Uri| {
+                let searches = searches.clone();
+                async move {
+                    searches.lock().unwrap().push(query_params(&uri));
+                    json_response(
+                        StatusCode::OK,
+                        json!({ "response": { "numFound": 0, "docs": [] } }),
+                    )
+                }
+            }),
+        )
+        .route(
+            "/metadata/{id}",
+            get(
+                |axum::extract::Path(id): axum::extract::Path<String>| async move {
+                    let licence = Some("http://creativecommons.org/licenses/by-nc-sa/3.0/");
+                    let item = match id.as_str() {
+                        "MIT6.034F10" => ocw_item("ocw-prod@mit.edu", licence),
+                        "someone-elses-copy" => ocw_item("someone@example.org", licence),
+                        "no-licence" => ocw_item("ocw-prod@mit.edu", None),
+                        _ => return json_response(StatusCode::OK, json!({})),
+                    };
+                    json_response(StatusCode::OK, item)
+                },
+            ),
+        );
     let address = serve(app);
     let host = local_host("internet-archive", &["https://archive.org"], address).await;
 
     host.search_music("ambient", 5).await;
     let audio = last(&seen)["q"].clone();
     assert!(audio.starts_with("(title:(ambient) OR creator:(ambient)) AND mediatype:audio"));
-    assert!(audio.contains(
-        "collection:(netlabels OR musopen) AND (licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)"
-    ));
+    assert!(
+        audio.contains(
+            "collection:(netlabels OR musopen OR freemusicarchive) AND (licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)"
+        ),
+        "the Free Music Archive's albums under the same rule: {audio}"
+    );
     assert!(
         audio.contains("-collection:(78rpm OR georgeblood)"),
         "{audio}"
@@ -1341,6 +1396,92 @@ async fn internet_archive_asks_for_open_audio_and_public_domain_films_only() {
         prelinger,
         "collection:(prelinger) AND mediatype:(movies) AND licenseurl:*publicdomain*"
     );
+
+    // MIT OpenCourseWare: MIT's own uploads under a Creative Commons licence, in a pill of their own.
+    let lectures = "dev.raygun.internet-archive/lectures";
+    let provider = host
+        .providers(VIDEO_SOURCE)
+        .await
+        .into_iter()
+        .find(|provider| provider.id == lectures)
+        .unwrap();
+    assert_eq!(provider.search_pill.as_deref(), Some("Lectures"));
+    let mit = "collection:(mit_ocw) AND mediatype:(movies) AND licenseurl:*creativecommons* AND uploader:\"ocw-prod@mit.edu\"";
+    host.manga_list(lectures, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_eq!(last(&seen)["q"], mit);
+    assert_eq!(last(&seen)["sort[]"], "downloads desc");
+    host.manga_search_filtered(lectures, "winston", 1, &filters(&[("sort", "date desc")]))
+        .await
+        .unwrap();
+    let asked = last(&seen);
+    assert_eq!(
+        asked["q"],
+        format!("(title:(winston) OR subject:(winston) OR description:(winston)) AND {mit}")
+    );
+    assert_eq!(asked["sort[]"], "date desc");
+
+    let details = host.manga_details(lectures, "MIT6.034F10").await.unwrap();
+    assert_eq!(details.media_type.as_deref(), Some("series"));
+    assert_eq!(details.year, Some(2010));
+    let description = details.description.unwrap();
+    assert!(description.starts_with(
+        "View the complete course: http://ocw.mit.edu/6-034F10\nInstructor: Patrick Winston"
+    ));
+    assert!(description.ends_with(
+        "Licence: CC BY-NC-SA 3.0 (http://creativecommons.org/licenses/by-nc-sa/3.0/). Credit: MIT OpenCourseWare, ocw.mit.edu."
+    ));
+    let episodes = host.video_episodes(lectures, "MIT6.034F10").await.unwrap();
+    let names: Vec<&str> = episodes
+        .iter()
+        .map(|episode| episode.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "2. Reasoning: Goal Trees",
+            "10. Introduction to Learning",
+            "12. Learning: Neural Nets",
+            "12a. Neural Nets",
+            "Lecture 1: Formal Systems",
+        ],
+        "lectures in their natural order, an older one's copies together"
+    );
+    let servers = host
+        .video_servers(lectures, "MIT6.034F10/MIT6_034F10_lec12A_300k")
+        .await
+        .unwrap();
+    let videos = servers[0].videos.as_ref().unwrap();
+    assert_eq!(videos.len(), 1, "the Ogg copy is left out");
+    assert_eq!(
+        videos[0].url,
+        format!("http://{address}/download/MIT6.034F10/MIT6_034F10_lec12A_300k.mp4")
+    );
+    assert_eq!(
+        videos[0].subtitles[0].url,
+        format!("http://{address}/download/MIT6.034F10/MIT6_034F10_lec12A_300k.srt")
+    );
+    let older = host
+        .video_servers(lectures, "MIT6.034F10/OCW_7.01.07_Godel-220k")
+        .await
+        .unwrap();
+    let qualities: Vec<Option<u32>> = older[0]
+        .videos
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|video| video.quality)
+        .collect();
+    assert_eq!(qualities, [Some(480), Some(240)]);
+
+    for id in ["someone-elses-copy", "no-licence"] {
+        let refused = host.manga_details(lectures, id).await.unwrap_err();
+        assert!(
+            refused.contains("isn't one of MIT OpenCourseWare's own uploads"),
+            "{id}: {refused}"
+        );
+    }
 }
 
 // ---- Library of Congress ----
@@ -2946,4 +3087,639 @@ async fn lastfm_reads_charts_tags_recommendations_and_biographies_with_a_key() {
         .to_string();
     assert!(again.contains("limiting requests"), "{again}");
     assert_eq!(seen.lock().unwrap().len(), before, "it rests");
+}
+
+// ---- National Park Service ----
+
+const NPS_KEY: &str = "a-key";
+const NPS_BISON: &str = "6DE52D72-D7CA-4BB9-BD01-4746F9D1BD0A";
+const NPS_ELK: &str = "BE356A61-09C9-40A4-BD32-7312A58379CA";
+const NPS_SWANS: &str = "0A6F1D2C-4C1E-4F59-9B57-3E2D2A1B0C9D";
+
+/// A video as `/multimedia/videos` lists it (shapes from the API's answers).
+fn nps_video(id: &str, title: &str, credit: &str, description: &str, files: &[&str]) -> Value {
+    json!({
+        "id": id,
+        "permalinkUrl": format!("https://www.nps.gov/media/video/view.htm?id={id}"),
+        "title": title,
+        "description": description,
+        "splashImage": { "url": "" },
+        "relatedParks": [{
+            "states": "ID,MT,WY", "parkCode": "yell", "designation": "National Park",
+            "fullName": "Yellowstone National Park", "url": "https://www.nps.gov/yell/index.htm",
+            "name": "Yellowstone",
+        }],
+        "tags": ["bison", "yell", "Wildlife", "wildlife"],
+        "durationMs": 88_000,
+        "credit": credit,
+        "audioDescriptionUrl": "",
+        "aslVideoUrl": "",
+        "captionFiles": [],
+        "versions": files
+            .iter()
+            .map(|url| json!({ "fileType": "video/mp4", "heightPixels": 480, "url": url }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn nps_videos() -> Vec<Value> {
+    let legacy = "https://www.nps.gov/nps-audiovideo/legacy/yell/D606F80A/yell-Bison2";
+    let new = "https://www.nps.gov/nps-audiovideo/audiovideo/f0f43726-f2b5";
+    let mut bison = nps_video(
+        NPS_BISON,
+        "Bison in the Lamar Valley",
+        "NPS/Neal Herbert",
+        "Location: Lamar Valley Copyright Info: Public domain Frame: 1920 x 1080 (30p)",
+        &[
+            &format!("{legacy}_480x270.mp4"),
+            &format!("{legacy}_1280x720.mp4"),
+        ],
+    );
+    bison["captionFiles"] = json!([
+        { "language": "english", "fileType": "text/vtt", "url": "https://www.nps.gov/nps-audiovideo/closed-caption/bison.vtt" },
+        { "language": "spanish", "fileType": "text/vtt", "url": "https://www.nps.gov/nps-audiovideo/closed-caption/bison-es.vtt" },
+    ]);
+    let mut elk = nps_video(
+        NPS_ELK,
+        "(Video) Elk Bugle (01:28)",
+        "",
+        "<p>An elk bugles at Mammoth Hot Springs.</p>",
+        &[&format!("{new}360p.mp4"), &format!("{new}1080p.mp4")],
+    );
+    elk["splashImage"] = json!({ "url": "https://www.nps.gov/common/uploads/elk.jpg" });
+    elk["audioDescriptionUrl"] =
+        json!("https://www.nps.gov/nps-audiovideo/audiovideo/c4cb-described.mp4");
+    let swans = nps_video(
+        NPS_SWANS,
+        "Trumpeter Swans",
+        "Annie Little, U.S. Fish and Wildlife Service",
+        "Swans on the Yellowstone River.",
+        &[&format!("{new}-swans720p.mp4")],
+    );
+    let file = format!("{new}-other720p.mp4");
+    let other = |id: &str, credit: &str, description: &str| {
+        nps_video(id, id, credit, description, &[file.as_str()])
+    };
+    vec![
+        bison,
+        other(
+            "CONTRACTOR",
+            "Ploeger ASL Interpreting, LLC/NPS",
+            "A speech.",
+        ),
+        elk,
+        other("PERSON", "Rader Lane", "A sunrise."),
+        other(
+            "MUSIC",
+            "NPS",
+            "Weaving. Music by: https://www.bensound.com/ License code: T86HXIC1BMIGKBGE",
+        ),
+        other(
+            "PARTNER",
+            "NPS",
+            "Video by Emma Forthofer, Friends of Acadia",
+        ),
+        other("CONSERVANCY", "Yosemite Conservancy", "Half Dome."),
+        nps_video("NO-FILES", "No files", "NPS", "", &[]),
+        swans,
+    ]
+}
+
+#[tokio::test]
+async fn nps_offers_public_domain_videos_with_their_captions_and_versions() {
+    let seen: Seen = Arc::default();
+    let searches = seen.clone();
+    let app = Router::new().route(
+        "/multimedia/videos",
+        get(move |uri: Uri, headers: axum::http::HeaderMap| {
+            let searches = searches.clone();
+            async move {
+                let mut params = query_params(&uri);
+                let key = headers
+                    .get("x-api-key")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_owned();
+                params.insert("key".to_owned(), key.clone());
+                searches.lock().unwrap().push(params.clone());
+                match key.as_str() {
+                    NPS_KEY => {}
+                    "spent" => {
+                        return json_response(
+                            StatusCode::TOO_MANY_REQUESTS,
+                            json!({ "error": { "code": "OVER_RATE_LIMIT", "message": "You have exceeded your rate limit." } }),
+                        );
+                    }
+                    _ => {
+                        return json_response(
+                            StatusCode::FORBIDDEN,
+                            json!({ "error": { "code": "API_KEY_INVALID", "message": "Your API key is not valid." } }),
+                        );
+                    }
+                }
+                let all = nps_videos();
+                // A search by id finds that video among others, as the API's search does.
+                let found: Vec<Value> = match params.get("q") {
+                    Some(q) if q.len() == 36 || q == "CONTRACTOR" => all
+                        .iter()
+                        .take(2)
+                        .chain(all.iter().filter(|video| video["id"] == q.as_str()))
+                        .cloned()
+                        .collect(),
+                    _ => all,
+                };
+                json_response(
+                    StatusCode::OK,
+                    json!({ "total": "120", "limit": params.get("limit"), "start": params.get("start"), "data": found }),
+                )
+            }
+        }),
+    );
+    let address = serve(app);
+    let base = "https://developer.nps.gov/api/v1";
+    let provider = "dev.raygun.nps/videos";
+
+    // Without a key nothing is asked.
+    let keyless = local_host("nps", &[base], address).await;
+    let error = keyless
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        crate::needs_setup_in(&error),
+        Some("dev.raygun.nps"),
+        "{error}"
+    );
+    assert!(seen.lock().unwrap().is_empty());
+
+    let host = keyed_local_host("nps", "dev.raygun.nps", &[base], address, NPS_KEY).await;
+    let popular = host
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let listed: Vec<_> = popular
+        .items
+        .iter()
+        .map(|item| (item.id.as_str(), item.title.as_str()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (NPS_BISON, "Bison in the Lamar Valley"),
+            (NPS_ELK, "Elk Bugle"),
+            (NPS_SWANS, "Trumpeter Swans"),
+        ],
+        "credited to the Park Service, a federal agency or no one, with no one else's rights"
+    );
+    assert!(popular.has_next_page, "50 of 120");
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some("https://www.nps.gov/nps-audiovideo/legacy/yell/D606F80A/yell-Bison2_splash.jpg"),
+        "an older video's picture beside its files"
+    );
+    assert_eq!(
+        popular.items[1].cover_url.as_deref(),
+        Some("https://www.nps.gov/common/uploads/elk.jpg")
+    );
+    let asked = last(&seen);
+    assert_eq!(asked["key"], NPS_KEY, "the key goes in a header");
+    assert!(!asked.contains_key("api_key"), "never in the address");
+    assert_eq!(
+        (asked["limit"].as_str(), asked["start"].as_str()),
+        ("50", "0")
+    );
+
+    host.manga_search_filtered(
+        provider,
+        "bison",
+        2,
+        &filters(&[("park", "yell"), ("state", "WY")]),
+    )
+    .await
+    .unwrap();
+    let asked = last(&seen);
+    assert_eq!(asked["q"], "bison");
+    assert_eq!(asked["parkCode"], "yell");
+    assert_eq!(asked["stateCode"], "WY");
+    assert_eq!(asked["start"], "50");
+    assert_eq!(
+        host.manga_filters(provider).await.unwrap().len(),
+        2,
+        "park and state"
+    );
+
+    // Videos a list showed open without another request.
+    let before = seen.lock().unwrap().len();
+    let details = host.manga_details(provider, NPS_BISON).await.unwrap();
+    let description = details.description.unwrap();
+    assert!(
+        description.contains("Yellowstone National Park · 1:28"),
+        "{description}"
+    );
+    assert!(description.ends_with(
+        "Credit: NPS/Neal Herbert. Public domain in the United States: a work of the US government (17 U.S.C. § 105)."
+    ));
+    assert_eq!(details.genres, ["bison", "Wildlife"]);
+    assert_eq!(details.year, None);
+    let servers = host.video_servers(provider, NPS_BISON).await.unwrap();
+    let videos = servers[0].videos.as_ref().unwrap();
+    let qualities: Vec<Option<u32>> = videos.iter().map(|video| video.quality).collect();
+    assert_eq!(
+        qualities,
+        [Some(720), Some(270)],
+        "heights from the files' names"
+    );
+    let captions: Vec<(Option<&str>, Option<&str>)> = videos[0]
+        .subtitles
+        .iter()
+        .map(|track| (track.lang.as_deref(), track.label.as_deref()))
+        .collect();
+    assert_eq!(
+        captions,
+        [(Some("en"), Some("English")), (Some("es"), Some("Spanish"))]
+    );
+    let episodes = host.video_episodes(provider, NPS_ELK).await.unwrap();
+    let names: Vec<&str> = episodes
+        .iter()
+        .map(|episode| episode.name.as_str())
+        .collect();
+    assert_eq!(names, ["Video", "With audio description"]);
+    let described = host.video_servers(provider, &episodes[1].id).await.unwrap();
+    let described = &described[0].videos.as_ref().unwrap()[0];
+    assert_eq!(
+        described.url,
+        "https://www.nps.gov/nps-audiovideo/audiovideo/c4cb-described.mp4"
+    );
+    assert!(
+        described.subtitles.is_empty(),
+        "captions follow the plain video's timing"
+    );
+    assert_eq!(seen.lock().unwrap().len(), before, "all from the list");
+
+    // A video no list showed is searched for by its id; one with another rights holder is refused.
+    let fresh = keyed_local_host("nps", "dev.raygun.nps", &[base], address, NPS_KEY).await;
+    let swans = fresh.manga_details(provider, NPS_SWANS).await.unwrap();
+    assert_eq!(swans.title, "Trumpeter Swans");
+    assert_eq!(last(&seen)["q"], NPS_SWANS);
+    let refused = fresh
+        .manga_details(provider, "CONTRACTOR")
+        .await
+        .unwrap_err();
+    assert!(refused.contains("names someone other than"), "{refused}");
+
+    let refused = keyed_local_host("nps", "dev.raygun.nps", &[base], address, "old")
+        .await
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        crate::needs_setup_in(&refused),
+        Some("dev.raygun.nps"),
+        "{refused}"
+    );
+    assert!(refused.contains("didn't accept the API key"), "{refused}");
+    let spent = keyed_local_host("nps", "dev.raygun.nps", &[base], address, "spent")
+        .await
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap_err();
+    assert_eq!(crate::needs_setup_in(&spent), None, "{spent}");
+    assert!(
+        spent.contains("all the requests the National Park Service's API allows for now"),
+        "{spent}"
+    );
+}
+
+// ---- ESA/Hubble and ESA/Webb ----
+
+/// A list, search or category page's thumbnails, as the sites' archive draws them.
+fn esa_thumbnails(videos: &[(&str, &str)], next: Option<u32>) -> String {
+    let items: String = videos
+        .iter()
+        .map(|(id, title)| {
+            format!(
+                r##"<div class="col-md-3"><div class="video-thumbnail"><div class="img-wrapper"><a class="popup-youtube" href="#popup-youtube" data-youtube-id="K8R3UP6OinA" data-title="{title}" data-url="/videos/{id}/"><span class="fa fa-play"></span><img src="https://cdn.esahubble.org/archives/videos/videoframe/{id}.jpg" class="img-responsive" alt="{title}"></a></div><div class="caption"><a href="/videos/{id}/"><span class="title">{title}</span></a></div></div></div>"##
+            )
+        })
+        .collect();
+    let pages = next
+        .map(|page| format!(r#"<a href="/videos/page/{page}/">{page}</a>"#))
+        .unwrap_or_default();
+    format!("<html><body><div class=\"row\">{items}</div>{pages}</body></html>")
+}
+
+/// A "view all" page: thumbnails in a table, each titled by its picture's `alt`.
+fn esa_table(videos: &[(&str, &str)]) -> String {
+    let cells: String = videos
+        .iter()
+        .map(|(id, title)| {
+            format!(
+                r#"<td class="imagerow" width="25%"><a href="/videos/{id}/"><img src="/media/archives/videos/thumb/{id}.jpg" width="122" alt="{title}" /></a></td>"#
+            )
+        })
+        .collect();
+    format!(
+        r#"<html><body><table class="archive_normal" width="100%"><tr>{cells}</tr></table></body></html>"#
+    )
+}
+
+/// An ESA/Hubble video's page: its text, credit, facts and download links.
+fn esa_hubble_page(title: &str, text: &str, credit: &str, files: &[&str]) -> String {
+    let downloads: String = files
+        .iter()
+        .map(|href| {
+            format!(
+                r#"<div class="archive_download"><span class="archive_dl_icon"><img src="/assets/icons/icon_movie.png" alt="r.title" /></span><span class="archive_dl_text"><a href="{href}">A format</a></span><span class="archive_dl_size"><div> 72.6 MB </div></span></div>"#
+            )
+        })
+        .collect();
+    format!(
+        r#"<html><body><div class="col-md-9"><h1>{title}</h1> <div class="youtube-wrapper"><div id="youtube-player"></div></div> <p><p>{text}</p></p> <strong>Credit:</strong><div class="credit">{credit}</div> <div class="copyright"><a href="/copyright/">Usage of ESA/Hubble Images and Videos</a></div></div><div class="col-md-3 right-column"><div class="object-info"><h3>About the Video</h3><div><table aria-describedby="About the Video"><tr><th class="title" scope="row">Id:</th><td>heic2021a</td></tr><tr><th class="title" scope="row">Release date:</th><td>10 December 2020, 17:00</td></tr><tr><th class="title" scope="row">Duration:</th><td>01 m 45 s</td></tr></table></div><hr><h3>About the Object</h3><div><table aria-describedby="About the Object"><tr><th class="title" scope="row">Name:</th><td><a href="http://simbad.u-strasbg.fr/">HD 106906 b</a></td></tr><tr><th class="title" scope="row">Category:</th><td><a href="/videos/archive/category/extrasolar/">Exoplanets</a><br><a href="/videos/archive/category/hubblecast/">Hubblecast</a><br></td></tr></table></div></div><div><h3 class="archivegrouptitle">HD</h3>{downloads}</div></div></body></html>"#
+    )
+}
+
+/// An ESA/Webb video's page, in that site's newer theme.
+const ESA_WEBB_PAGE: &str = r#"<html><body><h1>Pan video: IC 348</h1>
+<div class="modal-body youtube-body"><iframe src="https://www.youtube.com/embed/sISTjnjSAUY"></iframe></div>
+<div style="margin-top: 15px;"><p>This starry view of IC 348 is one of the largest images from Webb.</p>
+<p>Learn more about this image <a href="https://esawebb.org/news/weic2619/">here</a>.</p></div>
+<strong>Credit:</strong>
+<div class="credit"><p>ESA/Webb, NASA, CSA, K. Luhman</p>
+<p>Music: Stellardrone - Twilight</p></div>
+<div id="object_info_div" class="object-info"><h4>About the Video</h4><div><table class="table"><tr><th scope="row">Id:</th><td colspan="2">weic2619b</td></tr><tr><th scope="row">Release date:</th><td colspan="2">15 September 2026, 16:00</td></tr><tr><th scope="row">Duration:</th><td colspan="2">30 s</td></tr></table></div><hr><h4>About the Object</h4><div><table class="table"><tr><th scope="row">Category:</th><td colspan="2"><a href="/videos/archive/category/nircam/">NIRCam</a><br><a href="/videos/archive/category/pans/">Pans</a><br></td></tr></table></div></div>
+<div class="archive_download"><span class="archive_dl_text"><a href="https://cdn.esawebb.org/archives/videos/hd_1080p25_screen/weic2619b.mp4">Full HD Preview 1080p</a></span></div>
+<div class="archive_download"><span class="archive_dl_text"><a href="https://cdn.esawebb.org/archives/videos/m_hd_1080p_screen/weic2619b.mp4">Mobile</a></span></div>
+</body></html>"#;
+
+#[tokio::test]
+async fn esa_hubble_reads_its_pages_and_leaves_out_other_licences() {
+    let cdn = "https://cdn.esahubble.org/archives/videos";
+    let asked: Arc<Mutex<Vec<String>>> = Arc::default();
+    let requests = asked.clone();
+    let app = Router::new().fallback(move |uri: Uri| {
+        let requests = requests.clone();
+        async move {
+            let address = uri
+                .path_and_query()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            requests.lock().unwrap().push(address.clone());
+            let page = |title: &str, text: &str, credit: &str, files: &[&str]| {
+                (
+                    [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    esa_hubble_page(title, text, credit, files),
+                )
+                    .into_response()
+            };
+            let html = |body: String| {
+                ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response()
+            };
+            match address.as_str() {
+                "/videos/page/1/" => html(esa_thumbnails(
+                    &[
+                        ("heic2021a", "Hubblecast 132 Light: Planet Nine"),
+                        ("eyes_skies_full", "Eyes on the Skies (Full movie)"),
+                        ("hubblecast131a", "Showcase of Hubble&#39;s 30th Anniversary"),
+                    ],
+                    Some(2),
+                )),
+                "/videos/viewall/page/1/?sort=-release_date" => html(esa_table(&[
+                    ("potm2610a", "Pan video: M30"),
+                    ("heic2614b", "Zoom video: Cat&#39;s Head Nebula"),
+                ])),
+                "/videos/archive/category/hubblecast/page/2/?search=planet%20nine" => html(
+                    esa_thumbnails(&[("heic2021a", "Hubblecast 132 Light: Planet Nine")], None),
+                ),
+                "/videos/heic2021a/" => page(
+                    "Hubblecast 132 Light: Planet Nine",
+                    "Hubble has discovered an 11-Jupiter-mass exoplanet called HD106906 b.",
+                    "<p><strong>Directed by:</strong> Bethany Downer<br /><strong>Music: </strong>John Stanford - Far Centaurus (<a href=\"http://johnstanfordmusic.com\">johnstanfordmusic.com</a>)<br /><br /></p>",
+                    &[
+                        &format!("{cdn}/ultra_hd/heic2021a.mp4"),
+                        &format!("{cdn}/ultra_hd_h265/heic2021a.mp4"),
+                        &format!("{cdn}/hd_and_apple/heic2021a.m4v"),
+                        &format!("{cdn}/hd_1080p25_screen/heic2021a.mp4"),
+                        &format!("{cdn}/medium_podcast/heic2021a.mp4"),
+                        "https://cdn2.esahubble.org/archives/videos/ultra_hd_broadcast/heic2021a.avi",
+                        "/media/archives/videos/srt/heic2021aen.srt",
+                        "/media/archives/videos/script/heic2021a_en.pdf",
+                    ],
+                ),
+                "/videos/eyes_skies_full/" => page(
+                    "Eyes on the Skies (Full movie)",
+                    "The material is released under a Creative Commons Attribution-NoDerivatives 4.0 International License.",
+                    "<p>Direction: Lars Lindberg Christensen, ESA/ESO</p>",
+                    &[&format!("{cdn}/hd_and_apple/eyes_skies_full.m4v")],
+                ),
+                "/videos/hst15_aurorae/" => page(
+                    "Aurorae",
+                    "Aurorae on Saturn.",
+                    "ESA / Hubble (M. Kornmesser &amp; L. L. Christensen)",
+                    &[
+                        &format!("{cdn}/large_qt/hst15_aurorae.mov"),
+                        &format!("{cdn}/medium_podcast/hst15_aurorae.m4v"),
+                        &format!("{cdn}/small_qt/hst15_aurorae.mov"),
+                        &format!("{cdn}/medium_flash/hst15_aurorae.flv"),
+                    ],
+                ),
+                "/videos/old_quicktime/" => page(
+                    "An old clip",
+                    "A clip from before the site made MP4s.",
+                    "ESA/Hubble",
+                    &[
+                        &format!("{cdn}/small_qt/old_quicktime.mov"),
+                        &format!("{cdn}/large_qt/old_quicktime.mov"),
+                    ],
+                ),
+                "/videos/weic2619b/" => html(ESA_WEBB_PAGE.to_owned()),
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+    });
+    let address = serve(app);
+    let host = local_host(
+        "esa-hubble",
+        &["https://esahubble.org", "https://esawebb.org"],
+        address,
+    )
+    .await;
+    let hubble = "dev.raygun.esa-hubble/hubble";
+    let webb = "dev.raygun.esa-hubble/webb";
+
+    let popular = host
+        .manga_list(hubble, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let listed: Vec<_> = popular
+        .items
+        .iter()
+        .map(|item| (item.id.as_str(), item.title.as_str()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("heic2021a", "Hubblecast 132 Light: Planet Nine"),
+            ("eyes_skies_full", "Eyes on the Skies (Full movie)"),
+            ("hubblecast131a", "Showcase of Hubble's 30th Anniversary"),
+        ]
+    );
+    assert!(popular.has_next_page);
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some("https://cdn.esahubble.org/archives/videos/videoframe/heic2021a.jpg")
+    );
+    let latest = host.manga_list(hubble, MangaList::Latest, 1).await.unwrap();
+    let listed: Vec<_> = latest
+        .items
+        .iter()
+        .map(|item| (item.title.as_str(), item.cover_url.as_deref()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (
+                "Pan video: M30",
+                Some("https://cdn.esahubble.org/archives/videos/videoframe/potm2610a.jpg")
+            ),
+            (
+                "Zoom video: Cat's Head Nebula",
+                Some("https://cdn.esahubble.org/archives/videos/videoframe/heic2614b.jpg")
+            ),
+        ]
+    );
+    assert!(!latest.has_next_page);
+    let found = host
+        .manga_search_filtered(
+            hubble,
+            "planet nine",
+            2,
+            &filters(&[("category", "hubblecast")]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.items.len(), 1);
+    assert_eq!(
+        asked.lock().unwrap().last().unwrap(),
+        "/videos/archive/category/hubblecast/page/2/?search=planet%20nine"
+    );
+
+    // A video's page: its text, credit and licence, and its files best first.
+    let details = host.manga_details(hubble, "heic2021a").await.unwrap();
+    assert_eq!(details.year, Some(2020));
+    assert_eq!(details.genres, ["Exoplanets", "Hubblecast"]);
+    let description = details.description.unwrap();
+    for part in [
+        "Hubble has discovered an 11-Jupiter-mass exoplanet called HD106906 b.",
+        "Released 10 December 2020, 17:00 · 1:45 · Object: HD 106906 b",
+        "Credit: Directed by: Bethany Downer; Music: John Stanford - Far Centaurus (johnstanfordmusic.com)",
+        &format!(
+            "Licence: CC BY 4.0 (http://{address}/copyright/). The music isn't part of that licence"
+        ),
+    ] {
+        assert!(description.contains(part), "{part}: {description}");
+    }
+    let episodes = host.video_episodes(hubble, "heic2021a").await.unwrap();
+    assert_eq!(episodes.len(), 1);
+    assert_eq!(episodes[0].date_upload, Some(1_607_619_600_000));
+    let servers = host.video_servers(hubble, "heic2021a").await.unwrap();
+    let videos = servers[0].videos.as_ref().unwrap();
+    let files: Vec<(&str, Option<u32>)> = videos
+        .iter()
+        .map(|video| (video.url.as_str(), video.quality))
+        .collect();
+    assert_eq!(
+        files,
+        [
+            (
+                "https://cdn.esahubble.org/archives/videos/ultra_hd/heic2021a.mp4",
+                Some(2160)
+            ),
+            (
+                "https://cdn.esahubble.org/archives/videos/hd_1080p25_screen/heic2021a.mp4",
+                Some(1080)
+            ),
+            (
+                "https://cdn.esahubble.org/archives/videos/hd_and_apple/heic2021a.m4v",
+                Some(720)
+            ),
+            (
+                "https://cdn.esahubble.org/archives/videos/medium_podcast/heic2021a.mp4",
+                Some(360)
+            ),
+        ],
+        "no H.265, broadcast or script files"
+    );
+    let subtitles: Vec<(&str, Option<&str>, Option<&str>)> = videos[0]
+        .subtitles
+        .iter()
+        .map(|track| {
+            (
+                track.url.as_str(),
+                track.lang.as_deref(),
+                track.label.as_deref(),
+            )
+        })
+        .collect();
+    let srt = format!("http://{address}/media/archives/videos/srt/heic2021aen.srt");
+    assert_eq!(subtitles, [(srt.as_str(), Some("en"), Some("English"))]);
+    let qualities = |id: &'static str| {
+        let host = &host;
+        async move {
+            host.video_servers(hubble, id).await.unwrap()[0]
+                .videos
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|video| video.quality)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(
+        qualities("hst15_aurorae").await,
+        [Some(360)],
+        "QuickTime copies only without an MP4"
+    );
+    assert_eq!(qualities("old_quicktime").await, [Some(405), Some(180)]);
+
+    // Another licence named on the page: refused, and left out of lists from then on.
+    let refused = host
+        .manga_details(hubble, "eyes_skies_full")
+        .await
+        .unwrap_err();
+    assert!(
+        refused.contains("names a licence other than CC BY"),
+        "{refused}"
+    );
+    let again = host
+        .manga_list(hubble, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert!(again.items.iter().all(|item| item.id != "eyes_skies_full"));
+    let missing = host.manga_details(hubble, "nothing").await.unwrap_err();
+    assert!(
+        missing.contains("no longer on ESA/Hubble's site"),
+        "{missing}"
+    );
+
+    // ESA/Webb's pages, in their own theme.
+    let details = host.manga_details(webb, "weic2619b").await.unwrap();
+    assert_eq!(details.title, "Pan video: IC 348");
+    assert_eq!(details.year, Some(2026));
+    assert_eq!(details.genres, ["NIRCam", "Pans"]);
+    let description = details.description.unwrap();
+    assert!(
+        description
+            .starts_with("This starry view of IC 348 is one of the largest images from Webb.\n\n"),
+        "{description}"
+    );
+    assert!(!description.contains("Learn more"));
+    assert!(
+        description
+            .contains("Credit: ESA/Webb, NASA, CSA, K. Luhman; Music: Stellardrone - Twilight")
+    );
+    assert!(description.contains("ESA/Webb lets it be used only in its own videos"));
+    let servers = host.video_servers(webb, "weic2619b").await.unwrap();
+    let videos = servers[0].videos.as_ref().unwrap();
+    assert_eq!(videos.len(), 1, "only the formats Raygun knows");
+    assert_eq!(videos[0].quality, Some(1080));
 }

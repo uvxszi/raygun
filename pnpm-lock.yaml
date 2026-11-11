@@ -312,6 +312,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/esa-hubble:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/europeana:
     devDependencies:
       '@raygun/sdk':
@@ -409,6 +415,12 @@ importers:
         version: link:../../packages/sdk
 
   extensions/nasa:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/nps:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

@@ -1,4 +1,4 @@
-// dev.raygun.internet-archive 1.5.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.internet-archive 1.6.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -13,40 +13,27 @@
     }
     return response.json();
   };
+  var selectValue = (values, filter) => {
+    const chosen = values?.[filter.key];
+    const known = (value) => typeof value === "string" && filter.options.some((option) => option.value === value);
+    if (known(chosen)) return chosen;
+    if (known(filter.default)) return filter.default;
+    return filter.options[0]?.value ?? "";
+  };
 
-  // src/films.ts
+  // src/archive.ts
   var API = "https://archive.org";
   var ROWS = 30;
-  var COLLECTIONS = [
-    { value: "feature_films", label: "Feature films" },
-    { value: "silent_films", label: "Silent films" },
-    { value: "Film_Noir", label: "Film noir" },
-    { value: "SciFi_Horror", label: "Sci-fi and horror" },
-    { value: "Comedy_Films", label: "Comedy films" },
-    { value: "classic_cartoons", label: "Classic cartoons" },
-    { value: "animationandcartoons", label: "Animation" },
-    { value: "prelinger", label: "Prelinger Archives" },
-    { value: "classic_tv", label: "Classic TV" }
-  ];
-  var PUBLIC_DOMAIN_BEFORE = (/* @__PURE__ */ new Date()).getUTCFullYear() - 95;
-  var MARKS_BELIEVED_UNTIL = 1977;
-  var MARK = /publicdomain\/mark|licenses\/publicdomain/i;
-  var PUBLIC_DOMAIN_MARK = "(licenseurl:*publicdomain\\/mark* OR licenseurl:*licenses\\/publicdomain*)";
-  var PUBLIC_DOMAIN = `(year:[1800 TO ${PUBLIC_DOMAIN_BEFORE - 1}] OR (${PUBLIC_DOMAIN_MARK} AND year:[1800 TO ${MARKS_BELIEVED_UNTIL}]))`;
-  var PRELINGER = "licenseurl:*publicdomain*";
-  var SORTS = [
-    { value: "downloads desc", label: "Most viewed" },
-    { value: "addeddate desc", label: "Recently added" },
-    { value: "titleSorter asc", label: "Title" }
-  ];
   var escapeQuery = (query) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, " ").trim();
   var firstString = (value) => (Array.isArray(value) ? value[0] : value) ?? null;
   var encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
   var cover = (identifier) => `${API}/services/img/${encodeURIComponent(identifier)}`;
+  var fileUrl = (identifier, name) => `${API}/download/${encodeURIComponent(identifier)}/${encodePath(name)}`;
   var plainText = (html) => html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/\n{3,}/g, "\n\n").trim();
-  var pick = (filters2, key, options) => {
-    const value = filters2?.[key];
-    return typeof value === "string" && options.some((option) => option.value === value) ? value : options[0].value;
+  var subjectsOf = (item) => {
+    const subject = item.metadata?.subject;
+    const all = (Array.isArray(subject) ? subject : [subject ?? ""]).flatMap((each) => each.split(/\s*;\s*/)).map((each) => each.trim()).filter(Boolean);
+    return [...new Set(all)];
   };
   var searchPage = async (q, sort, page) => {
     const params = [
@@ -69,7 +56,6 @@
       hasNextPage: page * ROWS < (result.response?.numFound ?? 0)
     };
   };
-  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies) AND ${collection === "prelinger" ? PRELINGER : PUBLIC_DOMAIN}`;
   var items = /* @__PURE__ */ new Map();
   var fetchItem = (identifier) => {
     let item = items.get(identifier);
@@ -81,6 +67,35 @@
     }
     return item;
   };
+
+  // src/films.ts
+  var COLLECTIONS = [
+    { value: "feature_films", label: "Feature films" },
+    { value: "silent_films", label: "Silent films" },
+    { value: "Film_Noir", label: "Film noir" },
+    { value: "SciFi_Horror", label: "Sci-fi and horror" },
+    { value: "Comedy_Films", label: "Comedy films" },
+    { value: "classic_cartoons", label: "Classic cartoons" },
+    { value: "animationandcartoons", label: "Animation" },
+    { value: "prelinger", label: "Prelinger Archives" },
+    { value: "classic_tv", label: "Classic TV" }
+  ];
+  var PUBLIC_DOMAIN_BEFORE = (/* @__PURE__ */ new Date()).getUTCFullYear() - 95;
+  var MARKS_BELIEVED_UNTIL = 1977;
+  var MARK = /publicdomain\/mark|licenses\/publicdomain/i;
+  var PUBLIC_DOMAIN_MARK = "(licenseurl:*publicdomain\\/mark* OR licenseurl:*licenses\\/publicdomain*)";
+  var PUBLIC_DOMAIN = `(year:[1800 TO ${PUBLIC_DOMAIN_BEFORE - 1}] OR (${PUBLIC_DOMAIN_MARK} AND year:[1800 TO ${MARKS_BELIEVED_UNTIL}]))`;
+  var PRELINGER = "licenseurl:*publicdomain*";
+  var SORTS = [
+    { value: "downloads desc", label: "Most viewed" },
+    { value: "addeddate desc", label: "Recently added" },
+    { value: "titleSorter asc", label: "Title" }
+  ];
+  var pick = (filters2, key, options) => {
+    const value = filters2?.[key];
+    return typeof value === "string" && options.some((option) => option.value === value) ? value : options[0].value;
+  };
+  var inCollection = (collection) => `collection:(${collection}) AND mediatype:(movies) AND ${collection === "prelinger" ? PRELINGER : PUBLIC_DOMAIN}`;
   var isOpen = (item) => {
     const licence = item.metadata?.licenseurl ?? "";
     const collections = [item.metadata?.collection ?? []].flat();
@@ -113,7 +128,7 @@
   var subtitlesFor = (identifier, item, original) => {
     const base = baseName(original);
     return (item.files ?? []).filter((file) => /\.(srt|vtt)$/i.test(file.name) && file.name.startsWith(base)).map((file) => ({
-      url: `${API}/download/${encodeURIComponent(identifier)}/${encodePath(file.name)}`,
+      url: fileUrl(identifier, file.name),
       // `.asr.srt` files are the archive's automatic transcripts.
       label: /\.asr\.(srt|vtt)$/i.test(file.name) ? "Automatic (English)" : "Subtitles",
       lang: "en"
@@ -133,7 +148,7 @@
       const height = Number.parseInt(file.height ?? "", 10);
       const known = Number.isFinite(height) && height > 0;
       return {
-        url: `${API}/download/${encodeURIComponent(identifier)}/${encodePath(file.name)}`,
+        url: fileUrl(identifier, file.name),
         label: known ? `${height}p · ${file.format}` : file.format,
         quality: known ? height : void 0,
         subtitles
@@ -164,14 +179,13 @@
       const meta = item.metadata ?? {};
       const description = firstString(meta.description);
       const year = Number.parseInt((meta.year ?? meta.date ?? "").slice(0, 4), 10);
-      const subjects = (Array.isArray(meta.subject) ? meta.subject : [meta.subject ?? ""]).flatMap((subject) => subject.split(/\s*;\s*/)).map((subject) => subject.trim()).filter(Boolean);
       const creators = Array.isArray(meta.creator) ? meta.creator : meta.creator ? [meta.creator] : [];
       return {
         id,
         title: firstString(meta.title) ?? id,
         coverUrl: cover(id),
         description: description ? plainText(description) : null,
-        genres: [...new Set(subjects)].slice(0, 8),
+        genres: subjectsOf(item).slice(0, 8),
         directors: creators,
         type: "movie",
         year: Number.isFinite(year) ? year : null,
@@ -197,13 +211,169 @@
     videos: async ({ serverId }) => ({ videos: (await resolveServer(serverId)).videos ?? [] })
   });
 
+  // src/lectures.ts
+  var MIT = "ocw-prod@mit.edu";
+  var CREATIVE_COMMONS = /^https?:\/\/creativecommons\.org\/(?:licenses|publicdomain)\//i;
+  var LECTURES = `collection:(mit_ocw) AND mediatype:(movies) AND licenseurl:*creativecommons* AND uploader:"${MIT}"`;
+  var SORT = {
+    kind: "select",
+    key: "sort",
+    label: "Sort",
+    options: [
+      { value: "downloads desc", label: "Most viewed" },
+      { value: "date desc", label: "Newest courses" },
+      { value: "addeddate desc", label: "Recently added" },
+      { value: "titleSorter asc", label: "Title" }
+    ],
+    default: "downloads desc"
+  };
+  var isOpen2 = (item) => {
+    const meta = item.metadata ?? {};
+    const collections = [meta.collection ?? []].flat();
+    return collections.includes("mit_ocw") && meta.uploader?.trim().toLowerCase() === MIT && CREATIVE_COMMONS.test(meta.licenseurl?.trim() ?? "");
+  };
+  var course = async (identifier) => {
+    const item = await fetchItem(identifier);
+    if (!item.metadata) throw new Error("The Internet Archive has no such item");
+    if (!isOpen2(item)) {
+      throw new Error(
+        "This isn't one of MIT OpenCourseWare's own uploads under a Creative Commons licence, so Raygun doesn't offer it"
+      );
+    }
+    return item;
+  };
+  var licenceName = (url) => {
+    const parts = /creativecommons\.org\/(licenses|publicdomain)\/([a-z-]+)\/([\d.]+)(?:\/([a-z]{2}))?/i.exec(
+      url
+    );
+    if (!parts) return "Creative Commons";
+    const [, kind = "", name = "", version = "", port] = parts;
+    if (kind.toLowerCase() === "publicdomain") {
+      return name === "zero" ? `CC0 ${version}` : "Public Domain Mark";
+    }
+    return `CC ${name.toUpperCase()} ${version}${port ? ` ${port.toUpperCase()}` : ""}`;
+  };
+  var isPlayable2 = (file) => /\.(mp4|m4v)$/i.test(file.name) && /h\.264|mpeg4|mpeg-4/i.test(file.format ?? "");
+  var lectureOf = (name) => name.replace(/\.[^./]+$/, "").replace(/_512kb$/i, "");
+  var naturally = (one, other) => {
+    const parts = (name) => name.toLowerCase().replace(/[_.\s-]+/g, " ").match(/\d+|\D+/g) ?? [];
+    const [a, b] = [parts(one), parts(other)];
+    for (let at = 0; at < Math.min(a.length, b.length); at += 1) {
+      const [x, y] = [a[at], b[at]];
+      if (x === y) continue;
+      if (/^\d/.test(x) && /^\d/.test(y) && Number(x) !== Number(y)) return Number(x) - Number(y);
+      return x < y ? -1 : 1;
+    }
+    return a.length - b.length;
+  };
+  var lectureFiles = (item) => {
+    const groups = /* @__PURE__ */ new Map();
+    for (const file of item.files ?? []) {
+      if (!isPlayable2(file)) continue;
+      const key = lectureOf(
+        file.source === "derivative" && file.original ? file.original : file.name
+      );
+      groups.set(key, [...groups.get(key) ?? [], file]);
+    }
+    return new Map([...groups].sort(([a], [b]) => naturally(a, b)));
+  };
+  var lectureName = (item, lecture) => {
+    const titled = (item.files ?? []).find(
+      (file) => file.title?.trim() && lectureOf(file.name) === lecture
+    );
+    if (titled?.title) return titled.title.trim();
+    const number = /lec(?:ture)?[\s_-]*0*(\d+[a-z]?)/i.exec(lecture)?.[1];
+    return number ? `Lecture ${number.toUpperCase()}` : lecture.replace(/_/g, " ");
+  };
+  var splitEpisode2 = (episodeId) => {
+    const slash = episodeId.indexOf("/");
+    return slash < 0 ? { identifier: episodeId, lecture: null } : { identifier: episodeId.slice(0, slash), lecture: episodeId.slice(slash + 1) };
+  };
+  var resolveServer2 = async (episodeId) => {
+    const { identifier, lecture } = splitEpisode2(episodeId);
+    const item = await course(identifier);
+    const groups = lectureFiles(item);
+    const key = lecture ?? [...groups.keys()][0] ?? "";
+    const files = groups.get(key);
+    if (!files) throw new Error("This course no longer has that lecture");
+    const subtitles = (item.files ?? []).filter((file) => /\.(srt|vtt)$/i.test(file.name) && lectureOf(file.name) === key).map((file) => ({
+      url: fileUrl(identifier, file.name),
+      label: /\.asr\.(srt|vtt)$/i.test(file.name) ? "Automatic (English)" : "English",
+      lang: "en"
+    }));
+    const videos = files.map((file) => {
+      const height = Number.parseInt(file.height ?? "", 10);
+      const known = Number.isFinite(height) && height > 0;
+      return {
+        url: fileUrl(identifier, file.name),
+        label: known ? `${height}p · ${file.format}` : file.format,
+        quality: known ? height : void 0,
+        subtitles
+      };
+    }).sort((a, b) => (b.quality ?? 0) - (a.quality ?? 0));
+    return { id: episodeId, name: "Internet Archive", videos };
+  };
+  var instructorsOf = (description) => (/Instructors?(?:\s*\/\s*speakers?)?:\s*([^\n]+)/i.exec(description)?.[1] ?? "").split(/\s*(?:,|;|\band\b)\s*/).map((name) => name.replace(/^(?:Prof|Professor|Dr)\.?\s+/i, "").trim()).filter((name) => name.length > 1 && name.length < 60);
+  var lectures = defineProvider({
+    kind: "video.source",
+    id: "lectures",
+    name: "MIT OpenCourseWare",
+    searchPill: "Lectures",
+    popular: ({ page }) => searchPage(LECTURES, "downloads desc", page),
+    latest: ({ page }) => searchPage(LECTURES, "addeddate desc", page),
+    search({ query, page, filters: filters2 }) {
+      const sort = selectValue(filters2, SORT);
+      const cleaned = escapeQuery(query);
+      const q = cleaned ? `(title:(${cleaned}) OR subject:(${cleaned}) OR description:(${cleaned})) AND ${LECTURES}` : LECTURES;
+      return searchPage(q, sort, page);
+    },
+    filters: async () => [SORT],
+    async details({ id }) {
+      const item = await course(id);
+      const meta = item.metadata ?? {};
+      const description = plainText(firstString(meta.description) ?? "");
+      const year = Number.parseInt((meta.year ?? meta.date ?? "").slice(0, 4), 10);
+      const licence = meta.licenseurl?.trim() ?? "";
+      return {
+        id,
+        title: firstString(meta.title) ?? id,
+        coverUrl: cover(id),
+        description: [
+          description,
+          `Licence: ${licenceName(licence)} (${licence}). Credit: MIT OpenCourseWare, ocw.mit.edu.`
+        ].filter(Boolean).join("\n\n"),
+        genres: subjectsOf(item).slice(0, 8),
+        directors: instructorsOf(description),
+        type: "series",
+        year: Number.isFinite(year) ? year : null,
+        status: "completed",
+        url: `${API}/details/${encodeURIComponent(id)}`
+      };
+    },
+    async episodes({ id }) {
+      const item = await course(id);
+      const groups = [...lectureFiles(item).keys()];
+      if (groups.length === 0) throw new Error("This course has no video Raygun can play");
+      return {
+        episodes: groups.map((lecture, index) => ({
+          id: `${id}/${lecture}`,
+          name: lectureName(item, lecture),
+          number: index + 1
+        }))
+      };
+    },
+    // One server, resolved at once: the archive serves every file itself.
+    servers: async ({ episodeId }) => ({ servers: [await resolveServer2(episodeId)] }),
+    videos: async ({ serverId }) => ({ videos: (await resolveServer2(serverId)).videos ?? [] })
+  });
+
   // src/index.ts
   var API2 = "https://archive.org";
   var OPEN_LICENCE = /creativecommons\.org|publicdomain/i;
   var LEFT_OUT = ["78rpm", "georgeblood"];
   var OPEN_AUDIO = [
     "mediatype:audio",
-    "collection:(netlabels OR musopen)",
+    "collection:(netlabels OR musopen OR freemusicarchive)",
     "(licenseurl:*creativecommons.org* OR licenseurl:*publicdomain*)",
     `-collection:(${LEFT_OUT.join(" OR ")})`
   ].join(" AND ");
@@ -222,7 +392,7 @@
     if (stated) return Number(stated[1]);
     return format === "VBR MP3" ? 200 : null;
   };
-  var isPlayable2 = (file) => (file.format?.includes("MP3") ?? false) || /flac/i.test(file.format ?? "");
+  var isPlayable3 = (file) => (file.format?.includes("MP3") ?? false) || /flac/i.test(file.format ?? "");
   var pickFormat = (files, targetKbps) => {
     const formats = [...new Set(files.map((file) => file.format ?? ""))].filter(
       (format) => formatKbps(format) !== null
@@ -262,7 +432,7 @@
     const collections = [item.metadata?.collection ?? []].flat();
     if (!OPEN_LICENCE.test(item.metadata?.licenseurl ?? "")) return [];
     if (collections.some((name) => LEFT_OUT.includes(name))) return [];
-    const files = (item.files ?? []).filter(isPlayable2);
+    const files = (item.files ?? []).filter(isPlayable3);
     const format = pickFormat(files, targetKbps);
     const preferred = format === null ? files : files.filter((file) => file.format === format);
     preferred.sort((a, b) => (trackNumber(a) || 1e9) - (trackNumber(b) || 1e9));
@@ -357,4 +527,5 @@
   registerProvider(search);
   registerProvider(streams);
   registerProvider(films);
+  registerProvider(lectures);
 })();
