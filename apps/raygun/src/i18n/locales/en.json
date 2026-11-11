@@ -616,6 +616,10 @@
         "title": "Browse",
         "summary": "Websites and the ad blocker, adult content, extensions, repositories, addons"
       },
+      "notifications": {
+        "title": "Notifications",
+        "summary": "New releases, chapters, episodes and updates"
+      },
       "privacy": {
         "title": "Privacy",
         "summary": "Listening history"
@@ -1076,6 +1080,16 @@
       "pinnedFirstHint": "In the order you drag them into. Off, they’re sorted with the rest.",
       "listed": "What’s listed",
       "otherKinds": "Comics, books, videos and sites"
+    },
+    "notifications": {
+      "hint": "Which news notifies you. Downloads and other progress never make a sound.",
+      "artistReleases": "New releases from artists you follow",
+      "comics": "New comic chapters",
+      "books": "New book chapters",
+      "videos": "New episodes of series",
+      "podcasts": "New podcast episodes",
+      "audiobooks": "New audiobook chapters",
+      "appUpdates": "New versions of Raygun"
     },
     "privacy": {
       "title": "Privacy",

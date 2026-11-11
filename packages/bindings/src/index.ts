@@ -1348,6 +1348,8 @@ export const commands = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  Which news posts a notification (releases, library updates, Raygun's own update). */
+	notifications: NotificationPrefs,
 	/**  Artists and things not to show on Home and in recommendations. */
 	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */
@@ -4475,6 +4477,27 @@ export type MusicTagSources_Serialize = {
 
 export type NavLabels = "always" | "selected";
 
+/**
+ *  News that posts a notification, each kind on its own; all on by default. Downloads and other
+ *  progress never alert and aren't listed here.
+ */
+export type NotificationPrefs = {
+	/**  New releases from followed artists. */
+	artistReleases?: boolean,
+	/**  New chapters of comics in the library, found by library updates. */
+	comics?: boolean,
+	/**  New chapters of books from sources in the library. */
+	books?: boolean,
+	/**  New episodes of followed series. */
+	videos?: boolean,
+	/**  New episodes of followed podcasts. */
+	podcasts?: boolean,
+	/**  New chapters of followed audiobooks. */
+	audiobooks?: boolean,
+	/**  A newer version of Raygun, found by a background check. */
+	appUpdates?: boolean,
+};
+
 /**  What the novel reader needs for one chapter. */
 export type NovelChapter = {
 	titleId: string,
@@ -5484,7 +5507,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5598,6 +5621,8 @@ export type Settings = {
 	transcription: TranscriptionPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
+	/**  Which news posts a notification (releases, library updates, Raygun's own update). */
+	notifications: NotificationPrefs,
 	/**  Artists and things not to show on Home and in recommendations. */
 	hidden: HiddenPrefs,
 	/**  How long lyrics stay kept (M46.46). */

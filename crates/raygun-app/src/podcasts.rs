@@ -33,6 +33,7 @@ use tokio::io::AsyncWriteExt;
 use crate::catalog::now_ms;
 use crate::events::{AudiobooksFoundEvent, PodcastsChangedEvent};
 use crate::extensions::ExtensionService;
+use crate::notifications::news::{self, NewsKind};
 use crate::playback::PlaybackService;
 use crate::podcast_feed::{self, MAX_FEED_BYTES};
 use crate::startup::AppDb;
@@ -736,12 +737,33 @@ impl PodcastService {
         let db = self.db();
         let subscriptions = store::subscriptions(&db).await.map_err(to_message)?;
         let mut added = 0;
+        let mut news = Vec::new();
         for subscription in subscriptions {
             match self
                 .refresh_feed(&subscription.podcast.fields.feed_url)
                 .await
             {
-                Ok((_, new)) => added += new,
+                Ok((id, new)) => {
+                    added += new;
+                    if new > 0 {
+                        let fields = &subscription.podcast.fields;
+                        let (kind, title) = if fields.kind == AUDIOBOOK {
+                            (NewsKind::Audiobooks, book_name(fields).title)
+                        } else {
+                            (NewsKind::Podcasts, fields.title.trim().to_owned())
+                        };
+                        news.push((
+                            kind,
+                            news::library_notice(
+                                kind,
+                                &id,
+                                &title,
+                                new as usize,
+                                news::title_route(kind, "", &id),
+                            ),
+                        ));
+                    }
+                }
                 Err(error) => tracing::info!(
                     podcast = %subscription.podcast.fields.title,
                     %error,
@@ -751,6 +773,13 @@ impl PodcastService {
         }
         let _ = raygun_db::set_local_value(&db, LAST_REFRESH, &now_ms().to_string()).await;
         self.changed("");
+        if !news.is_empty() {
+            let prefs = crate::settings::load(&db)
+                .await
+                .map(|settings| settings.notifications)
+                .unwrap_or_default();
+            news::announce(&self.app, &prefs, news).await;
+        }
         Ok(added)
     }
 

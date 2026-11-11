@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS: Settings = {
   explicitMusic: true,
   contentOverrides: { extensions: {}, repositories: {}, addons: {} },
   privacy: { history: true, recentlyPlayed: true },
+  notifications: {},
   hidden: { artists: [], items: [] },
   lyricsCache: { forgetAfterDays: 30, keepFavorites: true, keepDownloaded: true, keepLocal: true },
   lyricsTranslation: { language: '', automatic: true, romanized: false, localModel: '' },

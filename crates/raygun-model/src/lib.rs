@@ -221,6 +221,8 @@ pub struct Settings {
     pub transcription: TranscriptionPrefs,
     /// What's remembered of listening (M46.41).
     pub privacy: PrivacyPrefs,
+    /// Which news posts a notification (releases, library updates, Raygun's own update).
+    pub notifications: NotificationPrefs,
     /// Artists and things not to show on Home and in recommendations.
     pub hidden: HiddenPrefs,
     /// How long lyrics stay kept (M46.46).
@@ -873,6 +875,41 @@ impl Default for PrivacyPrefs {
             recently_played: true,
             search_history: true,
             keep_incognito: false,
+        }
+    }
+}
+
+/// News that posts a notification, each kind on its own; all on by default. Downloads and other
+/// progress never alert and aren't listed here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NotificationPrefs {
+    /// New releases from followed artists.
+    pub artist_releases: bool,
+    /// New chapters of comics in the library, found by library updates.
+    pub comics: bool,
+    /// New chapters of books from sources in the library.
+    pub books: bool,
+    /// New episodes of followed series.
+    pub videos: bool,
+    /// New episodes of followed podcasts.
+    pub podcasts: bool,
+    /// New chapters of followed audiobooks.
+    pub audiobooks: bool,
+    /// A newer version of Raygun, found by a background check.
+    pub app_updates: bool,
+}
+
+impl Default for NotificationPrefs {
+    fn default() -> Self {
+        Self {
+            artist_releases: true,
+            comics: true,
+            books: true,
+            videos: true,
+            podcasts: true,
+            audiobooks: true,
+            app_updates: true,
         }
     }
 }
@@ -2611,6 +2648,7 @@ impl Default for Settings {
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
             privacy: PrivacyPrefs::default(),
+            notifications: NotificationPrefs::default(),
             hidden: HiddenPrefs::default(),
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
@@ -2693,6 +2731,7 @@ impl Settings {
             SettingChange::AudioQuality(prefs) => self.audio_quality = prefs,
             SettingChange::Rail(prefs) => self.rail = prefs,
             SettingChange::Privacy(prefs) => self.privacy = prefs,
+            SettingChange::Notifications(prefs) => self.notifications = prefs,
             SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::ReaderAi(prefs) => self.reader_ai = prefs,
@@ -2790,6 +2829,7 @@ pub enum SettingChange {
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
     Privacy(PrivacyPrefs),
+    Notifications(NotificationPrefs),
     Hidden(HiddenPrefs),
     LyricsCache(LyricsCachePrefs),
     LyricsTranslation(LyricsTranslationPrefs),
@@ -2858,6 +2898,7 @@ impl SettingChange {
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
             Self::Privacy(_) => "privacy",
+            Self::Notifications(_) => "notifications",
             Self::Hidden(_) => "hidden",
             Self::LyricsCache(_) => "lyricsCache",
             Self::LyricsTranslation(_) => "lyricsTranslation",
@@ -2892,7 +2933,8 @@ impl SettingChange {
             | Self::DownloadsInBatterySaver(_)
             | Self::AudioQuality(_)
             | Self::LibraryDisplay(_)
-            | Self::Privacy(_) => Ok(()),
+            | Self::Privacy(_)
+            | Self::Notifications(_) => Ok(()),
             Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
                 Err("Lyrics can be kept for at most ten years".into())
             }

@@ -26,6 +26,7 @@ use crate::catalog::{
 use crate::comics::{self, COMICS, LOCAL_COMICS};
 use crate::events::MangaUpdateEvent;
 use crate::manga_downloads::MangaDownloadService;
+use crate::notifications::news::{self, NewsKind};
 use crate::novel::NovelService;
 use crate::stremio::StremioService;
 use crate::video_library;
@@ -471,7 +472,23 @@ impl MangaService {
                 (title, result)
             })
             .buffer_unordered(UPDATE_CONCURRENCY);
+        // One notification per title with something new.
+        let mut news = Vec::new();
         while let Some((title, result)) = results.next().await {
+            if let (Ok(added @ 1..), Some(kind)) = (&result, NewsKind::of_title(&title.fields.kind))
+            {
+                let fields = &title.fields;
+                news.push((
+                    kind,
+                    news::library_notice(
+                        kind,
+                        &title.id,
+                        &fields.title,
+                        *added,
+                        news::title_route(kind, &fields.source_id, &fields.remote_id),
+                    ),
+                ));
+            }
             let snapshot = {
                 let mut status = self.update.lock().expect("update status poisoned");
                 status.checked += 1;
@@ -495,6 +512,14 @@ impl MangaService {
                 status.clone()
             };
             self.emit_update(snapshot);
+        }
+
+        if !news.is_empty() {
+            let prefs = crate::settings::load(&db)
+                .await
+                .map(|settings| settings.notifications)
+                .unwrap_or_default();
+            news::announce(&self.app, &prefs, news).await;
         }
 
         let now = now_ms();
