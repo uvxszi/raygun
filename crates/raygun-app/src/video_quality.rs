@@ -787,9 +787,10 @@ pub fn rows(menu: &Menu) -> Vec<QualityRow> {
 }
 
 /// The link a tapped row plays: one with its tier and range, from the source playing first, then
-/// the others in the order a session tries them. When no source has it (a tier asked for before
-/// the links changed), the nearest any has ([`QualityKey::distance`]), again the source playing's
-/// first. Links already tried for this row are passed over (once all were, the first comes round
+/// the others in the order a session tries them. When no link has it at all (a tier asked for
+/// before the links changed), the nearest any has ([`QualityKey::distance`]), again the source
+/// playing's first; the row that plays, tapped again with no other link to it, plays nothing
+/// else. Links already tried for this row are passed over (once all were, the first comes round
 /// again); never the link playing.
 pub fn pick(
     offers: &[Offer],
@@ -802,7 +803,11 @@ pub fn pick(
         .iter()
         .filter(|offer| Some((offer.group, offer.link)) != current)
         .collect();
-    let nearest = others.iter().map(|offer| key.distance(offer.key)).min()?;
+    let nearest = if offers.iter().any(|offer| offer.key == key) {
+        key.distance(key)
+    } else {
+        others.iter().map(|offer| key.distance(offer.key)).min()?
+    };
     let mut candidates: Vec<&Offer> = others
         .into_iter()
         .filter(|offer| key.distance(offer.key) == nearest)
@@ -1324,6 +1329,21 @@ mod tests {
                 &tried
             ),
             Some((2, 0))
+        );
+        // The row that plays, tapped again with no other link to it: nothing else plays (the
+        // player says no other source has it), not another range.
+        let alone = [
+            offer(0, 0, 1080, Range::Sdr, 0),
+            offer(1, 0, 1080, Range::Hdr, 1),
+        ];
+        assert_eq!(
+            super::pick(
+                &alone,
+                QualityKey::of(1080, Range::Sdr),
+                Some((0, 0)),
+                &tried
+            ),
+            None
         );
         // HDR asked for, none has it: the same tier in SDR before another tier.
         assert_eq!(

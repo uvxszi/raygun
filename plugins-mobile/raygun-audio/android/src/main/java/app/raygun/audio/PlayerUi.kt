@@ -214,9 +214,13 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         get() = scroll.scrollY
         set(value) {
             if (value <= 0) return
-            scroll.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            // The window's observer, kept: a sheet replaced before it's drawn still lets go.
+            val observer = scroll.viewTreeObserver
+            observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
                 override fun onPreDraw(): Boolean {
-                    if (scroll.viewTreeObserver.isAlive) scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                    listOf(observer, scroll.viewTreeObserver)
+                        .filter { it.isAlive }
+                        .forEach { it.removeOnPreDrawListener(this) }
                     scroll.scrollTo(0, value)
                     return true
                 }
