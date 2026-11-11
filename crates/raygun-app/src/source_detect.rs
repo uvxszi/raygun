@@ -549,7 +549,7 @@ fn read(answer: &Fetched, base: &Url) -> Option<Reading> {
     };
     let text = text.trim_start_matches('\u{feff}').trim_start();
     match text.chars().next()? {
-        '<' => read_xml(answer, text),
+        '<' => read_xml(answer, text, base),
         '{' | '[' if answer.truncated => None,
         '{' | '[' => read_json(answer, text, base),
         _ if answer.truncated => None,
@@ -599,7 +599,36 @@ fn feed_title(text: &str) -> Option<String> {
     }
 }
 
-fn read_xml(answer: &Fetched, text: &str) -> Option<Reading> {
+/// A Subsonic server (Navidrome, Airsonic, gonic…) whose ping answered under `base`: at the
+/// address before its API's `/rest/` part, so an address typed with `/rest/ping.view` (or
+/// `/rest`) connects the server itself.
+fn subsonic_at(base: &Url) -> Found {
+    let mut url = base.clone();
+    url.set_query(None);
+    url.set_fragment(None);
+    let path = url.path().to_owned();
+    let lower = path.to_ascii_lowercase();
+    let root = if let Some(at) = lower.find("/rest/") {
+        &path[..=at]
+    } else if lower.ends_with("/rest") {
+        &path[..path.len() - "rest".len()]
+    } else {
+        &path
+    };
+    let root = if root.ends_with('/') {
+        root.to_owned()
+    } else {
+        format!("{root}/")
+    };
+    url.set_path(&root);
+    Found::Server {
+        kind: ServerKind::Subsonic,
+        url,
+        name: None,
+    }
+}
+
+fn read_xml(answer: &Fetched, text: &str, base: &Url) -> Option<Reading> {
     match root_element(text)?.as_str() {
         "addons" if answer.truncated => {
             // Too long to read here: Kodi's own indexes are read gzipped, as Kodi reads them.
@@ -618,6 +647,8 @@ fn read_xml(answer: &Fetched, text: &str) -> Option<Reading> {
         },
         // A Kodi repository shared as its own add-on names its index.
         "addon" => kodi::index_address(text.as_bytes(), &answer.url).map(Reading::Follow),
+        // Subsonic's ping in XML (servers that answer in XML whatever `f` asks for).
+        "subsonic-response" => Some(Reading::Found(subsonic_at(base))),
         "feed" if is_opds(answer, text) => Some(Reading::Found(Found::Server {
             kind: ServerKind::Opds,
             url: answer.url.clone(),
@@ -690,7 +721,7 @@ fn server_answer(value: &Value, answer: &Fetched, base: &Url) -> Option<Found> {
         })
     };
     if object.contains_key("subsonic-response") {
-        return server(ServerKind::Subsonic, None);
+        return Some(subsonic_at(base));
     }
     // Jellyfin's and Emby's `System/Info/Public`.
     if object.contains_key("Version")
@@ -1278,6 +1309,48 @@ mod tests {
             assert_eq!(url.as_str(), address);
             assert_eq!((entry.id.as_str(), entry.format), (id, format));
             assert_eq!(entry.sha256, package::sha256_hex(&bytes));
+        }
+    }
+
+    #[tokio::test]
+    async fn subsonic_servers_are_found_however_their_address_is_typed() {
+        let ping = json!({ "subsonic-response": { "status": "failed", "version": "1.16.1",
+            "error": { "code": 10, "message": "Required parameter is missing" } } })
+        .to_string();
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?><subsonic-response xmlns="http://subsonic.org/restapi" status="failed" version="1.15.0"><error code="10" message="Required parameter is missing"/></subsonic-response>"#;
+        let table = Table::default()
+            .with("https://music.example/", "<html>Navidrome</html>")
+            .with(
+                "https://music.example/rest/ping.view?v=1.16.1&c=Raygun&f=json",
+                ping.clone(),
+            )
+            .with("https://music.example/rest/ping.view", xml)
+            .with("https://home.example/navidrome/", "<html>Navidrome</html>")
+            .with(
+                "https://home.example/navidrome/rest/ping.view?v=1.16.1&c=Raygun&f=json",
+                ping,
+            );
+        for (typed, server) in [
+            ("music.example", "https://music.example/"),
+            // The API's own address, answered in XML, stands for the server.
+            (
+                "https://music.example/rest/ping.view",
+                "https://music.example/",
+            ),
+            // Served under a path.
+            (
+                "https://home.example/navidrome",
+                "https://home.example/navidrome/",
+            ),
+        ] {
+            let Found::Server { kind, url, .. } = look(&table, typed).await else {
+                panic!("{typed}: not a server");
+            };
+            assert_eq!(
+                (kind, url.as_str()),
+                (ServerKind::Subsonic, server),
+                "{typed}"
+            );
         }
     }
 

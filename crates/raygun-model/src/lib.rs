@@ -1026,6 +1026,9 @@ pub const EQ_FREQUENCIES: [u32; 10] = [31, 62, 125, 250, 500, 1_000, 2_000, 4_00
 pub const EQ_LIMIT: i32 = 120;
 /// The longest crossfade, ms.
 pub const CROSSFADE_MAX_MS: u32 = 12_000;
+/// The crossfade a new install starts with (and a stored row without one), ms. Rows saved with
+/// another value, off included, keep theirs: an explicit off can't be told from the old default.
+pub const CROSSFADE_DEFAULT_MS: u32 = 2_000;
 
 /// A reverb, as Android's `PresetReverb` names them (M46.12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
@@ -1064,7 +1067,8 @@ pub struct SoundPrefs {
     pub normalize: bool,
     /// Loudness songs are brought to, LUFS (−23 to −8).
     pub normalize_target: i32,
-    /// How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]).
+    /// How long one song fades into the next, ms (0 = off, up to [`CROSSFADE_MAX_MS`]; at first
+    /// [`CROSSFADE_DEFAULT_MS`]).
     pub crossfade_ms: u32,
 }
 
@@ -1081,7 +1085,7 @@ impl Default for SoundPrefs {
             mono: false,
             normalize: false,
             normalize_target: -14,
-            crossfade_ms: 0,
+            crossfade_ms: CROSSFADE_DEFAULT_MS,
         }
     }
 }
@@ -8334,6 +8338,16 @@ pub struct VideoDownloads {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn songs_crossfade_for_two_seconds_unless_a_saved_row_says_otherwise() {
+        assert_eq!(SoundPrefs::default().crossfade_ms, 2_000);
+        assert!(SoundPrefs::default().validate().is_ok());
+        let missing: SoundPrefs = serde_json::from_str(r#"{"mono":true}"#).unwrap();
+        assert_eq!(missing.crossfade_ms, CROSSFADE_DEFAULT_MS);
+        let off: SoundPrefs = serde_json::from_str(r#"{"crossfadeMs":0}"#).unwrap();
+        assert_eq!(off.crossfade_ms, 0);
+    }
 
     #[test]
     fn a_renamed_home_row_keeps_its_place_and_whether_it_shows() {

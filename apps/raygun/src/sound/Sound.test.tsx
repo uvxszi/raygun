@@ -6,6 +6,7 @@ import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { DEFAULT_SETTINGS, bindingsMock } from '../test/bindingsMock';
 import { EQ_PRESETS } from './presets';
 import { parseTrim } from './format';
+import { withSoundDefaults } from './soundPrefs';
 import { useSongEditStore } from './songEditStore';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -129,9 +130,14 @@ describe('Sound settings', () => {
     });
   });
 
-  it('sets the crossfade in seconds', async () => {
+  it('starts with a 2 second crossfade and sets it in seconds', async () => {
+    expect(withSoundDefaults(null).crossfadeMs).toBe(2000);
+    // A stored row without one gets the default; one saved with it off stays off.
+    expect(withSoundDefaults({ mono: true } as SoundPrefs).crossfadeMs).toBe(2000);
+    expect(withSoundDefaults({ crossfadeMs: 0 } as SoundPrefs).crossfadeMs).toBe(0);
     await AppShellWrapper.mount('/settings/music');
     const crossfade = await screen.findByRole('slider', { name: /^Crossfade/ });
+    expect(crossfade).toHaveValue('2');
     fireEvent.change(crossfade, { target: { value: '6' } });
     fireEvent.pointerUp(crossfade);
     await waitFor(() => expect(lastSound()).toMatchObject({ crossfadeMs: 6000 }));

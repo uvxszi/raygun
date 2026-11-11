@@ -20,17 +20,31 @@ object Notices {
     private const val TAG = "raygun.notice"
 
     /**
-     * Shows `notice` (`{"id", "channel", "channelName", "channelDescription", "title", "text",
-     * "route"}`); the same id in a channel replaces the one shown. Main thread.
+     * Shows `notice` (`{"id", "channel", "channelName", "channelDescription", "alerts",
+     * "retiredChannels", "title", "text", "route"}`); the same id in a channel replaces the one
+     * shown. Only a channel that `alerts` (news of releases) makes a sound or pops up; the rest are
+     * low and silent. Android keeps a channel's importance as first made, so a channel that went
+     * quiet has a new id and Rust lists the old ones in `retiredChannels`, deleted here. Main thread.
      */
     fun show(context: Context, notice: JSONObject) {
         val channel = notice.optString("channel")
         if (channel.isEmpty()) return
+        val alerts = notice.optBoolean("alerts", false)
         val manager = NotificationManagerCompat.from(context)
+        notice.optJSONArray("retiredChannels")?.let { retired ->
+            for (index in 0 until retired.length()) {
+                val old = retired.optString(index)
+                if (old.isNotEmpty() && old != channel) manager.deleteNotificationChannel(old)
+            }
+        }
         manager.createNotificationChannel(
-            NotificationChannelCompat.Builder(channel, NotificationManagerCompat.IMPORTANCE_DEFAULT)
+            NotificationChannelCompat.Builder(
+                channel,
+                if (alerts) NotificationManagerCompat.IMPORTANCE_DEFAULT else NotificationManagerCompat.IMPORTANCE_LOW,
+            )
                 .setName(notice.optString("channelName", channel))
                 .setDescription(notice.optString("channelDescription"))
+                .apply { if (!alerts) setSound(null, null).setVibrationEnabled(false).setShowBadge(false) }
                 .build(),
         )
         // Both lines say something (Rust fills them too); one that says nothing isn't shown.
@@ -43,8 +57,10 @@ object Notices {
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
-            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(if (alerts) NotificationCompat.CATEGORY_RECOMMENDATION else NotificationCompat.CATEGORY_STATUS)
+            .setPriority(if (alerts) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+            .setSilent(!alerts)
         val route = notice.optString("route")
         if (route.isNotEmpty()) openRaygunIntent(context, route)?.let(builder::setContentIntent)
         if (!manager.areNotificationsEnabled()) return
