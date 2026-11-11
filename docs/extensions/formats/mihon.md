@@ -308,16 +308,16 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 128 | 134 |
-| No theme | 798 | 858 |
-| All | 1511 (95.8%) | 1577 |
+| No theme | 799 | 858 |
+| All | 1512 (95.9%) | 1577 |
 
-The 66 refusals left are one or two extensions each, most of them on what has no stand-in:
+The 65 refusals left are one or two extensions each, most of them on what has no stand-in:
 Android's text layout and PDF rendering (`StaticLayout`, `PdfRenderer`), Java's key pairs
 (`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
 `zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
 own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
-and zstd; a few on Kotlin the converter doesn't read yet (`sequence { yieldAll(…) }`, labelled
-`run label@{ … }`, `typealias`, java.time's `YearMonth`/`LocalTime`/`WeekFields`).
+and zstd; a few on Kotlin the converter doesn't read yet (`sequence { yieldAll(…) }`,
+`typealias`, java.time's `YearMonth`/`LocalTime`/`WeekFields`).
 
 `mihon_popular_live` with a sample of 300 converted sources (2026-11-11) follows each listing
 through a title's details, its chapters and a chapter's pages: 234 of the 300 list their
