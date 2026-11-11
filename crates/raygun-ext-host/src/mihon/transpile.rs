@@ -1614,8 +1614,9 @@ pub fn convert(
             false,
             &reached,
         )?;
+        // `$$`: the slot the runtime's answers are checked in (`emit`'s settled reads).
         layers.push(format!(
-            "    (self, C, D) => {{\n{}\n    }},",
+            "    (self, C, D) => {{\nlet $$;\n{}\n    }},",
             out.join("\n")
         ));
     }

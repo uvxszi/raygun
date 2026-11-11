@@ -143,6 +143,12 @@ impl Context {
     }
 }
 
+// The runtime's reads and calls are emitted as `(($$ = KT.p(…)) instanceof Promise ? await $$ :
+// $$)`: most answer a value at once, and `await` on a value still waits a turn of the job queue
+// (several times the read itself in a loop over a picture's bytes). `$$` is each layer's scratch
+// slot (`let $$;`), read right after it's set, so nothing that runs in between can change it;
+// Kotlin names never start with `$`.
+
 /// A companion value's key on `C`.
 pub fn companion_key(class: &str, name: &str) -> String {
     format!("{class}.{name}")
@@ -692,7 +698,12 @@ impl<'a> Gen<'a> {
             .companions
             .get(class)
             .filter(|names| names.contains(name))
-            .map(|_| format!("(await C.get({}))", quote(&companion_key(class, name))))
+            .map(|_| {
+                format!(
+                    "(($$ = C.get({})) instanceof Promise ? await $$ : $$)",
+                    quote(&companion_key(class, name))
+                )
+            })
     }
 
     fn temp(&mut self) -> String {
@@ -902,8 +913,8 @@ impl<'a> Gen<'a> {
                 let (holder, key_temp) = (self.temp(), self.temp());
                 (
                     format!("const {holder} = {object}; const {key_temp} = {key}; "),
-                    format!("await KT.m({holder}, \"get\", [{key_temp}])"),
-                    format!("await KT.m({holder}, \"set\", [{key_temp}, {new}])"),
+                    format!("await KT.get({holder}, {key_temp})"),
+                    format!("await KT.set({holder}, {key_temp}, {new})"),
                 )
             }
             _ => return Err(unsupported(format!("{op} on that"))),
@@ -1482,7 +1493,10 @@ impl<'a> Gen<'a> {
                     }
                     Expr::Name(name) => {
                         let receivers = self.receiver_list();
-                        let current = format!("(await KT.rget({receivers}, {}))", quote(name));
+                        let current = format!(
+                            "(($$ = KT.rget({receivers}, {})) instanceof Promise ? await $$ : $$)",
+                            quote(name)
+                        );
                         format!(
                             "await KT.rset({receivers}, {}, {});",
                             quote(name),
@@ -1505,7 +1519,10 @@ impl<'a> Gen<'a> {
                     Expr::Member { target, name, .. } => {
                         let object = self.expr(target)?;
                         let temp = self.temp();
-                        let current = format!("(await KT.p({temp}, {}))", quote(name));
+                        let current = format!(
+                            "(($$ = KT.p({temp}, {})) instanceof Promise ? await $$ : $$)",
+                            quote(name)
+                        );
                         format!(
                             "{{ const {temp} = {object}; await KT.setp({temp}, {}, {}); }}",
                             quote(name),
@@ -1516,9 +1533,11 @@ impl<'a> Gen<'a> {
                         let object = self.expr(target)?;
                         let key = self.expr(&index[0])?;
                         let (temp, key_temp) = (self.temp(), self.temp());
-                        let current = format!("(await KT.m({temp}, \"get\", [{key_temp}]))");
+                        let current = format!(
+                            "(($$ = KT.get({temp}, {key_temp})) instanceof Promise ? await $$ : $$)"
+                        );
                         format!(
-                            "{{ const {temp} = {object}; const {key_temp} = {key}; await KT.m({temp}, \"set\", [{key_temp}, {}]); }}",
+                            "{{ const {temp} = {object}; const {key_temp} = {key}; ($$ = KT.set({temp}, {key_temp}, {})) instanceof Promise && (await $$); }}",
                             combined(current)
                         )
                     }
@@ -1964,13 +1983,22 @@ impl<'a> Gen<'a> {
                 args,
                 lambda,
             } => self.call(callee, type_args, args, lambda.as_deref())?,
+            // `list[i]`, `map[key]`: at once for lists, texts and maps.
+            Expr::Index { target, index } if index.len() == 1 => {
+                let object = self.expr(target)?;
+                let key = self.expr(&index[0])?;
+                format!("(($$ = KT.get({object}, {key})) instanceof Promise ? await $$ : $$)")
+            }
             Expr::Index { target, index } => {
                 let object = self.expr(target)?;
                 let keys = index
                     .iter()
                     .map(|key| self.expr(key))
                     .collect::<Result<Vec<_>, _>>()?;
-                format!("(await KT.m({object}, \"get\", [{}]))", keys.join(", "))
+                format!(
+                    "(($$ = KT.m({object}, \"get\", [{}])) instanceof Promise ? await $$ : $$)",
+                    keys.join(", ")
+                )
             }
             Expr::NotNull(inner) => format!("KT.nn({})", self.expr(inner)?),
             Expr::Unary { op, expr } if matches!(*op, "++" | "--") => {
@@ -2144,7 +2172,9 @@ impl<'a> Gen<'a> {
             && let Some(scope) = self.class_scope.as_deref()
             && self.cx.enum_entries.contains_key(scope)
         {
-            return Ok(format!("(await KT.p(D.{scope}, \"entries\"))"));
+            return Ok(format!(
+                "(($$ = KT.p(D.{scope}, \"entries\")) instanceof Promise ? await $$ : $$)"
+            ));
         }
         // A constant of the runtime's imported by name (`import kotlin.text.RegexOption.IGNORE_CASE`).
         if name
@@ -2160,17 +2190,23 @@ impl<'a> Gen<'a> {
             let unseen =
                 self.class_scope.is_some() && self.cx.source_private_extensions.contains(name);
             return Ok(format!(
-                "(await KT.rget({}, {}{}))",
+                "(($$ = KT.rget({}, {}{})) instanceof Promise ? await $$ : $$)",
                 self.receiver_list(),
                 quote(name),
                 if unseen { ", false" } else { "" }
             ));
         }
         if self.cx.properties.contains(name) {
-            return Ok(format!("(await self.get({}))", quote(name)));
+            return Ok(format!(
+                "(($$ = self.get({})) instanceof Promise ? await $$ : $$)",
+                quote(name)
+            ));
         }
         if self.cx.constants.contains(name) {
-            return Ok(format!("(await C.get({}))", quote(name)));
+            return Ok(format!(
+                "(($$ = C.get({})) instanceof Promise ? await $$ : $$)",
+                quote(name)
+            ));
         }
         if self.cx.classes.contains(name) {
             return Ok(format!("D.{name}"));
@@ -2233,7 +2269,7 @@ impl<'a> Gen<'a> {
         let owner = parts.find(|part| *part != "Companion")?;
         (OBJECTS.contains(&owner) && !self.cx.classes.contains(owner)).then(|| {
             format!(
-                "(await KT.p(KT.global({}), {}))",
+                "(($$ = KT.p(KT.global({}), {})) instanceof Promise ? await $$ : $$)",
                 quote(owner),
                 quote(member)
             )
@@ -2249,7 +2285,10 @@ impl<'a> Gen<'a> {
                 .get(scope)
                 .is_some_and(|entries| entries.contains(name))
         {
-            return Some(format!("(await KT.p(D.{scope}, {}))", quote(name)));
+            return Some(format!(
+                "(($$ = KT.p(D.{scope}, {})) instanceof Promise ? await $$ : $$)",
+                quote(name)
+            ));
         }
         let (_, full) = self.imports.iter().find(|(alias, _)| alias == name)?;
         let mut parts = full.rsplit('.');
@@ -2261,7 +2300,10 @@ impl<'a> Gen<'a> {
             .get(owner)
             .is_some_and(|entries| entries.contains(entry))
         {
-            return Some(format!("(await KT.p(D.{owner}, {}))", quote(entry)));
+            return Some(format!(
+                "(($$ = KT.p(D.{owner}, {})) instanceof Promise ? await $$ : $$)",
+                quote(entry)
+            ));
         }
         None
     }
@@ -2276,7 +2318,10 @@ impl<'a> Gen<'a> {
             && !self.is_local(owner)
             && self.cx.constants.contains(name)
         {
-            return Ok(format!("(await C.get({}))", quote(name)));
+            return Ok(format!(
+                "(($$ = C.get({})) instanceof Promise ? await $$ : $$)",
+                quote(name)
+            ));
         }
         // `Page::class.java`: the class (its name, and the extension's resources).
         if matches!(name, "java" | "javaObjectType" | "kotlin")
@@ -2291,7 +2336,29 @@ impl<'a> Gen<'a> {
             && self.class_scope.is_none()
             && self.cx.properties.contains(name)
         {
-            return Ok(format!("(await self.get({}))", quote(name)));
+            return Ok(format!(
+                "(($$ = self.get({})) instanceof Promise ? await $$ : $$)",
+                quote(name)
+            ));
+        }
+        // A declared class's companion value read in code with receivers (`B2y.V_CGH` in a
+        // library class's function): receivers don't hold class names.
+        if let Expr::Name(owner) = target
+            && !self.receivers.is_empty()
+            && !self.is_local(owner)
+            && self.resolve(owner).is_none()
+            && self.cx.classes.contains(owner)
+            && self
+                .cx
+                .companions
+                .get(owner)
+                .is_some_and(|names| names.contains(name))
+            && self.companion_value(owner).is_none()
+        {
+            return Ok(format!(
+                "(($$ = C.get({})) instanceof Promise ? await $$ : $$)",
+                quote(&companion_key(owner, name))
+            ));
         }
         // A companion's or an object's member (`Companion.X`, `SManga.ONGOING`).
         if let Expr::Name(owner) = target
@@ -2309,15 +2376,21 @@ impl<'a> Gen<'a> {
                 .is_some_and(|names| names.contains(name))
             {
                 return Ok(format!(
-                    "(await C.get({}))",
+                    "(($$ = C.get({})) instanceof Promise ? await $$ : $$)",
                     quote(&companion_key(owner, name))
                 ));
             }
             if self.cx.classes.contains(owner) {
-                return Ok(format!("(await KT.p(D.{owner}, {}))", quote(name)));
+                return Ok(format!(
+                    "(($$ = KT.p(D.{owner}, {})) instanceof Promise ? await $$ : $$)",
+                    quote(name)
+                ));
             }
             let object = self.runtime_object(owner, name)?;
-            return Ok(format!("(await KT.p({object}, {}))", quote(name)));
+            return Ok(format!(
+                "(($$ = KT.p({object}, {})) instanceof Promise ? await $$ : $$)",
+                quote(name)
+            ));
         }
         let object = self.expr(target)?;
         if self.cx.extension_properties.contains(name) {
@@ -2332,9 +2405,15 @@ impl<'a> Gen<'a> {
             });
         }
         Ok(if safe {
-            format!("(await KT.ps({object}, {}))", quote(name))
+            format!(
+                "(($$ = KT.ps({object}, {})) instanceof Promise ? await $$ : $$)",
+                quote(name)
+            )
         } else {
-            format!("(await KT.p({object}, {}))", quote(name))
+            format!(
+                "(($$ = KT.p({object}, {})) instanceof Promise ? await $$ : $$)",
+                quote(name)
+            )
         })
     }
 
@@ -2523,7 +2602,7 @@ impl<'a> Gen<'a> {
                             .unwrap_or_else(|| "null".to_owned());
                         let check = passes_a_check(&self.function_name);
                         return Ok(format!(
-                            "(await KT.call(\"runWebView\", [{page}, (await self.get(\"baseUrl\")), {check}]))"
+                            "(($$ = KT.call(\"runWebView\", [{page}, (await self.get(\"baseUrl\")), {check}])) instanceof Promise ? await $$ : $$)"
                         ));
                     }
                     // kotlinx.serialization's settings: reading always ignores unknown keys and
@@ -2542,10 +2621,13 @@ impl<'a> Gen<'a> {
                         });
                         return Ok(match discriminator {
                             Some(key) => format!(
-                                "(await KT.call(\"Json\", [], {{ classDiscriminator: {} }}))",
+                                "(($$ = KT.call(\"Json\", [], {{ classDiscriminator: {} }})) instanceof Promise ? await $$ : $$)",
                                 quote(&key)
                             ),
-                            None => "(await KT.call(\"Json\", []))".to_owned(),
+                            None => {
+                                "(($$ = KT.call(\"Json\", [])) instanceof Promise ? await $$ : $$)"
+                                    .to_owned()
+                            }
                         });
                     }
                     ("SerializersModule", Some(_)) => return Ok("null".to_owned()),
@@ -2567,7 +2649,9 @@ impl<'a> Gen<'a> {
                         let block = self.receiver_lambda(lambda, name)?;
                         let made = format!("KT.sequenceOf({block})");
                         return Ok(if name == "iterator" {
-                            format!("(await KT.m({made}, \"iterator\", []))")
+                            format!(
+                                "(($$ = KT.m({made}, \"iterator\", [])) instanceof Promise ? await $$ : $$)"
+                            )
                         } else {
                             made
                         });
@@ -2596,7 +2680,7 @@ impl<'a> Gen<'a> {
                     ("getPreferences" | "getPreferencesLazy", Some(lambda)) if args.is_empty() => {
                         let preferences = self.receiver_call_returning(
                             lambda,
-                            "(await KT.call(\"getPreferences\", []))",
+                            "(($$ = KT.call(\"getPreferences\", [])) instanceof Promise ? await $$ : $$)",
                             name,
                         )?;
                         return Ok(if name == "getPreferences" {
@@ -2698,7 +2782,7 @@ impl<'a> Gen<'a> {
                     }
                     let (args, named) = self.args(args, None)?;
                     return Ok(format!(
-                        "(await KT.rcall({}, {}, {}, {}, {}, {type_arg}))",
+                        "(($$ = KT.rcall({}, {}, {}, {}, {}, {type_arg})) instanceof Promise ? await $$ : $$)",
                         self.receiver_list(),
                         quote(name),
                         typed_args(&args, passed_types.as_deref()),
@@ -2769,7 +2853,7 @@ impl<'a> Gen<'a> {
                         args.push(lambda);
                     }
                     return Ok(format!(
-                        "(await KT.m(D.{scope}, {}, [{}]))",
+                        "(($$ = KT.m(D.{scope}, {}, [{}])) instanceof Promise ? await $$ : $$)",
                         quote(name),
                         args.join(", ")
                     ));
@@ -2933,7 +3017,7 @@ impl<'a> Gen<'a> {
                     let (args, named) = self.args(args, None)?;
                     let lambda = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
                     return Ok(format!(
-                        "(await KT.m({owner_code}, {}, [{}], {}, {}, {type_arg}))",
+                        "(($$ = KT.m({owner_code}, {}, [{}], {}, {}, {type_arg})) instanceof Promise ? await $$ : $$)",
                         quote(name),
                         args.join(", "),
                         named.unwrap_or_else(|| "null".to_owned()),
@@ -3014,7 +3098,10 @@ impl<'a> Gen<'a> {
                     let inner = call("v");
                     format!("(await KT.safe({object}, async (v) => {inner}))")
                 } else {
-                    format!("(await {})", call(&object))
+                    format!(
+                        "(($$ = {}) instanceof Promise ? await $$ : $$)",
+                        call(&object)
+                    )
                 };
                 call_args.clear();
                 Ok(code)
@@ -3060,7 +3147,7 @@ impl<'a> Gen<'a> {
         };
         let (args, named) = self.args(args, None)?;
         Ok(format!(
-            "(await KT.call({}, [{}], {}, {}, {type_arg}))",
+            "(($$ = KT.call({}, [{}], {}, {}, {type_arg})) instanceof Promise ? await $$ : $$)",
             quote(name),
             args.join(", "),
             named.unwrap_or_else(|| "null".to_owned()),
@@ -3278,7 +3365,10 @@ impl<'a> Gen<'a> {
                 if self.cx.extensions.contains(infix) {
                     format!("(await self.ext({}, {left}, [{right}]))", quote(infix))
                 } else {
-                    format!("(await KT.m({left}, {}, [{right}]))", quote(infix))
+                    format!(
+                        "(($$ = KT.m({left}, {}, [{right}])) instanceof Promise ? await $$ : $$)",
+                        quote(infix)
+                    )
                 }
             }
             other => return Err(unsupported(format!("the operator {other}"))),

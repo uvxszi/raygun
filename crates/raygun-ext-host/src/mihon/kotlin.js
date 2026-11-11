@@ -1401,6 +1401,13 @@
   const noSuch = (what) => {
     throw new KotlinError(what, 'NoSuchElementException');
   };
+  /// `list[index]` past its end, as Kotlin refuses it.
+  const outOfRange = (index, size) => {
+    throw new KotlinError(
+      `Index ${index} out of bounds for length ${size}`,
+      'IndexOutOfBoundsException',
+    );
+  };
   /// A comparator (`compareBy { … }.thenByDescending { … }`): keys to sort by, in order.
   /// A key's order: its own comparator's (a collator, `compareBy(collator) { … }`), else natural.
   const keyOrder = (key, left, right) =>
@@ -1823,7 +1830,7 @@
     isNullOrEmpty: (l) => l.length === 0,
     ifEmpty: async (l, args, lambda) => (l.length === 0 ? (lambda ? lambda() : args[0]) : l),
     orEmpty: (l) => l,
-    get: (l, [index]) => (index >= 0 && index < l.length ? l[index] : noSuch(`no item ${index}`)),
+    get: (l, [index]) => (index >= 0 && index < l.length ? l[index] : outOfRange(index, l.length)),
     getOrNull: (l, [index]) => l[index] ?? null,
     getOrElse: async (l, [index], lambda) =>
       index >= 0 && index < l.length ? l[index] : lambda(index),
@@ -2709,6 +2716,24 @@
     jsonPrimitive: null,
   };
   KT.p = (value, name) => {
+    // A plain object's or a declared class's own field (not a function, which may be okio's
+    // `buffer`), the most read: straight from it.
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      Object.prototype.hasOwnProperty.call(value, name) &&
+      !Array.isArray(value) &&
+      !(value instanceof Map) &&
+      !value.isSource &&
+      !value.isGetterHost
+    ) {
+      const own = value[name];
+      if (own === null || typeof own !== 'object') {
+        if (typeof own !== 'function' && own !== undefined) return own;
+      } else if (own.isGetter) return own.function_(value);
+      else if (own.isDeferred) return own.value;
+      else return own;
+    }
     if (value === null && Object.prototype.hasOwnProperty.call(JSON_NULL_PROPS, name))
       return JSON_NULL_PROPS[name];
     if (value === null || value === undefined)
@@ -2864,6 +2889,42 @@
     'containsKey',
     'containsValue',
   ]);
+  /// `value[index]`: a list's item, a text's character or a map's value at once, else the
+  /// value's `get` (a declared class's `operator fun get`, a JSON object's field).
+  KT.get = (receiver, index) => {
+    if (Array.isArray(receiver)) {
+      if (
+        typeof index === 'number' &&
+        receiver.constructor === Array &&
+        receiver.__class === undefined
+      )
+        return index >= 0 && index < receiver.length
+          ? receiver[index]
+          : outOfRange(index, receiver.length);
+    } else if (typeof receiver === 'string') {
+      // (An empty text may be a map the converter couldn't tell: its reads are null.)
+      if (typeof index === 'number' && receiver !== '') return receiver.charAt(index);
+    } else if (receiver instanceof Map && receiver.__class === undefined)
+      return receiver.has(index) ? receiver.get(index) : null;
+    return KT.m(receiver, 'get', [index]);
+  };
+  /// `value[index] = item`.
+  KT.set = (receiver, index, item) => {
+    if (Array.isArray(receiver)) {
+      if (
+        typeof index === 'number' &&
+        receiver.constructor === Array &&
+        receiver.__class === undefined
+      ) {
+        receiver[index] = item;
+        return undefined;
+      }
+    } else if (receiver instanceof Map && receiver.__class === undefined) {
+      receiver.set(index, item);
+      return undefined;
+    }
+    return KT.m(receiver, 'set', [index, item]);
+  };
   // The member calls converted code makes (`await KT.m(…)`) and the reads (`await KT.p(…)`) are
   // plain functions: a value answered at once is cheaper to await than an async function's
   // promise, and the few that wait return their promise.
@@ -3154,7 +3215,12 @@
 
   // ---- OkHttp: addresses, requests, answers ----
 
-  const encodeSegment = (text) => encodeURIComponent(KT.str(text)).replace(/%2F/gi, '%2F');
+  /// A path segment as OkHttp's `addPathSegment` writes it: `:`, `,`, `;`, `=`, `@`, `$`, `&`,
+  /// `+` and brackets stay as they are (MyNimeku's `o:popular~t:MANGA,MANHWA` lists).
+  const encodeSegment = (text) =>
+    encodeURIComponent(KT.str(text)).replace(/%(?:3A|2C|3B|3D|40|24|26|2B|5B|5D)/gi, (escaped) =>
+      decodeURIComponent(escaped),
+    );
   class HttpUrl {
     constructor(parsed) {
       this.parts = parsed;
@@ -11102,8 +11168,17 @@
     const C = {
       prop: (name, getter) => constants.set(name, getter),
       has: (name) => constants.has(name),
-      get: async (name) => {
-        if (!constantValues.has(name)) constantValues.set(name, constants.get(name)());
+      // Once a constant's value is known, it's answered at once (not as a promise).
+      get: (name) => {
+        if (!constantValues.has(name)) {
+          const value = constants.get(name)();
+          constantValues.set(name, value);
+          if (value instanceof Promise)
+            value.then(
+              (known) => constantValues.set(name, known),
+              () => {},
+            );
+        }
         return constantValues.get(name);
       },
     };
@@ -11199,17 +11274,28 @@
       }
       return -1;
     };
-    const read = async (name, below) => {
+    /// A property's value: a `val`'s is kept, and answered at once once it's known.
+    const read = (name, below) => {
       const index = findProperty(name, below);
       if (index >= 0) {
         const { getter, once } = layers[index].properties.get(name);
         if (!once) return getter();
         const key = `${index}:${name}`;
-        if (!values.has(key)) values.set(key, getter());
+        if (!values.has(key)) {
+          const value = getter();
+          values.set(key, value);
+          if (value instanceof Promise)
+            value.then(
+              (known) => {
+                if (values.get(key) === value) values.set(key, known);
+              },
+              () => {},
+            );
+        }
         return values.get(key);
       }
       if (base[name]) return base[name]();
-      throw new KotlinError(`the source has no ${name}`);
+      return Promise.reject(new KotlinError(`the source has no ${name}`));
     };
     const invoke = async (name, args, below) => {
       const function_ = findFunction(name, args, below);
@@ -11577,7 +11663,7 @@
           }
           // A source's `XorInterceptor`s: the key each picture's request gives, for Raygun's
           // image fetcher (`#raygun-unscramble=xor:<hex>`).
-          const client = await self.get('client').catch(() => null);
+          const client = await Promise.resolve(self.get('client')).catch(() => null);
           const xors = (client?.interceptors ?? []).filter((interceptor) => interceptor?.isXor);
           const xorKey = async (request) => {
             for (const interceptor of xors) {

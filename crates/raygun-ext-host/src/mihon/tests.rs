@@ -3548,6 +3548,125 @@ class Wrapper(val data: Results)
     );
 }
 
+/// Reads converted code makes most, answered at once: a library class's companion values read
+/// from another class's code (Publus's `B2y.V_CGH`), items of lists, texts and maps by index (and
+/// a missing one refused), constants and the source's values read in a loop; path segments
+/// written as OkHttp writes them.
+#[tokio::test]
+async fn converted_code_reads_indexes_companions_and_segments() {
+    let library = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
+
+class B2y {
+    companion object {
+        val V_CGH = arrayOf(intArrayOf(1, 3, 10), intArrayOf(2, 5, 15))
+        val V_DGH = listOf({ p1: Int -> p1 + 1 }, { p1: Int -> p1 * 2 }, { p1: Int -> p1 - 3 })
+    }
+
+    fun first(index: Int): Int = V_DGH[index](V_CGH[1][index])
+}
+
+class Unscrambler(private val seed: Int) {
+    fun sizes(): String {
+        val count = B2y.V_CGH.size * B2y.V_DGH.size
+        val picked = B2y.V_CGH[seed % B2y.V_CGH.size][2]
+        return "$count $picked ${B2y().first(1)}"
+    }
+}
+"##;
+    let source = STANDALONE_SOURCE
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private val table = intArrayOf(5, 6, 7, 8)
+
+    private class State(var payload: IntArray, var length: Int)
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val state = State(IntArray(6) { it }, 6)
+        for (s in 0 until state.length) state.payload[s] = state.payload[s] xor table[s % 4]
+        state.payload[0] += 100
+        var sum = 0
+        for (i in 0 until 9) sum += KEY[i % KEY.length].code + table[i % table.size]
+        val counts = mutableMapOf<String, Int>()
+        for (word in listOf("a", "b", "a")) counts[word] = (counts[word] ?: 0) + 1
+        val missing = try {
+            listOf(1, 2)[5].toString()
+        } catch (e: IndexOutOfBoundsException) {
+            "refused"
+        }
+        val address = "https://pages.example".toHttpUrl().newBuilder()
+            .addPathSegment("full-list")
+            .addPathSegment("o:popular~t:MANGA,MANHWA")
+            .addPathSegment("a b/c")
+            .build()
+            .toString()
+        val list = listOf(
+            state.payload.joinToString(","),
+            sum.toString(),
+            "${counts["a"]} ${counts["b"]} ${counts["c"]}",
+            "${"text"[1]} $missing",
+            Unscrambler(3).sizes(),
+            address,
+        )
+        return MangasPage(list.map { name -> SManga.create().apply { title = name; url = "/x" } }, false)
+    }
+
+    companion object {
+        private const val KEY = "abc"
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[
+            (
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            ),
+            (
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/B2y.kt",
+                library,
+            ),
+        ],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    // 0^5, 1^6, 2^7, 3^8, 4^5, 5^6; then the first plus 100. The sum: "abcabcabc" is 3 * 294,
+    // the table's 5+6+7+8+5+6+7+8+5.
+    assert_eq!(
+        titles,
+        [
+            "105,7,5,11,1,3",
+            &(3 * 294 + 57).to_string(),
+            "2 1 null",
+            "e refused",
+            "6 15 10",
+            "https://pages.example/full-list/o:popular~t:MANGA,MANHWA/a%20b%2Fc",
+        ]
+    );
+}
+
 /// The runtime's stand-ins for commons-text, java-string-similarity and java-nat-sort (whose
 /// dependencies then convert), and for Android's handlers and clocks.
 #[tokio::test]
@@ -3803,12 +3922,23 @@ async fn converted_loop_speed() {
         return String(bytes, Charsets.UTF_8)
     }
 
+    private class State(var payload: IntArray, var length: Int)
+
+    private fun xorLoop(state: State, sBox: IntArray) {
+        for (s in 0 until state.length) state.payload[s] = state.payload[s] xor sBox[s % 256]
+    }
+
     override suspend fun getLatestUpdates(page: Int): MangasPage {
         val encoded = buildString { repeat(LENGTH) { append((19968 + (it % 64)).toChar()) } }
         val started = System.currentTimeMillis()
         val decoded = decode(encoded)
         val took = System.currentTimeMillis() - started
-        return MangasPage(listOf(SManga.create().apply { title = "${decoded.length} in $took ms"; url = "/x" }), false)
+        val state = State(IntArray(LENGTH) { it and 0xFF }, LENGTH)
+        val sBox = IntArray(256) { 255 - it }
+        val xorStarted = System.currentTimeMillis()
+        xorLoop(state, sBox)
+        val xorTook = System.currentTimeMillis() - xorStarted
+        return MangasPage(listOf(SManga.create().apply { title = "${decoded.length} in $took ms, xor in $xorTook ms"; url = "/x" }), false)
     }
 
     companion object {
