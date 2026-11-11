@@ -1,7 +1,7 @@
 {
   "id": "dev.raygun.musicbrainz",
   "name": "MusicBrainz",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",

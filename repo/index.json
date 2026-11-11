@@ -247,7 +247,7 @@
     {
       "id": "dev.raygun.musicbrainz",
       "name": "MusicBrainz",
-      "version": "1.7.0",
+      "version": "1.7.1",
       "apiVersion": 1,
       "description": "Metadata under CC0 and CC BY-SA: song, album and artist details, genres, discographies, artist facts and song credits from the open MusicBrainz database, with artist summaries from Wikipedia. Cover art from the Cover Art Archive. For tagging and finding music.",
       "author": "Raygun",
@@ -265,9 +265,9 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.musicbrainz-1.7.0.zip",
-      "sha256": "f41278c23ab14931e17a8cf3359a655ecf618ccbf88b36bbab705929acfdc524",
-      "size": 5021
+      "package": "packages/dev.raygun.musicbrainz-1.7.1.zip",
+      "sha256": "6ceecc04df552ff10f39c3f9b42e87f3a951d57401fc7c7795759e9d382cf80a",
+      "size": 5035
     },
     {
       "id": "dev.raygun.nasa",
