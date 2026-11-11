@@ -1412,6 +1412,8 @@ impl StremioService {
         )
         .await;
         let extra = addon_subtitles(found);
+        // A live channel's streams play from their live edge (`behaviorHints.isLive`).
+        let live = target.kind == "tv" || meta.as_ref().is_some_and(|meta| meta.live);
         let network = self.app.state::<LocalNetwork>();
         let mut playable = Vec::new();
         for group in groups? {
@@ -1437,6 +1439,7 @@ impl StremioService {
                     stream.filename.as_deref(),
                     stream.binge_group.as_deref(),
                 ]);
+                let size = stream.size.filter(|size| *size > 0.0).map(|size| size as u64);
                 let blocked = if youtube {
                     None
                 } else {
@@ -1459,6 +1462,7 @@ impl StremioService {
                     },
                     &extra,
                 );
+                request.live = request.live || live;
                 if youtube {
                     // Plays in YouTube's embed (`video::YOUTUBE_LINK`).
                     request.url = format!("{}{}", crate::video::YOUTUBE_LINK, request.url);
@@ -1475,6 +1479,7 @@ impl StremioService {
                     failed: blocked,
                     mismatch: false,
                     height,
+                    size,
                     request,
                 });
             }
@@ -2119,6 +2124,8 @@ fn direct_request(request: &StremioPlayRequest, extra: &[VideoSubtitle]) -> Vide
             .map(|id| format!("stremio:{}:{id}", request.kind)),
         chapters: Vec::new(),
         anime: None,
+        // Channels (`tv`) are live; a session also takes the details' `isLive`.
+        live: request.kind == "tv",
     }
 }
 

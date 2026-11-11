@@ -22,11 +22,11 @@ import androidx.media3.ui.TimeBar
 
 /**
  * The player's own controls (M45, after Aniyomi's): a top bar (back, title, episodes, sources,
- * audio, subtitles, more), previous · back · play · forward · next in the middle, and at the
- * bottom the seek bar with chapter markers, then lock, rotate, speed and chapter on the left and
- * aspect and picture-in-picture on the right. The skip button floats above them. Taps that miss a
- * button fall through to the gestures underneath. While the video waits, the loading ring takes
- * the play button's place.
+ * audio, more), previous · back · play · forward · next in the middle, and at the bottom the seek
+ * bar with chapter markers (a live stream's DVR window, with its LIVE badge), then lock, rotate,
+ * speed and chapter on the left and quality, subtitles, aspect and picture-in-picture on the
+ * right. The skip button floats above them. Taps that miss a button fall through to the gestures
+ * underneath. While the video waits, the loading ring takes the play button's place.
  */
 internal class PlayerControls(private val host: VideoPlayerActivity) {
     private val context: Context = host
@@ -74,7 +74,6 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         addView(episodesButton)
         addView(sourcesButton)
         addView(audioButton)
-        addView(subtitlesButton)
         addView(moreButton)
     }
 
@@ -139,6 +138,11 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         context.iconButton(R.drawable.raygun_ic_aspect, host.label("aspect", "Aspect")) { host.cycleAspect() }
     private val pipButton =
         context.iconButton(R.drawable.raygun_ic_pip, host.label("pip", "Picture-in-picture")) { host.enterPip() }
+    /** Resolutions from this stream or the session's other sources ([PlayerQuality]). */
+    private val qualityButton =
+        context.iconButton(R.drawable.raygun_ic_quality, host.label("quality", "Quality")) { host.quality.open() }.apply {
+            visibility = View.GONE
+        }
     private val bottomBar = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         background = GradientDrawable(
@@ -152,6 +156,7 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             addView(position)
             addView(timeBar, LinearLayout.LayoutParams(0, context.dp(32), 1f))
             addView(duration)
+            addView(host.liveStream.badge, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = context.dp(4) })
         })
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -161,6 +166,9 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             addView(speedChip)
             addView(chapterChip)
             addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+            // Quality, then subtitles, beside the picture's aspect.
+            addView(qualityButton)
+            addView(subtitlesButton)
             addView(aspectButton)
             addView(pipButton)
         })
@@ -315,6 +323,11 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
         audioButton.visibility = if (several) View.VISIBLE else View.GONE
     }
 
+    /** The quality button shows in a session (other sources' sizes) or with variants to pick. */
+    fun setQualityChoice(offered: Boolean) {
+        qualityButton.visibility = if (offered) View.VISIBLE else View.GONE
+    }
+
     /** The rotate button shows that the screen is kept as it is. */
     fun setRotationLocked(locked: Boolean) {
         rotateButton.setImageResource(if (locked) R.drawable.raygun_ic_rotate_lock else R.drawable.raygun_ic_rotate)
@@ -365,14 +378,24 @@ internal class PlayerControls(private val host: VideoPlayerActivity) {
             timeBar.setBufferedPosition(player.bufferedPosition)
         }
         timeBar.setDuration(length)
-        position.show(formatTime(now))
-        duration.show(
-            when {
-                length <= 0 -> "--:--"
-                host.prefs.showRemaining -> "-" + formatTime(length - now)
-                else -> formatTime(length)
-            },
-        )
+        host.liveStream.update()
+        if (host.liveStream.isLive) {
+            // The DVR window to seek in (hidden when there's too little), how far behind live.
+            timeBar.visibility = if (host.liveStream.seekable()) View.VISIBLE else View.INVISIBLE
+            position.show(host.liveStream.positionText())
+            duration.visibility = View.GONE
+        } else {
+            timeBar.visibility = View.VISIBLE
+            duration.visibility = View.VISIBLE
+            position.show(formatTime(now))
+            duration.show(
+                when {
+                    length <= 0 -> "--:--"
+                    host.prefs.showRemaining -> "-" + formatTime(length - now)
+                    else -> formatTime(length)
+                },
+            )
+        }
         val playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED
         if (shownPlaying != playing) {
             shownPlaying = playing

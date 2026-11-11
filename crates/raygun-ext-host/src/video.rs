@@ -43,6 +43,8 @@ pub struct VideoLink {
     pub subtitles: Vec<VideoTrack>,
     /// Openings, endings and other chapters, from the video's `timestamps` (M45).
     pub chapters: Vec<VideoChapter>,
+    /// A live stream (`live: true`): it plays from its live edge, with no place to resume.
+    pub live: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,6 +248,7 @@ fn videos_of(list: &Value) -> Vec<VideoLink> {
                     .take(MAX_SUBTITLES)
                     .collect(),
                 chapters: video.get("timestamps").map(chapters_of).unwrap_or_default(),
+                live: video.get("live").and_then(Value::as_bool) == Some(true),
             })
         })
         .take(MAX_VIDEOS)
@@ -402,10 +405,12 @@ mod tests {
                     ]
                 },
                 { "url": "javascript:alert(1)", "quality": 720 },
-                { "url": "http://cdn.example/sd.mp4", "label": "SD", "quality": 99999 }
+                { "url": "http://cdn.example/sd.mp4", "label": "SD", "quality": 99999 },
+                { "url": "https://cdn.example/live.m3u8", "format": "hls", "live": true }
             ]
         }));
-        assert_eq!(videos.len(), 2, "non-web URLs are dropped");
+        assert_eq!(videos.len(), 3, "non-web URLs are dropped");
+        assert!(!videos[0].live && videos[2].live, "a source marks live streams");
         assert_eq!(videos[0].label.as_deref(), Some("1080p"));
         assert_eq!(videos[0].format, None, "progressive files need no format");
         assert_eq!(
