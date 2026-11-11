@@ -672,10 +672,12 @@ fn members(
                     Ok(function) => function,
                     Err(reason) => unreached(&prop.name, reason)?,
                 };
-                if prop.receiver.is_some() {
+                if let Some(receiver) = &prop.receiver {
+                    // An extension property: read as one on a receiver of its type.
                     out.push(format!(
-                        "self.extension({}, {function});",
-                        quote(&prop.name)
+                        "self.extension({}, {function}, {}, null, true);",
+                        quote(&prop.name),
+                        quote(receiver.name.rsplit('.').next().unwrap_or(&receiver.name)),
                     ));
                 } else if companion || target == "C" {
                     out.push(format!("C.prop({}, {function});", quote(&prop.name)));

@@ -8617,12 +8617,14 @@
         continue;
       }
       if (hasField(receiver, name)) return KT.p(receiver, name);
-      // One of the source's extension properties on this receiver (`val Element.isValid`).
+      // One of the source's extension properties on this receiver (`val Element.isValid`);
+      // extension functions are registered with their receivers' types and are never read as
+      // properties (`slug` in `apply` beside `fun SManga.slug()` is a field).
       if (
         last &&
         last.isSource &&
         last.hasExtension(name) &&
-        (last.extensionFits(name, receiver) || !last.extensionTyped(name))
+        (last.extensionProperty(name, receiver) || !last.extensionTyped(name))
       )
         return last.ext(name, receiver, []);
       // What a JSON value has (`contentOrNull` in `fun JsonElement.text() = when (this) …`).
@@ -8842,9 +8844,9 @@
       // (the latest of those that fit, else the latest).
       /// An extension function; overloads are told apart by their receiver's type, then by
       /// `shape` (`[required, total, [types]]`): how many arguments they take, and of what types.
-      extension: (name, function_, type = null, shape = null) => {
+      extension: (name, function_, type = null, shape = null, property = false) => {
         const list = extensionOverloads.get(name) ?? [];
-        list.push({ type, function_, shape });
+        list.push({ type, function_, shape, property });
         extensionOverloads.set(name, list);
         const fits = (entry, args) =>
           !entry.shape || (args.length >= entry.shape[0] && args.length <= entry.shape[1]);
@@ -8883,8 +8885,14 @@
         (extensionOverloads.get(name) ?? []).some(
           (entry) => entry.type && KT.is(receiver, entry.type),
         ),
-      /// Whether the extension's overloads say what they take (extension properties may not).
+      /// Whether the extension's overloads say what they take (older conversions' extension
+      /// properties don't).
       extensionTyped: (name) => (extensionOverloads.get(name) ?? []).some((entry) => entry.type),
+      /// Whether `name` is an extension property read on `receiver` (by its declared type).
+      extensionProperty: (name, receiver) =>
+        (extensionOverloads.get(name) ?? []).some(
+          (entry) => entry.property && (!entry.type || KT.is(receiver, entry.type)),
+        ),
       get: (name) => read(name, top),
       set: async (name, value) => {
         const at = findProperty(name, top);
