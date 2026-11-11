@@ -54,6 +54,12 @@ pub struct Context {
     /// Extension properties with a setter (`var SharedPreferences.slugMap … set(map) { … }`):
     /// assigning one calls it (`set:<name>`).
     pub extension_setters: HashSet<String>,
+    /// The source's extension functions' parameters by name, each overload's (as `functions`):
+    /// named arguments and a trailing lambda past defaults find their places by them.
+    pub extension_params: HashMap<String, Vec<Vec<String>>>,
+    /// The source class's private extension properties (`private val SManga.slug`), which its
+    /// declared classes' code can't see: a DTO's own `slug` there is its field.
+    pub source_private_extensions: HashSet<String>,
     /// Methods of the declared classes whose last parameter is a function with a receiver
     /// (`fun getCollection(path: String, query: CollectionQuery.() -> Unit)`): a trailing lambda
     /// for one reads that receiver implicitly.
@@ -2128,10 +2134,14 @@ impl<'a> Gen<'a> {
         }
         // Implicit receivers first, as Kotlin resolves them, then the source.
         if !self.receivers.is_empty() {
+            // A declared class's code doesn't see the source's private extensions.
+            let unseen =
+                self.class_scope.is_some() && self.cx.source_private_extensions.contains(name);
             return Ok(format!(
-                "(await KT.rget({}, {}))",
+                "(await KT.rget({}, {}{}))",
                 self.receiver_list(),
-                quote(name)
+                quote(name),
+                if unseen { ", false" } else { "" }
             ));
         }
         if self.cx.properties.contains(name) {
@@ -2382,7 +2392,23 @@ impl<'a> Gen<'a> {
 
     /// The overload of one of the source's functions that takes these arguments.
     fn own_params(&self, name: &str, args: &[Arg]) -> Option<Vec<String>> {
-        let overloads = self.cx.functions.get(name)?;
+        Self::fitting_params(self.cx.functions.get(name)?, args)
+    }
+
+    /// The parameters of one of the source's extensions called with `args`: those of its one
+    /// overload, or of the one the named arguments fit.
+    fn extension_params(&self, name: &str, args: &[Arg]) -> Option<Vec<String>> {
+        let overloads = self.cx.extension_params.get(name)?;
+        let same = overloads
+            .windows(2)
+            .all(|pair| pair[0].len() == pair[1].len());
+        if !same && args.iter().all(|arg| arg.name.is_none()) {
+            return None;
+        }
+        Self::fitting_params(overloads, args)
+    }
+
+    fn fitting_params(overloads: &[Vec<String>], args: &[Arg]) -> Option<Vec<String>> {
         let named: Vec<&str> = args.iter().filter_map(|arg| arg.name.as_deref()).collect();
         overloads
             .iter()
@@ -2732,8 +2758,15 @@ impl<'a> Gen<'a> {
                     && self.cx.extensions.contains(name)
                     && !GLOBALS.contains(&name.as_str())
                 {
-                    let (mut args, _) = self.args(args, None)?;
+                    let params = self.extension_params(name, args);
+                    let (mut args, _) = self.args(args, params.as_deref())?;
                     if let Some(lambda) = lambda_code {
+                        while params
+                            .as_ref()
+                            .is_some_and(|params| args.len() + 1 < params.len())
+                        {
+                            args.push("undefined".to_owned());
+                        }
                         args.push(lambda);
                     }
                     return Ok(format!(
@@ -2917,7 +2950,19 @@ impl<'a> Gen<'a> {
                 if !own_extension && !self.known(name) {
                     return Err(unsupported(format!("{name}()")));
                 }
-                let (args, named) = self.args(args, None)?;
+                // One of the source's extensions: named arguments in their places, and a
+                // trailing lambda past defaults left out (`response.toMangasPage { … }`).
+                let params = own_extension
+                    .then(|| self.extension_params(name, args))
+                    .flatten();
+                let (mut args, named) = self.args(args, params.as_deref())?;
+                if let Some(params) = &params
+                    && lambda.is_some()
+                {
+                    while args.len() + 1 < params.len() {
+                        args.push("undefined".to_owned());
+                    }
+                }
                 let lambda = lambda
                     .map(|lambda| self.trailing_lambda(lambda, name))
                     .transpose()?;
@@ -3498,7 +3543,8 @@ pub const OBJECTS: &[&str] = &[
     "LineBreaker", "Collections",
     "LazyThreadSafetyMode",
     "URLUtil", "Result",
-    "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
+    "FORCE_NETWORK", "FORCE_CACHE", "DEFAULT_CACHE_CONTROL", "TimeSource", "RoundingMode",
+    "Validate", "Runtime",
     "applicationContext", "PreferenceManager", "BuildConfig", "File", "Dns",
     "DEFAULT_BUFFER_SIZE", "InputType", "SignStyle", "FormatStyle", "YearMonth", "LocalTime",
     "WeekFields", "BigInteger", "KeyPairGenerator", "KeyFactory", "KeyAgreement", "Signature",

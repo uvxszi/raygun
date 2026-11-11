@@ -1924,6 +1924,8 @@
     toList: (l) => [...l],
     toMutableList: (l) => [...l],
     toTypedArray: (l) => [...l],
+    // `chars.toCharArray()`: a list of characters stays one.
+    toCharArray: (l) => [...l],
     toByteArray: (l) => [...l],
     toIntArray: (l) => [...l],
     toSet: (l) => LIST.distinct(l),
@@ -3085,7 +3087,18 @@
           : 2;
       return labels.slice(-take).join('.');
     }
+    /// OkHttp's `fragment`: decoded (`{"name":…}` from `{%22name%22:…}`); `encodedFragment` as
+    /// written.
     get fragment() {
+      const raw = this.parts.fragment;
+      if (raw === null || raw === undefined || !raw.includes('%')) return raw;
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+    get encodedFragment() {
       return this.parts.fragment;
     }
     get queryParameterNames() {
@@ -8345,12 +8358,26 @@
     const ms = Date.parse(value);
     return Number.isNaN(ms) ? null : ms;
   };
+  /// The type a serializer passed first stands for (`Payload.serializer()`), else none.
+  const serializerType = (args) =>
+    args.length > 1 && args[0] && args[0].isSerializer && args[0].holder
+      ? args[0].holder.definition.qualified || args[0].name
+      : null;
   const jsonCodec = {
-    decodeFromString: (text) => JSON.parse(KT.str(text)),
+    // `decodeFromString(text)`, or `(Payload.serializer(), text)`: decoded as that class.
+    decodeFromString: async (...args) => {
+      const value = JSON.parse(KT.str(args[args.length - 1]));
+      const type = serializerType(args);
+      return type ? decode(value, type) : value;
+    },
     parseToJsonElement: (text) => JSON.parse(KT.str(text)),
     // `encodeToString(String.serializer(), value)` too.
     encodeToString: (...args) => JSON.stringify(plain(args[args.length - 1])),
-    decodeFromJsonElement: (...args) => args[args.length - 1],
+    decodeFromJsonElement: async (...args) => {
+      const value = args[args.length - 1];
+      const type = serializerType(args);
+      return type ? decode(value, type) : value;
+    },
     encodeToJsonElement: (value) => plain(value),
   };
   /// `awaitAll()`: deferred values (`async { … }`), worked out together.
@@ -9382,6 +9409,8 @@
     },
     FORCE_NETWORK: { isCacheControl: true },
     FORCE_CACHE: { isCacheControl: true },
+    // Keiyoushi's `DEFAULT_CACHE_CONTROL` (10 minutes), the default of its request helpers.
+    DEFAULT_CACHE_CONTROL: { isCacheControl: true },
     // kotlin.time's `TimeSource.Monotonic.markNow().elapsedNow()`.
     // Java's `Runtime`: a phone's, for sources sizing work by it.
     File: {
@@ -10504,6 +10533,8 @@
       serialName: definition.serialName ?? definition.name,
       supers: definition.supers.map((name) => name.split('<')[0].split('.').pop()),
     };
+    // kotlinx's `Payload.serializer()`, which the decoders take first.
+    holder.serializer = () => ({ isSerializer: true, name: definition.name, holder });
     // Its companion's functions, on the class and, as Kotlin lets its code call them, its
     // instances.
     for (const [name, function_] of Object.entries(definition.statics ?? {}))
@@ -10624,6 +10655,7 @@
     if (kind === 'string') return Boolean(STRING[name]);
     if (kind === 'map') return Boolean(MAP[name]);
     if (kind === 'number' && NUMBER[name]) return true;
+    if (kind === 'bigint' && BIGINT[name]) return true;
     if (typeof receiver[name] === 'function') return true;
     if (receiver.__methods && receiver.__methods[name]) return true;
     if (kind === 'object' && receiver[name] && receiver[name].isMethod) return true;
@@ -10655,7 +10687,11 @@
     );
   };
 
-  KT.rget = async (receivers, name) => {
+  /// Mihon's own Kotlin classes, whose `getX()` functions aren't properties.
+  const KOTLIN_MODELS = new Set(['SManga', 'SChapter', 'Page', 'MangasPage', 'SMangaUpdate']);
+  /// A name read from the implicit receivers, innermost first, then the source; `extensions`
+  /// false leaves out the source's extension properties (its private ones, unseen by its DTOs).
+  KT.rget = async (receivers, name, extensions = true) => {
     const last = receivers[receivers.length - 1];
     const sourceHas = Boolean(last && last.isSource && last.has(name));
     for (const receiver of receivers) {
@@ -10665,10 +10701,13 @@
         continue;
       }
       if (hasField(receiver, name)) return KT.p(receiver, name);
-      // A Java getter read as a property (`all` in `preferences.apply { … }` is `getAll()`).
+      // A Java getter read as a property (`all` in `preferences.apply { … }` is `getAll()`); a
+      // Kotlin class's `getGenres()` (Mihon's models, the source's own) is no property.
       if (
         typeof receiver === 'object' &&
         !receiver.isSource &&
+        !KOTLIN_MODELS.has(receiver.__class) &&
+        !CLASSES[receiver.__class] &&
         typeof receiver[`get${name.charAt(0).toUpperCase()}${name.slice(1)}`] === 'function'
       )
         return KT.p(receiver, name);
@@ -10676,6 +10715,7 @@
       // extension functions are registered with their receivers' types and are never read as
       // properties (`slug` in `apply` beside `fun SManga.slug()` is a field).
       if (
+        extensions &&
         last &&
         last.isSource &&
         last.hasExtension(name) &&

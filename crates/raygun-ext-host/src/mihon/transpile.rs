@@ -440,6 +440,10 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                 match member {
                     Member::Fun(fun) if fun.receiver.is_some() => {
                         cx.extensions.insert(fun.name.clone());
+                        cx.extension_params
+                            .entry(fun.name.clone())
+                            .or_default()
+                            .push(param_names(&fun.params));
                         // `fun Document.parseJson(transform: String.() -> String)`: a trailing lambda
                         // for it reads that receiver.
                         if fun.params.last().is_some_and(|param| {
@@ -489,6 +493,14 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
     for class in chain {
         cx.source_classes.insert(class.name.clone());
         add_members(&mut cx, &class.members, false);
+        for member in &class.members {
+            if let Member::Prop(prop) = member
+                && prop.receiver.is_some()
+                && prop.modifiers.iter().any(|modifier| modifier == "private")
+            {
+                cx.source_private_extensions.insert(prop.name.clone());
+            }
+        }
         // A theme's constructor parameters (`MangaThemesiaAlt(randomUrlPrefKey = …)`) are its
         // properties.
         for param in &class.params {
@@ -1681,6 +1693,8 @@ const PICTURE_CALLS: [&str; 7] = [
 /// decrypts answers (`response.aesDecrypt(cipher)`, Keiyoushi's `response.xor(key)`).
 fn images_from_source(code: &str) -> bool {
     PICTURE_CALLS.iter().any(|call| code.contains(call))
+        // An interceptor passing an answer on as a success (XOXO's pictures come with a 404).
+        || (code.contains("\"code\", [200]") && code.contains("\"newBuilder\""))
         || ((code.contains("\"aesDecrypt")
             || code.contains("\"cipherSource\"")
             || code.contains("KT.m($response, \"xor\""))
