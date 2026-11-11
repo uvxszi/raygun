@@ -1,6 +1,7 @@
 //! The public-domain and openly licensed sources (Standard Ebooks, Wikisource, Wikimedia Commons,
-//! NASA, Blender open movies, and the Internet Archive's open audio and public-domain films)
-//! against local fixture servers: the real bundles, their API bases pointed at this machine.
+//! NASA, Blender open movies, the Internet Archive's open audio and public-domain films, OpenStax)
+//! and the keyed ones (National Archives, Europeana, Last.fm) against local fixture servers: the
+//! real bundles, their API bases pointed at this machine.
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
@@ -12,7 +13,7 @@ use axum::Router;
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use raygun_model::{ExtensionStatus, FilterValue, MediaSource, TrackQuery};
+use raygun_model::{ChartGroup, ExtensionStatus, FilterValue, MediaSource, TrackQuery};
 use serde_json::{Value, json};
 
 use crate::fixture_tests::{json_response, query_params, serve};
@@ -1995,4 +1996,954 @@ async fn europeana_offers_openly_licensed_files_and_credits_their_holders() {
         Some("dev.raygun.europeana"),
         "{refused}"
     );
+}
+
+// ---- OpenStax ----
+
+const PSYCHOLOGY: &str = "06aba565-9432-40f6-97ee-b8a361f118a8";
+const CALCULUS: &str = "8b89d172-2927-466f-8661-01abc7ccdba4";
+const CALCULO: &str = "8635f0be-e734-4cd1-a10e-8063e5b863b6";
+const MICROBIOLOGY: &str = "e42bd376-624b-4c0f-972f-e0c57998e765";
+const PHYSICS: &str = "cce64fde-f448-43b8-ae88-27705cceb0da";
+const OPENSTAX_ARCHIVE: &str = "/apps/archive/20260604.144757";
+
+/// A live book as OpenStax's CMS lists it (shapes from its pages API).
+fn openstax_book(
+    id: &str,
+    title: &str,
+    (slug, locale): (&str, &str),
+    subject: &str,
+    published: &str,
+) -> Value {
+    json!({
+        "id": 417,
+        "meta": { "slug": slug, "type": "books.Book", "locale": locale,
+                  "html_url": format!("https://openstax.org/details/books/{slug}"),
+                  "detail_url": "https://openstax.org/apps/cms/api/v2/pages/417/" },
+        "title": title, "book_state": "live", "cnx_id": id,
+        "book_subjects": [{ "id": 1, "meta": { "type": "books.BookSubjects" }, "subject_name": subject,
+                            "subject_page_content": "Simple to use, simple to adopt." }],
+        "book_categories": [{ "id": 2, "subject_name": subject, "subject_category": title }],
+        "description": format!("<p data-block-key=\"0lgy4\"><i>{title}</i> is a textbook &amp; more.</p><p data-block-key=\"x\">Second paragraph.</p>"),
+        "content_warning_text": null,
+        "cover_url": format!("https://assets.openstax.org/oscms-prodcms/media/documents/{slug}.svg"),
+        "publish_date": published,
+        "license_name": "Creative Commons Attribution-NonCommercial-ShareAlike License",
+        "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+        "license_version": "4.0",
+        "authors": [],
+    })
+}
+
+fn openstax_author(name: &str, senior: bool, top: bool) -> Value {
+    json!({ "type": "author", "id": name,
+            "value": { "name": name, "university": "Somewhere", "country": "",
+                       "senior_author": senior, "display_at_top": top } })
+}
+
+fn openstax_catalogue() -> Value {
+    let mut psychology = openstax_book(
+        PSYCHOLOGY,
+        "Psychology 2e",
+        ("psychology-2e", "en"),
+        "Social Sciences",
+        "2020-04-22",
+    );
+    psychology["book_categories"] =
+        json!([{ "subject_name": "Social Sciences", "subject_category": "Psychology" }]);
+    psychology["authors"] = json!([
+        openstax_author("Rose M. Spielman", true, true),
+        openstax_author("William J. Jenkins", true, false),
+        openstax_author("Mara Aruguete", false, false),
+    ]);
+    let mut calculus = openstax_book(
+        CALCULUS,
+        "Calculus Volume 1",
+        ("calculus-volume-1", "en"),
+        "Math",
+        "2016-03-30",
+    );
+    calculus["authors"] = json!([openstax_author("Gilbert Strang", true, true)]);
+    let mut calculo = openstax_book(
+        CALCULO,
+        "Cálculo volumen 1",
+        ("cálculo-volumen-1", "es"),
+        "Matemáticas",
+        "2022-03-01",
+    );
+    // Some Spanish books' licence is only in their own data.
+    for field in ["license_name", "license_url", "license_version"] {
+        calculo[field] = Value::Null;
+    }
+    calculo["authors"] = json!([openstax_author("Gilbert Strang", true, true)]);
+    let mut microbiology = openstax_book(
+        MICROBIOLOGY,
+        "Microbiology",
+        ("microbiology", "en"),
+        "Science",
+        "2016-11-01",
+    );
+    microbiology["content_warning_text"] =
+        json!("This material includes descriptions of severe injury.");
+    microbiology["license_url"] = json!("https://creativecommons.org/licenses/by/4.0/");
+    let physics = openstax_book(
+        PHYSICS,
+        "Physics",
+        ("physics", "en"),
+        "Science",
+        "2020-03-26",
+    );
+    let mut retired = openstax_book(
+        "11111111-2222-4333-8444-555555555555",
+        "Chemistry",
+        ("chemistry", "en"),
+        "Science",
+        "2015-03-11",
+    );
+    retired["book_state"] = json!("retired");
+    let mut without_id = openstax_book("", "Coming Soon", ("coming-soon", "en"), "Math", "");
+    without_id["cnx_id"] = Value::Null;
+    json!({ "meta": { "total_count": 7 }, "items": [
+        psychology, calculus, calculo, microbiology, physics, retired, without_id,
+    ] })
+}
+
+fn openstax_release() -> Value {
+    json!({ "id": "v4/cd2a554", "code": "9ce9a1a8", "archiveUrl": OPENSTAX_ARCHIVE, "books": {
+        PSYCHOLOGY: { "defaultVersion": "de7e40c" },
+        CALCULUS: { "defaultVersion": "8dbc2ce" },
+        CALCULO: { "defaultVersion": "da492e7" },
+        MICROBIOLOGY: { "defaultVersion": "aa11bb2" },
+        // Live in the CMS, retired from the reader: not listed.
+        PHYSICS: { "defaultVersion": "cc33dd4", "retired": true },
+    } })
+}
+
+/// The id of a page of the fixture books' contents.
+fn openstax_page(number: u32) -> String {
+    format!("00000000-0000-4000-8000-{number:012}")
+}
+
+fn openstax_leaf(number: u32, version: &str, title: &str, target: &str) -> Value {
+    json!({ "id": format!("{}@{version}", openstax_page(number)), "title": title,
+            "toc_type": "book-content", "toc_target_type": target, "slug": format!("page-{number}") })
+}
+
+/// A contents title as the archive writes it: "<number> <words>" in spans.
+fn openstax_title(number: Option<&str>, text: &str) -> String {
+    let number = number.map_or_else(String::new, |number| {
+        format!(r#"<span class="os-number">{number}</span><span class="os-divider"> </span>"#)
+    });
+    format!(r#"{number}<span data-type="" itemprop="" class="os-text">{text}</span>"#)
+}
+
+fn openstax_part(label: &str, number: &str, text: &str) -> String {
+    let number = format!(r#"<span class="os-part-text">{label} </span>{number}"#);
+    openstax_title(Some(number.as_str()), text)
+}
+
+/// Psychology's contents: chapters in a unit, unnumbered parts, the answer key and the index.
+fn openstax_contents(licence: &str) -> Value {
+    let words = |text: &str| openstax_title(None, text);
+    json!({
+        "title": "Psychology 2e", "id": PSYCHOLOGY, "version": "de7e40c", "language": "en",
+        "license": { "url": licence, "name": "Creative Commons Attribution-NonCommercial-ShareAlike License" },
+        "tree": { "id": format!("{PSYCHOLOGY}@de7e40c"), "title": "Psychology 2e", "contents": [
+            openstax_leaf(1, "", &words("Preface"), "preface"),
+            { "id": "c1@de7e40c", "title": openstax_part("Chapter", "1", "Introduction to Psychology"),
+              "toc_type": "chapter", "contents": [
+                openstax_leaf(2, "", &words("Introduction"), "intro"),
+                openstax_leaf(3, "", &openstax_title(Some("1.1"), "What Is Psychology?"), "numbered-section"),
+                openstax_leaf(4, "de7e40c", &words("Key Terms"), "composite-page"),
+                { "id": "r1@de7e40c", "title": words("Chapter Review"), "toc_type": "sub-book-tree", "contents": [
+                    openstax_leaf(5, "de7e40c", &words("Key Equations"), "composite-page"),
+                ] },
+            ] },
+            { "id": "u2@de7e40c", "title": openstax_part("Unit", "2", "Research"), "toc_type": "unit", "contents": [
+                openstax_leaf(6, "", &openstax_part("Unit", "2", "Unit Introduction"), "intro"),
+                { "id": "c2@de7e40c", "title": openstax_part("Chapter", "2", "Psychological Research"),
+                  "toc_type": "chapter", "contents": [
+                    openstax_leaf(7, "", &openstax_title(Some("2.1"), "Why Is Research Important?"), "numbered-section"),
+                    // A page listed twice is one chapter.
+                    openstax_leaf(3, "", &openstax_title(Some("1.1"), "What Is Psychology?"), "numbered-section"),
+                ] },
+            ] },
+            openstax_leaf(8, "", &openstax_part("Appendix", "A", "Statistics"), "appendix"),
+            { "id": "a@de7e40c", "title": words("Answer Key"), "toc_type": "sub-book-tree", "contents": [
+                openstax_leaf(9, "de7e40c", &words("Chapter 1"), "answer-key"),
+            ] },
+            openstax_leaf(10, "de7e40c", &words("References"), "composite-page"),
+            openstax_leaf(11, "de7e40c", &words("Index"), "index"),
+        ] },
+    })
+}
+
+/// A page as the archive serves it: a whole XHTML document, with figures and MathML.
+fn openstax_page_answer() -> Value {
+    let content = r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><style>:target { background-color: #ffffcc; }</style><script>window.addEventListener('load', () => {})</script></head><body>
+<div data-type="page" id="page_x" class="chapter-content-module"><h2 data-type="document-title"><span class="os-number">1.1</span>
+<span class="os-divider"> </span>
+<span data-type="" itemprop="" class="os-text">What Is Psychology?</span>
+</h2><p id="fs-1"><span data-type="term">Psychology</span> refers to the scientific study of the mind and behavior.</p>
+<div class="os-figure"><figure id="f1"><span data-type="media" data-alt="Wilhelm Wundt"><img src="../resources/206235878db6612ad174b6951718283e737b774d" data-media-type="image/jpeg" alt="Wilhelm Wundt" width="650" height="329"/></span></figure></div>
+<div data-type="equation" class="unnumbered"><math display="block"><semantics><mrow><mi>f</mi><mo>=</mo><mfrac><mn>1</mn><mi>x</mi></mfrac></mrow><annotation-xml encoding="MathML-Content"><mi>f</mi></annotation-xml></semantics></math></div>
+</div></body></html>"#;
+    json!({ "slug": "1-1-what-is-psychology", "title": "What Is Psychology?", "id": openstax_page(3),
+            "abstract": "<p>Learn things.</p>", "revised": "2026-07-09T15:08:17+00:00", "noindex": false,
+            "content": content })
+}
+
+#[tokio::test]
+async fn openstax_lists_live_books_and_reads_their_pages_with_figures_and_formulas() {
+    let catalogue_asks = Arc::new(AtomicUsize::new(0));
+    let release_asks = Arc::new(AtomicUsize::new(0));
+    let contents_asks = Arc::new(AtomicUsize::new(0));
+    let (catalogue, release, contents) = (
+        catalogue_asks.clone(),
+        release_asks.clone(),
+        contents_asks.clone(),
+    );
+    let app = Router::new().fallback(move |uri: Uri| {
+        let (catalogue, release, contents) = (catalogue.clone(), release.clone(), contents.clone());
+        async move {
+            let path = uri.path().to_owned();
+            if path == "/apps/cms/api/v2/pages/" {
+                let params = query_params(&uri);
+                assert_eq!(params["type"], "books.Book");
+                assert_eq!(params["limit"], "250");
+                for field in [
+                    "cnx_id",
+                    "book_state",
+                    "license_url",
+                    "authors",
+                    "description",
+                ] {
+                    assert!(
+                        params["fields"].split(',').any(|asked| asked == field),
+                        "{field}"
+                    );
+                }
+                catalogue.fetch_add(1, Ordering::SeqCst);
+                return json_response(StatusCode::OK, openstax_catalogue());
+            }
+            if path == "/rex/release.json" {
+                release.fetch_add(1, Ordering::SeqCst);
+                return json_response(StatusCode::OK, openstax_release());
+            }
+            let Some(file) = path.strip_prefix(&format!("{OPENSTAX_ARCHIVE}/contents/")) else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            let page_three = format!("{PSYCHOLOGY}@de7e40c:{}.json", openstax_page(3));
+            match file {
+                file if file == format!("{PSYCHOLOGY}@de7e40c.json") => {
+                    contents.fetch_add(1, Ordering::SeqCst);
+                    json_response(
+                        StatusCode::OK,
+                        openstax_contents("http://creativecommons.org/licenses/by-nc-sa/4.0/"),
+                    )
+                }
+                file if file == format!("{CALCULO}@da492e7.json") => json_response(
+                    StatusCode::OK,
+                    openstax_contents("http://creativecommons.org/licenses/by/4.0/"),
+                ),
+                file if file == page_three => json_response(StatusCode::OK, openstax_page_answer()),
+                _ => json_response(StatusCode::NOT_FOUND, json!({ "message": "Not Found" })),
+            }
+        }
+    });
+    let address = serve(app);
+    let host = local_host("openstax", &["https://openstax.org"], address).await;
+    let provider = "dev.raygun.openstax/books";
+
+    let popular = host
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let titles: Vec<_> = popular
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Calculus Volume 1",
+            "Microbiology",
+            "Psychology 2e",
+            "Cálculo volumen 1"
+        ],
+        "live books the reader serves, by subject in OpenStax's order, English first; retired \
+         ones and one without an id are left out"
+    );
+    assert!(!popular.has_next_page);
+    let psychology = &popular.items[2];
+    assert_eq!(psychology.id, PSYCHOLOGY);
+    assert_eq!(
+        psychology.authors,
+        ["Rose M. Spielman"],
+        "the authors shown first"
+    );
+    assert_eq!(
+        psychology.cover_url.as_deref(),
+        Some("https://assets.openstax.org/oscms-prodcms/media/documents/psychology-2e.svg")
+    );
+    let latest = host
+        .manga_list(provider, MangaList::Latest, 1)
+        .await
+        .unwrap();
+    let titles: Vec<_> = latest
+        .items
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Cálculo volumen 1",
+            "Psychology 2e",
+            "Microbiology",
+            "Calculus Volume 1"
+        ],
+        "the newest first"
+    );
+
+    let search = |query: &'static str, pairs: &'static [(&'static str, &'static str)]| {
+        let host = &host;
+        async move {
+            host.manga_search_filtered(provider, query, 1, &filters(pairs))
+                .await
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|item| item.title)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(
+        search("psych", &[]).await,
+        ["Psychology 2e"],
+        "a word's start"
+    );
+    assert_eq!(
+        search("strang", &[]).await,
+        ["Calculus Volume 1", "Cálculo volumen 1"],
+        "authors count"
+    );
+    assert_eq!(
+        search("calc", &[]).await,
+        ["Calculus Volume 1", "Cálculo volumen 1"],
+        "without accents"
+    );
+    assert_eq!(
+        search("", &[("subject", "Math"), ("language", "es")]).await,
+        ["Cálculo volumen 1"],
+        "Spanish subjects count as their English ones"
+    );
+    assert_eq!(
+        search("", &[("sort", "newest")]).await[0],
+        "Cálculo volumen 1"
+    );
+    assert!(search("nothing like it", &[]).await.is_empty());
+    let offered = host.manga_filters(provider).await.unwrap();
+    assert_eq!(offered.len(), 3, "subject, language and sort");
+
+    let details = host.manga_details(provider, PSYCHOLOGY).await.unwrap();
+    assert_eq!(details.title, "Psychology 2e");
+    assert_eq!(details.authors, ["Rose M. Spielman", "William J. Jenkins"]);
+    assert_eq!(details.genres, ["Social Sciences", "Psychology"]);
+    assert_eq!(details.status, "completed");
+    assert_eq!(
+        details.url.as_deref(),
+        Some(format!("http://{address}/details/books/psychology-2e").as_str())
+    );
+    assert_eq!(
+        details.description.as_deref(),
+        Some(
+            "Psychology 2e is a textbook & more.\n\nSecond paragraph.\n\n\
+             Senior contributing authors: Rose M. Spielman, William J. Jenkins.\n\
+             Contributing authors: Mara Aruguete.\n\n\
+             Subjects: Social Sciences.\n\n\
+             Licence: CC BY-NC-SA 4.0 (from OpenStax's book data)."
+        )
+    );
+    let calculo = host.manga_details(provider, CALCULO).await.unwrap();
+    let description = calculo.description.unwrap();
+    assert!(
+        description.ends_with("Licence: CC BY 4.0 (from OpenStax's book data)."),
+        "the book's own data, when the catalogue has no licence: {description}"
+    );
+    assert_eq!(
+        calculo.url.as_deref(),
+        Some(format!("http://{address}/details/books/c%C3%A1lculo-volumen-1").as_str())
+    );
+    let microbiology = host.manga_details(provider, MICROBIOLOGY).await.unwrap();
+    let description = microbiology.description.unwrap();
+    assert!(
+        description.contains("Content note: This material includes descriptions of severe injury."),
+        "{description}"
+    );
+    assert!(
+        description.ends_with("Licence: CC BY 4.0 (from OpenStax's book data)."),
+        "the catalogue's licence when the contents can't be read: {description}"
+    );
+
+    let chapters = host.manga_chapters(provider, PSYCHOLOGY).await.unwrap();
+    let names: Vec<_> = chapters
+        .iter()
+        .map(|chapter| chapter.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "Preface",
+            "Chapter 1 · Introduction",
+            "1.1 What Is Psychology?",
+            "Chapter 1 · Key Terms",
+            "Chapter 1 · Chapter Review · Key Equations",
+            "Unit 2: Unit Introduction",
+            "2.1 Why Is Research Important?",
+            "Appendix A: Statistics",
+            "Answer Key · Chapter 1",
+            "References",
+        ],
+        "pages in reading order, named with their chapter; each page once, no index"
+    );
+    assert_eq!(
+        chapters[2].id,
+        format!("{PSYCHOLOGY}:{}", openstax_page(3)),
+        "the book's and the page's ids, without versions"
+    );
+    assert_eq!(chapters[9].number, Some(10.0));
+    assert_eq!(
+        contents_asks.load(Ordering::SeqCst),
+        1,
+        "details and chapters share the contents"
+    );
+
+    let text = host.novel_passage(provider, &chapters[2].id).await.unwrap();
+    assert!(
+        matches!(&text[0], PassageBlock::Heading(heading) if heading == "1.1 What Is Psychology?"),
+        "{text:?}"
+    );
+    assert_eq!(
+        text[1],
+        PassageBlock::Paragraph(
+            "Psychology refers to the scientific study of the mind and behavior.".into()
+        )
+    );
+    assert!(
+        text.contains(&PassageBlock::Image(format!(
+            "http://{address}{OPENSTAX_ARCHIVE}/resources/206235878db6612ad174b6951718283e737b774d"
+        ))),
+        "figures from the archive's resources: {text:?}"
+    );
+    assert!(
+        text.iter().any(
+            |block| matches!(block, PassageBlock::Math(formula) if formula.display && formula.mathml.contains("<mfrac>"))
+        ),
+        "{text:?}"
+    );
+    let raw = host
+        .call(provider, "passage", json!({ "chapterId": chapters[2].id }))
+        .await
+        .unwrap();
+    let html = raw["html"].as_str().unwrap();
+    assert!(
+        html.contains("<math display=\"block\">"),
+        "formulas as they are"
+    );
+    assert!(
+        !html.contains("<head") && !html.contains("STYLING") && !html.contains("addEventListener"),
+        "no head"
+    );
+    assert_eq!(
+        raw["baseUrl"],
+        format!("http://{address}{OPENSTAX_ARCHIVE}/contents/")
+    );
+
+    let missing = host
+        .novel_passage(provider, &chapters[1].id)
+        .await
+        .unwrap_err();
+    assert!(missing.contains("current version"), "{missing}");
+    for wrong in ["../../rex/release", &format!("{PSYCHOLOGY}:../x")] {
+        let error = host.novel_passage(provider, wrong).await.unwrap_err();
+        assert!(error.contains("no page with this id"), "{error}");
+    }
+    let retired = host.manga_chapters(provider, PHYSICS).await.unwrap_err();
+    assert!(retired.contains("no longer offers"), "{retired}");
+    assert_eq!(
+        (
+            catalogue_asks.load(Ordering::SeqCst),
+            release_asks.load(Ordering::SeqCst)
+        ),
+        (1, 1),
+        "the catalogue and the versions are kept"
+    );
+}
+
+// ---- Last.fm ----
+
+const LASTFM_KEY: &str = "a-key";
+
+/// A song in a Last.fm chart (shapes from its API's JSON answers): numbers as text, a duration in
+/// seconds or "0", images Raygun doesn't use.
+fn lastfm_track(name: &str, artist: &str, duration: Value) -> Value {
+    let page = |text: &str| text.replace(' ', "+");
+    json!({
+        "name": name, "duration": duration, "playcount": "25146553", "listeners": "1371049", "mbid": "",
+        "url": format!("https://www.last.fm/music/{}/_/{}", page(artist), page(name)),
+        "streamable": { "#text": "0", "fulltrack": "0" },
+        "artist": { "name": artist, "mbid": "", "url": format!("https://www.last.fm/music/{}", page(artist)) },
+        "image": [{ "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png", "size": "small" }],
+        "@attr": { "rank": "0" },
+    })
+}
+
+fn lastfm_tracks(root: &str, tracks: Value) -> Value {
+    json!({ root: { "track": tracks, "@attr": { "page": "1", "perPage": "50", "totalPages": "1", "total": "2" } } })
+}
+
+fn lastfm_tags(tags: &[(&str, u32)]) -> Value {
+    let tags: Vec<Value> = tags
+        .iter()
+        .map(|(name, count)| json!({ "count": count, "name": name, "url": format!("https://www.last.fm/tag/{name}") }))
+        .collect();
+    json!({ "toptags": { "tag": tags, "@attr": { "artist": "Cher" } } })
+}
+
+fn lastfm_error(status: StatusCode, code: u32, message: &str) -> Response {
+    json_response(
+        status,
+        json!({ "error": code, "message": message, "links": [] }),
+    )
+}
+
+/// What Last.fm answers a request with a valid key.
+fn lastfm_answer(params: &HashMap<String, String>) -> Response {
+    let param = |name: &str| params.get(name).map_or("", String::as_str);
+    let not_found = |what: &str| lastfm_error(StatusCode::NOT_FOUND, 6, what);
+    let answer = match param("method") {
+        "chart.getTopTracks" => lastfm_tracks(
+            "tracks",
+            json!([
+                lastfm_track("Die With A Smile", "Lady Gaga", json!("0")),
+                lastfm_track("APT.", "ROSÉ", json!("170")),
+                lastfm_track("APT.", "ROSÉ", json!("170")),
+                { "name": "", "artist": { "name": "Nobody" } },
+            ]),
+        ),
+        "geo.getTopTracks" => match param("country") {
+            "United States" | "Russia" => lastfm_tracks(
+                "tracks",
+                json!([lastfm_track(
+                    "Birds of a Feather",
+                    "Billie Eilish",
+                    json!("210")
+                )]),
+            ),
+            _ => return lastfm_error(StatusCode::BAD_REQUEST, 6, "country param invalid"),
+        },
+        "tag.getTopTracks" => match param("tag") {
+            // One song comes as an object, not a list.
+            "rock" => lastfm_tracks(
+                "tracks",
+                lastfm_track("Bohemian Rhapsody", "Queen", json!("355")),
+            ),
+            "hip hop" => lastfm_tracks(
+                "tracks",
+                json!([
+                    lastfm_track("HUMBLE.", "Kendrick Lamar", json!("177")),
+                    lastfm_track("Juicy", "The Notorious B.I.G.", json!("0")),
+                ]),
+            ),
+            tag => {
+                json!({ "tracks": { "track": [], "@attr": { "tag": tag, "page": "1", "perPage": "50", "totalPages": "0", "total": "0" } } })
+            }
+        },
+        "track.getTopTags" => match (param("artist"), param("track")) {
+            ("Cher", "Believe") => lastfm_tags(&[
+                ("pop", 100),
+                ("dance", 88),
+                ("seen live", 50),
+                ("1998", 40),
+                ("cher", 30),
+                ("Pop", 20),
+                ("electronic", 9),
+            ]),
+            ("Cher", _) => {
+                json!({ "toptags": { "tag": [], "@attr": { "artist": "Cher", "track": "B-side" } } })
+            }
+            _ => return not_found("Track not found"),
+        },
+        "artist.getTopTags" => match param("artist") {
+            "Cher" => lastfm_tags(&[("pop", 100), ("female vocalists", 60), ("seen live", 12)]),
+            artist => json!({ "toptags": { "@attr": { "artist": artist } } }),
+        },
+        "artist.getSimilar" => match param("artist") {
+            "Cher" => json!({ "similarartists": { "artist": [
+                { "name": "Sonny & Cher", "mbid": "3d6a2b54-4a0a-4d8b-a2c8-3a2e6c4e1f10", "match": "1",
+                  "url": "https://www.last.fm/music/Sonny+&+Cher", "image": [], "streamable": "0" },
+                { "name": "Madonna", "mbid": "", "match": 0.82, "url": "https://www.last.fm/music/Madonna", "image": [] },
+                { "name": "Cher", "mbid": "", "match": "0.5", "url": "https://www.last.fm/music/Cher" },
+            ], "@attr": { "artist": "Cher" } } }),
+            artist => json!({ "similarartists": { "artist": [], "@attr": { "artist": artist } } }),
+        },
+        "artist.getTopTracks" => match param("artist") {
+            "Cher" => lastfm_tracks(
+                "toptracks",
+                json!([
+                    lastfm_track("Believe", "Cher", Value::Null),
+                    lastfm_track("Strong Enough", "Cher", Value::Null),
+                ]),
+            ),
+            "Sonny & Cher" => lastfm_tracks(
+                "toptracks",
+                json!([
+                    lastfm_track("I Got You Babe", "Sonny & Cher", Value::Null),
+                    lastfm_track("The Beat Goes On", "Sonny & Cher", Value::Null),
+                ]),
+            ),
+            "Madonna" => lastfm_tracks(
+                "toptracks",
+                lastfm_track("Like a Prayer", "Madonna", Value::Null),
+            ),
+            _ => return not_found("The artist you supplied could not be found"),
+        },
+        "track.getSimilar" => match (param("artist"), param("track")) {
+            // Numbers as numbers here.
+            ("Cher", "Believe") => json!({ "similartracks": { "track": [{
+                "name": "Strong Enough", "playcount": 866_023, "mbid": "", "match": 1,
+                "url": "https://www.last.fm/music/Cher/_/Strong+Enough",
+                "streamable": { "#text": "0", "fulltrack": "0" }, "duration": 223,
+                "artist": { "name": "Cher", "mbid": "", "url": "https://www.last.fm/music/Cher" },
+                "image": [],
+            }], "@attr": { "artist": "Cher" } } }),
+            _ => return not_found("Track not found"),
+        },
+        "artist.getInfo" => match param("artist") {
+            "Cher" => json!({ "artist": {
+                "name": "Cher", "mbid": "bfcc6d75-a6a5-4bc6-8282-47aec8531818",
+                "url": "https://www.last.fm/music/Cher", "image": [], "streamable": "0", "ontour": "0",
+                "stats": { "listeners": "1612343", "playcount": "26791548" },
+                "similar": { "artist": [] }, "tags": { "tag": [] },
+                "bio": {
+                    "links": { "link": { "#text": "", "rel": "original", "href": "https://last.fm/music/Cher/+wiki" } },
+                    "published": "27 Feb 2006, 15:18",
+                    "summary": "Cher (born Cherilyn Sarkisian; May 20, 1946) is an American singer &amp; actress. <a href=\"https://www.last.fm/music/Cher\">Read more on Last.fm</a>",
+                    "content": "Cher (born Cherilyn Sarkisian; May 20, 1946) is an American singer &amp; actress.\n\nShe rose to fame in 1965. <a href=\"https://www.last.fm/music/Cher\">Read more on Last.fm</a>. User-contributed text is available under the Creative Commons By-SA License; additional terms may apply.",
+                },
+            } }),
+            // Last.fm has a page for any name it has heard, but nothing to say of it.
+            "Nobody" => json!({ "artist": {
+                "name": "Nobody", "url": "https://www.last.fm/music/Nobody",
+                "bio": { "summary": " <a href=\"https://www.last.fm/music/Nobody\">Read more on Last.fm</a>", "content": "" },
+            } }),
+            _ => return not_found("The artist you supplied could not be found"),
+        },
+        _ => {
+            return lastfm_error(
+                StatusCode::BAD_REQUEST,
+                3,
+                "Invalid Method - No method with that name in this package",
+            );
+        }
+    };
+    json_response(StatusCode::OK, answer)
+}
+
+#[tokio::test]
+async fn lastfm_reads_charts_tags_recommendations_and_biographies_with_a_key() {
+    let seen: Seen = Arc::default();
+    let asked = seen.clone();
+    let app = Router::new().fallback(move |uri: Uri| {
+        let asked = asked.clone();
+        async move {
+            let params = query_params(&uri);
+            asked.lock().unwrap().push(params.clone());
+            assert_eq!(uri.path(), "/");
+            assert_eq!(params["format"], "json");
+            match params.get("api_key").map(String::as_str) {
+                Some(LASTFM_KEY) => lastfm_answer(&params),
+                Some("suspended") => lastfm_error(
+                    StatusCode::FORBIDDEN,
+                    26,
+                    "Suspended API key - Access for your account has been suspended, please contact Last.fm",
+                ),
+                Some("busy") => {
+                    lastfm_error(StatusCode::TOO_MANY_REQUESTS, 29, "Rate Limit Exceded")
+                }
+                _ => lastfm_error(
+                    StatusCode::FORBIDDEN,
+                    10,
+                    "Invalid API key - You must be granted a valid key by last.fm",
+                ),
+            }
+        }
+    });
+    let address = serve(app);
+    let base = "https://ws.audioscrobbler.com/2.0";
+    let id = "dev.raygun.lastfm";
+    let host = keyed_local_host("lastfm", id, &[base], address, LASTFM_KEY).await;
+    let charts = "dev.raygun.lastfm/charts";
+    let asked = |name: &str| last(&seen).get(name).cloned().unwrap_or_default();
+
+    // Charts: Last.fm's, the country's and the genres'.
+    let listed: Vec<_> = host
+        .music_charts(Some("us"))
+        .await
+        .into_iter()
+        .flat_map(|(_, answer)| answer.unwrap())
+        .collect();
+    assert_eq!(
+        (
+            listed[0].id.as_str(),
+            listed[0].name.as_str(),
+            listed[0].group
+        ),
+        ("top", "Top songs on Last.fm", ChartGroup::Top)
+    );
+    assert_eq!(
+        (listed[1].id.as_str(), listed[1].name.as_str()),
+        ("country:us", "Top songs in the United States")
+    );
+    let hip_hop = listed
+        .iter()
+        .find(|chart| chart.id == "tag:hip-hop")
+        .unwrap();
+    assert_eq!(
+        (hip_hop.tag.as_deref(), hip_hop.group),
+        (Some("Hip-Hop"), ChartGroup::Genre)
+    );
+    assert!(
+        listed.iter().all(|chart| chart.artwork_url.is_none()),
+        "no Last.fm images"
+    );
+    let countries = |region: &'static str| {
+        let host = &host;
+        async move {
+            host.music_charts(Some(region))
+                .await
+                .into_iter()
+                .flat_map(|(_, answer)| answer.unwrap())
+                .filter(|chart| chart.id.starts_with("country:"))
+                .map(|chart| chart.id)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(countries("uk").await, ["country:gb"]);
+    assert!(
+        countries("xx").await.is_empty(),
+        "a country Last.fm has no chart for"
+    );
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "listing charts asks nothing"
+    );
+
+    let top = host.music_chart(charts, "top", None, 10).await.unwrap();
+    let songs: Vec<_> = top
+        .iter()
+        .map(|track| {
+            (
+                track.title.as_str(),
+                track.artist.as_deref(),
+                track.duration_ms,
+            )
+        })
+        .collect();
+    assert_eq!(
+        songs,
+        [
+            ("Die With A Smile", Some("Lady Gaga"), None),
+            ("APT.", Some("ROSÉ"), Some(170_000))
+        ],
+        "seconds to milliseconds, 0 for unknown; a repeat and a song without a name left out"
+    );
+    assert!(
+        top.iter()
+            .all(|track| track.artwork_url.is_none() && track.source.is_none())
+    );
+    assert_eq!(
+        (asked("method"), asked("limit"), asked("api_key")),
+        (
+            "chart.getTopTracks".to_owned(),
+            "10".to_owned(),
+            LASTFM_KEY.to_owned()
+        )
+    );
+    let country = host
+        .music_chart(charts, "country:us", None, 10)
+        .await
+        .unwrap();
+    assert_eq!(country[0].title, "Birds of a Feather");
+    assert_eq!(asked("country"), "United States");
+    let before = seen.lock().unwrap().len();
+    let russia = host
+        .music_chart(charts, "country:ru", None, 10)
+        .await
+        .unwrap();
+    assert_eq!(russia.len(), 1);
+    let names: Vec<_> = seen.lock().unwrap()[before..]
+        .iter()
+        .map(|params| params["country"].clone())
+        .collect();
+    assert_eq!(
+        names,
+        ["Russian Federation", "Russia"],
+        "each name Last.fm may know"
+    );
+    let rock = host
+        .music_chart(charts, "tag:rock", None, 10)
+        .await
+        .unwrap();
+    assert_eq!(rock[0].title, "Bohemian Rhapsody", "one song as an object");
+    assert_eq!(rock[0].duration_ms, Some(355_000));
+
+    let rows = host
+        .music_tag_songs(
+            "Hip-Hop",
+            &["hip hop".to_owned(), "rap".to_owned()],
+            "genre",
+            None,
+            10,
+        )
+        .await;
+    let (_, answer) = rows
+        .iter()
+        .find(|(provider, _)| provider.extension_id == id)
+        .unwrap();
+    let (name, tracks) = answer.as_ref().unwrap();
+    assert_eq!(*name, None);
+    assert_eq!(tracks[0].title, "HUMBLE.", "the first spelling with songs");
+    assert_eq!(asked("tag"), "hip hop");
+
+    // Tags.
+    let song = |title: &str, artist: Option<&str>| TrackQuery {
+        title: title.to_owned(),
+        artist: artist.map(str::to_owned),
+        album: None,
+        duration_ms: None,
+    };
+    let tags_of = |query: TrackQuery| {
+        let host = &host;
+        async move {
+            host.music_tags(&query)
+                .await
+                .into_iter()
+                .find(|(provider, _)| provider.extension_id == "dev.raygun.lastfm")
+                .unwrap()
+                .1
+                .unwrap()
+                .into_iter()
+                .map(|(name, weight)| (name, (weight * 100.0).round() / 100.0))
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(
+        tags_of(song("Believe", Some("Cher"))).await,
+        [("pop".to_owned(), 1.0), ("dance".to_owned(), 0.88)],
+        "no \"seen live\", years, the artist's name, repeats or rare tags"
+    );
+    assert_eq!(asked("autocorrect"), "1");
+    assert_eq!(
+        tags_of(song("B-side", Some("Cher"))).await,
+        [
+            ("pop".to_owned(), 0.5),
+            ("female vocalists".to_owned(), 0.3)
+        ],
+        "an untagged song gets its artist's tags at half weight"
+    );
+    assert_eq!(asked("method"), "artist.getTopTags");
+    assert!(tags_of(song("Song", Some("Nobody"))).await.is_empty());
+    let before = seen.lock().unwrap().len();
+    assert!(tags_of(song("Song", None)).await.is_empty());
+    assert_eq!(seen.lock().unwrap().len(), before, "no artist, no request");
+
+    // Recommendations.
+    assert_eq!(
+        host.similar_artists("Cher", 5).await,
+        ["Sonny & Cher", "Madonna"],
+        "not the artist itself"
+    );
+    let titles = |tracks: Vec<raygun_model::OnlineTrack>| {
+        tracks
+            .into_iter()
+            .map(|track| track.title)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        titles(
+            host.recommended_tracks("topTracks", json!({ "artist": "Cher", "limit": 5 }))
+                .await
+        ),
+        ["Believe", "Strong Enough"]
+    );
+    let like_believe = host
+        .recommended_tracks(
+            "radio",
+            json!({ "artist": "Cher", "title": "Believe", "limit": 5 }),
+        )
+        .await;
+    assert_eq!(
+        (like_believe[0].title.as_str(), like_believe[0].duration_ms),
+        ("Strong Enough", Some(223_000))
+    );
+    for title in [json!("Unknown B-side"), Value::Null] {
+        let mix = host
+            .recommended_tracks(
+                "radio",
+                json!({ "artist": "Cher", "title": title, "limit": 6 }),
+            )
+            .await;
+        assert_eq!(
+            titles(mix),
+            ["I Got You Babe", "Like a Prayer", "The Beat Goes On"],
+            "the closest artists' most played songs, taking turns"
+        );
+    }
+
+    // Artist facts.
+    let cher = host.artist_info("Cher").await.unwrap();
+    assert_eq!(cher.name, "Cher");
+    assert_eq!(
+        cher.bio.as_deref(),
+        Some("Cher (born Cherilyn Sarkisian; May 20, 1946) is an American singer & actress."),
+        "the summary, without the link"
+    );
+    assert_eq!(cher.url.as_deref(), Some("https://www.last.fm/music/Cher"));
+    assert_eq!(cher.image_url, None);
+    assert_eq!(asked("autocorrect"), "1");
+    assert_eq!(host.artist_info("Nobody").await, None, "nothing but a name");
+    assert_eq!(host.artist_info("Someone Unknown").await, None);
+
+    // Keys Last.fm refuses: the source waits for a new one.
+    for (key, said) in [("refused", "didn't accept"), ("suspended", "suspended")] {
+        let host = keyed_local_host("lastfm", id, &[base], address, key).await;
+        let error = host
+            .music_chart(charts, "top", None, 10)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert_eq!(crate::needs_setup_in(&error), Some(id), "{key}: {error}");
+        assert!(error.contains(said), "{error}");
+        assert!(host.needs_setup(id).is_some());
+    }
+    // Too many requests: a plain failure, then nothing asked for a while.
+    let busy = keyed_local_host("lastfm", id, &[base], address, "busy").await;
+    let error = busy
+        .music_chart(charts, "top", None, 10)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert_eq!(crate::needs_setup_in(&error), None, "{error}");
+    assert!(busy.needs_setup(id).is_none());
+    let before = seen.lock().unwrap().len();
+    let again = busy
+        .music_chart(charts, "tag:rock", None, 10)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(again.contains("limiting requests"), "{again}");
+    assert_eq!(seen.lock().unwrap().len(), before, "it rests");
 }

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use raygun_ext_host::manga::{MangaList, MangaListing};
-use raygun_ext_host::novel::{NOVEL_SOURCE, PassageBlock};
+use raygun_ext_host::novel::{NOVEL_SOURCE, Part, PassageBlock};
 use raygun_ext_host::video::VIDEO_SOURCE;
 use raygun_ext_host::{ExtensionHost, HostConfig, discover_installed};
 use raygun_model::{
@@ -1342,4 +1342,316 @@ async fn open_sources_live_europeana() {
     }
     let (url, headers) = url_of(&tracks[0]);
     assert_served("recording", url, headers).await;
+}
+
+const OPENSTAX: &str = "dev.raygun.openstax/books";
+
+/// How many formulas a passage holds, on lines of their own or in paragraphs.
+fn formulas(blocks: &[PassageBlock]) -> usize {
+    blocks
+        .iter()
+        .map(|block| match block {
+            PassageBlock::Math(_) => 1,
+            PassageBlock::Rich(parts) => parts
+                .iter()
+                .filter(|part| matches!(part, Part::Math(_)))
+                .count(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// OpenStax's textbooks: the catalogue, search, a book's licence and pages, a section's figures
+/// served from the archive, and a Calculus section's formulas.
+#[tokio::test]
+#[ignore = "needs network access to openstax.org"]
+async fn open_sources_live_openstax() {
+    let host = host().await;
+    let popular = host
+        .manga_list(OPENSTAX, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_listing("by subject", &popular);
+    assert!(popular.has_next_page, "more books than a page");
+    let latest = host
+        .manga_list(OPENSTAX, MangaList::Latest, 1)
+        .await
+        .unwrap();
+    assert_listing("newest", &latest);
+    let spanish = host
+        .manga_search_filtered(
+            OPENSTAX,
+            "",
+            1,
+            &BTreeMap::from([("language".to_owned(), select("es"))]),
+        )
+        .await
+        .unwrap();
+    assert_listing("Spanish books", &spanish);
+    assert_eq!(host.manga_filters(OPENSTAX).await.unwrap().len(), 3);
+    let found = host.manga_search(OPENSTAX, "psychology", 1).await.unwrap();
+    assert_listing("search psychology", &found);
+    let book = &found.items[0];
+    assert!(book.title.starts_with("Psychology"), "{}", book.title);
+    assert!(!book.authors.is_empty());
+
+    let details = host.manga_details(OPENSTAX, &book.id).await.unwrap();
+    let description = details.description.clone().unwrap_or_default();
+    println!(
+        "details: {:?} by {:?}, {:?}, {:?}\n{description}",
+        details.title, details.authors, details.genres, details.url
+    );
+    assert!(
+        description.contains("Licence: CC BY")
+            && description.contains("(from OpenStax's book data)"),
+        "a Creative Commons licence from the book's data"
+    );
+    assert!(!details.authors.is_empty());
+    assert!(
+        details
+            .url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("https://openstax.org/details/books/"))
+    );
+
+    let chapters = host.manga_chapters(OPENSTAX, &book.id).await.unwrap();
+    println!(
+        "{} chapters, first {:?}",
+        chapters.len(),
+        chapters
+            .iter()
+            .take(4)
+            .map(|chapter| &chapter.name)
+            .collect::<Vec<_>>()
+    );
+    assert!(chapters.len() > 100);
+    assert!(
+        chapters
+            .iter()
+            .any(|chapter| chapter.name == "Chapter 1 · Introduction")
+    );
+    assert!(chapters.iter().all(|chapter| chapter.name != "Index"));
+    let history = chapters
+        .iter()
+        .find(|chapter| chapter.name.starts_with("1.2 "))
+        .expect("section 1.2");
+    let text = host.novel_passage(OPENSTAX, &history.id).await.unwrap();
+    println!(
+        "{:?}: {} blocks, first {:?}",
+        history.name,
+        text.len(),
+        text.first()
+    );
+    assert!(paragraphs(&text) > 5);
+    let figure = text
+        .iter()
+        .find_map(|block| match block {
+            PassageBlock::Image(url) => Some(url),
+            _ => None,
+        })
+        .expect("a figure");
+    assert!(
+        figure.starts_with("https://openstax.org/apps/archive/"),
+        "{figure}"
+    );
+    assert_served("figure", figure, &BTreeMap::new()).await;
+
+    // Formulas come as MathML and are drawn.
+    let calculus = host
+        .manga_search(OPENSTAX, "calculus volume 1", 1)
+        .await
+        .unwrap();
+    let calculus = calculus
+        .items
+        .iter()
+        .find(|item| item.title == "Calculus Volume 1")
+        .expect("Calculus Volume 1");
+    let chapters = host.manga_chapters(OPENSTAX, &calculus.id).await.unwrap();
+    let limits = chapters
+        .iter()
+        .find(|chapter| chapter.name.starts_with("2.2 "))
+        .expect("section 2.2");
+    let raw = host
+        .call(
+            OPENSTAX,
+            "passage",
+            serde_json::json!({ "chapterId": limits.id }),
+        )
+        .await
+        .unwrap();
+    assert!(
+        raw["html"]
+            .as_str()
+            .is_some_and(|html| html.contains("<math"))
+    );
+    let text = host.novel_passage(OPENSTAX, &limits.id).await.unwrap();
+    println!(
+        "{:?}: {} blocks, {} formulas",
+        limits.name,
+        text.len(),
+        formulas(&text)
+    );
+    assert!(formulas(&text) > 20);
+}
+
+const LASTFM: &str = "dev.raygun.lastfm";
+const LASTFM_CHARTS: &str = "dev.raygun.lastfm/charts";
+
+/// Last.fm with the API key in `LASTFM_API_KEY` (each person's own, free from
+/// last.fm/api/account/create): charts, genres, recommendations and a biography. Without one it
+/// checks the source waits for it, asked nothing.
+#[tokio::test]
+#[ignore = "needs network access to ws.audioscrobbler.com"]
+async fn open_sources_live_lastfm() {
+    let key = key_from("LASTFM_API_KEY");
+    let host = keyed_host("lastfm", LASTFM, key.as_deref()).await;
+    let top = host.music_chart(LASTFM_CHARTS, "top", None, 20).await;
+    if key.is_none() {
+        let error = top.unwrap_err().to_string();
+        println!("without a key: {error}");
+        assert_eq!(raygun_ext_host::needs_setup_in(&error), Some(LASTFM));
+        assert!(host.needs_setup(LASTFM).is_some());
+        assert!(
+            host.music_charts(Some("us"))
+                .await
+                .iter()
+                .all(|(provider, _)| provider.extension_id != LASTFM),
+            "a source waiting for its key isn't asked"
+        );
+        assert_eq!(host.artist_info("Radiohead").await, None);
+        return;
+    }
+    let top = top.unwrap();
+    for track in top.iter().take(5) {
+        println!(
+            "top: {} — {:?} ({:?} ms)",
+            track.title, track.artist, track.duration_ms
+        );
+    }
+    assert_eq!(top.len(), 20);
+    assert!(
+        top.iter()
+            .all(|track| track.artist.is_some() && track.artwork_url.is_none())
+    );
+
+    let charts = charts_of(&host, LASTFM).await;
+    assert!(
+        charts
+            .iter()
+            .any(|chart| chart.group == ChartGroup::Genre && chart.tag.as_deref() == Some("Rock"))
+    );
+    let regional: Vec<MusicChart> = host
+        .music_charts(Some("de"))
+        .await
+        .into_iter()
+        .filter(|(provider, _)| provider.extension_id == LASTFM)
+        .flat_map(|(_, answer)| answer.unwrap())
+        .collect();
+    assert!(regional.iter().any(|chart| chart.id == "country:de"));
+    for id in [
+        "country:de",
+        "country:ru",
+        "country:kr",
+        "tag:rock",
+        "tag:hip-hop",
+    ] {
+        let songs = host.music_chart(LASTFM_CHARTS, id, None, 10).await.unwrap();
+        println!(
+            "{id}: {:?}",
+            songs
+                .iter()
+                .take(3)
+                .map(|track| &track.title)
+                .collect::<Vec<_>>()
+        );
+        assert!(!songs.is_empty(), "{id} is empty");
+    }
+    let chill = host
+        .music_tag_songs(
+            "Chill",
+            &["relaxing".to_owned(), "calm".to_owned()],
+            "mood",
+            None,
+            10,
+        )
+        .await;
+    let (_, answer) = chill
+        .iter()
+        .find(|(provider, _)| provider.extension_id == LASTFM)
+        .unwrap();
+    assert!(answer.as_ref().is_ok_and(|(_, tracks)| !tracks.is_empty()));
+
+    let query = TrackQuery {
+        title: "Get Lucky".into(),
+        artist: Some("Daft Punk".into()),
+        album: None,
+        duration_ms: None,
+    };
+    let tags: Vec<(String, f64)> = host
+        .music_tags(&query)
+        .await
+        .into_iter()
+        .filter(|(provider, _)| provider.extension_id == LASTFM)
+        .flat_map(|(_, answer)| answer.unwrap())
+        .collect();
+    println!("Get Lucky: {tags:?}");
+    assert!(!tags.is_empty() && tags.len() <= 10);
+    assert!(tags.iter().all(|(name, weight)| {
+        name.to_lowercase() != "seen live" && (0.0..=1.0).contains(weight)
+    }));
+
+    let similar = host.similar_artists("Radiohead", 10).await;
+    println!("like Radiohead: {similar:?}");
+    assert!(!similar.is_empty() && !similar.iter().any(|name| name == "Radiohead"));
+    let best = host
+        .recommended_tracks(
+            "topTracks",
+            serde_json::json!({ "artist": "Radiohead", "limit": 10 }),
+        )
+        .await;
+    assert!(
+        !best.is_empty()
+            && best
+                .iter()
+                .all(|track| track.artist.as_deref() == Some("Radiohead"))
+    );
+    let like_song = host
+        .recommended_tracks(
+            "radio",
+            serde_json::json!({ "artist": "Radiohead", "title": "Karma Police", "limit": 20 }),
+        )
+        .await;
+    assert!(!like_song.is_empty());
+    let mix = host
+        .recommended_tracks(
+            "radio",
+            serde_json::json!({ "artist": "Radiohead", "title": null, "limit": 20 }),
+        )
+        .await;
+    let mut artists: Vec<_> = mix
+        .iter()
+        .filter_map(|track| track.artist.clone())
+        .collect();
+    artists.sort();
+    artists.dedup();
+    println!(
+        "Radiohead radio: {} songs by {} artists",
+        mix.len(),
+        artists.len()
+    );
+    assert!(artists.len() > 2, "the closest artists, taking turns");
+
+    let info = host.artist_info("Radiohead").await.expect("a biography");
+    let bio = info.bio.unwrap_or_default();
+    println!("{}: {bio}\n{:?}", info.name, info.url);
+    assert!(
+        !bio.is_empty()
+            && !bio.contains("Read more on Last.fm")
+            && !bio.contains("Creative Commons")
+    );
+    assert!(
+        info.url
+            .is_some_and(|url| url.starts_with("https://www.last.fm/music/"))
+    );
+    assert_eq!(info.image_url, None);
 }

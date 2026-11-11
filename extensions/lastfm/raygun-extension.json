@@ -1,0 +1,17 @@
+{
+  "id": "dev.raygun.lastfm",
+  "name": "Last.fm",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Music data from Last.fm, credited to Last.fm and linked to its pages, under its API terms (non-commercial use; Last.fm's images and audio aren't used): the songs most played on Last.fm worldwide and in your country, genre charts and genre and mood songs, genres for songs, artists like an artist, an artist's most played songs, song radios and artist biographies. Needs your own free API key, created at last.fm/api/account/create and entered in this source's settings.",
+  "author": "Raygun",
+  "website": "https://www.last.fm",
+  "provides": ["music.charts", "music.tags", "music.recommend", "music.info"],
+  "permissions": {
+    "net": ["ws.audioscrobbler.com"]
+  },
+  "contentRating": "safe",
+  "settings": [{ "key": "apiKey", "type": "text", "label": "API key", "required": true }]
+}

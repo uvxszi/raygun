@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.openstax",
+  "name": "OpenStax",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "CC BY 4.0 or CC BY-NC-SA 4.0, as each book states: free, peer-reviewed college textbooks from OpenStax at Rice University, in English and Spanish, on mathematics, science, social sciences, humanities, business, computer science and nursing, read section by section with their figures and formulas.",
+  "author": "Raygun",
+  "website": "https://openstax.org",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["openstax.org"]
+  },
+  "contentRating": "safe"
+}
