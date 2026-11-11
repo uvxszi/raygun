@@ -123,6 +123,39 @@ describe('Settings → Video player', () => {
     expect(lastPlayer()?.subtitleStyle).toEqual(PLAYER_DEFAULTS.subtitleStyle);
   });
 
+  it('keeps white and "None" picked as picks, over the file\'s own colours', async () => {
+    const user = userEvent.setup();
+    storeSettings();
+    await AppShellWrapper.mount('/settings/video/subtitles');
+    // White is the default, so picking it changes no colour: it marks it picked, and a file's
+    // own colours then give way to it.
+    await choose(user, /^Text colour/, 'White');
+    expect(lastPlayer()?.subtitleStyle).toMatchObject({
+      textColor: 0xffffffff,
+      textColorChosen: true,
+    });
+    await choose(user, /^Background/, 'None');
+    expect(lastPlayer()?.subtitleStyle).toMatchObject({
+      backgroundColor: 0,
+      backgroundColorChosen: true,
+    });
+  });
+
+  it("keeps lines to a share of the picture's width", async () => {
+    storeSettings();
+    await AppShellWrapper.mount('/settings/video/subtitles');
+    const width = await screen.findByRole('slider', { name: 'Line width' });
+    expect(width).toHaveValue('80');
+    fireEvent.change(width, { target: { value: '60' } });
+    await vi.waitFor(() => expect(lastPlayer()?.subtitleStyle.maxWidth).toBe(60));
+    // The preview's line wraps within it too.
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('subtitle-preview-text').parentElement).toHaveStyle({
+        paddingLeft: '20%',
+      }),
+    );
+  });
+
   it('picks a subtitle colour of your own, typed, with its opacity', async () => {
     const user = userEvent.setup();
     storeSettings();
@@ -148,13 +181,21 @@ describe('Settings → Video player', () => {
     await user.type(code, '#3366ff{Enter}');
     // A background that was none starts half see-through.
     await vi.waitFor(() => expect(lastPlayer()?.subtitleStyle.backgroundColor).toBe(0x803366ff));
+    // Custom's swatch shows the colour picked, not the hues it's picked from.
+    expect(within(sheet).getByTestId('custom-swatch')).toHaveAttribute('data-color', '#3366ff');
     fireEvent.change(within(sheet).getByRole('slider', { name: 'Opacity' }), {
       target: { value: '100' },
     });
     await vi.waitFor(() => expect(lastPlayer()?.subtitleStyle.backgroundColor).toBe(0xff3366ff));
+    expect(lastPlayer()?.subtitleStyle.backgroundColorChosen).toBe(true);
     expect(screen.getByRole('button', { name: /^Background/, hidden: true })).toHaveTextContent(
       'Your own colour · #3366FF',
     );
+    // It follows the colour as it's picked, before it's kept.
+    fireEvent.input(within(sheet).getByLabelText('Pick a colour'), {
+      target: { value: '#ff8800' },
+    });
+    expect(within(sheet).getByTestId('custom-swatch')).toHaveAttribute('data-color', '#ff8800');
   });
 
   it('turns on AniSkip and picks another app', async () => {

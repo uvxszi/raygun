@@ -52,10 +52,11 @@ const TOOL =
   'flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl bg-white/10 px-2 py-2.5 text-center text-xs leading-tight font-medium hover:bg-white/15 focus-within:ring-1 focus-within:ring-white/40';
 
 /**
- * The subtitles panel (M46.33, after v1.6.0): what adds subtitles first, as buttons of its own
- * (a file, transcribing with AI, translating; the last two open in the panel), then the delay
- * and the style, then the subtitles to show with the viewer's languages first. AI subtitles and
- * translations are listed once they have lines or are being made.
+ * The subtitles panel (M46.33, after v1.6.0), in two tabs. **Subtitles**: what adds subtitles
+ * first, as buttons of its own (a file, transcribing with AI, translating; the last two open in
+ * the panel), then the delay and the style, then the subtitles to show with the viewer's
+ * languages first. **Second subtitles**: a second track shown at the top of the picture. AI
+ * subtitles and translations are listed once they have lines or are being made.
  */
 export const SubtitlesPanel: FC<Props> = ({
   videoKey,
@@ -80,7 +81,54 @@ export const SubtitlesPanel: FC<Props> = ({
 }) => {
   const { t } = useTranslation();
   const [tool, setTool] = useState<'ai' | 'translate' | null>(null);
+  const [tab, setTab] = useState<'main' | 'second'>('main');
   const listed = byLanguages(options, languages);
+
+  const tabs = (
+    <div role="tablist" className="flex gap-2 px-2 pb-2">
+      {(['main', 'second'] as const).map((name) => (
+        <button
+          key={name}
+          type="button"
+          role="tab"
+          aria-selected={tab === name}
+          onClick={() => setTab(name)}
+          className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
+            tab === name ? 'bg-white text-black' : 'bg-white/10 hover:bg-white/20'
+          }`}
+        >
+          {t(name === 'main' ? 'videoPlayer.subtitles' : 'videoPlayer.secondSubtitles')}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (tab === 'second') {
+    // The video's own tracks can't show second: the browser reads one text track at a time.
+    const seconds = listed.filter((option) => !option.key.startsWith('embedded:'));
+    return (
+      <>
+        {tabs}
+        <PanelOption
+          label={t('videoPlayer.off')}
+          selected={second === null}
+          onSelect={() => onSecond(null)}
+        />
+        {seconds.map((option) => (
+          <PanelOption
+            key={option.key}
+            label={option.label}
+            hint={option.hint ?? option.language}
+            selected={option.key === second}
+            onSelect={() => onSecond(option.key)}
+          />
+        ))}
+        {seconds.length === 0 && (
+          <p className="px-3 py-2 text-sm text-white/60">{t('videoPlayer.secondNone')}</p>
+        )}
+      </>
+    );
+  }
 
   if (tool) {
     return (
@@ -111,6 +159,7 @@ export const SubtitlesPanel: FC<Props> = ({
 
   return (
     <>
+      {tabs}
       <div className="grid grid-cols-3 gap-2 px-1 pt-1 pb-2">
         <label className={TOOL}>
           <FilePlus2 aria-hidden size={20} />
@@ -191,25 +240,6 @@ export const SubtitlesPanel: FC<Props> = ({
         />
       ))}
       {find}
-      <label className="flex items-center gap-3 px-3 pt-3 pb-1.5 text-sm">
-        <span className="flex-1">{t('videoPlayer.secondSubtitles')}</span>
-        <select
-          value={second ?? ''}
-          onChange={(event) => onSecond(event.target.value || null)}
-          className="max-w-40 rounded-lg bg-white/10 px-2 py-1 outline-none"
-        >
-          <option value="" className="bg-neutral-900">
-            {t('videoPlayer.off')}
-          </option>
-          {listed
-            .filter((option) => !option.key.startsWith('embedded:'))
-            .map((option) => (
-              <option key={option.key} value={option.key} className="bg-neutral-900">
-                {option.label}
-              </option>
-            ))}
-        </select>
-      </label>
       {editor}
     </>
   );

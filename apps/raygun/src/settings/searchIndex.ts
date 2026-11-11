@@ -119,6 +119,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.textColor',
     'settings.player.backgroundColor',
     'settings.player.subtitlePosition',
+    'settings.player.subtitleMaxWidth',
   ),
   ...onlyOn(
     'phone',

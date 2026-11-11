@@ -87,6 +87,16 @@ internal fun parseHexColor(text: String): Int? {
     return digits.toInt(16)
 }
 
+/**
+ * A hue or saturation moved on a colour that can't show it (white, a grey, black): the colour
+ * takes it at full saturation and brightness where it had none, so the sample and the subtitles
+ * change as the slider moves. `hsv` is changed in place.
+ */
+internal fun showMovedHue(hsv: FloatArray, hueMoved: Boolean) {
+    if (hueMoved && hsv[1] < 0.05f) hsv[1] = 1f
+    if (hsv[2] < 0.05f) hsv[2] = 1f
+}
+
 /** A round sample of `color` with a faint ring, so black and see-through colours show too. */
 private fun Context.swatchDot(color: Int, onLight: Boolean): GradientDrawable = GradientDrawable().apply {
     shape = GradientDrawable.OVAL
@@ -375,8 +385,16 @@ internal class ColorPicker(
     private var saved = initial
     private val sample = View(context)
     private val hex = EditText(context)
-    private val hue = GradientSlider(context, { hsv[0] = it * 360f; changed() }, ::keep)
-    private val saturation = GradientSlider(context, { hsv[1] = it; changed() }, ::keep)
+    private val hue = GradientSlider(context, {
+        hsv[0] = it * 360f
+        showMovedHue(hsv, hueMoved = true)
+        changed()
+    }, ::keep)
+    private val saturation = GradientSlider(context, {
+        hsv[1] = it
+        showMovedHue(hsv, hueMoved = false)
+        changed()
+    }, ::keep)
     private val brightness = GradientSlider(context, { hsv[2] = it; changed() }, ::keep)
     private val opacity = GradientSlider(context, { alpha = (it * 255).toInt(); changed() }, ::keep)
 

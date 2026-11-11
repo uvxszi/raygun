@@ -6703,12 +6703,21 @@ export type SubtitleStyle = {
 	italic?: boolean,
 	/**  Colours are 0xAARRGGBB. */
 	textColor?: number,
+	/**
+	 *  The text colour was picked (white included): it wins over the colours a subtitle file
+	 *  gives its lines. Unpicked, only a colour other than white does.
+	 */
+	textColorChosen?: boolean,
 	edge?: SubtitleEdge,
 	edgeColor?: number,
-	/**  Behind each line; fully transparent by default. */
+	/**  Behind each line, in boxes with rounded corners; fully transparent by default. */
 	backgroundColor?: number,
+	/**  The background was picked ("None" included): it replaces the backgrounds a file sets. */
+	backgroundColorChosen?: boolean,
 	/**  Distance from the bottom, in percent of the picture's height, 0–40. */
 	position?: number,
+	/**  The widest a line gets, in percent of the picture's width, 40–100; longer ones wrap. */
+	maxWidth?: number,
 	/**  Ignores the colours, fonts and positions a subtitle file sets itself. */
 	ignoreEmbedded?: boolean,
 };

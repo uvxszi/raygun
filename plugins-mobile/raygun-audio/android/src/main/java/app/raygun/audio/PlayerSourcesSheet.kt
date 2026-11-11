@@ -2,6 +2,7 @@ package app.raygun.audio
 
 import android.content.res.Configuration
 import android.graphics.Color
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -11,6 +12,63 @@ import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+
+/** What ranks one of a source's options: its place in the source's list and what's known of it. */
+internal class OptionRank(
+    val index: Int,
+    val height: Long? = null,
+    val range: String? = null,
+    val speedKbps: Long? = null,
+    val bitrateKbps: Long? = null,
+)
+
+/** Dolby Vision, then HDR, above the same height in SDR. */
+private fun rangeRank(range: String?): Int = when (range) {
+    "dv" -> 2
+    "hdr" -> 1
+    else -> 0
+}
+
+/**
+ * A source's options, best picture first, then the better range, the faster, the higher bit
+ * rate, then as listed; what isn't known goes last. Each key compares as one type: an unknown
+ * height or speed taken as the Int -1 beside known Longs makes `compareValues` throw a
+ * ClassCastException (Integer to Long) once one option has a height or a speed and another
+ * doesn't.
+ */
+internal val OPTION_ORDER: Comparator<OptionRank> = Comparator { a, b ->
+    val height = (b.height ?: -1L).compareTo(a.height ?: -1L)
+    if (height != 0) return@Comparator height
+    val range = rangeRank(b.range).compareTo(rangeRank(a.range))
+    if (range != 0) return@Comparator range
+    val speed = (b.speedKbps ?: -1L).compareTo(a.speedKbps ?: -1L)
+    if (speed != 0) return@Comparator speed
+    val bitrate = (b.bitrateKbps ?: -1L).compareTo(a.bitrateKbps ?: -1L)
+    if (bitrate != 0) return@Comparator bitrate
+    a.index.compareTo(b.index)
+}
+
+/**
+ * The sources to list, by index: those in Rust's `order` first (once each, only real ones), then
+ * any it left out, without those `visible` hides.
+ */
+internal fun orderedSources(count: Int, order: List<Int>, visible: (Int) -> Boolean): List<Int> {
+    val listed = order.filter { it in 0 until count }.distinct()
+    return (listed + (0 until count).filter { it !in listed }).filter(visible)
+}
+
+/** "25 Mb/s", "800 kb/s". */
+internal fun speedText(kbps: Long): String = if (kbps >= 1_000) {
+    String.format(Locale.ROOT, "%.1f", kbps / 1000.0).removeSuffix(".0") + " Mb/s"
+} else {
+    "$kbps kb/s"
+}
+
+/** "15.2 GB", "700 MB". */
+internal fun sizeText(bytes: Long): String = when {
+    bytes >= 1_000_000_000 -> String.format(Locale.ROOT, "%.1f GB", bytes / 1e9)
+    else -> "${(bytes / 1_000_000).coerceAtLeast(1)} MB"
+}
 
 /**
  * Sources (M44, clean list after v1.6.0): two tabs. **Sources** lists the session's sources by
@@ -51,7 +109,23 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
 
     private val groups: JSONArray get() = host.sources
 
+    /**
+     * Draws the sheet. Sources answer in many shapes: one this sheet can't draw says so instead
+     * of closing the player (the sheet also opens by itself when no source could play).
+     */
     private fun build() {
+        val before = sheet
+        try {
+            draw()
+        } catch (error: Exception) {
+            Log.e("RaygunVideo", "the Sources sheet failed", error)
+            // The sheet drawn before (a refresh) and one half drawn go.
+            listOfNotNull(before, sheet).forEach { if (host.sheetShown(it)) it.dismiss() }
+            host.showHint(label("sourcesUnavailable", "Couldn't show the sources"), 3_000)
+        }
+    }
+
+    private fun draw() {
         if (groups.length() == 0) {
             host.showHint(label("findingSource", "Finding a source…"))
             host.request("ready")
@@ -101,13 +175,10 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
 
     /** The sources in Rust's order, without the failed and empty ones the settings hide. */
     private fun ordered(): List<Int> {
-        val all = (0 until groups.length()).toList()
-        val listed = host.sourceOrder
+        val order = host.sourceOrder
             ?.let { order -> (0 until order.length()).map { order.optInt(it, -1) } }
             .orEmpty()
-            .filter { it in all }
-            .distinct()
-        return (listed + all.filter { it !in listed }).filter { index ->
+        return orderedSources(groups.length(), order) { index ->
             groups.optJSONObject(index)?.let { visible(it) } == true
         }
     }
@@ -225,19 +296,22 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
             list.addView(paneRow(server.optString("name"), stateText(server), selected = false, onClick = null))
             return
         }
-        val rangeRank = mapOf("dv" to 2, "hdr" to 1)
-        val sorted = (0 until links.length()).mapNotNull { index -> links.optJSONObject(index)?.let { index to it } }
-            .sortedWith(
-                compareByDescending<Pair<Int, JSONObject>> { (_, link) -> link.optJSONObject("facts")?.number("height") ?: -1 }
-                    .thenByDescending { (_, link) -> rangeRank[link.optJSONObject("facts")?.optString("range")] ?: 0 }
-                    .thenByDescending { (_, link) -> link.number("speedKbps") ?: -1 }
-                    .thenByDescending { (_, link) -> link.number("bitrateKbps") ?: -1 }
-                    .thenBy { (index, _) -> index },
+        val ranks = (0 until links.length()).mapNotNull { index ->
+            val link = links.optJSONObject(index) ?: return@mapNotNull null
+            val facts = link.optJSONObject("facts")
+            OptionRank(
+                index = index,
+                height = facts?.number("height"),
+                range = facts?.text("range"),
+                speedKbps = link.number("speedKbps"),
+                bitrateKbps = link.number("bitrateKbps"),
             )
-        sorted.forEach { (index, link) ->
+        }
+        ranks.sortedWith(OPTION_ORDER).forEach { rank ->
+            val link = links.optJSONObject(rank.index) ?: return@forEach
             val current = link.optBoolean("current")
             list.addView(paneRow(optionTitle(link), optionDetail(link, server), selected = current) {
-                choose(group, index, current)
+                choose(group, rank.index, current)
             })
         }
     }
@@ -318,18 +392,9 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         else -> null
     }
 
-    /** "25 Mb/s", "800 kb/s". */
-    private fun speed(kbps: Long): String = if (kbps >= 1_000) {
-        String.format(Locale.ROOT, "%.1f", kbps / 1000.0).removeSuffix(".0") + " Mb/s"
-    } else {
-        "$kbps kb/s"
-    }
+    private fun speed(kbps: Long): String = speedText(kbps)
 
-    /** "15.2 GB", "700 MB". */
-    private fun size(bytes: Long): String = when {
-        bytes >= 1_000_000_000 -> String.format(Locale.ROOT, "%.1f GB", bytes / 1e9)
-        else -> "${(bytes / 1_000_000).coerceAtLeast(1)} MB"
-    }
+    private fun size(bytes: Long): String = sizeText(bytes)
 
     /** A row of a pane, in the sheets' style: words, a tick when `selected`. */
     private fun paneRow(text: String, detail: String?, selected: Boolean, onClick: (() -> Unit)?): TextView =

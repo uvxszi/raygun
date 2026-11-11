@@ -2531,15 +2531,25 @@ pub struct SubtitleStyle {
     pub italic: bool,
     /// Colours are 0xAARRGGBB.
     pub text_color: u32,
+    /// The text colour was picked (white included): it wins over the colours a subtitle file
+    /// gives its lines. Unpicked, only a colour other than white does.
+    pub text_color_chosen: bool,
     pub edge: SubtitleEdge,
     pub edge_color: u32,
-    /// Behind each line; fully transparent by default.
+    /// Behind each line, in boxes with rounded corners; fully transparent by default.
     pub background_color: u32,
+    /// The background was picked ("None" included): it replaces the backgrounds a file sets.
+    pub background_color_chosen: bool,
     /// Distance from the bottom, in percent of the picture's height, 0–40.
     pub position: u32,
+    /// The widest a line gets, in percent of the picture's width, 40–100; longer ones wrap.
+    pub max_width: u32,
     /// Ignores the colours, fonts and positions a subtitle file sets itself.
     pub ignore_embedded: bool,
 }
+
+/// The line width subtitles keep to unless changed, in percent of the picture's width.
+pub const SUBTITLE_MAX_WIDTH: u32 = 80;
 
 impl Default for SubtitleStyle {
     fn default() -> Self {
@@ -2549,10 +2559,13 @@ impl Default for SubtitleStyle {
             bold: false,
             italic: false,
             text_color: 0xFFFF_FFFF,
+            text_color_chosen: false,
             edge: SubtitleEdge::Outline,
             edge_color: 0xFF00_0000,
             background_color: 0,
+            background_color_chosen: false,
             position: 8,
+            max_width: SUBTITLE_MAX_WIDTH,
             ignore_embedded: false,
         }
     }
@@ -2739,6 +2752,9 @@ impl VideoPlayerPrefs {
         let style = &self.subtitle_style;
         if !(50..=200).contains(&style.size) || style.position > 40 {
             return Err("That subtitle size or position isn't offered".into());
+        }
+        if !(40..=100).contains(&style.max_width) {
+            return Err("Subtitle lines are 40 % to 100 % of the picture's width".into());
         }
         for tag in [
             &self.subtitle_fallback,

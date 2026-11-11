@@ -18,7 +18,10 @@ pub fn parse(kind: &str, text: &str) -> Option<Vec<CaptionRow>> {
     }
 }
 
-/// Cues as a WebVTT file (M46.33: AI subtitles for the players).
+/// Cues as a WebVTT file (M46.33: AI subtitles for the players), in time order. A cue ends
+/// where the next one starts at the latest: a stretch heard again (a window that met a line cut
+/// at the end of the one before) overlaps the line before it, and players would show both, one
+/// over or under the other.
 pub fn to_vtt(rows: &[CaptionRow]) -> String {
     let stamp = |ms: i64| {
         let ms = ms.max(0);
@@ -31,8 +34,13 @@ pub fn to_vtt(rows: &[CaptionRow]) -> String {
         )
     };
     let mut out = String::from("WEBVTT\n");
-    for row in rows {
+    for (index, row) in rows.iter().enumerate() {
+        let next = rows
+            .get(index + 1)
+            .map(|next| next.start_ms)
+            .filter(|next| *next > row.start_ms);
         let end = row.end_ms.max(row.start_ms + 500);
+        let end = next.map_or(end, |next| end.min(next));
         out.push_str(&format!(
             "\n{} --> {}\n{}\n",
             stamp(row.start_ms),
@@ -233,6 +241,28 @@ mod tests {
         let back = parse("text/vtt", &vtt).unwrap();
         assert_eq!(back[1].end_ms, 3_725_500);
         assert_eq!(back[0].text, "Chapter Two");
+    }
+
+    #[test]
+    fn a_line_heard_again_ends_the_one_before() {
+        let row = |start_ms: i64, end_ms: i64, text: &str| CaptionRow {
+            start_ms,
+            end_ms,
+            text: text.into(),
+        };
+        let rows = vec![
+            row(1_000, 4_000, "and then he"),
+            row(3_000, 6_000, "then he said"),
+            row(8_000, 9_000, "Later"),
+        ];
+        let back = parse("text/vtt", &to_vtt(&rows)).unwrap();
+        // One line shows at a time: the first ends where the second starts.
+        assert_eq!(
+            back.iter()
+                .map(|cue| (cue.start_ms, cue.end_ms))
+                .collect::<Vec<_>>(),
+            vec![(1_000, 3_000), (3_000, 6_000), (8_000, 9_000)]
+        );
     }
 
     #[test]
