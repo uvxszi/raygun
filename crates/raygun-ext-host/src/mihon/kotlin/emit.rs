@@ -226,7 +226,7 @@ pub const METHODS: &[&str] = &[
     "initialize", "generateKeyPair", "genKeyPair", "generatePublic", "generatePrivate",
     "doPhase", "initSign", "initVerify", "sign", "verify", "getParameterSpec", "getPublic",
     "getPrivate", "getAlgorithm", "getFormat", "getW", "getS", "getAffineX", "getAffineY",
-    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet", "graphQLGet", "getNextEntry", "closeEntry",
+    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet", "graphQLGet", "getNextEntry", "closeEntry", "zstdCompress", "zstdDecompress", "sink",
     "unescapeEntities", "getProperty", "getValue",
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
     "toDuration", "isNegative", "isPositive", "isInfinite", "isFinite", "toNanos", "toMicros",
@@ -3315,7 +3315,7 @@ pub const GLOBALS: &[&str] = &[
     "DeflaterOutputStream", "BigInteger", "X509EncodedKeySpec", "PKCS8EncodedKeySpec",
     "ECPublicKeySpec", "RSAPublicKeySpec", "ECGenParameterSpec", "ECPoint", "OAEPParameterSpec",
     "KeyPair", "SequenceInputStream", "ZipException", "EOFException", "CRC32",
-    "readEntry", "ZipInputStream",
+    "readEntry", "ZipInputStream", "BLAKE2b",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.

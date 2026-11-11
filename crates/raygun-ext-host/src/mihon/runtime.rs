@@ -244,6 +244,19 @@ fn digest(algorithm: &str, data: &[u8]) -> Result<Vec<u8>, String> {
             "sha256" => sha2::Sha256::digest(data).to_vec(),
             "sha384" => sha2::Sha384::digest(data).to_vec(),
             "sha512" => sha2::Sha512::digest(data).to_vec(),
+            // BLAKE2b of a size in bits (`blake2b256`), 512 without one.
+            other if other.starts_with("blake2b") => {
+                use blake2::digest::{Update as _, VariableOutput as _};
+                let bits: usize = other["blake2b".len()..].parse().unwrap_or(512);
+                let mut hasher = blake2::Blake2bVar::new(bits / 8)
+                    .map_err(|_| format!("no BLAKE2b of {bits} bits"))?;
+                hasher.update(data);
+                let mut out = vec![0; bits / 8];
+                hasher
+                    .finalize_variable(&mut out)
+                    .map_err(|error| error.to_string())?;
+                out
+            }
             other => return Err(format!("no {other} digest")),
         },
     )

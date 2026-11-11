@@ -2322,7 +2322,7 @@ async fn converted_code_reads_org_json_big_numbers_and_gzip() {
     let source = STANDALONE_SOURCE
         .replace(
             "import java.util.Locale",
-            "import java.util.Locale\nimport org.json.JSONArray\nimport org.json.JSONObject\nimport java.math.BigInteger\nimport java.util.zip.GZIPInputStream\nimport java.util.zip.GZIPOutputStream\nimport java.io.ByteArrayOutputStream",
+            "import java.util.Locale\nimport org.json.JSONArray\nimport org.json.JSONObject\nimport java.math.BigInteger\nimport java.util.zip.GZIPInputStream\nimport java.util.zip.GZIPOutputStream\nimport java.io.ByteArrayOutputStream\nimport java.io.File\nimport org.kotlincrypto.hash.blake2.BLAKE2b\nimport com.squareup.zstd.okio.zstdCompress\nimport com.squareup.zstd.okio.zstdDecompress\nimport okio.buffer\nimport okio.sink\nimport okio.source",
         )
         .replace(
             "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
@@ -2356,6 +2356,11 @@ async fn converted_code_reads_org_json_big_numbers_and_gzip() {
             BigInteger("ff", 16).pow(2).toString(16),
             (decoy(7, 3L, 12345L) ?: -1).toString(),
             GZIPInputStream(packed.inputStream()).readBytes().decodeToString(),
+            BLAKE2b(256).apply { update("abc".toByteArray()) }.digest().toHexString(),
+            File.createTempFile("cache", ".zst").let { file ->
+                file.sink().zstdCompress().buffer().use { it.writeUtf8("cached") }
+                file.source().zstdDecompress().buffer().readUtf8()
+            },
         )
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
     }
@@ -2390,7 +2395,19 @@ async fn converted_code_reads_org_json_big_numbers_and_gzip() {
         .iter()
         .map(|item| item.title.clone())
         .collect();
-    assert_eq!(titles, ["A, B", "N", "256", "fe01", "2", "Raygun"]);
+    assert_eq!(
+        titles,
+        [
+            "A, B",
+            "N",
+            "256",
+            "fe01",
+            "2",
+            "Raygun",
+            "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319",
+            "cached",
+        ]
+    );
 }
 
 /// java.time's `YearMonth`, `LocalTime`, `WeekFields`, fields and a format's query

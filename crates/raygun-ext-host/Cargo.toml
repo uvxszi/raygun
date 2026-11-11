@@ -61,6 +61,8 @@ rsa = { version = "0.9", default-features = false, features = ["std", "sha2", "u
 # OAEP's SHA-1 mask (Java's default), on the digest traits `rsa` takes.
 sha1_10 = { package = "sha1", version = "0.10" }
 rand_core = { version = "0.6", features = ["getrandom"] }
+# BLAKE2b digests (`org.kotlincrypto.hash.blake2.BLAKE2b`, `lib:e4p`).
+blake2 = "0.10"
 # Pictures converted sources draw (`mihon::pictures`, over `raygun_net::bitmap`), and the text
 # `lib:textinterceptor` draws on them in the system's own faces.
 image = { version = "0.25", default-features = false }

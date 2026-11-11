@@ -845,7 +845,29 @@
         return run();
       },
     };
-  }; /// Java's `MessageDigest` and `Mac` by algorithm name, collecting what's `update`d.
+  };
+  /// BLAKE2b with `bits` of output, over what's `update`d (in Rust).
+  const blake2b = (bits) => {
+    let pending = [];
+    const hasher = {
+      __class: 'BLAKE2b',
+      __classes: ['BLAKE2b', 'Digest'],
+      update: (value, offset = 0, count = undefined) => {
+        const bytes = typeof value === 'number' ? [value & 255] : Array.from(u8Of(value));
+        pending.push(...bytes.slice(offset, count === undefined ? undefined : offset + count));
+        return hasher;
+      },
+      reset: () => ((pending = []), KT.unit),
+      digest: (value = null) => {
+        if (value !== null) hasher.update(value);
+        const data = pending;
+        pending = [];
+        return digestOf(`blake2b${bits}`, data);
+      },
+    };
+    return hasher;
+  };
+  /// Java's `MessageDigest` and `Mac` by algorithm name, collecting what's `update`d.
   const digester = (algorithm, keyed = false) => {
     let pending = [];
     let key = null;
@@ -2364,6 +2386,10 @@
   };
 
   const ANY = {
+    // `source().zstdDecompress()`, `sink().zstdCompress()`: what the runtime's own files hold
+    // (its memory, never the device's) is kept as it is.
+    zstdCompress: (value) => value,
+    zstdDecompress: (value) => value,
     // A comparator's `then(other)` (not a property: an object with `then` would be awaited as a
     // promise): this order, then the other's for ties.
     then:
@@ -6838,7 +6864,8 @@
     };
     Object.defineProperty(sum, 'value', { get: sum.getValue, enumerable: false });
     return sum;
-  }; /// Bytes deflated in Rust (`runtime.rs`): `zlib`, `raw` or `gzip`.
+  };
+  /// Bytes deflated in Rust (`runtime.rs`): `zlib`, `raw` or `gzip`.
   const deflateBytes = (bytes, format) =>
     u8Of(fromBase64(crypto({ op: 'deflate', data: K.bin.toBase64(u8Of(bytes)), format })));
   const compressingStream = (target, format) => {
@@ -6976,7 +7003,8 @@
       },
     };
     return self;
-  }; /// Bytes inflated in Rust (`runtime.rs`): Java's `Inflater` (`zlib`, `raw` without its
+  };
+  /// Bytes inflated in Rust (`runtime.rs`): Java's `Inflater` (`zlib`, `raw` without its
   /// header) and `GZIPInputStream` (`gzip`).
   const inflateBytes = (bytes, format) =>
     u8Of(fromBase64(crypto({ op: 'inflate', data: K.bin.toBase64(u8Of(bytes)), format })));
@@ -7168,6 +7196,31 @@
         if (!bytes) throw missing();
         return inputStream(bytes);
       },
+      // okio's `file.source()` and `file.sink()`: its bytes, and what's written kept when the
+      // sink closes (or flushes).
+      source: () => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) throw missing();
+        return okioBuffer(bytes);
+      },
+      sink: (append = false) => {
+        const buffer = okioBuffer(append === true ? (memoryFiles.get(path) ?? null) : null);
+        const keep = () => {
+          memoryFiles.set(path, Uint8Array.from(buffer.u8Now()));
+          return KT.unit;
+        };
+        buffer.close = keep;
+        buffer.flush = keep;
+        buffer.buffer = () => buffer;
+        buffer.use = async (lambda) => {
+          try {
+            return await lambda(buffer);
+          } finally {
+            keep();
+          }
+        };
+        return buffer;
+      },
       listFiles: () =>
         [
           ...new Set(
@@ -7339,7 +7392,10 @@
       if (typeof transform === 'function') payload = await transform(payload);
       const bytes = u8Of(await streamBytes(payload));
       return okioBuffer(Number(method) === 8 ? inflateBytes(bytes, 'raw') : bytes);
-    }, // Java's `CRC32`: `update(bytes)` as often as it's called, then `value`.
+    },
+    // kotlincrypto's `BLAKE2b(bits)`: `update(bytes)`, then `digest()`.
+    BLAKE2b: ([bits = 512]) => blake2b(Number(bits)),
+    // Java's `CRC32`: `update(bytes)` as often as it's called, then `value`.
     CRC32: () => crc32Checksum(),
     EOFException: ([message]) => new KotlinError(message, 'EOFException'),
     Error: ([message]) => new KotlinError(message, 'Error'),
@@ -7468,7 +7524,8 @@
       };
       Object.defineProperty(zip, 'nextEntry', { get: zip.getNextEntry, enumerable: false });
       return zip;
-    }, // `SequenceInputStream(first, second)`: one stream's bytes, then the other's.
+    },
+    // `SequenceInputStream(first, second)`: one stream's bytes, then the other's.
     SequenceInputStream: async ([first, second]) => {
       const [head, tail] = [u8Of(await streamBytes(first)), u8Of(await streamBytes(second))];
       const joined = new Uint8Array(head.length + tail.length);

@@ -159,7 +159,8 @@ but Raygun has no web view: a call fails naming the page it would load, as a bro
 the function passes one (`passGuard`, `wafInterceptor`: the person may pass it by hand, and its
 cookies then go with the source's requests), else as a page that needs a web view.
 `getLocalStorage` reads an empty store. `java.io.File` is a memory of the runtime's own: what a
-source caches it reads back while it runs, and nothing reaches the device's storage.
+source caches it reads back while it runs (okio's `source()`/`sink()` too, and zstd keeps the bytes
+as they are there), and nothing reaches the device's storage.
 
 ### Themes from their code
 
@@ -275,7 +276,7 @@ the themes:
 | Java's dates | `SimpleDateFormat`/`DateTimeFormatter` patterns with their zones and optional sections (`[MMMM][MMM] d, yyyy`), month names in 20 languages, Thai Buddhist years; `DateTimeFormatterBuilder`'s values, fractions, month names and `parseDefaulting`; the ISO formats; `Calendar`; `LocalDate`, `LocalDateTime`, `ZonedDateTime`, `YearMonth`, `LocalTime`, `Instant` as Unix milliseconds, `WeekFields` |
 | Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…); org.json's `JSONObject`/`JSONArray`; `BigInteger` as JavaScript's `BigInt` |
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
-| Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256` in Rust (`runtime.rs`'s `crypto`) |
+| Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256`, kotlincrypto's `BLAKE2b` in Rust (`runtime.rs`'s `crypto`) |
 | Java's public keys | `KeyPairGenerator`, `KeyFactory` (X.509 and PKCS #8 encodings, a P-256 point, an RSA modulus), `KeyAgreement` (ECDH), `Signature` (`SHA256withECDSA`) and RSA's `Cipher`s (PKCS #1, OAEP) on P-256 and RSA in Rust (`mihon/keys.rs`) |
 | Keiyoushi's other helpers | `MarkdownDescription.Builder`, `toMarkdown` and `ratingStars` as plain text (Raygun shows descriptions as text), `tryParseZonedDateTime`, `Instant.tryParse`, Jsoup's `attrOrNull`, `selectLast`, `textNodes`, `createElement`, `:containsData` |
 | Android's graphics | `Bitmap`, `BitmapFactory`, `Canvas`, `Matrix`, `Rect`, `Paint`, `Color` over pictures held in Rust (`raygun_net::bitmap`) |
@@ -317,13 +318,13 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 132 | 136 |
-| No theme | 832 | 862 |
-| All | 1553 (97.9%) | 1587 |
+| No theme | 835 | 862 |
+| All | 1556 (98.0%) | 1587 |
 
-The 34 refusals left are one or two extensions each, most of them on what has no stand-in:
+The 31 refusals left are one or two extensions each, most of them on what has no stand-in:
 Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
-own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
-and zstd; one on Kotlin the converter doesn't read yet (a class declared in a function). Android's
+own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three);
+one on Kotlin the converter doesn't read yet (a class declared in a function). Android's
 `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) is the runtime's text
 layout, so captions and speech bubbles drawn on pictures convert.
 
