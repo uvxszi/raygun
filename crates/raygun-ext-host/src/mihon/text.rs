@@ -231,6 +231,11 @@ impl Layout {
         })
     }
 
+    /// How far the first line's baseline is below its top, in pixels.
+    pub fn ascent(&self) -> f32 {
+        self.ascent
+    }
+
     pub fn line_count(&self) -> usize {
         self.lines
     }
@@ -238,6 +243,17 @@ impl Layout {
     /// The laid-out text's height in pixels.
     pub fn height(&self) -> f32 {
         (self.lines as f32 * self.line_height).ceil()
+    }
+
+    /// The widest line's width in pixels (Android's `paint.measureText(text)` for one line).
+    pub fn width(&self) -> f32 {
+        self.placed
+            .iter()
+            .map(|item| {
+                let scaled = item.face.as_scaled(scale_for(item.face, self.size));
+                item.x + scaled.h_advance(item.face.glyph_id(item.ch))
+            })
+            .fold(0.0, f32::max)
     }
 
     /// Draws the text with its top left at the origin of `matrix` (which maps the layout's
