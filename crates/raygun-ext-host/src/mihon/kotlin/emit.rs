@@ -541,6 +541,17 @@ impl<'a> Gen<'a> {
         self.cx.classes.contains(name) && !self.imported_from_library(name)
     }
 
+    /// The class a `typealias` names, when the source declares it
+    /// (`typealias LatestQueryVariables = PopularQueryVariables`, made by the alias's name).
+    fn aliased_class(&self, name: &str) -> Option<String> {
+        if self.declared_class(name) || self.is_local(name) {
+            return None;
+        }
+        let target = self.cx.type_aliases.get(name)?;
+        let simple = target.name.rsplit('.').next().unwrap_or(&target.name);
+        self.declared_class(simple).then(|| simple.to_owned())
+    }
+
     /// A value of the current class's companion, by name.
     fn companion_value(&self, name: &str) -> Option<String> {
         let class = self.class_scope.as_deref()?;
@@ -2184,10 +2195,13 @@ impl<'a> Gen<'a> {
                     }
                     return Ok(format!("(await {js}({}))", args.join(", ")));
                 }
-                // A class the source declares, made inside a scope too (`FeedUrl(…)` in `apply`).
-                if self.declared_class(name)
+                // A class the source declares, made inside a scope too (`FeedUrl(…)` in `apply`),
+                // or through a `typealias` of one.
+                if let Some(class) = (self.declared_class(name)
                     && name.chars().next().is_some_and(char::is_uppercase)
-                    && !self.cx.functions.contains_key(name)
+                    && !self.cx.functions.contains_key(name))
+                .then(|| name.clone())
+                .or_else(|| self.aliased_class(name))
                 {
                     let (args, named) = self.args(args, None)?;
                     let mut args = args;
@@ -2195,7 +2209,7 @@ impl<'a> Gen<'a> {
                         args.push(self.lambda(lambda, name)?);
                     }
                     return Ok(format!(
-                        "(await KT.make(D.{name}, [{}], {}))",
+                        "(await KT.make(D.{class}, [{}], {}))",
                         args.join(", "),
                         named.unwrap_or_else(|| "null".to_owned())
                     ));
@@ -2265,10 +2279,14 @@ impl<'a> Gen<'a> {
                         typed_args(&args, passed_types.as_deref())
                     ));
                 }
-                if self.declared_class(name) {
+                if let Some(class) = self
+                    .declared_class(name)
+                    .then(|| name.clone())
+                    .or_else(|| self.aliased_class(name))
+                {
                     let (args, named) = self.args(args, None)?;
                     return Ok(format!(
-                        "(await KT.make(D.{name}, [{}], {}))",
+                        "(await KT.make(D.{class}, [{}], {}))",
                         args.join(", "),
                         named.unwrap_or_else(|| "null".to_owned())
                     ));
