@@ -3552,7 +3552,8 @@ class Wrapper(val data: Results)
 /// from another class's code (Publus's `B2y.V_CGH`), items of lists, texts and maps by index (and
 /// a missing one refused), constants and the source's values read in a loop; a class's `val`s
 /// worked out once (OneReader's key pair), its getters at each read; path segments written as
-/// OkHttp writes them.
+/// OkHttp writes them; a rate limit given by name with the requests it's for (Chikari's), and
+/// text helpers' named arguments.
 #[tokio::test]
 async fn converted_code_reads_indexes_companions_and_segments() {
     let library = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
@@ -3594,6 +3595,10 @@ class Counter {
             "",
         )
         .replace(
+            "rateLimit(4)",
+            "rateLimit(permits = 2, period = 1.seconds) { it.host == baseUrl.toHttpUrl().host }",
+        )
+        .replace(
             "override val supportsLatest = false",
             r##"override val supportsLatest = true
 
@@ -3620,7 +3625,10 @@ class Counter {
             .addPathSegment("a b/c")
             .build()
             .toString()
+        val pinged = client.get("$baseUrl/ping").body.string() + client.get("$baseUrl/ping").body.string()
+        val texts = "a-b".substringAfter("x", missingDelimiterValue = "") + "|" + "abcabc".indexOf("c", startIndex = 3)
         val list = listOf(
+            pinged + texts,
             state.payload.joinToString(","),
             sum.toString(),
             "${counts["a"]} ${counts["b"]} ${counts["c"]}",
@@ -3654,7 +3662,8 @@ class Counter {
         ],
     );
     let converted = convert::convert(&extension, &code).unwrap();
-    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let app = Router::new().route("/ping", get(|| async { "ok" }));
+    let host = load_converted(&converted, &extension, serve(app)).await;
     let listing = host
         .manga_list(
             "mihon.en.fixturestand/4242",
@@ -3673,6 +3682,7 @@ class Counter {
     assert_eq!(
         titles,
         [
+            "okok|5",
             "105,7,5,11,1,3",
             &(3 * 294 + 57).to_string(),
             "2 1 null",

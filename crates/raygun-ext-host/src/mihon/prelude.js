@@ -1567,9 +1567,11 @@
       return headers;
     }
 
-    async pace() {
+    async pace(address) {
       if (!this.limit) return;
-      const { permits, periodMs } = this.limit;
+      const { permits, periodMs, shouldLimit } = this.limit;
+      // A limit for some requests only (`rateLimit(…) { it.host == host }`).
+      if (shouldLimit && !(await shouldLimit(address))) return;
       for (;;) {
         const now = Date.now();
         this.sent = this.sent.filter((at) => now - at < periodMs);
@@ -1599,7 +1601,7 @@
         redirect = null,
       } = {},
     ) {
-      await this.pace();
+      await this.pace(address);
       const merged = { ...this.headers(kind, from), ...headers };
       let payload = body;
       let bodyBase64 = null;

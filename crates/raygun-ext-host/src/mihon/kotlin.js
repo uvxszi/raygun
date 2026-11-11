@@ -1098,14 +1098,15 @@
     lineSequence: (s) => s.split(/\r?\n/),
     isISOControl: (s) => /^[\u0000-\u001f\u007f-\u009f]$/.test(s),
     random: (s) => (s.length ? s[Math.floor(Math.random() * s.length)] : noSuch('empty text')),
-    substringAfter: (s, [delimiter, missing = s]) =>
-      K.substringAfter(s, KT.str(delimiter), missing),
-    substringBefore: (s, [delimiter, missing = s]) =>
-      K.substringBefore(s, KT.str(delimiter), missing),
-    substringAfterLast: (s, [delimiter, missing = s]) =>
-      K.substringAfterLast(s, KT.str(delimiter), missing),
-    substringBeforeLast: (s, [delimiter, missing = s]) =>
-      K.substringBeforeLast(s, KT.str(delimiter), missing),
+    // `missingDelimiterValue` by place or by name.
+    substringAfter: (s, [delimiter, missing = s], _lambda, named) =>
+      K.substringAfter(s, KT.str(delimiter), named?.missingDelimiterValue ?? missing),
+    substringBefore: (s, [delimiter, missing = s], _lambda, named) =>
+      K.substringBefore(s, KT.str(delimiter), named?.missingDelimiterValue ?? missing),
+    substringAfterLast: (s, [delimiter, missing = s], _lambda, named) =>
+      K.substringAfterLast(s, KT.str(delimiter), named?.missingDelimiterValue ?? missing),
+    substringBeforeLast: (s, [delimiter, missing = s], _lambda, named) =>
+      K.substringBeforeLast(s, KT.str(delimiter), named?.missingDelimiterValue ?? missing),
     removePrefix: (s, [prefix]) => K.removePrefix(s, KT.str(prefix)),
     removeSuffix: (s, [suffix]) => K.removeSuffix(s, KT.str(suffix)),
     removeSurrounding: (s, [prefix, suffix = prefix]) =>
@@ -1199,8 +1200,19 @@
     drop: (s, [count]) => s.slice(count),
     takeLast: (s, [count]) => s.slice(Math.max(0, s.length - count)),
     dropLast: (s, [count]) => s.slice(0, Math.max(0, s.length - count)),
-    indexOf: (s, [text, from = 0]) => s.indexOf(KT.str(text), from),
-    lastIndexOf: (s, [text]) => s.lastIndexOf(KT.str(text)),
+    // `startIndex` and `ignoreCase` by place or by name.
+    indexOf: (s, [text, from = 0, ignoreCase = false], _lambda, named) => {
+      const start = named?.startIndex ?? (typeof from === 'number' ? from : 0);
+      return named?.ignoreCase || ignoreCase === true || from === true
+        ? s.toLowerCase().indexOf(KT.str(text).toLowerCase(), start)
+        : s.indexOf(KT.str(text), start);
+    },
+    lastIndexOf: (s, [text, from = s.length, ignoreCase = false], _lambda, named) => {
+      const start = named?.startIndex ?? (typeof from === 'number' ? from : s.length);
+      return named?.ignoreCase || ignoreCase === true || from === true
+        ? s.toLowerCase().lastIndexOf(KT.str(text).toLowerCase(), start)
+        : s.lastIndexOf(KT.str(text), start);
+    },
     padStart: (s, [length, char = ' ']) => s.padStart(length, char),
     padEnd: (s, [length, char = ' ']) => s.padEnd(length, char),
     repeat: (s, [times]) => s.repeat(times),
@@ -2995,7 +3007,9 @@
     if (receiver instanceof RegExp && REGEX[name]) return REGEX[name](receiver, args, lambda);
     // `response.parseAs<List<MangaDto>>()`, `json.decodeFromString<T>(text)`: as the type asked.
     if (type && DECODERS.has(name) && kind === 'object' && typeof receiver[name] === 'function') {
-      const all = lambda && !args.includes(lambda) ? [...args, lambda] : args;
+      // The text's `transform` passed last or by name (`parseAs<T>(transform = ::strip)`).
+      const transform = lambda ?? (typeof named?.transform === 'function' ? named.transform : null);
+      const all = transform && !args.includes(transform) ? [...args, transform] : args;
       return (async () => decode(await receiver[name](...all), type))();
     }
     if (kind === 'elements' && typeof receiver[name] === 'function' && ELEMENTS_OWN.has(name))
@@ -4570,15 +4584,40 @@
   }
   const clientBuilder = (client) => {
     const builder = {
-      rateLimit: (permits, period = 1, unit = null) => {
+      // Keiyoushi's `rateLimit(permits, period = 1.seconds, shouldLimit = { true })` and
+      // OkHttp's `rateLimit(permits, period, unit)`, by place or by name (`rateLimit(permits = 1,
+      // period = 2.seconds) { it.host == host }`): requests `shouldLimit` takes wait their turn.
+      rateLimit: (...args) => {
+        const passed = [...args];
+        let shouldLimit = typeof passed[passed.length - 1] === 'function' ? passed.pop() : null;
+        const byName =
+          passed.length && passed[passed.length - 1] && passed[passed.length - 1][NAMED]
+            ? passed.pop()
+            : {};
+        const permits = Number(byName.permits ?? passed[0] ?? 1) || 1;
+        const period = byName.period ?? passed[1] ?? 1;
+        const unit = byName.unit ?? passed[2] ?? null;
+        shouldLimit = byName.shouldLimit ?? shouldLimit;
         const unitMs = unit && unit.unitMs ? unit.unitMs : 1000;
         const periodMs =
           typeof period === 'number' ? period * unitMs : period && period.ms ? period.ms : 1000;
-        client.owner.http.limit = { permits, periodMs };
+        client.owner.http.limit = {
+          permits,
+          periodMs,
+          shouldLimit: shouldLimit
+            ? async (address) => KT.truthy(await shouldLimit(HttpUrl.parse(address)))
+            : null,
+        };
         return builder;
       },
-      rateLimitHost: (_host, permits, period = 1, unit = null) =>
-        builder.rateLimit(permits, period, unit),
+      // OkHttp's `rateLimitHost(host, permits, period, unit)`: only that host's requests.
+      rateLimitHost: (host, ...rest) => {
+        const limited = KT.str(host instanceof HttpUrl ? host.host : host).replace(
+          /^https?:\/\//,
+          '',
+        );
+        return builder.rateLimit(...rest, (url) => KT.str(url.host) === limited.split('/')[0]);
+      },
       connectTimeout: () => builder,
       readTimeout: () => builder,
       writeTimeout: () => builder,
