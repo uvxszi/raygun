@@ -1452,6 +1452,11 @@ export const commands = {
 	/**  Empties one cache; returns the new sizes. */
 	storageClear: (area: StorageArea) => typedError<StorageUsage[], string>(__TAURI_INVOKE("storage_clear", { area })),
 	/**
+	 *  What the webview's probe found at start: whether it shows JPEG XL. Covers stored as JPEG XL
+	 *  then reach its pictures as they are, instead of rebuilt as JPEG or PNG.
+	 */
+	coversWebviewJxl: (shows: boolean) => __TAURI_INVOKE<void>("covers_webview_jxl", { shows }),
+	/**
 	 *  What Raygun keeps about songs: how many songs it keeps facts for and how many covers found
 	 *  at other sources it remembers (Settings → Data → Storage).
 	 */
@@ -6013,6 +6018,13 @@ export type StorageMode =
 /**  Set explicitly through `RAYGUN_HOME`. */
 "override";
 
+/**  Files a cache stores as JPEG XL: how many, what they took as they came, what they take now. */
+export type StorageSaving = {
+	files: number,
+	originalBytes: number | null,
+	bytes: number | null,
+};
+
 export type StorageUsage = {
 	area: StorageArea,
 	bytes: number | null,
@@ -6021,6 +6033,8 @@ export type StorageUsage = {
 	limitBytes: number | null,
 	/**  Whether Clear is offered. */
 	clearable: boolean,
+	/**  What storing pictures as JPEG XL saves, for the cache that does (covers). */
+	converted: StorageSaving | null,
 };
 
 export type StremioAddon = {

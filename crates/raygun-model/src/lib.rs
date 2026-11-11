@@ -6371,6 +6371,17 @@ pub struct StorageUsage {
     pub limit_bytes: Option<f64>,
     /// Whether Clear is offered.
     pub clearable: bool,
+    /// What storing pictures as JPEG XL saves, for the cache that does (covers).
+    pub converted: Option<StorageSaving>,
+}
+
+/// Files a cache stores as JPEG XL: how many, what they took as they came, what they take now.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSaving {
+    pub files: u32,
+    pub original_bytes: f64,
+    pub bytes: f64,
 }
 
 // ---- Saving outside the app and exports (M46.1) ----

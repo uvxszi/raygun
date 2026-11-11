@@ -4954,6 +4954,15 @@ pub async fn storage_usage(
     Ok(caches.usage(&prefs).await)
 }
 
+/// What the webview's probe found at start: whether it shows JPEG XL. Covers stored as JPEG XL
+/// then reach its pictures as they are, instead of rebuilt as JPEG or PNG.
+#[tauri::command]
+#[specta::specta]
+pub fn covers_webview_jxl(caches: tauri::State<'_, crate::caches::Caches>, shows: bool) {
+    tracing::info!(shows, "the webview's JPEG XL probe");
+    caches.covers.set_webview_jxl(shows);
+}
+
 /// Empties one cache; returns the new sizes.
 #[tauri::command]
 #[specta::specta]

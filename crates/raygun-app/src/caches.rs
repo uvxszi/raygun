@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use raygun_db::titles;
-use raygun_model::{CachePrefs, StorageArea, StorageUsage};
+use raygun_model::{CachePrefs, StorageArea, StorageSaving, StorageUsage};
 use raygun_net::cover_cache::Usage;
 use raygun_net::proxy_image_token;
 use raygun_net::{CoverCache, PageCache};
@@ -64,9 +64,17 @@ impl Caches {
         let entry = |area, usage: Usage, limit: Option<u64>, clearable| StorageUsage {
             area,
             bytes: usage.bytes as f64,
-            files: usage.files.min(u64::from(u32::MAX)) as u32,
+            files: count(usage.files),
             limit_bytes: limit.map(|limit| limit as f64),
             clearable,
+            converted: None,
+        };
+        // Covers are stored as JPEG XL: what that saves.
+        let saving = self.covers.saving().await;
+        let converted = StorageSaving {
+            files: count(saving.files),
+            original_bytes: saving.original_bytes as f64,
+            bytes: saving.bytes as f64,
         };
         let (share, music, downloads) = {
             let (share, music, downloads) = (
@@ -85,12 +93,15 @@ impl Caches {
             .unwrap_or_default()
         };
         vec![
-            entry(
-                StorageArea::Covers,
-                self.covers.usage().await,
-                Some(u64::from(prefs.cover_cache_mb) * MB),
-                true,
-            ),
+            StorageUsage {
+                converted: Some(converted),
+                ..entry(
+                    StorageArea::Covers,
+                    self.covers.usage().await,
+                    Some(u64::from(prefs.cover_cache_mb) * MB),
+                    true,
+                )
+            },
             entry(
                 StorageArea::Pages,
                 self.pages.usage().await,
@@ -121,6 +132,10 @@ impl Caches {
         }
         Ok(())
     }
+}
+
+fn count(files: u64) -> u32 {
+    files.min(u64::from(u32::MAX)) as u32
 }
 
 /// Bytes and files in a folder and everything under it.

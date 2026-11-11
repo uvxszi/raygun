@@ -492,6 +492,75 @@ async fn covers_from_an_earlier_start_come_from_disk_and_the_port_is_remembered(
     );
 }
 
+/// Covers stored as JPEG XL reach every webview: as JPEG XL where the request takes it, the
+/// original JPEG rebuilt elsewhere, with `Vary: Accept` so caches keep them apart.
+#[tokio::test]
+async fn covers_stored_as_jpeg_xl_go_as_each_request_takes_them() {
+    let jpeg = crate::cover_format::tests::jpeg_of(&crate::cover_format::tests::photo(300, 200));
+    let body = jpeg.clone();
+    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let origin = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let cover = move || {
+            let body = body.clone();
+            async move { ([(header::CONTENT_TYPE, "image/jpeg")], body).into_response() }
+        };
+        axum::serve(listener, Router::new().route("/cover.jpg", get(cover)))
+            .await
+            .unwrap();
+    });
+    let temp = tempfile::TempDir::new().unwrap();
+    let covers = crate::CoverCache::new(
+        temp.path().join("covers"),
+        1 << 24,
+        std::time::Duration::ZERO,
+    );
+    let proxy = StreamProxy::start_with(
+        crate::http_client().unwrap(),
+        ProxyStorage {
+            covers: Some(covers.clone()),
+            ..ProxyStorage::default()
+        },
+    )
+    .await
+    .unwrap();
+    let link = proxy
+        .images()
+        .cover(&format!("http://{origin}/cover.jpg"), &BTreeMap::new());
+    let client = reqwest::Client::new();
+    let ask = |accept: &'static str| client.get(&link).header(header::ACCEPT, accept).send();
+    let image_accept = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
+
+    let first = ask(image_accept).await.unwrap();
+    assert_eq!(first.headers()[header::CONTENT_TYPE], "image/jpeg");
+    assert_eq!(first.bytes().await.unwrap().as_ref(), jpeg.as_slice());
+    let token = link.rsplit('/').next().unwrap();
+    let stored = temp.path().join("covers").join(token);
+    for _ in 0..500 {
+        if std::fs::read(&stored).is_ok_and(|bytes| crate::images::is_jxl(&bytes)) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let jxl = std::fs::read(&stored).unwrap();
+    assert!(crate::images::is_jxl(&jxl), "stored as JPEG XL");
+
+    let rebuilt = ask(image_accept).await.unwrap();
+    assert_eq!(rebuilt.headers()[header::CONTENT_TYPE], "image/jpeg");
+    assert_eq!(rebuilt.headers()[header::VARY], "Accept");
+    assert_eq!(rebuilt.bytes().await.unwrap().as_ref(), jpeg.as_slice());
+    let listed = ask("image/jxl,image/*").await.unwrap();
+    assert_eq!(listed.headers()[header::CONTENT_TYPE], "image/jxl");
+    assert_eq!(listed.bytes().await.unwrap().as_ref(), jxl.as_slice());
+    covers.set_webview_jxl(true);
+    let shown = ask(image_accept).await.unwrap();
+    assert_eq!(shown.headers()[header::CONTENT_TYPE], "image/jxl");
+    let fetched = ask("*/*").await.unwrap();
+    assert_eq!(fetched.headers()[header::CONTENT_TYPE], "image/jpeg");
+}
+
 #[tokio::test]
 async fn subtitles_never_fail() {
     let origin = start_origin().await;

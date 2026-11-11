@@ -3,6 +3,7 @@
 
 pub mod bitmap;
 pub mod cover_cache;
+pub mod cover_format;
 pub mod images;
 pub mod issue;
 pub mod local_network;

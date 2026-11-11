@@ -3022,6 +3022,8 @@
     "usedOf": "{{used}} of {{limit}}",
     "used_one": "{{used}} · {{count}} file",
     "used_other": "{{used}} · {{count}} files",
+    "converted_one": "{{number}} picture stored as JPEG XL · {{saved}} saved ({{percent}})",
+    "converted_other": "{{number}} pictures stored as JPEG XL · {{saved}} saved ({{percent}})",
     "clear": "Clear",
     "clearOne": "Clear {{name}}",
     "manage": "Open",

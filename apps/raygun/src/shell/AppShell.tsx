@@ -60,6 +60,7 @@ import { useOpenWithProblems } from './useOpenWithProblems';
 import { useScrollMemory } from './scrollMemory';
 import { movesFreely, useDeviceStateSync } from './deviceState';
 import { useHideSplash } from './splash';
+import { useJxlProbe } from './jxlProbe';
 
 const READER_PATHS = ['/manga/read', '/novel/read'];
 const isReaderPath = (pathname: string) => READER_PATHS.includes(pathname);
@@ -168,6 +169,8 @@ export const AppShell: FC = () => {
   useYouTubeVideoEvents();
   useNotificationRoutes();
   useOpenWithProblems();
+  // Covers are stored as JPEG XL: whether this webview shows it as it is.
+  useJxlProbe();
 
   // Pages scroll inside <main>, not the window: a new page starts at the top, Back and Forward
   // return to where each page was. The readers take the whole screen and keep their own place.

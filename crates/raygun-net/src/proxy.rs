@@ -31,7 +31,7 @@ use axum::routing::get;
 use futures_util::StreamExt;
 use raygun_model::MediaSource;
 
-use crate::cover_cache::CoverCache;
+use crate::cover_cache::{CoverCache, Served};
 use crate::images::{ImageError, fetch_image};
 use crate::manifest::{self, Manifest};
 use crate::page_cache::{PageCache, sniff_content_type};
@@ -689,12 +689,19 @@ async fn serve_image(
     with_cors(response)
 }
 
-/// A cover from the lasting cache (M46.2), or the page cache when there is none.
+/// A cover from the lasting cache (M46.2), or the page cache when there is none. Copies stored
+/// as JPEG XL go as the request takes them (its `Accept`, the webview's probe).
 async fn serve_cover(
     State(state): State<ProxyState>,
     Path(token): Path<String>,
     request: Request,
 ) -> Response {
+    let accept = request
+        .headers()
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
     let entry = {
         let registry = state.images.lock().expect("image registry poisoned");
         registry
@@ -706,11 +713,11 @@ async fn serve_cover(
     let Some((url, headers, kept)) = entry else {
         // A link from an earlier start (the UI's saved cache, M46.47): its copy on disk, if any.
         let stored = match &state.covers {
-            Some(covers) => covers.stored(&token).await,
+            Some(covers) => covers.stored_served(&token, &accept).await,
             None => None,
         };
         return with_cors(match stored {
-            Some(bytes) => image_response(bytes),
+            Some(served) => cover_response(served),
             None => StatusCode::NOT_FOUND.into_response(),
         });
     };
@@ -718,16 +725,30 @@ async fn serve_cover(
         return serve_image(State(state), Path(token), request).await;
     };
     let response = match covers
-        .get(&state.client, &token, &url, &headers, kept)
+        .get_served(&state.client, &token, &url, &headers, kept, &accept)
         .await
     {
-        Ok(bytes) => image_response(bytes),
+        Ok(served) => cover_response(served),
         Err(error) => {
             tracing::debug!(%error, "cover request failed");
             (StatusCode::BAD_GATEWAY, error).into_response()
         }
     };
     with_cors(response)
+}
+
+/// A cover with its type; what's sent depends on the request's `Accept`, so caches keep one
+/// version per kind of request.
+fn cover_response(served: Served) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, served.content_type),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+            (header::VARY, "Accept"),
+        ],
+        served.bytes,
+    )
+        .into_response()
 }
 
 async fn serve_subtitle(State(state): State<ProxyState>, Path(token): Path<String>) -> Response {

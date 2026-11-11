@@ -1,5 +1,5 @@
 import { commands } from '@raygun/bindings';
-import type { StorageArea, StorageUsage } from '@raygun/bindings';
+import type { StorageArea, StorageSaving, StorageUsage } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { FC } from 'react';
@@ -81,6 +81,27 @@ const SongMemory: FC<{
 
 const sizeLabel = (megabytes: number) => formatBytes(megabytes * MB);
 
+/** What storing a cache's pictures as JPEG XL saves (covers, Rust's `cover_cache`). */
+const ConvertedLine: FC<{ converted: StorageSaving }> = ({ converted }) => {
+  const { t, i18n } = useTranslation();
+  const original = converted.originalBytes ?? 0;
+  const saved = Math.max(0, original - (converted.bytes ?? 0));
+  const share = original > 0 ? saved / original : 0;
+  return (
+    <span className="text-muted text-xs">
+      {t('storage.converted', {
+        count: converted.files,
+        number: converted.files.toLocaleString(i18n.language),
+        saved: formatBytes(saved),
+        percent: share.toLocaleString(i18n.language, {
+          style: 'percent',
+          maximumFractionDigits: 0,
+        }),
+      })}
+    </span>
+  );
+};
+
 const UsageRow: FC<{
   usage: StorageUsage;
   onClear: (area: StorageArea) => void;
@@ -103,6 +124,9 @@ const UsageRow: FC<{
                 })
               : t('storage.used', { used: formatBytes(bytes), count: usage.files })}
           </span>
+          {usage.converted && usage.converted.files > 0 && (
+            <ConvertedLine converted={usage.converted} />
+          )}
         </span>
         {/* Downloads are removed where they're listed. */}
         {usage.area === 'downloads' && (

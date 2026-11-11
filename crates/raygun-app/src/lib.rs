@@ -494,6 +494,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::page_copy,
             commands::storage_usage,
             commands::storage_clear,
+            commands::covers_webview_jxl,
             commands::song_memory_usage,
             commands::website_list,
             commands::website_add,

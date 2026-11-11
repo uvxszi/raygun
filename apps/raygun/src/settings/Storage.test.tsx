@@ -15,11 +15,39 @@ const { commands } = bindingsMock;
 const MB = 1024 * 1024;
 
 const USAGE: StorageUsage[] = [
-  { area: 'covers', bytes: 128 * MB, files: 900, limitBytes: 512 * MB, clearable: true },
-  { area: 'pages', bytes: 0, files: 0, limitBytes: 512 * MB, clearable: true },
-  { area: 'shared', bytes: 2 * MB, files: 3, limitBytes: null, clearable: true },
-  { area: 'musicArt', bytes: 5 * MB, files: 40, limitBytes: null, clearable: false },
-  { area: 'downloads', bytes: 3 * 1024 * MB, files: 1200, limitBytes: null, clearable: false },
+  {
+    area: 'covers',
+    bytes: 128 * MB,
+    files: 900,
+    limitBytes: 512 * MB,
+    clearable: true,
+    converted: { files: 1250, originalBytes: 150 * MB, bytes: 120 * MB },
+  },
+  {
+    area: 'pages',
+    bytes: 0,
+    files: 0,
+    limitBytes: 512 * MB,
+    clearable: true,
+    converted: null,
+  },
+  { area: 'shared', bytes: 2 * MB, files: 3, limitBytes: null, clearable: true, converted: null },
+  {
+    area: 'musicArt',
+    bytes: 5 * MB,
+    files: 40,
+    limitBytes: null,
+    clearable: false,
+    converted: null,
+  },
+  {
+    area: 'downloads',
+    bytes: 3 * 1024 * MB,
+    files: 1200,
+    limitBytes: null,
+    clearable: false,
+    converted: null,
+  },
 ];
 
 describe('Storage and caches', () => {
@@ -53,6 +81,29 @@ describe('Storage and caches', () => {
     await user.click(within(covers).getByRole('button', { name: 'Clear Covers and icons' }));
     expect(commands.storageClear).toHaveBeenCalledWith('covers');
     expect(await within(covers).findByText('0 B of 512 MB')).toBeInTheDocument();
+  });
+
+  it('shows what storing covers as JPEG XL saves, once some are', async () => {
+    await AppShellWrapper.mount('/settings/data');
+    const covers = await screen.findByRole('listitem', { name: 'Covers and icons' });
+    expect(covers).toHaveTextContent('1,250 pictures stored as JPEG XL · 30 MB saved (20%)');
+    expect(screen.getByRole('listitem', { name: 'Reader pages' })).not.toHaveTextContent('JPEG XL');
+  });
+
+  it('says nothing about JPEG XL before any cover is stored so', async () => {
+    commands.storageUsage.mockResolvedValue(
+      ok(
+        USAGE.map((row) =>
+          row.area === 'covers'
+            ? { ...row, converted: { files: 0, originalBytes: 0, bytes: 0 } }
+            : row,
+        ),
+      ),
+    );
+    await AppShellWrapper.mount('/settings/data');
+    const covers = await screen.findByRole('listitem', { name: 'Covers and icons' });
+    expect(covers).toHaveTextContent('128 MB of 512 MB');
+    expect(covers).not.toHaveTextContent('JPEG XL');
   });
 
   it('changes the cache limits, the refresh age and clearing on start', async () => {
