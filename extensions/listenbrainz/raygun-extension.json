@@ -1,15 +1,16 @@
 {
   "id": "dev.raygun.listenbrainz",
-  "name": "ListenBrainz charts",
-  "version": "1.0.0",
+  "name": "ListenBrainz",
+  "version": "1.1.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
-  "description": "Charts under CC0: the songs most listened to on ListenBrainz, the open listening-history project of the MetaBrainz Foundation, this week, this month, this year and of all time. Cover art from the Cover Art Archive.",
+  "description": "Charts and recommendations under CC0 from ListenBrainz, the open listening-history project of the MetaBrainz Foundation: the songs most listened to this week, month, year and of all time, genre radios, artists like an artist, an artist's best-known songs and fresh releases, and radios of similar songs. No account needed. Cover art from the Cover Art Archive.",
   "author": "Raygun",
-  "provides": ["music.charts"],
+  "website": "https://listenbrainz.org",
+  "provides": ["music.charts", "music.recommend"],
   "permissions": {
-    "net": ["api.listenbrainz.org"]
+    "net": ["api.listenbrainz.org", "labs.api.listenbrainz.org", "musicbrainz.org"]
   },
   "contentRating": "safe"
 }
