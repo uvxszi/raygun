@@ -8502,7 +8502,8 @@ pub enum StremioStreamKind {
     YouTube,
     /// Opens outside Raygun (a web page).
     External,
-    /// A torrent: a torrent app plays it; `target` is its magnet link.
+    /// A torrent: Raygun's player plays it once torrents are turned on (`TorrentPrefs`), else a
+    /// torrent app; `target` is its magnet link.
     Torrent,
     /// Opens another title's page; `target` is `<type>/<id>`.
     Title,

@@ -185,6 +185,19 @@ struct State {
     sharing: Vec<Sharing>,
     /// Downloads running, by info hash.
     downloading: HashSet<String>,
+    /// Opens and downloads under way, before they're in `open` or `downloading`: the session
+    /// mustn't stop under them.
+    starting: usize,
+}
+
+/// An open or a download under way, for as long as it's held.
+struct Starting<'a>(&'a Engine);
+
+impl Drop for Starting<'_> {
+    fn drop(&mut self) {
+        let mut state = self.0.state();
+        state.starting = state.starting.saturating_sub(1);
+    }
 }
 
 pub struct Engine {
@@ -218,10 +231,19 @@ impl Engine {
         *self.config.lock().unwrap_or_else(|p| p.into_inner()) = config;
     }
 
-    /// Whether the engine holds anything: open files, shared torrents, downloads.
+    /// Whether the engine holds anything: open files, shared torrents, downloads, and opens or
+    /// downloads still starting.
     pub fn busy(&self) -> bool {
         let state = self.state();
-        !state.open.is_empty() || !state.sharing.is_empty() || !state.downloading.is_empty()
+        !state.open.is_empty()
+            || !state.sharing.is_empty()
+            || !state.downloading.is_empty()
+            || state.starting > 0
+    }
+
+    fn starting(&self) -> Starting<'_> {
+        self.state().starting += 1;
+        Starting(self)
     }
 
     /// The info hashes of the torrents whose files are open: their folders in the cache are in
@@ -426,6 +448,7 @@ impl Engine {
         hint: &FileHint,
         cap: u64,
     ) -> Result<Opened, TorrentError> {
+        let _starting = self.starting();
         let session = self.session().await?;
         let listed = self.details(&session, &source).await?;
         let files = files_of(&listed);
@@ -644,6 +667,23 @@ impl Engine {
         report: &(dyn Fn(u64, u64) + Sync),
         stopped: &(dyn Fn() -> bool + Sync),
     ) -> Result<PathBuf, TorrentError> {
+        let result = {
+            let _starting = self.starting();
+            self.download_whole(source, hint, folder, report, stopped)
+                .await
+        };
+        self.stop_if_idle().await;
+        result
+    }
+
+    async fn download_whole(
+        &self,
+        source: Source,
+        hint: &FileHint,
+        folder: &Path,
+        report: &(dyn Fn(u64, u64) + Sync),
+        stopped: &(dyn Fn() -> bool + Sync),
+    ) -> Result<PathBuf, TorrentError> {
         let session = self.session().await?;
         let listed = self.details(&session, &source).await?;
         let files = files_of(&listed);
@@ -659,7 +699,6 @@ impl Engine {
             .download_file(&session, listed, &source, &file, folder, report, stopped)
             .await;
         self.state().downloading.remove(&info_hash);
-        self.stop_if_idle().await;
         result
     }
 
@@ -852,6 +891,26 @@ mod tests {
             .to_string(),
             "This video is 12 GB, more than the torrent cache holds (4.0 GB)"
         );
+    }
+
+    #[test]
+    fn the_engine_is_busy_while_a_torrent_starts_opening() {
+        let engine = Engine::new(EngineConfig {
+            dir: PathBuf::from("unused"),
+            port: 0,
+            dht: false,
+            upload_limit: None,
+            https_trackers: true,
+        });
+        assert!(!engine.busy());
+        {
+            let _first = engine.starting();
+            let _second = engine.starting();
+            assert!(engine.busy(), "an idle stop waits for opens under way");
+        }
+        assert!(!engine.busy());
+        assert!(engine.file_len("nothing").is_none());
+        assert!(engine.open_hashes().is_empty());
     }
 
     #[test]

@@ -1071,7 +1071,7 @@ pub enum StreamSource {
     YouTube,
     /// A page or app outside Raygun.
     External,
-    /// A torrent: a torrent app plays it (`target` is its magnet link).
+    /// A torrent (`target` is its magnet link): the torrent engine plays it (`torrents`).
     Torrent,
     /// Another title's page (`stremio:///detail/…`); `target` is `<type>/<id>`.
     Title,

@@ -6644,7 +6644,10 @@ export type StremioStreamKind =
 "youTube" | 
 /**  Opens outside Raygun (a web page). */
 "external" | 
-/**  A torrent: a torrent app plays it; `target` is its magnet link. */
+/**
+ *  A torrent: Raygun's player plays it once torrents are turned on (`TorrentPrefs`), else a
+ *  torrent app; `target` is its magnet link.
+ */
 "torrent" | 
 /**  Opens another title's page; `target` is `<type>/<id>`. */
 "title" | 
