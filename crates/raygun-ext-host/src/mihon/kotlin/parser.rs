@@ -1073,9 +1073,11 @@ impl Parser {
                     } else {
                         (vec![self.name()?], false)
                     };
-                    if self.eat_op(":") {
-                        self.ty()?;
-                    }
+                    let ty = if self.eat_op(":") {
+                        Some(self.ty()?)
+                    } else {
+                        None
+                    };
                     let (value, delegate) = if self.eat_op("=") {
                         self.skip_newlines();
                         (Some(self.expr()?), None)
@@ -1088,6 +1090,7 @@ impl Parser {
                         names,
                         destructured,
                         mutable,
+                        ty,
                         value,
                         delegate,
                     })
@@ -1405,6 +1408,7 @@ impl Parser {
                 Some(
                     Kind::Name(_)
                         | Kind::Int(_)
+                        | Kind::Long(_)
                         | Kind::Float(_)
                         | Kind::Str(_)
                         | Kind::Char(_)
@@ -1802,6 +1806,10 @@ impl Parser {
             Kind::Int(value) => {
                 self.at += 1;
                 Ok(Expr::Int(value))
+            }
+            Kind::Long(value) => {
+                self.at += 1;
+                Ok(Expr::Long(value))
             }
             Kind::Float(value) => {
                 self.at += 1;

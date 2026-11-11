@@ -42,7 +42,70 @@ pub struct Context {
     /// Fields of the declared classes that are lists wherever a class declares them, for
     /// `dto.titles.orEmpty()`.
     pub list_fields: HashSet<String>,
+    /// Constants that are whole numbers (`const val GOLDEN = 0x9E3779B9L`), by the key they're
+    /// read by (`C.name`, or a companion's `Class.name`).
+    pub constant_numbers: HashMap<String, Num>,
+    /// Functions declared to give an `Int` or a `Long` (`fun fnv1a(bytes: ByteArray): Long`), by
+    /// name; `None` when overloads of the name disagree.
+    pub function_numbers: HashMap<String, Option<Num>>,
 }
+
+/// What a whole number is in Kotlin, as far as the converter can tell from the code: an `Int`
+/// wraps at 32 bits (`hash * 31`, `(hash shl 5) - hash`), a `Long` at 64. JavaScript's numbers
+/// are neither, so arithmetic the converter knows the kind of is written to wrap as Kotlin's
+/// does, and a `Long` product is worked out exactly (`(hash * 16777619L) and 0xFFFFFFFFL`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Num {
+    Int,
+    Long,
+}
+
+impl Num {
+    /// A declared type's (`Int`, `Long?`).
+    pub fn of_type(ty: &Type) -> Option<Num> {
+        match ty.name.as_str() {
+            "Int" | "kotlin.Int" => Some(Num::Int),
+            "Long" | "kotlin.Long" => Some(Num::Long),
+            _ => None,
+        }
+    }
+
+    /// A literal's (`31`, `-1`, `16777619L`, `0xFFFFFFFF`, which doesn't fit an `Int`).
+    pub fn of_literal(expr: &Expr) -> Option<Num> {
+        match expr {
+            Expr::Int(value) => Some(if i32::try_from(*value).is_ok() {
+                Num::Int
+            } else {
+                Num::Long
+            }),
+            Expr::Long(_) => Some(Num::Long),
+            Expr::Unary { op: "-", expr } => Num::of_literal(expr),
+            _ => None,
+        }
+    }
+
+    /// A property's, from its declared type or its literal value.
+    pub fn of_prop(prop: &PropDecl) -> Option<Num> {
+        match &prop.ty {
+            Some(ty) => Num::of_type(ty),
+            None => prop.value.as_ref().and_then(Num::of_literal),
+        }
+    }
+
+    /// What arithmetic on the two gives: a `Long` with a `Long`, else an `Int`.
+    fn with(self, other: Num) -> Num {
+        if self == Num::Long || other == Num::Long {
+            Num::Long
+        } else {
+            Num::Int
+        }
+    }
+}
+
+/// The operators a `Long`'s exact arithmetic is worked out with (as JavaScript's `BigInt`).
+const EXACT_LONG_OPS: [&str; 11] = [
+    "+", "-", "*", "/", "%", "and", "or", "xor", "shl", "shr", "ushr",
+];
 
 impl Context {
     /// A type with its aliases replaced by what they stand for.
@@ -343,6 +406,9 @@ pub struct Gen<'a> {
     /// The type a decoder without a type argument decodes into: the declared type of what it
     /// gives (`fun parse(): Dto = text.parseAs()`, `val dto: Dto = text.parseAs()`).
     expected: Option<Type>,
+    /// Locals and parameters that are whole numbers of a kind Kotlin fixes (`var hash = 0` is an
+    /// `Int`), by JavaScript name; every declaration clears its name first.
+    numbers: HashMap<String, Num>,
 }
 
 /// Calls that decode into the type they're given.
@@ -457,6 +523,7 @@ impl<'a> Gen<'a> {
             vals: HashSet::new(),
             imports: Vec::new(),
             receiver_params: HashSet::new(),
+            numbers: HashMap::new(),
         }
     }
 
@@ -782,7 +849,131 @@ impl<'a> Gen<'a> {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name.to_owned(), js.clone());
         }
+        self.numbers.remove(&js);
         js
+    }
+
+    /// Declares a local of a known kind of number (or none).
+    fn declare_number(&mut self, name: &str, kind: Option<Num>) -> String {
+        let js = self.declare(name);
+        if let Some(kind) = kind {
+            self.numbers.insert(js.clone(), kind);
+        }
+        js
+    }
+
+    /// What kind of whole number an expression is, when Kotlin's types fix it: literals, locals
+    /// and parameters of a known kind, constants, `toInt()`/`toLong()`/`hashCode()`, functions
+    /// declared to give one, and arithmetic on those.
+    fn num(&self, expr: &Expr) -> Option<Num> {
+        match expr {
+            Expr::Int(_) | Expr::Long(_) => Num::of_literal(expr),
+            Expr::Name(name) => match self.resolve(name) {
+                Some(js) => self.numbers.get(&js).copied(),
+                None => self
+                    .class_scope
+                    .as_ref()
+                    .and_then(|class| {
+                        self.cx
+                            .constant_numbers
+                            .get(&companion_key(class, name))
+                            .copied()
+                    })
+                    .or_else(|| self.cx.constant_numbers.get(name).copied()),
+            },
+            Expr::NotNull(inner) => self.num(inner),
+            Expr::Unary {
+                op: "-" | "+",
+                expr,
+            } => self.num(expr),
+            Expr::Call {
+                callee,
+                lambda: None,
+                ..
+            } => match callee.as_ref() {
+                Expr::Member { target, name, .. } => match name.as_str() {
+                    "toInt" | "hashCode" | "roundToInt" | "digitToInt" => Some(Num::Int),
+                    "toLong" | "roundToLong" => Some(Num::Long),
+                    "inv" => self.num(target),
+                    _ => None,
+                },
+                Expr::Name(name) if !self.is_local(name) => {
+                    self.cx.function_numbers.get(name).copied().flatten()
+                }
+                _ => None,
+            },
+            Expr::Binary { op, left, right } => self.num_binary(op, left, right),
+            _ => None,
+        }
+    }
+
+    fn num_binary(&self, op: &str, left: &Expr, right: &Expr) -> Option<Num> {
+        match op {
+            // A shift is its left side's kind, whatever the count is.
+            "shl" | "shr" | "ushr" => self.num(left),
+            "+" | "-" | "*" | "/" | "%" | "and" | "or" | "xor" => {
+                Some(self.num(left)?.with(self.num(right)?))
+            }
+            _ => None,
+        }
+    }
+
+    /// The kind of number a loop over this goes through: `0 until n`, `a..b`, `n downTo 0` of
+    /// `Int`s (or `Long`s), a list's `indices`.
+    fn range_num(&self, iterable: &Expr) -> Option<Num> {
+        match iterable {
+            Expr::Binary { op, left, right } => match op.as_str() {
+                ".." | "..<" | "until" | "downTo" => Some(self.num(left)?.with(self.num(right)?)),
+                "step" => self.range_num(left),
+                _ => None,
+            },
+            Expr::Member { name, .. } if name == "indices" => Some(Num::Int),
+            _ => None,
+        }
+    }
+
+    /// Whether a `Long`'s arithmetic has a product or a left shift in it (outside of calls),
+    /// which may pass what JavaScript's numbers hold exactly (2^53).
+    fn has_long_growth(&self, op: &str, left: &Expr, right: &Expr) -> bool {
+        let part = |expr: &Expr| match expr {
+            Expr::Binary { op, left, right } => self.has_long_growth(op, left, right),
+            _ => false,
+        };
+        EXACT_LONG_OPS.contains(&op)
+            && self.num_binary(op, left, right) == Some(Num::Long)
+            && (matches!(op, "*" | "shl") || part(left) || part(right))
+    }
+
+    /// A `Long`'s arithmetic as JavaScript's `BigInt`s, wrapping at 64 bits as Kotlin's does;
+    /// what isn't part of it is worked out as usual and made a `BigInt` (`KT.big`).
+    fn exact_long(&mut self, op: &str, left: &Expr, right: &Expr) -> Result<String, String> {
+        let (left, right) = (self.exact_part(left)?, self.exact_part(right)?);
+        Ok(match op {
+            "+" => format!("BigInt.asIntN(64, {left} + {right})"),
+            "-" => format!("BigInt.asIntN(64, {left} - {right})"),
+            "*" => format!("BigInt.asIntN(64, {left} * {right})"),
+            "/" => format!("({left} / {right})"),
+            "%" => format!("({left} % {right})"),
+            "and" => format!("({left} & {right})"),
+            "or" => format!("({left} | {right})"),
+            "xor" => format!("({left} ^ {right})"),
+            "shl" => format!("BigInt.asIntN(64, {left} << ({right} & 63n))"),
+            "shr" => format!("({left} >> ({right} & 63n))"),
+            _ => format!("BigInt.asIntN(64, BigInt.asUintN(64, {left}) >> ({right} & 63n))"),
+        })
+    }
+
+    fn exact_part(&mut self, expr: &Expr) -> Result<String, String> {
+        match expr {
+            Expr::Binary { op, left, right }
+                if EXACT_LONG_OPS.contains(&op.as_str())
+                    && self.num_binary(op, left, right) == Some(Num::Long) =>
+            {
+                self.exact_long(op, left, right)
+            }
+            Expr::Int(value) | Expr::Long(value) => Ok(format!("{value}n")),
+            _ => Ok(format!("KT.big({})", self.expr(expr)?)),
+        }
     }
 
     /// A local's JavaScript name, when the name is a local here.
@@ -888,7 +1079,12 @@ impl<'a> Gen<'a> {
                 }
             }
             for param in &fun.params {
-                let name = writer.declare(&param.name);
+                let kind = if param.vararg {
+                    None
+                } else {
+                    Num::of_type(&param.ty)
+                };
+                let name = writer.declare_number(&param.name, kind);
                 writer.vals.remove(&name);
                 if !param.ty.name.is_empty() && !param.ty.name.starts_with('(') {
                     writer.plain.insert(name.clone());
@@ -1021,15 +1217,24 @@ impl<'a> Gen<'a> {
                         names,
                         destructured: false,
                         mutable,
+                        ty,
                         value,
                         delegate,
                     } if names.len() == 1 => {
+                        let kind = match ty {
+                            Some(ty) => Num::of_type(ty),
+                            None => value.as_ref().and_then(|value| writer.num(value)),
+                        };
                         let value = writer.local_value(value.as_ref(), delegate.as_ref())?;
                         writer.next += 1;
                         let js = format!("{}${}", local(&names[0]), writer.next);
                         if let Some(scope) = writer.scopes.last_mut() {
                             scope.insert(names[0].clone(), js.clone());
                         }
+                        match kind {
+                            Some(kind) => writer.numbers.insert(js.clone(), kind),
+                            None => writer.numbers.remove(&js),
+                        };
                         writer.plain.remove(&js);
                         if *mutable {
                             writer.vals.remove(&js);
@@ -1067,6 +1272,7 @@ impl<'a> Gen<'a> {
                 names,
                 destructured,
                 mutable,
+                ty,
                 value,
                 delegate,
             } => {
@@ -1076,7 +1282,19 @@ impl<'a> Gen<'a> {
                 } else {
                     "const"
                 };
+                // Its kind of number: as declared, else its value's.
+                let value_kind = value.as_ref().and_then(|value| self.num(value));
+                let kind = match ty {
+                    Some(ty) => Num::of_type(ty),
+                    None => value_kind,
+                };
+                let wraps = kind == Some(Num::Int) && value.is_some() && value_kind != kind;
                 let value = self.local_value(value.as_ref(), delegate.as_ref())?;
+                let value = if wraps {
+                    format!("KT.i32({value})")
+                } else {
+                    value
+                };
                 // Declared after the value is worked out: an initializer reads what the name
                 // meant before.
                 let code = if *destructured {
@@ -1094,7 +1312,7 @@ impl<'a> Gen<'a> {
                         format!("const {temp} = {value}; {keyword} {};", parts.join(", "))
                     }
                 } else {
-                    let js = self.declare(&names[0]);
+                    let js = self.declare_number(&names[0], kind);
                     self.plain.remove(&js);
                     if *mutable {
                         self.vals.remove(&js);
@@ -1110,14 +1328,30 @@ impl<'a> Gen<'a> {
                 }
             }
             Stmt::Assign { target, op, value } => {
+                // A local whole number of a kind the code fixes stays one (`hash = hash * 31 + c`
+                // wraps at 32 bits for an `Int`).
+                let target_kind = match target {
+                    Expr::Name(name) => self
+                        .resolve(name)
+                        .and_then(|js| self.numbers.get(&js).copied()),
+                    _ => None,
+                };
+                let value_kind = self.num(value);
                 let value = self.expr(value)?;
                 let combined = |current: String| -> String {
-                    match *op {
-                        "=" => value.clone(),
-                        "+=" => format!("KT.plusAssign({current}, {value})"),
-                        "-=" => format!("KT.minusAssign({current}, {value})"),
-                        "*=" => format!("({current} * {value})"),
-                        "/=" => format!("KT.div({current}, {value})"),
+                    match (*op, target_kind) {
+                        ("=", Some(Num::Int)) if value_kind != Some(Num::Int) => {
+                            format!("KT.i32({value})")
+                        }
+                        ("=", _) => value.clone(),
+                        ("+=", Some(Num::Int)) => format!("(({current} + {value}) | 0)"),
+                        ("-=", Some(Num::Int)) => format!("(({current} - {value}) | 0)"),
+                        ("*=", Some(Num::Int)) => format!("Math.imul({current}, {value})"),
+                        ("*=", Some(Num::Long)) => format!("KT.lmul({current}, {value})"),
+                        ("+=", _) => format!("KT.plusAssign({current}, {value})"),
+                        ("-=", _) => format!("KT.minusAssign({current}, {value})"),
+                        ("*=", _) => format!("({current} * {value})"),
+                        ("/=", _) => format!("KT.div({current}, {value})"),
                         _ => format!("({current} % {value})"),
                     }
                 };
@@ -1179,12 +1413,13 @@ impl<'a> Gen<'a> {
                 iterable,
                 body,
             } => {
+                let kind = self.range_num(iterable);
                 let iterable = self.expr(iterable)?;
                 let id = self.enter_loop(label.as_ref());
                 let code = self.scoped(|writer| -> Result<String, String> {
                     let head = match vars {
                         LambdaParam::Name(name) => {
-                            let js = writer.declare(name);
+                            let js = writer.declare_number(name, kind);
                             format!("const {js} of (await KT.each({iterable}))")
                         }
                         LambdaParam::Destructured(names) => {
@@ -1511,7 +1746,7 @@ impl<'a> Gen<'a> {
             return self.expr(&stripped);
         }
         Ok(match expr {
-            Expr::Int(value) => value.to_string(),
+            Expr::Int(value) | Expr::Long(value) => value.to_string(),
             Expr::Float(value) => {
                 if value.is_finite() {
                     format!("{value:?}")
@@ -2699,7 +2934,27 @@ impl<'a> Gen<'a> {
             let right = self.expr(right)?;
             return Ok(format!("({left} ?? {right})"));
         }
+        // Whole numbers of a kind the code fixes wrap as Kotlin's do.
+        let kind = self.num_binary(op, left, right);
+        if kind == Some(Num::Long) && self.has_long_growth(op, left, right) {
+            return Ok(format!("KT.fromBig({})", self.exact_long(op, left, right)?));
+        }
+        let ints = kind == Some(Num::Int) && self.num(left) == Some(Num::Int);
         let (left, right) = (self.expr(left)?, self.expr(right)?);
+        if ints {
+            match op {
+                "+" => return Ok(format!("(({left} + {right}) | 0)")),
+                "-" => return Ok(format!("(({left} - {right}) | 0)")),
+                "*" => return Ok(format!("Math.imul({left}, {right})")),
+                "and" => return Ok(format!("({left} & {right})")),
+                "or" => return Ok(format!("({left} | {right})")),
+                "xor" => return Ok(format!("({left} ^ {right})")),
+                "shl" => return Ok(format!("({left} << {right})")),
+                "shr" => return Ok(format!("({left} >> {right})")),
+                "ushr" => return Ok(format!("(({left} >>> {right}) | 0)")),
+                _ => {}
+            }
+        }
         Ok(match op {
             "+" => format!("KT.plus({left}, {right})"),
             "-" => format!("KT.minus({left}, {right})"),

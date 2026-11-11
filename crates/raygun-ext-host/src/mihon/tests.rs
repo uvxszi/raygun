@@ -1854,6 +1854,102 @@ class Entry(val n: Int)
     );
 }
 
+/// Whole numbers wrap as Kotlin's do: an `Int`'s arithmetic at 32 bits (Java's string hash,
+/// MangoTheme's slug hash, `*=`), a `Long`'s product exactly (FNV-1a over 32 bits).
+#[tokio::test]
+async fn converted_code_wraps_whole_numbers_as_kotlin_does() {
+    let source = STANDALONE_SOURCE
+        .replace("import java.util.Locale", "import java.util.Locale\nimport kotlin.math.abs")
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun javaHash(text: String): Int {
+        var hash = 0
+        for (char in text) hash = 31 * hash + char.code
+        return hash
+    }
+
+    private fun slugHash(text: String): Int {
+        var hash = 0
+        text.forEach { char ->
+            hash = (hash shl 5) - hash + char.code
+        }
+        return hash
+    }
+
+    private fun fnv1a(bytes: ByteArray): Long {
+        var hash = 2166136261L
+        for (b in bytes) {
+            hash = hash xor (b.toLong() and 0xFF)
+            hash = (hash * 16777619L) and 0xFFFFFFFFL
+        }
+        return if (hash == 0L) GOLDEN else hash
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        var product = 1
+        for (i in 1..20) product *= i
+        val names = listOf(
+            javaHash("hello world").toString(),
+            javaHash("Raygun converts Mihon").toString(),
+            slugHash("manga-12-345-salt").toString(),
+            abs(slugHash("manga-12-345-salt").toLong()).toString(36),
+            fnv1a("Raygun".toByteArray()).toString(),
+            product.toString(),
+            (page * 20).toString(),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }
+
+    companion object {
+        private const val GOLDEN = 0x9E3779B9L
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            3,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "1794106052",
+            "1250809461",
+            "451046946",
+            "7gji1u",
+            "1699712747",
+            "-2102132736",
+            "60"
+        ]
+    );
+}
+
 /// Sequences that don't end, `init` blocks, `++` on properties, names written with their
 /// package, comparators and formats, as converted code uses them.
 #[tokio::test]

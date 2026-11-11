@@ -443,17 +443,17 @@ fn rate_limit(args: &[Arg]) -> Option<(i64, i64)> {
             .map(|arg| &arg.value)
     };
     let permits = match value("permits", 0)? {
-        Expr::Int(permits) => *permits,
+        Expr::Int(permits) | Expr::Long(permits) => *permits,
         _ => return None,
     };
     let period_ms = match value("period", 1) {
         None => 1000,
-        Some(Expr::Int(seconds)) => seconds * 1000,
+        Some(Expr::Int(seconds) | Expr::Long(seconds)) => seconds * 1000,
         // `1.seconds`, `500.milliseconds`
         Some(Expr::Member { target, name, .. }) => match (target.as_ref(), name.as_str()) {
-            (Expr::Int(amount), "seconds") => amount * 1000,
-            (Expr::Int(amount), "milliseconds") => *amount,
-            (Expr::Int(amount), "minutes") => amount * 60_000,
+            (Expr::Int(amount) | Expr::Long(amount), "seconds") => amount * 1000,
+            (Expr::Int(amount) | Expr::Long(amount), "milliseconds") => *amount,
+            (Expr::Int(amount) | Expr::Long(amount), "minutes") => amount * 60_000,
             _ => return None,
         },
         _ => return None,

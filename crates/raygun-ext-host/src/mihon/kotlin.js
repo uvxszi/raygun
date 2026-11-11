@@ -155,8 +155,19 @@
   // that fit an Int (and shifts below 32) get the 32-bit operation, as Kotlin's Int does; a
   // Long's (`(1664525L * state + 1013904223L) and 0xFFFFFFFFL`) the 64-bit one.
   const isInt32 = (n) => Number.isInteger(n) && n >= -2147483648 && n <= 2147483647;
-  const big = (n) => BigInt(Math.trunc(Number(n)));
+  const big = (n) => (typeof n === 'bigint' ? n : BigInt(Math.trunc(Number(n) || 0)));
   const fromBig = (n) => Number(BigInt.asIntN(64, n));
+  // Arithmetic the converter knows the kind of (`kotlin::emit::Num`): an `Int` kept to 32 bits,
+  // a `Long`'s exact arithmetic over `BigInt`s and back.
+  KT.i32 = (value) => (typeof value === 'number' ? value | 0 : value);
+  KT.big = big;
+  KT.fromBig = fromBig;
+  KT.lmul = (left, right) => {
+    const product = left * right;
+    return Number.isSafeInteger(product) || !Number.isInteger(left) || !Number.isInteger(right)
+      ? product
+      : fromBig(big(left) * big(right));
+  };
   KT.and = (left, right) =>
     typeof left === 'boolean'
       ? left && right

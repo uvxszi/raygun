@@ -69,6 +69,8 @@ pub struct Catch {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i64),
+    /// `16777619L`: a `Long` whatever its size.
+    Long(i64),
     Float(f64),
     Str(Vec<StrPart>),
     Char(char),
@@ -158,6 +160,8 @@ pub enum Stmt {
         names: Vec<String>,
         destructured: bool,
         mutable: bool,
+        /// Its declared type (`var hash: Long = 0`), when one is written.
+        ty: Option<Type>,
         value: Option<Expr>,
         /// `by lazy { … }`.
         delegate: Option<Expr>,

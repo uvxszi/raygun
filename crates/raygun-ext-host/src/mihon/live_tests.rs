@@ -650,3 +650,89 @@ async fn mihon_popular_live() {
     );
     assert!(ok > 0);
 }
+
+/// What converted code asks of the runtime's objects (`Owner.member`) that they don't have, so a
+/// call would fail when it's reached: read from the conversions `mihon_convert_survey` kept with
+/// `MIHON_SURVEY_DUMP=<dir> MIHON_SURVEY_DUMP_ALL=1`, each listed with how many use it.
+#[tokio::test]
+#[ignore = "reads a survey's conversions"]
+async fn mihon_runtime_members_survey() {
+    let dir = PathBuf::from(std::env::var("MIHON_SURVEY_DUMP").expect("MIHON_SURVEY_DUMP"));
+    let used =
+        regex::Regex::new(r#"KT\.(?:m|p)\(KT\.global\("([A-Za-z0-9_]+)"\), "([A-Za-z0-9_]+)""#)
+            .unwrap();
+    let mut users: BTreeMap<(String, String), usize> = BTreeMap::new();
+    for entry in std::fs::read_dir(dir.join("all")).unwrap().flatten() {
+        let code = std::fs::read_to_string(entry.path()).unwrap_or_default();
+        let found: std::collections::BTreeSet<(String, String)> = used
+            .captures_iter(&code)
+            .map(|found| (found[1].to_owned(), found[2].to_owned()))
+            .collect();
+        for pair in found {
+            *users.entry(pair).or_default() += 1;
+        }
+    }
+    let pairs: Vec<&(String, String)> = users.keys().collect();
+    // One script asks the runtime for each; the load fails with the ones it lacks.
+    let script = format!(
+        r#"mihon.source; const pairs = {};
+const missing = [];
+for (const [owner, name] of pairs) {{
+  let object;
+  try {{ object = KT.global(owner); }} catch (error) {{ missing.push(owner); continue; }}
+  const value = object == null ? undefined : object[name];
+  if (value === undefined || value === Object.prototype[name] || value === Function.prototype[name])
+    missing.push(owner + '.' + name);
+}}
+throw new Error('MISSING:' + missing.join(','));"#,
+        serde_json::to_string(&pairs).unwrap()
+    );
+    let extension = StoreExtension {
+        name: "Probe".into(),
+        pkg: "eu.kanade.tachiyomi.extension.en.probe".into(),
+        apk: "probe.apk".into(),
+        icon: None,
+        lib_version: "1.6".into(),
+        version_code: 1,
+        version_name: "1.6.1".into(),
+        content: index::ContentWarning::Safe,
+        sources: Vec::new(),
+    };
+    let package = convert::package(
+        &extension,
+        &Converted {
+            theme: None,
+            code: script,
+        },
+        "Probe",
+        None,
+    )
+    .unwrap();
+    let error = convert::validate(&package, 0).await.unwrap_err();
+    let missing = error
+        .split("MISSING:")
+        .nth(1)
+        .and_then(|rest| rest.lines().next())
+        .unwrap_or_default();
+    let mut lacking: Vec<(usize, &str)> = missing
+        .split(',')
+        .filter(|name| !name.is_empty())
+        .map(|name| {
+            let (owner, member) = name.split_once('.').unwrap_or((name, ""));
+            let count = users
+                .iter()
+                .filter(|((o, m), _)| o == owner && (member.is_empty() || m == member))
+                .map(|(_, count)| count)
+                .sum();
+            (count, name)
+        })
+        .collect();
+    lacking.sort_by_key(|(count, _)| std::cmp::Reverse(*count));
+    println!(
+        "{} members asked of the runtime's objects; lacking:",
+        users.len()
+    );
+    for (count, name) in lacking {
+        println!("  {count:4}  {name}");
+    }
+}
