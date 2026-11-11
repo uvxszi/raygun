@@ -1548,6 +1548,26 @@ impl Parser {
                     };
                     continue;
                 }
+                // A labelled lambda after a name (`run stop@{ … }`, `forEach outer@{ … }`).
+                Some(Kind::Name(_))
+                    if is_callable(&expr)
+                        && matches!(
+                            (
+                                self.tokens.get(self.at + 1).map(|t| &t.kind),
+                                self.tokens.get(self.at + 2).map(|t| &t.kind),
+                            ),
+                            (Some(Kind::Op("@")), Some(Kind::Op("{")))
+                        ) =>
+                {
+                    let lambda = self.trailing_lambda()?;
+                    expr = Expr::Call {
+                        callee: Box::new(expr),
+                        type_args: Vec::new(),
+                        args: Vec::new(),
+                        lambda,
+                    };
+                    continue;
+                }
                 Some(Kind::Op("[")) => {
                     self.at += 1;
                     let index = self.with_nesting(true, |parser| {

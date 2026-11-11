@@ -1723,7 +1723,15 @@ async fn converted_code_reads_bits_names_and_entries() {
         var state = 123456789L
         state = (1664525L * state + 1013904223L) and 0xFFFFFFFFL
         val answer = """{"genres":["a"],"other_genres":["b"]}"""
+        var reached = 0
+        run stop@{
+            listOf(1, 2, 3).forEach {
+                if (it == 2) return@stop
+                reached = it
+            }
+        }
         val names = listOf(
+            reached.toString(),
             state.toString(),
             (0x7FFFFFFF shl 1).toString(),
             (-1 ushr 28).toString(),
@@ -1810,6 +1818,7 @@ class Entry(val n: Int)
     assert_eq!(
         titles,
         [
+            "1",
             "920370032",
             "-2",
             "15",
