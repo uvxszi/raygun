@@ -19,12 +19,16 @@ import { playResults } from './useOnlineSearch';
 import type { SearchProgressCount } from './useOnlineSearch';
 import { rankSongs, useAlbumFinds, useArtistFinds } from './useMusicFinds';
 import type { RankedSong } from './useMusicFinds';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
 import { albumCover, artistCover } from '../library/coverTargets';
 import { SourceTag } from '../shell/SourceTag';
 
 /** Album tiles drawn at first, then as many more at a time (`useDrawnCount`). */
 const FIRST_TILES = 24;
+
+/** The sources artist and album searches ask; those waiting for a key are counted in one line. */
+const METADATA_KINDS = ['music.metadata'];
 
 const songName = (entry: RankedSong) => songReveal(entry.track.title, entry.track.artist);
 const songRowKey = (entry: RankedSong) => `${entry.track.artist ?? ''}\n${entry.track.title}`;
@@ -95,7 +99,10 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
     return artists.isFetching ? (
       <Asking progress={artists.progress} />
     ) : (
-      <p className="text-muted text-sm">{t('search.noArtists', { query })}</p>
+      <>
+        <p className="text-muted text-sm">{t('search.noArtists', { query })}</p>
+        <NeedsSetupNote kinds={METADATA_KINDS} />
+      </>
     );
   }
   return (
@@ -142,6 +149,7 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
         )}
       />
       {artists.progress && <Asking progress={artists.progress} />}
+      <NeedsSetupNote kinds={METADATA_KINDS} />
     </div>
   );
 };
@@ -161,7 +169,10 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
     return albums.isFetching ? (
       <Asking progress={albums.progress} />
     ) : (
-      <p className="text-muted text-sm">{t('search.noAlbums', { query })}</p>
+      <>
+        <p className="text-muted text-sm">{t('search.noAlbums', { query })}</p>
+        <NeedsSetupNote kinds={METADATA_KINDS} />
+      </>
     );
   }
   return (
@@ -177,6 +188,7 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
         ))}
       </ul>
       {albums.progress && <Asking progress={albums.progress} />}
+      <NeedsSetupNote kinds={METADATA_KINDS} />
     </div>
   );
 };

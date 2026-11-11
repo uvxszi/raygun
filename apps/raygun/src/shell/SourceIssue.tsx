@@ -6,7 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { issueKind, readIssue } from '../lib/issue';
 import { isOfflineError } from '../network/useNetworkMode';
 import { OfflineNote } from '../network/OfflineNote';
+import { setupSourceOf } from '../sources/useSourcesSetup';
 import { BrowserCheckAction } from './BrowserCheckAction';
+import { NeedsSetupNote } from './NeedsSetupNote';
 
 type SourceIssueProps = {
   /**
@@ -48,6 +50,11 @@ export const SourceIssue: FC<SourceIssueProps> = ({
   // Offline Mode isn't a source's failure: it says so, calmly, with no retry.
   if (isOfflineError(children)) {
     return <OfflineNote compact={compact} testId={testId} className={className} />;
+  }
+  // Neither is a source waiting for its key or sign-in: it says where to set it up.
+  const waiting = setupSourceOf(children, source);
+  if (waiting) {
+    return <NeedsSetupNote sources={[waiting]} className={className} />;
   }
   const issue =
     typeof children === 'string' && children.trim() ? readIssue(children, t, source) : null;

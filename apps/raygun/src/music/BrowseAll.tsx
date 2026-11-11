@@ -20,6 +20,8 @@ import { useTranslation } from 'react-i18next';
 import { useHasProvider } from '../extensions/useExtensions';
 import { NoSources } from '../search/NoSources';
 import { searchLink } from '../search/searchTypes';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
+import { useSourcesSetup } from '../sources/useSourcesSetup';
 import {
   chartKey,
   tileColor,
@@ -27,6 +29,9 @@ import {
   useTagSummary,
   useTagVocabulary,
 } from './useDiscovery';
+
+/** The sources Browse all asks; those waiting for a key are counted in one line. */
+const CHART_KINDS = ['music.charts', 'music.tags'];
 
 /** Genres shown before "Show all": the ones most people look for, then the user's and the charts'. */
 const FEATURED_GENRES = [
@@ -135,6 +140,8 @@ export const BrowseAll: FC = () => {
   const { t } = useTranslation();
   const charts = useMusicCharts();
   const chartSources = useHasProvider('music.charts');
+  // Chart sources waiting for a key: the line below says so, not "no chart sources".
+  const chartsWaiting = useSourcesSetup().some((source) => source.kinds.includes('music.charts'));
   const summary = useTagSummary();
   const vocabulary = useTagVocabulary();
   const [allTags, setAllTags] = useState(false);
@@ -182,10 +189,12 @@ export const BrowseAll: FC = () => {
       {mainCharts.length > 0 && (
         <Grid title={t('discover.charts')}>{mainCharts.map(chartTile)}</Grid>
       )}
-      {(chartSources === false ||
-        (charts.isSuccess && all.length === 0 && charts.data.errors.length === 0)) && (
-        <NoSources label={t('discover.noCharts')} />
-      )}
+      {!chartsWaiting &&
+        (chartSources === false ||
+          (charts.isSuccess && all.length === 0 && charts.data.errors.length === 0)) && (
+          <NoSources label={t('discover.noCharts')} />
+        )}
+      <NeedsSetupNote kinds={CHART_KINDS} />
       {yours.length > 0 && (
         <Grid title={t('discover.yourTags')}>
           {yours.map((tag) => (

@@ -10,6 +10,7 @@ import { CardMenu } from '../shell/CardMenu';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
 
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useDrawnCount } from '../shell/useDrawnCount';
 import { Asking } from './MusicFinds';
@@ -19,6 +20,9 @@ import { SourceTag } from '../shell/SourceTag';
 
 /** Playlist tiles drawn at first, then as many more at a time (`useDrawnCount`). */
 const FIRST_TILES = 24;
+
+/** The sources playlist searches ask; those waiting for a key are counted in one line. */
+const PLAYLIST_KINDS = ['music.metadata'];
 
 /** A source's playlist as a cover with its name, author, size and source. */
 export const PlaylistTile: FC<{
@@ -115,6 +119,7 @@ export const PlaylistFinds: FC<{ query: string }> = ({ query }) => {
           {playlists.progress && <Asking progress={playlists.progress} />}
         </>
       )}
+      {!playlists.isFetching && <NeedsSetupNote kinds={PLAYLIST_KINDS} />}
     </div>
   );
 };

@@ -222,6 +222,12 @@ impl Catalog {
             sources.retain(|source| only.contains(&source.id));
         }
         sources.retain(|source| crate::search_filter::asks_source(filter, source));
+        // Sources that need a key or sign-in aren't asked; the UI counts them in one line.
+        {
+            let extensions = self.extensions();
+            let (_ready, host) = extensions.ready().await;
+            sources.retain(|source| host.needs_setup(&source.extension_id).is_none());
+        }
         let medium = self.kind;
         let searches = sources.into_iter().map(|source| async move {
             match self.search_row(&source.id, query, listings).await {
@@ -858,9 +864,11 @@ fn looks_through_listings(
 ) -> bool {
     listings.enabled
         && !query.trim().is_empty()
-        && answer
-            .as_ref()
-            .map_or(true, |listing| listing.items.is_empty())
+        && answer.as_ref().map_or_else(
+            // A source that needs a key isn't asked for its listings either.
+            |error| raygun_ext_host::needs_setup_in(error).is_none(),
+            |listing| listing.items.is_empty(),
+        )
 }
 
 /// A category name as typed: trimmed, not empty, at most 40 characters.

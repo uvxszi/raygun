@@ -144,6 +144,11 @@ pub struct TtsEvent(pub raygun_model::TtsUpdate);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ExtensionsChangedEvent(pub Vec<raygun_model::ExtensionInfo>);
 
+/// Which sources need a key or sign-in changed (a load, settings, a source saying its key was
+/// refused, sources turned on or off); carries the new list.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SourcesSetupEvent(pub Vec<raygun_model::SourceSetup>);
+
 /// The extension install queue changed: an install started, moved on a phase or ended.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ExtensionInstallsEvent(pub raygun_model::ExtensionInstallStatus);

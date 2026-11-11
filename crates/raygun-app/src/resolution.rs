@@ -52,6 +52,10 @@ pub struct Notes {
     pub retry_after: Option<Duration>,
     /// A source failed to answer at all: it isn't known that no source has the song.
     pub troubled: bool,
+    /// A source that may have the song waits for its key or sign-in and wasn't asked: it isn't
+    /// known that no source has the song (it isn't marked), but there's nothing to ask again
+    /// until that source is set up.
+    pub needs_setup: bool,
 }
 
 impl Notes {
@@ -240,7 +244,8 @@ impl Attempt {
     }
 
     fn take_notes(&mut self, notes: &Notes) {
-        self.troubled = notes.met_trouble();
+        // A source waiting for its key keeps the song from being marked as one no source has.
+        self.troubled = notes.met_trouble() || notes.needs_setup;
         let exclusions = &mut self.exclusions;
         for key in &notes.failed {
             if !exclusions.tried.contains(key) {
@@ -631,6 +636,7 @@ mod tests {
         limited: false,
         retry_after: None,
         troubled: false,
+        needs_setup: false,
     };
 
     /// Seconds on the service's clock, in ms.
@@ -899,6 +905,30 @@ mod tests {
             tracker.unresolved(5, &NONE, now, false),
             Some(Unresolved::GiveUp { mark: true }),
             "every source answered: the song is marked as one no source has"
+        );
+    }
+
+    #[test]
+    fn a_source_waiting_for_its_key_keeps_a_song_unmarked_without_more_looks() {
+        let mut tracker = Tracker::default();
+        tracker.begin(13, &item(lookup()), 0.0, Cause::Chosen);
+        let waiting = Notes {
+            needs_setup: true,
+            ..Notes::default()
+        };
+        let mut now = at(1.0);
+        let mut looks = 0;
+        while let Some(Unresolved::Retry { wait }) = tracker.unresolved(13, &waiting, now, false) {
+            looks += 1;
+            let (_, exclusions) = tracker.request(13).unwrap();
+            assert!(exclusions.unanswered.is_empty(), "nothing to ask again");
+            now += wait.as_secs_f64() * 1_000.0 + 500.0;
+        }
+        assert_eq!(looks, 3, "the same looks as any song");
+        assert_eq!(
+            tracker.unresolved(13, &waiting, now, false),
+            Some(Unresolved::GiveUp { mark: false }),
+            "a source wasn't asked: the song isn't marked as one no source has"
         );
     }
 

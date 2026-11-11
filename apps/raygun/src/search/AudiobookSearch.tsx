@@ -8,9 +8,13 @@ import { BookCard, BookRow } from '../audiobooks/BookRow';
 import { useBookDirectory } from '../audiobooks/useAudiobooks';
 import type { BookList, useOpenAudiobook } from '../audiobooks/useAudiobooks';
 import { LoadMore } from '../shell/LoadMore';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useDragScroll } from '../shell/useDragScroll';
 import { useOpenBook } from './useOpenBook';
+
+/** The directories asked; those waiting for a key are counted in one line. */
+const BOOK_KINDS = ['audiobook.directory'];
 
 /** What opening a book shows: a line while it opens, a calm note when it couldn't. */
 export const OpeningBook: FC<{ open: ReturnType<typeof useOpenAudiobook> }> = ({ open }) => {
@@ -80,6 +84,7 @@ const BookGrid: FC<{
         fetching={results.isFetchingNextPage}
         onLoad={() => void results.fetchNextPage()}
       />
+      {!results.isPending && <NeedsSetupNote kinds={BOOK_KINDS} />}
     </section>
   );
 };

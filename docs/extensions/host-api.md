@@ -143,6 +143,27 @@ const LANGUAGES: Record<string, string> = { English: 'en', French: 'fr' };
 export const language = () => LANGUAGES[raygun.settings.get<string>('language') ?? ''] ?? 'en';
 ```
 
+## `raygun.needsSetup(reason)`
+
+Says the extension can't work until someone sets it up, and throws: its key or sign-in is
+missing, or its own API refused it (an HTTP 401 or 403 from its API with the person's key).
+Raygun then asks the extension nothing, no calls and no requests, until its settings change, and
+lists it with the sources that need a key rather than the ones that failed. Use the SDK's
+`needsSetup`, which throws a plain error in a Raygun that predates it. A setting marked
+[`required`](manifest.md#settings) covers an empty key without a call at all.
+
+```ts
+import { needsSetup } from '@raygun/sdk';
+
+export const signedFetch = async (url: string, key: string) => {
+  const response = await raygun.http.fetch(url, { headers: { 'X-Api-Key': key } });
+  if (response.status === 401 || response.status === 403) {
+    needsSetup('the API refused the key');
+  }
+  return response;
+};
+```
+
 ## `raygun.content.showNsfw()`
 
 Whether NSFW (18+) content is shown; off by default. While it is off, leave adult titles out, or

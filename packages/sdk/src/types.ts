@@ -887,6 +887,14 @@ export type RaygunApi = {
      */
     register(provider: Provider): void;
   };
+  /**
+   * Says the extension can't work until someone sets it up: its key or sign-in is missing, or
+   * its API refused it (an HTTP 401 or 403 from its own API). Throws; Raygun then asks the
+   * extension nothing (no calls, no requests) until its settings change, and lists it with the
+   * sources that need a key instead of the ones that failed. `reason` is shown with it. Prefer
+   * the `needsSetup` helper, which also works in older Raygun versions.
+   */
+  needsSetup(reason?: string): never;
 };
 
 // ---- Manifest (raygun-extension.json) ----
@@ -902,6 +910,12 @@ export type SettingDef = {
   label?: string;
   /** A select's choices; required for a select. */
   options?: string[];
+  /**
+   * The extension can't work without it: an API key, a secret, a server's address, a user name.
+   * While it's empty (no value, or only spaces) Raygun asks the extension nothing and lists it
+   * with the sources that need a key. Not for a `boolean`, which always has a value.
+   */
+  required?: boolean;
 };
 
 /** `raygun-extension.json`. Raygun refuses a manifest with fields it doesn't know. */

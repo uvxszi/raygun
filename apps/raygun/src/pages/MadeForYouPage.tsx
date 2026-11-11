@@ -9,8 +9,12 @@ import { MixCard } from '../music/MixCard';
 import { SHELVES, useMadeForYou, useRefreshMadeForYou } from '../music/useMadeForYou';
 import { Carousel } from '../shell/Carousel';
 import { EmptyState } from '../shell/EmptyState';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
 import { TopBar, TopBarAction } from '../shell/TopBar';
+
+/** The sources mixes are made from; those waiting for a key are counted in one line. */
+const MIX_KINDS = ['music.recommend', 'music.charts'];
 
 const StatCard: FC<{ icon: LucideIcon; label: string; value: string }> = ({
   icon: Icon,
@@ -92,6 +96,7 @@ export const MadeForYouPage: FC = () => {
         </p>
       )}
       {overview.error && <SourceIssue>{overview.error.message}</SourceIssue>}
+      {data && !making && <NeedsSetupNote kinds={MIX_KINDS} />}
       {data && !making && mixes.length === 0 && (
         <EmptyState
           icon={Sparkles}

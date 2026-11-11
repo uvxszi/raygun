@@ -39,6 +39,27 @@ impl Failure {
     }
 }
 
+/// What `raygun.needsSetup(reason)` throws (and a server whose sign-in was refused fails with):
+/// the source says it can't work until someone sets it up. However a script wraps the error, the
+/// mark stays in its message.
+pub(crate) const NEEDS_SETUP_MARK: &str = "[raygun:needs-setup]";
+
+/// What's said after the mark, else a general reason.
+fn setup_reason(message: &str) -> String {
+    let after = message
+        .split_once(NEEDS_SETUP_MARK)
+        .map_or("", |(_, rest)| rest)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if after.is_empty() {
+        "it said its key or sign-in is missing or was refused".to_owned()
+    } else {
+        after.to_owned()
+    }
+}
+
 /// The error a failed call of `provider`'s `method` gives, `name` being the source's name.
 pub fn into_error(failure: Failure, name: &str, provider: &str, method: &str) -> CallError {
     let Failure {
@@ -48,6 +69,16 @@ pub fn into_error(failure: Failure, name: &str, provider: &str, method: &str) ->
         ..
     } = failure;
     let message = message.trim().to_owned();
+    if message.contains(NEEDS_SETUP_MARK) {
+        return CallError::NeedsSetup {
+            name: name.to_owned(),
+            extension: provider
+                .split_once('/')
+                .map_or(provider, |(extension, _)| extension)
+                .to_owned(),
+            reason: setup_reason(&message),
+        };
+    }
     if message.contains("has no method") || message.contains("isn't a novel source call") {
         return CallError::MissingMethod {
             name: name.to_owned(),
@@ -253,6 +284,47 @@ mod tests {
             error(Failure::said("Example Comics answered HTTP 404")).to_string(),
             "Not found on Example Comics\nExample Comics answered HTTP 404"
         );
+    }
+
+    #[test]
+    fn a_source_saying_it_needs_setup_is_told_apart_from_failures() {
+        // However the script wrapped it, and whatever its requests met.
+        let said = error(Failure {
+            message: format!("Search failed: Error: {NEEDS_SETUP_MARK} the API key was refused"),
+            trouble: Some(Trouble {
+                kind: IssueKind::Denied,
+                detail: "api.comics.example answered HTTP 401".into(),
+            }),
+            answered: false,
+            checked: None,
+        });
+        assert_eq!(
+            said,
+            CallError::NeedsSetup {
+                name: "Example Comics".into(),
+                extension: "dev.example.comics".into(),
+                reason: "the API key was refused".into(),
+            }
+        );
+        assert!(said.is_needs_setup());
+        assert_eq!(said.kind(), None, "not a failure of any kind");
+        assert_eq!(
+            said.to_string(),
+            "Example Comics needs a key or sign-in\nneeds setup (dev.example.comics): the API key was refused"
+        );
+        assert_eq!(
+            crate::host::needs_setup_in(&said.to_string()),
+            Some("dev.example.comics")
+        );
+        assert_eq!(
+            crate::host::needs_setup_in("Example Comics answered HTTP 401"),
+            None
+        );
+        // Without a reason, a general one.
+        assert!(matches!(
+            error(Failure::said(NEEDS_SETUP_MARK)),
+            CallError::NeedsSetup { reason, .. } if reason.contains("key or sign-in")
+        ));
     }
 
     #[test]

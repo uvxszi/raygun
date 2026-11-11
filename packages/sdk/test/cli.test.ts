@@ -110,6 +110,8 @@ describe('manifest checks', () => {
           { key: 'language', type: 'select', options: ['en', 'fr'], default: 'en', label: null },
           { key: 'count', type: 'number', default: 6 },
           { key: 'large', type: 'boolean' },
+          { key: 'apiKey', type: 'text', label: 'API key', required: true },
+          { key: 'server', type: 'text', required: false },
         ],
       }),
     ).toEqual({ errors: [], warnings: [] });
@@ -150,6 +152,8 @@ describe('manifest checks', () => {
     [{ settings: [{ key: 'a', type: 'number', default: '6' }] }, 'must be a number'],
     [{ settings: [{ key: 'a', type: 'text', hint: 'x' }] }, 'unknown field "hint"'],
     [{ settings: [{ key: 'a', type: 'color' }] }, 'type must be one of'],
+    [{ settings: [{ key: 'a', type: 'text', required: 'yes' }] }, 'required must be true or false'],
+    [{ settings: [{ key: 'a', type: 'boolean', required: true }] }, "can't be required"],
     [{ description: 3 }, 'description must be text'],
   ])('rejects %o', (override, words) => {
     const problems = manifestProblems({ ...valid, ...override });

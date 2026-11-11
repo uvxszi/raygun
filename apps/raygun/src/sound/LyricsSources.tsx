@@ -7,11 +7,15 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
 import { lyricsSourceName } from './lyricsSource';
 import type { FullSongEdit } from './soundPrefs';
 import { TranscriptionStatus } from './TranscriptionStatus';
 import { useSongTranscription } from './useSongTranscription';
+
+/** The sources lyrics come from; those waiting for a key are counted in one line. */
+const LYRICS_KINDS = ['lyrics'];
 
 /**
  * Where a song's lyrics come from (M46.36): every lyrics source's version to pick from, or the
@@ -82,6 +86,7 @@ export const LyricsSources: FC<{
           })}
         </ul>
       )}
+      {open && !options.isPending && <NeedsSetupNote kinds={LYRICS_KINDS} />}
     </div>
   );
 };

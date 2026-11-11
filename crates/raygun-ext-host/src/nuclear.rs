@@ -12,7 +12,7 @@ use crate::package::{MAX_PACKAGE_BYTES, PackageError};
 const CONVERTER: &str = include_str!("../assets/nuclear-converter.js");
 /// The converter's `CONVERTER_VERSION`: installed plugins converted by an older one are offered
 /// again as updates (M46.9.1). Conversions from before it was stamped count as 1.
-pub const CONVERTER_VERSION: u32 = 6;
+pub const CONVERTER_VERSION: u32 = 7;
 /// Sucrase's parser recurses deeply on large files; give it room.
 const CONVERTER_STACK_BYTES: usize = 16 * 1024 * 1024;
 const CONVERTER_MEMORY_BYTES: usize = 256 * 1024 * 1024;
@@ -127,10 +127,70 @@ pub fn convert(files: &BTreeMap<String, String>) -> Result<Converted, String> {
 /// Most random bytes one ask gives (Web Crypto's `getRandomValues` limit).
 const MAX_RANDOM_BYTES: usize = 65_536;
 
+/// Settings a plugin may register (`Settings.register`), at most.
+const MAX_SETTINGS: usize = 40;
+
+/// A Nuclear setting definition as the shim passes it on (`shim/api.ts`): Raygun's setting
+/// shape, with `required` for what the plugin can't work without.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegisteredSetting {
+    key: String,
+    #[serde(rename = "type")]
+    kind: crate::manifest::SettingKind,
+    label: Option<String>,
+    #[serde(default)]
+    options: Vec<String>,
+    default: Option<serde_json::Value>,
+    #[serde(default)]
+    required: bool,
+}
+
+/// Adds a setting the plugin registered as it loaded, so people can fill it in on its page
+/// (Nuclear sets them in its own settings screen). Invalid ones are refused.
+fn register_setting(
+    registered: &std::cell::RefCell<Vec<crate::manifest::SettingDef>>,
+    json: &str,
+) -> Result<(), String> {
+    use crate::manifest::{SettingDef, SettingKind};
+
+    let raw: RegisteredSetting = serde_json::from_str(json).map_err(|error| error.to_string())?;
+    let key = raw.key.trim();
+    if key.is_empty() || key.len() > 64 {
+        return Err(format!("not a setting key: {key:?}"));
+    }
+    let setting = SettingDef {
+        key: key.to_owned(),
+        required: raw.required && raw.kind != SettingKind::Boolean,
+        kind: raw.kind,
+        label: raw
+            .label
+            .map(|label| label.trim().chars().take(80).collect::<String>())
+            .filter(|label| !label.is_empty()),
+        options: raw.options,
+        default: None,
+    };
+    let default = raw.default.filter(|value| setting.accepts(value));
+    if setting.kind == SettingKind::Select && setting.options.is_empty() {
+        return Err(format!("the setting {key} has no options"));
+    }
+    let mut settings = registered.borrow_mut();
+    if settings.len() >= MAX_SETTINGS {
+        return Err("too many settings".to_owned());
+    }
+    if !settings.iter().any(|known| known.key == setting.key) {
+        settings.push(SettingDef { default, ..setting });
+    }
+    Ok(())
+}
+
 /// What the shim gets beyond the `raygun` API, as `__rgNuclear` (taken and removed before the
-/// plugin runs): documents parsed and queried here (`DOMParser`), digests and HMACs, and random
-/// bytes (`crypto`).
-pub(crate) fn install_natives(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
+/// plugin runs): documents parsed and queried here (`DOMParser`), digests and HMACs, random
+/// bytes (`crypto`), and the plugin's settings, shown on its page (`registerSetting`).
+pub(crate) fn install_natives(
+    ctx: &rquickjs::Ctx<'_>,
+    registered: std::rc::Rc<std::cell::RefCell<Vec<crate::manifest::SettingDef>>>,
+) -> rquickjs::Result<()> {
     use rquickjs::{Function, Object};
 
     use crate::js::{err, ok};
@@ -140,6 +200,12 @@ pub(crate) fn install_natives(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
         Err(message) => err(message),
     };
     let natives = Object::new(ctx.clone())?;
+    natives.set(
+        "registerSetting",
+        Function::new(ctx.clone(), move |json: String| {
+            envelope(register_setting(&registered, &json).map(|()| serde_json::Value::Null))
+        })?,
+    )?;
     let documents = std::rc::Rc::new(crate::lnreader::dom::Documents::default());
     natives.set(
         "dom",

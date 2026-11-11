@@ -114,6 +114,8 @@ const runBundle = async (
       get: (key: string) => storage.get(key) ?? null,
       set: (key: string, value: unknown) => storage.set(key, value),
     },
+    // Nothing set on the plugin's page: plugins read their own stored values and defaults.
+    settings: { get: () => null },
     youtube,
     providers: { register: (provider: Registered) => providers.push(provider) },
     http: {

@@ -1,6 +1,6 @@
 // A NuclearPluginAPI built on Raygun's host API (shape from Nuclear's plugin-sdk, AGPL-3.0).
-// Http, Logger, Settings, Providers and Ytdlp (YouTube, over `raygun.youtube`) work; every other
-// domain is a stub that says so.
+// Http, Logger, Settings (shown on the plugin's page in Raygun), Providers and Ytdlp (YouTube,
+// over `raygun.youtube`) work; every other domain is a stub that says so.
 import {
   BlobPolyfill,
   HeadersPolyfill,
@@ -8,6 +8,7 @@ import {
   URLSearchParamsPolyfill,
   bytesToBase64,
 } from './polyfills';
+import { natives, unwrap } from './native';
 import type { NuclearProvider, PluginInfo } from './nuclear-types';
 import { KIND_MAP, wrapProvider } from './providers';
 import { createYtdlp } from './ytdlp';
@@ -168,7 +169,71 @@ const format = (args: unknown[]) =>
     typeof arg === 'string' ? arg : arg instanceof Error ? arg.message : JSON.stringify(arg),
   );
 
-type SettingDefinition = { id: string; default?: unknown };
+/** A Nuclear setting definition (plugin-sdk's `SettingDefinition`), as far as Raygun reads it. */
+type SettingDefinition = {
+  id: string;
+  title?: string;
+  kind?: string;
+  default?: unknown;
+  hidden?: boolean;
+  options?: { value: string; label?: string }[];
+  widget?: { type?: string };
+  format?: string;
+};
+
+/** A setting as Raygun's settings are written, for the plugin's page. */
+type RaygunSetting = {
+  key: string;
+  type: 'text' | 'number' | 'boolean' | 'select';
+  label: string | null;
+  options: string[];
+  default: unknown;
+  required: boolean;
+};
+
+const TYPES: Record<string, RaygunSetting['type']> = {
+  string: 'text',
+  number: 'number',
+  boolean: 'boolean',
+  enum: 'select',
+};
+
+/**
+ * A Nuclear setting as one of Raygun's, or null for one people don't set (hidden, or drawn by
+ * the plugin's own widget). A password or token field left empty is required: Raygun asks the
+ * plugin nothing until it's filled in.
+ */
+export const toRaygunSetting = (definition: SettingDefinition): RaygunSetting | null => {
+  const type = TYPES[definition.kind ?? ''];
+  if (!type || definition.hidden || typeof definition.id !== 'string') return null;
+  const options =
+    type === 'select' ? (definition.options ?? []).map((option) => String(option.value)) : [];
+  if (type === 'select' && options.length === 0) return null;
+  const credential =
+    type === 'text' &&
+    (definition.widget?.type === 'password' || definition.format === 'token') &&
+    (definition.default === undefined || definition.default === null || definition.default === '');
+  return {
+    key: definition.id,
+    type,
+    label: definition.title ?? null,
+    options,
+    default: definition.default ?? null,
+    required: credential,
+  };
+};
+
+/** Shows a plugin's settings on its page in Raygun; one Raygun can't take is skipped. */
+const showSetting = (definition: SettingDefinition) => {
+  const setting = toRaygunSetting(definition);
+  const register = natives()?.registerSetting;
+  if (!setting || !register) return;
+  try {
+    unwrap(register(JSON.stringify(setting)));
+  } catch (error) {
+    raygun.log.warn(`setting ${definition.id} isn't shown: ${String(error)}`);
+  }
+};
 
 export const createApi = (plugin: PluginInfo) => {
   const defaults = new Map<string, unknown>();
@@ -185,10 +250,16 @@ export const createApi = (plugin: PluginInfo) => {
 
   const Settings = {
     async register(definitions: SettingDefinition[]) {
-      for (const definition of definitions ?? []) defaults.set(definition.id, definition.default);
+      for (const definition of definitions ?? []) {
+        defaults.set(definition.id, definition.default);
+        showSetting(definition);
+      }
       return { registered: (definitions ?? []).map((definition) => definition.id) };
     },
     async get(id: string) {
+      // What people set on the plugin's page in Raygun, else what the plugin stored itself.
+      const chosen = raygun.settings.get(id);
+      if (chosen !== null && chosen !== '') return chosen;
       const stored = raygun.storage.get(key(id));
       return stored ?? defaults.get(id);
     },

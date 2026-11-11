@@ -105,6 +105,12 @@ export const SettingsForm: FC<{ extensionId: string; settings: ExtensionSetting[
         >
           <label htmlFor={`setting-${setting.key}`} className="font-medium">
             {setting.label}
+            {/* The source is asked nothing while it's empty. */}
+            {setting.required && (
+              <span className="text-muted ml-2 text-xs font-normal">
+                {t('extensions.requiredSetting')}
+              </span>
+            )}
           </label>
           <Field
             setting={setting}

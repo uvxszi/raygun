@@ -22,8 +22,20 @@ import { VideoResults } from './VideoResults';
 import type { SearchType, SearchView } from './searchTypes';
 import { keepSource, selectSourceResult, useSearchFilter } from './searchFilter';
 import { sourceSearchOptions } from './useCatalogSearch';
+import { NeedsSetupNote } from '../shell/NeedsSetupNote';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useSourcesSetup } from '../sources/useSourcesSetup';
 import { RankedResults } from './CatalogSearch';
+
+/** Every kind All searches; the sources of them waiting for a key are counted in one line. */
+const ALL_KINDS = [
+  'music.metadata',
+  'podcast.directory',
+  'audiobook.directory',
+  'video.source',
+  'manga.source',
+  'novel.source',
+];
 
 const Section: FC<{
   title: string;
@@ -65,11 +77,15 @@ const CatalogPreview: FC<{ medium: Medium; query: string }> = ({ medium, query }
   const { t } = useTranslation();
   const sources = useMangaSources(medium);
   const filter = useSearchFilter();
+  // Sources waiting for a key or sign-in aren't asked (the page's line counts them).
+  const waiting = new Set(useSourcesSetup().map((source) => source.extensionId));
   if (!sources.data) return <p className="text-muted text-sm">{t('search.searching')}</p>;
   if (sources.data.length === 0) {
     return <NoSources label={t('search.noCatalogSources')} />;
   }
-  const asked = sources.data.filter((source) => keepSource(filter, source));
+  const asked = sources.data.filter(
+    (source) => keepSource(filter, source) && !waiting.has(source.extensionId),
+  );
   // Comics and books: one list ranked across the first sources (M46.35), not a few per source.
   if (medium !== 'video') {
     const enabled = asked.filter((source) => source.enabled).slice(0, PREVIEW_SOURCES);
@@ -247,6 +263,7 @@ export const AllResults: FC<{
           {index < drawn && section.body}
         </Section>
       ))}
+      <NeedsSetupNote kinds={ALL_KINDS} />
     </div>
   );
 };

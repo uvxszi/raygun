@@ -1,7 +1,7 @@
 {
   "id": "dev.raygun.podcast-index",
   "name": "Podcast Index",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
@@ -12,8 +12,8 @@
   "permissions": { "net": ["api.podcastindex.org"] },
   "contentRating": "suggestive",
   "settings": [
-    { "key": "apiKey", "type": "text", "label": "API key" },
-    { "key": "apiSecret", "type": "text", "label": "API secret" },
+    { "key": "apiKey", "type": "text", "label": "API key", "required": true },
+    { "key": "apiSecret", "type": "text", "label": "API secret", "required": true },
     {
       "key": "language",
       "type": "select",

@@ -1397,6 +1397,7 @@
       "mihon": "Mihon extensions"
     },
     "settings": "Settings",
+    "requiredSetting": "Needed",
     "providers": "Provides",
     "uninstall": "Uninstall",
     "uninstallConfirm": "Tap again to uninstall",
@@ -2635,6 +2636,8 @@
     "sourceBest": "Up to {{n}}",
     "sourceOptions_one": "{{n}} option",
     "sourceOptions_other": "{{n}} options",
+    "sourcesNeedSetup_one": "{{n}} source needs a key or sign-in",
+    "sourcesNeedSetup_other": "{{n}} sources need a key or sign-in",
     "bitrateNeeds": "needs ~{{n}}",
     "speedMeasured": "{{n}} measured",
     "live": "LIVE",
@@ -4741,6 +4744,15 @@
       },
       "failed": "Couldn’t open the site"
     }
+  },
+  "sourcesSetup": {
+    "count_one": "{{count}} source needs a key or sign-in",
+    "count_other": "{{count}} sources need a key or sign-in",
+    "missing": "{{fields}} not set",
+    "signIn": "Sign in again",
+    "refused": "Key or sign-in refused",
+    "setUp": "Set up",
+    "waits": "Asked nothing until it’s set up"
   },
   "developer": {
     "title": "Developer",

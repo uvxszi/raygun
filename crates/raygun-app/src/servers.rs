@@ -82,7 +82,16 @@ pub fn secrets(app: &AppHandle, extensions_dir: &Path) -> ServerSecrets {
 /// What a connection shows: its address and user, and whether it loaded.
 fn view(id: &str, config: &ServerConfig, loaded: Option<&ExtensionInfo>) -> ServerInfo {
     let error = match loaded {
-        Some(info) if info.status == ExtensionStatus::Loaded => None,
+        // Loaded without a sign-in that works: it's asked nothing until it's signed in again.
+        Some(info) if info.status == ExtensionStatus::Loaded => {
+            info.needs_setup.as_ref().map(|need| match need.reason {
+                raygun_model::SetupReason::Refused => format!(
+                    "The server refused the sign-in: sign in again\n{}",
+                    need.detail.as_deref().unwrap_or_default()
+                ),
+                _ => "Raygun doesn't have this server's sign-in: sign in again".to_owned(),
+            })
+        }
         Some(info) => Some(
             info.error
                 .clone()

@@ -35,7 +35,7 @@ const FIELDS = new Set([
   'nuclear',
 ]);
 const PERMISSION_FIELDS = new Set(['net', 'webview']);
-const SETTING_FIELDS = new Set(['key', 'type', 'label', 'options', 'default']);
+const SETTING_FIELDS = new Set(['key', 'type', 'label', 'options', 'default', 'required']);
 const SETTING_TYPES = ['text', 'number', 'boolean', 'select'];
 const RATINGS = ['safe', 'suggestive', 'nsfw'];
 
@@ -166,14 +166,19 @@ const checkSettings = (settings, errors) => {
       errors.push(`settings[${index}] must be an object with a key and a type`);
       return;
     }
-    const { key, type, label, options } = setting;
+    const { key, type, label, options, required } = setting;
     const name = typeof key === 'string' && key !== '' ? `setting "${key}"` : `settings[${index}]`;
     for (const field of Object.keys(setting)) {
       if (!SETTING_FIELDS.has(field)) {
         errors.push(
-          `${name}: unknown field "${field}" (a setting has key, type, label, options and default)`,
+          `${name}: unknown field "${field}" (a setting has key, type, label, options, default and required)`,
         );
       }
+    }
+    if (required !== undefined && typeof required !== 'boolean') {
+      errors.push(`${name}: required must be true or false`);
+    } else if (required === true && type === 'boolean') {
+      errors.push(`${name}: a boolean always has a value, so it can't be required`);
     }
     if (typeof key !== 'string' || key === '') errors.push(`${name} needs a key`);
     else if (keys.has(key)) errors.push(`${name} is declared twice`);

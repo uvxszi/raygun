@@ -3827,6 +3827,10 @@ pub struct ExtensionInfo {
     /// The name of the repository it was installed from (`Paraline`); none for one added on its
     /// own or copied into the extensions folder.
     pub repository: Option<String>,
+    /// What it needs before it's asked anything (a key, an account, a sign-in); none when ready.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub needs_setup: Option<SetupNeed>,
 }
 
 /// How much of a Nuclear plugin runs in Raygun (M17).
@@ -3897,6 +3901,51 @@ pub struct ExtensionSetting {
     pub default: Option<SettingValue>,
     /// The user's value, or the default when they haven't set one.
     pub value: Option<SettingValue>,
+    /// The extension can't work without it (a key, a secret, a server's address, a user name):
+    /// while it's empty the extension is asked nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub required: bool,
+}
+
+/// Why a source isn't asked anything until someone sets it up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SetupReason {
+    /// Settings it can't work without are empty (its settings page has them).
+    Settings,
+    /// Its own answers said its key or sign-in was refused; it's asked again once its settings
+    /// change.
+    Refused,
+    /// A connected server without its sign-in: sign in again from Sources.
+    SignIn,
+}
+
+/// What a source needs before Raygun asks it anything: a key, an account, a sign-in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupNeed {
+    pub reason: SetupReason,
+    /// The labels of the required settings that are empty.
+    pub missing: Vec<String>,
+    /// What the source said, when its answers said it.
+    pub detail: Option<String>,
+}
+
+/// A source waiting to be set up, for the places that list sources' answers: one line says how
+/// many there are, and each links to where it's set up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSetup {
+    pub extension_id: String,
+    pub name: String,
+    /// The kinds of its providers that would be asked (`music.metadata`, `lyrics`...): turned
+    /// off ones and hidden 18+ ones left out.
+    pub kinds: Vec<String>,
+    pub need: SetupNeed,
+    /// A connected server (Sources → Servers signs it in again); else an extension, set up on
+    /// its page.
+    pub server: bool,
 }
 
 /// A well-known repository the Repositories tab offers to add with one tap (M36).
