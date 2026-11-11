@@ -217,7 +217,7 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
     <div
       role="dialog"
       aria-label={t('novel.textSettings')}
-      className="bg-surface fixed inset-x-2 top-16 z-40 mx-auto flex max-w-md flex-col gap-3 rounded-xl p-4 shadow-xl"
+      className="bg-surface fixed top-[calc(4rem+var(--safe-top))] right-[max(0.5rem,var(--safe-right))] left-[max(0.5rem,var(--safe-left))] z-40 mx-auto flex max-w-md flex-col gap-3 rounded-xl p-4 shadow-xl"
     >
       <SizeField
         title={t('novel.fontSize')}
@@ -1021,12 +1021,13 @@ export const NovelReaderPage: FC = () => {
     <section
       data-testid="novel-reader"
       data-theme-page={prefs.theme ?? 'app'}
-      // Edge to edge: the page area's side and bottom padding is the reader's too.
-      className="bg-background text-foreground -mx-4 -mb-4 flex min-h-dvh flex-col lg:-mx-10"
+      // Edge to edge: the page area's side and bottom padding is the reader's too. In landscape
+      // the text stays clear of a cutout and a navigation bar at the sides.
+      className="bg-background text-foreground -mx-4 -mb-4 flex min-h-dvh flex-col pr-[var(--safe-right)] pl-[var(--safe-left)] lg:-mx-10"
       style={theme ? { backgroundColor: theme.background, color: theme.text } : undefined}
     >
       {chrome && (
-        <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 px-1 pt-[env(safe-area-inset-top)] shadow-md backdrop-blur">
+        <header className="bg-surface/95 fixed inset-x-0 top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 pt-[var(--safe-top)] pr-[calc(0.25rem+var(--safe-right))] pl-[calc(0.25rem+var(--safe-left))] shadow-md backdrop-blur">
           <button
             type="button"
             aria-label={t('manga.closeReader')}
@@ -1104,7 +1105,7 @@ export const NovelReaderPage: FC = () => {
       {data && (chrome || reading || speechNotice) && (
         // The reader's bottom controls, one above another so none covers another: the AI
         // button (bottom right), reading aloud's controls, then the chapter bar.
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+var(--safe-right))] pb-[calc(0.75rem+var(--safe-bottom))] pl-[calc(0.75rem+var(--safe-left))]">
           {chrome && (
             <div className="pointer-events-auto flex w-full justify-end">
               <ReaderAiButton medium="novel" busy={novelAi.busy} error={novelAi.error} />

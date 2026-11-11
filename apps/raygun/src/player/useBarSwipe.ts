@@ -4,7 +4,7 @@ import type { AnimationPlaybackControls } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 
-import { swipeAction, throwDuration, velocityTracker } from './swipe';
+import { comeIn, swipeAction, throwDuration, velocityTracker } from './swipe';
 import type { SwipeAction } from './swipe';
 
 /** A press moving this far (px) picks the axis it follows. */
@@ -114,8 +114,8 @@ export const useBarSwipe = ({ item, incoming, act }: Options) => {
       await run(animate(contentOpacity, 1, { duration: FADE }));
       return;
     }
-    const sign = direction === 'next' ? -1 : 1;
-    const off = sign * (width.current || 400);
+    const entry = comeIn(direction, speed, width.current || 400);
+    const off = -entry.from;
     await run(
       animate(contentX, off, {
         duration: throwDuration(off - contentX.get(), speed),
@@ -123,9 +123,12 @@ export const useBarSwipe = ({ item, incoming, act }: Options) => {
       }),
     );
     if (mine !== turn.current) return;
-    contentX.set(-off);
     land();
-    await run(animate(contentX, 0, COME_IN));
+    // On the other side by a jump: a `set` would count the leap across the bar as the value's
+    // own motion (thousands of px/s away from its place), and the spring would fling the song far
+    // past the bar and bring it back from the side it was thrown to.
+    contentX.jump(entry.from);
+    await run(animate(contentX, 0, { ...COME_IN, velocity: entry.velocity }));
   };
 
   const springBack = () => {

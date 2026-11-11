@@ -121,7 +121,7 @@ const PhoneBar: FC<BarProps> = ({ item }) => {
       style={{ y: swipe.barY, touchAction: 'none' }}
       // Sizes follow the bar's own width (a container), so a large interface size or a narrow
       // window never pushes the song's name out.
-      className="bg-surface @container relative mr-[max(0.5rem,env(safe-area-inset-right))] mb-2 ml-[max(0.5rem,env(safe-area-inset-left))] overflow-hidden rounded-2xl shadow-lg shadow-black/15"
+      className="bg-surface @container relative mx-2 mb-2 overflow-hidden rounded-2xl shadow-lg shadow-black/15"
     >
       <BarProgress />
       <div className="flex items-center gap-1 py-[min(0.5rem,2cqw)] pr-[min(0.5rem,2cqw)] pl-[min(1rem,3.5cqw)]">
@@ -174,7 +174,8 @@ const WideBar: FC<BarProps> = ({ item }) => {
       data-testid="mini-player"
       // The right side keeps what fits (a container): the volume slider, the sound and speed
       // buttons and the miniplayer come in as the bar widens.
-      className="bg-surface @container relative mx-2 mb-2 rounded-2xl px-4 py-2 shadow-lg shadow-black/15 lg:mx-4"
+      // Without the tabs under it (large windows), it keeps clear of a gesture area itself.
+      className="bg-surface @container relative mx-2 mb-2 rounded-2xl px-4 py-2 shadow-lg shadow-black/15 lg:mx-4 lg:mb-[max(0.5rem,var(--safe-bottom))]"
     >
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.2fr)] items-center gap-4">
         <div className="flex min-w-0 items-center gap-3">

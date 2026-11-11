@@ -283,12 +283,8 @@ class WebsiteActivity : AppCompatActivity() {
 
         // Edge to edge (always, from Android 15): the bars' space is padded, in the bar's colour.
         val root = FrameLayout(this).apply { setBackgroundColor(PANEL) }
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
-            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard.bottom))
-            insets
-        }
+        // A camera cutout too (at a side in landscape), and the keyboard below.
+        SafeInsets.pad(root, keyboard = true)
         root.addView(column)
         fullScreen = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -296,6 +292,8 @@ class WebsiteActivity : AppCompatActivity() {
         }
         root.addView(fullScreen)
         setContentView(root)
+        // The bar's icon buttons say their names when held.
+        ControlTooltips.follow(root)
         updateShield()
     }
 

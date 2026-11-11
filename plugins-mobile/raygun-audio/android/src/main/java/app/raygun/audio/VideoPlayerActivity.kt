@@ -416,6 +416,7 @@ class VideoPlayerActivity : AppCompatActivity() {
             })
         }
         setContentView(root)
+        fitControls(root, controls.root)
         playerView.setOnTouchListener { view, event -> gestures.onTouch(view, event) }
         // Rotation, the aspect and picture-in-picture move the picture: the subtitles follow it.
         playerView.findViewById<View>(androidx.media3.ui.R.id.exo_content_frame)

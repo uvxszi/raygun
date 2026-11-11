@@ -159,7 +159,7 @@ describe('Item menus', () => {
       expect(menu.className).toContain('max-h-[85dvh]');
       const rows = within(menu).getByTestId('context-menu-rows');
       expect(rows.className).toContain('overflow-y-auto');
-      expect(rows.className).toContain('env(safe-area-inset-bottom)');
+      expect(rows.className).toContain('var(--safe-bottom)');
       // The heading sits outside the scrolling rows; every option is inside them.
       expect(within(rows).queryByText('Daft Punk')).not.toBeInTheDocument();
       expect(within(menu).getByText('Daft Punk')).toBeInTheDocument();

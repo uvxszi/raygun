@@ -85,9 +85,10 @@ const TrailerScreen: FC<{ video: YouTubeVideo }> = ({ video }) => {
       role="dialog"
       aria-modal="true"
       aria-label={video.subtitle ? `${video.subtitle} · ${video.title}` : video.title}
-      className="fixed inset-0 z-[75] flex flex-col bg-black text-white"
+      // Clear of a cutout and a navigation bar at the sides, and of the gesture area below.
+      className="fixed inset-0 z-[75] flex flex-col bg-black pr-[var(--safe-right)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] text-white"
     >
-      <div className="flex items-center gap-2 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+      <div className="flex items-center gap-2 px-3 py-2 pt-[max(0.5rem,var(--safe-top))]">
         <button
           type="button"
           aria-label={t('desktopPlayer.close')}

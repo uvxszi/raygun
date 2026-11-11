@@ -47,7 +47,7 @@ import { useNotificationRoutes } from '../permissions/useNotificationRoutes';
 import { ContextMenuHost } from './ContextMenu';
 import { RevealHost } from './RevealHost';
 import { ToastHost } from './Toast';
-import { HoverLabel } from './HoverLabel';
+import { ControlLabels } from './ControlLabels';
 import { useHorizontalWheel } from './useHorizontalWheel';
 import { NAV_TABS } from './navTabs';
 import { toggleWindowFullscreen } from './useWindowFullscreen';
@@ -199,15 +199,19 @@ export const AppShell: FC = () => {
             immersive={immersive}
           />
         )}
-        {/* Under the full player nothing animates (styles.css `[data-covered]`). */}
-        <div className="flex min-h-0 flex-1" data-covered={sheetOpen ? '' : undefined}>
+        {/* Under the full player nothing animates (styles.css `[data-covered]`). Clear of a
+            cutout and a navigation bar at the sides (landscape); the readers keep their own. */}
+        <div
+          className={`flex min-h-0 flex-1 ${immersive ? '' : 'pr-[var(--safe-right)] pl-[var(--safe-left)]'}`}
+          data-covered={sheetOpen ? '' : undefined}
+        >
           <SideRail />
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex min-h-0 flex-1">
               <main
                 ref={mainRef}
                 data-testid="page-content"
-                className="min-w-0 flex-1 overflow-y-auto px-4 pt-[env(safe-area-inset-top)] pb-4 lg:px-10"
+                className="min-w-0 flex-1 overflow-y-auto px-4 pt-[var(--safe-top)] pb-4 lg:px-10"
               >
                 <Outlet />
               </main>
@@ -229,7 +233,7 @@ export const AppShell: FC = () => {
         <SongDownloadsHost />
         <VideoPlayer />
         <YouTubeOverlay />
-        <HoverLabel />
+        <ControlLabels />
         <MenuSheets />
         <ContextMenuHost />
         <RevealHost />
@@ -241,7 +245,7 @@ export const AppShell: FC = () => {
         {/* Keeps scrolled content from showing through the transparent status bar on phones. */}
         <div
           aria-hidden
-          className="bg-background pointer-events-none fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top)]"
+          className="bg-background pointer-events-none fixed inset-x-0 top-0 z-40 h-[var(--safe-top)]"
         />
       </div>
     </MotionConfig>

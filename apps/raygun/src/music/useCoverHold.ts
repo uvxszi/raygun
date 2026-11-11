@@ -6,6 +6,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from 'react';
 
+import { claimHold } from '../shell/holdClaims';
 import { useCoverSheetStore } from './coverSheetStore';
 import type { CoverToSave } from './coverSheetStore';
 
@@ -66,6 +67,8 @@ export const useCoverHold = ({ cover, onTap }: CoverHold) => {
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
         opened.current = false;
         if (!latest.current.cover || event.button !== 0) return;
+        // The hold opens the cover: no name shows for it (shell/ControlLabels).
+        claimHold(event);
         release();
         const timer = setTimeout(() => {
           press.current = null;
