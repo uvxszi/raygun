@@ -3641,6 +3641,14 @@ async fn converted_code_places_extension_arguments_and_serializers() {
 
 import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonTransformingSerializer
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.put
 
 @Serializable
 class Payload(val manga: MangaDto? = null)
@@ -3650,6 +3658,35 @@ class MangaDto(val name: String, private val slug: String) {
     fun toSManga() = SManga.create().apply {
         title = name
         url = slug
+    }
+}
+
+@Serializable
+class PageDto(val src: String)
+
+@Serializable
+class ChapterDto(
+    @Serializable(PageListSerializer::class) val pages: List<PageDto> = emptyList(),
+    val ranked: List<
+        @Serializable(TupleSerializer::class)
+        PageDto,
+        > = emptyList(),
+)
+
+object PageListSerializer : JsonTransformingSerializer<List<PageDto>>(ListSerializer(PageDto.serializer())) {
+    override fun transformDeserialize(element: JsonElement) = JsonArray(
+        element.jsonArray.map { page ->
+            when (page) {
+                is JsonPrimitive -> buildJsonObject { put("src", page.content) }
+                else -> page
+            }
+        },
+    )
+}
+
+object TupleSerializer : JsonTransformingSerializer<PageDto>(PageDto.serializer()) {
+    override fun transformDeserialize(element: JsonElement) = buildJsonObject {
+        put("src", element.jsonArray[1])
     }
 }
 "##;
@@ -3686,6 +3723,8 @@ class MangaDto(val name: String, private val slug: String) {
             payload.manga!!.toSManga().url,
             failed,
             String(listOf('a', 'b').toCharArray()),
+            jsonInstance.decodeFromString(ChapterDto.serializer(), """{"pages":["a.jpg",{"src":"b.jpg"}],"ranked":[[0,"c.jpg"]]}""")
+                .let { chapter -> (chapter.pages + chapter.ranked).joinToString(",") { it.src } },
             buildList {
                 data class Found(val name: String, val count: Int)
 
@@ -3731,6 +3770,15 @@ class MangaDto(val name: String, private val slug: String) {
         .collect();
     assert_eq!(
         titles,
-        ["<X>", "<yy]", "p-1", "nfe", "ab", "a1,b2", "{\"a\":1}"]
+        [
+            "<X>",
+            "<yy]",
+            "p-1",
+            "nfe",
+            "ab",
+            "a.jpg,b.jpg,c.jpg",
+            "a1,b2",
+            "{\"a\":1}"
+        ]
     );
 }

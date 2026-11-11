@@ -3436,7 +3436,7 @@ fn is_plain(expr: &Expr) -> bool {
 }
 
 fn type_name(ty: &Type) -> String {
-    if ty.args.is_empty() {
+    let name = if ty.args.is_empty() {
         ty.name.clone()
     } else {
         format!(
@@ -3444,6 +3444,11 @@ fn type_name(ty: &Type) -> String {
             ty.name,
             ty.args.iter().map(type_name).collect::<Vec<_>>().join(",")
         )
+    };
+    // The serializer it's decoded with (`@Serializable(RankingSerializer::class)`), after an `@`.
+    match &ty.serializer {
+        Some(serializer) => format!("{name}@{serializer}"),
+        None => name,
     }
 }
 
@@ -3540,7 +3545,7 @@ pub const GLOBALS: &[&str] = &[
     "KeyPair", "SequenceInputStream", "ZipException", "EOFException", "CRC32",
     "readEntry", "ZipInputStream", "BLAKE2b", "StringSubstitutor", "Levenshtein",
     "NormalizedLevenshtein", "JaroWinkler", "Handler", "ColorMatrix", "ColorMatrixColorFilter",
-    "currentCoroutineContext",
+    "currentCoroutineContext", "ListSerializer", "SetSerializer", "MapSerializer", "serializer",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.

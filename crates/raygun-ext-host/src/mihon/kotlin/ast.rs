@@ -11,6 +11,8 @@ pub struct Type {
     pub name: String,
     pub args: Vec<Type>,
     pub nullable: bool,
+    /// The serializer it's decoded with (`List<@Serializable(RankingSerializer::class) Ranking>`).
+    pub serializer: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

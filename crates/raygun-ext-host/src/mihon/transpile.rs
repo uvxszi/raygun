@@ -972,7 +972,7 @@ fn qualified_type(ty: &super::kotlin::ast::Type, scope: &Enclosing<'_>) -> Strin
                 },
             )
     };
-    if ty.args.is_empty() {
+    let name = if ty.args.is_empty() {
         name
     } else {
         format!(
@@ -983,6 +983,11 @@ fn qualified_type(ty: &super::kotlin::ast::Type, scope: &Enclosing<'_>) -> Strin
                 .collect::<Vec<_>>()
                 .join(",")
         )
+    };
+    // The serializer the type is decoded with, after an `@` the runtime reads.
+    match &ty.serializer {
+        Some(serializer) => format!("{name}@{serializer}"),
+        None => name,
     }
 }
 
@@ -1103,10 +1108,19 @@ fn class_definition(
         .params
         .iter()
         .map(|param| {
+            // A field's own serializer (`@Serializable(PageListSerializer::class) val pages`).
+            let mut ty = writer.unaliased(&param.ty);
+            if let Some(serializer) = param
+                .annotations
+                .iter()
+                .find_map(|annotation| annotation.strip_prefix("Serializable="))
+            {
+                ty.serializer = Some(serializer.to_owned());
+            }
             format!(
                 "{}: {}",
                 quote(&param.name),
-                quote(&qualified_type(&writer.unaliased(&param.ty), &scope))
+                quote(&qualified_type(&ty, &scope))
             )
         })
         .collect();
@@ -1298,7 +1312,10 @@ fn class_definition(
                     // A `var` with a value is a field, set when the instance is made (a
                     // serializable class's `val` too: JSON decodes into it); other properties are
                     // worked out when read.
-                    let serializable = class.annotations.iter().any(|name| name == "Serializable");
+                    let serializable = class
+                        .annotations
+                        .iter()
+                        .any(|name| name == "Serializable" || name.starts_with("Serializable="));
                     let wrapper = if (prop.mutable || serializable)
                         && prop.value.is_some()
                         && prop.getter.is_none()

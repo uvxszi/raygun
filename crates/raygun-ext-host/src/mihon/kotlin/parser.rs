@@ -319,6 +319,22 @@ impl Parser {
             {
                 return Ok(format!("ProtoType={kind}"));
             }
+            // A serializer of the source's (`@Serializable(PageListSerializer::class)`, or
+            // `with =`): its JSON passes through it before it's decoded.
+            if name == "Serializable"
+                && let Some(Arg {
+                    value:
+                        Expr::Reference {
+                            target: Some(target),
+                            name: class,
+                        },
+                    ..
+                }) = args.first()
+                && class == "class"
+                && let Expr::Name(serializer) = target.as_ref()
+            {
+                return Ok(format!("Serializable={serializer}"));
+            }
             // The other JSON names it's read by (`@JsonNames("results", "manga_list")`).
             if name == "JsonNames" {
                 let names: Vec<&str> = args
@@ -844,10 +860,22 @@ impl Parser {
     /// A type: `String`, `List<Pair<String, Int>>?`, `(Int) -> Unit`, `suspend () -> T`,
     /// `Filter.Select<String>`, `Array<out String>`.
     fn ty(&mut self) -> Result<Type, String> {
+        let mut serializer = None;
         while self.is_op("@") {
-            self.annotation()?;
+            if let Some(name) = self.annotation()?.strip_prefix("Serializable=") {
+                serializer = Some(name.to_owned());
+            }
             self.skip_newlines();
         }
+        let mut ty = self.plain_ty()?;
+        if serializer.is_some() {
+            ty.serializer = serializer;
+        }
+        Ok(ty)
+    }
+
+    /// A type after its annotations.
+    fn plain_ty(&mut self) -> Result<Type, String> {
         self.eat_name("suspend");
         if self.is_op("(") {
             // A function type, or a type in parentheses.
@@ -881,6 +909,7 @@ impl Parser {
                     name: "()".to_owned(),
                     args,
                     nullable,
+                    serializer: None,
                 });
             }
             let mut ty = inner.into_iter().next().unwrap_or_default();
@@ -949,6 +978,7 @@ impl Parser {
                     name,
                     args,
                     nullable,
+                    serializer: None,
                 },
             );
             // Its first argument is the receiver.
@@ -959,6 +989,7 @@ impl Parser {
             name,
             args,
             nullable,
+            serializer: None,
         })
     }
 
@@ -967,13 +998,21 @@ impl Parser {
         self.with_nesting(true, |parser| {
             let mut args = Vec::new();
             loop {
-                // `List<@Serializable(X::class) Item,>`: annotations and a trailing comma.
+                // `List<@Serializable(X::class) Item,>`: annotations (a serializer is kept) and a
+                // trailing comma.
+                let mut serializer = None;
                 while parser.is_op("@") {
-                    parser.annotation()?;
+                    if let Some(name) = parser.annotation()?.strip_prefix("Serializable=") {
+                        serializer = Some(name.to_owned());
+                    }
                 }
                 parser.eat_name("in");
                 parser.eat_name("out");
-                args.push(parser.ty()?);
+                let mut arg = parser.ty()?;
+                if serializer.is_some() {
+                    arg.serializer = serializer;
+                }
+                args.push(arg);
                 if !parser.eat_op(",") || parser.is_op(">") {
                     break;
                 }

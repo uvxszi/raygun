@@ -242,12 +242,29 @@
   };
   KT.range = (from, to, step = 1) => ({ isRange: true, first: from, last: to, step });
   /// `from until to`, `from..<to`: of numbers or `BigInteger`s.
-  KT.until = (from, to) => KT.range(from, typeof to === 'bigint' ? to - 1n : to - 1);
+  KT.until = (from, to) =>
+    KT.range(
+      from,
+      typeof to === 'bigint'
+        ? to - 1n
+        : typeof to === 'string'
+          ? String.fromCharCode(to.charCodeAt(0) - 1)
+          : to - 1,
+    );
   KT.step = (range, step) => ({ ...range, step: range.step < 0 ? -step : step });
   KT.iter = (value) => {
     if (value == null) return [];
     if (value.isRange) {
       const out = [];
+      // A range of characters (`'a'..'z'`): by their codes.
+      if (typeof value.first === 'string') {
+        const [first, last] = [value.first.charCodeAt(0), KT.str(value.last).charCodeAt(0)];
+        const step = Number(value.step) || 1;
+        if (step > 0)
+          for (let code = first; code <= last; code += step) out.push(String.fromCharCode(code));
+        else for (let code = first; code >= last; code += step) out.push(String.fromCharCode(code));
+        return out;
+      }
       if (value.step > 0)
         for (let index = value.first; index <= value.last; index += value.step) out.push(index);
       else for (let index = value.first; index >= value.last; index += value.step) out.push(index);
@@ -639,8 +656,16 @@
       },
       // A picture's bytes stay a `Uint8Array` on the way through (a list of numbers that size
       // would fill the script's memory).
-      doFinalU8: (data = []) =>
-        K.bin.fromBase64(
+      // `doFinal(bytes, offset, length)` too: that part of them.
+      doFinalU8: (whole = [], offset = 0, length = undefined) => {
+        const data =
+          offset || length !== undefined
+            ? whole.slice(
+                Number(offset),
+                length === undefined ? undefined : Number(offset) + Number(length),
+              )
+            : whole;
+        return K.bin.fromBase64(
           crypto({
             op: 'aes',
             mode: cipher.mode,
@@ -651,8 +676,10 @@
             data: data instanceof Uint8Array ? K.bin.toBase64(data) : base64Of(data),
             aad: cipher.aad && cipher.aad.length ? base64Of(cipher.aad) : null,
           }),
-        ),
-      doFinal: (data = []) => listOfBytes(cipher.doFinalU8(data)),
+        );
+      },
+      doFinal: (data = [], offset = 0, length = undefined) =>
+        listOfBytes(cipher.doFinalU8(data, offset, length)),
       getIV: () => cipher.iv,
       iv_: null,
     };
@@ -2451,6 +2478,21 @@
   };
 
   const ANY = {
+    // okio's `source.buffer()` of a source's own `Source` (`read(sink, byteCount)`, a stream
+    // decrypting as it reads): all it gives, read into a buffer.
+    buffer: async (value) => {
+      if (
+        !value ||
+        (typeof value.read !== 'function' && !(value.__methods && value.__methods.read))
+      )
+        KT.raise("Raygun's runtime has no buffer() for this value");
+      const sink = okioBuffer();
+      for (let reads = 0; reads < 1_000_000; reads++) {
+        const count = Number(await KT.m(value, 'read', [sink, 65536]));
+        if (!(count > 0)) break;
+      }
+      return sink;
+    },
     // A data class of Mihon's (`mangasPage.copy(mangas = …)`): the same with the named fields
     // changed.
     copy: (value, _args, _lambda, named) =>
@@ -2701,6 +2743,9 @@
       if (value.isStringBuilder && (name === 'lastIndex' || name === 'indices'))
         return KT.p(value.text, name);
       const own = field(value, name);
+      // okio's `source.buffer` (the property, beside the `buffer()` making one): the buffer.
+      if (name === 'buffer' && typeof own === 'function' && typeof value.u8Now === 'function')
+        return own();
       if (own !== undefined) {
         if (own && own.isGetter) return own.function_(value);
         if (own && own.isDeferred) return own.value;
@@ -3600,7 +3645,7 @@
     let at = 0;
     const read = () => {
       let name = '';
-      while (at < text.length && !'<>,'.includes(text[at])) name += text[at++];
+      while (at < text.length && !'<>,@'.includes(text[at])) name += text[at++];
       const args = [];
       if (text[at] === '<') {
         at++;
@@ -3614,10 +3659,26 @@
           break;
         }
       }
+      // The serializer it's decoded with (`Ranking@RankingSerializer`).
+      let serializer = null;
+      if (text[at] === '@') {
+        at++;
+        serializer = '';
+        while (at < text.length && !'<>,'.includes(text[at])) serializer += text[at++];
+        serializer = serializer.trim();
+      }
       const qualified = name.trim().replace(/\?$/, '');
-      return { name: qualified.split('.').pop(), qualified, args };
+      return { name: qualified.split('.').pop(), qualified, args, serializer };
     };
     return read();
+  };
+  /// JSON through a serializer of the source's (`JsonTransformingSerializer`'s
+  /// `transformDeserialize`), before it's decoded.
+  const throughSerializer = async (name, value) => {
+    const holder = CLASSES[name];
+    return holder && typeof holder.transformDeserialize === 'function'
+      ? holder.transformDeserialize(value)
+      : value;
   };
   /// A declared class by the name a type gives it (`ReaderDto.ChapterDto`, `ChapterDto`).
   const classOf = (type) => CLASSES[type.qualified] ?? CLASSES[type.name];
@@ -3633,6 +3694,10 @@
   ]);
   const NUMBER_TYPES = new Set(['Int', 'Long', 'Short', 'Byte', 'Double', 'Float']);
   const decodeAs = async (value, type) => {
+    if (type.serializer) {
+      value = await throughSerializer(type.serializer, value);
+      type = { ...type, serializer: null };
+    }
     if (value === null || value === undefined) return null;
     if (LISTS.has(type.name)) {
       const itemType = type.args[0] ?? { name: 'Any', args: [] };
@@ -3710,6 +3775,7 @@
       name: type.name,
       qualified: type.qualified,
       args: type.args.map((arg) => substitute(arg, names, args)),
+      serializer: type.serializer ?? null,
     };
   };
   /// A JSON answer as the type asked for: declared DTOs with their methods, the rest plain, names
@@ -4903,6 +4969,11 @@
         return KT.unit;
       },
       request: (count) => tail - head >= count,
+      // okio's `buffer[index]`: a byte (signed, as Kotlin's `Byte`) not yet read.
+      get: (index) =>
+        head + Number(index) < tail
+          ? (data[head + Number(index)] << 24) >> 24
+          : KT.raise(`no byte ${index} in the buffer`),
       indexOf: (byte, from = 0) => {
         const at = data.subarray(head + from, tail).indexOf(byte & 255);
         return at < 0 ? -1 : at + from;
@@ -7892,6 +7963,12 @@
     }),
     // kotlinx.coroutines' `currentCoroutineContext()`: never cancelled here.
     currentCoroutineContext: () => coroutineContext('CoroutineContext'),
+    // kotlinx's serializers, as `JsonTransformingSerializer`s take them (decoding goes by the
+    // declared types).
+    ListSerializer: ([item]) => ({ isSerializer: true, name: 'List', item }),
+    SetSerializer: ([item]) => ({ isSerializer: true, name: 'Set', item }),
+    MapSerializer: ([key, value]) => ({ isSerializer: true, name: 'Map', key, value }),
+    serializer: () => ({ isSerializer: true, name: 'Any' }),
     // Android's `Handler(looper)`: `post { … }` and `postDelayed({ … }, ms)`.
     Handler: () => handler(),
     // commons-text's `StringSubstitutor(values, "{", "}")`: `replace(template)`.
@@ -10534,8 +10611,27 @@
           configurable: true,
         });
       }
-      object.toString = () =>
-        `${definition.name}(${definition.params.map((name) => `${name}=${KT.str(object[name])}`).join(', ')})`;
+      // A data class's text, unless the class (or a parent) writes its own
+      // (`override fun toString() = downloadUrl`).
+      if (
+        !Object.prototype.hasOwnProperty.call(definition.members, 'toString') &&
+        !Object.prototype.hasOwnProperty.call(object, 'toString')
+      )
+        object.toString = () =>
+          `${definition.name}(${definition.params.map((name) => `${name}=${KT.str(object[name])}`).join(', ')})`;
+      else if (typeof object.toString === 'function') {
+        // Its own text is worked out now (its code is async), so text templates and lists
+        // joined read it as they are written; `toString()` called still runs the code.
+        const own = object.toString;
+        object.__methods ??= {};
+        object.__methods.toString = own;
+        try {
+          const text = KT.str(await own());
+          object.toString = () => text;
+        } catch {
+          // Left as the call: it can't be worked out before the fields it reads.
+        }
+      }
       object.copy = (...rest) =>
         make(
           definition.params.map((name, index) =>
