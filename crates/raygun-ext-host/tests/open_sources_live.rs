@@ -980,3 +980,366 @@ fn chrono_year() -> i32 {
     // 365.2425 days a year since 1970 is exact enough for a year.
     1970 + (seconds as f64 / 31_556_952.0) as i32
 }
+
+// ---- Library of Congress, National Archives, Europeana ----
+
+const LOC_FILMS: &str = "dev.raygun.loc/films";
+const LOC_RECORDINGS: &str = "dev.raygun.loc/recordings";
+
+/// The Library of Congress source alone, with time for the API's stalls: an uncached query can
+/// run until its request times out, and the source asks again once the API has answered it.
+async fn loc_host() -> ExtensionHost {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions/loc");
+    let host = ExtensionHost::start(HostConfig {
+        call_timeout: std::time::Duration::from_secs(90),
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let infos = host
+        .load(vec![raygun_ext_host::ExtensionSource::installed(dir)])
+        .await;
+    assert_eq!(
+        infos[0].status,
+        ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    host
+}
+
+/// Library of Congress films published before 1931 and recordings published before 1926: about
+/// eight requests, which the source spaces 3.1 s apart (the API allows 20 a minute).
+#[tokio::test]
+#[ignore = "needs network access to www.loc.gov"]
+async fn open_sources_live_loc() {
+    let host = loc_host().await;
+    let popular = host
+        .manga_list(LOC_FILMS, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_listing("Edison films", &popular);
+    assert!(popular.has_next_page);
+    let found = host.manga_search(LOC_FILMS, "fire", 1).await.unwrap();
+    assert_listing("search fire", &found);
+    let animation = host
+        .manga_search_filtered(
+            LOC_FILMS,
+            "",
+            1,
+            &BTreeMap::from([(
+                "collection".to_owned(),
+                select("origins-of-american-animation"),
+            )]),
+        )
+        .await
+        .unwrap();
+    assert_listing("early animation", &animation);
+
+    // A film's page reads its rights statement first and refuses one with restrictions.
+    let id = &animation.items[0].id;
+    let details = host.manga_details(LOC_FILMS, id).await.unwrap();
+    println!(
+        "details: {:?}, {:?}, {:?}\n{}",
+        details.title,
+        details.year,
+        details.genres,
+        details.description.as_deref().unwrap_or_default()
+    );
+    assert!(details.year.is_some_and(|year| year <= chrono_year() - 96));
+    assert!(
+        details
+            .description
+            .as_deref()
+            .is_some_and(|text| text.contains("Public domain in the United States"))
+    );
+    let episodes = host.video_episodes(LOC_FILMS, id).await.unwrap();
+    let servers = host
+        .video_servers(LOC_FILMS, &episodes[0].id)
+        .await
+        .unwrap();
+    let videos = servers[0].videos.as_ref().expect("resolved at once");
+    for video in videos {
+        println!(
+            "  {:?} {:?} {:?} {}",
+            video.label, video.quality, video.format, video.url
+        );
+    }
+    let mp4 = videos
+        .iter()
+        .find(|video| video.format.is_none())
+        .expect("an MP4");
+    assert!(mp4.url.starts_with("https://tile.loc.gov/"));
+    assert_served("film", &mp4.url, &mp4.headers).await;
+    assert!(
+        videos
+            .iter()
+            .any(|video| video.format.as_deref() == Some("hls"))
+    );
+
+    // Recordings: two lists read once, searched on the device.
+    let tracks = songs_from(&host, "dev.raygun.loc", "rag").await;
+    assert!(!tracks.is_empty());
+    let (url, headers) = url_of(&tracks[0]);
+    assert!(url.starts_with("https://tile.loc.gov/"));
+    assert_served("recording", url, headers).await;
+    let albums = host.search_albums("edison", 5).await;
+    assert!(
+        albums
+            .iter()
+            .any(|album| album.provider.id == LOC_RECORDINGS && album.id == "edison")
+    );
+    let edison = host.music_album(LOC_RECORDINGS, "edison").await.unwrap();
+    println!("{}: {} recordings", edison.album.title, edison.tracks.len());
+    assert!(edison.tracks.len() > 50);
+}
+
+/// One first-party extension with its API key set (none when `key` is `None`).
+async fn keyed_host(folder: &str, id: &str, key: Option<&str>) -> ExtensionHost {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../extensions")
+        .join(folder);
+    let mut settings = BTreeMap::new();
+    if let Some(key) = key {
+        settings.insert("apiKey".to_owned(), serde_json::json!(key));
+    }
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host
+        .load_with_settings(
+            vec![raygun_ext_host::ExtensionSource::installed(dir)],
+            raygun_ext_host::UserSettings::from([(id.to_owned(), settings)]),
+        )
+        .await;
+    assert_eq!(
+        infos[0].status,
+        ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    host
+}
+
+/// The key in an environment variable, when one is set.
+fn key_from(variable: &str) -> Option<String> {
+    std::env::var(variable)
+        .ok()
+        .filter(|key| !key.trim().is_empty())
+}
+
+const NARA_FILMS: &str = "dev.raygun.nara/films";
+
+/// National Archives films with the API key in `NARA_API_KEY` (each person's own, asked for by
+/// email at Catalog_API@nara.gov); without one it checks the source waits for it, asked nothing.
+#[tokio::test]
+#[ignore = "needs network access to catalog.archives.gov"]
+async fn open_sources_live_nara() {
+    let key = key_from("NARA_API_KEY");
+    let host = keyed_host("nara", "dev.raygun.nara", key.as_deref()).await;
+    let popular = host.manga_list(NARA_FILMS, MangaList::Popular, 1).await;
+    if key.is_none() {
+        let error = popular.unwrap_err();
+        println!("without a key: {error}");
+        assert_eq!(
+            raygun_ext_host::needs_setup_in(&error),
+            Some("dev.raygun.nara")
+        );
+        assert!(host.needs_setup("dev.raygun.nara").is_some());
+        return;
+    }
+    // The catalogue has no pictures of its films, so the lists have no covers to check.
+    let popular = popular.unwrap();
+    println!(
+        "Army library copies: {} films (more: {}), first {:?}",
+        popular.items.len(),
+        popular.has_next_page,
+        popular.items.first().map(|item| &item.title)
+    );
+    assert!(!popular.items.is_empty());
+    let found = host
+        .manga_search_filtered(
+            NARA_FILMS,
+            "navy",
+            1,
+            &BTreeMap::from([("decade".to_owned(), select("1940"))]),
+        )
+        .await
+        .unwrap();
+    println!(
+        "navy in the 1940s: {} films, first {:?}",
+        found.items.len(),
+        found.items.first().map(|item| &item.title)
+    );
+
+    let id = &popular.items[0].id;
+    let details = host.manga_details(NARA_FILMS, id).await.unwrap();
+    println!(
+        "details: {:?}, {:?}\n{}",
+        details.title,
+        details.year,
+        details.description.as_deref().unwrap_or_default()
+    );
+    assert!(
+        details
+            .description
+            .as_deref()
+            .is_some_and(|text| text.contains("Unrestricted use and access"))
+    );
+    let episodes = host.video_episodes(NARA_FILMS, id).await.unwrap();
+    println!(
+        "reels: {:?}",
+        episodes
+            .iter()
+            .map(|episode| &episode.name)
+            .collect::<Vec<_>>()
+    );
+    let servers = host
+        .video_servers(NARA_FILMS, &episodes[0].id)
+        .await
+        .unwrap();
+    let videos = servers[0].videos.as_ref().expect("resolved at once");
+    println!("  {}", videos[0].url);
+    assert_served("film", &videos[0].url, &videos[0].headers).await;
+}
+
+const EUROPEANA_VIDEOS: &str = "dev.raygun.europeana/videos";
+
+/// The rights of Europeana items by id, asked of Europeana's search directly (one request).
+async fn europeana_rights(key: &str, ids: &[&str]) -> BTreeMap<String, String> {
+    let query = format!(
+        "europeana_id:({})",
+        ids.iter()
+            .map(|id| format!("\"/{id}\""))
+            .collect::<Vec<_>>()
+            .join(" OR ")
+    );
+    let rows = ids.len().to_string();
+    let url = reqwest::Url::parse_with_params(
+        "https://api.europeana.eu/record/v2/search.json",
+        [
+            ("query", query.as_str()),
+            ("rows", rows.as_str()),
+            ("profile", "minimal"),
+        ],
+    )
+    .unwrap();
+    let text = raygun_net::http_client()
+        .unwrap()
+        .get(url)
+        .header("X-Api-Key", key)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let answer: serde_json::Value = serde_json::from_str(&text).unwrap();
+    answer["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let id = item["id"].as_str()?.trim_start_matches('/').to_owned();
+            Some((id, item["rights"][0].as_str()?.to_owned()))
+        })
+        .collect()
+}
+
+/// Public Domain Mark, CC0, CC BY and CC BY-SA, any version or port.
+fn open_licence(rights: &str) -> bool {
+    [
+        "http://creativecommons.org/publicdomain/mark/",
+        "http://creativecommons.org/publicdomain/zero/",
+        "http://creativecommons.org/licenses/by/",
+        "http://creativecommons.org/licenses/by-sa/",
+    ]
+    .iter()
+    .any(|open| rights.replace("https://", "http://").starts_with(open))
+}
+
+/// Europeana's open films and recordings with the API key in `EUROPEANA_API_KEY` (each person's
+/// own, from their europeana.eu account; Europeana's public demo key works for trying it);
+/// without one it checks the source waits for it, asked nothing.
+#[tokio::test]
+#[ignore = "needs network access to api.europeana.eu"]
+async fn open_sources_live_europeana() {
+    let key = key_from("EUROPEANA_API_KEY");
+    let host = keyed_host("europeana", "dev.raygun.europeana", key.as_deref()).await;
+    let popular = host
+        .manga_list(EUROPEANA_VIDEOS, MangaList::Popular, 1)
+        .await;
+    let Some(key) = key else {
+        let error = popular.unwrap_err();
+        println!("without a key: {error}");
+        assert_eq!(
+            raygun_ext_host::needs_setup_in(&error),
+            Some("dev.raygun.europeana")
+        );
+        let music = host.search_music("hora", 10).await;
+        assert!(
+            music
+                .iter()
+                .all(|result| result.provider.extension_id != "dev.raygun.europeana"),
+            "a source waiting for its key is left out of searches"
+        );
+        return;
+    };
+    let popular = popular.unwrap();
+    assert_listing("open videos", &popular);
+    let football = host
+        .manga_search_filtered(
+            EUROPEANA_VIDEOS,
+            "football",
+            1,
+            &BTreeMap::from([("country".to_owned(), select("netherlands"))]),
+        )
+        .await
+        .unwrap();
+    assert_listing("football in the Netherlands", &football);
+    let latest = host
+        .manga_list(EUROPEANA_VIDEOS, MangaList::Latest, 1)
+        .await
+        .unwrap();
+    assert_listing("recently added", &latest);
+    for listing in [&popular, &football, &latest] {
+        let ids: Vec<&str> = listing.items.iter().map(|item| item.id.as_str()).collect();
+        let rights = europeana_rights(&key, &ids).await;
+        for id in ids {
+            let licence = rights.get(id).map_or("(none)", String::as_str);
+            assert!(open_licence(licence), "{id} is under {licence}");
+        }
+    }
+
+    // A film names its licence and the institution that holds it, and plays from its file.
+    let id = &popular.items[0].id;
+    let details = host.manga_details(EUROPEANA_VIDEOS, id).await.unwrap();
+    let description = details.description.clone().unwrap_or_default();
+    println!(
+        "details: {:?}, {:?}\n{description}",
+        details.title, details.year
+    );
+    assert!(description.contains("Licence: "));
+    assert!(description.contains("Provided by "));
+    let episodes = host.video_episodes(EUROPEANA_VIDEOS, id).await.unwrap();
+    let servers = host
+        .video_servers(EUROPEANA_VIDEOS, &episodes[0].id)
+        .await
+        .unwrap();
+    let videos = servers[0].videos.as_ref().expect("resolved at once");
+    println!("  {:?} {}", videos[0].label, videos[0].url);
+    assert_served("film", &videos[0].url, &videos[0].headers).await;
+
+    // Recordings play from the institutions' own MP3s, each under an open licence.
+    let tracks = songs_from(&host, "dev.raygun.europeana", "hora").await;
+    assert!(!tracks.is_empty());
+    let ids: Vec<&str> = tracks
+        .iter()
+        .filter_map(|track| track.external_id.as_deref())
+        .collect();
+    assert_eq!(ids.len(), tracks.len(), "every recording has its id");
+    let rights = europeana_rights(&key, &ids).await;
+    for id in &ids {
+        let licence = rights.get(*id).map_or("(none)", String::as_str);
+        assert!(open_licence(licence), "{id} is under {licence}");
+    }
+    let (url, headers) = url_of(&tracks[0]);
+    assert_served("recording", url, headers).await;
+}
