@@ -1679,6 +1679,7 @@ async fn converted_code_reads_sequences_inits_and_qualified_names() {
             QuickJs.create().use { engine -> engine.evaluate("var k = 2"); engine.evaluate("k * 21") }.toString(),
             "ff".toInt(16).toString(),
             OrderPick().state.toString(),
+            "https://x.example/manga/32d76d19-8a05-4db0-9fc2-e0b0648fe9d0".contains(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")).toString(),
         )
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
     }"##,
@@ -1790,6 +1791,7 @@ class Box(text: String) {
             "42",
             "255",
             "2",
+            "true",
         ]
     );
 }

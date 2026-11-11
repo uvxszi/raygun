@@ -347,6 +347,20 @@ fn property_value(prop: &PropDecl) -> Option<Body> {
                 lambda: Some(lambda),
             }))
         }
+        // `by lazy(::make)`: the function's value.
+        Some(Expr::Call {
+            callee,
+            lambda: None,
+            args,
+            ..
+        }) if args.len() == 1 && matches!(callee.as_ref(), Expr::Name(name) if name == "lazy") => {
+            Some(Body::Expr(Expr::Call {
+                callee: Box::new(args[0].value.clone()),
+                type_args: Vec::new(),
+                args: Vec::new(),
+                lambda: None,
+            }))
+        }
         // `by getPreferencesLazy()`: a `Lazy`'s value.
         Some(other @ Expr::Call { callee, .. }) if matches!(callee.as_ref(), Expr::Name(name) if name.ends_with("Lazy")) => {
             Some(Body::Expr(Expr::Member {
@@ -461,6 +475,16 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                 if skip.iter().any(|class| std::ptr::eq(inner, *class)) {
                     classes(&inner.members, skip, cx);
                     continue;
+                }
+                if inner.kind == ClassKind::Enum {
+                    cx.enum_entries.insert(
+                        inner.name.clone(),
+                        inner
+                            .entries
+                            .iter()
+                            .map(|entry| entry.name.clone())
+                            .collect(),
+                    );
                 }
                 if !inner.modifiers.iter().any(|m| m == "companion") {
                     cx.classes.insert(inner.name.clone());
@@ -929,7 +953,7 @@ fn class_definition(
         .collect();
     // Each field's type, for JSON decoded into the class (`List<ChapterDto>`), nested classes by
     // the names that tell them apart.
-    let types: Vec<String> = class
+    let mut types: Vec<String> = class
         .params
         .iter()
         .map(|param| {
@@ -940,6 +964,22 @@ fn class_definition(
             )
         })
         .collect();
+    // Its body's fields with a declared type (`val relationships: List<EntityDto> = …`), which
+    // JSON decodes into too.
+    for member in &class.members {
+        if let Member::Prop(prop) = member
+            && let Some(ty) = &prop.ty
+            && prop.value.is_some()
+            && prop.getter.is_none()
+            && prop.receiver.is_none()
+        {
+            types.push(format!(
+                "{}: {}",
+                quote(&prop.name),
+                quote(&qualified_type(&writer.unaliased(ty), &scope))
+            ));
+        }
+    }
     let supers: Vec<String> = class
         .supers
         .iter()
@@ -1022,9 +1062,19 @@ fn class_definition(
                     name: class.name.clone(),
                     ..Default::default()
                 });
-                let code = writer
-                    .function(&method)
-                    .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?;
+                let code = match writer.function(&method) {
+                    Ok(code) => code,
+                    // A settings screen's helper (`setupEditTextUuidValidator`): Raygun shows no
+                    // settings screens, so one it can't convert fails only if it's called.
+                    Err(reason) if settings_helper(&fun.name) => format!(
+                        "async () => KT.raise({})",
+                        quote(&format!(
+                            "Raygun couldn't convert {}.{}: {reason}",
+                            class.name, fun.name
+                        ))
+                    ),
+                    Err(reason) => return Err(format!("{}.{}: {reason}", class.name, fun.name)),
+                };
                 let shape = shape(fun, &class.type_params);
                 let overload = format!("[{}, {code}]", &shape[1..shape.len() - 1]);
                 match overloaded.iter_mut().find(|(name, _)| *name == fun.name) {
@@ -1047,9 +1097,14 @@ fn class_definition(
                         body: Some(body),
                         line: prop.line,
                     };
-                    // A `var` with a value is a field, set when the instance is made; other
-                    // properties are worked out when read.
-                    let wrapper = if prop.mutable && prop.value.is_some() && prop.getter.is_none() {
+                    // A `var` with a value is a field, set when the instance is made (a
+                    // serializable class's `val` too: JSON decodes into it); other properties are
+                    // worked out when read.
+                    let serializable = class.annotations.iter().any(|name| name == "Serializable");
+                    let wrapper = if (prop.mutable || serializable)
+                        && prop.value.is_some()
+                        && prop.getter.is_none()
+                    {
                         "KT.field"
                     } else {
                         "KT.getter"
@@ -1157,6 +1212,16 @@ fn class_definition(
         entry_args = entry_args.join(", "),
         methods = methods.join(", "),
     ))
+}
+
+/// Whether a function's name says it builds a settings screen (`setupPreferenceScreen`,
+/// `setupEditTextUuidValidator`, `showLoginDialog`).
+fn settings_helper(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.starts_with("setup")
+        || ["preference", "edittext", "dialog", "validator", "screen"]
+            .iter()
+            .any(|mark| lower.contains(mark))
 }
 
 /// The class named `name` among the files' top-level declarations.

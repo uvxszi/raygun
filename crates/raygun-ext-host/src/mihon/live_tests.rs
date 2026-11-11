@@ -508,6 +508,9 @@ async fn sample_one(
         listing.items.len(),
         title.title
     );
+    if full {
+        line.push_str(&format!(" [{}]", title.id));
+    }
     match tokio::time::timeout(wait, host.manga_details(&provider, &title.id)).await {
         Ok(Ok(_)) => stages[1] = true,
         Ok(Err(error)) => line.push_str(&format!("; details: {}", first_line(error))),

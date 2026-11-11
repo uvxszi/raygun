@@ -130,6 +130,9 @@
   KT.cmp = (left, right) => {
     if (typeof left === 'string' && typeof right === 'string')
       return left < right ? -1 : left > right ? 1 : 0;
+    // Durations and instants by their milliseconds.
+    if (left && typeof left === 'object' && 'ms' in left) left = left.ms;
+    if (right && typeof right === 'object' && 'ms' in right) right = right.ms;
     return left - right;
   };
   KT.and = (left, right) => (typeof left === 'boolean' ? left && right : left & right);
@@ -272,6 +275,17 @@
     Object.defineProperty(args, '__types', { value: types, enumerable: false });
     return args;
   };
+  /// Whether one of an extension's overloads takes `receiver` and `args`: its receiver's type
+  /// and its parameters' (`[required, total, [types]]`).
+  const extensionTakes = (entry, receiver, args) => {
+    if (entry.type && !KT.is(receiver, entry.type)) return false;
+    if (!entry.shape) return true;
+    const [required, total, types] = entry.shape;
+    if (args.length < required || args.length > total) return false;
+    return types.every(
+      (kind, at) => at >= args.length || kind === null || args[at] == null || KT.is(args[at], kind),
+    );
+  };
   /// Calls `function_` with `args`, its types set aside for it to take.
   const enter = (function_, args, receiver = undefined) => {
     const types = args && args.__types;
@@ -330,6 +344,12 @@
     Boolean: (value) => typeof value === 'boolean',
     List: Array.isArray,
     MutableList: Array.isArray,
+    Set: Array.isArray,
+    MutableSet: Array.isArray,
+    // OkHttp's and Mihon's builders (`HttpUrl.Builder`, `Request.Builder`, `Headers.Builder`).
+    Builder: (value) => Boolean(value && typeof value.build === 'function'),
+    HashSet: Array.isArray,
+    LinkedHashSet: Array.isArray,
     Collection: Array.isArray,
     Iterable: Array.isArray,
     Array: Array.isArray,
@@ -648,6 +668,7 @@
       return value === null || value < 0 || value > 4294967295 ? null : value;
     },
     lineSequence: (s) => s.split(/\r?\n/),
+    isISOControl: (s) => /^[\u0000-\u001f\u007f-\u009f]$/.test(s),
     random: (s) => (s.length ? s[Math.floor(Math.random() * s.length)] : noSuch('empty text')),
     substringAfter: (s, [delimiter, missing = s]) =>
       K.substringAfter(s, KT.str(delimiter), missing),
@@ -1540,6 +1561,7 @@
       return true;
     },
     randomOrNull: (l) => (l.length ? l[Math.floor(Math.random() * l.length)] : null),
+    contentToString: (l) => `[${l.map((item) => KT.str(item)).join(', ')}]`,
     minWith: async (l, [order]) => {
       if (!l.length) return noSuch('the list is empty');
       return (await sortWith(l, order))[0];
@@ -1730,6 +1752,17 @@
   const NUMBER = {
     // `BigDecimal`s are numbers here.
     stripTrailingZeros: (n) => n,
+    setScale: (n, [scale = 0, mode = 'HALF_UP']) => {
+      const factor = 10 ** Number(scale);
+      const round =
+        {
+          DOWN: Math.trunc,
+          FLOOR: Math.floor,
+          CEILING: Math.ceil,
+          UP: (x) => Math.sign(x) * Math.ceil(Math.abs(x)),
+        }[KT.str(mode)] ?? Math.round;
+      return round(n * factor) / factor;
+    },
     toPlainString: (n) => String(n),
     mod: (n, [other]) => ((n % other) + other) % other,
     toBigDecimal: (n) => n,
@@ -1737,6 +1770,12 @@
     toULong: (n) => (n < 0 ? n + 18446744073709551616 : n),
     toUByte: (n) => n & 255,
     toUInt: (n) => Math.trunc(n) >>> 0,
+    downTo: (n, [to]) => KT.range(n, to, -1),
+    until: (n, [to]) => KT.range(n, to - 1),
+    rangeTo: (n, [to]) => KT.range(n, to),
+    signum: (n) => Math.sign(n),
+    // A character's code read as one (`Char::isISOControl`).
+    isISOControl: (n) => n <= 31 || (n >= 127 && n <= 159),
     toULong: (n) => (n < 0 ? n + 18446744073709551616 : Math.trunc(n)),
     toUShort: (n) => n & 65535,
     multipliedBy: (n, [other]) => n * Number(other),
@@ -1767,6 +1806,20 @@
   };
 
   const ANY = {
+    // A comparator's `then(other)` (not a property: an object with `then` would be awaited as a
+    // promise): this order, then the other's for ties.
+    then:
+      (value, [other]) =>
+      async (left, right) =>
+        (await compareWith(value, left, right)) || compareWith(other, left, right),
+    thenComparator:
+      (value, [other], lambda) =>
+      async (left, right) =>
+        (await compareWith(value, left, right)) || (lambda ?? other)(left, right),
+    thenDescending:
+      (value, [other]) =>
+      async (left, right) =>
+        (await compareWith(value, left, right)) || -(await compareWith(other, left, right)),
     // kotlinx.datetime's and java.time's instants are the same here.
     toJavaInstant: (value) => value,
     toKotlinInstant: (value) => value,
@@ -1899,7 +1952,10 @@
       chosenLanguage: chosen,
       get,
       format: (key, ...args) => K.format(get(key), ...args),
-      languageDisplayName: (code) => KT.str(code),
+      languageDisplayName: (code) => {
+        const language = KT.str(code).split(/[-_]/)[0].toLowerCase();
+        return LANGUAGE_NAMES[language] ?? KT.str(code);
+      },
     };
   };
   /// A DTO's property by its Kotlin name, or the JSON name it's read by.
@@ -2172,6 +2228,10 @@
         builder.text += KT.str(value);
         return builder;
       },
+      appendCodePoint: (code) => {
+        builder.text += String.fromCodePoint(Number(code));
+        return builder;
+      },
       appendLine: (value = '') => {
         builder.text += `${KT.str(value)}\n`;
         return builder;
@@ -2231,7 +2291,25 @@
   };
   KT.jsonArrayBuilder = () => {
     const array = [];
-    return { isJsonBuilder: true, array, add: (value) => array.push(plain(value)) };
+    return {
+      isJsonBuilder: true,
+      array,
+      add: (value) => array.push(plain(value)),
+      addAll: (values) => {
+        for (const value of KT.iter(values)) array.push(plain(value));
+        return true;
+      },
+      addJsonObject: async (lambda) => {
+        const inner = KT.jsonBuilder();
+        await lambda.call(null, inner);
+        array.push(inner.object);
+      },
+      addJsonArray: async (lambda) => {
+        const inner = KT.jsonArrayBuilder();
+        await lambda.call(null, inner);
+        array.push(inner.array);
+      },
+    };
   };
   KT.built = (builder) => (builder.isJsonBuilder ? (builder.object ?? builder.array) : builder);
   const plain = (value) => {
@@ -2822,6 +2900,14 @@
     const holder = classOf(type);
     if (holder && value && typeof value === 'object' && !Array.isArray(value))
       return polymorphic(holder, value).fromJson(value, type.args);
+    // An enum's entry by its name as the answer spells it (`"shounen"` for `SHOUNEN`).
+    if (holder && typeof value === 'string' && holder.definition?.kind === 'enum') {
+      const simple = (text) => text.replace(/[-_ ]/g, '').toLowerCase();
+      const entry =
+        holder.definition.entries.find((name) => name === value) ??
+        holder.definition.entries.find((name) => simple(name) === simple(value));
+      return entry === undefined ? value : holder[entry];
+    }
     // A list where one object goes (`JsonTransformingSerializer`s taking an array's first).
     if (holder && Array.isArray(value) && value.length && value[0] && typeof value[0] === 'object')
       return decodeAs(value[0], type);
@@ -2829,8 +2915,12 @@
   };
   /// A sealed or abstract class's subclass that an answer names in its `type` (kotlinx's class
   /// discriminator), by its `@SerialName` or its name; else the class itself.
+  /// The keys answers name their subclass by (kotlinx's `classDiscriminator`, `type` unless a
+  /// source's `Json { classDiscriminator = … }` says).
+  const discriminators = ['type'];
   const polymorphic = (holder, value) => {
-    const named = value.type;
+    const key = discriminators.find((name) => typeof value[name] === 'string');
+    const named = key === undefined ? undefined : value[key];
     if (typeof named !== 'string') return holder;
     for (const candidate of new Set(Object.values(CLASSES))) {
       if (
@@ -3683,6 +3773,8 @@
       __class: 'Buffer',
       __classes: ['Buffer', 'BufferedSource', 'BufferedSink', 'Source', 'Sink'],
       u8Now: () => data.slice(head, tail),
+      /// Keiyoushi's `Source.fixedLength(n)` (`keiyoushi.zip`): the next `n` bytes.
+      fixedLength: (count) => okioBuffer(take(Math.min(Number(count), tail - head))),
       /// Keiyoushi's `Source.inflate(nowrap)`: what's left, inflated.
       inflate: (nowrap = false) =>
         okioBuffer(inflateBytes(take(), nowrap === true ? 'raw' : 'zlib')),
@@ -5603,7 +5695,18 @@
   };
   /// A class as `X::class.java` and `javaClass` give it: its name, and the extension's
   /// resources.
+  /// A value's class name (`exception::class.simpleName`).
+  KT.classNameOf = (value) =>
+    value === null || value === undefined
+      ? 'Nothing'
+      : (value.__class ??
+        value.kind ??
+        { string: 'String', number: 'Int', boolean: 'Boolean', list: 'List', map: 'Map' }[
+          kindOf(value)
+        ] ??
+        'Any');
   KT.javaClass = (name) => {
+    if (name && name.__class === 'Class') return name;
     const named = KT.str(name);
     const made = {
       __class: 'Class',
@@ -5685,6 +5788,51 @@
     __classes: ['Application', 'Context'],
     packageName: 'app.raygun.player',
     getPackageName: () => 'app.raygun.player',
+  };
+  /// `AtomicInteger`, `AtomicLong`, `AtomicBoolean`, `AtomicReference`: a value, set and read
+  /// on one thread here.
+  const atomic = (initial) => {
+    let value = initial;
+    return {
+      __class: 'Atomic',
+      __classes: ['Atomic'],
+      get: () => value,
+      set: (next) => {
+        value = next;
+      },
+      getAndSet: (next) => {
+        const before = value;
+        value = next;
+        return before;
+      },
+      compareAndSet: (expected, next) => {
+        if (!KT.eq(value, expected)) return false;
+        value = next;
+        return true;
+      },
+      incrementAndGet: () => ++value,
+      getAndIncrement: () => value++,
+      decrementAndGet: () => --value,
+      getAndDecrement: () => value--,
+      addAndGet: (delta) => (value += delta),
+      getAndAdd: (delta) => {
+        const before = value;
+        value += delta;
+        return before;
+      },
+      toString: () => KT.str(value),
+    };
+  };
+  /// `ReentrantLock`, `ReentrantReadWriteLock`: a mutex (both of a read-write lock's sides).
+  const lockOf = () => {
+    const mutex = KT.mutex();
+    mutex.tryLock = () => {
+      if (mutex.isLocked) return false;
+      mutex.lock();
+      return true;
+    };
+    mutex.isHeldByCurrentThread = () => Boolean(mutex.isLocked);
+    return mutex;
   };
   /// A pause (`delay(ms)`, `Thread.sleep(ms)`), at most ten seconds.
   const pause = async (ms) => {
@@ -5790,6 +5938,20 @@
     SoftReference: ([value]) => ({ get: () => value ?? null, clear: () => KT.unit }),
     WeakReference: ([value]) => ({ get: () => value ?? null, clear: () => KT.unit }),
     randomUUID: () => OBJECTS.UUID.randomUUID(),
+    // Filters imported by name (`Header("…")`).
+    Header: ([name]) => FILTER_CONSTRUCTORS.Header(name),
+    Separator: ([name]) => FILTER_CONSTRUCTORS.Separator(name),
+    // Injekt's `injectLazy()`: the `Json` most sources ask for this way.
+    injectLazy: () => KT.deferred(async () => jsonCodec),
+    AtomicInteger: ([value = 0]) => atomic(value),
+    AtomicLong: ([value = 0]) => atomic(value),
+    AtomicBoolean: ([value = false]) => atomic(value),
+    AtomicReference: ([value = null]) => atomic(value),
+    ReentrantLock: () => lockOf(),
+    ReentrantReadWriteLock: () => {
+      const lock = lockOf();
+      return { readLock: () => lock, writeLock: () => lock };
+    },
     // `launch { … }` inside a coroutine scope: run alongside.
     launch: (args, _named, lambda) => coroutineScope().launch(...args, lambda),
     showInfo: dialogClosed(KT.unit),
@@ -5863,7 +6025,18 @@
       ascending: named_?.ascending ?? ascending ?? false,
     }),
     // `Json { ignoreUnknownKeys = true }`: reading always ignores what it doesn't know.
-    Json: () => jsonCodec,
+    Json: (_args, named_) => {
+      const key = named_?.classDiscriminator;
+      if (key && !discriminators.includes(KT.str(key))) discriminators.unshift(KT.str(key));
+      return jsonCodec;
+    },
+    sleep: ([ms]) => pause(ms),
+    // `AutoCloseable { … }`: what `close()` runs.
+    AutoCloseable: (_args, _named, lambda) => ({
+      __class: 'AutoCloseable',
+      __classes: ['AutoCloseable', 'Closeable'],
+      close: async () => (lambda ? lambda() : KT.unit),
+    }),
     Mutex: () => KT.mutex(),
     Semaphore: ([permits]) => KT.semaphore(permits ?? 1),
     awaitAll: (args) => awaitEach(args),
@@ -6828,6 +7001,118 @@
       SHORT_STANDALONE: 'SHORT',
     },
     Injekt: { get: () => application, getInstance: () => application },
+    // Keiyoushi's `applicationContext`, and Android's default preferences.
+    applicationContext: application,
+    // The extension's build: Mihon's names for it (sources put them in their User-Agent).
+    BuildConfig: { VERSION_NAME: '1.4.0', VERSION_CODE: 1, DEBUG: false, BUILD_TYPE: 'release' },
+    PreferenceManager: { getDefaultSharedPreferences: () => sharedPreferences },
+    // Mihon's three-state filter's states, by name too.
+    TriState: { STATE_IGNORE: 0, STATE_INCLUDE: 1, STATE_EXCLUDE: 2 },
+    STATE_IGNORE: 0,
+    STATE_INCLUDE: 1,
+    STATE_EXCLUDE: 2,
+    RequestBody: {
+      EMPTY: { isBody: true, text: '', type: null },
+      create: (type, content) => ({ isBody: true, text: KT.str(content), type: KT.str(type) }),
+    },
+    CookieJar: { NO_COOKIES: { loadForRequest: () => [], saveFromResponse: () => KT.unit } },
+    Credentials: {
+      basic: (user, password) =>
+        `Basic ${K.bin.toBase64(K.bin.utf8(`${KT.str(user)}:${KT.str(password)}`))}`,
+    },
+    Html: {
+      escapeHtml: (text) =>
+        KT.str(text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;'),
+      fromHtml: (text) => unescapeEntities(KT.str(text).replace(/<[^>]+>/g, '')),
+      FROM_HTML_MODE_LEGACY: 0,
+      FROM_HTML_MODE_COMPACT: 63,
+    },
+    HttpURLConnection: {
+      HTTP_OK: 200,
+      HTTP_MOVED_PERM: 301,
+      HTTP_MOVED_TEMP: 302,
+      HTTP_NOT_MODIFIED: 304,
+      HTTP_BAD_REQUEST: 400,
+      HTTP_UNAUTHORIZED: 401,
+      HTTP_FORBIDDEN: 403,
+      HTTP_NOT_FOUND: 404,
+      HTTP_INTERNAL_ERROR: 500,
+      HTTP_UNAVAILABLE: 503,
+    },
+    // java.time's `Duration`, as Kotlin's durations are here.
+    Duration: {
+      ofMillis: (n) => ({ ms: Number(n), isDuration: true }),
+      ofSeconds: (n) => ({ ms: Number(n) * 1000, isDuration: true }),
+      ofMinutes: (n) => ({ ms: Number(n) * 60000, isDuration: true }),
+      ofHours: (n) => ({ ms: Number(n) * 3600000, isDuration: true }),
+      ofDays: (n) => ({ ms: Number(n) * 86400000, isDuration: true }),
+      ZERO: { ms: 0, isDuration: true },
+    },
+    Collections: {
+      synchronizedMap: (map) => map,
+      synchronizedList: (list) => list,
+      synchronizedSet: (set) => set,
+      unmodifiableList: (list) => list,
+      unmodifiableMap: (map) => map,
+      emptyList: () => [],
+      emptyMap: () => new Map(),
+    },
+    LazyThreadSafetyMode: { SYNCHRONIZED: 0, PUBLICATION: 1, NONE: 2 },
+    URLUtil: {
+      isValidUrl: (url) => /^(https?|file|content|data):/i.test(KT.str(url)),
+      isNetworkUrl: (url) => /^https?:\/\//i.test(KT.str(url)),
+      isHttpsUrl: (url) => /^https:\/\//i.test(KT.str(url)),
+    },
+    // Kotlin's `Result.success(…)` and `Result.failure(…)`.
+    Result: {
+      success: (value) => new Result(true, value),
+      failure: (error) => new Result(false, null, KT.error(error)),
+    },
+    FORCE_NETWORK: { isCacheControl: true },
+    FORCE_CACHE: { isCacheControl: true },
+    // kotlin.time's `TimeSource.Monotonic.markNow().elapsedNow()`.
+    // Java's `Runtime`: a phone's, for sources sizing work by it.
+    Runtime: {
+      getRuntime: () => ({
+        availableProcessors: () => 8,
+        maxMemory: () => 512 * 1024 * 1024,
+        totalMemory: () => 256 * 1024 * 1024,
+        freeMemory: () => 128 * 1024 * 1024,
+      }),
+    },
+    RoundingMode: {
+      UP: 'UP',
+      DOWN: 'DOWN',
+      CEILING: 'CEILING',
+      FLOOR: 'FLOOR',
+      HALF_UP: 'HALF_UP',
+      HALF_DOWN: 'HALF_DOWN',
+      HALF_EVEN: 'HALF_EVEN',
+    },
+    // Jsoup's `Validate`: what a check that fails says.
+    Validate: {
+      notEmpty: (value, message) =>
+        value === null || value === undefined || KT.str(value) === ''
+          ? KT.raise(message ?? 'String must not be empty')
+          : KT.unit,
+      notNull: (value, message) =>
+        value === null || value === undefined
+          ? KT.raise(message ?? 'Object must not be null')
+          : KT.unit,
+      isTrue: (value, message) => (value ? KT.unit : KT.raise(message ?? 'Must be true')),
+    },
+    TimeSource: {
+      Monotonic: {
+        markNow: () => {
+          const start = Date.now();
+          return { elapsedNow: () => ({ ms: Date.now() - start, isDuration: true }) };
+        },
+      },
+    },
     GlobalScope: coroutineScope(),
     // `SSLContext.getInstance("TLS")`: Raygun's client checks certificates itself.
     SSLContext: {
@@ -7182,6 +7467,7 @@
       // Keiyoushi's `Instant.tryParse`: milliseconds, or 0.
       tryParse: (text) => isoInstant(text) ?? 0,
       fromEpochMilliseconds: (ms) => instant(ms),
+      fromEpochSeconds: (seconds) => instant(Number(seconds) * 1000),
       ofEpochMilli: (ms) => instant(ms),
       ofEpochSecond: (seconds) => instant(seconds * 1000),
       now: () => instant(Date.now()),
@@ -7398,7 +7684,7 @@
   };
   KT.defineClass = (definition) => {
     /// An instance with these fields (`undefined` ones take their defaults).
-    const build = async (fields) => {
+    const build = async (fields, json = null) => {
       // A class built on a collection (`class CdnSet : LinkedHashSet<String>()`) is one.
       const base = COLLECTION_BASES[definition.supers[0]?.split('<')[0].split('.').pop()];
       const object = base === 'map' ? new Map() : base ? [] : {};
@@ -7466,6 +7752,8 @@
       if (parentClass) {
         const inherited = await parentClass.make(
           Array.isArray(object.__super) ? object.__super : [],
+          null,
+          json,
         );
         for (const name of Object.getOwnPropertyNames(inherited)) {
           if (name.startsWith('__') || Object.prototype.hasOwnProperty.call(object, name)) continue;
@@ -7508,8 +7796,13 @@
           await member.function_(object);
           continue;
         }
+        // Decoded from JSON: a body field the answer has takes its value, as kotlinx does.
+        const given = json ? field(json, name) : undefined;
         Object.defineProperty(object, name, {
-          value: await member.function_(object),
+          value:
+            given !== undefined
+              ? await decodeAs(given, parseType(definition.types?.[name] ?? 'Any'))
+              : await member.function_(object),
           writable: true,
           enumerable: false,
           configurable: true,
@@ -7526,14 +7819,15 @@
         );
       return object;
     };
-    /// Made from constructor arguments, in order or by name.
-    const make = async (args = [], named_ = null) => {
+    /// Made from constructor arguments, in order or by name (and, for a parent of a class
+    /// decoded from JSON, the JSON its fields read).
+    const make = async (args = [], named_ = null, json = null) => {
       const fields = {};
       definition.params.forEach((name, index) => {
         fields[name] =
           named_ && Object.prototype.hasOwnProperty.call(named_, name) ? named_[name] : args[index];
       });
-      return build(fields);
+      return build(fields, json);
     };
     /// Decoded from JSON: each field by its JSON name, as its type says.
     const fromJson = async (json, typeArgs = []) => {
@@ -7547,7 +7841,7 @@
         );
         fields[name] = value === undefined ? undefined : await decodeAs(value, type);
       }
-      return build(fields);
+      return build(fields, json);
     };
     const holder = {
       isClass: true,
@@ -7969,6 +8263,18 @@
           Object.prototype.hasOwnProperty.call(receiver, name)
         )
           return own;
+        // A runtime value's own function wins when the extension doesn't take these arguments
+        // (OkHttp's `addQueryParameter(name, value)` beside an extension taking a set of values).
+        if (
+          receiver !== null &&
+          receiver !== undefined &&
+          receiver.__class === undefined &&
+          hasMember(receiver, name) &&
+          !(extensionOverloads.get(name) ?? []).some((entry) =>
+            extensionTakes(entry, receiver, args),
+          )
+        )
+          return KT.m(receiver, name, args);
         return enter(function_, args, receiver);
       },
       base: {

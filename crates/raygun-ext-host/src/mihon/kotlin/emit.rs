@@ -37,6 +37,8 @@ pub struct Context {
     /// The source's own classes (`ReadRealm`, its theme's), whose companions' values are its
     /// constants (`ReadRealm.IMAGE_URL`).
     pub source_classes: HashSet<String>,
+    /// Each declared enum's entries, by the enum's name.
+    pub enum_entries: HashMap<String, HashSet<String>>,
     /// Fields of the declared classes that are lists wherever a class declares them, for
     /// `dto.titles.orEmpty()`.
     pub list_fields: HashSet<String>,
@@ -243,7 +245,13 @@ pub const METHODS: &[&str] = &[
     "copyInto", "insertChildren", "atYear", "getResource", "getResourceAsStream", "openStream",
     "serializer", "getDate", "getDayOfWeek", "getDisplayName", "getDisplayLanguage",
     "toLanguageTag", "toBigDecimalOrNull", "randomOrNull", "minWith", "maxWith", "runningFold",
-    "siblingIndex", "normalName", "getName",
+    "siblingIndex", "normalName", "getName", "languageDisplayName", "downTo", "contentToString",
+    "appendCodePoint", "signum", "then", "thenComparator", "thenDescending", "elapsedNow",
+    "markNow", "isISOControl", "fromEpochSeconds", "incrementAndGet", "getAndIncrement",
+    "decrementAndGet", "getAndDecrement", "addAndGet", "getAndAdd", "getAndSet", "compareAndSet",
+    "tryLock", "readLock", "writeLock", "isHeldByCurrentThread", "setScale", "simpleName",
+    "fixedLength", "cancelChildren", "availableProcessors", "maxMemory", "totalMemory",
+    "freeMemory", "addJsonObject", "addJsonArray",
 ];
 
 fn quote(text: &str) -> String {
@@ -645,6 +653,19 @@ impl<'a> Gen<'a> {
                 _ => false,
             },
             Expr::Member { name, .. } => self.cx.list_fields.contains(name),
+            _ => false,
+        }
+    }
+
+    /// `MangaResponse.Props`: classes the source declares, nested in one another.
+    fn declared_path(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => self.cx.classes.contains(name) && !self.is_local(name),
+            Expr::Member {
+                target,
+                name,
+                safe: false,
+            } => self.cx.classes.contains(name) && self.declared_path(target),
             _ => false,
         }
     }
@@ -1702,16 +1723,68 @@ impl<'a> Gen<'a> {
         if OBJECTS.contains(&name) || GLOBALS.contains(&name) {
             return Ok(format!("KT.global({})", quote(name)));
         }
+        // An enum's entry by itself: in the enum's own code, or imported
+        // (`import ….Filter.TriState.Companion.STATE_IGNORE`, `import ….Method.SINGLE`).
+        if let Some(entry) = self.enum_entry(name) {
+            return Ok(entry);
+        }
+        // `import java.time.Instant as JavaInstant`: the runtime's object under another name.
+        if let Some(real) = self.aliased(name)
+            && (OBJECTS.contains(&real.as_str()) || GLOBALS.contains(&real.as_str()))
+        {
+            return Ok(format!("KT.global({})", quote(&real)));
+        }
         Err(unsupported(name))
     }
 
-    /// An object the runtime has, as the owner of a member (`Calendar.getInstance()`).
-    fn runtime_object(owner: &str, name: &str) -> Result<String, String> {
+    /// An object the runtime has, as the owner of a member (`Calendar.getInstance()`), under its
+    /// own name or one an import gives it (`JavaInstant.ofEpochMilli`).
+    fn runtime_object(&self, owner: &str, name: &str) -> Result<String, String> {
         if OBJECTS.contains(&owner) {
             Ok(format!("KT.global({})", quote(owner)))
+        } else if let Some(real) = self
+            .aliased(owner)
+            .filter(|real| OBJECTS.contains(&real.as_str()))
+        {
+            Ok(format!("KT.global({})", quote(&real)))
         } else {
             Err(unsupported(format!("{owner}.{name}")))
         }
+    }
+
+    /// The name an import alias stands for (`import java.time.Instant as JavaInstant`).
+    fn aliased(&self, alias: &str) -> Option<String> {
+        self.imports
+            .iter()
+            .find(|(name, full)| name == alias && !full.ends_with(&format!(".{alias}")))
+            .and_then(|(_, full)| full.rsplit('.').next())
+            .map(str::to_owned)
+    }
+
+    /// An enum entry named by itself: of the enum whose code this is, or one imported by name.
+    fn enum_entry(&self, name: &str) -> Option<String> {
+        if let Some(scope) = self.class_scope.as_deref()
+            && self
+                .cx
+                .enum_entries
+                .get(scope)
+                .is_some_and(|entries| entries.contains(name))
+        {
+            return Some(format!("(await KT.p(D.{scope}, {}))", quote(name)));
+        }
+        let (_, full) = self.imports.iter().find(|(alias, _)| alias == name)?;
+        let mut parts = full.rsplit('.');
+        let entry = parts.next()?;
+        let owner = parts.find(|part| *part != "Companion")?;
+        if self
+            .cx
+            .enum_entries
+            .get(owner)
+            .is_some_and(|entries| entries.contains(entry))
+        {
+            return Some(format!("(await KT.p(D.{owner}, {}))", quote(entry)));
+        }
+        None
     }
 
     fn member(&mut self, target: &Expr, name: &str, safe: bool) -> Result<String, String> {
@@ -1764,7 +1837,7 @@ impl<'a> Gen<'a> {
             if self.cx.classes.contains(owner) {
                 return Ok(format!("(await KT.p(D.{owner}, {}))", quote(name)));
             }
-            let object = Self::runtime_object(owner, name)?;
+            let object = self.runtime_object(owner, name)?;
             return Ok(format!("(await KT.p({object}, {}))", quote(name)));
         }
         let object = self.expr(target)?;
@@ -1955,6 +2028,36 @@ impl<'a> Gen<'a> {
                             "(await KT.call(\"runWebView\", [{page}, (await self.get(\"baseUrl\")), {check}]))"
                         ));
                     }
+                    // kotlinx.serialization's settings: reading always ignores unknown keys and
+                    // tells subclasses by their discriminator, so only that is read.
+                    ("Json", Some(lambda)) => {
+                        let discriminator = lambda.body.iter().find_map(|stmt| match stmt {
+                            Stmt::Assign {
+                                target: Expr::Name(name),
+                                value: Expr::Str(parts),
+                                ..
+                            } if name == "classDiscriminator" => match parts.as_slice() {
+                                [StrPart::Text(text)] => Some(text.clone()),
+                                _ => None,
+                            },
+                            _ => None,
+                        });
+                        return Ok(match discriminator {
+                            Some(key) => format!(
+                                "(await KT.call(\"Json\", [], {{ classDiscriminator: {} }}))",
+                                quote(&key)
+                            ),
+                            None => "(await KT.call(\"Json\", []))".to_owned(),
+                        });
+                    }
+                    ("SerializersModule", Some(_)) => return Ok("null".to_owned()),
+                    // `lazy(::make)`: the function's value, once.
+                    ("lazy", None) if args.len() == 1 => {
+                        let function = self.expr(&args[0].value)?;
+                        return Ok(format!(
+                            "KT.deferred(async () => (await KT.invoke({function}, [])))"
+                        ));
+                    }
                     ("buildMap", Some(lambda)) => {
                         return self.receiver_call_returning(lambda, "new Map()", name);
                     }
@@ -2055,7 +2158,7 @@ impl<'a> Gen<'a> {
                 });
                 let lambda_code = lambda
                     .filter(|_| !takes_receiver)
-                    .map(|lambda| self.lambda(lambda, name))
+                    .map(|lambda| self.trailing_lambda(lambda, name))
                     .transpose()?;
                 if !self.receivers.is_empty() && !self.cx.functions.contains_key(name) {
                     if !self.known(name) && !self.cx.extensions.contains(name) {
@@ -2198,6 +2301,23 @@ impl<'a> Gen<'a> {
                         typed_args(&args, passed_types.as_deref())
                     ));
                 }
+                // `MangaResponse.Props.Chapter(…)`: a class the source declares, written inside the
+                // ones it's nested in.
+                if self.cx.classes.contains(name.as_str())
+                    && matches!(target.as_ref(), Expr::Member { .. } | Expr::Name(_))
+                    && self.declared_path(target)
+                {
+                    let (args, named) = self.args(args, None)?;
+                    let mut args = args;
+                    if let Some(lambda) = lambda {
+                        args.push(self.lambda(lambda, name)?);
+                    }
+                    return Ok(format!(
+                        "(await KT.make(D.{name}, [{}], {}))",
+                        args.join(", "),
+                        named.unwrap_or_else(|| "null".to_owned())
+                    ));
+                }
                 // `Filter.Sort.Selection(…)`: a class of the runtime's, written inside the ones
                 // it's nested in.
                 if GLOBALS.contains(&name.as_str())
@@ -2220,7 +2340,7 @@ impl<'a> Gen<'a> {
                     let owner_code = if self.cx.classes.contains(owner) {
                         format!("D.{owner}")
                     } else {
-                        Self::runtime_object(owner, name)?
+                        self.runtime_object(owner, name)?
                     };
                     let (args, named) = self.args(args, None)?;
                     let lambda = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
@@ -2265,7 +2385,9 @@ impl<'a> Gen<'a> {
                     return Err(unsupported(format!("{name}()")));
                 }
                 let (args, named) = self.args(args, None)?;
-                let lambda = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
+                let lambda = lambda
+                    .map(|lambda| self.trailing_lambda(lambda, name))
+                    .transpose()?;
                 let mut call_args = args;
                 let lambda_arg = lambda.unwrap_or_else(|| "null".to_owned());
                 let call = |receiver: &str| {
@@ -2351,7 +2473,18 @@ impl<'a> Gen<'a> {
         if name == "class"
             && let Some(Expr::This(_)) = target
         {
-            return Ok(quote(self.class_scope.as_deref().unwrap_or("Source")));
+            return Ok(format!(
+                "KT.javaClass({})",
+                quote(self.class_scope.as_deref().unwrap_or("Source"))
+            ));
+        }
+        // `exception::class.simpleName`: a value's class.
+        if name == "class"
+            && let Some(value) = target
+            && !matches!(value, Expr::Name(owner) if owner.chars().next().is_some_and(char::is_uppercase) && !self.is_local(owner))
+        {
+            let value = self.expr(value)?;
+            return Ok(format!("KT.javaClass(KT.classNameOf({value}))"));
         }
         // `::node`: a local function, already a function.
         if target.is_none()
@@ -2408,7 +2541,7 @@ impl<'a> Gen<'a> {
                     && self.companion_value(owner).is_none() =>
             {
                 if name == "class" {
-                    return Ok(quote(owner));
+                    return Ok(format!("KT.javaClass({})", quote(owner)));
                 }
                 if self.cx.extensions.contains(name) {
                     return Ok(format!(
@@ -2419,6 +2552,16 @@ impl<'a> Gen<'a> {
                 // `SChapter::chapter_number`: a field of Mihon's models.
                 if matches!(owner.as_str(), "SChapter" | "SManga" | "Page") {
                     return Ok(format!("(async (value) => KT.p(value, {}))", quote(name)));
+                }
+                // `Genre::state`, `TagCheckBox::state`: a filter's or a declared class's own
+                // field or function, read on what's passed.
+                if matches!(name, "state" | "name" | "values")
+                    || (self.cx.classes.contains(owner) && self.cx.class_members.contains(name))
+                {
+                    return Ok(format!(
+                        "(async (receiver, ...args) => KT.member(receiver, {}, args))",
+                        quote(name)
+                    ));
                 }
                 if !self.known(name) {
                     return Err(unsupported(format!("{owner}::{name}")));
@@ -2571,6 +2714,19 @@ impl<'a> Gen<'a> {
             "(async ({receiver}, ...rest) => {}(...rest))",
             function?
         ))
+    }
+
+    /// A call's trailing lambda: with the builder as its receiver for kotlinx.serialization's
+    /// JSON builders (`putJsonArray("tags") { add(tag) }`), else a plain one.
+    fn trailing_lambda(&mut self, lambda: &Lambda, name: &str) -> Result<String, String> {
+        if matches!(
+            name,
+            "putJsonArray" | "putJsonObject" | "addJsonArray" | "addJsonObject"
+        ) {
+            self.receiver_lambda(lambda, name)
+        } else {
+            self.lambda(lambda, name)
+        }
     }
 
     /// A lambda called at once with no argument.
@@ -2732,7 +2888,9 @@ pub const GLOBALS: &[&str] = &[
     "CheckBoxPreference", "ListPreference", "EditTextPreference", "MultiSelectListPreference",
     "PreferenceCategory", "Cache", "SeedRandom", "showInfo", "askConfirm", "askInput",
     "askPassword", "askSelect", "askSelectOption", "GZIPInputStream", "InflaterInputStream",
-    "SoftReference", "WeakReference", "randomUUID", "launch",
+    "SoftReference", "WeakReference", "randomUUID", "launch", "Header", "Separator",
+    "injectLazy", "AtomicInteger", "AtomicLong", "AtomicBoolean", "AtomicReference",
+    "ReentrantLock", "ReentrantReadWriteLock", "sleep", "AutoCloseable",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2750,5 +2908,9 @@ pub const OBJECTS: &[&str] = &[
     "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper", "Collator", "Dispatchers",
     "Evaluator", "HttpUrl", "Uri", "Float", "Double", "Thread", "Response", "Protocol", "Year",
     "OffsetDateTime", "Resources", "MonthDay", "javaClass", "jsonInstance", "DayOfWeek",
-    "TextStyle", "Injekt", "GlobalScope", "SSLContext",
+    "TextStyle", "Injekt", "GlobalScope", "SSLContext", "TriState", "STATE_IGNORE",
+    "STATE_INCLUDE", "STATE_EXCLUDE", "RequestBody", "CookieJar", "Credentials", "Html",
+    "HttpURLConnection", "Duration", "Collections", "LazyThreadSafetyMode", "URLUtil", "Result",
+    "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
+    "applicationContext", "PreferenceManager", "BuildConfig",
 ];
