@@ -8649,6 +8649,98 @@ pub struct ContinueWatching {
     /// An episode of a series, which may have a next one to move on to.
     #[serde(default)]
     pub series: bool,
+    /// A link played on its own (Open link, another app): its page is `/watch/link?key=`.
+    #[serde(default)]
+    #[specta(optional)]
+    pub link: bool,
+}
+
+/// What a link played on its own is (`VideoLinkPage::kind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoLinkKind {
+    /// A magnet link or a `.torrent` file's address.
+    Torrent,
+    /// An HLS stream (`.m3u8`).
+    Hls,
+    /// A DASH stream (`.mpd`).
+    Dash,
+    /// A video file on the web.
+    File,
+    /// A file on this device (one another app opened with Raygun).
+    Device,
+}
+
+/// What a file in a torrent is, on a link's page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoLinkFileKind {
+    Video,
+    Subtitle,
+    Image,
+    Other,
+}
+
+/// One file of a torrent played from a link.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoLinkFile {
+    /// Its index in the torrent (what plays it).
+    pub index: u32,
+    /// Its path inside the torrent, `/` between folders.
+    pub path: String,
+    pub name: String,
+    pub size_bytes: f64,
+    pub kind: VideoLinkFileKind,
+    /// The video the link plays (the one it names, else the main one).
+    pub main: bool,
+    /// A subtitle file's language, as its name gives it.
+    pub language: Option<String>,
+}
+
+/// The movie or series a link is (an optional match, found by its title): its poster and the
+/// other sources found for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoLinkMatch {
+    /// Stremio's type (`movie`, `series`) and id (IMDb's `tt…`).
+    pub kind: String,
+    pub id: String,
+    pub name: String,
+    pub year: Option<String>,
+    pub poster: Option<String>,
+}
+
+/// A link played on its own, for its page (`/watch/link`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoLinkPage {
+    /// Its progress key (`url:<address>`).
+    pub key: String,
+    pub url: String,
+    /// As shown: renamed, else the name the link gave.
+    pub title: String,
+    /// The title as other sources are searched for it: a release's year, size and encoding
+    /// left out ("Big.Buck.Bunny.2008.1080p" → "Big Buck Bunny").
+    pub search_title: String,
+    pub poster: Option<String>,
+    pub kind: VideoLinkKind,
+    /// The web host it plays from, when it's on the web.
+    pub host: Option<String>,
+    /// The file's format, when its name says ("MP4", "MKV").
+    pub format: Option<String>,
+    /// A torrent's own name.
+    pub name: Option<String>,
+    /// A torrent's files, once known (it's opened, or they were asked for); none until then.
+    pub files: Option<Vec<VideoLinkFile>>,
+    /// The video's size, when known (a torrent's file).
+    pub size_bytes: Option<f64>,
+    pub position_ms: f64,
+    pub duration_ms: Option<f64>,
+    pub watched: bool,
+    pub matched: Option<VideoLinkMatch>,
+    /// It can be downloaded (a web address or a torrent, not a file on this device or DASH).
+    pub can_download: bool,
 }
 
 // ---- Search across sources and source filters (M40) ----

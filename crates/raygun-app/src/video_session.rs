@@ -4,6 +4,11 @@
 //! that fails hands over to the next. The player asks for the previous or next episode, another
 //! episode or another source, and gets the episode and source lists to show; finishing an episode
 //! moves Continue watching on to the next one.
+//!
+//! A link played on its own (Open link, another app: [`Origin::Link`]) plays through a session
+//! too, so the player's Sources and Quality work for it: its own group holds the link (a torrent's
+//! video files, the one it names first), which always plays first; the movie it was matched with
+//! (`video_links`) adds the addons' streams for it after, tried only once the link failed.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
@@ -40,14 +45,20 @@ pub enum Origin {
     /// A Stremio movie or series, saved or not.
     #[serde(rename_all = "camelCase")]
     Stremio { kind: String, id: String },
+    /// A link played on its own: its progress key (`url:<address>`). Never stored as an episode
+    /// reference: a link's entry keeps its request.
+    #[serde(rename_all = "camelCase")]
+    Link { key: String },
 }
 
 impl Origin {
-    /// The title's player memory (speed, aspect, tracks; M45), as `VideoRequest::group`.
+    /// The title's player memory (speed, aspect, tracks; M45), as `VideoRequest::group`; a link's
+    /// is its own key, as when it played without a session.
     pub fn group_key(&self) -> String {
         match self {
             Self::Source { title_id } => format!("title:{title_id}"),
             Self::Stremio { kind, id } => format!("stremio:{kind}:{id}"),
+            Self::Link { key } => key.clone(),
         }
     }
 
@@ -96,8 +107,31 @@ impl Origin {
         match self {
             Self::Source { title_id } => format!("video.lastSource.title:{title_id}"),
             Self::Stremio { kind, id } => format!("video.lastSource.stremio:{kind}:{id}"),
+            Self::Link { key } => format!("video.lastSource.{key}"),
         }
     }
+}
+
+/// A link played on its own ([`Origin::Link`]): what it plays (its title and poster as its entry
+/// shows them), and the file of its torrent asked for (its page's files list).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkPlay {
+    pub request: VideoRequest,
+    pub file: Option<usize>,
+}
+
+/// A link session's own group: the link itself (its torrent's videos).
+pub const LINK_GROUP: &str = "link";
+/// Any session's download of the episode.
+const DOWNLOAD_GROUP: &str = "download";
+/// Where the sources found for the movie a link was matched with go, once they answer.
+const MATCH_GROUP: &str = "match";
+
+/// A session's own group, not a source: its download, and for a link played on its own
+/// (`link_session`) the link itself. A source whose id happens to be `link` stays a source in
+/// other sessions.
+fn own_group(link_session: bool, group: &Group) -> bool {
+    group.id == DOWNLOAD_GROUP || (link_session && group.id == LINK_GROUP)
 }
 
 /// An anime entry's ids that AniSkip's lookup starts from.
@@ -284,11 +318,61 @@ struct Session {
     link_speeds: HashMap<String, u64>,
     /// When a measured speed was last saved, Unix ms.
     speed_saved_at: i64,
+    /// A link played on its own ([`Origin::Link`]).
+    link: Option<LinkPlay>,
+    /// Why the link couldn't be opened (a torrent's peers, the network), said when nothing else
+    /// can play; a failure in the player is said by the player itself.
+    link_error: Option<String>,
+    /// The player, told another link would play when its own failed (`fallback`), waits for one:
+    /// when none plays after all, it's told so.
+    player_waits: bool,
 }
 
 impl Session {
     fn episode(&self) -> &Episode {
         &self.episodes[self.index]
+    }
+
+    /// The link's own link to play, when this is a link played on its own: the link itself (or
+    /// its download) plays before any other source. Its torrent's other videos (a sample, other
+    /// cuts) aren't tried in its place: they're picked in Sources.
+    fn own_candidate(&self) -> Option<(usize, usize)> {
+        self.groups
+            .iter()
+            .enumerate()
+            .filter(|(_, group)| own_group(true, group) && group.state == GroupState::Ready)
+            .filter_map(|(group_index, group)| group.links.first().map(|link| (group_index, link)))
+            .find(|(group_index, link)| {
+                link.failed.is_none()
+                    && !self.dead_urls.contains(&link.request.url)
+                    && !self.tried.contains(&(*group_index, 0))
+            })
+            .map(|(group_index, _)| (group_index, 0))
+    }
+
+    /// Whether another link would play if the one playing failed: one untried, or a source still
+    /// finding links (the player then says it tries the next one).
+    fn can_fall_back(&self, now: i64) -> bool {
+        self.groups
+            .iter()
+            .any(|group| group.state == GroupState::Resolving)
+            || self.next_candidate(now).is_some()
+    }
+
+    /// A link played on its own with nothing else to switch to: one link at most, and no source
+    /// still finding any.
+    fn alone(&self) -> bool {
+        self.link.is_some()
+            && self
+                .groups
+                .iter()
+                .all(|group| group.state != GroupState::Resolving)
+            && self
+                .groups
+                .iter()
+                .map(|group| group.links.len())
+                .sum::<usize>()
+                <= 1
     }
 
     /// The next episode that is out, after `index`; from a regular episode, never a special.
@@ -311,8 +395,21 @@ impl Session {
     /// after every other one, and ties in list order. The tier asked for in the Quality menu
     /// comes before all of those, then the tiers nearest it (fewest tiers away; unknown sizes
     /// last). While a source that could hold a better one is still resolving, nothing (for a few
-    /// seconds: [`PATIENCE_MS`]).
+    /// seconds: [`PATIENCE_MS`]). A link played on its own plays itself first, whatever the
+    /// others are (its torrent's other videos are picked by hand); the others once it failed.
     fn next_candidate(&self, now: i64) -> Option<(usize, usize)> {
+        if self.link.is_some() {
+            if let Some(own) = self.own_candidate() {
+                return Some(own);
+            }
+            if self
+                .groups
+                .iter()
+                .any(|group| own_group(true, group) && group.state == GroupState::Resolving)
+            {
+                return None;
+            }
+        }
         let ranking = self.ranking(now);
         let unwanted = |link: &Link| {
             self.wanted.map(|wanted| {
@@ -327,6 +424,8 @@ impl Session {
             .iter()
             .enumerate()
             .filter(|(_, group)| group.state == GroupState::Ready)
+            // A link's own files past the first are picked by hand ([`Self::own_candidate`]).
+            .filter(|(_, group)| self.link.is_none() || !own_group(true, group))
             .flat_map(|(group_index, group)| {
                 group
                     .links
@@ -537,6 +636,8 @@ fn sources_update(session: &Session, now: i64) -> Value {
                 "name": group.name,
                 "state": state,
                 "error": error,
+                // A link played on its own: shown whatever its state (why it failed included).
+                "own": session.link.is_some() && own_group(true, group),
                 "unreliable": ranking.is_failing(&group.name),
                 "worked": ranking.played_last(&group.name),
                 "best": best,
@@ -551,6 +652,12 @@ fn sources_update(session: &Session, now: i64) -> Value {
         "playingFrom": playing_from,
         "groups": groups,
         "order": source_order(session, &ranking),
+        // A link played on its own: its own links come first, and with nothing else to switch
+        // to the sheet says so ("Only this link") instead of the player hiding it. Without
+        // another link to fall back on, a failure in the player is said by the player.
+        "link": session.link.is_some(),
+        "alone": session.alone(),
+        "fallback": session.can_fall_back(now),
     })
 }
 
@@ -580,6 +687,8 @@ fn source_order(session: &Session, ranking: &Ranking) -> Vec<usize> {
             .unwrap_or(0);
         let speed = session.speed_of(&group.name).unwrap_or(0);
         (
+            // A link played on its own lists itself first.
+            !(session.link.is_some() && own_group(true, group)),
             state,
             ranking.best_key(group).1,
             Reverse(best),
@@ -786,6 +895,9 @@ impl VideoSessions {
             speeds: HashMap::new(),
             link_speeds: HashMap::new(),
             speed_saved_at: 0,
+            link: None,
+            link_error: None,
+            player_waits: false,
         });
         let label = if video_match::adds_to_title(&title, &label) {
             label
@@ -793,6 +905,85 @@ impl VideoSessions {
             String::new()
         };
         let shell = crate::video::session_shell(&self.app, &title, &label).await;
+        crate::video::open_player(&self.app, &shell)?;
+        self.push_episodes().await;
+        self.spawn_resolve(generation);
+        Ok(())
+    }
+
+    /// Opens the player on a link played on its own ([`Origin::Link`]): the link (a torrent's
+    /// file the page picked, else the one it names) plays from `start_at` or where it was left,
+    /// and the Sources sheet lists its torrent's other videos and the sources found for the
+    /// movie it was matched with. A torrent that can't play now (turned off, mobile data) says
+    /// why without opening the player, unless it's downloaded.
+    pub async fn start_link(&self, link: LinkPlay, start_at: Option<i64>) -> Result<(), String> {
+        let request = &link.request;
+        let torrent = raygun_torrent::is_torrent(&request.url, request.format.as_deref());
+        if torrent
+            && crate::video_downloads::offline(&self.app, &request.key)
+                .await
+                .is_none()
+            && let Some(reason) = crate::torrents::unavailable_now(&self.app).await
+        {
+            return Err(reason);
+        }
+        let origin = Origin::Link {
+            key: request.key.clone(),
+        };
+        let memory = self.recall(&origin.memory_key()).await.unwrap_or_default();
+        let health = self.health().await;
+        let resolution = self.resolution().await;
+        let generation = self.generations.fetch_add(1, Ordering::SeqCst) + 1;
+        let title = request.title.clone();
+        let subtitle = request.subtitle.clone().unwrap_or_default();
+        let episode = Episode {
+            remote_id: request.key.clone(),
+            key: request.key.clone(),
+            label: title.clone(),
+            unit_id: None,
+            released: None,
+            watched: false,
+            downloaded: false,
+            number: None,
+            special: false,
+            numbers: Vec::new(),
+        };
+        *self.session.lock().expect("session poisoned") = Some(Session {
+            generation,
+            origin,
+            title: title.clone(),
+            poster: request.poster.clone(),
+            episodes: vec![episode],
+            index: 0,
+            groups: Vec::new(),
+            current: None,
+            tried: HashSet::new(),
+            start_at,
+            memory,
+            show_memory: None,
+            health,
+            resolution,
+            dead_urls: HashSet::new(),
+            watching: None,
+            resolving_since: now_ms(),
+            settled: false,
+            wanted: None,
+            quality_tried: HashSet::new(),
+            variants: Vec::new(),
+            playing_variant: None,
+            duration_ms: None,
+            speeds: HashMap::new(),
+            link_speeds: HashMap::new(),
+            speed_saved_at: 0,
+            link: Some(link.clone()),
+            link_error: None,
+            player_waits: false,
+        });
+        let mut shell = crate::video::session_shell(&self.app, &title, &subtitle).await;
+        // A torrent's details come from peers first.
+        if torrent {
+            shell["loadingText"] = json!(self.label("torrentFindingPeers", "Finding peers…"));
+        }
         crate::video::open_player(&self.app, &shell)?;
         self.push_episodes().await;
         self.spawn_resolve(generation);
@@ -824,7 +1015,7 @@ impl VideoSessions {
                     .and_then(Value::as_str)
                     .unwrap_or("The video couldn't be played")
                     .to_owned();
-                self.fall_back(key, position, message).await;
+                self.fall_back(key, position, message, true).await;
             }
             "closed" => {
                 let ends = self
@@ -862,16 +1053,22 @@ impl VideoSessions {
             let (Some(kbps), Some((group, link))) = (heard.bandwidth_kbps, session.current) else {
                 return;
             };
+            // A download's speed says nothing of a source.
             let Some(entry) = session
                 .groups
                 .get(group)
-                .filter(|entry| entry.id != "download")
+                .filter(|entry| entry.id != DOWNLOAD_GROUP)
             else {
                 return;
             };
             let name = entry.name.clone();
+            // A link played on its own shows its own speed; it isn't a source whose speed is kept.
+            let own = own_group(session.link.is_some(), entry);
             if let Some(url) = entry.links.get(link).map(|link| link.request.url.clone()) {
                 session.link_speeds.insert(url, kbps);
+            }
+            if own {
+                return;
             }
             session.speeds.insert(name.clone(), kbps);
             let now = now_ms();
@@ -915,10 +1112,11 @@ impl VideoSessions {
             }
             watching.confirmed = true;
             let (group, link) = watching.at;
+            let link_session = session.link.is_some();
             let Some(entry) = session
                 .groups
                 .get(group)
-                .filter(|entry| entry.id != "download")
+                .filter(|entry| !own_group(link_session, entry))
             else {
                 return;
             };
@@ -1021,6 +1219,17 @@ impl VideoSessions {
             Some(Target::State) => {
                 self.push_episodes().await;
                 self.push_sources().await;
+                // A link that couldn't be opened before the player was there says so again.
+                let link_generation = self
+                    .session
+                    .lock()
+                    .expect("session poisoned")
+                    .as_ref()
+                    .filter(|session| session.link.is_some())
+                    .map(|session| session.generation);
+                if let Some(generation) = link_generation {
+                    self.try_play(generation).await;
+                }
             }
             Some(Target::Link(group, link)) => self.choose_link(group, link, position).await,
             Some(Target::Autoplay(on)) => {
@@ -1160,8 +1369,9 @@ impl VideoSessions {
 
     /// The playing link failed: the next best one plays from the same spot at once. Its address
     /// isn't tried again in this session; unless it had played a while (a dropped connection),
-    /// the title keeps it as dead and its source as failing.
-    async fn fall_back(&self, key: &str, position: i64, error: String) {
+    /// the title keeps it as dead and its source as failing. `in_player`: the player failed it
+    /// (and says why itself), else it couldn't be opened.
+    async fn fall_back(&self, key: &str, position: i64, error: String, in_player: bool) {
         let mut failed = None;
         let generation = {
             let mut guard = self.session.lock().expect("session poisoned");
@@ -1170,6 +1380,12 @@ impl VideoSessions {
             };
             if session.episode().key != key {
                 return;
+            }
+            if session.link.is_some() {
+                session.link_error = (!in_player).then(|| error.clone());
+                // As the player decided: with another link to come it waits for it, else it
+                // says what went wrong itself.
+                session.player_waits = in_player && session.can_fall_back(now_ms());
             }
             let watching = session.watching.take();
             if let Some((group, link)) = session.current.take() {
@@ -1187,7 +1403,7 @@ impl VideoSessions {
                 if let Some(entry) = session.groups.get(group)
                     && let Some(chosen) = entry.links.get(link)
                     && !played
-                    && entry.id != "download"
+                    && !own_group(session.link.is_some(), entry)
                 {
                     let name = entry.name.clone();
                     let chosen = chosen.clone();
@@ -1242,6 +1458,7 @@ impl VideoSessions {
                 .flatten()
                 .map(|row| (format!("source:{}", row.fields.source_id), row.fields.title)),
             Origin::Stremio { .. } => title.map(|title| ("stremio".to_owned(), title)),
+            Origin::Link { .. } => None,
         };
         let show_title = show.as_ref().map(|(_, title)| title.clone());
         let memory = match self.recall(&origin.memory_key()).await {
@@ -1383,7 +1600,7 @@ impl VideoSessions {
                 request,
             };
             let group = Group::finished(
-                "download".into(),
+                DOWNLOAD_GROUP.into(),
                 self.label("downloaded", "Downloaded"),
                 vec![link],
                 None,
@@ -1395,6 +1612,7 @@ impl VideoSessions {
             Origin::Source { title_id } => {
                 self.resolve_source(generation, &title_id, &episode).await
             }
+            Origin::Link { .. } => self.resolve_link(generation).await,
             Origin::Stremio { kind, id } => {
                 let target = StremioPlayTarget {
                     kind,
@@ -1540,7 +1758,121 @@ impl VideoSessions {
         }
     }
 
-    /// Replaces the groups (ordered by the remembered source), then plays if nothing does yet.
+    /// A link played on its own: its own links (a torrent's videos, asked of peers when they
+    /// aren't known yet), then, when it was matched with a movie, the sources found for it.
+    async fn resolve_link(&self, generation: u64) {
+        let link = {
+            let guard = self.session.lock().expect("session poisoned");
+            match guard
+                .as_ref()
+                .filter(|session| session.generation == generation)
+                .and_then(|session| session.link.clone())
+            {
+                Some(link) => link,
+                None => return,
+            }
+        };
+        let name = crate::video_links::group_name(&link.request);
+        // A torrent's videos may take a while (its details come from peers).
+        self.set_groups(
+            generation,
+            vec![Group::resolving(LINK_GROUP.into(), name.clone())],
+        )
+        .await;
+        let own = match crate::video_links::own_links(&self.app, &link, &self.labels()).await {
+            Ok((name, links)) => Group::finished(LINK_GROUP.into(), name, links, None),
+            Err(error) => {
+                if let Some(session) = self
+                    .session
+                    .lock()
+                    .expect("session poisoned")
+                    .as_mut()
+                    .filter(|session| session.generation == generation)
+                {
+                    session.link_error = Some(error.clone());
+                }
+                Group::finished(LINK_GROUP.into(), name, Vec::new(), Some(error))
+            }
+        };
+        let matched = crate::video_links::matched_movie(&self.app, &link.request.key).await;
+        let mut groups = vec![own];
+        if matched.is_some() {
+            groups.push(Group::resolving(
+                MATCH_GROUP.into(),
+                self.label("otherSources", "Other sources"),
+            ));
+        }
+        self.set_groups(generation, groups).await;
+        let Some(matched) = matched else {
+            return;
+        };
+        let found = self.matched_groups(&matched, &link.request).await;
+        self.replace_group(generation, MATCH_GROUP, found).await;
+    }
+
+    /// The addons' streams for the movie a link was matched with, as the link's own: they play
+    /// under its key, title and poster, so its progress stays its own.
+    async fn matched_groups(
+        &self,
+        matched: &raygun_model::VideoLinkMatch,
+        base: &VideoRequest,
+    ) -> Vec<Group> {
+        let target = StremioPlayTarget {
+            kind: matched.kind.clone(),
+            meta_id: Some(matched.id.clone()),
+            video_id: matched.id.clone(),
+            subtitle: None,
+            title: base.title.clone(),
+            poster: base.poster.clone(),
+        };
+        let language = crate::video::subtitle_language(&self.db()).await;
+        let stremio = self.app.state::<std::sync::Arc<StremioService>>();
+        let mut groups = match stremio.playable(&target, &language).await {
+            Ok(groups) => groups,
+            Err(error) => {
+                tracing::info!(%error, "no other sources for a link's movie");
+                Vec::new()
+            }
+        };
+        for link in groups.iter_mut().flat_map(|group| group.links.iter_mut()) {
+            link.request.key = base.key.clone();
+            link.request.group = None;
+            link.request.title = base.title.clone();
+            link.request.subtitle = base.subtitle.clone();
+            link.request.poster = base.poster.clone();
+        }
+        groups
+    }
+
+    /// Puts `groups`, ordered as a session orders them, after the ones there (whose indices are
+    /// in use) in place of the placeholder `id`; without the placeholder, nothing changes.
+    async fn replace_group(&self, generation: u64, id: &str, mut groups: Vec<Group>) {
+        {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard
+                .as_mut()
+                .filter(|session| session.generation == generation)
+            else {
+                return;
+            };
+            let Some(at) = session.groups.iter().position(|group| group.id == id) else {
+                return;
+            };
+            order_groups(&mut groups, &session.ranking(now_ms()));
+            if at + 1 == session.groups.len() {
+                session.groups.pop();
+            } else {
+                // Not the last (sessions put it last): it stays, empty, so no index moves.
+                session.groups[at].state = GroupState::Empty;
+            }
+            session.groups.extend(groups);
+        }
+        self.push_sources().await;
+        self.try_play(generation).await;
+    }
+
+    /// Replaces the groups (ordered by the remembered source), then plays if nothing does yet. A
+    /// link played on its own keeps its own groups first, as they are.
     async fn set_groups(&self, generation: u64, mut groups: Vec<Group>) {
         {
             let mut guard = self.session.lock().expect("session poisoned");
@@ -1550,7 +1882,14 @@ impl VideoSessions {
             else {
                 return;
             };
-            order_groups(&mut groups, &session.ranking(now_ms()));
+            let ranking = session.ranking(now_ms());
+            if session.link.is_some() {
+                groups.sort_by_key(|group| !own_group(true, group));
+                let own = groups.iter().filter(|group| own_group(true, group)).count();
+                order_groups(&mut groups[own..], &ranking);
+            } else {
+                order_groups(&mut groups, &ranking);
+            }
             session.groups = groups;
             session.tried.clear();
             session.current = None;
@@ -1568,20 +1907,24 @@ impl VideoSessions {
             else {
                 return;
             };
+            let link_session = session.link.is_some();
             if let Some(group) = session.groups.iter_mut().find(|group| group.id == id) {
                 let (links, error) = match links {
                     Ok(links) => (links, None),
                     Err(error) => (Vec::new(), Some(error)),
                 };
                 *group = Group::finished(group.id.clone(), group.name.clone(), links, error);
-                // Its place in the list stays (indices are in use); its links are ordered.
+                // Its place in the list stays (indices are in use); its links are ordered (a
+                // link played on its own keeps its own order).
                 let ranking = Ranking::new(
                     &session.memory,
                     &session.health,
                     session.resolution,
                     now_ms(),
                 );
-                order_links(group, &ranking);
+                if !own_group(link_session, group) {
+                    order_links(group, &ranking);
+                }
             }
         }
         self.push_sources().await;
@@ -1593,6 +1936,9 @@ impl VideoSessions {
         enum Next {
             Play(usize, usize),
             Exhausted,
+            /// A link played on its own couldn't be opened: why, and whether other sources were
+            /// tried too.
+            LinkFailed(String, bool),
             Wait,
         }
         let next = {
@@ -1617,10 +1963,19 @@ impl VideoSessions {
                         .groups
                         .iter()
                         .any(|group| group.state == GroupState::Resolving);
-                    if session.settled && !resolving {
-                        Next::Exhausted
-                    } else {
+                    if !session.settled || resolving {
                         Next::Wait
+                    } else if session.link.is_some() {
+                        // The player says why the link failed in it, with its own buttons; what
+                        // kept it from opening (peers, the network) is said here, and so is a
+                        // player waiting for another source that none had.
+                        match (session.link_error.clone(), session.player_waits) {
+                            (Some(error), _) => Next::LinkFailed(error, !session.alone()),
+                            (None, true) => Next::Exhausted,
+                            (None, false) => Next::Wait,
+                        }
+                    } else {
+                        Next::Exhausted
                     }
                 }
             }
@@ -1635,6 +1990,12 @@ impl VideoSessions {
                         "text": self.label("noSourceWorked", "No source could play this"),
                         "showSources": true,
                     }),
+                );
+            }
+            Next::LinkFailed(text, others) => {
+                let _ = crate::video::update_player(
+                    &self.app,
+                    &json!({ "type": "error", "text": text, "showSources": others }),
                 );
             }
             Next::Wait => {}
@@ -1657,9 +2018,15 @@ impl VideoSessions {
             let Some(chosen) = entry.links.get(link) else {
                 return;
             };
-            let resume = EpisodeRef {
-                origin: session.origin.clone(),
-                episode: session.episode().remote_id.clone(),
+            // A link's entry keeps a request to play again: the file of its torrent chosen, or
+            // the link itself after another source; anything else an episode reference.
+            let resume = match &session.link {
+                Some(_) if own_group(true, entry) => serde_json::to_string(&chosen.request),
+                Some(own) => serde_json::to_string(&own.request),
+                None => serde_json::to_string(&EpisodeRef {
+                    origin: session.origin.clone(),
+                    episode: session.episode().remote_id.clone(),
+                }),
             };
             let mut request = chosen.request.clone();
             request
@@ -1696,16 +2063,25 @@ impl VideoSessions {
             }
             return;
         }
-        let resume = serde_json::to_string(&resume).ok();
+        let resume = resume.ok();
         match crate::video::prepare(&self.app, &request, resume, start_at).await {
             Ok(payload) => {
                 if !self.is_current(generation) {
                     return;
                 }
                 // The new stream reports its own variants once it loads.
-                if let Some(session) = self.session.lock().expect("session poisoned").as_mut() {
-                    session.variants.clear();
-                    session.playing_variant = None;
+                let link_session = {
+                    let mut guard = self.session.lock().expect("session poisoned");
+                    guard.as_mut().is_some_and(|session| {
+                        session.variants.clear();
+                        session.playing_variant = None;
+                        session.link.is_some()
+                    })
+                };
+                // A link played on its own: before it loads, the player knows whether another
+                // link would stand in for it (`fallback`), should it fail at once.
+                if link_session {
+                    self.push_sources().await;
                 }
                 let _ = crate::video::update_player(
                     &self.app,
@@ -1735,7 +2111,7 @@ impl VideoSessions {
             Err(error) => {
                 tracing::warn!(%error, "a link couldn't be prepared");
                 let key = request.key.clone();
-                Box::pin(self.fall_back(&key, start_at.unwrap_or(0), error)).await;
+                Box::pin(self.fall_back(&key, start_at.unwrap_or(0), error, false)).await;
             }
         }
         self.push_sources().await;
@@ -2042,6 +2418,8 @@ impl VideoSessions {
                 };
                 Ok((meta.name, meta.poster, episodes, "stremio".into()))
             }
+            // A link has no title of episodes: it plays through `start_link`.
+            Origin::Link { .. } => Err("A link has no episodes".into()),
         }
     }
 
@@ -2066,6 +2444,7 @@ impl VideoSessions {
                     .flatten()
                     .map(|row| row.id)
             }
+            Origin::Link { .. } => None,
         };
         if let Some(title_id) = stored {
             let units = titles::units(&db, &title_id).await.unwrap_or_default();
@@ -2234,7 +2613,146 @@ mod tests {
             speeds: HashMap::new(),
             link_speeds: HashMap::new(),
             speed_saved_at: 0,
+            link: None,
+            link_error: None,
+            player_waits: false,
         }
+    }
+
+    /// A link played on its own: its own group (a torrent's videos), and the sources found for
+    /// the movie it was matched with.
+    fn link_session(own: Vec<Link>, others: Vec<Group>) -> Session {
+        let key = "url:magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10".to_owned();
+        let request = crate::video::link_request(&key["url:".len()..], Some("Sintel"), None);
+        let mut groups = vec![Group::finished(
+            LINK_GROUP.into(),
+            "Sintel".into(),
+            own,
+            None,
+        )];
+        groups.extend(others);
+        Session {
+            origin: Origin::Link { key: key.clone() },
+            title: "Sintel".into(),
+            settled: true,
+            link: Some(LinkPlay {
+                request,
+                file: None,
+            }),
+            ..session(groups, vec![episode("x", None)])
+        }
+    }
+
+    #[test]
+    fn a_link_plays_its_own_files_first_and_other_sources_once_they_fail() {
+        let mut own = link("Sintel.mp4", None);
+        own.request.url =
+            "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&so=5".into();
+        let mut extra = link("Sintel.720p.mkv", None);
+        extra.request.url =
+            "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&so=7".into();
+        // An addon's 1080p stream ranks above an unknown size, but the link is what was asked.
+        let addon = Group::finished(
+            "addon".into(),
+            "Torrentio".into(),
+            vec![link("1080p WEB-DL", None)],
+            None,
+        );
+        let mut state = link_session(vec![own, extra], vec![addon]);
+        assert_eq!(state.next_candidate(NOW), Some((0, 0)));
+        state.tried.insert((0, 0));
+        state.current = Some((0, 0));
+        // Its torrent's other video is another file, picked by hand: the movie's other sources
+        // stand in for it.
+        assert_eq!(state.next_candidate(NOW), Some((1, 0)));
+        assert!(!state.alone());
+
+        let update = sources_update(&state, NOW);
+        assert_eq!(update["link"], true);
+        assert_eq!(update["alone"], false);
+        assert_eq!(update["fallback"], true);
+        assert_eq!(update["order"][0], 0, "the link lists itself first");
+        assert_eq!(update["groups"][0]["own"], true);
+        assert_eq!(update["groups"][1]["own"], false);
+
+        // With no other source, nothing to fall back on: the player says why it failed.
+        let mut own_only = link_session(
+            vec![link("Sintel.mp4", None), link("Sintel.sample.mp4", None)],
+            Vec::new(),
+        );
+        own_only.tried.insert((0, 0));
+        own_only.current = Some((0, 0));
+        assert_eq!(sources_update(&own_only, NOW)["fallback"], false);
+        assert!(!own_only.alone(), "its other video can still be picked");
+    }
+
+    #[test]
+    fn a_link_with_nothing_else_says_so() {
+        let state = link_session(vec![link("Sintel.mp4", None)], Vec::new());
+        assert!(state.alone());
+        let update = sources_update(&state, NOW);
+        assert_eq!(update["alone"], true);
+        assert_eq!(update["groups"][0]["name"], "Sintel");
+        // Still finding the matched movie's sources: not alone yet.
+        let waiting = link_session(
+            vec![link("Sintel.mp4", None)],
+            vec![Group::resolving(MATCH_GROUP.into(), "Other sources".into())],
+        );
+        assert!(!waiting.alone());
+        assert_eq!(
+            waiting.next_candidate(NOW),
+            Some((0, 0)),
+            "no waiting for them"
+        );
+        // A regular session is never "alone".
+        assert!(!session(vec![], vec![episode("e", None)]).alone());
+    }
+
+    #[test]
+    fn a_link_group_still_finding_its_videos_holds_the_others() {
+        let mut state = link_session(
+            Vec::new(),
+            vec![Group::finished(
+                "addon".into(),
+                "Torrentio".into(),
+                vec![link("1080p", None)],
+                None,
+            )],
+        );
+        state.groups[0].state = GroupState::Resolving;
+        assert_eq!(state.next_candidate(NOW), None);
+    }
+
+    #[test]
+    fn link_origins_are_their_own_group() {
+        let origin = Origin::Link {
+            key: "url:https://cdn.example/a.mp4".into(),
+        };
+        assert_eq!(origin.group_key(), "url:https://cdn.example/a.mp4");
+        assert_eq!(origin.anime(), None);
+        // Never read back from a group: a link's entry keeps its request.
+        assert_eq!(Origin::from_group(&origin.group_key()), None);
+
+        // In other sessions a server whose id is `link` is a source like any other; a download
+        // is every session's own.
+        let regular = session(
+            vec![Group::finished(
+                LINK_GROUP.into(),
+                "Server".into(),
+                vec![link("720p", None)],
+                None,
+            )],
+            vec![episode("e", None)],
+        );
+        assert!(!own_group(false, &regular.groups[0]));
+        assert!(own_group(true, &regular.groups[0]));
+        let download =
+            Group::finished(DOWNLOAD_GROUP.into(), "Downloaded".into(), Vec::new(), None);
+        assert!(own_group(false, &download));
+        let update = sources_update(&regular, NOW);
+        assert_eq!(update["groups"][0]["own"], false);
+        assert_eq!(update["link"], false);
+        assert_eq!(update["alone"], false);
     }
 
     #[test]

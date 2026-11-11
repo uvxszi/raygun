@@ -41,6 +41,7 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
   const sources = useVideoPlayerStore((state) => state.sources);
   const order = useVideoPlayerStore((state) => state.sourceOrder);
   const playingFrom = useVideoPlayerStore((state) => state.playingFrom);
+  const alone = useVideoPlayerStore((state) => state.sourcesAlone);
   const prefs = useVideoPlayerStore((state) => state.prefs);
   // A torrent playing: its peers and speed beside the option playing.
   const transfer = transferText(
@@ -52,9 +53,11 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
   const [picked, setPicked] = useState<number | null>(null);
   const [options, setOptions] = useState(false);
 
-  // Sources waiting for a key or sign-in weren't asked: one line counts them.
+  // Sources waiting for a key or sign-in weren't asked: one line counts them. A link's own group
+  // always shows (why it failed included).
   const visible = (group: SourceGroup) =>
     group.links.length > 0 ||
+    group.own === true ||
     (group.state !== 'setup' &&
       (group.state !== 'failed' || prefs.showFailedSources) &&
       (group.state !== 'empty' || prefs.showEmptySources));
@@ -220,6 +223,12 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
       {playingFrom && (
         <p className="text-muted px-3 pb-1 text-sm">
           {t('videoPlayer.playingFrom', { n: playingFrom })}
+        </p>
+      )}
+      {/* A link played on its own with nothing else to switch to: Sources stays, and says so. */}
+      {alone && (
+        <p data-testid="sources-alone" className="px-3 pb-1 text-sm text-white/70">
+          {t('videoPlayer.onlyThisLink')}
         </p>
       )}
       {raw ? (

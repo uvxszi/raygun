@@ -155,6 +155,8 @@ export type SourceGroup = {
   options?: number;
   /** The connection speed measured while it played, kb/s. */
   speedKbps?: number | null;
+  /** A link played on its own: its own group, shown whatever its state. */
+  own?: boolean;
 };
 
 export type PlayerUpdate =
@@ -171,8 +173,18 @@ export type PlayerUpdate =
       autoplay?: boolean;
     }
   /** `playingFrom`: the source the video plays from, once it has played a while; `order`: the
-   * order Sources lists them in by clean name. */
-  | { type: 'sources'; groups: SourceGroup[]; playingFrom?: string | null; order?: number[] }
+   * order Sources lists them in by clean name; `link`: a link played on its own (its own links
+   * play first), `alone` when it has nothing else to switch to, `fallback` when another link
+   * would play if this one failed. */
+  | {
+      type: 'sources';
+      groups: SourceGroup[];
+      playingFrom?: string | null;
+      order?: number[];
+      link?: boolean;
+      alone?: boolean;
+      fallback?: boolean;
+    }
   | { type: 'chapters'; id: string; items: VideoChapter[] }
   /** The torrent playing, once a second. */
   | ({ type: 'transfer'; id: string } & TorrentTransfer)

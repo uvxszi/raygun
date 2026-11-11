@@ -1186,6 +1186,33 @@ export const commands = {
 	videoPlay: (request: VideoRequest) => typedError<null, string>(__TAURI_INVOKE("video_play", { request })),
 	/**  Plays a video link (with an optional subtitle file). */
 	videoPlayLink: (url: string, title: string | null, subtitleUrl: string | null) => typedError<null, string>(__TAURI_INVOKE("video_play_link", { url, title, subtitleUrl })),
+	/**  A link played on its own, for its page (`/watch/link`). */
+	videoLinkPage: (key: string) => typedError<VideoLinkPage, string>(__TAURI_INVOKE("video_link_page", { key })),
+	/**  Asks peers what a torrent link holds (its files), for its page. */
+	videoLinkFiles: (key: string) => typedError<VideoLinkPage, string>(__TAURI_INVOKE("video_link_files", { key })),
+	/**  Renames a link played on its own. */
+	videoLinkRename: (key: string, title: string) => typedError<null, string>(__TAURI_INVOKE("video_link_rename", { key, title })),
+	/**
+	 *  Matches a link with a movie or series (its poster; a movie's other sources in the player), or
+	 *  forgets the match (`None`).
+	 */
+	videoLinkMatch: (key: string, matched: {
+	/**  Stremio's type (`movie`, `series`) and id (IMDb's `tt…`). */
+	kind: string,
+	id: string,
+	name: string,
+	year: string | null,
+	poster: string | null,
+} | null) => typedError<null, string>(__TAURI_INVOKE("video_link_match", { key, matched })),
+	/**  The movies and series a link's title may be, closest first. */
+	videoLinkSuggestions: (key: string) => typedError<VideoLinkMatch[], string>(__TAURI_INVOKE("video_link_suggestions", { key })),
+	/**
+	 *  Plays a link from its page: a torrent's file picked (`file`), from its start or where it was
+	 *  left.
+	 */
+	videoLinkPlay: (key: string, file: number | null, fromStart: boolean) => typedError<null, string>(__TAURI_INVOKE("video_link_play", { key, file, fromStart })),
+	/**  Downloads a link (a torrent's file picked, else the one it opens). */
+	videoLinkDownload: (key: string, file: number | null) => typedError<null, string>(__TAURI_INVOKE("video_link_download", { key, file })),
 	/**  Videos started and not finished, most recent first. */
 	videoContinueWatching: () => typedError<ContinueWatching[], string>(__TAURI_INVOKE("video_continue_watching")),
 	/**  Plays a "continue watching" entry again. */
@@ -2831,6 +2858,8 @@ export type ContinueWatching = {
 	unitId?: string | null,
 	/**  An episode of a series, which may have a next one to move on to. */
 	series?: boolean,
+	/**  A link played on its own (Open link, another app): its page is `/watch/link?key=`. */
+	link?: boolean,
 };
 
 /**  A cover a source has for a song, an album or an artist (M46.36), offered in Edit details. */
@@ -7811,6 +7840,82 @@ export type VideoEpisodeView = {
 	watched: boolean,
 	/**  Saved on the device (M43). */
 	downloaded: boolean,
+};
+
+/**  One file of a torrent played from a link. */
+export type VideoLinkFile = {
+	/**  Its index in the torrent (what plays it). */
+	index: number,
+	/**  Its path inside the torrent, `/` between folders. */
+	path: string,
+	name: string,
+	sizeBytes: number | null,
+	kind: VideoLinkFileKind,
+	/**  The video the link plays (the one it names, else the main one). */
+	main: boolean,
+	/**  A subtitle file's language, as its name gives it. */
+	language: string | null,
+};
+
+/**  What a file in a torrent is, on a link's page. */
+export type VideoLinkFileKind = "video" | "subtitle" | "image" | "other";
+
+/**  What a link played on its own is (`VideoLinkPage::kind`). */
+export type VideoLinkKind = 
+/**  A magnet link or a `.torrent` file's address. */
+"torrent" | 
+/**  An HLS stream (`.m3u8`). */
+"hls" | 
+/**  A DASH stream (`.mpd`). */
+"dash" | 
+/**  A video file on the web. */
+"file" | 
+/**  A file on this device (one another app opened with Raygun). */
+"device";
+
+/**
+ *  The movie or series a link is (an optional match, found by its title): its poster and the
+ *  other sources found for it.
+ */
+export type VideoLinkMatch = {
+	/**  Stremio's type (`movie`, `series`) and id (IMDb's `tt…`). */
+	kind: string,
+	id: string,
+	name: string,
+	year: string | null,
+	poster: string | null,
+};
+
+/**  A link played on its own, for its page (`/watch/link`). */
+export type VideoLinkPage = {
+	/**  Its progress key (`url:<address>`). */
+	key: string,
+	url: string,
+	/**  As shown: renamed, else the name the link gave. */
+	title: string,
+	/**
+	 *  The title as other sources are searched for it: a release's year, size and encoding
+	 *  left out ("Big.Buck.Bunny.2008.1080p" → "Big Buck Bunny").
+	 */
+	searchTitle: string,
+	poster: string | null,
+	kind: VideoLinkKind,
+	/**  The web host it plays from, when it's on the web. */
+	host: string | null,
+	/**  The file's format, when its name says ("MP4", "MKV"). */
+	format: string | null,
+	/**  A torrent's own name. */
+	name: string | null,
+	/**  A torrent's files, once known (it's opened, or they were asked for); none until then. */
+	files: VideoLinkFile[] | null,
+	/**  The video's size, when known (a torrent's file). */
+	sizeBytes: number | null,
+	positionMs: number | null,
+	durationMs: number | null,
+	watched: boolean,
+	matched: VideoLinkMatch | null,
+	/**  It can be downloaded (a web address or a torrent, not a file on this device or DASH). */
+	canDownload: boolean,
 };
 
 export type VideoLinkView = {

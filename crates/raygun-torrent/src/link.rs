@@ -233,6 +233,35 @@ pub fn with_episodes(link: &str, format: Option<&str>, episodes: &[EpisodeNumber
     }
 }
 
+/// `link` opening the torrent's file `index` (`so=` on a magnet link, `#so=` on a `.torrent`
+/// file's address), in place of any file it named. A link that isn't a torrent stays as it is.
+pub fn with_file(link: &str, format: Option<&str>, index: usize) -> String {
+    let trimmed = link.trim();
+    if !(is_torrent(link, format) || is_bare_hash(trimmed)) {
+        return link.to_owned();
+    }
+    match parse(trimmed) {
+        Ok(TorrentLink::Magnet(magnet)) if is_bare_hash(trimmed) => {
+            format!("magnet:?xt=urn:btih:{}&so={index}", magnet.info_hash)
+        }
+        Ok(TorrentLink::Magnet(_)) => {
+            let (head, query) = trimmed.split_once('?').unwrap_or((trimmed, ""));
+            let mut params: Vec<String> = query
+                .split('&')
+                .filter(|param| !param.is_empty() && !param.starts_with("so="))
+                .map(str::to_owned)
+                .collect();
+            params.push(format!("so={index}"));
+            format!("{head}?{}", params.join("&"))
+        }
+        Ok(TorrentLink::File { url, mut hint }) => {
+            hint.index = Some(index);
+            file_link(&url, &hint)
+        }
+        Err(_) => link.to_owned(),
+    }
+}
+
 /// A `.torrent` file's address with Raygun's hints after `#`.
 fn file_link(url: &str, hint: &FileHint) -> String {
     let mut fragment = url::form_urlencoded::Serializer::new(String::new());
@@ -383,6 +412,28 @@ mod tests {
         assert_eq!(
             with_episodes("https://example.com/get?id=1", Some(FORMAT), &wanted[1..]),
             "https://example.com/get?id=1#ep=%3A14"
+        );
+    }
+
+    #[test]
+    fn a_link_can_name_the_file_to_open() {
+        let magnet = format!("magnet:?xt=urn:btih:{HASH}&dn=Sintel&so=1&tr=udp%3A%2F%2Ft.example");
+        let picked = with_file(&magnet, None, 4);
+        assert_eq!(
+            picked,
+            format!("magnet:?xt=urn:btih:{HASH}&dn=Sintel&tr=udp%3A%2F%2Ft.example&so=4")
+        );
+        assert_eq!(parse(&picked).unwrap().hint().index, Some(4));
+        assert_eq!(parse(&picked).unwrap().name(), Some("Sintel"));
+        assert_eq!(
+            with_file(HASH, None, 2),
+            format!("magnet:?xt=urn:btih:{HASH}&so=2")
+        );
+        let file = with_file("https://example.com/a.torrent#so=1", None, 3);
+        assert_eq!(file, "https://example.com/a.torrent#so=3");
+        assert_eq!(
+            with_file("https://example.com/a.mp4", None, 3),
+            "https://example.com/a.mp4"
         );
     }
 }

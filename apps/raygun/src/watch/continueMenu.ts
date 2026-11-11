@@ -28,7 +28,9 @@ import { usePinMenuItem } from '../shell/usePinMenuItem';
 import {
   LOCAL_VIDEO,
   canChooseSource,
+  entryPage,
   isStarted,
+  linkDownloads,
   storedTitle,
   stremioParts,
 } from './continueEntry';
@@ -40,7 +42,6 @@ import {
   useRetryVideoDownload,
   useSetStremioInLibrary,
   useSetVideoInLibrary,
-  videoTitleLink,
 } from './useVideoLibrary';
 import { useMarkContinueWatched, useRemoveContinue } from './useWatch';
 
@@ -120,9 +121,10 @@ export const downloadItems = (
 
 /**
  * The ⋮ menu of a Continue watching entry or a watch history row: resume it, play it from the
- * start or its series' next episode, open its title, choose its source; save the title or take it
- * out, mark it watched; download it (or cancel or delete its download, see `downloadItems`), pin
- * its title; and take it out of the list, asked first. `onChooseSource` opens the source picker.
+ * start or its series' next episode, open its title's page (a link played on its own has a page
+ * of its own), choose its source; save the title or take it out, mark it watched; download it (or
+ * cancel or delete its download, see `downloadItems`), pin its page; and take it out of the
+ * list, asked first. `onChooseSource` opens the source picker.
  */
 export const useContinueMenu = (
   listing: ContinueListing,
@@ -149,8 +151,8 @@ export const useContinueMenu = (
         showToast(t('watch.continueMenu.failed', { name, message: message(error) })),
       );
     const failed = { onError: (error: Error) => showToast(error.message) };
-    const page =
-      item.sourceId && item.remoteId ? videoTitleLink(item.sourceId, item.remoteId) : null;
+    // A link played on its own opens its own page.
+    const page = entryPage(item);
     const stremio = item.sourceId === STREMIO_SOURCE;
     const local = item.sourceId === LOCAL_VIDEO;
     const titleId = storedTitle(item);
@@ -236,9 +238,16 @@ export const useContinueMenu = (
       ],
       keep: [
         ...downloadItems(downloads.get(item.key), {
-          canDownload: Boolean(group && episodeId && !local),
+          canDownload: Boolean(group && episodeId && !local) || linkDownloads(item),
           download: () =>
             attempt(async () => {
+              // A link downloads from its own address (a torrent's file it opens).
+              if (item.link) {
+                await unwrapResult(commands.videoLinkDownload(item.key, null));
+                await client.invalidateQueries({ queryKey: ['video', 'downloads'] });
+                showToast(t('watch.continueMenu.downloading', { name: episodeName }));
+                return;
+              }
               if (!group || !episodeId) return;
               // It finds its best link when its turn comes, as a title's episodes do.
               const queued = await unwrapResult(commands.videoDownloadEpisodes(group, [episodeId]));

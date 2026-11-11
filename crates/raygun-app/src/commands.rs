@@ -4335,6 +4335,83 @@ pub async fn video_play_link(
     crate::video::play(&app, request).await
 }
 
+/// A link played on its own, for its page (`/watch/link`).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_link_page(
+    app: tauri::AppHandle,
+    key: String,
+) -> Result<raygun_model::VideoLinkPage, String> {
+    crate::video_links::page(&app, &key).await
+}
+
+/// Asks peers what a torrent link holds (its files), for its page.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_link_files(
+    app: tauri::AppHandle,
+    key: String,
+) -> Result<raygun_model::VideoLinkPage, String> {
+    crate::video_links::list_files(&app, &key).await
+}
+
+/// Renames a link played on its own.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_link_rename(
+    app: tauri::AppHandle,
+    key: String,
+    title: String,
+) -> Result<(), String> {
+    crate::video_links::rename(&app, &key, &title).await
+}
+
+/// Matches a link with a movie or series (its poster; a movie's other sources in the player), or
+/// forgets the match (`None`).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_link_match(
+    app: tauri::AppHandle,
+    key: String,
+    matched: Option<raygun_model::VideoLinkMatch>,
+) -> Result<(), String> {
+    crate::video_links::set_match(&app, &key, matched).await
+}
+
+/// The movies and series a link's title may be, closest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_link_suggestions(
+    app: tauri::AppHandle,
+    key: String,
+) -> Result<Vec<raygun_model::VideoLinkMatch>, String> {
+    crate::video_links::suggestions(&app, &key).await
+}
+
+/// Plays a link from its page: a torrent's file picked (`file`), from its start or where it was
+/// left.
+#[tauri::command]
+#[specta::specta]
+pub async fn video_link_play(
+    app: tauri::AppHandle,
+    key: String,
+    file: Option<u32>,
+    from_start: bool,
+) -> Result<(), String> {
+    crate::video_links::play(&app, &key, file, from_start).await
+}
+
+/// Downloads a link (a torrent's file picked, else the one it opens).
+#[tauri::command]
+#[specta::specta]
+pub async fn video_link_download(
+    app: tauri::AppHandle,
+    key: String,
+    file: Option<u32>,
+) -> Result<(), String> {
+    crate::video_links::download(&app, &key, file).await
+}
+
 /// Videos started and not finished, most recent first.
 #[tauri::command]
 #[specta::specta]

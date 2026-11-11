@@ -7,9 +7,10 @@
 //! permission apply), picks its file, and gives the stream proxy's `/torrent/<token>/<name>`
 //! address, which players read with byte ranges as the pieces arrive. The subtitle files that
 //! come with the video ("Sintel.en.srt") are subtitle tracks of their own, at addresses of the
-//! same kind; their pieces are fetched first so the player has them as it starts. While it
-//! plays, how it's doing goes to the player once a second (`transfer` updates: peers, seeds,
-//! speed). The file closes when the player closes or loads something else; its pieces are
+//! same kind; their pieces are fetched first so the player has them as it starts. A link played
+//! on its own keeps what its torrent holds and the poster that came with it (`video_links`).
+//! While it plays, how it's doing goes to the player once a second (`transfer` updates: peers,
+//! seeds, speed). The file closes when the player closes or loads something else; its pieces are
 //! deleted unless sharing on is turned on (never in battery saver).
 //!
 //! `Settings::torrents` decides: off until turned on (Settings → Video player → Torrents explains
@@ -23,14 +24,19 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use raygun_model::{StorageArea, StorageUsage, TorrentPrefs, VideoRequest, VideoSubtitle};
-use raygun_torrent::{Engine, EngineConfig, OpenedSubtitle, Source, TorrentError, TorrentLink};
+use raygun_torrent::{
+    Engine, EngineConfig, Listing, OpenedFile, OpenedSubtitle, Source, TorrentError, TorrentLink,
+};
 use serde_json::json;
 use tauri::{AppHandle, Manager};
+use tokio::io::AsyncReadExt;
 
 use crate::startup::AppDb;
 
 /// How long a torrent's subtitle file is read in the background before it's left to the player.
 const SUBTITLE_WARM: Duration = Duration::from_secs(180);
+/// How long a torrent's poster may take to arrive.
+const POSTER_WAIT: Duration = Duration::from_secs(180);
 
 /// A torrent's video as the player opens it: its address, and the subtitle files that came with
 /// it as tracks.
@@ -245,6 +251,15 @@ impl TorrentService {
         let address = self.links.link(&opened.token, &opened.name);
         let subtitles = subtitle_tracks(&self.links, &opened.subtitles);
         self.warm_subtitles(&opened.subtitles);
+        // A link played on its own keeps what its torrent holds, and its poster.
+        tauri::async_runtime::spawn(crate::video_links::torrent_opened(
+            self.app.clone(),
+            request.key.clone(),
+            opened.listing.clone(),
+        ));
+        if let Some(poster) = opened.poster.clone() {
+            self.fetch_poster(request.key.clone(), opened.info_hash.clone(), poster);
+        }
         *self.playing.lock().expect("playing poisoned") = Some(Playing {
             token: opened.token,
             key: request.key.clone(),
@@ -276,6 +291,53 @@ impl TorrentService {
                 }
             });
         }
+    }
+
+    /// Reads the poster that came with a link's torrent ("poster.jpg") and keeps it for the link
+    /// (`video_links`), in the background; one kept already isn't read again.
+    fn fetch_poster(&self, key: String, info_hash: String, poster: OpenedFile) {
+        if !crate::video_links::is_link_key(&key) {
+            return;
+        }
+        let engine = self.engine.clone();
+        let app = self.app.clone();
+        tauri::async_runtime::spawn(async move {
+            if crate::video_links::has_poster(&app, &key).await {
+                return;
+            }
+            let read = async {
+                let reader = engine.read_from(&poster.token, 0).await?;
+                let mut bytes = Vec::new();
+                reader
+                    .take(raygun_torrent::MAX_POSTER_BYTES)
+                    .read_to_end(&mut bytes)
+                    .await?;
+                Ok::<_, std::io::Error>(bytes)
+            };
+            match tokio::time::timeout(POSTER_WAIT, read).await {
+                Ok(Ok(bytes)) if bytes.len() as u64 == poster.len => {
+                    crate::video_links::torrent_poster(&app, &key, &info_hash, &poster.name, bytes)
+                        .await;
+                }
+                Ok(Ok(_)) => tracing::debug!("a torrent's poster came short"),
+                Ok(Err(error)) => tracing::debug!(%error, "a torrent's poster wasn't read"),
+                Err(_) => tracing::debug!("a torrent's poster is still coming"),
+            }
+        });
+    }
+
+    /// What a torrent link holds (its name and files), asked of peers for a magnet link while
+    /// torrents may play; nothing is fetched. Opening it next needs no peers for its details.
+    pub async fn list(&self, url: &str) -> Result<Listing, String> {
+        let prefs = self.prefs().await;
+        if let Some(reason) = unavailable(&self.app, &prefs) {
+            return Err(reason);
+        }
+        let link = raygun_torrent::parse(url).map_err(|error| error.to_string())?;
+        let source = self.source_of(&link).await?;
+        let listed = self.engine.list(source).await.map_err(message);
+        self.stop_when_idle();
+        listed
     }
 
     /// The torrent to open: a magnet link as it is, a `.torrent` file fetched.

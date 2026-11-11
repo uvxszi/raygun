@@ -31,6 +31,7 @@ import { LocalFilesPage } from './pages/LocalFilesPage';
 import { StremioAddonPage } from './pages/StremioAddonPage';
 import { WatchHistoryPage } from './pages/WatchHistoryPage';
 import { WatchTitlePage } from './pages/WatchTitlePage';
+import { VideoLinkPage } from './pages/VideoLinkPage';
 import { VideoTitlePage } from './pages/VideoTitlePage';
 import { isSearchType, isSearchView, searchLink } from './search/searchTypes';
 import type { SearchType, SearchView } from './search/searchTypes';
@@ -519,6 +520,13 @@ const routeTree = rootRoute.addChildren([
       source: text(search.source),
       id: text(search.id),
     }),
+  }),
+  // A link played on its own (Open link, another app), by its progress key.
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/watch/link',
+    component: VideoLinkPage,
+    validateSearch: (search: Record<string, unknown>) => ({ key: text(search.key) }),
   }),
   createRoute({
     getParentRoute: () => rootRoute,

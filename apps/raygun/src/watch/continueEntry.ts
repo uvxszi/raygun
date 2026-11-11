@@ -1,6 +1,24 @@
 import type { ContinueWatching } from '@raygun/bindings';
 
-import { STREMIO_SOURCE } from './useVideoLibrary';
+import { STREMIO_SOURCE, videoTitleLink } from './useVideoLibrary';
+import { videoLinkPage } from './useVideoLink';
+
+/** Where an entry opens: its title's page, or a link played on its own's (`/watch/link`). */
+export const entryPage = (item: ContinueWatching) =>
+  item.link
+    ? videoLinkPage(item.key)
+    : item.sourceId && item.remoteId
+      ? videoTitleLink(item.sourceId, item.remoteId)
+      : null;
+
+/**
+ * A link played on its own that can be downloaded: a web address or a torrent, not a file on
+ * this device or a DASH stream.
+ */
+export const linkDownloads = (item: ContinueWatching) =>
+  Boolean(item.link) &&
+  /^url:(https?:|magnet:)/i.test(item.key) &&
+  !/\.mpd([?#]|$)/i.test(item.key);
 
 /** Videos from Local Files folders: on this device, with no other source to choose. */
 export const LOCAL_VIDEO = 'local.video';

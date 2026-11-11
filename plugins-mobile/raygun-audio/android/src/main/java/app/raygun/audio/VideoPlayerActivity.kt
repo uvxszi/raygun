@@ -253,6 +253,12 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal var sourceOrder: JSONArray? = null
     /** The source playing, once it has played a while. */
     internal var playingFrom: String? = null
+    /** A link played on its own (Rust's `link`): its own links play first. */
+    internal var linkSession = false
+    /** It has nothing else to switch to (Rust's `alone`): Sources says "Only this link". */
+    internal var sourcesAlone = false
+    /** Another link would play if this one failed (Rust's `fallback`). */
+    private var sourcesFallback = true
     /** How the torrent playing is doing (Rust's `transfer` updates): peers and speed, for the ring's note. */
     internal var transferNote: String? = null
         private set
@@ -618,11 +624,12 @@ class VideoPlayerActivity : AppCompatActivity() {
             val (message, detail) = describeProblem(error) { key, fallback -> label(key, fallback) }
             Log.w("RaygunVideo", "playback failed: $detail")
             report("error", detail)
-            // A session tries its next source; a single video says what went wrong.
-            if (session) {
+            // A session tries its next source; a single video, or a link played on its own with
+            // nothing else to switch to, says what went wrong.
+            if (session && !(linkSession && !sourcesFallback)) {
                 showLoading(label("tryingNext", "That source failed. Trying the next one…"), message)
             } else {
-                showProblem(message, detail, retry = { reload(player.currentPosition) }, sources = false, elsewhere = true)
+                showProblem(message, detail, retry = { reload(player.currentPosition) }, sources = session, elsewhere = true)
             }
         }
 
@@ -693,11 +700,19 @@ class VideoPlayerActivity : AppCompatActivity() {
         player.pause()
         readSettings(request)
         if (!request.has("session")) session = false
+        // The new session says what it is with its sources.
+        linkSession = false
+        sourcesAlone = false
+        sourcesFallback = true
         heading = heading(request)
         controls.setTitle(heading)
         controls.setSession(session, several, hasPrevious, hasNext)
         request.optJSONObject("cast")?.let { cast.show(it) }
-        if (request.optString("url").isNotBlank()) load(request) else showLoading(label("findingSource", "Finding a source…"))
+        if (request.optString("url").isNotBlank()) {
+            load(request)
+        } else {
+            showLoading(request.optString("loadingText").ifBlank { label("findingSource", "Finding a source…") })
+        }
     }
 
     /** An update from Rust (M44, M45). */
@@ -735,6 +750,9 @@ class VideoPlayerActivity : AppCompatActivity() {
                 sources = update.optJSONArray("groups") ?: JSONArray()
                 sourceOrder = update.optJSONArray("order")
                 playingFrom = update.text("playingFrom")
+                linkSession = update.optBoolean("link")
+                sourcesAlone = update.optBoolean("alone")
+                sourcesFallback = update.optBoolean("fallback", true)
                 sourcesSheet.refresh()
                 // What the wait is for, as the sources answer (a failure's reason stays meanwhile).
                 if (loading.finding) {

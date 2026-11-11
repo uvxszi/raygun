@@ -729,10 +729,18 @@ const VideoStage: FC<StageProps> = ({
   const onFatal = useEffectEvent((message: string, problem: StreamProblem) => {
     const video = videoRef.current;
     sendReport(id, 'error', positionOf(video), message);
-    if (session) {
+    // A session tries its next source; a single video, or a link played on its own with nothing
+    // else to switch to, says what went wrong.
+    const { linkSession, sourcesFallback } = useVideoPlayerStore.getState();
+    if (session && !(linkSession && !sourcesFallback)) {
       useVideoPlayerStore.setState({ loadingText: t('videoPlayer.tryingNext'), notice: null });
     } else {
-      setNotice({ text: t(PROBLEM_TEXT[problem]), detail: message, elsewhere: true });
+      setNotice({
+        text: t(PROBLEM_TEXT[problem]),
+        detail: message,
+        sources: session,
+        elsewhere: true,
+      });
     }
   });
   const startElsewhere = useEffectEvent(() => {

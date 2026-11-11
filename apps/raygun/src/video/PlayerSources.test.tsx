@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock, emitEvent } from '../test/bindingsMock';
+import { useVideoPlayerStore } from './videoPlayerStore';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 
@@ -119,6 +120,58 @@ describe('the desktop player’s sources, quality and live streams', () => {
     AppShellWrapper.seedCore();
     window.innerWidth = 1280;
     window.innerHeight = 720;
+  });
+
+  it('keeps Sources and Quality for a link played on its own, saying it has only this link', async () => {
+    const user = userEvent.setup();
+    const key = 'url:magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel';
+    await AppShellWrapper.mount('/');
+    open({ session: true, id: '', title: 'Sintel', subtitle: '', loadingText: 'Finding peers…' });
+    expect(await screen.findByText('Finding peers…')).toBeInTheDocument();
+    update({ type: 'load', request: { ...EPISODE, id: key, title: 'Sintel', group: key } });
+    const video = await screen.findByTestId('desktop-video');
+    update({
+      type: 'sources',
+      playingFrom: null,
+      order: [0],
+      link: true,
+      alone: true,
+      fallback: false,
+      groups: [
+        {
+          name: 'Sintel',
+          state: 'ready',
+          error: null,
+          own: true,
+          best: null,
+          options: 1,
+          links: [{ label: 'Sintel.mp4', current: true, failed: false, facts: facts(null) }],
+        },
+      ],
+    });
+    const player = screen.getByRole('dialog', { name: 'Video player' });
+    expect(useVideoPlayerStore.getState().sourcesAlone).toBe(true);
+    expect(within(player).getByRole('button', { name: 'Quality' })).toBeInTheDocument();
+    await user.click(within(player).getByRole('button', { name: 'Sources' }));
+    const panel = screen.getByRole('region', { name: 'Sources' });
+    expect(within(panel).getByTestId('sources-alone')).toHaveTextContent('Only this link');
+    // The link itself, as its source and its one option, playing.
+    expect(within(panel).getAllByRole('menuitemradio', { name: /^Sintel/ })).toHaveLength(2);
+    await user.keyboard('{Escape}');
+
+    // Nothing else to switch to: a failure says what went wrong instead of trying the next one.
+    Object.defineProperty(video, 'error', {
+      value: { code: 2, message: 'NETWORK_ERROR' },
+      configurable: true,
+    });
+    act(() => {
+      video.dispatchEvent(new Event('error'));
+    });
+    expect(await within(player).findByRole('alert')).toBeInTheDocument();
+    expect(within(player).queryByText('That source failed. Trying the next one…')).toBeNull();
+    expect(reports()).toContainEqual(
+      expect.objectContaining({ state: 'error', id: key, error: 'NETWORK_ERROR' }),
+    );
   });
 
   it('lists sources by clean names beside their options, with the raw list a tab away', async () => {

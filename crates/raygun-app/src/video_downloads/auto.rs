@@ -110,6 +110,8 @@ pub async fn candidates(
             mark_mismatches(&mut groups, &found.numbers);
             (groups, STREMIO_SUBTITLES.to_owned())
         }
+        // A link downloads from its own address (`video_links::download`).
+        Origin::Link { .. } => return Err("A link downloads from its page".into()),
     };
     let (memory, health, resolution) = sessions.ranking_inputs(&episode.origin).await;
     let ranking = Ranking::new(&memory, &health, resolution, now_ms());

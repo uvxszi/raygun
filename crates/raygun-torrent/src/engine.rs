@@ -3,12 +3,14 @@
 //!
 //! Opening a torrent asks peers for its details (a magnet link's metadata), picks the file to
 //! play ([`crate::pick_file`]), and adds the torrent with only that file selected, and the
-//! subtitle files that come with it ([`crate::subtitles_for`]), each readable by a token of its
-//! own. Readers of a file ([`Engine::read_from`]) wait for the pieces they need; librqbit fetches
-//! the pieces just ahead of each reader first, so a seek starts fetching where it lands. Closing
-//! removes the torrent and its pieces unless they're shared on (seeding).
+//! subtitle files and poster that come with it ([`crate::subtitles_for`],
+//! [`crate::poster_file`]), each readable by a token of its own. Readers of a file
+//! ([`Engine::read_from`]) wait for the pieces they need; librqbit fetches the pieces just ahead of
+//! each reader first, so a seek starts fetching where it lands. Closing removes the torrent and its
+//! pieces unless they're shared on (seeding). Details peers sent are kept for a while
+//! ([`Engine::list`] then opening, or another of its files, needs no peers for them again).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::SeekFrom;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::num::NonZeroU32;
@@ -28,10 +30,13 @@ use tokio::io::{AsyncRead, AsyncSeekExt, ReadBuf};
 
 use crate::link::{FileHint, Magnet};
 use crate::pick::{TorrentFile, pick_file};
+use crate::poster::poster_file;
 use crate::subtitles::subtitles_for;
 
 /// How long peers get to send a magnet link's details.
 const METADATA_TIMEOUT: Duration = Duration::from_secs(60);
+/// Torrents whose details are kept, newest last.
+const KNOWN_DETAILS: usize = 8;
 /// Readers of one file kept open at once; an older one ends when another opens (players drop
 /// their connection on a seek, and a reader waiting for a piece holds a slot of the engine's).
 const READERS_PER_FILE: usize = 3;
@@ -98,6 +103,15 @@ pub enum Source {
     File(Vec<u8>),
 }
 
+/// What a torrent holds: its name and files (padding left out).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listing {
+    pub info_hash: String,
+    /// The torrent's own name (its folder, or its one file's name).
+    pub name: Option<String>,
+    pub files: Vec<TorrentFile>,
+}
+
 /// A file opened for playing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opened {
@@ -109,6 +123,19 @@ pub struct Opened {
     pub info_hash: String,
     /// The subtitle files that came with it, open while it is.
     pub subtitles: Vec<OpenedSubtitle>,
+    /// The poster that came with it ("poster.jpg"), open while it is.
+    pub poster: Option<OpenedFile>,
+    /// Everything the torrent holds.
+    pub listing: Listing,
+}
+
+/// A file opened beside a video (its poster), read by its token ([`Engine::read_from`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedFile {
+    pub token: String,
+    /// The file's name (without folders).
+    pub name: String,
+    pub len: u64,
 }
 
 /// A subtitle file opened with a video.
@@ -190,8 +217,15 @@ struct Open {
     len: u64,
     info_hash: String,
     readers: Vec<Arc<Gate>>,
-    /// The tokens of the subtitle files opened with this video: they close with it.
-    subtitles: Vec<String>,
+    /// The tokens of the subtitle files and poster opened with this video: they close with it.
+    companions: Vec<String>,
+}
+
+/// A torrent's details as peers sent them: a `.torrent` file's bytes and the peers seen then.
+struct Known {
+    info_hash: String,
+    bytes: Vec<u8>,
+    peers: Vec<SocketAddr>,
 }
 
 /// A torrent kept running after its video closed: shared on until room is needed.
@@ -225,6 +259,8 @@ pub struct Engine {
     config: Mutex<EngineConfig>,
     session: tokio::sync::Mutex<Option<Arc<Session>>>,
     state: Mutex<State>,
+    /// Magnet links' details peers sent lately, oldest first ([`KNOWN_DETAILS`] at most).
+    known: Mutex<VecDeque<Known>>,
 }
 
 impl Engine {
@@ -233,6 +269,31 @@ impl Engine {
             config: Mutex::new(config),
             session: tokio::sync::Mutex::new(None),
             state: Mutex::new(State::default()),
+            known: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    /// A magnet link's details as peers sent them lately: the `.torrent` file's bytes and the
+    /// peers seen then.
+    fn known(&self, info_hash: &str) -> Option<(Vec<u8>, Vec<SocketAddr>)> {
+        self.known
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .find(|known| known.info_hash == info_hash)
+            .map(|known| (known.bytes.clone(), known.peers.clone()))
+    }
+
+    fn remember(&self, info_hash: String, bytes: Vec<u8>, peers: Vec<SocketAddr>) {
+        let mut known = self.known.lock().unwrap_or_else(|p| p.into_inner());
+        known.retain(|old| old.info_hash != info_hash);
+        known.push_back(Known {
+            info_hash,
+            bytes,
+            peers,
+        });
+        while known.len() > KNOWN_DETAILS {
+            known.pop_front();
         }
     }
 
@@ -362,16 +423,22 @@ impl Engine {
         let _ = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(dir)).await;
     }
 
-    /// The torrent's details: from the file, or asked of peers for a magnet link.
+    /// The torrent's details: from the file, or asked of peers for a magnet link (unless they
+    /// sent them lately).
     async fn details(
         &self,
         session: &Arc<Session>,
         source: &Source,
     ) -> Result<librqbit::ListOnlyResponse, TorrentError> {
         let https = self.config().https_trackers;
-        let add = match source {
-            Source::Magnet(magnet) => AddTorrent::from_url(magnet.for_engine(https)),
-            Source::File(bytes) => AddTorrent::from_bytes(
+        let known = match source {
+            Source::Magnet(magnet) => self.known(&magnet.info_hash),
+            Source::File(_) => None,
+        };
+        let add = match (source, &known) {
+            (_, Some((bytes, _))) => AddTorrent::from_bytes(bytes.clone()),
+            (Source::Magnet(magnet), None) => AddTorrent::from_url(magnet.for_engine(https)),
+            (Source::File(bytes), None) => AddTorrent::from_bytes(
                 crate::announce::with_usable_trackers(bytes, https)
                     .unwrap_or_else(|| bytes.clone()),
             ),
@@ -393,12 +460,38 @@ impl Engine {
                         TorrentError::Link(format!("This torrent can't be read: {text}"))
                     }
                 })?;
-        match listed {
-            AddTorrentResponse::ListOnly(listed) => Ok(listed),
-            _ => Err(TorrentError::Engine(
-                "the torrent's details didn't come back".into(),
-            )),
+        let mut listed = match listed {
+            AddTorrentResponse::ListOnly(listed) => listed,
+            _ => {
+                return Err(TorrentError::Engine(
+                    "the torrent's details didn't come back".into(),
+                ));
+            }
+        };
+        match (source, known) {
+            // Details kept: the peers seen when they came are asked first again.
+            (_, Some((_, peers))) => {
+                if listed.seen_peers.is_empty() {
+                    listed.seen_peers = peers;
+                }
+            }
+            (Source::Magnet(_), None) => self.remember(
+                listed.info_hash.as_string(),
+                listed.torrent_bytes.to_vec(),
+                listed.seen_peers.clone(),
+            ),
+            (Source::File(_), None) => {}
         }
+        Ok(listed)
+    }
+
+    /// What a torrent holds (its name and files), from its file or asked of peers for a magnet
+    /// link. Nothing is fetched; opening it soon after needs no peers for its details again.
+    pub async fn list(&self, source: Source) -> Result<Listing, TorrentError> {
+        let _starting = self.starting();
+        let session = self.session().await?;
+        let listed = self.details(&session, &source).await?;
+        Ok(listing_of(&listed))
     }
 
     /// Adds the torrent with only `files` selected, its pieces kept in `folder`.
@@ -488,42 +581,64 @@ impl Engine {
             });
         }
         let subtitles = subtitles_for(&files, &file);
-        let info_hash = listed.info_hash.as_string();
+        let poster = poster_file(&files).cloned();
+        let listing = listing_of(&listed);
+        let info_hash = listing.info_hash.clone();
         let needed = subtitles
             .iter()
-            .fold(file.len, |total, subtitle| total + subtitle.file.len);
+            .map(|subtitle| &subtitle.file)
+            .chain(&poster)
+            .fold(file.len, |total, companion| total + companion.len);
         self.make_room(&session, needed, cap, &info_hash).await;
         let folder = self.config().dir.join(&info_hash);
         let selected: Vec<usize> = std::iter::once(file.index)
             .chain(subtitles.iter().map(|subtitle| subtitle.file.index))
+            .chain(poster.iter().map(|poster| poster.index))
             .collect();
         let (id, torrent) = self
             .add(&session, listed, &source, &selected, &folder)
             .await?;
-        let token = uuid::Uuid::new_v4().simple().to_string();
+        let new_token = || uuid::Uuid::new_v4().simple().to_string();
+        let token = new_token();
         let opened: Vec<OpenedSubtitle> = subtitles
             .iter()
             .map(|subtitle| OpenedSubtitle {
-                token: uuid::Uuid::new_v4().simple().to_string(),
+                token: new_token(),
                 name: subtitle.file.name().to_owned(),
                 format: subtitle.format.clone(),
                 language: subtitle.language.clone(),
                 label: subtitle.label.clone(),
             })
             .collect();
+        let opened_poster = poster.as_ref().map(|poster| OpenedFile {
+            token: new_token(),
+            name: poster.name().to_owned(),
+            len: poster.len,
+        });
+        let companions: Vec<(String, &TorrentFile)> = subtitles
+            .iter()
+            .zip(&opened)
+            .map(|(subtitle, opened)| (opened.token.clone(), &subtitle.file))
+            .chain(
+                opened_poster
+                    .as_ref()
+                    .zip(poster.as_ref())
+                    .map(|(opened, file)| (opened.token.clone(), file)),
+            )
+            .collect();
         let mut state = self.state();
         state.sharing.retain(|shared| shared.info_hash != info_hash);
-        for (subtitle, opened) in subtitles.iter().zip(&opened) {
+        for (companion, file) in &companions {
             state.open.insert(
-                opened.token.clone(),
+                companion.clone(),
                 Open {
                     torrent: torrent.clone(),
                     id,
-                    file: subtitle.file.index,
-                    len: subtitle.file.len,
+                    file: file.index,
+                    len: file.len,
                     info_hash: info_hash.clone(),
                     readers: Vec::new(),
-                    subtitles: Vec::new(),
+                    companions: Vec::new(),
                 },
             );
         }
@@ -536,7 +651,7 @@ impl Engine {
                 len: file.len,
                 info_hash: info_hash.clone(),
                 readers: Vec::new(),
-                subtitles: opened.iter().map(|opened| opened.token.clone()).collect(),
+                companions: companions.into_iter().map(|(token, _)| token).collect(),
             },
         );
         tracing::info!(
@@ -544,6 +659,7 @@ impl Engine {
             file = %file.name(),
             len = file.len,
             subtitles = opened.len(),
+            poster = opened_poster.is_some(),
             "torrent opened"
         );
         Ok(Opened {
@@ -552,6 +668,8 @@ impl Engine {
             len: file.len,
             info_hash,
             subtitles: opened,
+            poster: opened_poster,
+            listing,
         })
     }
 
@@ -610,10 +728,10 @@ impl Engine {
         Some(progress_of(&torrent, file, len))
     }
 
-    /// Closes the file behind `token`, and the subtitle files opened with it. Its torrent is
-    /// removed with its pieces, unless `share` keeps it running for other peers (until room is
-    /// needed or the engine stops). The session keeps running (another torrent may open next):
-    /// [`Self::stop_if_idle`] stops it.
+    /// Closes the file behind `token`, and the subtitle files and poster opened with it. Its
+    /// torrent is removed with its pieces, unless `share` keeps it running for other peers (until
+    /// room is needed or the engine stops). The session keeps running (another torrent may open
+    /// next): [`Self::stop_if_idle`] stops it.
     pub async fn close(&self, token: &str, share: bool) {
         let (open, readers) = {
             let mut state = self.state();
@@ -621,8 +739,8 @@ impl Engine {
                 return;
             };
             let mut readers = open.readers.clone();
-            for subtitle in &open.subtitles {
-                if let Some(closed) = state.open.remove(subtitle) {
+            for companion in &open.companions {
+                if let Some(closed) = state.open.remove(companion) {
                     readers.extend(closed.readers);
                 }
             }
@@ -866,6 +984,19 @@ async fn start_session(
     Session::new_with_opts(config.dir.clone(), options)
         .await
         .map_err(engine_error)
+}
+
+/// The torrent's name and files.
+fn listing_of(listed: &librqbit::ListOnlyResponse) -> Listing {
+    Listing {
+        info_hash: listed.info_hash.as_string(),
+        name: listed
+            .info
+            .name()
+            .map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty()),
+        files: files_of(listed),
+    }
 }
 
 /// The torrent's files, padding files left out.

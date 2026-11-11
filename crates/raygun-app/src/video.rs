@@ -165,6 +165,11 @@ async fn play_from(
     if let Some(video_id) = request.url.strip_prefix(YOUTUBE_LINK) {
         return play_youtube(app, video_id, &request.title, request.subtitle.clone()).await;
     }
+    // A link played on its own plays through a session, for the player's Sources and Quality:
+    // its torrent's other videos, the sources of the movie it was matched with.
+    if crate::video_links::is_link(&request) {
+        return crate::video_links::play_request(app, request, start_at).await;
+    }
     // A torrent takes a while to open (a magnet link's details come from peers): the player
     // opens at once with the title and waits.
     if raygun_torrent::is_torrent(&request.url, request.format.as_deref())
@@ -1008,6 +1013,13 @@ async fn entry_view(
     entry: &VideoEntry,
     units: &mut std::collections::HashMap<String, Vec<raygun_db::titles::UnitRow>>,
 ) -> EntryView {
+    // A link played on its own has a page of its own (`/watch/link`).
+    if crate::video_links::is_link_key(&entry.key) && entry_episode(entry).is_none() {
+        return EntryView {
+            link: true,
+            ..EntryView::default()
+        };
+    }
     let Some((origin, episode_id)) = entry_episode(entry) else {
         return EntryView::default();
     };
@@ -1036,6 +1048,7 @@ async fn entry_view(
                 }),
                 series: listed.len() > 1,
                 episode_id,
+                link: false,
             }
         }
         Origin::Stremio { kind, id } => EntryView {
@@ -1049,7 +1062,10 @@ async fn entry_view(
             group,
             unit_id: None,
             episode_id,
+            link: false,
         },
+        // Never read from a group (`Origin::from_group`).
+        Origin::Link { .. } => EntryView::default(),
     }
 }
 
@@ -1060,6 +1076,8 @@ struct EntryView {
     episode_id: Option<String>,
     unit_id: Option<String>,
     series: bool,
+    /// A link played on its own: its page is its own.
+    link: bool,
 }
 
 async fn to_view(app: &AppHandle, rows: Vec<store::VideoProgress>) -> Vec<ContinueWatching> {
@@ -1079,6 +1097,7 @@ async fn to_view(app: &AppHandle, rows: Vec<store::VideoProgress>) -> Vec<Contin
             episode_id: view.episode_id,
             unit_id: view.unit_id,
             series: view.series,
+            link: view.link,
             key: row.entry.key,
             title: row.entry.title,
             // A movie's line is its release years, saved as an addon wrote them ("2024–").
@@ -1086,14 +1105,12 @@ async fn to_view(app: &AppHandle, rows: Vec<store::VideoProgress>) -> Vec<Contin
                 .entry
                 .subtitle
                 .map(|subtitle| crate::stremio::release_label(&subtitle)),
-            // Posters seen again and again: through the lasting cache (M46.2).
-            poster: row.entry.poster.map(|poster| {
-                if images.is_remote(&poster) {
-                    images.cover(&poster, &Default::default())
-                } else {
-                    poster
-                }
-            }),
+            // Posters seen again and again: through the lasting cache (M46.2); a link's kept
+            // poster through the proxy's `/local/` route.
+            poster: row
+                .entry
+                .poster
+                .map(|poster| crate::video_links::shown_poster(&images, &poster)),
             position_ms: row.position_ms as f64,
             duration_ms: row.duration_ms.map(|ms| ms as f64),
             updated_at: row.updated_at as f64,
@@ -1115,6 +1132,10 @@ pub async fn play_from_start(app: &AppHandle, key: &str) -> Result<(), String> {
 }
 
 async fn resume_from(app: &AppHandle, key: &str, start_at: Option<i64>) -> Result<(), String> {
+    // A link played on its own plays as its page plays it (as renamed, with its poster).
+    if crate::video_links::is_link_key(key) {
+        return crate::video_links::play(app, key, None, start_at == Some(0)).await;
+    }
     let saved = saved_entry(app, key).await?;
     if let Ok(episode) = serde_json::from_str::<EpisodeRef>(&saved.entry.request) {
         return app
@@ -1163,16 +1184,23 @@ pub async fn remove(app: &AppHandle, key: &str) -> Result<(), String> {
     let db = app.state::<AppDb>().0.clone();
     store::remove(&db, key)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    // A link's page goes with it.
+    crate::video_links::forget(app, key).await;
+    Ok(())
 }
 
 /// Takes entries out of Continue watching and the history at once; returns how many there were.
 pub async fn remove_many(app: &AppHandle, keys: &[String]) -> Result<u32, String> {
     let db = app.state::<AppDb>().0.clone();
-    store::remove_many(&db, keys)
+    let removed = store::remove_many(&db, keys)
         .await
         .map(|count| u32::try_from(count).unwrap_or(u32::MAX))
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    for key in keys {
+        crate::video_links::forget(app, key).await;
+    }
+    Ok(removed)
 }
 
 /// A video link as a request: its key is the address, its title the file name (a magnet link's
@@ -1421,6 +1449,64 @@ mod tests {
                 serde_json::to_string(&link).unwrap()
             )),
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn links_open_their_own_page_and_titles_keep_theirs() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let entry = |request: &VideoRequest| VideoEntry {
+            key: request.key.clone(),
+            title: request.title.clone(),
+            subtitle: None,
+            poster: None,
+            request: serde_json::to_string(request).unwrap(),
+        };
+        let mut units = std::collections::HashMap::new();
+        // Sintel from a magnet link (Open link): a page of its own, no title's.
+        let magnet = link_request(
+            "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel",
+            None,
+            None,
+        );
+        let view = entry_view(&db, &entry(&magnet), &mut units).await;
+        assert!(view.link);
+        assert_eq!((view.page, view.group, view.episode_id), (None, None, None));
+        // Its entry played from a torrent's file keeps being the link's.
+        let mut file = magnet.clone();
+        file.url.push_str("&so=2");
+        assert!(entry_view(&db, &entry(&file), &mut units).await.link);
+
+        // A Stremio episode keeps its title's page, group and episode.
+        let episode = VideoEntry {
+            key: "stremio:series:tt1:1:2".into(),
+            title: "Show".into(),
+            subtitle: None,
+            poster: None,
+            request: r#"{"origin":"stremio","kind":"series","id":"tt1","episode":"tt1:1:2"}"#
+                .into(),
+        };
+        let view = entry_view(&db, &episode, &mut units).await;
+        assert!(!view.link);
+        assert_eq!(
+            view.page,
+            Some(("stremio".to_owned(), "series:tt1".to_owned()))
+        );
+        assert_eq!(view.group.as_deref(), Some("stremio:series:tt1"));
+        assert_eq!(view.episode_id.as_deref(), Some("tt1:1:2"));
+        assert!(view.series);
+        // A link picked by hand for a Stremio movie belongs to the movie, not to itself.
+        let mut picked = link_request("https://cdn.example/film.mp4", None, None);
+        picked.group = Some("stremio:movie:tt9".into());
+        picked.key = "stremio:movie:tt9".into();
+        let view = entry_view(&db, &entry(&picked), &mut units).await;
+        assert!(!view.link);
+        assert_eq!(
+            view.page,
+            Some(("stremio".to_owned(), "movie:tt9".to_owned()))
         );
     }
 

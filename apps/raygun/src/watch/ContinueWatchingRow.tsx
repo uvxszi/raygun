@@ -9,13 +9,13 @@ import { Carousel } from '../shell/Carousel';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
 import { SourceIssue } from '../shell/SourceIssue';
+import { entryPage } from './continueEntry';
 import { useContinueMenu } from './continueMenu';
 import { ContinueSelectionBar, PickCircle } from './ContinueSelection';
 import { ContinueSourcePicker } from './ContinueSourcePicker';
 import { useContinueSelection, usePickGestures } from './useContinueSelection';
 import type { ContinueSelection } from './useContinueSelection';
 import { useContinueWatching, useResumeVideo } from './useWatch';
-import { videoTitleLink } from './useVideoLibrary';
 
 /** The poster, or a placeholder when there's none or it can't load (offline). */
 const Poster: FC<{ url: string | null }> = ({ url }) => {
@@ -36,8 +36,8 @@ const Poster: FC<{ url: string | null }> = ({ url }) => {
 
 /**
  * A video started and not finished: the play button resumes it, the rest of the card opens its
- * title's page (a link played on its own, with no page, resumes instead), and ⋮ has the rest
- * (removing it is there, asked first). A long press, its circle or Ctrl/Shift-click picks it.
+ * title's page (a link played on its own opens its own), and ⋮ has the rest (removing it is
+ * there, asked first). A long press, its circle or Ctrl/Shift-click picks it.
  */
 const Card: FC<{
   item: ContinueWatching;
@@ -51,7 +51,7 @@ const Card: FC<{
   const gestures = usePickGestures(selection.selecting, pick);
   const duration = item.durationMs ?? 0;
   const position = item.positionMs ?? 0;
-  const page = item.sourceId && item.remoteId ? videoTitleLink(item.sourceId, item.remoteId) : null;
+  const page = entryPage(item);
   const body: ReactNode = (
     <>
       <span className="relative overflow-hidden rounded-xl">

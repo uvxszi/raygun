@@ -43,6 +43,7 @@ import {
   useSetVideoDownloadsPaused,
   videoTitleLink,
 } from '../watch/useVideoLibrary';
+import { videoLinkPage } from '../watch/useVideoLink';
 import { useFileDownloadActions } from '../websites/useFileDownloads';
 import { stopDownloadItem } from './stopDownloadItem';
 
@@ -73,8 +74,13 @@ export const useVideoDownloadMenu = () => {
   return (item: VideoDownloadItem, paused: boolean): MenuItem[] => {
     const name = videoName(item);
     const done = item.state === 'done';
+    // A link's download (a link played on its own) opens the link's page.
     const page =
-      item.sourceId && item.remoteId ? videoTitleLink(item.sourceId, item.remoteId) : null;
+      item.sourceId && item.remoteId
+        ? videoTitleLink(item.sourceId, item.remoteId)
+        : item.key.startsWith('url:')
+          ? videoLinkPage(item.key)
+          : null;
     const episode = item.titleId && item.episodeId ? item.episodeId : null;
     const titleId = item.titleId;
     // The phone's share sheet; desktops have none.

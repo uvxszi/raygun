@@ -52,6 +52,12 @@ type VideoPlayerState = {
   sourceOrder: number[] | null;
   /** The source playing, once it has played a while. */
   playingFrom: string | null;
+  /** A link played on its own (Rust's `link`): its own links play first. */
+  linkSession: boolean;
+  /** It has nothing else to switch to (Rust's `alone`): Sources says "Only this link". */
+  sourcesAlone: boolean;
+  /** Another link would play if this one failed (Rust's `fallback`). */
+  sourcesFallback: boolean;
   /** The Quality menu's steps, as Rust lists them. */
   qualities: QualityRow[];
   /** Why a step tapped in Quality can't play, with when it came (each one shows once). */
@@ -129,6 +135,9 @@ const CLOSED = {
   sources: [],
   sourceOrder: null,
   playingFrom: null,
+  linkSession: false,
+  sourcesAlone: false,
+  sourcesFallback: true,
   qualities: [],
   qualityNotice: null,
   engine: null,
@@ -191,6 +200,9 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
             sources: update.groups,
             playingFrom: update.playingFrom ?? null,
             sourceOrder: update.order ?? null,
+            linkSession: update.link ?? false,
+            sourcesAlone: update.alone ?? false,
+            sourcesFallback: update.fallback ?? true,
           };
         case 'qualities':
           return {

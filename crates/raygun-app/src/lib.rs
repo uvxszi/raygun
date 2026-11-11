@@ -93,6 +93,7 @@ mod video;
 mod video_desktop;
 mod video_downloads;
 mod video_library;
+mod video_links;
 mod video_quality;
 mod video_session;
 mod video_sources;
@@ -460,6 +461,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::podcast_open_page,
             commands::video_play,
             commands::video_play_link,
+            commands::video_link_page,
+            commands::video_link_files,
+            commands::video_link_rename,
+            commands::video_link_match,
+            commands::video_link_suggestions,
+            commands::video_link_play,
+            commands::video_link_download,
             commands::video_continue_watching,
             commands::video_resume,
             commands::video_play_from_start,

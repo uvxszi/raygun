@@ -63,7 +63,7 @@ const SERIAL: ContinueWatching = {
   series: true,
 };
 
-/** A link played on its own: no title, no page. */
+/** A link played on its own: no title, a page of its own. */
 const LINK: ContinueWatching = {
   key: 'url:https://cdn.example/film.mp4',
   title: 'film.mp4',
@@ -73,6 +73,7 @@ const LINK: ContinueWatching = {
   durationMs: 100_000,
   updatedAt: 0,
   watched: false,
+  link: true,
 };
 
 const mountRow = async (items: ContinueWatching[]) => {
@@ -284,13 +285,44 @@ describe('Continue watching', () => {
     expect(menuItems()).toContain('Choose a source…');
     await user.keyboard('{Escape}');
 
+    // A link has no title or episodes, but a page of its own, a download and a pin.
     await openMenu(user, row, 'film.mp4');
     expect(menuItems()).toEqual([
       'Resume',
       'Play from the start',
+      'Open page',
       'Mark as watched',
+      'Download',
+      'Pin to Quick access',
       'Remove from Continue watching',
     ]);
+    await user.click(screen.getByRole('menuitem', { name: 'Download' }));
+    await waitFor(() =>
+      expect(commands.videoLinkDownload).toHaveBeenCalledWith(
+        'url:https://cdn.example/film.mp4',
+        null,
+      ),
+    );
+  });
+
+  it("opens a title's page or a link's from the card itself", async () => {
+    const user = userEvent.setup();
+    const row = await mountRow([MOVIE, LINK]);
+    // A movie's card opens its title; a link's card opens the link's own page.
+    expect(within(card(row, 'Sintel')).getByTestId('continue-card')).toHaveAttribute(
+      'href',
+      '/watch/title?type=movie&id=tt9',
+    );
+    const linkCard = within(card(row, 'film.mp4')).getByTestId('continue-card');
+    expect(linkCard.getAttribute('href')).toMatch(/^\/watch\/link\?key=/);
+    expect(new URLSearchParams(linkCard.getAttribute('href')!.split('?')[1]).get('key')).toBe(
+      LINK.key,
+    );
+    // The play button resumes as before.
+    await user.click(
+      within(card(row, 'film.mp4')).getByRole('button', { name: 'Resume film.mp4' }),
+    );
+    expect(commands.videoResume).toHaveBeenCalledWith(LINK.key);
   });
 
   describe('its download', () => {

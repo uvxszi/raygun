@@ -716,6 +716,13 @@ export const bindingsMock = {
     podcastOpenPage: vi.fn(),
     videoPlay: vi.fn(),
     videoPlayLink: vi.fn(),
+    videoLinkPage: vi.fn(),
+    videoLinkFiles: vi.fn(),
+    videoLinkRename: vi.fn(),
+    videoLinkMatch: vi.fn(),
+    videoLinkSuggestions: vi.fn(),
+    videoLinkPlay: vi.fn(),
+    videoLinkDownload: vi.fn(),
     videoContinueWatching: vi.fn(),
     videoResume: vi.fn(),
     videoPlayFromStart: vi.fn(),
@@ -1587,6 +1594,13 @@ export const seedBindings = () => {
   commands.podcastOpenPage.mockResolvedValue(ok(null));
   commands.videoPlay.mockResolvedValue(ok(null));
   commands.videoPlayLink.mockResolvedValue(ok(null));
+  commands.videoLinkPage.mockResolvedValue({ status: 'error', error: 'This link was removed' });
+  commands.videoLinkFiles.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  commands.videoLinkRename.mockResolvedValue(ok(null));
+  commands.videoLinkMatch.mockResolvedValue(ok(null));
+  commands.videoLinkSuggestions.mockResolvedValue(ok([]));
+  commands.videoLinkPlay.mockResolvedValue(ok(null));
+  commands.videoLinkDownload.mockResolvedValue(ok(null));
   commands.videoContinueWatching.mockResolvedValue(ok([]));
   commands.videoResume.mockResolvedValue(ok(null));
   commands.videoPlayFromStart.mockResolvedValue(ok(null));

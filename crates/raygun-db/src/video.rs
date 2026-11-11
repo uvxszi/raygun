@@ -46,7 +46,8 @@ fn progress_row(row: &SqliteRow) -> VideoProgress {
 const COLUMNS: &str = "key, title, subtitle, poster, request, position_ms, duration_ms, \
      user_watched_at, updated_at";
 
-/// Records that `entry` started playing, keeping any progress already saved for it.
+/// Records that `entry` started playing, keeping any progress already saved for it (and its
+/// poster when `entry` has none).
 pub async fn started(db: &Db, entry: &VideoEntry, now_ms: i64) -> Result<(), DbError> {
     let stamp = db.tick();
     let mut transaction = db.pool().begin().await?;
@@ -62,7 +63,8 @@ pub async fn started(db: &Db, entry: &VideoEntry, now_ms: i64) -> Result<(), DbE
              updated_at_hlc, origin_device, deleted)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
          ON CONFLICT (id) DO UPDATE SET
-             title = excluded.title, subtitle = excluded.subtitle, poster = excluded.poster,
+             title = excluded.title, subtitle = excluded.subtitle,
+             poster = COALESCE(excluded.poster, poster),
              request = excluded.request, updated_at = excluded.updated_at,
              updated_at_hlc = excluded.updated_at_hlc, origin_device = excluded.origin_device",
     )
@@ -80,6 +82,36 @@ pub async fn started(db: &Db, entry: &VideoEntry, now_ms: i64) -> Result<(), DbE
     persist_hlc(&mut *transaction, stamp).await?;
     transaction.commit().await?;
     Ok(())
+}
+
+/// Changes what an entry shows and plays (a link renamed, its poster found) without moving it in
+/// Continue watching; false when there's no such entry.
+pub async fn set_entry(
+    db: &Db,
+    key: &str,
+    title: &str,
+    poster: Option<&str>,
+    request: &str,
+) -> Result<bool, DbError> {
+    let stamp = db.tick();
+    let mut transaction = db.pool().begin().await?;
+    let changed = sqlx::query(
+        "UPDATE video_progress SET title = ?2, poster = ?3, request = ?4,
+             updated_at_hlc = ?5, origin_device = ?6
+         WHERE key = ?1 AND deleted = 0",
+    )
+    .bind(key)
+    .bind(title)
+    .bind(poster)
+    .bind(request)
+    .bind(stamp as i64)
+    .bind(db.device_id().to_string())
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected();
+    persist_hlc(&mut *transaction, stamp).await?;
+    transaction.commit().await?;
+    Ok(changed > 0)
 }
 
 /// Saves where watching is; `watched` marks it finished (and rewinds it for next time).
@@ -382,6 +414,43 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((again.updated_at, again.position_ms), (40, 0));
+    }
+
+    #[tokio::test]
+    async fn an_entry_keeps_its_place_and_poster_when_changed() {
+        let temp = TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let with_poster = VideoEntry {
+            poster: Some("local:links/a.jpg".into()),
+            ..entry("url:a")
+        };
+        started(&db, &with_poster, 1).await.unwrap();
+        set_progress(&db, "url:a", 5_000, None, false, 2)
+            .await
+            .unwrap();
+        // Played again from a request without a poster: the one found stays.
+        started(&db, &entry("url:a"), 3).await.unwrap();
+        let saved = progress(&db, "url:a").await.unwrap().unwrap();
+        assert_eq!(saved.entry.poster.as_deref(), Some("local:links/a.jpg"));
+
+        assert!(
+            set_entry(&db, "url:a", "Sintel", None, r#"{"title":"Sintel"}"#)
+                .await
+                .unwrap()
+        );
+        let renamed = progress(&db, "url:a").await.unwrap().unwrap();
+        assert_eq!(renamed.entry.title, "Sintel");
+        assert_eq!(renamed.entry.poster, None);
+        assert_eq!(
+            renamed.updated_at, 3,
+            "its place in Continue watching stays"
+        );
+        assert_eq!(renamed.position_ms, 5_000);
+        assert!(
+            !set_entry(&db, "url:missing", "x", None, "{}")
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

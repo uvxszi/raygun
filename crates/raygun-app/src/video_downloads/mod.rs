@@ -438,6 +438,8 @@ impl VideoDownloadService {
             .ok()
             .flatten()
             .map(|row| row.id),
+            // Never read from a group: a link downloads from its page (`video_links`).
+            Origin::Link { .. } => None,
         };
         let poster = poster.as_deref().map(|poster| self.images.original(poster));
         let single = episodes.len() == 1;

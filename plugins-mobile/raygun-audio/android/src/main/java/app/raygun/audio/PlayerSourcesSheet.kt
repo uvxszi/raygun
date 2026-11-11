@@ -207,8 +207,13 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
     private fun cleanList(sheet: PlayerSheet) {
         val shown = ordered()
         val setup = setupLine()
+        // A link played on its own with nothing else to switch to says so: the button stays, the
+        // same in every player, and the sheet tells why it holds one link.
+        if (host.sourcesAlone) sheet.row(label("onlyThisLink", "Only this link"), onClick = null)
         if (shown.isEmpty()) {
-            sheet.row(setup ?: label("noSourceWorked", "No source could play this"), onClick = null)
+            if (!host.sourcesAlone) {
+                sheet.row(setup ?: label("noSourceWorked", "No source could play this"), onClick = null)
+            }
             return
         }
         setup?.let { sheet.row(it, onClick = null) }
@@ -379,10 +384,10 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         if (!current) host.chooseSource(group, link)
     }
 
-    /** Failed and empty sources show only when the settings say so. */
+    /** Failed and empty sources show only when the settings say so; a link's own always does. */
     private fun visible(server: JSONObject): Boolean {
         val links = server.optJSONArray("links")?.length() ?: 0
-        if (links > 0) return true
+        if (links > 0 || server.optBoolean("own")) return true
         return when (server.optString("state")) {
             "failed" -> host.prefs.showFailedSources
             "empty" -> host.prefs.showEmptySources
