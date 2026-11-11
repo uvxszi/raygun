@@ -34,7 +34,9 @@ use crate::storage::KvStore;
 const PRELUDE: &str = include_str!("prelude.js");
 const MAX_REDIRECTS: usize = 10;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-pub const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+/// Largest answer a source reads: a title with thousands of chapters can send well over 8 MB of
+/// JSON, and the scripts' heaps (`heap.rs`) hold this with room to spare.
+pub const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 /// Longest single `raygun.time.sleep`: enough to pace rate-limited APIs, short of the call timeout.
 const MAX_SLEEP_MS: f64 = 10_000.0;
 /// Requests to one site at once, across every extension; more wait their turn, so many sources
