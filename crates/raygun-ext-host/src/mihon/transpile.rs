@@ -375,6 +375,17 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
     }
     let add_members = |cx: &mut Context, members: &[Member], top: bool| {
         for member in members {
+            // Functions with reified type parameters take the types their calls pass.
+            if let Member::Fun(fun) = member {
+                let count = fun
+                    .modifiers
+                    .iter()
+                    .filter(|modifier| modifier.starts_with("reified:"))
+                    .count();
+                if count > 0 {
+                    cx.reified.insert(fun.name.clone(), count);
+                }
+            }
             match member {
                 Member::Fun(fun) if fun.receiver.is_some() => {
                     cx.extensions.insert(fun.name.clone());
@@ -411,6 +422,7 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
         }
     }
     for class in chain {
+        cx.source_classes.insert(class.name.clone());
         add_members(&mut cx, &class.members, false);
         // A theme's constructor parameters (`MangaThemesiaAlt(randomUrlPrefKey = …)`) are its
         // properties.
@@ -960,6 +972,24 @@ fn class_definition(
         .iter()
         .map(|entry| quote(&entry.name))
         .collect();
+    // An enum's entries' constructor arguments (`SLUG("", "/comic/")`), when they're plain
+    // values: the entries' fields.
+    let entry_args: Vec<String> = class
+        .entries
+        .iter()
+        .filter_map(|entry| {
+            let args: Option<Vec<String>> = entry
+                .args
+                .iter()
+                .map(|arg| {
+                    let js = writer.expr(&arg.value).ok()?;
+                    (arg.name.is_none() && !arg.spread && !js.contains("await")).then_some(js)
+                })
+                .collect();
+            let args = args.filter(|args| !args.is_empty())?;
+            Some(format!("{}: [{}]", quote(&entry.name), args.join(", ")))
+        })
+        .collect();
     let mut methods = Vec::new();
     // Its functions by name: each overload as `[required, total, [types], code]`, and its code.
     let mut overloaded: Vec<(String, Vec<(String, String)>)> = Vec::new();
@@ -1094,7 +1124,7 @@ fn class_definition(
         statics.push(format!("{}: {function}", quote(&fun.name)));
     }
     Ok(format!(
-        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], members: {{{methods}}}, statics: {{{statics}}} }});",
+        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], superArgs: {super_args}, entries: [{entries}], entryArgs: {{{entry_args}}}, members: {{{methods}}}, statics: {{{statics}}} }});",
         extensions = extensions
             .iter()
             .map(|code| format!("{code} "))
@@ -1124,6 +1154,7 @@ fn class_definition(
         defaults = defaults.join(", "),
         supers = supers.join(", "),
         entries = entries.join(", "),
+        entry_args = entry_args.join(", "),
         methods = methods.join(", "),
     ))
 }
@@ -1147,6 +1178,7 @@ pub fn convert(
     files: &[(String, File)],
     theme: Option<(&str, &[(String, File)])>,
     messages: &BTreeMap<String, BTreeMap<String, String>>,
+    assets: &BTreeMap<String, Vec<u8>>,
 ) -> Result<Converted, String> {
     let (theme_name, theme_files) = theme.unwrap_or(("", &[]));
     let all_files: Vec<(String, File)> = files.iter().chain(theme_files).cloned().collect();
@@ -1296,14 +1328,31 @@ pub fn convert(
     let aliases = json_aliases(&all_files);
     let layers = layers.join("\n");
     let from_source = images_from_source(&layers);
+    // Its resources (`javaClass.getResource("/assets/…")`), when its code reads them.
+    let resources: BTreeMap<&String, String> =
+        if layers.contains("KT.javaClass") || layers.contains("KT.global(\"javaClass\")") {
+            use base64::Engine as _;
+            assets
+                .iter()
+                .map(|(path, bytes)| {
+                    (
+                        path,
+                        base64::engine::general_purpose::STANDARD.encode(bytes),
+                    )
+                })
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
     let code = format!(
-        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  aliases: {aliases},\n  messages: {messages},\n  imageRecipe: {recipe},\n  imagesFromSource: {from_source},\n  layers: [\n{layers}\n  ],\n}});\n",
+        "// {name}, converted by Raygun from the Mihon extension {pkg} (Apache-2.0).\n'use strict';\nmihon.source({{\n  sources: {sources},\n  renames: {renames},\n  aliases: {aliases},\n  messages: {messages},\n  assets: {resources},\n  imageRecipe: {recipe},\n  imagesFromSource: {from_source},\n  layers: [\n{layers}\n  ],\n}});\n",
         name = extension.name.replace(['\n', '\r'], " "),
         pkg = extension.pkg,
         sources = sources_json(extension),
         renames = serde_json::to_string(&renames).unwrap_or_else(|_| "{}".into()),
         aliases = serde_json::to_string(&aliases).unwrap_or_else(|_| "{}".into()),
         messages = serde_json::to_string(messages).unwrap_or_else(|_| "{}".into()),
+        resources = serde_json::to_string(&resources).unwrap_or_else(|_| "{}".into()),
         recipe = image_recipe.map_or_else(|| "null".to_owned(), quote),
     );
     Ok(Converted { theme: None, code })

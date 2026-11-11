@@ -265,6 +265,40 @@
     };
   };
   KT.invoke = async (function_, args) => function_(...args);
+  // Reified type parameters: a call's types ride with its arguments (`KT.typedArgs`), are set
+  // aside as the function is entered, and taken by its first statement (`KT.takeTypes`).
+  let pendingTypes = null;
+  KT.typedArgs = (args, types) => {
+    Object.defineProperty(args, '__types', { value: types, enumerable: false });
+    return args;
+  };
+  /// Calls `function_` with `args`, its types set aside for it to take.
+  const enter = (function_, args, receiver = undefined) => {
+    const types = args && args.__types;
+    if (types) pendingTypes = types;
+    try {
+      return receiver === undefined ? function_(...args) : function_(receiver, ...args);
+    } finally {
+      if (types) pendingTypes = null;
+    }
+  };
+  /// Arguments with a trailing lambda added, keeping the types they carry.
+  const withLambda = (args, lambda) =>
+    lambda
+      ? args.__types
+        ? KT.typedArgs([...args, lambda], args.__types)
+        : [...args, lambda]
+      : args;
+  KT.takeTypes = (count) => {
+    const types = pendingTypes ?? [];
+    pendingTypes = null;
+    return Array.from({ length: count }, (_, index) => types[index] ?? 'Any');
+  };
+  /// A type's text with the reified parameters in it put in (`NextData<T>`).
+  KT.typeWith = (text, types) =>
+    KT.str(text).replace(/[A-Za-z_][A-Za-z0-9_]*/g, (word) =>
+      Object.prototype.hasOwnProperty.call(types, word) ? KT.str(types[word]) : word,
+    );
   KT.getter = (function_) => ({ isGetter: true, function_ });
   /// A class's `var` with a value: a field set when an instance is made.
   KT.field = (function_) => ({ isField: true, function_ });
@@ -536,10 +570,13 @@
       );
     return null;
   };
-  const toInt = (text) => {
+  const toInt = (text, radix = 10) => {
     const trimmed = K.str(text).trim();
-    if (!/^[+-]?\d+$/.test(trimmed)) return null;
-    return parseInt(trimmed, 10);
+    const base = Number(radix) || 10;
+    const digits = '0123456789abcdefghijklmnopqrstuvwxyz'.slice(0, base);
+    const body = trimmed.replace(/^[+-]/, '').toLowerCase();
+    if (!body || [...body].some((char) => !digits.includes(char))) return null;
+    return parseInt(trimmed, base);
   };
   const toFloat = (text) => {
     const trimmed = K.str(text).trim();
@@ -688,10 +725,11 @@
     ifBlank: async (s, args, lambda) => (s.trim() === '' ? (lambda ? lambda() : args[0]) : s),
     ifEmpty: async (s, args, lambda) => (s.length === 0 ? (lambda ? lambda() : args[0]) : s),
     orEmpty: (s) => s,
-    toInt: (s) => KT.nn(toInt(s)),
-    toIntOrNull: (s) => toInt(s),
-    toLong: (s) => KT.nn(toInt(s)),
-    toLongOrNull: (s) => toInt(s),
+    // `toInt(16)` too.
+    toInt: (s, [radix]) => KT.nn(toInt(s, radix)),
+    toIntOrNull: (s, [radix]) => toInt(s, radix),
+    toLong: (s, [radix]) => KT.nn(toInt(s, radix)),
+    toLongOrNull: (s, [radix]) => toInt(s, radix),
     toFloat: (s) => KT.nn(toFloat(s)),
     toFloatOrNull: (s) => toFloat(s),
     toDouble: (s) => KT.nn(toFloat(s)),
@@ -1812,6 +1850,8 @@
   let aliases = {};
   /// Keiyoushi's `assets/i18n/messages_<lang>.properties`, by `<lang>` (`pt_br`).
   let messages = {};
+  /// The extension's resources (`assets/…`), as base64, for `javaClass.getResource(…)`.
+  let assets = {};
   /// Keiyoushi's `Intl` (lib:i18n): messages in the source's language, else the base one's.
   const intl = (language, availableLanguages, baseLanguage) => {
     const snake = (lang) => KT.str(lang).replace(/-/g, '_').toLowerCase();
@@ -5485,6 +5525,39 @@
   };
   /// Keiyoushi's dialogs (`keiyoushi.utils.ui`): none shows, as if the person closed it.
   const dialogClosed = (fallback) => () => fallback;
+  /// One of the extension's resources (`/assets/reader.js`), or null when it has none by that
+  /// name: Java's `URL` to read it through.
+  const resourceOf = (path) => {
+    const key = KT.str(path).replace(/^\/+/, '');
+    const found = assets[key];
+    if (found === undefined) return null;
+    const bytes = () => K.bin.fromBase64(found);
+    return {
+      __class: 'URL',
+      __classes: ['URL'],
+      readText: () => K.bin.text(bytes()),
+      readBytes: () => listOfBytes(bytes()),
+      openStream: () => inputStream(bytes()),
+      path: `/${key}`,
+      toString: () => `jar:file:/extension.apk!/${key}`,
+    };
+  };
+  /// A class as `X::class.java` and `javaClass` give it: its name, and the extension's
+  /// resources.
+  KT.javaClass = (name) => {
+    const named = KT.str(name);
+    const made = {
+      __class: 'Class',
+      __classes: ['Class'],
+      name: named,
+      simpleName: named.split('.').pop(),
+      toString: () => named,
+      getResource: (path) => resourceOf(path),
+      getResourceAsStream: (path) => resourceOf(path)?.openStream() ?? null,
+    };
+    made.classLoader = made;
+    return made;
+  };
   /// A pause (`delay(ms)`, `Thread.sleep(ms)`), at most ten seconds.
   const pause = async (ms) => {
     const wait = Math.max(0, Math.min(10000, Number(ms && ms.isDuration ? ms.ms : ms) || 0));
@@ -5880,8 +5953,9 @@
   const jsonCodec = {
     decodeFromString: (text) => JSON.parse(KT.str(text)),
     parseToJsonElement: (text) => JSON.parse(KT.str(text)),
-    encodeToString: (value) => JSON.stringify(plain(value)),
-    decodeFromJsonElement: (value) => value,
+    // `encodeToString(String.serializer(), value)` too.
+    encodeToString: (...args) => JSON.stringify(plain(args[args.length - 1])),
+    decodeFromJsonElement: (...args) => args[args.length - 1],
     encodeToJsonElement: (value) => plain(value),
   };
   /// `awaitAll()`: deferred values (`async { … }`), worked out together.
@@ -6595,6 +6669,9 @@
       NaN,
     },
     Thread: { sleep: (ms) => pause(ms) },
+    // `javaClass.getResource(…)` in the source's own code, and Keiyoushi's `jsonInstance`.
+    javaClass: KT.javaClass('Source'),
+    jsonInstance: jsonCodec,
     // OkHttp's `Response.Builder()` and `Protocol`, for answers an interceptor makes.
     Response: {
       Builder: () =>
@@ -6651,12 +6728,22 @@
     JSON_MEDIA_TYPE: 'application/json',
     // Mihon's `QuickJs`: a site's script, run apart (`runtime.rs`'s `evaluate`).
     QuickJs: {
-      create: () => ({
-        __class: 'QuickJs',
-        __classes: ['QuickJs'],
-        evaluate: (code) => K.evaluate(code),
-        close: () => KT.unit,
-      }),
+      // Each `evaluate` runs in an engine of its own; one engine's earlier scripts (a library
+      // it loads, then a call into it) run again before the next.
+      create: () => {
+        const ran = [];
+        return {
+          __class: 'QuickJs',
+          __classes: ['QuickJs'],
+          evaluate: (code) => {
+            const script = KT.str(code);
+            const value = K.evaluate([...ran, script].join(';\n'));
+            ran.push(script);
+            return value;
+          },
+          close: () => KT.unit,
+        };
+      },
     },
     MultipartBody: {
       Builder: (boundary = null) => multipartBuilder(boundary),
@@ -6789,6 +6876,7 @@
       },
       valueOf: (value) => KT.str(value),
       CASE_INSENSITIVE_ORDER: caseInsensitiveOrder,
+      serializer: () => ({ isSerializer: true, name: 'String' }),
     },
     Character: {
       isDigit: (char) => /^\p{Nd}$/u.test(char),
@@ -7215,25 +7303,12 @@
           Object.defineProperty(object, name, {
             get: () => member.function_(object),
             enumerable: false,
+            configurable: true,
           });
         else {
           object[name] = (...rest) => member(object, ...rest);
           object[name].arity = Math.max(0, member.length - 1);
         }
-      }
-      // Fields in the order they're declared, once the instance has its functions, and its
-      // `init` blocks among them.
-      for (const [name, member] of fieldsToSet) {
-        if (member.isInit) {
-          await member.function_(object);
-          continue;
-        }
-        Object.defineProperty(object, name, {
-          value: await member.function_(object),
-          writable: true,
-          enumerable: false,
-          configurable: true,
-        });
       }
       for (const [name, function_] of Object.entries(definition.statics ?? {}))
         if (!Object.prototype.hasOwnProperty.call(object, name))
@@ -7277,6 +7352,20 @@
         }
         for (const name of inherited.__classes)
           if (!object.__classes.includes(name)) object.__classes.push(name);
+      }
+      // Fields in the order they're declared, once the instance has its functions and its
+      // parent's (whose constructor runs first, as in Kotlin), and its `init` blocks among them.
+      for (const [name, member] of fieldsToSet) {
+        if (member.isInit) {
+          await member.function_(object);
+          continue;
+        }
+        Object.defineProperty(object, name, {
+          value: await member.function_(object),
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        });
       }
       object.toString = () =>
         `${definition.name}(${definition.params.map((name) => `${name}=${KT.str(object[name])}`).join(', ')})`;
@@ -7328,16 +7417,37 @@
       holder[name] = (...rest) => function_(...rest);
     CLASSES[definition.name] = holder;
     if (definition.qualified) CLASSES[definition.qualified] = holder;
-    for (const entry of definition.entries)
-      holder[entry] = {
+    // An enum's entries: their fields from their arguments, and the class's functions.
+    definition.entries.forEach((entry, ordinal) => {
+      const value = {
         __class: definition.name,
-        __classes: [definition.name],
+        __classes: [definition.name, 'Enum'],
         name: entry,
-        ordinal: definition.entries.indexOf(entry),
+        ordinal,
         toString: () => entry,
       };
+      const args = definition.entryArgs?.[entry] ?? [];
+      definition.params.forEach((param, index) => {
+        if (index < args.length && param !== 'name') value[param] = args[index];
+      });
+      for (const [name, member] of Object.entries(definition.members)) {
+        if (typeof member === 'function') value[name] = (...rest) => member(value, ...rest);
+        else if (member && member.isGetter)
+          Object.defineProperty(value, name, {
+            get: () => member.function_(value),
+            enumerable: false,
+            configurable: true,
+          });
+      }
+      holder[entry] = value;
+    });
     holder.values = () => definition.entries.map((entry) => holder[entry]);
     holder.entries = definition.entries.map((entry) => holder[entry]);
+    holder.valueOf = (text) =>
+      Object.prototype.hasOwnProperty.call(holder, KT.str(text)) &&
+      definition.entries.includes(KT.str(text))
+        ? holder[KT.str(text)]
+        : KT.raise(`No enum constant ${definition.name}.${KT.str(text)}`);
     if (definition.kind === 'object') {
       for (const [name, member] of Object.entries(definition.members)) {
         // A property (`val wordRegex by lazy { … }`) is worked out once, when first read; a
@@ -7473,8 +7583,7 @@
     for (const receiver of receivers) {
       if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
-        if (receiver.hasFunction(name))
-          return receiver.call(name, lambda ? [...args, lambda] : args);
+        if (receiver.hasFunction(name)) return receiver.call(name, withLambda(args, lambda));
         if (receiver.hasExtension(name)) continue;
         continue;
       }
@@ -7486,7 +7595,7 @@
         source.hasExtension(name) &&
         (!anyFits || source.extensionFits(name, receiver))
       )
-        return source.ext(name, receiver, lambda ? [...args, lambda] : args);
+        return source.ext(name, receiver, withLambda(args, lambda));
       // What any value has (`toJsonElement()` in `fun Foo.toJson() = toJsonElement()`).
       if (receiver !== null && receiver !== undefined && ANY[name])
         return KT.m(receiver, name, args, named_, lambda, type);
@@ -7627,7 +7736,7 @@
     };
     const invoke = async (name, args, below) => {
       const function_ = findFunction(name, args, below);
-      if (function_) return function_(...args);
+      if (function_) return enter(function_, args);
       if (baseFunctions[name]) return baseFunctions[name](...args);
       throw new KotlinError(`the source has no ${name}`);
     };
@@ -7712,7 +7821,7 @@
           Object.prototype.hasOwnProperty.call(receiver, name)
         )
           return own;
-        return function_(receiver, ...args);
+        return enter(function_, args, receiver);
       },
       base: {
         get: async (name) =>
@@ -7849,6 +7958,7 @@
     renames = { ...renames, ...(config.renames ?? {}) };
     aliases = { ...aliases, ...(config.aliases ?? {}) };
     messages = { ...messages, ...(config.messages ?? {}) };
+    assets = { ...assets, ...(config.assets ?? {}) };
     for (const source of config.sources) {
       const t = { id: source.id, name: source.name, lang: source.lang, baseUrl: source.baseUrl };
       t.http = new Http(t, {});

@@ -1629,6 +1629,8 @@ async fn converted_code_reads_sequences_inits_and_qualified_names() {
 
     private fun Document.label(): String = selectFirst("b")!!.text()
 
+    private inline fun <reified T> String.decoded(): T = parseAs<Wrap<T>>().value
+
     private fun pick(kind: Int): (String) -> String = when (kind) {
         0 -> { _ -> "none" }
         else -> { text -> text.uppercase() }
@@ -1671,10 +1673,40 @@ async fn converted_code_reads_sequences_inits_and_qualified_names() {
             mapOf("a" to 1).getValue("a").toString(),
             Regex("^(?i)ch(apter)?").containsMatchIn("Chapter 1").toString(),
             with(Jsoup.parse("<b>bold</b>")) { SManga.create().apply { title = label() } }.title,
+            """{"value":{"n":4}}""".decoded<Item>().twice().toString(),
+            javaClass.getResource("/assets/greeting.txt")!!.readText(),
+            Layout.B.url("x"),
+            QuickJs.create().use { engine -> engine.evaluate("var k = 2"); engine.evaluate("k * 21") }.toString(),
+            "ff".toInt(16).toString(),
+            OrderPick().state.toString(),
         )
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
     }"##,
         ) + r#"
+@Serializable
+class Wrap<T>(val value: T)
+
+@Serializable
+class Item(val n: Int) {
+    fun twice() = n * 2
+}
+
+enum class Layout(private val prefix: String) {
+    A("/a/"),
+    B("/b/"),
+    ;
+
+    fun url(slug: String) = "$prefix$slug"
+}
+
+open class Pick(name: String, values: Array<String>) : Filter.Select<String>(name, values)
+
+class OrderPick : Pick("Order", arrayOf("a", "b", "c")) {
+    init {
+        state = 2
+    }
+}
+
 abstract class Shape {
     fun describe() = "area " + area()
 
@@ -1703,17 +1735,16 @@ class Box(text: String) {
         "eu.kanade.tachiyomi.extension.en.fixturestand",
         "https://stand.example",
     );
-    let converted = convert::convert(
-        &extension,
-        &sources(
-            STANDALONE_BUILD,
-            &[(
-                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
-                &source,
-            )],
-        ),
-    )
-    .unwrap();
+    let mut code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    code.assets
+        .insert("assets/greeting.txt".to_owned(), b"hello".to_vec());
+    let converted = convert::convert(&extension, &code).unwrap();
     let host = load_converted(&converted, &extension, serve(Router::new())).await;
     let listing = host
         .manga_list(
@@ -1753,6 +1784,12 @@ class Box(text: String) {
             "1",
             "true",
             "bold",
+            "8",
+            "hello",
+            "/b/x",
+            "42",
+            "255",
+            "2",
         ]
     );
 }

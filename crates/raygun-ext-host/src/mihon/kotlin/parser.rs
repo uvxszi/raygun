@@ -447,8 +447,13 @@ impl Parser {
         annotations: Vec<String>,
         line: u32,
     ) -> Result<FunDecl, String> {
+        let mut modifiers = modifiers;
+        // `inline fun <reified T> …`: its reified type parameters, kept as `reified:<name>`
+        // among the modifiers.
         if self.is_op("<") {
-            self.type_params()?;
+            for name in self.function_type_params()? {
+                modifiers.push(format!("reified:{name}"));
+            }
         }
         let (receiver, name) = self.receiver_and_name()?;
         let params = self.params()?;
@@ -728,6 +733,31 @@ impl Parser {
     }
 
     /// `<T, out R : Any>`: the names.
+    /// A function's type parameters: the names of its `reified` ones.
+    fn function_type_params(&mut self) -> Result<Vec<String>, String> {
+        self.expect_op("<")?;
+        self.with_nesting(true, |parser| {
+            let mut names = Vec::new();
+            loop {
+                let (modifiers, _) = parser.modifiers()?;
+                parser.eat_name("in");
+                parser.eat_name("out");
+                let name = parser.name()?;
+                if modifiers.iter().any(|modifier| modifier == "reified") {
+                    names.push(name);
+                }
+                if parser.eat_op(":") {
+                    parser.ty()?;
+                }
+                if !parser.eat_op(",") {
+                    break;
+                }
+            }
+            parser.expect_op(">")?;
+            Ok(names)
+        })
+    }
+
     fn type_params(&mut self) -> Result<Vec<String>, String> {
         self.expect_op("<")?;
         self.with_nesting(true, |parser| {

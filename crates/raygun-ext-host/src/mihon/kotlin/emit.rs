@@ -31,6 +31,12 @@ pub struct Context {
     pub companion_functions: HashMap<String, HashSet<String>>,
     /// `typealias ChaptersListDto = List<ChapterDto>`: what each alias stands for.
     pub type_aliases: HashMap<String, Type>,
+    /// The source's functions with reified type parameters (`inline fun <reified T> …`): how
+    /// many, which a call passes along with its arguments.
+    pub reified: HashMap<String, usize>,
+    /// The source's own classes (`ReadRealm`, its theme's), whose companions' values are its
+    /// constants (`ReadRealm.IMAGE_URL`).
+    pub source_classes: HashSet<String>,
     /// Fields of the declared classes that are lists wherever a class declares them, for
     /// `dto.titles.orEmpty()`.
     pub list_fields: HashSet<String>,
@@ -234,7 +240,8 @@ pub const METHODS: &[&str] = &[
     "setOnBindEditTextListener", "addPreference", "parseBodyFragment", "nextDouble", "shuffle",
     "toJavaInstant", "toKotlinInstant", "stripTrailingZeros", "toPlainString", "noCache",
     "noStore", "maxStale", "maxAge", "onlyIfCached", "protocol", "subSequence", "inflate",
-    "copyInto", "insertChildren", "atYear",
+    "copyInto", "insertChildren", "atYear", "getResource", "getResourceAsStream", "openStream",
+    "serializer",
 ];
 
 fn quote(text: &str) -> String {
@@ -286,6 +293,8 @@ pub struct Gen<'a> {
     function_name: String,
     /// Its declared return type: what `return text.parseAs()` decodes into.
     return_type: Option<Type>,
+    /// Its reified type parameters (`T`) and the JavaScript names their types are in.
+    reified_types: Vec<(String, String)>,
     /// Local functions with a receiver (`fun Builder.addParam(…)` in a body), by JavaScript name:
     /// their receiver is passed first.
     local_extensions: HashSet<String>,
@@ -412,6 +421,7 @@ impl<'a> Gen<'a> {
             class_scope: None,
             function_name: String::new(),
             return_type: None,
+            reified_types: Vec::new(),
             local_extensions: HashSet::new(),
             loops: Vec::new(),
             jumped: HashSet::new(),
@@ -569,6 +579,25 @@ impl<'a> Gen<'a> {
             };
         }
         Some(out)
+    }
+
+    /// A type as written for the runtime: its text, with the reified type parameters in scope
+    /// put in when the code runs (`NextData<T>` → `NextData<MangaListDto>`).
+    fn type_code(&self, text: &str) -> String {
+        let used: Vec<String> = self
+            .reified_types
+            .iter()
+            .filter(|(name, _)| {
+                text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|word| word == name)
+            })
+            .map(|(name, js)| format!("{}: {js}", quote(name)))
+            .collect();
+        if used.is_empty() {
+            quote(text)
+        } else {
+            format!("KT.typeWith({}, {{{}}})", quote(text), used.join(", "))
+        }
     }
 
     /// Whether an expression's value is a list: a call answering one (`split(…)`, `map { … }`)
@@ -768,6 +797,18 @@ impl<'a> Gen<'a> {
         let outer_loops = std::mem::take(&mut self.loops);
         let outer_name = std::mem::replace(&mut self.function_name, fun.name.clone());
         let outer_return = std::mem::replace(&mut self.return_type, fun.ret.clone());
+        // A function's reified type parameters: the types its call passes, taken first.
+        let reified: Vec<(String, String)> = fun
+            .modifiers
+            .iter()
+            .filter_map(|modifier| modifier.strip_prefix("reified:"))
+            .map(|name| (name.to_owned(), format!("$type${name}")))
+            .collect();
+        let outer_reified = if reified.is_empty() {
+            None
+        } else {
+            Some(std::mem::replace(&mut self.reified_types, reified.clone()))
+        };
         self.depth = 0;
         self.catches_return = false;
         let result = self.scoped(|writer| {
@@ -837,6 +878,17 @@ impl<'a> Gen<'a> {
             } else {
                 format!("{} {code}", defaults.join(" "))
             };
+            // The types a call passed, read before anything waits.
+            let code = if reified.is_empty() {
+                code
+            } else {
+                let names: Vec<&str> = reified.iter().map(|(_, js)| js.as_str()).collect();
+                format!(
+                    "const [{}] = KT.takeTypes({}); {code}",
+                    names.join(", "),
+                    names.len()
+                )
+            };
             let code = if writer.catches_return {
                 format!("try {{ {code} }} catch (e) {{ if (e instanceof KT.Return) return e.value; throw e; }}")
             } else {
@@ -851,6 +903,9 @@ impl<'a> Gen<'a> {
         self.loops = outer_loops;
         self.function_name = outer_name;
         self.return_type = outer_return;
+        if let Some(outer) = outer_reified {
+            self.reified_types = outer;
+        }
         self.receivers.truncate(receivers);
         self.receiver_labels.truncate(receivers);
         result
@@ -1661,11 +1716,20 @@ impl<'a> Gen<'a> {
         if let Expr::Super = target {
             return Ok(format!("(await self.base.get({}))", quote(name)));
         }
-        // `Page::class.java`: the class, as `Page::class` names it.
+        // `ReadRealm.IMAGE_URL` in a DTO: a constant of the source's own companion.
+        if let Expr::Name(owner) = target
+            && self.cx.source_classes.contains(owner)
+            && !self.is_local(owner)
+            && self.cx.constants.contains(name)
+        {
+            return Ok(format!("(await C.get({}))", quote(name)));
+        }
+        // `Page::class.java`: the class (its name, and the extension's resources).
         if matches!(name, "java" | "javaObjectType" | "kotlin")
             && matches!(target, Expr::Reference { name, .. } if name == "class")
         {
-            return self.expr(target);
+            let class = self.expr(target)?;
+            return Ok(format!("KT.javaClass({class})"));
         }
         // `this.baseUrl` in the source: its own property.
         if matches!(target, Expr::This(None))
@@ -1827,8 +1891,28 @@ impl<'a> Gen<'a> {
         let type_arg = type_args
             .first()
             .or(expected.as_ref())
-            .map(|ty| quote(&type_name(&self.cx.unaliased(ty))))
+            .map(|ty| self.type_code(&type_name(&self.cx.unaliased(ty))))
             .unwrap_or_else(|| "null".to_owned());
+        // A call to one of the source's functions with reified type parameters passes its
+        // types along (`parseAsNextData<MangaListDto>()`).
+        let passed_types: Option<String> = match callee {
+            Expr::Name(name) | Expr::Member { name, .. } => {
+                self.cx.reified.get(name).map(|count| {
+                    let mut types: Vec<String> = type_args
+                        .iter()
+                        .map(|ty| self.type_code(&type_name(&self.cx.unaliased(ty))))
+                        .collect();
+                    if types.is_empty()
+                        && let Some(ty) = expected.as_ref()
+                    {
+                        types.push(self.type_code(&type_name(&self.cx.unaliased(ty))));
+                    }
+                    types.truncate(*count);
+                    format!("[{}]", types.join(", "))
+                })
+            }
+            _ => None,
+        };
         match callee {
             Expr::Name(name) => {
                 // Scope functions without a receiver.
@@ -1977,10 +2061,10 @@ impl<'a> Gen<'a> {
                     }
                     let (args, named) = self.args(args, None)?;
                     return Ok(format!(
-                        "(await KT.rcall({}, {}, [{}], {}, {}, {type_arg}))",
+                        "(await KT.rcall({}, {}, {}, {}, {}, {type_arg}))",
                         self.receiver_list(),
                         quote(name),
-                        args.join(", "),
+                        typed_args(&args, passed_types.as_deref()),
                         named.unwrap_or_else(|| "null".to_owned()),
                         lambda_code.unwrap_or_else(|| "null".to_owned())
                     ));
@@ -2003,9 +2087,9 @@ impl<'a> Gen<'a> {
                         args.push(lambda);
                     }
                     return Ok(format!(
-                        "(await self.call({}, [{}]))",
+                        "(await self.call({}, {}))",
                         quote(name),
-                        args.join(", ")
+                        typed_args(&args, passed_types.as_deref())
                     ));
                 }
                 if self.declared_class(name) {
@@ -2107,9 +2191,9 @@ impl<'a> Gen<'a> {
                         args.push(self.lambda(lambda, name)?);
                     }
                     return Ok(format!(
-                        "(await self.call({}, [{}]))",
+                        "(await self.call({}, {}))",
                         quote(name),
-                        args.join(", ")
+                        typed_args(&args, passed_types.as_deref())
                     ));
                 }
                 // `Filter.Sort.Selection(…)`: a class of the runtime's, written inside the ones
@@ -2189,9 +2273,9 @@ impl<'a> Gen<'a> {
                             all.push(lambda_arg.clone());
                         }
                         format!(
-                            "self.ext({}, {receiver}, [{}])",
+                            "self.ext({}, {receiver}, {})",
                             quote(name),
-                            all.join(", ")
+                            typed_args(&all, passed_types.as_deref())
                         )
                     } else {
                         format!(
@@ -2261,6 +2345,12 @@ impl<'a> Gen<'a> {
     }
 
     fn reference(&mut self, target: Option<&Expr>, name: &str) -> Result<String, String> {
+        // `this::class`, `this@Source::class`: the class whose code this is.
+        if name == "class"
+            && let Some(Expr::This(_)) = target
+        {
+            return Ok(quote(self.class_scope.as_deref().unwrap_or("Source")));
+        }
         // `::node`: a local function, already a function.
         if target.is_none()
             && let Some(js) = self.resolve(name)
@@ -2557,6 +2647,15 @@ fn type_name(ty: &Type) -> String {
     }
 }
 
+/// A call's arguments as JavaScript's list, with the types it passes to reified type parameters
+/// (`KT.typedArgs`), when it passes some.
+fn typed_args(args: &[String], types: Option<&str>) -> String {
+    match types {
+        Some(types) => format!("KT.typedArgs([{}], {types})", args.join(", ")),
+        None => format!("[{}]", args.join(", ")),
+    }
+}
+
 /// The page a web view's block loads first (`loadUrl(checkUrl.toString())`), when it says.
 fn loaded_page(block: &Block) -> Option<Expr> {
     block.iter().find_map(|stmt| match stmt {
@@ -2647,5 +2746,5 @@ pub const OBJECTS: &[&str] = &[
     "QuickJs", "JSON_MEDIA_TYPE", "Bitmap", "BitmapFactory", "Color", "Paint", "Typeface",
     "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper", "Collator", "Dispatchers",
     "Evaluator", "HttpUrl", "Uri", "Float", "Double", "Thread", "Response", "Protocol", "Year",
-    "OffsetDateTime", "Resources", "MonthDay",
+    "OffsetDateTime", "Resources", "MonthDay", "javaClass", "jsonInstance",
 ];
