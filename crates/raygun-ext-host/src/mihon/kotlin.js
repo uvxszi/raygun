@@ -40,6 +40,38 @@
     }
   }
   KT.error = (value) => (value instanceof Error ? value : new KotlinError(value));
+  /// kotlinx.serialization reads raw control characters inside strings (a newline in a
+  /// description); JavaScript's JSON refuses them, so they're escaped when it does.
+  const escapeControls = (text) => {
+    const out = [];
+    let from = 0;
+    let inString = false;
+    let escaped = false;
+    for (let at = 0; at < text.length; at++) {
+      const code = text.charCodeAt(at);
+      if (!inString) {
+        if (code === 34) inString = true;
+      } else if (escaped) escaped = false;
+      else if (code === 92) escaped = true;
+      else if (code === 34) inString = false;
+      else if (code < 32) {
+        out.push(text.slice(from, at), `\\u${code.toString(16).padStart(4, '0')}`);
+        from = at + 1;
+      }
+    }
+    out.push(text.slice(from));
+    return out.join('');
+  };
+  const jsonOf = (text) => {
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      if (!(error instanceof SyntaxError) || typeof text !== 'string') throw error;
+      const cleaned = escapeControls(text);
+      if (cleaned === text) throw error;
+      return JSON.parse(cleaned);
+    }
+  };
   KT.raise = (value) => {
     throw KT.error(value);
   };
@@ -1244,7 +1276,7 @@
     },
     asJsoup: (s, [base = '']) => Jsoup.parse(s, KT.str(base)),
     parseAs: async (s, _args, lambda, _named, type) =>
-      decode(JSON.parse(lambda ? KT.str(await lambda(s)) : s), type),
+      decode(jsonOf(lambda ? KT.str(await lambda(s)) : s), type),
     trimIndent: (s) => K.trimIndent(s),
     trimMargin: (s) => K.trimMargin(s),
     toCharArray: (s) => [...s],
@@ -2654,6 +2686,9 @@
     takeUnless: () => null,
     equals: (_value, [other]) => other == null,
     ifEmpty: async (_value, args, lambda) => (lambda ? lambda() : args[0]),
+    // `String?.toBoolean()` and `Any?.hashCode()` on null.
+    toBoolean: () => false,
+    hashCode: () => 0,
   };
 
   /// kotlinx.serialization's JSON elements, read off plain JSON values.
@@ -3144,7 +3179,18 @@
     const builder = {
       isStringBuilder: true,
       text: '',
-      append: (value) => {
+      // `append(text, start, end)` a part of a text (Java's `CharSequence` form), `append(chars,
+      // offset, length)` a part of a char array.
+      append: (value, start, last) => {
+        if (typeof start === 'number' && typeof last === 'number') {
+          builder.text += Array.isArray(value)
+            ? value
+                .slice(start, start + last)
+                .map((char) => KT.str(char))
+                .join('')
+            : KT.str(value).slice(start, last);
+          return builder;
+        }
         builder.text += KT.str(value);
         return builder;
       },
@@ -3788,12 +3834,12 @@
     /// `parseAs<T> { text -> … }` changes the text first (a JSONP answer's call around it).
     async parseAs(transform) {
       const text = await this.raw.text();
-      return JSON.parse(typeof transform === 'function' ? KT.str(await transform(text)) : text);
+      return jsonOf(typeof transform === 'function' ? KT.str(await transform(text)) : text);
     }
     /// Keiyoushi's `parseGraphQLAs<T>()`: the answer's `data`; any errors fail it, even beside
     /// data (MangaHub's `{"data": {"chapter": null}, "errors": […]}` asks for a new key).
     async parseGraphQLAs() {
-      const answer = JSON.parse(await this.raw.text());
+      const answer = jsonOf(await this.raw.text());
       if (Array.isArray(answer.errors) && answer.errors.length) {
         throw new KotlinError(
           answer.errors.map((error) => KT.str(error?.message ?? '')).join('\n'),
@@ -5134,7 +5180,7 @@
       readByteString: (count) => byteString(take(count)),
       readUtf8: (count) => K.bin.text(take(count)),
       // `BufferedSource.parseAs<T>()`: what's left as JSON (`KT.m` decodes it as asked).
-      parseAs: () => JSON.parse(K.bin.text(take())),
+      parseAs: () => jsonOf(K.bin.text(take())),
       readString: (first, second) => K.bin.text(take(typeof first === 'number' ? first : second)),
       readUtf8Line: () => {
         const at = data.subarray(head, tail).indexOf(10);
@@ -5265,7 +5311,7 @@
       },
       readAllBytes: () => stream.readBytes(),
       // Keiyoushi's `InputStream.parseAs<T>()`: the rest as JSON (`KT.m` decodes it as asked).
-      parseAs: () => JSON.parse(K.bin.text(Uint8Array.from(stream.readBytes()))),
+      parseAs: () => jsonOf(K.bin.text(Uint8Array.from(stream.readBytes()))),
       readNBytes: (count) => {
         const part = bytes.subarray(at, at + count);
         at += part.length;
@@ -8696,12 +8742,10 @@
     // org.json's `JSONObject(text)` and `JSONArray(text)`.
     JSONObject: ([text]) =>
       orgJsonObject(
-        text === undefined ? {} : typeof text === 'string' ? JSON.parse(text) : plain(text),
+        text === undefined ? {} : typeof text === 'string' ? jsonOf(text) : plain(text),
       ),
     JSONArray: ([text]) =>
-      orgJsonArray(
-        text === undefined ? [] : typeof text === 'string' ? JSON.parse(text) : plain(text),
-      ),
+      orgJsonArray(text === undefined ? [] : typeof text === 'string' ? jsonOf(text) : plain(text)),
     // `GZIPOutputStream(out)`, `DeflaterOutputStream(out)`: what's written, compressed into
     // `out` once the stream closes.
     GZIPOutputStream: ([target]) => compressingStream(target, 'gzip'),
@@ -8767,11 +8811,11 @@
   const jsonCodec = {
     // `decodeFromString(text)`, or `(Payload.serializer(), text)`: decoded as that class.
     decodeFromString: async (...args) => {
-      const value = JSON.parse(KT.str(args[args.length - 1]));
+      const value = jsonOf(KT.str(args[args.length - 1]));
       const type = serializerType(args);
       return type ? decode(value, type) : value;
     },
-    parseToJsonElement: (text) => JSON.parse(KT.str(text)),
+    parseToJsonElement: (text) => jsonOf(KT.str(text)),
     // `encodeToString(String.serializer(), value)` too.
     encodeToString: (...args) => JSON.stringify(plain(args[args.length - 1])),
     decodeFromJsonElement: async (...args) => {
@@ -11280,8 +11324,8 @@
       network: async () => ({ client, cloudflareClient: client }),
       headers: async () => (headers ??= (await defaultHeaders()).build()),
       json: async () => ({
-        decodeFromString: (text) => JSON.parse(KT.str(text)),
-        parseToJsonElement: (text) => JSON.parse(KT.str(text)),
+        decodeFromString: (text) => jsonOf(KT.str(text)),
+        parseToJsonElement: (text) => jsonOf(KT.str(text)),
         encodeToString: (value) => JSON.stringify(plain(value)),
         decodeFromJsonElement: (value) => value,
       }),

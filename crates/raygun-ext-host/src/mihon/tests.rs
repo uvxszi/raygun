@@ -3553,7 +3553,9 @@ class Wrapper(val data: Results)
 /// a missing one refused), constants and the source's values read in a loop; a class's `val`s
 /// worked out once (OneReader's key pair), its getters at each read; path segments written as
 /// OkHttp writes them; a rate limit given by name with the requests it's for (Chikari's), text
-/// helpers' named arguments, and a reified function returning its type given the one expected.
+/// helpers' named arguments, a reified function returning its type given the one expected, JSON
+/// with raw control characters in its strings (as kotlinx.serialization reads it), `null`'s
+/// `toBoolean()`, and a part of a text appended (`append(text, start, end)`, LanorTrad's).
 #[tokio::test]
 async fn converted_code_reads_indexes_companions_and_segments() {
     let library = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
@@ -3626,6 +3628,8 @@ class Counter {
         return text.unwrap()
     }
 
+    private val maybeTrue: String? = null
+
     override suspend fun getLatestUpdates(page: Int): MangasPage {
         val state = State(IntArray(6) { it }, 6)
         for (s in 0 until state.length) state.payload[s] = state.payload[s] xor table[s % 4]
@@ -3646,7 +3650,8 @@ class Counter {
             .build()
             .toString()
         val pinged = client.get("$baseUrl/ping").body.string() + client.get("$baseUrl/ping").body.string()
-        val texts = "a-b".substringAfter("x", missingDelimiterValue = "") + "|" + "abcabc".indexOf("c", startIndex = 3)
+        val texts = "a-b".substringAfter("x", missingDelimiterValue = "") + "|" + "abcabc".indexOf("c", startIndex = 3) +
+            "|" + buildString { append("abcdef", 1, 3) }
         val list = listOf(
             pinged + texts,
             state.payload.joinToString(","),
@@ -3657,6 +3662,7 @@ class Counter {
             address,
             Counter().report(),
             item("""{"data":{"name":"x"}}""").label(),
+            item("{\"data\":{\"name\":\"a\nb\"}}").label().replace("\n", "|") + " " + maybeTrue.toBoolean(),
         )
         return MangasPage(list.map { name -> SManga.create().apply { title = name; url = "/x" } }, false)
     }
@@ -3703,7 +3709,7 @@ class Counter {
     assert_eq!(
         titles,
         [
-            "okok|5",
+            "okok|5|bc",
             "105,7,5,11,1,3",
             &(3 * 294 + 57).to_string(),
             "2 1 null",
@@ -3712,6 +3718,7 @@ class Counter {
             "https://pages.example/full-list/o:popular~t:MANGA,MANHWA/a%20b%2Fc",
             "1 1 2 2 2",
             "item x",
+            "item a|b false",
         ]
     );
 }
