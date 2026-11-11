@@ -9,10 +9,9 @@
 // licence otherwise are left out: commercial films turn up marked that way, CC0 above all.
 // Prelinger Archives' films are in the public domain by Prelinger's own uploads. An item reached
 // another way (a link, an old library entry) is held to the same rule when it opens.
-import { defineProvider, fetchJson } from '@raygun/sdk';
+import { defineProvider } from '@raygun/sdk';
 import type {
   FilterValues,
-  MangaPage,
   SourceFilter,
   Video,
   VideoEpisode,
@@ -20,33 +19,18 @@ import type {
   VideoSubtitle,
 } from '@raygun/sdk';
 
-const API = 'https://archive.org';
-const ROWS = 30;
-
-type SearchDoc = { identifier: string; title?: string | string[]; year?: number | string };
-type SearchResponse = { response?: { numFound?: number; docs?: SearchDoc[] } };
-
-type ItemFile = {
-  name: string;
-  format?: string;
-  source?: string;
-  original?: string;
-  height?: string;
-  title?: string;
-};
-type ItemMetadata = {
-  files?: ItemFile[];
-  metadata?: {
-    title?: string | string[];
-    description?: string | string[];
-    date?: string;
-    year?: string;
-    creator?: string | string[];
-    subject?: string | string[];
-    licenseurl?: string;
-    collection?: string | string[];
-  };
-};
+import {
+  API,
+  cover,
+  escapeQuery,
+  fetchItem,
+  fileUrl,
+  firstString,
+  plainText,
+  searchPage,
+  subjectsOf,
+} from './archive';
+import type { ItemFile, ItemMetadata } from './archive';
 
 const COLLECTIONS = [
   { value: 'feature_films', label: 'Feature films' },
@@ -77,31 +61,6 @@ const SORTS = [
   { value: 'titleSorter asc', label: 'Title' },
 ];
 
-// Lucene syntax characters would turn a user's query into a malformed or different search.
-const escapeQuery = (query: string) => query.replace(/[+\-!(){}[\]^"~*?:\\/&|]/g, ' ').trim();
-
-const firstString = (value: string | string[] | undefined): string | null =>
-  (Array.isArray(value) ? value[0] : value) ?? null;
-
-const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
-
-const cover = (identifier: string) => `${API}/services/img/${encodeURIComponent(identifier)}`;
-
-/** Descriptions are HTML; the app shows plain text. */
-const plainText = (html: string) =>
-  html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
 const pick = (filters: FilterValues | undefined, key: string, options: { value: string }[]) => {
   const value = filters?.[key];
   return typeof value === 'string' && options.some((option) => option.value === value)
@@ -109,45 +68,10 @@ const pick = (filters: FilterValues | undefined, key: string, options: { value: 
     : options[0]!.value;
 };
 
-const searchPage = async (q: string, sort: string, page: number): Promise<MangaPage> => {
-  const params = [
-    `q=${encodeURIComponent(q)}`,
-    'fl[]=identifier',
-    'fl[]=title',
-    `rows=${ROWS}`,
-    `page=${Math.max(1, page)}`,
-    `sort[]=${encodeURIComponent(sort)}`,
-    'output=json',
-  ];
-  const result = await fetchJson<SearchResponse>(`${API}/advancedsearch.php?${params.join('&')}`);
-  const docs = result.response?.docs ?? [];
-  return {
-    items: docs.map((doc) => ({
-      id: doc.identifier,
-      title: firstString(doc.title) ?? doc.identifier,
-      coverUrl: cover(doc.identifier),
-    })),
-    hasNextPage: page * ROWS < (result.response?.numFound ?? 0),
-  };
-};
-
 const inCollection = (collection: string) =>
   `collection:(${collection}) AND mediatype:(movies) AND ${
     collection === 'prelinger' ? PRELINGER : PUBLIC_DOMAIN
   }`;
-
-// Item metadata is read for details, episodes and servers; keep the last few.
-const items = new Map<string, Promise<ItemMetadata>>();
-const fetchItem = (identifier: string): Promise<ItemMetadata> => {
-  let item = items.get(identifier);
-  if (!item) {
-    item = fetchJson<ItemMetadata>(`${API}/metadata/${encodeURIComponent(identifier)}`);
-    item.catch(() => items.delete(identifier));
-    items.set(identifier, item);
-    if (items.size > 20) items.delete(items.keys().next().value!);
-  }
-  return item;
-};
 
 /** Whether an item is free to watch, by its own record, under the rule the search asks for. */
 const isOpen = (item: ItemMetadata) => {
@@ -193,7 +117,7 @@ const subtitlesFor = (identifier: string, item: ItemMetadata, original: string) 
   return (item.files ?? [])
     .filter((file) => /\.(srt|vtt)$/i.test(file.name) && file.name.startsWith(base))
     .map((file): VideoSubtitle => ({
-      url: `${API}/download/${encodeURIComponent(identifier)}/${encodePath(file.name)}`,
+      url: fileUrl(identifier, file.name),
       // `.asr.srt` files are the archive's automatic transcripts.
       label: /\.asr\.(srt|vtt)$/i.test(file.name) ? 'Automatic (English)' : 'Subtitles',
       lang: 'en',
@@ -220,7 +144,7 @@ const resolveServer = async (episodeId: string): Promise<VideoServer> => {
       const height = Number.parseInt(file.height ?? '', 10);
       const known = Number.isFinite(height) && height > 0;
       return {
-        url: `${API}/download/${encodeURIComponent(identifier)}/${encodePath(file.name)}`,
+        url: fileUrl(identifier, file.name),
         label: known ? `${height}p · ${file.format}` : file.format,
         quality: known ? height : undefined,
         subtitles,
@@ -261,10 +185,6 @@ export const films = defineProvider({
     const meta = item.metadata ?? {};
     const description = firstString(meta.description);
     const year = Number.parseInt((meta.year ?? meta.date ?? '').slice(0, 4), 10);
-    const subjects = (Array.isArray(meta.subject) ? meta.subject : [meta.subject ?? ''])
-      .flatMap((subject) => subject.split(/\s*;\s*/))
-      .map((subject) => subject.trim())
-      .filter(Boolean);
     const creators = Array.isArray(meta.creator)
       ? meta.creator
       : meta.creator
@@ -275,7 +195,7 @@ export const films = defineProvider({
       title: firstString(meta.title) ?? id,
       coverUrl: cover(id),
       description: description ? plainText(description) : null,
-      genres: [...new Set(subjects)].slice(0, 8),
+      genres: subjectsOf(item).slice(0, 8),
       directors: creators,
       type: 'movie',
       year: Number.isFinite(year) ? year : null,

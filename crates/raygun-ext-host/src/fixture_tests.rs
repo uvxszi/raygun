@@ -350,7 +350,17 @@ async fn internet_archive_films_browse_details_episodes_and_videos() {
     )])
     .await;
     let provider = "dev.raygun.internet-archive/films";
-    assert_eq!(host.providers(crate::video::VIDEO_SOURCE).await.len(), 1);
+    let videos: Vec<String> = host
+        .providers(crate::video::VIDEO_SOURCE)
+        .await
+        .into_iter()
+        .map(|info| info.id)
+        .collect();
+    assert_eq!(
+        videos,
+        [provider, "dev.raygun.internet-archive/lectures"],
+        "films, and MIT OpenCourseWare's lectures"
+    );
 
     let popular = host
         .manga_list(provider, crate::manga::MangaList::Popular, 1)
