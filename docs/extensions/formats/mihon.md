@@ -330,7 +330,9 @@ Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`: four), web views
 windows (`WebResourceResponse`, `CountDownLatch` around one in the pam theme's three, an
 `Intent` opening a challenge page, `ViewGroup.LayoutParams`, a `Presentation`'s `dismiss()`),
 Cronet's own transport, the kim image-metadata library, Pepper&Carrot's protobuf-encoded
-preferences, and one on Kotlin the converter doesn't read yet (a class declared in a function).
+preferences, and one on Kotlin the converter doesn't read yet (an anonymous object subclassing a
+declared generic class with extensions of its own). Classes declared in a function's body are
+defined where the code reaches them.
 Android's `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) and
 `canvas.drawText(…)` are the runtime's text layout, so captions and speech bubbles drawn on
 pictures convert; a paint's `ColorMatrixColorFilter` changes the pictures it draws. The classes
@@ -339,15 +341,17 @@ extensions use of commons-text (`StringSubstitutor`), java-string-similarity (`L
 Mango and Madokami convert.
 
 `mihon_popular_live` with a sample of 300 converted sources (2026-11-11) follows each listing
-through a title's details, its chapters and a chapter's pages: 234 of the 300 list their
-popular titles, and of those 95% give details, 92% chapters and 86% pages (191 first pictures
-load). Of the 66 that don't list, 25 meet a browser check, 13 refuse access (Japanese and Korean
-stores outside their countries, mostly), 7 are slow past 30 s, 7 are down or gone (5xx, DNS,
-refused connections), 6 list nothing, 5 want a sign-in or a setting, and 3 stop on the source
-itself. Past the listing, pages fail on purchases and sign-ins (locked chapters, `div.lock-card`,
-"must be purchased"), sites that changed (ZeistManga blogs that now load or encrypt a chapter
-by script, a PostgREST schema that answers 300), titles a language's source has no chapters for,
-novels on sites that also have comics, and the host's 8 MB answer limit (a 3800-chapter title).
+through a title's details, its chapters and a chapter's pages: 215 of the 300 list their
+popular titles, and of those 96% give details, 93% chapters and 87% pages (176 first pictures
+load). Of the 85 that don't list, 32 meet a browser check, 16 refuse access (Japanese and Korean
+stores outside their countries, mostly), 9 are slow past 30 s, 10 are down or gone (DNS, refused
+connections, 5xx), 8 list nothing, 4 want a sign-in or a setting, and the rest stop on a site
+that changed or a server's own error. Past the listing, pages fail on purchases and sign-ins
+(locked chapters, "must be purchased"), sources that read their pages in a web view (Dilar,
+AllManga), sites that changed (ZeistManga blogs that load a chapter by script, sites moved),
+the 5 s a script may run without waiting (Nicomanga decoding a 1.5 MB page character by
+character), and a few decryptions that still differ from the site's (Manga Saison, Philia Scans,
+OneReader's signed requests).
 
 Gaps the live samples showed and that are closed since: pictures sent as `text/plain` (Keyoapp's
 CDN), MangaHub's key refresh (GraphQL errors beside data, `followRedirects(false)`), Kotlin's
@@ -356,8 +360,13 @@ per page until rate-limited) and `intl.collator`, 64-bit bit operations (Jump To
 parent constructor arguments (Asura Scans' filters), a DTO named like a Mihon filter (Kagane), each
 class's own `@SerialName`s (Comick), nested classes beside top-level ones (ReiManga), compressed
 answers a source asked for (Questionable Content), `Int::toString` (K Manga), MangaThemesia's JSON
-image lists (`destructured.toList()`), and extension functions read as properties (the natsuid
-theme).
+image lists (`destructured.toList()`), extension functions read as properties (the natsuid
+theme), overloads told apart by their parameters' types (Zaimanhua's `getMangaUrl`), classes
+delegating to their list (Monochrome's `Results`), a companion's functions passed by reference
+(GlobalComix), the source's private extensions kept out of its DTOs (Despair Manga), a class's
+own `toString()` (Manta's page addresses), JSON transforming serializers (greenshit's pages),
+`doFinal(bytes, offset, length)`, `"%02x".format(…)`, character ranges, interceptors that XOR
+or RC4 pictures (Kodansha, CyComi), and AWS WAF's challenge, which now reads as a browser check.
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture
