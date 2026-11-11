@@ -286,8 +286,10 @@ type MusicBrainzRelease = {
 };
 
 const credit = (names: { name?: string; joinphrase?: string }[] | undefined) =>
-  (names ?? []).map((part) => `${part.name ?? ''}${part.joinphrase ?? ''}`).join('').trim() ||
-  null;
+  (names ?? [])
+    .map((part) => `${part.name ?? ''}${part.joinphrase ?? ''}`)
+    .join('')
+    .trim() || null;
 
 /** A release's songs, from MusicBrainz. */
 const releaseSongs = async (release: FreshRelease): Promise<Track[]> => {
@@ -315,7 +317,11 @@ const releaseSongs = async (release: FreshRelease): Promise<Track[]> => {
 
 // ---- Song radios ----
 
-type FoundRecording = { recording_mbid: string; recording_name: string; artist_credit_name: string };
+type FoundRecording = {
+  recording_mbid: string;
+  recording_name: string;
+  artist_credit_name: string;
+};
 type SimilarRecording = {
   recording_mbid: string;
   recording_name?: string;

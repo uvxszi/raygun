@@ -1880,3 +1880,114 @@ async fn open_sources_live_esa_hubble() {
     assert!(video.url.starts_with("https://cdn.esawebb.org/"));
     assert_served("Webb video", &video.url, &video.headers).await;
 }
+
+/// ListenBrainz's recommendations and genre radios, all without an account.
+#[tokio::test]
+#[ignore = "needs network access to api.listenbrainz.org, labs.api.listenbrainz.org and musicbrainz.org"]
+async fn open_sources_live_listenbrainz() {
+    let host = host().await;
+    let similar = host.similar_artists("Radiohead", 8).await;
+    println!("like Radiohead: {similar:?}");
+    assert!(similar.len() >= 5);
+    assert!(similar.iter().all(|name| name != "Radiohead"));
+
+    let names = |tracks: &[OnlineTrack]| {
+        tracks
+            .iter()
+            .map(|track| {
+                format!(
+                    "{} — {}",
+                    track.artist.as_deref().unwrap_or("?"),
+                    track.title
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let top = host
+        .recommended_tracks(
+            "topTracks",
+            serde_json::json!({ "artist": "Radiohead", "limit": 10 }),
+        )
+        .await;
+    println!("Radiohead's best known: {:?}", names(&top));
+    assert!(top.len() >= 8);
+    assert!(
+        top.iter()
+            .all(|track| track.artist.as_deref() == Some("Radiohead"))
+    );
+    let song_radio = host
+        .recommended_tracks(
+            "radio",
+            serde_json::json!({ "artist": "Radiohead", "title": "Creep", "limit": 10 }),
+        )
+        .await;
+    println!("like Creep: {:?}", names(&song_radio));
+    assert!(song_radio.len() >= 8);
+    let artist_radio = host
+        .recommended_tracks(
+            "radio",
+            serde_json::json!({ "artist": "Björk", "title": null, "limit": 12 }),
+        )
+        .await;
+    println!("Björk radio: {:?}", names(&artist_radio));
+    assert!(artist_radio.len() >= 8);
+    let mut artists: Vec<_> = artist_radio
+        .iter()
+        .filter_map(|track| track.artist.clone())
+        .collect();
+    artists.sort_unstable();
+    artists.dedup();
+    assert!(artists.len() >= 4, "a radio mixes artists");
+
+    // An artist with a release this month: fresh releases, as the site lists them.
+    let fresh: serde_json::Value = serde_json::from_str(
+        &raygun_net::http_client()
+            .unwrap()
+            .get("https://api.listenbrainz.org/1/explore/fresh-releases/?days=14&past=true&future=false")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let candidates: Vec<String> = fresh["payload"]["releases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|release| {
+            release["artist_mbids"]
+                .as_array()
+                .is_some_and(|ids| ids.len() == 1)
+        })
+        .filter_map(|release| release["artist_credit_name"].as_str().map(str::to_owned))
+        .filter(|name| name.len() > 6)
+        .take(5)
+        .collect();
+    let mut found = Vec::new();
+    for artist in &candidates {
+        found = host
+            .recommended_tracks(
+                "newReleases",
+                serde_json::json!({ "artist": artist, "days": 28, "limit": 6 }),
+            )
+            .await;
+        println!("{artist}'s new songs: {:?}", names(&found));
+        if !found.is_empty() {
+            break;
+        }
+    }
+    assert!(!found.is_empty(), "none of {candidates:?} had new songs");
+
+    let radio = host
+        .music_tag_songs("Jazz", &["jazz".to_owned()], "genre", None, 10)
+        .await;
+    let (_, answer) = radio
+        .iter()
+        .find(|(provider, _)| provider.extension_id == "dev.raygun.listenbrainz")
+        .expect("ListenBrainz answers genres");
+    let (_, songs) = answer.as_ref().unwrap();
+    println!("jazz radio: {:?}", names(songs));
+    assert!(songs.len() >= 8);
+}

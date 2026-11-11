@@ -2764,9 +2764,74 @@ mod tests {
             "../../../extensions/listenbrainz/raygun-extension.json"
         ))
         .unwrap();
-        assert_eq!(manifest.provides, ["music.charts"]);
+        assert_eq!(manifest.provides, ["music.charts", "music.recommend"]);
         assert!(include_str!("../../../extensions/listenbrainz/dist/index.js").contains("charts"));
         for (manifest, bundle, kinds) in [
+            (
+                include_str!("../../../extensions/openstax/raygun-extension.json"),
+                include_str!("../../../extensions/openstax/dist/index.js"),
+                &["novel.source"][..],
+            ),
+            (
+                include_str!("../../../extensions/wikibooks/raygun-extension.json"),
+                include_str!("../../../extensions/wikibooks/dist/index.js"),
+                &["novel.source"][..],
+            ),
+            (
+                include_str!("../../../extensions/bccampus/raygun-extension.json"),
+                include_str!("../../../extensions/bccampus/dist/index.js"),
+                &["novel.source"][..],
+            ),
+            (
+                include_str!("../../../extensions/gnu-manuals/raygun-extension.json"),
+                include_str!("../../../extensions/gnu-manuals/dist/index.js"),
+                &["novel.source"][..],
+            ),
+            (
+                include_str!("../../../extensions/green-tea-press/raygun-extension.json"),
+                include_str!("../../../extensions/green-tea-press/dist/index.js"),
+                &["novel.source"][..],
+            ),
+            (
+                include_str!("../../../extensions/saylor/raygun-extension.json"),
+                include_str!("../../../extensions/saylor/dist/index.js"),
+                &["novel.source"][..],
+            ),
+            (
+                include_str!("../../../extensions/lastfm/raygun-extension.json"),
+                include_str!("../../../extensions/lastfm/dist/index.js"),
+                &[
+                    "music.charts",
+                    "music.tags",
+                    "music.recommend",
+                    "music.info",
+                ][..],
+            ),
+            (
+                include_str!("../../../extensions/europeana/raygun-extension.json"),
+                include_str!("../../../extensions/europeana/dist/index.js"),
+                &["video.source", "music.metadata"][..],
+            ),
+            (
+                include_str!("../../../extensions/loc/raygun-extension.json"),
+                include_str!("../../../extensions/loc/dist/index.js"),
+                &["video.source", "music.metadata"][..],
+            ),
+            (
+                include_str!("../../../extensions/nara/raygun-extension.json"),
+                include_str!("../../../extensions/nara/dist/index.js"),
+                &["video.source"][..],
+            ),
+            (
+                include_str!("../../../extensions/nps/raygun-extension.json"),
+                include_str!("../../../extensions/nps/dist/index.js"),
+                &["video.source"][..],
+            ),
+            (
+                include_str!("../../../extensions/esa-hubble/raygun-extension.json"),
+                include_str!("../../../extensions/esa-hubble/dist/index.js"),
+                &["video.source"][..],
+            ),
             (
                 include_str!("../../../extensions/fyyd/raygun-extension.json"),
                 include_str!("../../../extensions/fyyd/dist/index.js"),
