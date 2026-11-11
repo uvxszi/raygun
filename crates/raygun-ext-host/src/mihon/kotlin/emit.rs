@@ -248,7 +248,8 @@ pub const METHODS: &[&str] = &[
     "getHostName", "lookup", "compile", "drawRoundRect", "setStrokeWidth", "setSaturation",
     "authenticator", "proxyAuthenticator", "floorDiv", "floorMod", "toHeaders", "measureText",
     "getSystemService", "getMemoryInfo", "drawText", "ensureActive", "setTextAlign",
-    "setTextScaleX", "toUri", "toUrl", "toASCIIString", "relativize",
+    "setTextScaleX", "toUri", "toUrl", "toASCIIString", "relativize", "openPage", "render",
+    "getPageCount",
     "getNextEntry", "closeEntry", "zstdCompress", "zstdDecompress", "sink",
     "unescapeEntities", "getProperty", "getValue",
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
@@ -3546,6 +3547,7 @@ pub const GLOBALS: &[&str] = &[
     "readEntry", "ZipInputStream", "BLAKE2b", "StringSubstitutor", "Levenshtein",
     "NormalizedLevenshtein", "JaroWinkler", "Handler", "ColorMatrix", "ColorMatrixColorFilter",
     "currentCoroutineContext", "ListSerializer", "SetSerializer", "MapSerializer", "serializer",
+    "PdfRenderer",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -3576,5 +3578,5 @@ pub const OBJECTS: &[&str] = &[
     "WeekFields", "BigInteger", "KeyPairGenerator", "KeyFactory", "KeyAgreement", "Signature",
     "AlgorithmParameters", "MGF1ParameterSpec", "PSource", "CaseInsensitiveSimpleNaturalComparator",
     "CaseSensitiveSimpleNaturalComparator", "SystemClock", "Looper", "Toast", "InetAddress",
-    "QueryParser", "Collector", "ActivityManager",
+    "QueryParser", "Collector", "ActivityManager", "PdfRenderer", "ParcelFileDescriptor",
 ];

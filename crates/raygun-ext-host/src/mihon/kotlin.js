@@ -939,8 +939,17 @@
       init: (spec) => {
         key = bytesOf(spec?.key ?? spec);
       },
-      update: (data) => {
-        pending = pending.concat(bytesOf(data));
+      // `update(bytes)`, `update(bytes, offset, length)` (that part only) and `update(byte)`.
+      update: (data, offset = 0, length = undefined) => {
+        const bytes = typeof data === 'number' ? [data & 255] : bytesOf(data);
+        pending = pending.concat(
+          offset || length !== undefined
+            ? bytes.slice(
+                Number(offset),
+                length === undefined ? undefined : Number(offset) + Number(length),
+              )
+            : bytes,
+        );
       },
       digest: (data = null) => {
         if (data !== null) pending = pending.concat(bytesOf(data));
@@ -2699,7 +2708,7 @@
     booleanOrNull: null,
     jsonPrimitive: null,
   };
-  KT.p = async (value, name) => {
+  KT.p = (value, name) => {
     if (value === null && Object.prototype.hasOwnProperty.call(JSON_NULL_PROPS, name))
       return JSON_NULL_PROPS[name];
     if (value === null || value === undefined)
@@ -2713,6 +2722,11 @@
       // A `Char`'s code (a one-letter string here).
       if (kind === 'string' && name === 'code') return value.length ? value.charCodeAt(0) : 0;
       if (kind === 'string' && name === 'category') return charCategory(value);
+      // A media type, held as its text (`body.contentType()?.subtype`).
+      if (kind === 'string' && (name === 'type' || name === 'subtype') && value.includes('/')) {
+        const [type, subtype = ''] = value.split(';')[0].trim().toLowerCase().split('/');
+        return name === 'type' ? type : subtype;
+      }
       if (kind === 'string' && name === 'indices') return KT.range(0, value.length - 1);
       throw new KotlinError(`a value has no ${name}`);
     }
@@ -2777,17 +2791,17 @@
   };
   /// `Owner::name` on one of the runtime's objects: its own function when it has one, else a
   /// member of the first argument (`String::isNotBlank`).
-  KT.ref = async (object, name, args) => {
+  KT.ref = (object, name, args) => {
     // `Int::toString` is the number's `toString`, not JavaScript's on the `Int` object.
     if (object && typeof object[name] === 'function' && object[name] !== Object.prototype[name])
       return KT.m(object, name, args);
     const [receiver, ...rest] = args;
     return KT.member(receiver, name, rest);
   };
-  KT.ps = async (value, name) => (value === null || value === undefined ? null : KT.p(value, name));
+  KT.ps = (value, name) => (value === null || value === undefined ? null : KT.p(value, name));
   /// A callable reference's call (`GenreRoute::name`, `Element::text`): a property read when the
   /// value has one by that name, else the method.
-  KT.member = async (receiver, name, args) => {
+  KT.member = (receiver, name, args) => {
     if (
       args.length === 0 &&
       receiver !== null &&
@@ -2801,7 +2815,7 @@
     }
     return KT.m(receiver, name, args);
   };
-  KT.setp = async (value, name, item) => {
+  KT.setp = (value, name, item) => {
     if (value === null || value === undefined)
       throw new KotlinError(`set ${name} of null`, 'NullPointerException');
     if (value.isGetterHost && value.setters && value.setters[name])
@@ -2824,10 +2838,45 @@
   /// A function passed in parentheses (`all(Char::isDigit)`, `fold(0, ::add)`): the lambda Kotlin
   /// would take trailing, when it's the only function and the last argument.
   const passedLambda = (args) => {
-    const functions = args.filter((arg) => typeof arg === 'function');
-    return functions.length === 1 && args[args.length - 1] === functions[0] ? functions[0] : null;
+    const last = args.length ? args[args.length - 1] : undefined;
+    if (typeof last !== 'function') return null;
+    for (let at = 0; at < args.length - 1; at++) if (typeof args[at] === 'function') return null;
+    return last;
   };
-  KT.m = async (receiver, name, args = [], named = null, written = null, type = null) => {
+  /// The runtime's tables by the kind of value they're for (filled at the first call).
+  const TABLES = {
+    string: null,
+    list: null,
+    elements: null,
+    map: null,
+    number: null,
+    bigint: null,
+  };
+  /// Names a text's calls answer before its own table (`decodeProtoBase64` with a type,
+  /// `extractNextJsRsc`, an empty map's reads).
+  const STRING_FIRST = new Set([
+    'decodeProtoBase64',
+    'parseAsProto',
+    'decodeProto',
+    'extractNextJsRsc',
+    'get',
+    'getOrDefault',
+    'containsKey',
+    'containsValue',
+  ]);
+  // The member calls converted code makes (`await KT.m(…)`) and the reads (`await KT.p(…)`) are
+  // plain functions: a value answered at once is cheaper to await than an async function's
+  // promise, and the few that wait return their promise.
+  KT.m = (receiver, name, args = [], named = null, written = null, type = null) => {
+    // Text and numbers, the most called on, straight to their tables.
+    if (typeof receiver === 'string') {
+      const own = STRING[name];
+      if (own !== undefined && !STRING_FIRST.has(name))
+        return own(receiver, args, written ?? passedLambda(args), named, type);
+    } else if (typeof receiver === 'number') {
+      const own = NUMBER[name];
+      if (own !== undefined) return own(receiver, args, written ?? passedLambda(args), named, type);
+    }
     // The runtime's own tables read the lambda however it was passed; a value's own methods get
     // the arguments as written.
     const lambda = written ?? passedLambda(args);
@@ -2841,17 +2890,18 @@
     if (receiver === '' && EMPTY_MAP_READS[name]) return EMPTY_MAP_READS[name](args);
     if (hasNextJs(receiver, name)) return NEXT_JS[name](receiver, args, lambda, type);
     // Protobuf answers read as the type asked (`parseAsProto<T>()`), after a `transform` if any.
-    if (type && PROTO_DECODERS.has(name)) {
-      let bytes = await protoBytesOf(receiver, name);
-      if (lambda) bytes = u8Of(await streamBytes(await lambda(okioBuffer(bytes))));
-      return decodeProtoAs(bytes, type);
-    }
+    if (type && PROTO_DECODERS.has(name))
+      return (async () => {
+        let bytes = await protoBytesOf(receiver, name);
+        if (lambda) bytes = u8Of(await streamBytes(await lambda(okioBuffer(bytes))));
+        return decodeProtoAs(bytes, type);
+      })();
     const kind = kindOf(receiver);
     if (receiver instanceof RegExp && REGEX[name]) return REGEX[name](receiver, args, lambda);
     // `response.parseAs<List<MangaDto>>()`, `json.decodeFromString<T>(text)`: as the type asked.
     if (type && DECODERS.has(name) && kind === 'object' && typeof receiver[name] === 'function') {
       const all = lambda && !args.includes(lambda) ? [...args, lambda] : args;
-      return decode(await receiver[name](...all), type);
+      return (async () => decode(await receiver[name](...all), type))();
     }
     if (kind === 'elements' && typeof receiver[name] === 'function' && ELEMENTS_OWN.has(name))
       return receiver[name](...args);
@@ -2863,14 +2913,16 @@
       typeof receiver[name] === 'function'
     )
       return receiver[name](...args, ...(written ? [written] : []));
-    const table = {
-      string: STRING,
-      list: LIST,
-      elements: LIST,
-      map: MAP,
-      number: NUMBER,
-      bigint: BIGINT,
-    }[kind];
+    if (TABLES.string === null)
+      Object.assign(TABLES, {
+        string: STRING,
+        list: LIST,
+        elements: LIST,
+        map: MAP,
+        number: NUMBER,
+        bigint: BIGINT,
+      });
+    const table = TABLES[kind];
     if (table && table[name]) return table[name](receiver, args, lambda, named, type);
     // A map's entries as a list (`map.count { … }`, `map.maxByOrNull { … }`), a text's
     // characters (`text.foldIndexed(0) { … }`).
@@ -2898,18 +2950,20 @@
       name === 'cipherSource' ||
       (name === 'aesDecrypt' && receiver && typeof receiver.u8Now === 'function')
     )
-      return okioBuffer(
-        args[0].doFinalU8
-          ? args[0].doFinalU8(await streamBytes(receiver))
-          : u8Of(await args[0].doFinal(await streamBytes(receiver))),
-      );
+      return (async () =>
+        okioBuffer(
+          args[0].doFinalU8
+            ? args[0].doFinalU8(await streamBytes(receiver))
+            : u8Of(await args[0].doFinal(await streamBytes(receiver))),
+        ))();
     // Keiyoushi's `source.rc4(key)` and `source.xor(key)`: the bytes left, deciphered.
-    if ((name === 'rc4' || name === 'xor') && receiver && typeof receiver.u8Now === 'function') {
-      const bytes = await streamBytes(receiver);
-      if (name === 'rc4') return okioBuffer(rc4(bytes, u8Of(args[0]), args[1] ?? 0));
-      const mask = typeof args[0] === 'number' ? [args[0] & 255] : Array.from(u8Of(args[0]));
-      return okioBuffer(bytes.map((byte, at) => byte ^ mask[at % mask.length]));
-    }
+    if ((name === 'rc4' || name === 'xor') && receiver && typeof receiver.u8Now === 'function')
+      return (async () => {
+        const bytes = await streamBytes(receiver);
+        if (name === 'rc4') return okioBuffer(rc4(bytes, u8Of(args[0]), args[1] ?? 0));
+        const mask = typeof args[0] === 'number' ? [args[0] & 255] : Array.from(u8Of(args[0]));
+        return okioBuffer(bytes.map((byte, at) => byte ^ mask[at % mask.length]));
+      })();
     // OkHttp's `response.headers("Content-Type")`: that header's values.
     if (receiver instanceof Response && name === 'headers' && args.length)
       return receiver.headers.values(args[0]);
@@ -4955,7 +5009,15 @@
         for (let index = 0; index < bytes.length; index++) target[index] = bytes[index];
       },
       read: (target, offset = 0, count = undefined) => {
-        if (!Array.isArray(target)) return buffer.write(take());
+        // okio's `source.read(sink, byteCount)`: up to that many bytes into the sink, or -1 at
+        // the end.
+        if (!Array.isArray(target)) {
+          const available = tail - head;
+          if (available <= 0) return -1;
+          const wanted = Math.min(Number(offset) > 0 ? Number(offset) : available, available);
+          target.write(take(wanted));
+          return wanted;
+        }
         const wanted = Math.min(count ?? target.length - offset, tail - head);
         if (wanted <= 0) return -1;
         const bytes = take(wanted);
@@ -4969,10 +5031,11 @@
         return KT.unit;
       },
       request: (count) => tail - head >= count,
-      // okio's `buffer[index]`: a byte (signed, as Kotlin's `Byte`) not yet read.
+      // okio's `buffer[index]`: a byte not yet read (0–255, as the runtime's `ByteArray`s hold
+      // them, so it compares with `"ff02".decodeHex()[0]`).
       get: (index) =>
         head + Number(index) < tail
-          ? (data[head + Number(index)] << 24) >> 24
+          ? data[head + Number(index)]
           : KT.raise(`no byte ${index} in the buffer`),
       indexOf: (byte, from = 0) => {
         const at = data.subarray(head + from, tail).indexOf(byte & 255);
@@ -7665,6 +7728,64 @@
   /// Java's `File`, over a memory of the runtime's own: what a source writes it reads back while
   /// it runs (its caches), and nothing reaches the device's storage.
   const memoryFiles = new Map();
+  /// Android's `ParcelFileDescriptor.open(file, mode)`: the file, for `PdfRenderer`.
+  const parcelFile = (file) => ({
+    __class: 'ParcelFileDescriptor',
+    __classes: ['ParcelFileDescriptor', 'Closeable'],
+    file,
+    close: () => KT.unit,
+  });
+  /// Android's `PdfRenderer` over a file the source saved: its pages drawn by Rust
+  /// (`mihon/pdf.rs`, pure Rust) into the pictures the source makes, scaled to fill them.
+  const pdfRenderer = (descriptor) => {
+    const file = descriptor && descriptor.file;
+    const bytes = file && file.isFile ? memoryFiles.get(file.path) : null;
+    if (!bytes)
+      throw new KotlinError(
+        `${file && file.path ? file.path : 'the file'} (No such file or directory)`,
+        'IOException',
+      );
+    const { id, pages } = K.pdf.open(bytes);
+    let closed = false;
+    return {
+      __class: 'PdfRenderer',
+      __classes: ['PdfRenderer', 'AutoCloseable'],
+      pageCount: pages.length,
+      getPageCount: () => pages.length,
+      openPage: (index) => {
+        const at = Number(index);
+        if (!(at >= 0 && at < pages.length))
+          throw new KotlinError(`Invalid page index ${index}`, 'IllegalArgumentException');
+        // Points (1/72 in), as whole numbers.
+        const [width, height] = pages[at].map((value) => Math.round(value));
+        return {
+          __class: 'PdfPage',
+          __classes: ['PdfPage', 'AutoCloseable'],
+          index: at,
+          width,
+          height,
+          getIndex: () => at,
+          getWidth: () => width,
+          getHeight: () => height,
+          render: (bitmap) => {
+            K.pdf.render(id, at, bitmap.id);
+            return KT.unit;
+          },
+          close: () => KT.unit,
+        };
+      },
+      close: () => {
+        if (!closed) {
+          closed = true;
+          K.pdf.close(id);
+        }
+        return KT.unit;
+      },
+    };
+  };
+  const pdfRendererStatics = Object.assign((descriptor) => pdfRenderer(descriptor), {
+    Page: { RENDER_MODE_FOR_DISPLAY: 1, RENDER_MODE_FOR_PRINT: 2 },
+  });
   const javaFile = (first, second = undefined) => {
     const parent =
       second === undefined ? null : first && first.isFile ? first.path : KT.str(first ?? '');
@@ -7758,6 +7879,22 @@
           }
         };
         return buffer;
+      },
+      // Kotlin's `file.outputStream()` (Java's `FileOutputStream`): what's written kept when it
+      // closes (or flushes).
+      outputStream: (append = false) => {
+        const sink = file.sink(append);
+        const stream = outputStreamTo(sink);
+        stream.flush = sink.flush;
+        stream.close = sink.close;
+        stream.use = async (lambda) => {
+          try {
+            return await lambda(stream);
+          } finally {
+            sink.close();
+          }
+        };
+        return stream;
       },
       listFiles: () =>
         [
@@ -7969,6 +8106,7 @@
     SetSerializer: ([item]) => ({ isSerializer: true, name: 'Set', item }),
     MapSerializer: ([key, value]) => ({ isSerializer: true, name: 'Map', key, value }),
     serializer: () => ({ isSerializer: true, name: 'Any' }),
+    PdfRenderer: ([descriptor]) => pdfRenderer(descriptor),
     // Android's `Handler(looper)`: `post { … }` and `postDelayed({ … }, ms)`.
     Handler: () => handler(),
     // commons-text's `StringSubstitutor(values, "{", "}")`: `replace(template)`.
@@ -10101,6 +10239,14 @@
     CaseSensitiveSimpleNaturalComparator: { getInstance: () => naturalComparator(false) },
     // `ActivityManager.MemoryInfo()`, filled by the context's `ActivityManager`.
     ActivityManager: { MemoryInfo: () => memoryInfo() },
+    // Android's PDF pages (`PdfRenderer(ParcelFileDescriptor.open(file, MODE_READ_ONLY))`).
+    PdfRenderer: pdfRendererStatics,
+    ParcelFileDescriptor: {
+      open: (file) => parcelFile(file),
+      MODE_READ_ONLY: 268435456,
+      MODE_WRITE_ONLY: 536870912,
+      MODE_READ_WRITE: 805306368,
+    },
     // Jsoup's selectors parsed ahead (`QueryParser.parse(query)`) and run (`Collector`).
     QueryParser: {
       parse: (query) => ({
@@ -10207,7 +10353,7 @@
     if (GLOBALS[name]) return async (...args) => GLOBALS[name](args);
     throw new KotlinError(`Raygun's runtime has no ${name}`);
   };
-  KT.call = async (name, args, named_, lambda, type) => {
+  KT.call = (name, args, named_, lambda, type) => {
     const function_ = GLOBALS[name];
     if (function_) return function_(args, named_, lambda, type);
     const object = OBJECTS[name];
@@ -10752,7 +10898,7 @@
     }
     return holder;
   };
-  KT.make = async (holder, args, named_) => holder.make(args, named_);
+  KT.make = (holder, args, named_) => holder.make(args, named_);
   /// An interceptor class the converter leaves out (a theme's image unscrambler, which Raygun's
   /// image fetcher stands in for): it passes requests on.
   KT.passThrough = (name) => ({
@@ -10833,7 +10979,7 @@
   const KOTLIN_MODELS = new Set(['SManga', 'SChapter', 'Page', 'MangasPage', 'SMangaUpdate']);
   /// A name read from the implicit receivers, innermost first, then the source; `extensions`
   /// false leaves out the source's extension properties (its private ones, unseen by its DTOs).
-  KT.rget = async (receivers, name, extensions = true) => {
+  KT.rget = (receivers, name, extensions = true) => {
     const last = receivers[receivers.length - 1];
     const sourceHas = Boolean(last && last.isSource && last.has(name));
     for (const receiver of receivers) {
@@ -10880,7 +11026,7 @@
     // An object of Mihon's or Kotlin's (`SManga`, `Locale`).
     return KT.global(name);
   };
-  KT.rset = async (receivers, name, value) => {
+  KT.rset = (receivers, name, value) => {
     for (const receiver of receivers) {
       if (receiver === null || receiver === undefined) continue;
       if (receiver.isSource) {
@@ -10891,7 +11037,7 @@
     }
     throw new KotlinError(`Raygun's runtime doesn't know ${name}`);
   };
-  KT.rcall = async (receivers, name, args, named_, lambda, type) => {
+  KT.rcall = (receivers, name, args, named_, lambda, type) => {
     // One of the source's extensions goes to the receiver of its type (`infoRow(…)` on a
     // `Document` inside `SManga.create().apply { … }`), when one is.
     const last = receivers[receivers.length - 1];

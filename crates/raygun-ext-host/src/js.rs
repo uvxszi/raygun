@@ -72,9 +72,15 @@ pub struct Limits {
     pub stack_bytes: usize,
     /// Longest run of synchronous JS before it is interrupted (regular expressions included).
     /// The budget restarts whenever a call begins or a host request (`fetch`) completes, so time
-    /// spent waiting doesn't count.
+    /// spent waiting doesn't count. Converted code gets [`CONVERTED_CPU_FACTOR`] times as long.
     pub cpu_budget: Duration,
 }
+
+/// How many times the CPU budget code written for another app gets: it runs every call through
+/// its runtime (Mihon's `KT`, Nuclear's shim), several times slower than code written for Raygun,
+/// and some decodes whole pages in script (Nicomanga's payload, character by character, about
+/// 6 s in a debug build). Calls someone waits on still answer at 12 s (`late.rs`).
+pub const CONVERTED_CPU_FACTOR: u32 = 2;
 
 impl Default for Limits {
     fn default() -> Self {
@@ -90,6 +96,15 @@ impl Default for Limits {
 }
 
 impl Limits {
+    /// How long `manifest`'s runtime may run script without waiting.
+    pub fn cpu_budget_for(&self, manifest: &Manifest) -> Duration {
+        if is_converted(manifest) {
+            self.cpu_budget * CONVERTED_CPU_FACTOR
+        } else {
+            self.cpu_budget
+        }
+    }
+
     /// The most `manifest`'s runtime may hold.
     pub fn memory_for(&self, manifest: &Manifest) -> usize {
         if is_converted(manifest) {
@@ -292,10 +307,11 @@ impl JsExtension {
             _ => None,
         };
         let memory_limit = limits.memory_for(&manifest);
+        let cpu_budget = limits.cpu_budget_for(&manifest);
         let policy = Arc::new(manifest.net.clone());
         let client = extension_client(policy.clone(), cookies.clone(), true)
             .map_err(|error| error.to_string())?;
-        let deadline = Rc::new(Cell::new(Instant::now() + limits.cpu_budget));
+        let deadline = Rc::new(Cell::new(Instant::now() + cpu_budget));
         let registered = Rc::new(RefCell::new(Vec::new()));
         let shared = Rc::new(Shared {
             manifest,
@@ -308,7 +324,7 @@ impl JsExtension {
             registered: registered.clone(),
             providers: RefCell::new(Vec::new()),
             deadline: deadline.clone(),
-            cpu_budget: limits.cpu_budget,
+            cpu_budget,
             content,
             net_log: RefCell::new(VecDeque::new()),
             calls: Cell::new(0),

@@ -1011,6 +1011,12 @@
     decode: (bytes) => unwrap(native.bitmapDecode(bytes)),
     encode: (id, format, quality) => failedOr(native.bitmapEncode(id, String(format), quality)),
   });
+  /** PDF documents drawn into those pictures (`PdfRenderer`): see `mihon/pdf.rs`. */
+  K.pdf = Object.freeze({
+    open: (bytes) => unwrap(native.pdfOpen(bytes)),
+    render: (id, page, bitmap) => unwrap(native.pdfRender(id, page, bitmap)),
+    close: (id) => native.pdfClose(id),
+  });
   /** The extension's cookie jar: what it sends to `url` (`[name, value]` pairs), and keeping
    * `Set-Cookie` lines for it. */
   K.cookies = (href) => unwrap(native.cookies(K.str(href)));

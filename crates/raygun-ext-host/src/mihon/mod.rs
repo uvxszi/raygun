@@ -20,6 +20,7 @@ pub mod gradle;
 pub mod index;
 mod keys;
 pub mod kotlin;
+mod pdf;
 mod pictures;
 mod proto;
 pub(crate) mod runtime;
