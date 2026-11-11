@@ -208,8 +208,9 @@ describe('Word lookups in the book reader', () => {
           { id: 2, text: 'Rain fell on the panes.' },
         ]),
         from: 1,
+        // From the sentence the selection starts in.
+        offset: 9,
         resume: false,
-        rate: 1,
       }),
     );
     expect(screen.queryByTestId('word-lookup')).not.toBeInTheDocument();

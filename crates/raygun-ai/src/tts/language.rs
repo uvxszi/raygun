@@ -1,20 +1,114 @@
 //! Which language a book is written in, read from its text, so a voice that speaks it reads it:
 //! the script first, then (for the Latin, Cyrillic, Arabic and Devanagari scripts) the letters
-//! and the most common short words each language has.
+//! and the most common words each language has. Only the book's language is guessed this way,
+//! from a whole chapter (a book that names its language is read in it); a passage changes the
+//! voice only when it's long and clearly in another language ([`foreign_passage`]).
 
 /// How much of a text is looked at.
 const SAMPLE_CHARS: usize = 4_000;
+/// A language's score must beat the next one's by this much (in tenths) to be the guess.
+const MARGIN_TENTHS: usize = 11;
+/// A passage in the book's script needs this many letters to be read in another language…
+const PASSAGE_LETTERS: usize = 150;
+/// …and one in another script this many.
+const PASSAGE_SCRIPT_LETTERS: usize = 40;
 
 /// The language `text` is most likely in, as a BCP 47 primary tag (`en`, `de`, `zh`), or nothing
 /// when it's too short or unclear to tell.
 pub fn guess(text: &str) -> Option<&'static str> {
     let sample: String = text.chars().take(SAMPLE_CHARS).collect();
+    let found = detect(&sample)?;
+    match found.script {
+        Script::Devanagari | Script::Cyrillic | Script::Latin => {
+            found.best(MARGIN_TENTHS, 4).map(|(tag, _)| tag)
+        }
+        _ => found.single,
+    }
+}
+
+/// The language of a passage (a paragraph) that is clearly not `book`'s: long enough, and in
+/// another script or scoring well above the book's language. Quotations, names and short lines
+/// stay in the book's language.
+pub fn foreign_passage(text: &str, book: &str) -> Option<&'static str> {
+    let book = primary(book);
+    let sample: String = text.chars().take(SAMPLE_CHARS).collect();
+    let found = detect(&sample)?;
+    if Some(found.script) != script_of_language(&book) {
+        // Chinese and Japanese share Han characters: a line of them isn't a change of language.
+        let east_asian =
+            |script: Option<Script>| matches!(script, Some(Script::Han | Script::Kana));
+        if east_asian(Some(found.script)) && east_asian(script_of_language(&book)) {
+            return None;
+        }
+        let tag = match found.script {
+            Script::Devanagari | Script::Cyrillic | Script::Latin => {
+                found.best(15, 3).map(|(tag, _)| tag)
+            }
+            _ => found.single,
+        }?;
+        return (found.count >= PASSAGE_SCRIPT_LETTERS
+            && found.count * 10 >= found.letters * 8
+            && tag != book)
+            .then_some(tag);
+    }
+    if found.count < PASSAGE_LETTERS {
+        return None;
+    }
+    let (tag, top) = found.best(15, 6)?;
+    let book_score = found.score_of(&book);
+    (tag != book && top >= book_score * 2).then_some(tag)
+}
+
+/// A language tag's primary language, lower case (`pt-BR` → `pt`), Norwegian's as `nb`.
+fn primary(tag: &str) -> String {
+    let primary = tag
+        .split(['-', '_'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match primary.as_str() {
+        "no" | "nn" => "nb".to_owned(),
+        _ => primary,
+    }
+}
+
+/// What a sample is written in: its main script, how many of its letters are in it, and each
+/// language's score (for scripts several languages share) or the one language (for the rest).
+struct Detection {
+    script: Script,
+    /// Letters in the main script.
+    count: usize,
+    /// Letters in any script.
+    letters: usize,
+    single: Option<&'static str>,
+    scores: Vec<(&'static str, usize)>,
+}
+
+impl Detection {
+    /// The language scoring highest, when it scores at least `least` and beats the next by
+    /// `margin_tenths` tenths.
+    fn best(&self, margin_tenths: usize, least: usize) -> Option<(&'static str, usize)> {
+        let (tag, top) = *self.scores.first()?;
+        let second = self.scores.get(1).map_or(0, |(_, score)| *score);
+        (top >= least && top * 10 >= second * margin_tenths).then_some((tag, top))
+    }
+
+    fn score_of(&self, tag: &str) -> usize {
+        self.scores
+            .iter()
+            .find(|(language, _)| *language == tag)
+            .map_or(0, |(_, score)| *score)
+    }
+}
+
+fn detect(sample: &str) -> Option<Detection> {
     let mut scripts = [0usize; Script::COUNT];
     for c in sample.chars() {
         if let Some(script) = script_of(c) {
             scripts[script as usize] += 1;
         }
     }
+    let letters = scripts.iter().sum();
     let (script, count) = scripts
         .iter()
         .enumerate()
@@ -23,8 +117,7 @@ pub fn guess(text: &str) -> Option<&'static str> {
     if count < 8 {
         return None;
     }
-    let words = words(&sample);
-    match script {
+    let single = match script {
         Script::Han => {
             // Japanese mixes kana into its Han characters; Chinese has none.
             let kana = scripts[Script::Kana as usize];
@@ -40,11 +133,44 @@ pub fn guess(text: &str) -> Option<&'static str> {
         Script::Bengali => Some("bn"),
         Script::Tamil => Some("ta"),
         Script::Malayalam => Some("ml"),
-        Script::Arabic => Some(arabic(&sample)),
-        Script::Devanagari => best(&words, &sample, DEVANAGARI),
-        Script::Cyrillic => best(&words, &sample, CYRILLIC),
-        Script::Latin => best(&words, &sample, LATIN),
-    }
+        Script::Arabic => Some(arabic(sample)),
+        Script::Devanagari | Script::Cyrillic | Script::Latin => None,
+    };
+    let scores = match script {
+        Script::Devanagari => scores(sample, DEVANAGARI, count),
+        Script::Cyrillic => scores(sample, CYRILLIC, count),
+        Script::Latin => scores(sample, LATIN, count),
+        _ => Vec::new(),
+    };
+    Some(Detection {
+        script,
+        count,
+        letters,
+        single,
+        scores,
+    })
+}
+
+/// The script a language is written in, for the languages guesses name.
+fn script_of_language(tag: &str) -> Option<Script> {
+    Some(match tag {
+        "ru" | "uk" | "bg" | "sr" | "kk" | "be" | "mk" => Script::Cyrillic,
+        "el" => Script::Greek,
+        "ar" | "fa" | "ur" => Script::Arabic,
+        "he" | "yi" => Script::Hebrew,
+        "hi" | "ne" | "mr" => Script::Devanagari,
+        "bn" => Script::Bengali,
+        "ta" => Script::Tamil,
+        "ml" => Script::Malayalam,
+        "th" => Script::Thai,
+        "ka" => Script::Georgian,
+        "hy" => Script::Armenian,
+        "ko" => Script::Hangul,
+        "ja" => Script::Kana,
+        "zh" => Script::Han,
+        "" => return None,
+        _ => Script::Latin,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,17 +256,31 @@ struct Marks {
     tag: &'static str,
     words: &'static [&'static str],
     letters: &'static str,
+    /// Its letters are in nearly every sentence: a long text without any isn't in it.
+    required: bool,
+}
+
+impl Marks {
+    const fn new(tag: &'static str, words: &'static [&'static str], letters: &'static str) -> Self {
+        Self {
+            tag,
+            words,
+            letters,
+            required: false,
+        }
+    }
 }
 
 const LATIN: &[Marks] = &[
-    Marks {
-        tag: "en",
-        words: &[
+    Marks::new(
+        "en",
+        &[
             "the", "and", "of", "to", "is", "was", "that", "he", "she", "it", "with", "you", "for",
-            "not", "his", "her",
+            "not", "his", "her", "had", "have", "but", "they", "this", "from", "said", "what",
+            "were", "been", "him", "would", "there", "which", "when", "are", "all", "my", "we",
         ],
-        letters: "",
-    },
+        "",
+    ),
     Marks {
         tag: "de",
         words: &[
@@ -148,6 +288,7 @@ const LATIN: &[Marks] = &[
             "den", "auch", "sich", "war",
         ],
         letters: "äöüß",
+        required: false,
     },
     Marks {
         tag: "fr",
@@ -156,6 +297,7 @@ const LATIN: &[Marks] = &[
             "que", "qui", "dans",
         ],
         letters: "œêûîç",
+        required: false,
     },
     Marks {
         tag: "es",
@@ -164,6 +306,7 @@ const LATIN: &[Marks] = &[
             "pero", "del", "se",
         ],
         letters: "ñ¿¡",
+        required: false,
     },
     Marks {
         tag: "it",
@@ -172,6 +315,7 @@ const LATIN: &[Marks] = &[
             "anche", "ma", "lo",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "pt",
@@ -180,6 +324,7 @@ const LATIN: &[Marks] = &[
             "ela", "do",
         ],
         letters: "ãõ",
+        required: false,
     },
     Marks {
         tag: "nl",
@@ -188,6 +333,7 @@ const LATIN: &[Marks] = &[
             "maar", "ook", "hij",
         ],
         letters: "ĳ",
+        required: false,
     },
     Marks {
         tag: "pl",
@@ -195,7 +341,8 @@ const LATIN: &[Marks] = &[
             "i", "w", "nie", "się", "na", "to", "że", "jest", "jak", "do", "ale", "z", "co", "tak",
             "jego", "był",
         ],
-        letters: "ąęłśźżń",
+        letters: "ąęłśźżńć",
+        required: true,
     },
     Marks {
         tag: "sv",
@@ -204,6 +351,7 @@ const LATIN: &[Marks] = &[
             "hon", "han", "var", "av",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "da",
@@ -212,6 +360,7 @@ const LATIN: &[Marks] = &[
             "han", "var", "hvad", "efter", "mig", "nu", "blev",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "nb",
@@ -220,6 +369,7 @@ const LATIN: &[Marks] = &[
             "han", "var", "hva", "etter", "meg", "nå", "ble",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "fi",
@@ -228,6 +378,7 @@ const LATIN: &[Marks] = &[
             "joka", "sen", "kuin", "ole",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "cs",
@@ -235,7 +386,8 @@ const LATIN: &[Marks] = &[
             "a", "je", "se", "na", "že", "to", "v", "jsem", "ale", "jak", "tak", "by", "byl",
             "jsou", "co", "není",
         ],
-        letters: "řů",
+        letters: "řůě",
+        required: true,
     },
     Marks {
         tag: "sk",
@@ -244,6 +396,7 @@ const LATIN: &[Marks] = &[
             "čo", "nie",
         ],
         letters: "ľĺŕô",
+        required: false,
     },
     Marks {
         tag: "sl",
@@ -252,6 +405,7 @@ const LATIN: &[Marks] = &[
             "kot", "ali",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "hu",
@@ -260,6 +414,7 @@ const LATIN: &[Marks] = &[
             "még", "ez", "mint",
         ],
         letters: "őű",
+        required: false,
     },
     Marks {
         tag: "ro",
@@ -267,7 +422,8 @@ const LATIN: &[Marks] = &[
             "și", "în", "de", "la", "nu", "că", "pe", "cu", "o", "un", "este", "mai", "dar", "ce",
             "sunt", "fost",
         ],
-        letters: "șță",
+        letters: "șțăşţ",
+        required: true,
     },
     Marks {
         tag: "tr",
@@ -276,6 +432,7 @@ const LATIN: &[Marks] = &[
             "var", "değil", "ben",
         ],
         letters: "ğış",
+        required: true,
     },
     Marks {
         tag: "ca",
@@ -284,6 +441,7 @@ const LATIN: &[Marks] = &[
             "però", "del", "va",
         ],
         letters: "ŀ",
+        required: false,
     },
     Marks {
         tag: "vi",
@@ -292,6 +450,7 @@ const LATIN: &[Marks] = &[
             "đã", "với", "này", "tôi", "anh",
         ],
         letters: "ạảấầẩậắằẳặẹẻẽếềểệỉịọỏốồổộớờởợụủứừửựỳỵỷỹđơư",
+        required: true,
     },
     Marks {
         tag: "lv",
@@ -300,6 +459,7 @@ const LATIN: &[Marks] = &[
             "viņa", "bija", "arī",
         ],
         letters: "āēīūģķļņ",
+        required: true,
     },
     Marks {
         tag: "id",
@@ -308,6 +468,7 @@ const LATIN: &[Marks] = &[
             "ada", "saya", "dia", "ke", "juga",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "sw",
@@ -316,6 +477,7 @@ const LATIN: &[Marks] = &[
             "sana", "hii", "kama", "yake",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "cy",
@@ -324,6 +486,7 @@ const LATIN: &[Marks] = &[
             "gyda", "hi",
         ],
         letters: "ŵŷ",
+        required: false,
     },
 ];
 
@@ -335,6 +498,7 @@ const CYRILLIC: &[Marks] = &[
             "все", "так",
         ],
         letters: "ыэъё",
+        required: false,
     },
     Marks {
         tag: "uk",
@@ -343,6 +507,7 @@ const CYRILLIC: &[Marks] = &[
             "та", "так",
         ],
         letters: "іїєґ",
+        required: false,
     },
     Marks {
         tag: "bg",
@@ -351,6 +516,7 @@ const CYRILLIC: &[Marks] = &[
             "е", "беше",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "sr",
@@ -359,6 +525,7 @@ const CYRILLIC: &[Marks] = &[
             "као", "из",
         ],
         letters: "ђјљњћџ",
+        required: false,
     },
     Marks {
         tag: "kk",
@@ -381,6 +548,7 @@ const CYRILLIC: &[Marks] = &[
             "емес",
         ],
         letters: "әғқңөұүһ",
+        required: false,
     },
     Marks {
         tag: "be",
@@ -389,6 +557,7 @@ const CYRILLIC: &[Marks] = &[
             "усе", "так",
         ],
         letters: "ўі",
+        required: false,
     },
 ];
 
@@ -414,6 +583,7 @@ const DEVANAGARI: &[Marks] = &[
             "तो",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "ne",
@@ -436,6 +606,7 @@ const DEVANAGARI: &[Marks] = &[
             "नै",
         ],
         letters: "",
+        required: false,
     },
     Marks {
         tag: "mr",
@@ -458,15 +629,15 @@ const DEVANAGARI: &[Marks] = &[
             "आहेत",
         ],
         letters: "ळ",
+        required: false,
     },
 ];
 
-/// Lower-case words of the sample.
-fn words(sample: &str) -> Vec<String> {
+/// The words of the sample, as written.
+fn words(sample: &str) -> Vec<&str> {
     sample
         .split(|c: char| !(c.is_alphanumeric() || c == '\u{0901}' || c == '\u{094D}' || is_mark(c)))
         .filter(|word| !word.is_empty())
-        .map(str::to_lowercase)
         .collect()
 }
 
@@ -475,24 +646,41 @@ fn is_mark(c: char) -> bool {
     matches!(c as u32, 0x0300..=0x036F | 0x0900..=0x0903 | 0x093A..=0x094F | 0x0951..=0x0957 | 0x0962..=0x0963)
 }
 
-/// The language whose words and letters the sample has most of, when it stands out.
-fn best(words: &[String], sample: &str, languages: &[Marks]) -> Option<&'static str> {
-    let lower = sample.to_lowercase();
+/// Each language's score in the sample (its common words and own letters), highest first. In
+/// Latin script, one-letter words count for nobody (Polish "i", Spanish "y", English "I"…), but
+/// a capital "I" alone is English's pronoun; and a language whose letters are in nearly every
+/// sentence scores nothing in a long sample without them.
+fn scores(sample: &str, languages: &[Marks], letters: usize) -> Vec<(&'static str, usize)> {
+    let words = words(sample);
+    let latin = std::ptr::eq(languages, LATIN);
+    let lower: Vec<String> = words
+        .iter()
+        .filter(|word| !(latin && word.chars().count() == 1))
+        .map(|word| word.to_lowercase())
+        .collect();
+    let pronouns = words.iter().filter(|word| **word == "I").count();
+    let small = sample.to_lowercase();
     let mut scores: Vec<(&'static str, usize)> = languages
         .iter()
         .map(|marks| {
-            let common = words
+            let common = lower
                 .iter()
                 .filter(|word| marks.words.contains(&word.as_str()))
                 .count();
-            let letters = lower.chars().filter(|c| marks.letters.contains(*c)).count();
-            (marks.tag, common + letters)
+            let own = small.chars().filter(|c| marks.letters.contains(*c)).count();
+            if marks.required && own == 0 && letters >= 200 {
+                return (marks.tag, 0);
+            }
+            let pronoun = if latin && marks.tag == "en" {
+                pronouns
+            } else {
+                0
+            };
+            (marks.tag, common + own + pronoun)
         })
         .collect();
     scores.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-    let (tag, top) = scores[0];
-    let second = scores.get(1).map_or(0, |(_, score)| *score);
-    (top >= 3 && top * 10 >= second * 11).then_some(tag)
+    scores
 }
 
 #[cfg(test)]
@@ -560,6 +748,44 @@ mod tests {
     fn says_nothing_about_too_little_text() {
         assert_eq!(guess("OK"), None);
         assert_eq!(guess("1234 5678 !!"), None);
+    }
+
+    #[test]
+    fn reads_english_dialogue_as_english() {
+        // "I", "to" and "do" are Polish words too; quoted speech is full of them.
+        let dialogue = "“I don't know,” I said. “I want to go to the shop.” “Do you?” \
+                        “No, I do not. I do it so I can go.” I told her to do it anyway.";
+        assert_eq!(guess(dialogue), Some("en"));
+        let quoted = "“Is it you?” “It is I.” “Do you know who I am?” “I do.” “So do I.” \
+                      “No!” “Go!” “Do it.” “I will.” “I know.” “I am.” “I go to it.”";
+        assert_ne!(guess(quoted), Some("pl"));
+    }
+
+    #[test]
+    fn finds_long_passages_in_another_language() {
+        let french = "Il était une fois un roi qui avait une fille, et elle était plus belle que \
+                      le soleil. Je ne sais pas ce qu'il fait dans la maison, mais il ne veut pas \
+                      que nous le sachions, et la reine est très triste depuis des années.";
+        assert_eq!(foreign_passage(french, "en"), Some("fr"));
+        assert_eq!(foreign_passage(french, "fr-FR"), None);
+        // A quotation, a name or a short line stays in the book's language.
+        let quoting = "He looked at her and said that she was not with him, and the old man \
+                       answered “je ne sais pas” as he always did, and they went home to have \
+                       their supper with the children and the dog that had been waiting.";
+        assert_eq!(foreign_passage(quoting, "en"), None);
+        assert_eq!(foreign_passage("Je ne sais pas ce qu'il fait.", "en"), None);
+        // Another script: a shorter passage is clear enough.
+        let russian = "Я помню чудное мгновенье: передо мной явилась ты, как мимолётное виденье.";
+        assert_eq!(foreign_passage(russian, "en"), Some("ru"));
+        assert_eq!(
+            foreign_passage("He said “да” and left the room with the others.", "en"),
+            None
+        );
+        // Kanji in a Japanese book aren't Chinese.
+        assert_eq!(
+            foreign_passage("国王国王国王国王国王国王国王国王国王国王", "ja"),
+            None
+        );
     }
 
     #[test]

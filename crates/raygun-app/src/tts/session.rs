@@ -1,6 +1,9 @@
-//! What reading aloud reads and where it is: a chapter's sentences, the ids engines get for them
-//! and send back, and the place kept for each chapter so reading goes on from it.
+//! What reading aloud reads and where it is: a chapter's sentences (as written, and as voices
+//! read them), the ids engines get for them and send back, and the place kept for each chapter so
+//! reading goes on from it.
 
+use raygun_ai::tts::language::foreign_passage;
+use raygun_ai::tts::numerals::{Rules, read_numerals};
 use raygun_ai::tts::sentences::sentences;
 use raygun_model::TtsParagraph;
 use serde::{Deserialize, Serialize};
@@ -9,10 +12,24 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Utterance {
     pub paragraph: u32,
+    /// As written.
     pub text: String,
+    /// As voices read it: Roman numerals as numbers where settings say.
+    pub spoken: String,
     /// Where it is in its paragraph's text, in UTF-16 units (what the UI counts).
     pub start: u32,
     pub end: u32,
+    /// The language of a passage in another one than the book's (BCP 47).
+    pub language: Option<String>,
+}
+
+/// How a chapter is read: in the book's language (when known), with passages in others when
+/// they're to be found, and Roman numerals by `rules`.
+#[derive(Debug, Clone, Copy)]
+pub struct Reading<'a> {
+    pub language: Option<&'a str>,
+    pub detect_languages: bool,
+    pub rules: Rules,
 }
 
 /// UTF-16 length of `text`.
@@ -21,25 +38,78 @@ fn utf16(text: &str) -> u32 {
 }
 
 /// The paragraphs as sentences, in order.
-pub fn utterances(paragraphs: &[TtsParagraph]) -> Vec<Utterance> {
+pub fn utterances(paragraphs: &[TtsParagraph], reading: &Reading<'_>) -> Vec<Utterance> {
     paragraphs
         .iter()
         .flat_map(|paragraph| {
-            sentences(&paragraph.text)
-                .into_iter()
-                .map(|range| Utterance {
+            // A long paragraph clearly in another language is read in it; titles never are.
+            let passage = reading
+                .language
+                .filter(|_| reading.detect_languages && !paragraph.heading)
+                .and_then(|book| foreign_passage(&paragraph.text, book))
+                .map(str::to_owned);
+            let language = passage.clone().or(reading.language.map(str::to_owned));
+            sentences(&paragraph.text).into_iter().map(move |range| {
+                let text = &paragraph.text[range.clone()];
+                Utterance {
                     paragraph: paragraph.id,
                     start: utf16(&paragraph.text[..range.start]),
                     end: utf16(&paragraph.text[..range.end]),
-                    text: paragraph.text[range].to_owned(),
-                })
+                    spoken: read_numerals(
+                        text,
+                        paragraph.heading,
+                        language.as_deref(),
+                        reading.rules,
+                    ),
+                    text: text.to_owned(),
+                    language: passage.clone(),
+                }
+            })
         })
         .collect()
+}
+
+/// The chapter's text, to tell its language by when the book doesn't say: paragraphs first,
+/// titles (often names or numbers) after.
+pub fn language_sample(paragraphs: &[TtsParagraph]) -> String {
+    let mut sample = String::new();
+    for heading in [false, true] {
+        for paragraph in paragraphs
+            .iter()
+            .filter(|paragraph| paragraph.heading == heading)
+        {
+            if sample.len() > 16_000 {
+                return sample;
+            }
+            sample.push_str(&paragraph.text);
+            sample.push('\n');
+        }
+    }
+    sample
 }
 
 /// The first sentence of the first paragraph at or after `paragraph`.
 pub fn first_of(items: &[Utterance], paragraph: u32) -> Option<usize> {
     items.iter().position(|item| item.paragraph >= paragraph)
+}
+
+/// The sentence of `paragraph` holding `offset` (UTF-16 in the paragraph's text): a place
+/// between two sentences is the next one's, past the last the last one's.
+pub fn sentence_at(items: &[Utterance], paragraph: u32, offset: u32) -> Option<usize> {
+    let mut last = None;
+    for (index, item) in items.iter().enumerate() {
+        if item.paragraph != paragraph {
+            if last.is_some() {
+                break;
+            }
+            continue;
+        }
+        if offset < item.end {
+            return Some(index);
+        }
+        last = Some(index);
+    }
+    last
 }
 
 /// The paragraph `step` places from the one holding sentence `at` (0: its own start).
@@ -173,15 +243,19 @@ pub struct Mark {
 /// How many paragraphs past the one on screen a kept place may be and still be gone on from.
 const RESUME_AHEAD: u32 = 12;
 
-/// Where reading starts: the kept place when asked to `resume` and it's around paragraph `from`
-/// (on the screen the reader opened at), else the start of `from`. The sentence, and the word in
-/// it.
+/// Where reading starts: the sentence at `offset` in paragraph `from` when one was picked (a tap,
+/// a selection), else the kept place when asked to `resume` and it's around paragraph `from` (on
+/// the screen the reader opened at), else the start of `from`. The sentence, and the word in it.
 pub fn start_point(
     items: &[Utterance],
     from: u32,
+    offset: Option<u32>,
     resume: bool,
     mark: Option<&Mark>,
 ) -> Option<(usize, u32)> {
+    if let Some(index) = offset.and_then(|offset| sentence_at(items, from, offset)) {
+        return Some((index, 0));
+    }
     let kept = mark
         .filter(|_| resume)
         .filter(|mark| mark.paragraph + 1 >= from && mark.paragraph <= from + RESUME_AHEAD)
@@ -215,16 +289,147 @@ mod tests {
         TtsParagraph {
             id,
             text: text.into(),
+            heading: false,
         }
     }
 
+    fn heading(id: u32, text: &str) -> TtsParagraph {
+        TtsParagraph {
+            heading: true,
+            ..paragraph(id, text)
+        }
+    }
+
+    const ENGLISH: Reading<'static> = Reading {
+        language: Some("en"),
+        detect_languages: false,
+        rules: Rules {
+            titles: true,
+            everywhere: false,
+            ordinals: false,
+        },
+    };
+
     fn chapter() -> Vec<Utterance> {
-        utterances(&[
-            paragraph(0, "Chapter One"),
-            paragraph(2, "It was late. “Who’s there?” she asked."),
-            paragraph(3, "  "),
-            paragraph(5, "Nobody answered. The end."),
-        ])
+        utterances(
+            &[
+                paragraph(0, "Chapter One"),
+                paragraph(2, "It was late. “Who’s there?” she asked."),
+                paragraph(3, "  "),
+                paragraph(5, "Nobody answered. The end."),
+            ],
+            &ENGLISH,
+        )
+    }
+
+    #[test]
+    fn reads_numerals_in_titles_as_numbers_but_shows_them_as_written() {
+        let items = utterances(
+            &[
+                heading(0, "Chapter IV"),
+                heading(1, "II."),
+                paragraph(2, "I was there. Part I ends here."),
+            ],
+            &ENGLISH,
+        );
+        let read: Vec<(&str, &str)> = items
+            .iter()
+            .map(|item| (item.text.as_str(), item.spoken.as_str()))
+            .collect();
+        assert_eq!(
+            read,
+            vec![
+                ("Chapter IV", "Chapter four"),
+                ("II.", "two."),
+                ("I was there.", "I was there."),
+                ("Part I ends here.", "Part one ends here."),
+            ]
+        );
+        // Highlighting follows the text as written.
+        assert_eq!((items[3].start, items[3].end), (13, 30));
+        let off = Reading {
+            rules: Rules {
+                titles: false,
+                everywhere: false,
+                ordinals: false,
+            },
+            ..ENGLISH
+        };
+        assert_eq!(
+            utterances(&[heading(0, "Chapter IV")], &off)[0].spoken,
+            "Chapter IV"
+        );
+    }
+
+    #[test]
+    fn reads_long_passages_in_their_language_only_when_asked() {
+        let french = "Il était une fois un roi qui avait une fille, et elle était plus belle que \
+                      le soleil. Je ne sais pas ce qu'il fait dans la maison, mais il ne veut pas \
+                      que nous le sachions, et la reine est très triste depuis des années.";
+        let paragraphs = [
+            paragraph(0, "He said “je ne sais pas” and went on with the others."),
+            paragraph(1, french),
+        ];
+        let detecting = Reading {
+            detect_languages: true,
+            ..ENGLISH
+        };
+        let items = utterances(&paragraphs, &detecting);
+        assert!(items[0].language.is_none(), "a quotation stays English");
+        assert!(
+            items
+                .iter()
+                .filter(|item| item.paragraph == 1)
+                .all(|item| item.language.as_deref() == Some("fr"))
+        );
+        assert!(
+            utterances(&paragraphs, &ENGLISH)
+                .iter()
+                .all(|item| item.language.is_none())
+        );
+        // Without the book's language there's nothing to tell a passage from.
+        let unknown = Reading {
+            language: None,
+            ..detecting
+        };
+        assert!(
+            utterances(&paragraphs, &unknown)
+                .iter()
+                .all(|item| item.language.is_none())
+        );
+    }
+
+    #[test]
+    fn finds_the_sentence_a_place_is_in() {
+        let items = chapter();
+        // "It was late." is 0..12, "“Who’s there?” she asked." 13..38.
+        assert_eq!(sentence_at(&items, 2, 0), Some(1));
+        assert_eq!(sentence_at(&items, 2, 5), Some(1));
+        assert_eq!(
+            sentence_at(&items, 2, 12),
+            Some(2),
+            "between sentences: the next"
+        );
+        assert_eq!(sentence_at(&items, 2, 20), Some(2));
+        assert_eq!(
+            sentence_at(&items, 2, 99),
+            Some(2),
+            "past the end: the last"
+        );
+        assert_eq!(sentence_at(&items, 5, 17), Some(4));
+        assert_eq!(sentence_at(&items, 3, 0), None, "no sentence there");
+        let mark = Mark {
+            paragraph: 5,
+            start: 0,
+            word: 3,
+            at: 1,
+        };
+        // A picked place wins over where the chapter was left.
+        assert_eq!(
+            start_point(&items, 2, Some(20), true, Some(&mark)),
+            Some((2, 0))
+        );
+        assert_eq!(start_point(&items, 3, Some(0), false, None), Some((3, 0)));
     }
 
     #[test]
@@ -316,12 +521,24 @@ mod tests {
             word: 4,
             at: 1,
         };
-        assert_eq!(start_point(&items, 2, true, Some(&mark)), Some((2, 4)));
-        assert_eq!(start_point(&items, 0, true, Some(&mark)), Some((2, 4)));
+        assert_eq!(
+            start_point(&items, 2, None, true, Some(&mark)),
+            Some((2, 4))
+        );
+        assert_eq!(
+            start_point(&items, 0, None, true, Some(&mark)),
+            Some((2, 4))
+        );
         // Not asked to resume, or the reader moved far from it: the paragraph on screen.
-        assert_eq!(start_point(&items, 0, false, Some(&mark)), Some((0, 0)));
-        assert_eq!(start_point(&items, 5, true, Some(&mark)), Some((3, 0)));
-        assert_eq!(start_point(&items, 2, true, None), Some((1, 0)));
+        assert_eq!(
+            start_point(&items, 0, None, false, Some(&mark)),
+            Some((0, 0))
+        );
+        assert_eq!(
+            start_point(&items, 5, None, true, Some(&mark)),
+            Some((3, 0))
+        );
+        assert_eq!(start_point(&items, 2, None, true, None), Some((1, 0)));
         let kept = trimmed_marks(
             vec![
                 ("a".into(), Mark { at: 1, ..mark }),

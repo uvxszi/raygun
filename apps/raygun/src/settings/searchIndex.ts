@@ -354,6 +354,9 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
   ...on('ai', 'ai.readAloud.title')(
     'ai.readAloud.engine',
     'ai.readAloud.pitch',
+    'ai.readAloud.volume',
+    'novel.readAloudOptions.detectLanguages',
+    'novel.readAloudOptions.romanTitles',
     'ai.readAloud.preview',
   ),
   ...on('ai', 'ai.onDevice.title')('ai.onDevice.storage'),

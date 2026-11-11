@@ -1,6 +1,6 @@
-//! Downloaded voices (Piper, Kokoro): which one reads a book, the voice kept open between
-//! sentences (and let go when reading stops for a while), and the synthesis that runs a few
-//! sentences ahead of what plays.
+//! Downloaded voices (Piper, Kokoro): which one reads a book (and a passage in another
+//! language), the voices kept open between sentences (and let go when reading stops for a while),
+//! and the synthesis that runs a few sentences ahead of what plays.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -21,6 +21,8 @@ use crate::ai::AiService;
 const AHEAD: usize = 2;
 /// How long an open voice stays open with nothing read, before its memory is given back.
 const KEEP_OPEN: Duration = Duration::from_secs(180);
+/// How many voice models stay open at once: the book's and a passage's.
+const OPEN_AT_ONCE: usize = 2;
 
 /// A downloaded voice that reads a book.
 #[derive(Clone)]
@@ -30,6 +32,19 @@ pub struct ModelVoice {
     pub voice: VoiceInfo,
     pub engine: Engine,
     pub runtime_dir: PathBuf,
+}
+
+impl ModelVoice {
+    /// Whether it speaks `language`.
+    pub fn speaks(&self, language: Option<&str>) -> bool {
+        language.is_some_and(|language| {
+            select::primary(language) == select::primary(&self.voice.language)
+        })
+    }
+
+    fn key(&self) -> String {
+        select::voice_key(&self.model.id, &self.voice.id)
+    }
 }
 
 /// Speech made for the player: 16-bit mono PCM as base64.
@@ -67,41 +82,138 @@ fn model_voice(
     })
 }
 
+/// The downloaded voices here, to pick from.
+struct Installed {
+    runtime_dir: PathBuf,
+    models: Vec<(ModelInfo, PathBuf)>,
+    infos: Vec<ModelInfo>,
+}
+
+impl Installed {
+    fn of(app: &AppHandle) -> Option<Self> {
+        let (runtime_dir, models) = installed(app)?;
+        let infos = models.iter().map(|(model, _)| model.clone()).collect();
+        Some(Self {
+            runtime_dir,
+            models,
+            infos,
+        })
+    }
+
+    /// `engine`'s voice for `language` (the one chosen for it, else one that speaks it); without
+    /// a language, the one chosen for English or any language, else the engine's first.
+    fn pick(
+        &self,
+        engine: &str,
+        prefs: &ReadAloudPrefs,
+        language: Option<&str>,
+    ) -> Option<ModelVoice> {
+        let candidates = select::candidates(&self.infos);
+        let chosen = language.and_then(|language| prefs.voices.get(&select::primary(language)));
+        let fallback = prefs
+            .voices
+            .get("en")
+            .or_else(|| prefs.voices.values().next());
+        let picked = select::pick(
+            engine,
+            &candidates,
+            language,
+            chosen.map(String::as_str),
+            fallback.map(String::as_str),
+        )?;
+        model_voice(&self.runtime_dir, &self.models, picked)
+    }
+}
+
 /// What reads a book in `language`: the downloaded voice settings choose, else the device's own
-/// voices (with why, when downloaded ones were chosen).
+/// voices when `system` ones are here, else another downloaded voice; with why, when it's not the
+/// one asked for. Reading never stops for want of a voice for the language.
 pub(super) fn choose(
     app: &AppHandle,
     prefs: &ReadAloudPrefs,
     language: Option<&str>,
+    system: bool,
 ) -> (Reader, Option<TtsNotice>) {
+    let installed = Installed::of(app);
+    let model = |voice: ModelVoice| Reader::Model(Box::new(voice));
     let Some(engine) = prefs.engine.model_engine() else {
-        return (Reader::System, None);
+        if system {
+            return (Reader::System, None);
+        }
+        // No voices of the device's: a downloaded one reads.
+        return match installed.and_then(|installed| any_of(&installed, prefs, language)) {
+            Some(voice) => {
+                let notice = (!voice.speaks(language)).then(|| TtsNotice::OtherVoice {
+                    language: language.map(str::to_owned),
+                });
+                (model(voice), notice)
+            }
+            None => (Reader::System, None),
+        };
     };
-    let no_voice = || {
-        (
-            Reader::System,
-            Some(TtsNotice::NoVoice {
-                language: language.map(str::to_owned),
-            }),
-        )
-    };
-    let Some((runtime_dir, models)) = installed(app) else {
-        return no_voice();
-    };
-    let infos: Vec<ModelInfo> = models.iter().map(|(model, _)| model.clone()).collect();
-    let candidates = select::candidates(&infos);
-    let chosen = language.and_then(|language| prefs.voices.get(&select::primary(language)));
-    let picked = select::pick(
-        engine,
-        &candidates,
-        language,
-        chosen.map(String::as_str),
-        None,
-    );
-    match picked.and_then(|choice| model_voice(&runtime_dir, &models, choice)) {
-        Some(voice) => (Reader::Model(Box::new(voice)), None),
-        None => no_voice(),
+    if let Some(voice) = installed
+        .as_ref()
+        .and_then(|installed| installed.pick(engine, prefs, language))
+    {
+        return (model(voice), None);
     }
+    let missing = language.map(str::to_owned);
+    if system || language.is_none() {
+        return (
+            Reader::System,
+            Some(TtsNotice::NoVoice { language: missing }),
+        );
+    }
+    match installed.and_then(|installed| installed.pick(engine, prefs, None)) {
+        Some(voice) => (
+            model(voice),
+            Some(TtsNotice::OtherVoice { language: missing }),
+        ),
+        None => (
+            Reader::System,
+            Some(TtsNotice::NoVoice { language: missing }),
+        ),
+    }
+}
+
+/// A downloaded voice for a passage in `language` within a book `book` reads: the same engine's,
+/// when one speaks it and it isn't the book's.
+pub(super) fn passage_voice(
+    app: &AppHandle,
+    prefs: &ReadAloudPrefs,
+    book: &ModelVoice,
+    language: &str,
+) -> Option<ModelVoice> {
+    let engine = book.model.engine.as_deref()?;
+    let voice = Installed::of(app)?.pick(engine, prefs, Some(language))?;
+    (voice.key() != book.key()).then_some(voice)
+}
+
+/// Any downloaded voice, for when the device's voices can't read: the chosen engine's first, one
+/// that speaks `language` first.
+pub(super) fn any_voice(
+    app: &AppHandle,
+    prefs: &ReadAloudPrefs,
+    language: Option<&str>,
+) -> Option<ModelVoice> {
+    any_of(&Installed::of(app)?, prefs, language)
+}
+
+fn any_of(
+    installed: &Installed,
+    prefs: &ReadAloudPrefs,
+    language: Option<&str>,
+) -> Option<ModelVoice> {
+    let mut engines: Vec<&str> = prefs.engine.model_engine().into_iter().collect();
+    engines.extend(["piper", "kokoro"]);
+    engines
+        .iter()
+        .find_map(|engine| installed.pick(engine, prefs, language))
+        .or_else(|| {
+            engines
+                .iter()
+                .find_map(|engine| installed.pick(engine, prefs, None))
+        })
 }
 
 /// Whether a downloaded voice is set to read and is here.
@@ -164,7 +276,7 @@ pub(super) fn sample_text(language: Option<&str>) -> &'static str {
     }
 }
 
-/// The voice kept open between sentences.
+/// A voice kept open between sentences.
 struct Opened {
     model_id: String,
     synthesizer: Arc<Mutex<Synthesizer>>,
@@ -173,22 +285,39 @@ struct Opened {
 
 #[derive(Default)]
 pub(super) struct Voices {
-    open: Arc<Mutex<Option<Opened>>>,
+    /// At most [`OPEN_AT_ONCE`].
+    open: Arc<Mutex<Vec<Opened>>>,
+}
+
+/// Lets the voice used longest ago go until fewer than `room` are open.
+fn make_room(open: &mut Vec<Opened>, room: usize) {
+    while open.len() >= room {
+        let Some(oldest) = open
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, opened)| opened.used)
+            .map(|(index, _)| index)
+        else {
+            return;
+        };
+        open.remove(oldest);
+    }
 }
 
 impl Voices {
-    /// The voice's synthesizer, opened now unless it's the one kept open.
+    /// The voice's synthesizer, opened now unless it's kept open.
     async fn synthesizer(&self, voice: &ModelVoice) -> Result<Arc<Mutex<Synthesizer>>, String> {
         {
             let mut open = self.open.lock().unwrap_or_else(|p| p.into_inner());
-            if let Some(opened) = open.as_mut()
-                && opened.model_id == voice.model.id
+            if let Some(opened) = open
+                .iter_mut()
+                .find(|opened| opened.model_id == voice.model.id)
             {
                 opened.used = Instant::now();
                 return Ok(opened.synthesizer.clone());
             }
             // Another voice's memory goes before this one's is taken.
-            *open = None;
+            make_room(&mut open, OPEN_AT_ONCE);
         }
         let voice = voice.clone();
         let synthesizer = tauri::async_runtime::spawn_blocking(move || {
@@ -204,7 +333,10 @@ impl Voices {
         .map_err(|error| error.to_string())??;
         let (model_id, synthesizer) = synthesizer;
         let synthesizer = Arc::new(Mutex::new(synthesizer));
-        *self.open.lock().unwrap_or_else(|p| p.into_inner()) = Some(Opened {
+        let mut open = self.open.lock().unwrap_or_else(|p| p.into_inner());
+        open.retain(|opened| opened.model_id != model_id);
+        make_room(&mut open, OPEN_AT_ONCE);
+        open.push(Opened {
             model_id,
             synthesizer: synthesizer.clone(),
             used: Instant::now(),
@@ -242,18 +374,14 @@ impl Voices {
         .map_err(|error| error.to_string())?
     }
 
-    /// Lets the open voice go once nothing has been read with it for a while.
+    /// Lets the open voices go once nothing has been read with them for a while.
     pub(super) fn release_later(&self) {
         let open = self.open.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(KEEP_OPEN).await;
-            let mut open = open.lock().unwrap_or_else(|p| p.into_inner());
-            if open
-                .as_ref()
-                .is_some_and(|opened| opened.used.elapsed() >= KEEP_OPEN)
-            {
-                *open = None;
-            }
+            open.lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .retain(|opened| opened.used.elapsed() < KEEP_OPEN);
         });
     }
 }
@@ -304,9 +432,9 @@ impl VoiceWorker {
 }
 
 impl ReadAloud {
-    /// Makes run `run`'s sentences with `voice`, at most [`AHEAD`] ahead of the one playing,
-    /// and hands each to the player. A voice that can't read the first one gives way to the
-    /// device's own voices.
+    /// Makes run `run`'s sentences with `voice` (passages in other languages with theirs), at
+    /// most [`AHEAD`] ahead of the one playing, and hands each to the player. A voice that can't
+    /// read the first one gives way to the device's own voices.
     pub(super) async fn synthesize(
         self: &Arc<Self>,
         run: u64,
@@ -326,14 +454,19 @@ impl ReadAloud {
             if worker.cancel.is_cancelled() {
                 return;
             }
+            let speaker = item
+                .language
+                .as_ref()
+                .and_then(|language| plan.passages.get(language))
+                .unwrap_or(&voice);
             let made = self
                 .voices
-                .speak(&voice, &item.text, plan.rate, plan.pitch)
+                .speak(speaker, &item.spoken, plan.rate, plan.pitch)
                 .await;
             let clip = match made {
                 Ok(clip) => clip,
                 Err(error) if sample_rate == 0 => {
-                    tracing::warn!(%error, model = %voice.model.id, "the downloaded voice couldn't read");
+                    tracing::warn!(%error, model = %speaker.model.id, "the downloaded voice couldn't read");
                     self.fall_back(run).await;
                     return;
                 }

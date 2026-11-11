@@ -7816,14 +7816,22 @@ pub struct ImportedTitle {
 pub struct TtsParagraph {
     pub id: u32,
     pub text: String,
+    /// A title (a heading block): Roman numerals heading it are read as numbers.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub heading: bool,
 }
 
-/// What reading aloud is asked to read (`tts_speak`).
+/// What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
+/// settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TtsRequest {
     /// The chapter read: reports name it, and where reading stopped is kept for it.
     pub chapter_id: String,
+    /// The book: the language chosen for it (`tts_set_language`), else the one it says it's in.
+    #[serde(default)]
+    pub title_id: String,
     /// The book's and the chapter's names, for the notification.
     pub title: String,
     pub chapter: String,
@@ -7831,11 +7839,23 @@ pub struct TtsRequest {
     pub paragraphs: Vec<TtsParagraph>,
     /// The paragraph reading starts from.
     pub from: u32,
+    /// Where in paragraph `from` reading starts (UTF-16, a tap or a selection): from the
+    /// sentence holding it.
+    #[serde(default)]
+    pub offset: Option<u32>,
     /// Started by the Read aloud button: where this chapter was left aloud, when it's around
     /// `from`, goes on from its sentence (and word) instead.
     pub resume: bool,
-    /// Speed, 1 = normal.
-    pub rate: f64,
+}
+
+/// The language a book is read aloud in (the reader's options).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsLanguage {
+    /// Chosen for the book (BCP 47); none: Auto.
+    pub chosen: Option<String>,
+    /// The language the book says it's in (its EPUB's, or its source's), which Auto reads in.
+    pub book: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -7858,6 +7878,8 @@ pub enum TtsState {
 pub enum TtsNotice {
     /// No downloaded voice speaks the book's language: the device's own voice reads it.
     NoVoice { language: Option<String> },
+    /// No voice here speaks `language` (the book's, or a passage's): another voice reads it.
+    OtherVoice { language: Option<String> },
     /// The downloaded voice couldn't be used: the device's own voice reads it.
     VoiceFailed,
     /// The voice engine stopped (no voice for the language, or it was taken away).
@@ -7874,6 +7896,10 @@ pub struct TtsUpdate {
     pub start: u32,
     pub end: u32,
     pub notice: Option<TtsNotice>,
+    /// The language the book is read in (BCP 47), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub language: Option<String>,
 }
 
 /// One piece for a speech engine: `id` names it in reports (`:end` on the very last one).
@@ -7881,19 +7907,28 @@ pub struct TtsUpdate {
 pub struct SpeechLine {
     pub id: String,
     pub text: String,
+    /// A passage in another language than the rest (BCP 47).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub language: Option<String>,
 }
 
 /// What the webview's speech engine does on desktop (M46.6).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SpeechCommand {
-    /// Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal),
-    /// in `language` when it has a voice for it, after stopping anything playing.
+    /// Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal) and
+    /// `volume` (0–1), in `language` when it has a voice for it, after stopping anything playing.
     Speak {
         items: Vec<SpeechLine>,
         rate: f64,
         pitch: f64,
+        volume: f64,
         language: Option<String>,
+    },
+    /// The clips' volume (0–1), at once.
+    Volume {
+        volume: f64,
     },
     /// Plays speech a downloaded voice made after the clips before it: 16-bit mono PCM as
     /// base64. `id` comes back in reports as it starts.
@@ -7934,7 +7969,8 @@ impl ReadAloudEngine {
     }
 }
 
-/// How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`).
+/// How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). Set in
+/// Settings → AI → Reading aloud and in the reader's options.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ReadAloudPrefs {
@@ -7944,7 +7980,20 @@ pub struct ReadAloudPrefs {
     pub voices: std::collections::BTreeMap<String, String>,
     /// Pitch in tenths, 5–20 (0.5–2).
     pub pitch: u32,
+    /// Volume in percent, within [`READ_ALOUD_VOLUMES`].
+    pub volume: u32,
+    /// Long passages clearly in another language than the book's are read in that language.
+    pub detect_languages: bool,
+    /// Roman numerals in titles ("Chapter IV", a heading "II.") are read as numbers.
+    pub roman_titles: bool,
+    /// Also wherever one is clearly a numeral ("Henry VIII", "World War II").
+    pub roman_everywhere: bool,
+    /// Numbered titles as ordinals ("Chapter the fourth").
+    pub roman_ordinals: bool,
 }
+
+/// Read-aloud volumes offered, in percent.
+pub const READ_ALOUD_VOLUMES: std::ops::RangeInclusive<u32> = 10..=100;
 
 impl Default for ReadAloudPrefs {
     fn default() -> Self {
@@ -7952,6 +8001,11 @@ impl Default for ReadAloudPrefs {
             engine: ReadAloudEngine::System,
             voices: std::collections::BTreeMap::new(),
             pitch: 10,
+            volume: 100,
+            detect_languages: false,
+            roman_titles: true,
+            roman_everywhere: false,
+            roman_ordinals: false,
         }
     }
 }
@@ -7960,6 +8014,9 @@ impl ReadAloudPrefs {
     pub fn validate(&self) -> Result<(), String> {
         if !(5..=20).contains(&self.pitch) {
             return Err("pitch is between 5 and 20 tenths".to_owned());
+        }
+        if !READ_ALOUD_VOLUMES.contains(&self.volume) {
+            return Err("volume is between 10 and 100 percent".to_owned());
         }
         if self.voices.len() > 200
             || self

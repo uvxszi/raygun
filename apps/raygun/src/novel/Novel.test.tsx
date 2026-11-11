@@ -84,20 +84,20 @@ const CHAPTER: NovelChapter = {
 
 /** Letter 1's paragraphs as reading aloud gets them. */
 const SPOKEN = [
-  { id: 0, text: 'Letter 1!!' },
+  { id: 0, text: 'Letter 1!!', heading: true },
   { id: 1, text: 'It was a dreary night of Nov' },
   { id: 3, text: 'ember. Rain fell on the panes.' },
 ];
 
-/** What the reader asks Rust to read aloud. */
+/** What the reader asks Rust to read aloud (speed and voice are settings Rust reads). */
 const speech = (from: number, resume: boolean, chapter = 'c1', name = 'Letter 1') => ({
   chapterId: chapter,
+  titleId: 't1',
   title: 'Frankenstein',
   chapter: name,
   paragraphs: chapter === 'c1' ? SPOKEN : expect.any(Array),
   from,
   resume,
-  rate: 1,
 });
 
 /** Where reading aloud is, as Rust reports it. */
@@ -481,12 +481,12 @@ describe('Novels', () => {
     await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
     expect(commands.ttsSpeak).toHaveBeenCalledWith({
       chapterId: 'c2',
+      titleId: 't1',
       title: 'Frankenstein',
       chapter: 'Letter 2',
       paragraphs: [{ id: 0, text: 'A second letter.' }],
       from: 0,
       resume: true,
-      rate: 1,
     });
     emitEvent('ttsEvent', update('speaking', 0, { chapterId: 'c2' }));
     commands.ttsSpeak.mockClear();

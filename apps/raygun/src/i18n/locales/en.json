@@ -1866,6 +1866,35 @@
     "noDownloadedVoice": "No downloaded voice reads {{language}}: the device's voice reads it.",
     "noVoiceDownloaded": "No voice is downloaded for reading aloud: the device's voice reads it.",
     "voiceFailed": "The downloaded voice couldn't be used: the device's voice reads on.",
+    "otherVoice": "No voice here reads {{language}}: another voice reads it.",
+    "otherVoiceUnknown": "Another voice reads this book.",
+    "backToReading": "Back to reading",
+    "panelTabs": {
+      "text": "Text",
+      "readAloud": "Read aloud"
+    },
+    "readAloudOptions": {
+      "title": "Reading aloud",
+      "open": "Reading-aloud options",
+      "voice": "Voice",
+      "deviceVoice": "Device's voice",
+      "noVoiceFor": "No downloaded voice reads {{language}}: the device's voice reads it",
+      "volume": "Volume",
+      "language": "Reading language",
+      "auto": "Auto",
+      "autoLanguage": "Auto ({{language}})",
+      "autoHint": "The language the book says it's in, else the one its text is in",
+      "detectLanguages": "Detect language changes",
+      "detectLanguagesHint": "Long passages in another language are read by a voice of that language",
+      "romanTitles": "Read Roman numerals in titles as numbers",
+      "romanTitlesHint": "Chapter IV is read as Chapter four",
+      "romanEverywhere": "Also where they're clearly numerals",
+      "romanEverywhereHint": "Henry VIII, World War II",
+      "romanOrdinals": "Read numbered titles as ordinals",
+      "romanOrdinalsHint": "Chapter IV is read as Chapter the fourth",
+      "voices": "Voices and downloads",
+      "voicesHint": "Settings → AI → Reading aloud"
+    },
     "emptyTitle": "No books yet"
   },
   "pdf": {
@@ -2106,6 +2135,7 @@
       "previewSummary": "A sentence at this speed and pitch",
       "previewFailed": "Couldn't read the preview",
       "pitch": "Pitch",
+      "volume": "Volume",
       "female": "Female",
       "male": "Male"
     },
