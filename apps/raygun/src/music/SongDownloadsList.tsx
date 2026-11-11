@@ -1,4 +1,4 @@
-import type { SongDownload } from '@raygun/bindings';
+import type { SongDownload, SongDownloadProblemKind } from '@raygun/bindings';
 import {
   closestCenter,
   DndContext,
@@ -19,6 +19,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowUpToLine,
+  Check,
   CheckSquare,
   CircleAlert,
   Disc3,
@@ -186,12 +187,13 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
   const { t } = useTranslation();
   const line = useStateLine();
   const problemLine = useProblemLine();
-  const { remove, retry, redownload } = useSongDownloadActions();
+  const { remove, retry, redownload, keep } = useSongDownloadActions();
   const held = useDownloadsHeld();
   const share = shareOf(item);
   const failed = isFailed(item);
   const busy = isBusy(item);
-  const refusal = retry.error ?? remove.error ?? redownload.error;
+  const refusal = retry.error ?? remove.error ?? redownload.error ?? keep.error;
+  const problem = item.state === 'done' ? item.problem : null;
   // Stopping a song downloading again keeps the copy it had.
   const cancelLabel = item.replacing
     ? 'songs.cancelAgain'
@@ -204,7 +206,7 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
       style={drag?.style}
       data-testid="song-download"
       aria-label={item.title}
-      className={`flex items-center gap-3 rounded-xl px-2 py-2 ${drag?.dragging ? 'bg-surface relative z-10 shadow-lg' : ''}`}
+      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl px-2 py-2 ${drag?.dragging ? 'bg-surface relative z-10 shadow-lg' : ''}`}
     >
       {drag && (
         <button
@@ -232,9 +234,6 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
             detail={item.errorDetail}
           />
         )}
-        {item.state === 'done' && item.problem && (
-          <Issue summary={problemLine(item.problem)} detail={item.problem.detail} />
-        )}
         {share !== null && <ProgressBar share={share} label={item.title} />}
         {refusal && (
           <span role="alert" className="text-primary text-xs wrap-anywhere">
@@ -251,17 +250,6 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
           className={ICON}
         >
           <ArrowUpToLine aria-hidden size={18} />
-        </button>
-      )}
-      {item.state === 'done' && item.problem && (
-        <button
-          type="button"
-          disabled={redownload.isPending}
-          onClick={() => redownload.mutate([item.id])}
-          className="bg-primary text-background flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold disabled:opacity-60"
-        >
-          <RefreshCw aria-hidden size={14} />
-          {t('songs.downloadAgain')}
         </button>
       )}
       {failed && (
@@ -331,9 +319,40 @@ const DownloadRow: FC<RowProps> = ({ item, paused, onSave, onFirst, drag }) => {
           }}
         />
       )}
+      {/* What a check found: on a line of its own under the song, full width, then its answers. */}
+      {problem && (
+        <div data-testid="song-download-problem" className="flex basis-full flex-col gap-2">
+          <Issue summary={problemLine(problem)} detail={problem.detail} />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={redownload.isPending}
+              onClick={() => redownload.mutate([item.id])}
+              className="bg-primary text-background flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold disabled:opacity-60"
+            >
+              <RefreshCw aria-hidden size={14} />
+              {t('songs.downloadAgain')}
+            </button>
+            {KEEPABLE.has(problem.kind) && (
+              <button
+                type="button"
+                disabled={keep.isPending}
+                onClick={() => keep.mutate([item.id])}
+                className="bg-surface ring-foreground/10 flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold ring-1 disabled:opacity-60"
+              >
+                <Check aria-hidden size={14} />
+                {t('songs.keepAsIs')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </li>
   );
 };
+
+/** What a check finds that a song can be kept with: a gone or partial file can't be. */
+const KEEPABLE = new Set<SongDownloadProblemKind>(['sourceChanged', 'detailsChanged', 'damaged']);
 
 /** One download. Rows change only when their own download does (or they're being picked). */
 const Row: FC<RowProps> = memo((props: RowProps) =>

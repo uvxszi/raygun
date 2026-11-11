@@ -486,6 +486,48 @@ describe('Song downloads', () => {
     expect(commands.songDownloadsRedownload).toHaveBeenLastCalledWith(['moved', 'gone']);
   });
 
+  it('keeps a checked download as it is, its finding on lines of its own above the answers', async () => {
+    const user = userEvent.setup();
+    const moved = download('moved', 'Moved song', 'done', {
+      format: 'mp3',
+      finishedAt: 20,
+      problem: { kind: 'sourceChanged', was: 'Indie Tracks', now: 'archive.org', detail: null },
+    });
+    const gone = download('gone', 'Gone song', 'done', {
+      format: 'flac',
+      finishedAt: 10,
+      problem: { kind: 'missing', was: null, now: null, detail: null },
+    });
+    commands.songDownloads.mockResolvedValue(ok([moved, gone]));
+    await AppShellWrapper.mount('/downloads?tab=music');
+    const attention = await screen.findByRole('list', { name: 'Needs attention' });
+
+    // The finding spans the row under the song, with its answers after it.
+    const finding = within(row('Moved song')).getByTestId('song-download-problem');
+    expect(finding).toHaveClass('basis-full');
+    expect(finding).toHaveTextContent('Its source changed: Indie Tracks → archive.org');
+    const answers = within(finding)
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+    expect(answers).toContain('Download again');
+    expect(answers).toContain('Keep as it is');
+    // A file that's gone has nothing to keep.
+    expect(
+      within(row('Gone song')).queryByRole('button', { name: 'Keep as it is' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(finding).getByRole('button', { name: 'Keep as it is' }));
+    expect(commands.songDownloadsKeep).toHaveBeenCalledWith(['moved']);
+    await vi.waitFor(() =>
+      expect(
+        within(attention)
+          .getAllByRole('listitem')
+          .map((item) => item.ariaLabel),
+      ).toEqual(['Gone song']),
+    );
+    expect(within(row('Moved song')).queryByTestId('song-download-problem')).toBeNull();
+  });
+
   it('takes picked downloads off the list, keeping saved songs unless their files go too', async () => {
     const user = userEvent.setup();
     const waiting = download('w', 'Waiting song', 'queued', { queuedAt: 5 });

@@ -1,3 +1,5 @@
+import type { QueueItem, QueueSnapshot } from '@raygun/bindings';
+
 const SWIPE_UP_DISTANCE = 40;
 const SWIPE_UP_VELOCITY = 300;
 /** Down this far (or this fast) closes the player (M46.24). */
@@ -22,6 +24,64 @@ export const swipeAction = (
   if (offset.y > SWIPE_DOWN_DISTANCE || velocity.y > SWIPE_DOWN_VELOCITY) return 'close';
   return null;
 };
+
+export type SwipeAction = NonNullable<ReturnType<typeof swipeAction>>;
+
+/**
+ * The song a sideways swipe on the player bar brings in, from the queue in play order: next is
+ * the one after (the first with repeat all), previous the one before (the last with repeat all;
+ * unlike the Previous button it never just restarts the song). Null when there's none: the same
+ * song comes back.
+ */
+export const swipeNeighbor = (
+  queue: QueueSnapshot | undefined,
+  currentId: string | null | undefined,
+  repeatAll: boolean,
+  direction: 'next' | 'previous',
+): QueueItem | null => {
+  if (!queue || !currentId) return null;
+  const current = queue.items.findIndex((each) => each.id === currentId);
+  const at = queue.order.indexOf(current);
+  if (at < 0) return null;
+  const last = queue.order.length - 1;
+  const step = direction === 'next' ? 1 : -1;
+  let to = at + step;
+  if (to < 0 || to > last) {
+    if (!repeatAll || last < 1) return null;
+    to = direction === 'next' ? 0 : last;
+  }
+  return queue.items[queue.order[to] ?? -1] ?? null;
+};
+
+/** How far back (ms) a let-go's velocity is measured. */
+const VELOCITY_WINDOW_MS = 100;
+
+/** Follows a pointer's last moves to tell how fast (px/s) it went as it was let go. */
+export const velocityTracker = () => {
+  const samples: { x: number; y: number; at: number }[] = [];
+  return {
+    add: (x: number, y: number, at: number) => {
+      samples.push({ x, y, at });
+      while (samples.length > 2 && at - (samples[0]?.at ?? at) > VELOCITY_WINDOW_MS) {
+        samples.shift();
+      }
+    },
+    velocity: () => {
+      const first = samples[0];
+      const last = samples.at(-1);
+      if (!first || !last || last.at <= first.at) return { x: 0, y: 0 };
+      const seconds = (last.at - first.at) / 1000;
+      return { x: (last.x - first.x) / seconds, y: (last.y - first.y) / seconds };
+    },
+  };
+};
+
+/** A thrown bar's content keeps at least this speed (px/s) on its way out ... */
+const THROW_MIN_SPEED = 1800;
+
+/** ... so the way left (px) takes this long (s), within bounds. */
+export const throwDuration = (remaining: number, speed: number) =>
+  Math.min(0.24, Math.max(0.08, Math.abs(remaining) / Math.max(Math.abs(speed), THROW_MIN_SPEED)));
 
 /** Dragged down this far (px) or this fast (px/s), the full player closes. */
 const DISMISS_DISTANCE = 120;

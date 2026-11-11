@@ -144,6 +144,9 @@ fn skipped_message() -> Message {
 /// The `local_meta` key of the saved songs taken off the Downloads list: they stay saved.
 const UNLISTED_KEY: &str = "songs.downloads.unlisted";
 
+/// The `local_meta` key of saved songs kept as they are after a check (`check::Kept`).
+const KEPT_KEY: &str = "songs.downloads.kept";
+
 /// The notification saying songs wait for Raygun to be open to be recorded.
 const WINDOW_NOTICE: &str = "downloads.recordWhenOpen";
 
@@ -2420,9 +2423,10 @@ impl SongDownloadService {
             problems: 0,
         };
         let names = self.source_names().await;
+        let kept = self.kept_findings().await;
         let mut changed = Vec::new();
         for row in rows {
-            let problem = self.problem_of(&row, &names).await;
+            let problem = check::unless_kept(&row, self.problem_of(&row, &names).await, &kept);
             checked.checked += 1;
             if problem.is_some() {
                 checked.problems += 1;
@@ -2460,6 +2464,21 @@ impl SongDownloadService {
         Ok(checked)
     }
 
+    /// Keeps saved songs (`ids`) as they are: what the last check found leaves them, and a check
+    /// finding the same about the same file again doesn't tell it (`KEPT_KEY`). Gone and partial
+    /// files can't be kept. Returns how many were.
+    pub async fn keep_as_is(&self, ids: Vec<String>) -> Result<u32, String> {
+        let kept = keep_findings(&self.db(), ids).await?;
+        for id in &kept {
+            self.announce(id).await;
+        }
+        Ok(u32::try_from(kept.len()).unwrap_or(u32::MAX))
+    }
+
+    /// Which saved songs were kept as they are, with what was found about them.
+    async fn kept_findings(&self) -> check::Kept {
+        kept_findings(&self.db()).await
+    }
     /// Checks the saved copy of `track`'s song, if it has one (after its source changed).
     pub async fn check_song(&self, track: &TrackInput) {
         let row = match self.row_for(track).await {
@@ -3163,6 +3182,60 @@ fn partial_message(covered_ms: u64, needed_ms: Option<u64>, why: &str) -> Messag
              while or with Retry. Until it's whole the song streams. ({why})"
         )),
     }
+}
+
+/// Which saved songs were kept as they are (`KEPT_KEY`), with what was found about them.
+async fn kept_findings(db: &raygun_db::Db) -> check::Kept {
+    raygun_db::local_value(db, KEPT_KEY)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
+/// Keeps saved songs (`ids`) as they are: their `problem` goes and what it said is remembered with
+/// their file. Gone and partial files, songs not saved or with nothing found, are passed over.
+/// Returns the ids kept.
+async fn keep_findings(db: &raygun_db::Db, ids: Vec<String>) -> Result<Vec<String>, String> {
+    let mut kept = kept_findings(db).await;
+    let mut done = Vec::new();
+    for id in ids {
+        let Some(row) = store::get(db, &id).await.map_err(to_message)? else {
+            continue;
+        };
+        let Some(problem) = row
+            .problem
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<SongDownloadProblem>(json).ok())
+        else {
+            continue;
+        };
+        if row.state != store::DONE || !check::keepable(problem.kind) {
+            continue;
+        }
+        kept.insert(row.id.clone(), check::kept_finding(&row, &problem));
+        store::set_problem(db, &row.id, None)
+            .await
+            .map_err(to_message)?;
+        done.push(row.id);
+    }
+    if done.is_empty() {
+        return Ok(done);
+    }
+    // Downloads gone since are forgotten with them.
+    let present: HashSet<String> = store::all(db)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    kept.retain(|id, _| present.contains(id));
+    let json = serde_json::to_string(&kept).map_err(to_message)?;
+    raygun_db::set_local_value(db, KEPT_KEY, &json)
+        .await
+        .map_err(to_message)?;
+    Ok(done)
 }
 
 /// What Check downloads says of a copy too short to play instead of the stream: its length and
@@ -5428,6 +5501,79 @@ mod tests {
             "what plays of it: cut at its trim"
         );
         assert!(is_preview(30_000, 200_000) && !is_preview(150_000, 200_000));
+    }
+
+    #[tokio::test]
+    async fn a_song_kept_as_it_is_stays_off_the_check_list_until_its_file_changes() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = raygun_db::Db::open(&temp.path().join("raygun.db"))
+            .await
+            .unwrap();
+        let (id, _) = store::enqueue(&db, &short_song(), 1).await.unwrap();
+        let saved = |bytes: i64| store::Saved {
+            file: "track.wav".into(),
+            kind: "file".into(),
+            provider: Some("Indie".into()),
+            bytes: Some(bytes),
+            file_ms: Some(4_000),
+            origin: Origin::default(),
+        };
+        store::set_done(&db, &id, &saved(1_000), 10).await.unwrap();
+        let found = SongDownloadProblem {
+            kind: raygun_model::SongDownloadProblemKind::SourceChanged,
+            was: Some("Indie".into()),
+            now: Some("Other".into()),
+            detail: None,
+        };
+        let json = serde_json::to_string(&found).unwrap();
+        store::set_problem(&db, &id, Some(&json)).await.unwrap();
+
+        assert_eq!(
+            keep_findings(&db, vec![id.clone()]).await.unwrap(),
+            std::slice::from_ref(&id)
+        );
+        let row = store::get(&db, &id).await.unwrap().unwrap();
+        assert_eq!(row.problem, None, "it leaves the check list");
+
+        // Checked again (as at the next start: read back from the database), the same finding about
+        // the same file isn't told; another finding is.
+        let kept = kept_findings(&db).await;
+        assert_eq!(check::unless_kept(&row, Some(found.clone()), &kept), None);
+        let details = SongDownloadProblem {
+            kind: raygun_model::SongDownloadProblemKind::DetailsChanged,
+            ..found.clone()
+        };
+        assert!(check::unless_kept(&row, Some(details), &kept).is_some());
+        let gone = SongDownloadProblem {
+            kind: raygun_model::SongDownloadProblemKind::Missing,
+            was: None,
+            now: None,
+            detail: None,
+        };
+        assert!(check::unless_kept(&row, Some(gone), &kept).is_some());
+
+        // Another file (downloaded again) is checked afresh.
+        store::set_done(&db, &id, &saved(2_000), 20).await.unwrap();
+        let row = store::get(&db, &id).await.unwrap().unwrap();
+        assert!(check::unless_kept(&row, Some(found.clone()), &kept).is_some());
+
+        // A missing file, or a song with nothing found, can't be kept.
+        let missing = serde_json::to_string(&SongDownloadProblem {
+            kind: raygun_model::SongDownloadProblemKind::Missing,
+            was: None,
+            now: None,
+            detail: None,
+        })
+        .unwrap();
+        store::set_problem(&db, &id, Some(&missing)).await.unwrap();
+        assert!(
+            keep_findings(&db, vec![id.clone()])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        store::set_problem(&db, &id, None).await.unwrap();
+        assert!(keep_findings(&db, vec![id]).await.unwrap().is_empty());
     }
 
     #[tokio::test]

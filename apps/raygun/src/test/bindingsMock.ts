@@ -416,6 +416,7 @@ export const bindingsMock = {
     songDownloadsSetPaused: vi.fn(),
     songDownloadsCheck: vi.fn(),
     songDownloadsRedownload: vi.fn(),
+    songDownloadsKeep: vi.fn(),
     songCaptureReport: vi.fn(),
     songDownloadCancelRecording: vi.fn(),
     songsSave: vi.fn(),
@@ -1197,6 +1198,7 @@ export const seedBindings = () => {
   commands.songDownloadsSetPaused.mockResolvedValue(null);
   commands.songDownloadsCheck.mockResolvedValue(ok({ checked: 0, problems: 0 }));
   commands.songDownloadsRedownload.mockResolvedValue(ok(0));
+  commands.songDownloadsKeep.mockResolvedValue(ok(0));
   commands.songCaptureReport.mockResolvedValue(ok(null));
   commands.songDownloadCancelRecording.mockResolvedValue(ok(null));
   commands.songsSave.mockResolvedValue(ok({ saved: [], failed: [] }));

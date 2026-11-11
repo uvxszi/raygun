@@ -299,6 +299,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::song_downloads_paused,
             commands::song_downloads_set_paused,
             commands::song_downloads_check,
+            commands::song_downloads_keep,
             commands::song_downloads_redownload,
             commands::song_capture_report,
             commands::song_download_cancel_recording,
