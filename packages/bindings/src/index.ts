@@ -1504,6 +1504,8 @@ export const commands = {
 	 *  (`Settings::search_listings`).
 	 */
 	catalogGlobalSearch: (medium: string, query: string, sources: string[]) => typedError<SourceSearchResult_Serialize[], string>(__TAURI_INVOKE("catalog_global_search", { medium, query, sources })),
+	/**  The `medium`'s library titles left out while 18+ content is off (none while it's on). */
+	libraryHidden: (medium: string) => typedError<HiddenLibraryEntry[], string>(__TAURI_INVOKE("library_hidden", { medium })),
 	/**  Tracks in the device's library matching `query` (title, artist or album). */
 	librarySearch: (query: string) => typedError<LibraryTrack[], string>(__TAURI_INVOKE("library_search", { query })),
 	stremioAddons: () => typedError<StremioAddon[], string>(__TAURI_INVOKE("stremio_addons")),
@@ -3317,6 +3319,20 @@ export type HiddenItem = {
 	artworkUrl: string | null,
 	/**  Unix seconds. */
 	hiddenAt: number,
+};
+
+/**
+ *  A library title left out of the library while 18+ content is off (`Settings::show_nsfw`):
+ *  its genres mark it adult (`raygun-app::catalog::is_adult`).
+ */
+export type HiddenLibraryEntry = {
+	titleId: string,
+	sourceId: string,
+	remoteId: string,
+	title: string,
+	sourceName: string,
+	/**  Through the local image proxy. */
+	coverUrl: string | null,
 };
 
 /**
@@ -5323,12 +5339,14 @@ export type ScrollbarStyle = "thin" | "wide" | "hidden" |
  */
 "whileScrolling";
 
-/**  What Search leaves out besides what Show NSFW and Explicit music already hide; both off. */
+/**
+ *  Search's "No 18+" pill, shown only while 18+ content is on (`Settings::show_nsfw`); turning
+ *  that on switches the pill on again (`raygun-app::settings::update_many`). Explicit songs follow
+ *  `Settings::explicit_music` alone. Older rows' `noExplicit` is ignored.
+ */
 export type SearchFilterPrefs = {
 	/**  "No 18+": sources rated for adults aren't asked, and titles marked adult are left out. */
 	noAdult?: boolean,
-	/**  "No explicit": songs marked explicit are left out, and 18+ music sources aren't asked. */
-	noExplicit?: boolean,
 };
 
 /**

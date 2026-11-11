@@ -482,7 +482,7 @@ impl Catalog {
             is_adult(&row.fields.genres) || source.as_ref().is_some_and(|source| source.adult);
         let source_name = source.map_or_else(|| row.fields.source_id.clone(), |source| source.name);
         let continue_chapter_id = continue_from(&units).map(|unit| unit.id.clone());
-        let hidden_nsfw = !self.extensions().show_nsfw() && is_adult(&row.fields.genres);
+        let hidden_nsfw = hidden_in_library(self.extensions().show_nsfw(), &row.fields.genres);
         Ok(MangaTitleView {
             hidden_nsfw,
             adult,
@@ -558,6 +558,39 @@ impl Catalog {
         names
     }
 
+    /// The library titles [`Self::library`] leaves out while 18+ content is off (none while it's
+    /// on), for the library's "hidden entries" note.
+    pub async fn hidden(&self) -> Result<Vec<raygun_model::HiddenLibraryEntry>, String> {
+        let entries = titles::library(&self.db(), self.kind)
+            .await
+            .map_err(to_message)?;
+        let (_shown, hidden) = split_hidden(self.extensions().show_nsfw(), entries);
+        if hidden.is_empty() {
+            return Ok(Vec::new());
+        }
+        let names = self.source_names().await;
+        Ok(hidden
+            .into_iter()
+            .map(|entry| {
+                let fields = entry.title.fields;
+                raygun_model::HiddenLibraryEntry {
+                    cover_url: fields
+                        .cover
+                        .as_deref()
+                        .map(|url| self.kept_cover(url, &fields.cover_headers)),
+                    source_name: names
+                        .get(&fields.source_id)
+                        .cloned()
+                        .unwrap_or_else(|| fields.source_id.clone()),
+                    title_id: entry.title.id,
+                    source_id: fields.source_id,
+                    remote_id: fields.remote_id,
+                    title: fields.title,
+                }
+            })
+            .collect())
+    }
+
     pub async fn library(&self) -> Result<Vec<MangaLibraryEntry>, String> {
         let entries = titles::library(&self.db(), self.kind)
             .await
@@ -579,14 +612,13 @@ impl Catalog {
         &self,
         entries: Vec<titles::LibraryTitle>,
     ) -> Result<Vec<MangaLibraryEntry>, String> {
-        let show_nsfw = self.extensions().show_nsfw();
+        let (entries, _hidden) = split_hidden(self.extensions().show_nsfw(), entries);
         let mut memberships = raygun_db::categories::memberships(&self.db(), self.kind)
             .await
             .map_err(to_message)?;
         let names = self.source_names().await;
         Ok(entries
             .into_iter()
-            .filter(|entry| show_nsfw || !is_adult(&entry.title.fields.genres))
             .map(|entry| MangaLibraryEntry {
                 list: entry.title.list.as_deref().and_then(LibraryList::from_key),
                 favorite: entry.title.favorite_at.is_some(),
@@ -862,6 +894,22 @@ const ADULT_GENRES: [&str; 14] = [
     "shotacon",
 ];
 
+/// Whether the library leaves a title out: its genres mark it adult and 18+ content is off.
+pub fn hidden_in_library(show_nsfw: bool, genres: &[String]) -> bool {
+    !show_nsfw && is_adult(genres)
+}
+
+/// Library titles split into those the library shows and those it leaves out
+/// ([`hidden_in_library`]), each in their order.
+pub fn split_hidden(
+    show_nsfw: bool,
+    entries: Vec<titles::LibraryTitle>,
+) -> (Vec<titles::LibraryTitle>, Vec<titles::LibraryTitle>) {
+    entries
+        .into_iter()
+        .partition(|entry| !hidden_in_library(show_nsfw, &entry.title.fields.genres))
+}
+
 /// Whether a title's genres mark it as adult (M35).
 pub fn is_adult(genres: &[String]) -> bool {
     genres.iter().any(|genre| {
@@ -1093,6 +1141,67 @@ mod tests {
 
     fn ids(units: Vec<&UnitRow>) -> Vec<&str> {
         units.into_iter().map(|unit| unit.id.as_str()).collect()
+    }
+
+    fn library_title(id: &str, genres: &[&str]) -> titles::LibraryTitle {
+        titles::LibraryTitle {
+            title: TitleRow {
+                id: id.into(),
+                fields: TitleFields {
+                    kind: "manga".into(),
+                    source_id: "src".into(),
+                    remote_id: id.into(),
+                    title: id.into(),
+                    cover: None,
+                    cover_headers: Default::default(),
+                    authors: Vec::new(),
+                    artists: Vec::new(),
+                    description: None,
+                    genres: genres.iter().map(|genre| (*genre).to_owned()).collect(),
+                    status: String::new(),
+                    url: None,
+                    media_type: None,
+                    year: None,
+                },
+                in_library_at: Some(1),
+                refreshed_at: None,
+                reader_mode: String::new(),
+                list: None,
+                favorite_at: None,
+                pinned_at: None,
+            },
+            units: 0,
+            unread: 0,
+            started: 0,
+            downloaded: 0,
+            last_read_hlc: None,
+            latest_unit_at: None,
+            latest_found_at: None,
+        }
+    }
+
+    #[test]
+    fn adult_titles_are_hidden_from_the_library_only_while_adult_content_is_off() {
+        let entries = || {
+            vec![
+                library_title("a", &["Action"]),
+                library_title("b", &["Hentai"]),
+                library_title("c", &[]),
+                library_title("d", &["Romance", " Smut "]),
+            ]
+        };
+        let names = |list: &[titles::LibraryTitle]| {
+            list.iter()
+                .map(|entry| entry.title.id.clone())
+                .collect::<Vec<_>>()
+        };
+        let (shown, hidden) = split_hidden(false, entries());
+        assert_eq!(names(&shown), ["a", "c"]);
+        assert_eq!(names(&hidden), ["b", "d"]);
+
+        let (shown, hidden) = split_hidden(true, entries());
+        assert_eq!(names(&shown), ["a", "b", "c", "d"]);
+        assert!(hidden.is_empty());
     }
 
     #[test]

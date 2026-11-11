@@ -1,21 +1,29 @@
-//! Search's "No 18+" and "No explicit" switches (`Settings::search_filter`), on top of what Show
-//! NSFW and Explicit music already hide. Where a search fans out, sources rated for adults aren't
-//! asked; what comes back loses titles marked adult and songs marked explicit. The UI filters
-//! answers it kept from before the same way (`search/searchFilter.ts`).
+//! Search's "No 18+" pill (`Settings::search_filter`), which counts only while 18+ content is on
+//! (`Settings::show_nsfw`; off, the content filter already hides it). Where a search fans out,
+//! sources rated for adults aren't asked; what comes back loses titles marked adult. Explicit songs
+//! follow `Settings::explicit_music` alone (the host drops them). The UI filters answers it kept
+//! from before the same way (`search/searchFilter.ts`). Library titles aren't filtered here.
 
 use raygun_model::{
-    MangaCard, MangaSource, OnlineTrack, ProviderSearchResult, SearchFilterPrefs,
-    SearchListingsPrefs,
+    MangaCard, MangaSource, ProviderSearchResult, SearchFilterPrefs, SearchListingsPrefs,
 };
 use tauri::Manager;
 
-/// The switches as stored; both off when the settings can't be read.
+/// The pill as it counts now: on only while 18+ content is shown; off when the settings can't be
+/// read.
 pub async fn current(app: &tauri::AppHandle) -> SearchFilterPrefs {
     let db = app.state::<crate::startup::AppDb>().inner().0.clone();
     crate::settings::load(&db)
         .await
-        .map(|settings| settings.search_filter)
+        .map(|settings| effective(&settings))
         .unwrap_or_default()
+}
+
+/// The pill as stored, counted only while 18+ content is on.
+pub fn effective(settings: &raygun_model::Settings) -> SearchFilterPrefs {
+    SearchFilterPrefs {
+        no_adult: settings.show_nsfw && settings.search_filter.no_adult,
+    }
 }
 
 /// How searches look through the listings of sources whose search fails or finds nothing
@@ -28,10 +36,10 @@ pub async fn listings(app: &tauri::AppHandle) -> SearchListingsPrefs {
         .unwrap_or_default()
 }
 
-/// Whether music searches leave out sources rated for adults: either switch does, since an 18+
-/// music source is an explicit one (M46.36).
+/// Whether music searches leave out sources rated for adults (with Explicit music off the host
+/// leaves them out already, M46.36).
 pub fn skips_adult_music(prefs: SearchFilterPrefs) -> bool {
-    prefs.no_adult || prefs.no_explicit
+    prefs.no_adult
 }
 
 /// Whether a manga, novel or video source is asked.
@@ -46,19 +54,11 @@ pub fn keep_cards(prefs: SearchFilterPrefs, cards: &mut Vec<MangaCard>) {
     }
 }
 
-/// Leaves out songs marked explicit.
-pub fn keep_tracks(prefs: SearchFilterPrefs, tracks: &mut Vec<OnlineTrack>) {
-    if prefs.no_explicit {
-        tracks.retain(|track| !track.explicit);
-    }
-}
-
-/// A music source's answer without explicit songs, and nothing from a source rated for adults.
+/// A music source's answer, nothing from a source rated for adults while the pill is on.
 pub fn keep_songs(prefs: SearchFilterPrefs, result: &mut ProviderSearchResult) {
     if skips_adult_music(prefs) && result.provider.adult {
         result.tracks.clear();
     }
-    keep_tracks(prefs, &mut result.tracks);
 }
 
 #[cfg(test)]
@@ -77,38 +77,13 @@ mod tests {
         }
     }
 
-    fn track(title: &str, explicit: bool) -> OnlineTrack {
-        OnlineTrack {
-            external_id: None,
-            title: title.into(),
-            artist: None,
-            album: None,
-            duration_ms: None,
-            artwork_url: None,
-            source: None,
-            explicit,
-        }
-    }
-
-    const OFF: SearchFilterPrefs = SearchFilterPrefs {
-        no_adult: false,
-        no_explicit: false,
-    };
-    const NO_ADULT: SearchFilterPrefs = SearchFilterPrefs {
-        no_adult: true,
-        no_explicit: false,
-    };
-    const NO_EXPLICIT: SearchFilterPrefs = SearchFilterPrefs {
-        no_adult: false,
-        no_explicit: true,
-    };
+    const OFF: SearchFilterPrefs = SearchFilterPrefs { no_adult: false };
+    const NO_ADULT: SearchFilterPrefs = SearchFilterPrefs { no_adult: true };
 
     #[test]
     fn no_adult_leaves_out_adult_titles_and_sources() {
         let mut cards = vec![card("a", false), card("b", true)];
         keep_cards(OFF, &mut cards);
-        assert_eq!(cards.len(), 2);
-        keep_cards(NO_EXPLICIT, &mut cards);
         assert_eq!(cards.len(), 2);
         keep_cards(NO_ADULT, &mut cards);
         assert_eq!(
@@ -134,24 +109,14 @@ mod tests {
     }
 
     #[test]
-    fn no_explicit_leaves_out_explicit_songs() {
-        let mut tracks = vec![track("Clean", false), track("Explicit", true)];
-        keep_tracks(NO_ADULT, &mut tracks);
-        assert_eq!(tracks.len(), 2);
-        keep_tracks(NO_EXPLICIT, &mut tracks);
-        assert_eq!(
-            tracks
-                .iter()
-                .map(|track| track.title.as_str())
-                .collect::<Vec<_>>(),
-            ["Clean"]
-        );
-    }
-
-    #[test]
-    fn either_switch_skips_adult_music_sources() {
-        assert!(!skips_adult_music(OFF));
+    fn the_pill_counts_only_while_adult_content_is_on() {
+        let mut settings = raygun_model::Settings::default();
+        settings.search_filter.no_adult = true;
+        settings.show_nsfw = false;
+        assert_eq!(effective(&settings), OFF);
+        settings.show_nsfw = true;
+        assert_eq!(effective(&settings), NO_ADULT);
         assert!(skips_adult_music(NO_ADULT));
-        assert!(skips_adult_music(NO_EXPLICIT));
+        assert!(!skips_adult_music(OFF));
     }
 }

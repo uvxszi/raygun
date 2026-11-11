@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { unwrapResult } from '../lib/commandResult';
 import { titleScore } from './rankResults';
+import { keepFromSources, useSearchFilter } from './searchFilter';
 import { SEARCH_KEYS, streamed, useStreamedAnswers } from './searchStream';
 import type { StreamedAnswers } from './searchStream';
 import { RESULTS_STALE_MS } from './useOnlineSearch';
@@ -133,7 +134,8 @@ export const useArtistFinds = (query: string) => {
   );
   // One row per name; the first source's picture.
   const seen = new Set<string>();
-  const list = (data ?? []).filter((artist) => {
+  const filter = useSearchFilter();
+  const list = keepFromSources(filter, data ?? []).filter((artist) => {
     const name = simple(artist.name);
     if (seen.has(name)) return false;
     seen.add(name);
@@ -164,7 +166,8 @@ export const useAlbumFinds = (query: string) => {
       titleScore(album.title, query),
       titleScore(`${album.artist ?? ''} ${album.title}`, query),
     );
-  const list = [...(data ?? [])].sort((a, b) => score(b) - score(a));
+  const filter = useSearchFilter();
+  const list = [...keepFromSources(filter, data ?? [])].sort((a, b) => score(b) - score(a));
   return { ...albums, data, list, progress };
 };
 
@@ -189,7 +192,8 @@ export const usePlaylistFinds = (query: string, featured: boolean) => {
     (answers) => answers.playlists,
     playlists.isFetching,
   );
-  const list = [...(data ?? [])].sort(
+  const filter = useSearchFilter();
+  const list = [...keepFromSources(filter, data ?? [])].sort(
     (a, b) =>
       titleScore(b.title, query) - titleScore(a.title, query) ||
       Number(b.featured) - Number(a.featured),

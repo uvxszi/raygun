@@ -696,14 +696,28 @@ pub enum LyricsClearScope {
     Downloaded,
 }
 
-/// What Search leaves out besides what Show NSFW and Explicit music already hide; both off.
+/// Search's "No 18+" pill, shown only while 18+ content is on (`Settings::show_nsfw`); turning
+/// that on switches the pill on again (`raygun-app::settings::update_many`). Explicit songs follow
+/// `Settings::explicit_music` alone. Older rows' `noExplicit` is ignored.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SearchFilterPrefs {
     /// "No 18+": sources rated for adults aren't asked, and titles marked adult are left out.
     pub no_adult: bool,
-    /// "No explicit": songs marked explicit are left out, and 18+ music sources aren't asked.
-    pub no_explicit: bool,
+}
+
+/// A library title left out of the library while 18+ content is off (`Settings::show_nsfw`):
+/// its genres mark it adult (`raygun-app::catalog::is_adult`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenLibraryEntry {
+    pub title_id: String,
+    pub source_id: String,
+    pub remote_id: String,
+    pub title: String,
+    pub source_name: String,
+    /// Through the local image proxy.
+    pub cover_url: Option<String>,
 }
 
 /// A source whose own search fails or finds nothing for what was typed is looked through instead

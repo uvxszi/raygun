@@ -321,6 +321,13 @@
     "updateCategory": "Update {{name}}",
     "emptyTab": "Nothing here yet.",
     "loadFailed": "The library couldn't be loaded.",
+    "hiddenEntries": {
+      "note_one": "{{count}} hidden entry",
+      "note_other": "{{count}} hidden entries",
+      "title": "Hidden entries",
+      "body": "These are unavailable because 18+ content is turned off in Settings.",
+      "setting": "18+ content in Settings"
+    },
     "duplicates": {
       "title": "Already in your library?",
       "body": "You have titles with a similar name. Open one, or add this one anyway.",
@@ -375,10 +382,7 @@
     },
     "filter": {
       "label": "Leave out",
-      "noAdult": "No 18+",
-      "noExplicit": "No explicit",
-      "adultHidden": "Show NSFW is off in Settings, so 18+ content is already hidden",
-      "explicitHidden": "Explicit music is off in Settings, so explicit songs are already hidden"
+      "noAdult": "No 18+"
     },
     "type": {
       "all": "All",

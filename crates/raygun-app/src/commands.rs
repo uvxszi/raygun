@@ -1010,7 +1010,7 @@ pub async fn online_search(
 ) -> Result<SearchResults, String> {
     let trimmed = query.trim();
     let details = tauri::Manager::state::<Arc<crate::details::DetailService>>(&app);
-    // Search's "No 18+" and "No explicit": 18+ music sources aren't asked, explicit songs drop.
+    // Search's "No 18+": 18+ music sources aren't asked (explicit songs follow the setting).
     let filter = crate::search_filter::current(&app).await;
     let listings = crate::search_filter::listings(&app).await;
     let songs = extensions.search_as_answered(trimmed, listings, |result, total| {
@@ -1834,12 +1834,16 @@ pub async fn audiobook_play(
 #[tauri::command]
 #[specta::specta]
 pub async fn audiobook_directory(
+    app: tauri::AppHandle,
     podcasts: Podcasts<'_>,
     list: String,
     query: String,
     page: u32,
 ) -> Result<raygun_model::AudiobookPage, String> {
-    podcasts.audiobook_directory(&list, &query, page).await
+    // Search's "No 18+": sources rated for adults aren't asked.
+    let skip = crate::search_filter::current(&app).await.no_adult;
+    raygun_ext_host::without_adult_sources(skip, podcasts.audiobook_directory(&list, &query, page))
+        .await
 }
 
 /// Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
@@ -3917,19 +3921,24 @@ pub async fn podcast_refresh_all(podcasts: Podcasts<'_>) -> Result<u32, String> 
 #[tauri::command]
 #[specta::specta]
 pub async fn podcast_search(
+    app: tauri::AppHandle,
     podcasts: Podcasts<'_>,
     query: String,
 ) -> Result<Vec<raygun_model::PodcastSearchResult>, String> {
-    podcasts.search(&query).await
+    // Search's "No 18+": directories rated for adults aren't asked.
+    let skip = crate::search_filter::current(&app).await.no_adult;
+    raygun_ext_host::without_adult_sources(skip, podcasts.search(&query)).await
 }
 
 /// Popular podcasts from the directories.
 #[tauri::command]
 #[specta::specta]
 pub async fn podcast_top(
+    app: tauri::AppHandle,
     podcasts: Podcasts<'_>,
 ) -> Result<Vec<raygun_model::PodcastSearchResult>, String> {
-    podcasts.top().await
+    let skip = crate::search_filter::current(&app).await.no_adult;
+    raygun_ext_host::without_adult_sources(skip, podcasts.top()).await
 }
 
 /// Plays an episode, resuming where listening stopped.
@@ -5154,6 +5163,16 @@ pub async fn catalog_global_search(
     catalog_for(&app, &medium)?
         .global_search(&query, &sources, filter, listings)
         .await
+}
+
+/// The `medium`'s library titles left out while 18+ content is off (none while it's on).
+#[tauri::command]
+#[specta::specta]
+pub async fn library_hidden(
+    app: tauri::AppHandle,
+    medium: String,
+) -> Result<Vec<raygun_model::HiddenLibraryEntry>, String> {
+    catalog_for(&app, &medium)?.hidden().await
 }
 
 /// Tracks in the device's library matching `query` (title, artist or album).

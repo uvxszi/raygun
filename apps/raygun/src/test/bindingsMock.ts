@@ -219,7 +219,7 @@ export const DEFAULT_SETTINGS: Settings = {
   discovery: { region: '', tagSongs: true },
   failingSourcesLast: true,
   browseStartTab: 'discover',
-  searchFilter: { noAdult: false, noExplicit: false },
+  searchFilter: { noAdult: false },
   searchListings: { enabled: true, entries: 20, pages: 5 },
   manualBrowserChecks: false,
   userAgent: '',
@@ -758,6 +758,7 @@ export const bindingsMock = {
     catalogFilters: vi.fn(),
     catalogSearch: vi.fn(),
     catalogGlobalSearch: vi.fn(),
+    libraryHidden: vi.fn(),
     librarySearch: vi.fn(),
   },
   events: {
@@ -1603,6 +1604,7 @@ export const seedBindings = () => {
   commands.catalogFilters.mockResolvedValue(ok([]));
   commands.catalogSearch.mockResolvedValue(ok({ items: [], hasNextPage: false }));
   commands.catalogGlobalSearch.mockResolvedValue(ok([]));
+  commands.libraryHidden.mockResolvedValue(ok([]));
   commands.librarySearch.mockResolvedValue(ok([]));
 };
 

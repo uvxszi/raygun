@@ -1,81 +1,46 @@
-import { Lock } from 'lucide-react';
-import { useId } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
-import { searchFilterOf } from './searchFilter';
-
-const Toggle: FC<{
-  label: string;
-  on: boolean;
-  forced: boolean;
-  hint: string;
-  onToggle: () => void;
-}> = ({ label, on, forced, hint, onToggle }) => {
-  const hintId = useId();
-  return (
-    <>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        disabled={forced}
-        title={forced ? hint : undefined}
-        aria-describedby={forced ? hintId : undefined}
-        onClick={onToggle}
-        className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${
-          on ? 'border-primary/40 bg-primary/15 text-primary' : 'border-border text-muted'
-        } disabled:opacity-70`}
-      >
-        {forced ? (
-          <Lock aria-hidden size={12} />
-        ) : (
-          <span
-            aria-hidden
-            className={`size-2 rounded-full ${on ? 'bg-primary' : 'border-border border'}`}
-          />
-        )}
-        {label}
-      </button>
-      {forced && (
-        <span id={hintId} className="sr-only">
-          {hint}
-        </span>
-      )}
-    </>
-  );
-};
+import { refreshSearches, searchFilterOf } from './searchFilter';
 
 /**
- * Search's "No 18+" and "No explicit" switches, kept in `Settings::searchFilter` so they sync.
- * Where Show NSFW or Explicit music already hide that content they show on and can't be changed.
+ * Search's "No 18+" pill, kept in `Settings::searchFilter` so it syncs. It shows only while 18+
+ * content is on in Settings (turning that on switches the pill on again, in Rust); explicit songs
+ * follow Settings → Explicit music alone.
  */
 export const SearchFilterToggles: FC = () => {
   const { t } = useTranslation();
   const settings = useSettings().data;
   const update = useUpdateSetting();
+  const client = useQueryClient();
   if (!settings) return null;
   const filter = searchFilterOf(settings);
-  const own = settings.searchFilter;
-  const set = (change: Partial<typeof own>) =>
-    update.mutate({ key: 'searchFilter', value: { ...own, ...change } });
+  if (!filter.pillShown) return null;
+  const on = settings.searchFilter.noAdult;
+  const toggle = () =>
+    update.mutate(
+      { key: 'searchFilter', value: { ...settings.searchFilter, noAdult: !on } },
+      { onSuccess: () => void refreshSearches(client) },
+    );
   return (
     <div role="group" aria-label={t('search.filter.label')} className="flex shrink-0 gap-2">
-      <Toggle
-        label={t('search.filter.noAdult')}
-        on={filter.noAdult}
-        forced={filter.adultForced}
-        hint={t('search.filter.adultHidden')}
-        onToggle={() => set({ noAdult: !own.noAdult })}
-      />
-      <Toggle
-        label={t('search.filter.noExplicit')}
-        on={filter.noExplicit}
-        forced={filter.explicitForced}
-        hint={t('search.filter.explicitHidden')}
-        onToggle={() => set({ noExplicit: !own.noExplicit })}
-      />
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={toggle}
+        className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${
+          on ? 'border-primary/40 bg-primary/15 text-primary' : 'border-border text-muted'
+        }`}
+      >
+        <span
+          aria-hidden
+          className={`size-2 rounded-full ${on ? 'bg-primary' : 'border-border border'}`}
+        />
+        {t('search.filter.noAdult')}
+      </button>
     </div>
   );
 };

@@ -515,6 +515,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::catalog_filters,
             commands::catalog_search,
             commands::catalog_global_search,
+            commands::library_hidden,
             commands::library_search,
             commands::stremio_addons,
             commands::stremio_suggestions,

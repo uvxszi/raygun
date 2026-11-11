@@ -55,6 +55,7 @@ import {
 import type { LibraryFilter, LibrarySort } from './libraryFilters';
 import { LibraryItems } from './LibraryItems';
 import { CategoriesSheet, SelectionActions, SelectionTopBar } from './LibrarySelection';
+import { HiddenEntries } from './HiddenEntries';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
 import { groupWords } from './groupWords';
@@ -401,6 +402,7 @@ export const MangaLibraryView: FC<{ medium?: Medium }> = ({ medium = 'manga' }) 
           </button>
         </p>
       )}
+      {!selecting && <HiddenEntries medium={medium} />}
       {video && !selecting && <ContinueWatchingRow />}
       {entries?.length === 0 && (
         <EmptyState

@@ -160,7 +160,16 @@ pub async fn update(db: &Db, change: SettingChange) -> Result<Settings, Settings
 
 /// Changes several settings together (a settings screen's reset): every change is checked first,
 /// so a refused one leaves all of them unwritten.
-pub async fn update_many(db: &Db, changes: Vec<SettingChange>) -> Result<Settings, SettingsError> {
+pub async fn update_many(
+    db: &Db,
+    mut changes: Vec<SettingChange>,
+) -> Result<Settings, SettingsError> {
+    if turns_adult_on(&changes) {
+        let before = load(db).await?;
+        if let Some(pill) = pill_after(&before, &changes) {
+            changes.push(SettingChange::SearchFilter(pill));
+        }
+    }
     let mut rows = Vec::with_capacity(changes.len());
     for change in &changes {
         change.validate().map_err(SettingsError::Invalid)?;
@@ -170,6 +179,25 @@ pub async fn update_many(db: &Db, changes: Vec<SettingChange>) -> Result<Setting
         settings::put(db, key, &value).await?;
     }
     load(db).await
+}
+
+fn turns_adult_on(changes: &[SettingChange]) -> bool {
+    changes
+        .iter()
+        .any(|change| matches!(change, SettingChange::ShowNsfw(true)))
+}
+
+/// Search's "No 18+" pill after `changes`: turning 18+ content on (from off) switches the pill on,
+/// so 18+ results show only once it's switched off too, unless the same changes set the pill.
+fn pill_after(
+    before: &Settings,
+    changes: &[SettingChange],
+) -> Option<raygun_model::SearchFilterPrefs> {
+    let sets_pill = changes
+        .iter()
+        .any(|change| matches!(change, SettingChange::SearchFilter(_)));
+    (!before.show_nsfw && turns_adult_on(changes) && !sets_pill)
+        .then_some(raygun_model::SearchFilterPrefs { no_adult: true })
 }
 
 /// The JSON a change is stored as: its value alone.
@@ -286,6 +314,40 @@ mod tests {
 
     async fn open(temp: &TempDir) -> Db {
         Db::open(&temp.path().join("raygun.db")).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn turning_adult_content_on_switches_the_no_adult_pill_on() {
+        use raygun_model::SearchFilterPrefs;
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        let on = update(&db, SettingChange::ShowNsfw(true)).await.unwrap();
+        assert!(on.search_filter.no_adult);
+
+        // The pill switched off stays off while 18+ content stays on.
+        let off = SearchFilterPrefs { no_adult: false };
+        update(&db, SettingChange::SearchFilter(off)).await.unwrap();
+        let again = update(&db, SettingChange::ShowNsfw(true)).await.unwrap();
+        assert!(!again.search_filter.no_adult);
+
+        // Off, then on again: the pill is on again.
+        update(&db, SettingChange::ShowNsfw(false)).await.unwrap();
+        assert!(!load(&db).await.unwrap().search_filter.no_adult);
+        let back = update(&db, SettingChange::ShowNsfw(true)).await.unwrap();
+        assert!(back.search_filter.no_adult);
+
+        // Changes that set the pill themselves keep what they set.
+        update(&db, SettingChange::ShowNsfw(false)).await.unwrap();
+        let both = update_many(
+            &db,
+            vec![
+                SettingChange::ShowNsfw(true),
+                SettingChange::SearchFilter(off),
+            ],
+        )
+        .await
+        .unwrap();
+        assert!(!both.search_filter.no_adult);
     }
 
     #[tokio::test]
