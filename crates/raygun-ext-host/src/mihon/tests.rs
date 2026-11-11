@@ -1751,6 +1751,17 @@ async fn converted_code_reads_bits_names_and_entries() {
             Regex("ABC", IGNORE_CASE).containsMatchIn("xabcx").toString(),
             "abc".encodeUtf8().sha256().hex(),
             ('́'.category == CharCategory.NON_SPACING_MARK).toString(),
+            StaticLayout.Builder.obtain("Hello there", 0, 11, TextPaint().apply { textSize = 20f }, 100)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                .build()
+                .let { layout ->
+                    val picture = Bitmap.createBitmap(120, 80, Bitmap.Config.ARGB_8888)
+                    Canvas(picture).apply {
+                        translate(5f, 5f)
+                        layout.draw(this)
+                    }
+                    (layout.height > 0 && layout.lineCount >= 1).toString()
+                },
         )
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
     }"##,
@@ -1837,6 +1848,7 @@ class Entry(val n: Int)
             "hi",
             "true",
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "true",
             "true",
         ]
     );

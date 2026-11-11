@@ -150,6 +150,11 @@ pub const METHODS: &[&str] = &[
     "shl", "shr", "ushr", "inv",
     // `LocalDate.isEqual`, Kotlin's `TimeMark`s (`markNow() + 30.seconds`), `yieldAll`
     "isEqual", "hasPassedNow", "hasNotPassedNow", "yieldAll",
+    // Android's `StaticLayout` (`StaticLayout.Builder.obtain(…)…build()`, `layout.draw(canvas)`)
+    "obtain", "setAlignment", "setLineSpacing", "setIncludePad", "setHyphenationFrequency",
+    "setMaxLines", "setEllipsize", "setBreakStrategy", "setTextDirection", "setJustificationMode",
+    "setEllipsizedWidth", "setUseLineSpacingFromFallbacks", "draw", "getLineCount",
+    "getLineWidth", "getLineTop", "getLineBottom",
     // Interceptors, cookies, more Jsoup
     "proceed", "intercept", "addInterceptor", "addNetworkInterceptor", "toResponseBody",
     "peekBody", "followSslRedirects", "retryOnConnectionFailure", "cookieJar", "interceptors",
@@ -2925,7 +2930,7 @@ fn passes_a_check(function: &str) -> bool {
 /// Functions and objects the runtime has without a receiver (`mihon/kotlin.js`'s `GLOBALS`).
 #[rustfmt::skip]
 pub const GLOBALS: &[&str] = &[
-    "Random",
+    "Random", "StaticLayout",
     "listOf", "mutableListOf", "arrayListOf", "arrayOf", "listOfNotNull", "emptyList", "emptyArray",
     "setOf", "mutableSetOf", "hashSetOf", "linkedSetOf", "setOfNotNull", "emptySet", "mapOf",
     "mutableMapOf", "hashMapOf", "linkedMapOf", "emptyMap", "Pair", "Triple", "error", "require",
@@ -2978,7 +2983,8 @@ pub const OBJECTS: &[&str] = &[
     "OffsetDateTime", "Resources", "MonthDay", "javaClass", "jsonInstance", "DayOfWeek",
     "TextStyle", "Injekt", "GlobalScope", "SSLContext", "TriState", "STATE_IGNORE",
     "STATE_INCLUDE", "STATE_EXCLUDE", "RequestBody", "CookieJar", "Credentials", "Html",
-    "HttpURLConnection", "Duration", "DurationUnit", "CharCategory", "Collections",
+    "HttpURLConnection", "Duration", "DurationUnit", "CharCategory", "StaticLayout", "Layout",
+    "Collections",
     "LazyThreadSafetyMode",
     "URLUtil", "Result",
     "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",

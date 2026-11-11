@@ -5422,6 +5422,98 @@
     }
   }
 
+  /// Android's `StaticLayout`: text laid out in lines `width` wide with a paint's size and weight,
+  /// measured and drawn by the runtime's own text layout (`draw(canvas)` at the canvas's origin,
+  /// through its matrix). Lines are left-aligned whatever the alignment asks.
+  const staticLayout = ({ text, paint, width, spacingMult = 1, spacingAdd = 0 }) => {
+    const content = KT.str(text ?? '');
+    const size = Number(paint?.textSize ?? 12);
+    const bold = Boolean(paint?.typeface?.bold || paint?.isFakeBoldText);
+    const lineWidth = Math.max(1, Number(width) || 1);
+    const spacing = Number(spacingMult) || 1;
+    const extra = Number(spacingAdd) || 0;
+    const measured = content
+      ? K.bitmap.run('measureText', { text: content, size, width: lineWidth, spacing, extra, bold })
+      : { height: 0, lines: 0 };
+    const layout = {
+      __class: 'StaticLayout',
+      __classes: ['StaticLayout', 'Layout'],
+      width: lineWidth,
+      height: Math.ceil(measured.height),
+      lineCount: measured.lines,
+      text: content,
+      paint,
+      getWidth: () => lineWidth,
+      getHeight: () => layout.height,
+      getLineCount: () => measured.lines,
+      getLineWidth: () => lineWidth,
+      getLineTop: (line) => (measured.lines ? (layout.height * line) / measured.lines : 0),
+      getLineBottom: (line) => (measured.lines ? (layout.height * (line + 1)) / measured.lines : 0),
+      draw: (canvas) => {
+        if (content)
+          K.bitmap.run('drawText', {
+            id: canvas.target(),
+            text: content,
+            size,
+            width: lineWidth,
+            spacing,
+            extra,
+            bold,
+            x: 0,
+            y: 0,
+            matrix: canvas.matrix,
+            color: argbOf(paint ? paint.color : colorStatics.BLACK),
+          });
+        return KT.unit;
+      },
+    };
+    return layout;
+  };
+  /// `StaticLayout.Builder.obtain(text, start, end, paint, width)…build()`.
+  const staticLayoutBuilder = (text, start, end, paint, width) => {
+    const parts = {
+      text: KT.str(text ?? '').slice(start ?? 0, end ?? undefined),
+      paint,
+      width,
+      spacingMult: 1,
+      spacingAdd: 0,
+    };
+    const builder = {
+      setAlignment: () => builder,
+      setTextDirection: () => builder,
+      setIncludePad: () => builder,
+      setEllipsize: () => builder,
+      setEllipsizedWidth: () => builder,
+      setMaxLines: () => builder,
+      setBreakStrategy: () => builder,
+      setHyphenationFrequency: () => builder,
+      setJustificationMode: () => builder,
+      setUseLineSpacingFromFallbacks: () => builder,
+      setLineSpacing: (add, mult) => {
+        parts.spacingAdd = add;
+        parts.spacingMult = mult;
+        return builder;
+      },
+      build: () => staticLayout(parts),
+    };
+    return builder;
+  };
+  const layoutStatics = {
+    Alignment: {
+      ALIGN_NORMAL: 'ALIGN_NORMAL',
+      ALIGN_CENTER: 'ALIGN_CENTER',
+      ALIGN_OPPOSITE: 'ALIGN_OPPOSITE',
+    },
+    BREAK_STRATEGY_SIMPLE: 0,
+    BREAK_STRATEGY_HIGH_QUALITY: 1,
+    BREAK_STRATEGY_BALANCED: 2,
+    HYPHENATION_FREQUENCY_NONE: 0,
+    HYPHENATION_FREQUENCY_NORMAL: 1,
+    HYPHENATION_FREQUENCY_FULL: 2,
+    JUSTIFICATION_MODE_NONE: 0,
+    JUSTIFICATION_MODE_INTER_WORD: 1,
+  };
+
   /// Text a web comic's notes become, as `lib:textinterceptor` draws them: a white page 1000
   /// pixels wide, the heading in bold above the text.
   const TEXT_HOST = 'tachiyomi-lib-textinterceptor';
@@ -6444,6 +6536,24 @@
     generateSequence: (args, _named, lambda) => generateSequence(args, lambda),
     // `java.util.Random(seed)`: Java's own generator, so a seeded one gives Java's numbers.
     Random: ([seed]) => javaRandom(seed),
+    // `StaticLayout(text, paint, width, alignment, mult, add, pad)`, or with a range of the text
+    // first (`StaticLayout(text, start, end, paint, width, …)`).
+    StaticLayout: (args) =>
+      typeof args[1] === 'number'
+        ? staticLayout({
+            text: KT.str(args[0] ?? '').slice(args[1], args[2]),
+            paint: args[3],
+            width: args[4],
+            spacingMult: args[6] ?? 1,
+            spacingAdd: args[7] ?? 0,
+          })
+        : staticLayout({
+            text: args[0],
+            paint: args[1],
+            width: args[2],
+            spacingMult: args[4] ?? 1,
+            spacingAdd: args[5] ?? 0,
+          }),
     DecimalFormat: ([pattern]) => decimalFormat(pattern),
     SecureRandom: () => random,
     Any: () => ({ __class: 'Any', __classes: ['Any'] }),
@@ -7602,6 +7712,8 @@
       INFINITE: duration(Infinity),
     },
     CharCategory: Object.fromEntries(CHAR_CATEGORIES.map(([, name]) => [name, name])),
+    StaticLayout: { Builder: { obtain: staticLayoutBuilder } },
+    Layout: layoutStatics,
     DurationUnit: {
       NANOSECONDS: timeUnit('NANOSECONDS', 1e-6),
       MICROSECONDS: timeUnit('MICROSECONDS', 1e-3),
