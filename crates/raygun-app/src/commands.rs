@@ -1553,6 +1553,18 @@ pub async fn song_downloads_redownload(
     songs.redownload(ids).await
 }
 
+/// Keeps downloaded songs as they are (`ids`): what a check found leaves their `problem`, and the
+/// same finding about the same file isn't told again. A missing or partial file can't be kept.
+/// Returns how many were kept.
+#[tauri::command]
+#[specta::specta]
+pub async fn song_downloads_keep(
+    songs: tauri::State<'_, Arc<SongDownloadService>>,
+    ids: Vec<String>,
+) -> Result<u32, String> {
+    songs.keep_as_is(ids).await
+}
+
 /// A piece of a background capture from the webview (M46.49; YouTube's player too, M46.52). An
 /// error means the capture was stopped.
 #[tauri::command]

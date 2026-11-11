@@ -3740,6 +3740,7 @@
     "cancelOne": "Cancel {{title}}",
     "cancelAgain": "Stop downloading {{title}} again",
     "downloadAgain": "Download again",
+    "keepAsIs": "Keep as it is",
     "downloadAllAgain_one": "Download {{count}} again",
     "downloadAllAgain_other": "Download {{count}} again",
     "againFailed": "Downloading it again didn’t work: {{why}}",

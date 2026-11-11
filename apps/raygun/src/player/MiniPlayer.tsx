@@ -1,5 +1,5 @@
 import { commands } from '@raygun/bindings';
-import type { QueueItem, QueueSnapshot } from '@raygun/bindings';
+import type { QueueItem } from '@raygun/bindings';
 import {
   ListMusic,
   Maximize2,
@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
-import type { PanInfo } from 'motion/react';
 import { useRef, useState } from 'react';
 import type { FC, ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -37,7 +36,9 @@ import { usePlayerUiStore } from './playerUiStore';
 import { PlayingFrom } from './PlayingFrom';
 import { BarProgress, SeekBar } from './SeekBar';
 import { spokenName, useSpokenItem } from './spoken';
-import { swipeAction } from './swipe';
+import { swipeNeighbor } from './swipe';
+import type { SwipeAction } from './swipe';
+import { useBarSwipe } from './useBarSwipe';
 import {
   NextButton,
   PlayPauseButton,
@@ -54,23 +55,6 @@ import {
   useSourceNote,
 } from './usePlayback';
 import { SkipNotice } from './SkipNotice';
-
-/** The song before the current one in play order (the last one with repeat all), to swipe back
- * to: unlike Previous, it never just restarts the song. */
-const previousItem = (
-  queue: QueueSnapshot | undefined,
-  currentId: string | null | undefined,
-  repeatAll: boolean,
-) => {
-  if (!queue || !currentId) return null;
-  const current = queue.items.findIndex((each) => each.id === currentId);
-  const at = queue.order.indexOf(current);
-  if (at > 0) return queue.items[queue.order[at - 1] ?? -1] ?? null;
-  if (at === 0 && repeatAll && queue.order.length > 1) {
-    return queue.items[queue.order.at(-1) ?? -1] ?? null;
-  }
-  return null;
-};
 
 /**
  * The player bar above the bottom tabs (docked at the bottom on wide screens), shown while
@@ -107,66 +91,60 @@ const PhoneBar: FC<BarProps> = ({ item }) => {
   const client = useQueryClient();
   // Chapters and episodes aren't songs to save (M46.32).
   const spoken = useSpokenItem(item);
-  const draggedRef = useRef(false);
-  const currentId = item.id;
   const repeatAll = usePlayerSelect((state) => state?.repeat === 'all');
 
-  const handleDragEnd = (_event: PointerEvent, info: PanInfo) => {
-    const action = swipeAction(info.offset, info.velocity);
+  const act = (action: SwipeAction) => {
     if (action === 'open') openSheet();
     // Down closes the player: playback stops and the queue empties (M46.24).
     if (action === 'close') void sendControl({ type: 'clear' });
     if (action === 'next') void sendControl({ type: 'next' });
     if (action === 'previous') {
-      const before = previousItem(shownQueue(client), currentId, repeatAll);
+      const before = swipeNeighbor(shownQueue(client), item.id, repeatAll, 'previous');
       void sendControl(
         before ? { type: 'playItem', itemId: before.id } : { type: 'seek', positionMs: 0 },
       );
     }
   };
+  const swipe = useBarSwipe({
+    item,
+    incoming: (direction) => swipeNeighbor(shownQueue(client), item.id, repeatAll, direction),
+    act,
+  });
+  const shown = swipe.shownItem;
 
   return (
     <motion.div
       data-testid="mini-player"
-      // Up opens the full player, down closes it (M46.24); sideways changes the song (M46.13),
-      // the bar following the finger.
-      drag
-      dragDirectionLock
-      dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
-      dragElastic={{ top: 0.25, bottom: 0.5, left: 0.4, right: 0.4 }}
-      dragSnapToOrigin
-      onPointerDown={() => {
-        draggedRef.current = false;
-      }}
-      onDragStart={() => {
-        draggedRef.current = true;
-      }}
-      onDragEnd={handleDragEnd}
+      // Up opens the full player, down closes it (M46.24); sideways throws the song out and brings
+      // the next (or the one before) in (M46.13).
+      {...swipe.handlers}
+      style={{ y: swipe.barY, touchAction: 'none' }}
       // Sizes follow the bar's own width (a container), so a large interface size or a narrow
       // window never pushes the song's name out.
       className="bg-surface @container relative mr-[max(0.5rem,env(safe-area-inset-right))] mb-2 ml-[max(0.5rem,env(safe-area-inset-left))] overflow-hidden rounded-2xl shadow-lg shadow-black/15"
     >
       <BarProgress />
       <div className="flex items-center gap-1 py-[min(0.5rem,2cqw)] pr-[min(0.5rem,2cqw)] pl-[min(1rem,3.5cqw)]">
-        <button
+        <motion.button
           type="button"
           aria-label={t('player.openPlayer')}
           onClick={() => {
-            if (!draggedRef.current) {
+            if (!swipe.dragged.current) {
               openSheet();
             }
           }}
-          className="flex min-w-0 flex-1 items-center gap-[min(0.75rem,3cqw)] text-left"
+          style={{ x: swipe.contentX, opacity: swipe.contentOpacity }}
+          className="flex min-w-0 flex-1 items-center gap-[min(0.75rem,3cqw)] text-left will-change-transform"
         >
           <Artwork
-            key={item.artworkUrl ?? 'none'}
-            url={item.artworkUrl}
-            fallback={songCover(item)}
+            key={`${shown.id}:${shown.artworkUrl ?? 'none'}`}
+            url={shown.artworkUrl}
+            fallback={songCover(shown)}
             className="size-[min(2.5rem,12cqw)] shrink-0 rounded-md"
             iconSize={22}
           />
-          <TrackText item={item} />
-        </button>
+          <TrackText item={shown} />
+        </motion.button>
         <IncognitoBadge />
         <span className="flex shrink-0 items-center [&_button]:size-[min(2.5rem,11cqw)]">
           <ConnectButton />

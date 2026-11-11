@@ -771,6 +771,12 @@ export const commands = {
 	 */
 	songDownloadsCheck: (ids: string[] | null) => typedError<SongDownloadsChecked, string>(__TAURI_INVOKE("song_downloads_check", { ids })),
 	/**
+	 *  Keeps downloaded songs as they are (`ids`): what a check found leaves their `problem`, and the
+	 *  same finding about the same file isn't told again. A missing or partial file can't be kept.
+	 *  Returns how many were kept.
+	 */
+	songDownloadsKeep: (ids: string[]) => typedError<number, string>(__TAURI_INVOKE("song_downloads_keep", { ids })),
+	/**
 	 *  Downloads songs again, from the source each has now (M46.49): the copy that plays meanwhile is
 	 *  kept until the new one is done. Returns how many were queued.
 	 */

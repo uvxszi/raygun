@@ -36,6 +36,43 @@ pub fn problem(
     source_problem(row, picks, names).or_else(|| details_problem(row, shown))
 }
 
+/// Saved songs kept as they are, by download id: what a check found about which file
+/// ([`kept_finding`]), so the same finding about the same file isn't told again.
+pub type Kept = HashMap<String, String>;
+
+/// Whether a finding can be kept: a gone file has nothing to keep, a partial one never plays
+/// offline.
+pub fn keepable(kind: SongDownloadProblemKind) -> bool {
+    !matches!(
+        kind,
+        SongDownloadProblemKind::Missing | SongDownloadProblemKind::Partial
+    )
+}
+
+/// What a kept finding is remembered by: its kind, what it was and is now, and the file (name and
+/// size) it was about. The file's own error isn't part of it, as decoders word it differently.
+pub fn kept_finding(row: &SongDownloadRow, problem: &SongDownloadProblem) -> String {
+    serde_json::to_string(&(
+        problem.kind,
+        &problem.was,
+        &problem.now,
+        &row.file,
+        row.total_bytes,
+    ))
+    .unwrap_or_default()
+}
+
+/// A finding left out when the song was kept as it is with this same finding about this file.
+pub fn unless_kept(
+    row: &SongDownloadRow,
+    problem: Option<SongDownloadProblem>,
+    kept: &Kept,
+) -> Option<SongDownloadProblem> {
+    problem.filter(|problem| {
+        !keepable(problem.kind) || kept.get(&row.id) != Some(&kept_finding(row, problem))
+    })
+}
+
 /// What's wrong with a saved file: gone, another size than it was saved at (`recorded` bytes),
 /// or not audio anymore. Blocking.
 pub fn file_problem(path: &Path, recorded: Option<i64>) -> Option<SongDownloadProblem> {

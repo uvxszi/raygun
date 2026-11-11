@@ -263,6 +263,15 @@ export const useSongDownloadActions = () => {
       },
       onError: refetch,
     }),
+    /** Keeps saved songs as they are: they leave the check list, and the same finding about the
+     * same file isn't told again. */
+    keep: useMutation({
+      mutationFn: (ids: string[]) => unwrapResult(commands.songDownloadsKeep(ids)),
+      onMutate: (ids) => {
+        for (const id of ids) patchItem(client, id, { problem: null });
+      },
+      onError: refetch,
+    }),
     reorder: useMutation({
       mutationFn: (ids: string[]) => unwrapResult(commands.songDownloadsReorder(ids)),
       onMutate: (ids) => {
