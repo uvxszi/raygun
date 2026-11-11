@@ -5,7 +5,14 @@ import { create } from 'zustand';
 
 import { PLAYER_DEFAULTS, withDefaults } from '../settings/playerOptions';
 import type { PlayerPrefs } from '../settings/playerOptions';
-import type { EpisodeItem, PlayerRequest, PlayerUpdate, SourceGroup } from './protocol';
+import type { MediaEngine } from './mediaEngine';
+import type {
+  EpisodeItem,
+  PlayerRequest,
+  PlayerUpdate,
+  QualityRow,
+  SourceGroup,
+} from './protocol';
 
 const DEFAULT_SEEK_STEP_MS = 10_000;
 const DEFAULT_PROMPT_MS = 15_000;
@@ -40,8 +47,16 @@ type VideoPlayerState = {
   hasNext: boolean;
   hasPrevious: boolean;
   sources: SourceGroup[];
+  /** The order Sources lists them in by clean name (Rust's `order`). */
+  sourceOrder: number[] | null;
   /** The source playing, once it has played a while. */
   playingFrom: string | null;
+  /** The Quality menu's steps, as Rust lists them. */
+  qualities: QualityRow[];
+  /** Why a step tapped in Quality can't play, with when it came (each one shows once). */
+  qualityNotice: { text: string; at: number } | null;
+  /** The engine playing now (live streams' clock and anchor, the connection's speed). */
+  engine: MediaEngine | null;
   chapters: VideoChapter[];
   /** Asks the screen to show Sources (an update said no link worked). */
   showSources: number;
@@ -108,7 +123,11 @@ const CLOSED = {
   hasNext: false,
   hasPrevious: false,
   sources: [],
+  sourceOrder: null,
   playingFrom: null,
+  qualities: [],
+  qualityNotice: null,
+  engine: null,
   chapters: [],
   showSources: 0,
   pickedSource: false,
@@ -163,7 +182,16 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
             autoplay: update.autoplay ?? state.autoplay,
           };
         case 'sources':
-          return { sources: update.groups, playingFrom: update.playingFrom ?? null };
+          return {
+            sources: update.groups,
+            playingFrom: update.playingFrom ?? null,
+            sourceOrder: update.order ?? null,
+          };
+        case 'qualities':
+          return {
+            qualities: update.items,
+            qualityNotice: update.notice ? { text: update.notice, at: Date.now() } : null,
+          };
         case 'chapters': {
           if (update.id !== state.request?.id) return state;
           // AniSkip's, beside any the source gave.

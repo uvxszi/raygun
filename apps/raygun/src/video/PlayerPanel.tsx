@@ -9,6 +9,8 @@ type Props = {
   children: ReactNode;
   /** Beside the top bar's buttons, or above the control bar's (where it was opened from). */
   at?: 'top' | 'bottom';
+  /** Wider, for two panes side by side (Sources). */
+  wide?: boolean;
 };
 
 /**
@@ -17,7 +19,13 @@ type Props = {
  * player, and scrolls. It opens scrolled to the chosen option (the source playing, the episode),
  * not to the top.
  */
-export const PlayerPanel: FC<Props> = ({ title, onClose, children, at = 'bottom' }) => {
+export const PlayerPanel: FC<Props> = ({
+  title,
+  onClose,
+  children,
+  at = 'bottom',
+  wide = false,
+}) => {
   const { t } = useTranslation();
   const list = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -31,9 +39,9 @@ export const PlayerPanel: FC<Props> = ({ title, onClose, children, at = 'bottom'
       aria-label={title}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
-      className={`absolute right-3 z-20 flex max-h-[min(60%,34rem)] w-80 max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-2xl bg-neutral-900/95 shadow-2xl ring-1 ring-white/10 backdrop-blur ${
-        at === 'top' ? 'top-16' : 'bottom-24'
-      }`}
+      className={`absolute right-3 z-20 flex flex-col overflow-hidden rounded-2xl bg-neutral-900/95 shadow-2xl ring-1 ring-white/10 backdrop-blur ${
+        wide ? 'max-h-[min(75%,36rem)] w-[44rem]' : 'max-h-[min(60%,34rem)] w-80'
+      } max-w-[calc(100%-1.5rem)] ${at === 'top' ? 'top-16' : 'bottom-24'}`}
     >
       <header className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
         <h2 className="truncate text-base font-semibold">{title}</h2>

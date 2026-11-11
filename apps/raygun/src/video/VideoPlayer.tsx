@@ -42,9 +42,12 @@ import { formatTime } from '../player/formatTime';
 import { useCaptions } from '../player/spoken';
 import { AiSubtitles } from './AiSubtitles';
 import { CastPanel, CastStage } from './Cast';
-import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
+import { DVR_MIN_MS, HOLD_STEP_MS, LiveBadge, LiveDelayPrompt, useLiveStream } from './LiveControls';
+import { attachMedia, embeddedCueLines, engineKind, ladderStep, pictureHeight } from './mediaEngine';
 import type { MediaEngine, StreamProblem } from './mediaEngine';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
+import { QualityPanel } from './QualityPanel';
+import { SourcesPanel } from './SourcesPanel';
 import { sendReport, sendRequest } from './protocol';
 import type { PlayerRequest, Position, TitleState } from './protocol';
 import { SubtitleLines } from './SubtitleLines';
@@ -124,11 +127,22 @@ const readVolume = () => {
   }
 };
 
-const positionOf = (video: HTMLVideoElement | null): Position => ({
-  positionMs: (video?.currentTime ?? 0) * 1000,
-  durationMs: video && Number.isFinite(video.duration) ? video.duration * 1000 : null,
-  looping: useVideoPlayerStore.getState().looping,
-});
+const positionOf = (video: HTMLVideoElement | null): Position => {
+  const state = useVideoPlayerStore.getState();
+  const engine = state.engine;
+  const positionMs = (video?.currentTime ?? 0) * 1000;
+  // A live stream's position is its own clock, with where the segment playing starts on it.
+  const live =
+    Boolean(state.request?.live) || Boolean(engine?.isLive()) || video?.duration === Infinity;
+  return {
+    positionMs,
+    durationMs: video && Number.isFinite(video.duration) ? video.duration * 1000 : null,
+    looping: state.looping,
+    live,
+    liveAnchor: live ? (engine?.liveAnchor(positionMs) ?? null) : null,
+    bandwidthKbps: engine?.bandwidthKbps() ?? null,
+  };
+};
 
 /** The window's own full screen (Tauri), else the page's. */
 const setWindowFullscreen = async (on: boolean) => {
