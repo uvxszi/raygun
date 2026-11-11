@@ -306,14 +306,27 @@ impl MangaService {
             None => {
                 let extensions = self.catalog.extensions();
                 let (_ready, host) = extensions.ready().await;
-                host.manga_pages(
-                    &context.title.fields.source_id,
-                    &context.unit.fields.remote_id,
-                )
-                .await?
-                .iter()
-                .map(|page| self.catalog.images.link(&page.url, &page.headers))
-                .collect()
+                let pages = host
+                    .manga_pages(
+                        &context.title.fields.source_id,
+                        &context.unit.fields.remote_id,
+                    )
+                    .await?;
+                match pages.as_slice() {
+                    // A chapter that is a PDF: its pages, drawn by the proxy.
+                    [page]
+                        if raygun_net::pdf::PdfRef::from_marked(&page.url, &page.headers)
+                            .is_some() =>
+                    {
+                        let pdf = raygun_net::pdf::PdfRef::from_marked(&page.url, &page.headers)
+                            .expect("checked above");
+                        pdf_pages(&self.app.state::<raygun_net::PdfStore>(), &pdf).await?
+                    }
+                    _ => pages
+                        .iter()
+                        .map(|page| self.catalog.images.link(&page.url, &page.headers))
+                        .collect(),
+                }
             }
         };
         let download = downloads
@@ -629,6 +642,23 @@ impl MangaService {
     fn downloads(&self) -> tauri::State<'_, Arc<MangaDownloadService>> {
         self.app.state::<Arc<MangaDownloadService>>()
     }
+}
+
+/// A PDF chapter's pages through the proxy's `/pdf/` route (the document fetched first).
+async fn pdf_pages(
+    pdfs: &raygun_net::PdfStore,
+    pdf: &raygun_net::pdf::PdfRef,
+) -> Result<Vec<String>, String> {
+    let token = pdfs.web_token(&pdf.url, &pdf.headers);
+    let count = pdfs
+        .document(&token)
+        .await
+        .map_err(String::from)?
+        .page_count();
+    Ok(pdf
+        .pages(count)
+        .map(|index| pdfs.page_url(&token, index))
+        .collect())
 }
 
 /// Scheduled updates skip series that won't get new chapters.

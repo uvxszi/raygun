@@ -1,0 +1,117 @@
+/*
+ * Formulas in the book reader (MathML Core, drawn by the webview).
+ * The environment rules (`menv-*`, `cell-*`, `mop-negated`) are adapted from pulldown-latex's
+ * styles.css (github.com/carloskiki/pulldown-latex, MIT License, Copyright 2024 Charles Edward
+ * Gagnon), which writes those classes. The font is Latin Modern Math (GUST e-foundry, GUST Font
+ * License), as distributed with pulldown-latex; it loads only once a formula is drawn.
+ */
+@namespace m url('http://www.w3.org/1998/Math/MathML');
+
+@font-face {
+  font-family: 'Latin Modern Math';
+  src:
+    local('Latin Modern Math'),
+    local('LatinModernMath-Regular'),
+    url('./fonts/latinmodern-math.woff2') format('woff2');
+  font-display: swap;
+}
+
+.math-formula m|math {
+  font-family: 'Latin Modern Math', math;
+  /* The text around it sets the size: the reader's text size, zoomed with the app. */
+  font-size: 1.05em;
+}
+
+.math-formula m|mtext {
+  font-family: inherit;
+}
+
+.math-display {
+  display: block;
+  margin: 0.6em 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+
+.math-display m|math {
+  display: block math;
+  margin: 0 auto;
+}
+
+.math-formula m|mtd {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.math-formula m|mo.small {
+  font-size: 70%;
+}
+
+.math-formula m|merror > m|mtext {
+  font-family: monospace;
+}
+
+.math-formula m|mtable {
+  border-color: currentColor;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.math-formula m|mtable.menv-alignlike > m|mtr > m|mtd:nth-child(odd),
+.math-formula m|mtable.menv-cells-right > m|mtr > m|mtd,
+.math-formula m|mtable.menv-multline > m|mtr > m|mtd:last-child,
+.math-formula m|mtd.cell-right {
+  text-align: right;
+}
+
+.math-formula m|mtable.menv-alignlike > m|mtr > m|mtd:nth-child(even),
+.math-formula m|mtable.menv-cells-left > m|mtr > m|mtd,
+.math-formula m|mtable.menv-multline > m|mtr > m|mtd:first-child,
+.math-formula m|mtd.cell-left {
+  text-align: left;
+}
+
+.math-formula m|mtable.menv-align > m|mtr > m|mtd:nth-child(2n + 3) {
+  padding-left: 1em;
+}
+
+.math-formula m|mtable.menv-cases > m|mtr > m|mtd:first-child {
+  padding-right: 1em;
+}
+
+.math-formula m|mtable.menv-arraylike > m|mtr > m|mtd {
+  padding-left: 0.4em;
+  padding-right: 0.4em;
+}
+
+.math-formula m|mtd.menv-left-solid {
+  border-left: 0.06em solid;
+}
+
+.math-formula m|mtd.menv-right-solid {
+  border-right: 0.06em solid;
+}
+
+.math-formula m|mtd.menv-left-dashed {
+  border-left: 0.06em dashed;
+}
+
+.math-formula m|mtd.menv-right-dashed {
+  border-right: 0.06em dashed;
+}
+
+.math-formula m|mtr.menv-hline {
+  border-top: 0.06em solid;
+}
+
+.math-formula m|mtr.menv-hdashline {
+  border-top: 0.06em dashed;
+}
+
+.math-formula m|mtd.menv-border-only:empty {
+  width: 0.1em;
+  padding: 0;
+  margin: 0;
+}

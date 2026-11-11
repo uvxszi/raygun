@@ -10,9 +10,9 @@ import { uploadFile } from '../manga/useImportComics';
 import { NOVEL } from './useNovel';
 
 /**
- * Imports an EPUB from the device into the novel library and opens it. `pick` opens the file
- * chooser; render `input` once (it's hidden). The file goes to Rust in slices, so a big book
- * never has to fit in one message.
+ * Imports a book (EPUB or PDF) from the device into the novel library and opens it. `pick` opens
+ * the file chooser; render `input` once (it's hidden). The file goes to Rust in slices, so a big
+ * book never has to fit in one message.
  */
 export const useImportEpub = () => {
   const { t } = useTranslation();
@@ -21,7 +21,7 @@ export const useImportEpub = () => {
   const navigate = useNavigate();
   const importBook = useMutation({
     mutationFn: async (file: File) =>
-      unwrapResult(commands.novelImportEpubUpload(await uploadFile(file))),
+      unwrapResult(commands.novelImportEpubUpload(await uploadFile(file), file.name)),
     onSuccess: (book) => {
       void queryClient.invalidateQueries({ queryKey: [NOVEL] });
       void navigate({ to: '/novel/title', search: { source: book.sourceId, id: book.novelId } });
@@ -41,7 +41,7 @@ export const useImportEpub = () => {
       <input
         ref={inputRef}
         type="file"
-        accept=".epub,application/epub+zip"
+        accept=".epub,application/epub+zip,.pdf,application/pdf"
         aria-label={t('novel.epubFile')}
         onChange={onPick}
         className="hidden"

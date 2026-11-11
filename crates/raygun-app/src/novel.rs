@@ -1,18 +1,29 @@
 //! Novels (M31): `novel.source` catalogues through the shared `Catalog`, and chapters as text
 //! blocks for the novel reader. Progress is a character offset into the chapter's text.
 //! M33 added EPUB imports (unpacked under `downloads/books/`) and downloaded chapters.
+//!
+//! PDF books and chapters: an imported PDF is a book of the source `local.pdf`, copied to
+//! `books/<sha256>/document.pdf`, its chapters the outline's top entries as runs of pages
+//! (`pages:<first>-<last>`, counted from 1). A source's chapter may be a PDF too (`passage`
+//! answers `{ pdf }`). Either way the chapter comes with [`PdfChapter`]: its pages drawn by the
+//! stream proxy (`raygun_net::pdf`), read like a comic's, and its text on request
+//! ([`NovelService::pdf_text`]) for the text view, reading aloud and search. Progress is then the
+//! page reached.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use base64::Engine;
-use raygun_db::titles::{self, TitleFields, UnitFields};
-use raygun_ext_host::novel::{NOVEL_SOURCE, PassageBlock, html_blocks};
+use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
+use raygun_ext_host::novel::{NOVEL_SOURCE, Part, PassageBlock, html_blocks};
 use raygun_model::{
     MangaBrowseMode, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
-    NovelChapter, TextBlock,
+    NovelChapter, PdfChapter, PdfChapterText, PdfContentsEntry, PdfSearchHit, ReaderMode,
+    TextBlock, TextPart,
 };
-use raygun_net::ImageLinks;
+use raygun_net::pdf::{Document, OutlineEntry, PdfRef, page_range};
+use raygun_net::{ImageLinks, PdfStore};
 use tauri::{AppHandle, Manager};
 
 use crate::catalog::{Catalog, LOCAL_PREFIX, chapter_info, now_ms, to_message};
@@ -22,8 +33,19 @@ use crate::manga_downloads::MangaDownloadService;
 const KIND: &str = "novel";
 /// The source id of imported EPUB books.
 pub const LOCAL_EPUB: &str = "local.epub";
+/// The source id of imported PDF books.
+pub const LOCAL_PDF: &str = "local.pdf";
 /// Folder under the downloads root holding unpacked books.
 const BOOKS: &str = "books";
+/// An imported PDF's file, and its cover, in its folder under [`BOOKS`].
+const PDF_FILE: &str = "document.pdf";
+const PDF_COVER: &str = "cover.png";
+/// How wide an imported PDF's cover is drawn.
+const COVER_WIDTH: u32 = 480;
+/// A PDF without an outline is read in parts of this many pages.
+const PART_PAGES: usize = 50;
+/// Chapters of a PDF book at most.
+const MAX_PDF_CHAPTERS: usize = 1_000;
 /// Host of the placeholder base URL that chapter images resolve against.
 const BOOK_HOST: &str = "book.invalid";
 
@@ -31,6 +53,169 @@ pub struct NovelService {
     app: AppHandle,
     catalog: Catalog,
     downloads_dir: PathBuf,
+    /// Source chapters that turned out to be PDF documents, by chapter id, so their text and
+    /// search needn't ask the source again.
+    pdf_chapters: Mutex<HashMap<String, PdfRef>>,
+}
+
+/// Where a PDF chapter's pages are: its document and its pages in it (from 0).
+struct PdfPlace {
+    token: String,
+    range: std::ops::Range<usize>,
+}
+
+/// The pages a `pages:<first>-<last>` chapter id names, counted from 1.
+fn pages_of(id: &str) -> Option<(u32, u32)> {
+    let (first, last) = id.strip_prefix("pages:")?.split_once('-')?;
+    Some((first.parse().ok()?, last.parse().ok()?))
+}
+
+/// A PDF book's chapters from its outline: the top entries (or those under a lone top entry, the
+/// book's own title), each running to the next; pages before the first are the front matter. A
+/// document without an outline is read in parts. Each chapter is (name, first page, last page),
+/// pages from 0.
+pub(crate) fn pdf_chapters(outline: &[OutlineEntry], count: usize) -> Vec<(String, usize, usize)> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let top = outline.iter().filter(|entry| entry.level == 0).count();
+    let level = u32::from(top == 1 && outline.iter().any(|entry| entry.level == 1));
+    let mut starts: Vec<(usize, String)> = Vec::new();
+    let mut entries: Vec<&OutlineEntry> = outline
+        .iter()
+        .filter(|entry| entry.level == level && entry.page < count)
+        .collect();
+    entries.sort_by_key(|entry| entry.page);
+    for entry in entries {
+        match starts.last_mut() {
+            // Two entries on one page are one chapter.
+            Some((page, name)) if *page == entry.page => {
+                name.push_str(" · ");
+                name.push_str(&entry.title);
+            }
+            _ => starts.push((entry.page, entry.title.clone())),
+        }
+    }
+    if starts.is_empty() {
+        return (0..count)
+            .step_by(PART_PAGES)
+            .map(|first| {
+                let last = (first + PART_PAGES).min(count) - 1;
+                (format!("Pages {}–{}", first + 1, last + 1), first, last)
+            })
+            .collect();
+    }
+    match starts.first_mut() {
+        // A cover page or two belong to the first chapter.
+        Some((page, _)) if *page <= 2 => *page = 0,
+        _ => starts.insert(0, (0, "Front matter".to_owned())),
+    }
+    starts.truncate(MAX_PDF_CHAPTERS);
+    let ends: Vec<usize> = starts
+        .iter()
+        .skip(1)
+        .map(|(page, _)| page - 1)
+        .chain(std::iter::once(count - 1))
+        .collect();
+    starts
+        .into_iter()
+        .zip(ends)
+        .map(|((first, name), last)| (name, first, last.max(first)))
+        .collect()
+}
+
+/// A PDF's own title, unless it's a file name or a word processor's ("Microsoft Word - x.docx").
+fn pdf_title(info: Option<&str>, name: Option<&str>) -> String {
+    let own = info
+        .map(|title| {
+            title
+                .trim()
+                .trim_start_matches("Microsoft Word - ")
+                .trim()
+                .to_owned()
+        })
+        .filter(|title| {
+            let lower = title.to_ascii_lowercase();
+            !title.is_empty()
+                && !lower.starts_with("untitled")
+                && ![".doc", ".docx", ".pdf", ".tex", ".odt", ".indd"]
+                    .iter()
+                    .any(|extension| lower.ends_with(extension))
+        });
+    own.or_else(|| {
+        let name = name?.trim();
+        let stem = name
+            .rsplit_once('.')
+            .filter(|(_, extension)| extension.eq_ignore_ascii_case("pdf"))
+            .map_or(name, |(stem, _)| stem);
+        Some(stem.replace('_', " ").trim().to_owned()).filter(|stem| !stem.is_empty())
+    })
+    .unwrap_or_else(|| "PDF document".to_owned())
+}
+
+/// The authors a PDF names: one field, split where several are listed.
+fn pdf_authors(author: Option<&str>) -> Vec<String> {
+    let Some(author) = author else {
+        return Vec::new();
+    };
+    author
+        .split([';', '&'])
+        .flat_map(|part| part.split(" and "))
+        .flat_map(|part| {
+            // "Last, First" stays one name; "A, B, C" (more than two) are several.
+            if part.matches(',').count() >= 2 {
+                part.split(',').collect::<Vec<_>>()
+            } else {
+                vec![part]
+            }
+        })
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The SHA-256 of a file, read in pieces. Blocking.
+fn file_hash(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+/// A PDF page's text as the reader's blocks.
+fn text_blocks(texts: &[raygun_net::pdf::PageText]) -> PdfChapterText {
+    let mut blocks = Vec::new();
+    let mut page_starts = Vec::new();
+    for page in texts {
+        page_starts.push(blocks.len() as u32);
+        for block in &page.blocks {
+            blocks.push(if block.heading {
+                TextBlock::Heading {
+                    text: block.text.clone(),
+                }
+            } else {
+                TextBlock::paragraph(block.text.clone())
+            });
+        }
+    }
+    PdfChapterText {
+        blocks,
+        page_starts,
+    }
 }
 
 impl NovelService {
@@ -44,6 +229,7 @@ impl NovelService {
             catalog: Catalog::new(app.clone(), images, KIND, NOVEL_SOURCE),
             app,
             downloads_dir,
+            pdf_chapters: Mutex::default(),
         }
     }
 
@@ -67,7 +253,7 @@ impl NovelService {
         remote_id: &str,
         refresh: bool,
     ) -> Result<MangaTitleView, String> {
-        let row = if source_id == LOCAL_EPUB {
+        let row = if source_id == LOCAL_EPUB || source_id == LOCAL_PDF {
             // An imported book has nothing to refresh from.
             titles::find_title(&self.catalog.db(), source_id, remote_id)
                 .await
@@ -82,6 +268,8 @@ impl NovelService {
         let mut view = self.catalog.title_view(row, &downloads).await?;
         if view.source_id == LOCAL_EPUB {
             view.source_name = "EPUB file".into();
+        } else if view.source_id == LOCAL_PDF {
+            view.source_name = "PDF file".into();
         }
         Ok(view)
     }
@@ -99,8 +287,26 @@ impl NovelService {
         self.import_epub_bytes(bytes).await
     }
 
-    /// Imports an uploaded EPUB file (sent in slices, so a big book never crosses IPC whole); the
-    /// file is deleted afterwards.
+    /// Imports an uploaded book (sent in slices, so a big book never crosses IPC whole): a PDF, or
+    /// an EPUB. The file is deleted afterwards; `name` is what it was called, for a PDF's title.
+    pub async fn import_book_upload(
+        &self,
+        file: PathBuf,
+        name: Option<String>,
+    ) -> Result<(String, String), String> {
+        let probe = file.clone();
+        let pdf = tauri::async_runtime::spawn_blocking(move || is_pdf_file(&probe))
+            .await
+            .unwrap_or(false);
+        if pdf {
+            let result = self.import_pdf_file(&file, name.as_deref()).await;
+            let _ = tokio::fs::remove_file(&file).await;
+            return result;
+        }
+        self.import_epub_file(file).await
+    }
+
+    /// Imports an uploaded EPUB file; the file is deleted afterwards.
     pub async fn import_epub_file(&self, file: PathBuf) -> Result<(String, String), String> {
         let bytes = tauri::async_runtime::spawn_blocking(move || {
             let result = match std::fs::metadata(&file) {
@@ -221,7 +427,7 @@ impl NovelService {
                 PassageBlock::Image(url) => {
                     let url = url::Url::parse(&url).ok()?;
                     if url.host_str() != Some(BOOK_HOST) {
-                        return Some(self.block(PassageBlock::Image(url.to_string())));
+                        return self.block(PassageBlock::Image(url.to_string()));
                     }
                     let inside = epub::resolve("", url.path().trim_start_matches('/'))?;
                     Some(TextBlock::Image {
@@ -231,7 +437,7 @@ impl NovelService {
                             .local(&format!("{BOOKS}/{hash}/{}", epub::safe_url_path(&inside))),
                     })
                 }
-                block => Some(self.block(block)),
+                block => self.block(block),
             })
             .collect())
     }
@@ -244,7 +450,7 @@ impl NovelService {
         self.catalog.library().await
     }
 
-    /// One chapter's text, with its neighbours in reading order.
+    /// One chapter's text, with its neighbours in reading order; a PDF chapter's pages instead.
     pub async fn chapter(&self, title_id: &str, unit_id: &str) -> Result<NovelChapter, String> {
         // Another translation of the chapter just read isn't the next one.
         let context = self
@@ -252,27 +458,36 @@ impl NovelService {
             .chapter_context(title_id, unit_id, true)
             .await?;
         let downloads = self.downloads();
+        let mut pdf = None;
         let blocks = if context.title.fields.source_id == LOCAL_EPUB {
             self.book_chapter(
                 &context.title.fields.remote_id,
                 &context.unit.fields.remote_id,
             )
             .await?
+        } else if context.title.fields.source_id == LOCAL_PDF {
+            let place = self.local_pdf_place(&context.title, &context.unit.fields.remote_id)?;
+            pdf = Some(self.pdf_chapter(place, &context.title).await?);
+            Vec::new()
         } else {
-            // A downloaded chapter reads from disk, without asking the source.
-            let passage = match downloads.local_passage(title_id, unit_id).await {
-                Some(passage) => passage,
-                None => {
-                    let extensions = self.catalog.extensions();
-                    let (_ready, host) = extensions.ready().await;
-                    host.novel_passage(
-                        &context.title.fields.source_id,
-                        &context.unit.fields.remote_id,
-                    )
-                    .await?
-                }
-            };
-            passage.into_iter().map(|block| self.block(block)).collect()
+            let passage = self
+                .passage(
+                    title_id,
+                    unit_id,
+                    &context.title,
+                    &context.unit.fields.remote_id,
+                )
+                .await?;
+            if let [PassageBlock::Pdf(reference)] = passage.as_slice() {
+                let place = self.web_pdf_place(title_id, unit_id, reference).await;
+                pdf = Some(self.pdf_chapter(place, &context.title).await?);
+                Vec::new()
+            } else {
+                passage
+                    .into_iter()
+                    .filter_map(|block| self.block(block))
+                    .collect()
+            }
         };
         let download = downloads
             .for_chapters(std::slice::from_ref(&context.unit.id))
@@ -284,20 +499,347 @@ impl NovelService {
             blocks,
             previous_chapter_id: context.previous_id,
             next_chapter_id: context.next_id,
+            pdf,
         })
     }
 
-    fn block(&self, block: PassageBlock) -> TextBlock {
-        match block {
-            PassageBlock::Paragraph(text) => TextBlock::Paragraph { text },
+    /// A source chapter's passage: from its download, else the source. A PDF one is remembered,
+    /// so its text and search needn't ask again.
+    async fn passage(
+        &self,
+        title_id: &str,
+        unit_id: &str,
+        title: &TitleRow,
+        remote_id: &str,
+    ) -> Result<Vec<PassageBlock>, String> {
+        // A downloaded chapter reads from disk, without asking the source.
+        let passage = match self.downloads().local_passage(title_id, unit_id).await {
+            Some(passage) => passage,
+            None => {
+                let extensions = self.catalog.extensions();
+                let (_ready, host) = extensions.ready().await;
+                host.novel_passage(&title.fields.source_id, remote_id)
+                    .await?
+            }
+        };
+        if let [PassageBlock::Pdf(reference)] = passage.as_slice() {
+            self.pdf_chapters
+                .lock()
+                .expect("pdf chapters poisoned")
+                .insert(unit_id.to_owned(), reference.clone());
+        }
+        Ok(passage)
+    }
+
+    fn block(&self, block: PassageBlock) -> Option<TextBlock> {
+        Some(match block {
+            PassageBlock::Paragraph(text) => TextBlock::paragraph(text),
             PassageBlock::Heading(text) => TextBlock::Heading { text },
             PassageBlock::Separator => TextBlock::Separator,
             PassageBlock::Image(url) => TextBlock::Image {
                 url: self.catalog.images.link(&url, &Default::default()),
             },
+            PassageBlock::Rich(parts) => TextBlock::Paragraph {
+                text: raygun_ext_host::novel::plain_text(&parts),
+                parts: Some(parts.into_iter().map(text_part).collect()),
+            },
+            PassageBlock::Math(formula) => TextBlock::Math {
+                mathml: formula.mathml,
+                text: formula.text,
+                speech: formula.speech,
+            },
+            // A PDF passage is read as pages (`chapter`).
+            PassageBlock::Pdf(_) => return None,
+        })
+    }
+
+    /// An imported PDF's chapter: its document and the pages its id names.
+    fn local_pdf_place(&self, title: &TitleRow, remote_id: &str) -> Result<PdfPlace, String> {
+        let (first, last) = pages_of(remote_id)
+            .ok_or_else(|| "This chapter is missing from the book".to_owned())?;
+        Ok(PdfPlace {
+            token: self
+                .pdfs()
+                .local_token(&format!("{BOOKS}/{}/{PDF_FILE}", title.fields.remote_id)),
+            range: (first.saturating_sub(1) as usize)..(last as usize),
+        })
+    }
+
+    /// A source's PDF chapter: its downloaded copy, else the document on the web.
+    async fn web_pdf_place(&self, title_id: &str, unit_id: &str, reference: &PdfRef) -> PdfPlace {
+        let pdfs = self.pdfs();
+        let copy = crate::manga_downloads::novel_pdf_path(title_id, unit_id);
+        let token = if tokio::fs::try_exists(self.downloads_dir.join(&copy))
+            .await
+            .unwrap_or(false)
+        {
+            pdfs.local_token(&copy)
+        } else {
+            pdfs.web_token(&reference.url, &reference.headers)
+        };
+        PdfPlace {
+            token,
+            // Applied to the document's length once it's open.
+            range: reference
+                .first_page
+                .map_or(0, |first| first.max(1) as usize - 1)
+                ..reference.last_page.map_or(usize::MAX, |last| last as usize),
         }
     }
 
+    /// Where a PDF chapter is, asking the source only when it isn't known yet.
+    async fn pdf_place(&self, title_id: &str, unit_id: &str) -> Result<PdfPlace, String> {
+        let db = self.catalog.db();
+        let title = titles::title(&db, title_id)
+            .await
+            .map_err(to_message)?
+            .ok_or_else(|| "This title isn't stored".to_owned())?;
+        let unit = titles::unit(&db, unit_id)
+            .await
+            .map_err(to_message)?
+            .ok_or_else(|| "This chapter isn't stored".to_owned())?;
+        if title.fields.source_id == LOCAL_PDF {
+            return self.local_pdf_place(&title, &unit.fields.remote_id);
+        }
+        let known = self
+            .pdf_chapters
+            .lock()
+            .expect("pdf chapters poisoned")
+            .get(unit_id)
+            .cloned();
+        let reference = match known {
+            Some(reference) => reference,
+            None => match self
+                .passage(title_id, unit_id, &title, &unit.fields.remote_id)
+                .await?
+                .as_slice()
+            {
+                [PassageBlock::Pdf(reference)] => reference.clone(),
+                _ => return Err("This chapter isn't a PDF".into()),
+            },
+        };
+        Ok(self.web_pdf_place(title_id, unit_id, &reference).await)
+    }
+
+    /// What the reader needs of a PDF chapter: its pages (the document opened, a web one fetched
+    /// first), and the bookmarks among them.
+    async fn pdf_chapter(&self, place: PdfPlace, title: &TitleRow) -> Result<PdfChapter, String> {
+        let pdfs = self.pdfs();
+        let document = pdfs.document(&place.token).await.map_err(String::from)?;
+        let count = document.page_count();
+        let range = clamp(&place.range, count);
+        let pages = range
+            .clone()
+            .map(|index| pdfs.page_url(&place.token, index))
+            .collect();
+        let outline = tauri::async_runtime::spawn_blocking(move || document.outline())
+            .await
+            .map_err(to_message)?;
+        let contents = outline
+            .into_iter()
+            .filter(|entry| range.contains(&entry.page))
+            .map(|entry| PdfContentsEntry {
+                title: entry.title,
+                page: (entry.page - range.start) as u32,
+                level: entry.level,
+            })
+            .collect();
+        let default_mode = match crate::settings::load(&self.catalog.db()).await {
+            Ok(settings) => settings.manga_reader.default_mode,
+            Err(_) => raygun_model::MangaReaderPrefs::default().default_mode,
+        };
+        let own_reader_mode = ReaderMode::chosen(&title.reader_mode);
+        Ok(PdfChapter {
+            pages,
+            first_page: range.start as u32 + 1,
+            reader_mode: own_reader_mode.unwrap_or(default_mode),
+            own_reader_mode,
+            contents,
+        })
+    }
+
+    /// A PDF chapter's text, page by page, for the text view and reading aloud.
+    pub async fn pdf_text(&self, title_id: &str, unit_id: &str) -> Result<PdfChapterText, String> {
+        let place = self.pdf_place(title_id, unit_id).await?;
+        let pdfs = self.pdfs();
+        let count = pdfs
+            .document(&place.token)
+            .await
+            .map_err(String::from)?
+            .page_count();
+        let texts = pdfs
+            .texts(&place.token, clamp(&place.range, count))
+            .await
+            .map_err(String::from)?;
+        Ok(text_blocks(&texts))
+    }
+
+    /// Where `query` appears in a PDF: an imported book's whole document (each hit with its
+    /// chapter), or a source chapter's pages.
+    pub async fn pdf_search(
+        &self,
+        title_id: &str,
+        unit_id: &str,
+        query: &str,
+    ) -> Result<Vec<PdfSearchHit>, String> {
+        let place = self.pdf_place(title_id, unit_id).await?;
+        let pdfs = self.pdfs();
+        let count = pdfs
+            .document(&place.token)
+            .await
+            .map_err(String::from)?
+            .page_count();
+        let db = self.catalog.db();
+        let local = titles::title(&db, title_id)
+            .await
+            .map_err(to_message)?
+            .is_some_and(|title| title.fields.source_id == LOCAL_PDF);
+        // A book's chapters share its document: each hit goes to the chapter holding its page.
+        let chapters: Vec<(String, std::ops::Range<usize>)> = if local {
+            titles::units(&db, title_id)
+                .await
+                .map_err(to_message)?
+                .into_iter()
+                .filter_map(|unit| {
+                    let (first, last) = pages_of(&unit.fields.remote_id)?;
+                    Some((unit.id, first.saturating_sub(1) as usize..last as usize))
+                })
+                .collect()
+        } else {
+            vec![(unit_id.to_owned(), clamp(&place.range, count))]
+        };
+        let searched = if local {
+            0..count
+        } else {
+            clamp(&place.range, count)
+        };
+        let hits = pdfs
+            .search(&place.token, query, searched)
+            .await
+            .map_err(String::from)?;
+        Ok(hits
+            .into_iter()
+            .filter_map(|hit| {
+                let (chapter_id, range) = chapters
+                    .iter()
+                    .find(|(_, range)| range.contains(&hit.page))?;
+                Some(PdfSearchHit {
+                    chapter_id: chapter_id.clone(),
+                    page: (hit.page - range.start) as u32,
+                    page_number: hit.page as u32 + 1,
+                    before: hit.before,
+                    matched: hit.matched,
+                    after: hit.after,
+                })
+            })
+            .collect())
+    }
+
+    /// Imports a PDF file (an upload, a Local Files folder's, one another app handed over):
+    /// copied to `books/<sha256>/document.pdf` with its first page as the cover, its chapters
+    /// from its outline. The same file imported again keeps its title and progress. `name` is the
+    /// file's name, the title when the document gives none. Returns the source's id
+    /// (`local.pdf`) and the book's id.
+    pub async fn import_pdf_file(
+        &self,
+        file: &Path,
+        name: Option<&str>,
+    ) -> Result<(String, String), String> {
+        let books = self.downloads_dir.join(BOOKS);
+        let source = file.to_path_buf();
+        let (hash, info, chapters) =
+            tauri::async_runtime::spawn_blocking(move || -> Result<_, String> {
+                let size = std::fs::metadata(&source)
+                    .map_err(|_| "The file couldn't be read".to_owned())?
+                    .len();
+                if size > raygun_net::pdf::MAX_PDF_BYTES {
+                    return Err("This PDF is larger than 1 GB".into());
+                }
+                let hash =
+                    file_hash(&source).map_err(|_| "The file couldn't be read".to_owned())?;
+                let dir = books.join(&hash);
+                let target = dir.join(PDF_FILE);
+                if !target.is_file() {
+                    std::fs::create_dir_all(&dir).map_err(to_message)?;
+                    let partial = dir.join(format!("{PDF_FILE}.part"));
+                    std::fs::copy(&source, &partial).map_err(to_message)?;
+                    std::fs::rename(&partial, &target).map_err(to_message)?;
+                }
+                let document = match Document::open(&target) {
+                    Ok(document) => document,
+                    Err(error) => {
+                        let _ = std::fs::remove_dir_all(&dir);
+                        return Err(error);
+                    }
+                };
+                let cover = dir.join(PDF_COVER);
+                if !cover.is_file()
+                    && let Ok(png) = document.render_png(0, COVER_WIDTH)
+                {
+                    let _ = std::fs::write(&cover, png);
+                }
+                let chapters = pdf_chapters(&document.outline(), document.page_count());
+                Ok((hash, document.info(), chapters))
+            })
+            .await
+            .map_err(to_message)??;
+
+        let db = self.catalog.db();
+        let now = now_ms();
+        let cover = self
+            .downloads_dir
+            .join(BOOKS)
+            .join(&hash)
+            .join(PDF_COVER)
+            .is_file()
+            .then(|| format!("{LOCAL_PREFIX}{BOOKS}/{hash}/{PDF_COVER}"));
+        let title = pdf_title(info.title.as_deref(), name);
+        let id = titles::upsert_title(
+            &db,
+            &TitleFields {
+                kind: KIND.into(),
+                source_id: LOCAL_PDF.into(),
+                remote_id: hash.clone(),
+                title: title.clone(),
+                cover,
+                cover_headers: Default::default(),
+                authors: pdf_authors(info.author.as_deref()),
+                artists: Vec::new(),
+                description: info.subject.clone(),
+                genres: Vec::new(),
+                status: "completed".into(),
+                url: None,
+                media_type: None,
+                year: None,
+            },
+            now,
+        )
+        .await
+        .map_err(to_message)?;
+        let units: Vec<UnitFields> = chapters
+            .iter()
+            .enumerate()
+            .map(|(index, (name, first, last))| UnitFields {
+                remote_id: format!("pages:{}-{}", first + 1, last + 1),
+                name: name.clone(),
+                number: Some((index + 1) as f64),
+                volume: None,
+                scanlator: None,
+                date: None,
+            })
+            .collect();
+        titles::sync_units(&db, &id, &units, "chapter", now)
+            .await
+            .map_err(to_message)?;
+        let stored = titles::title(&db, &id).await.map_err(to_message)?;
+        if stored.is_some_and(|title| title.in_library_at.is_none()) {
+            titles::set_in_library(&db, &id, Some(now))
+                .await
+                .map_err(to_message)?;
+        }
+        tracing::info!(book = %title, chapters = units.len(), "PDF imported");
+        Ok((LOCAL_PDF.to_owned(), hash))
+    }
     /// Stores the character offset reached; reaching the end (`offset >= total - 1`) completes
     /// the chapter.
     pub async fn set_progress(&self, unit_id: &str, offset: u32, total: u32) -> Result<(), String> {
@@ -310,5 +852,142 @@ impl NovelService {
 
     fn downloads(&self) -> tauri::State<'_, Arc<MangaDownloadService>> {
         self.app.state::<Arc<MangaDownloadService>>()
+    }
+
+    fn pdfs(&self) -> PdfStore {
+        self.app.state::<PdfStore>().inner().clone()
+    }
+}
+
+/// `range` within a document of `count` pages, never empty.
+fn clamp(range: &std::ops::Range<usize>, count: usize) -> std::ops::Range<usize> {
+    let first = u32::try_from(range.start + 1).ok();
+    let last = u32::try_from(range.end.min(count)).ok();
+    page_range(first, last, count)
+}
+
+/// Whether a file starts as a PDF does. Blocking.
+fn is_pdf_file(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 1024];
+    let read = std::fs::File::open(path)
+        .and_then(|mut file| file.read(&mut head))
+        .unwrap_or(0);
+    raygun_net::pdf::is_pdf(&head[..read])
+}
+
+/// A paragraph's part as the reader gets it.
+fn text_part(part: Part) -> TextPart {
+    match part {
+        Part::Text(text) => TextPart::Text { text },
+        Part::Sup(text) => TextPart::Sup { text },
+        Part::Sub(text) => TextPart::Sub { text },
+        Part::Math(formula) => TextPart::Math {
+            mathml: formula.mathml,
+            text: formula.text,
+            speech: formula.speech,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(title: &str, page: usize, level: u32) -> OutlineEntry {
+        OutlineEntry {
+            title: title.into(),
+            page,
+            level,
+        }
+    }
+
+    fn named(chapters: &[(String, usize, usize)]) -> Vec<(&str, usize, usize)> {
+        chapters
+            .iter()
+            .map(|(name, first, last)| (name.as_str(), *first, *last))
+            .collect()
+    }
+
+    #[test]
+    fn a_pdfs_outline_makes_its_chapters() {
+        let outline = [
+            entry("Preface", 4, 0),
+            entry("Chapter 1", 10, 0),
+            entry("1.1 Sets", 12, 1),
+            entry("Chapter 2", 30, 0),
+            entry("Part II", 30, 0),
+            entry("Index", 99, 0),
+        ];
+        assert_eq!(
+            named(&pdf_chapters(&outline, 60)),
+            [
+                ("Front matter", 0, 3),
+                ("Preface", 4, 9),
+                ("Chapter 1", 10, 29),
+                ("Chapter 2 · Part II", 30, 59),
+            ],
+            "the index lies past the end, and two entries on one page are one chapter"
+        );
+        // A cover before the first entry belongs to it.
+        assert_eq!(
+            named(&pdf_chapters(&[entry("One", 1, 0), entry("Two", 5, 0)], 8)),
+            [("One", 0, 4), ("Two", 5, 7)]
+        );
+        // One top entry (the book's title): the entries under it are the chapters.
+        let book = [
+            entry("A Book", 0, 0),
+            entry("First", 0, 1),
+            entry("Second", 3, 1),
+        ];
+        assert_eq!(
+            named(&pdf_chapters(&book, 6)),
+            [("First", 0, 2), ("Second", 3, 5)]
+        );
+    }
+
+    #[test]
+    fn a_pdf_without_an_outline_is_read_in_parts() {
+        assert_eq!(
+            named(&pdf_chapters(&[], 120)),
+            [
+                ("Pages 1–50", 0, 49),
+                ("Pages 51–100", 50, 99),
+                ("Pages 101–120", 100, 119)
+            ]
+        );
+        assert_eq!(named(&pdf_chapters(&[], 3)), [("Pages 1–3", 0, 2)]);
+        assert!(pdf_chapters(&[], 0).is_empty());
+    }
+
+    #[test]
+    fn pdf_chapter_ids_name_their_pages() {
+        assert_eq!(pages_of("pages:3-40"), Some((3, 40)));
+        assert_eq!(pages_of("chapter-1"), None);
+        assert_eq!(clamp(&(2..5), 10), 2..5);
+        assert_eq!(clamp(&(0..usize::MAX), 7), 0..7);
+        assert_eq!(clamp(&(9..12), 4), 3..4);
+    }
+
+    #[test]
+    fn pdfs_are_named_by_their_title_else_their_file() {
+        assert_eq!(
+            pdf_title(Some("Calculus Volume 1"), Some("x.pdf")),
+            "Calculus Volume 1"
+        );
+        assert_eq!(
+            pdf_title(
+                Some("Microsoft Word - notes.docx"),
+                Some("Lecture_Notes.pdf")
+            ),
+            "Lecture Notes"
+        );
+        assert_eq!(pdf_title(Some("  "), None), "PDF document");
+        assert_eq!(
+            pdf_authors(Some("Gilbert Strang; Edwin Herman")),
+            ["Gilbert Strang", "Edwin Herman"]
+        );
+        assert_eq!(pdf_authors(Some("Doe, Jane")), ["Doe, Jane"]);
+        assert_eq!(pdf_authors(Some("A and B")), ["A", "B"]);
     }
 }

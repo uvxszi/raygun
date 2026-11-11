@@ -1,6 +1,6 @@
 //! Local Files (M46.27): folders the user adds, scanned for everything Raygun plays or reads.
 //! Songs join the music library (the folder becomes one of its roots), comics (CBZ/ZIP, or a
-//! folder of images) and books (EPUB) are imported as they are from uploads, and videos become
+//! folder of images) and books (EPUB, PDF) are imported as they are from uploads, and videos become
 //! titles of the source `local.video` in Library → Videos, played from where they are.
 //!
 //! Each folder says how it's read (M46.51, [`FolderAccess`]):
@@ -62,6 +62,7 @@ const PICK_TYPES: &[&str] = &[
     "video/*",
     "image/*",
     "application/epub+zip",
+    "application/pdf",
     "application/zip",
     "application/x-zip-compressed",
     "application/vnd.comicbook+zip",
@@ -124,7 +125,7 @@ fn kind_of(name: &str) -> Option<Kind> {
         Some(Kind::Image)
     } else if matches!(extension, "cbz" | "zip") {
         Some(Kind::Comic)
-    } else if extension == "epub" {
+    } else if matches!(extension, "epub" | "pdf") {
         Some(Kind::Book)
     } else {
         None
@@ -133,7 +134,7 @@ fn kind_of(name: &str) -> Option<Kind> {
 
 /// Every extension [`kind_of`] knows.
 fn extensions() -> Vec<&'static str> {
-    [SONGS, VIDEOS, IMAGES, &["cbz", "zip", "epub"]].concat()
+    [SONGS, VIDEOS, IMAGES, &["cbz", "zip", "epub", "pdf"]].concat()
 }
 
 /// A picked file's name with an extension Raygun knows: some providers name files without one,
@@ -145,6 +146,7 @@ fn named_for_kind(name: &str, mime: Option<&str>) -> String {
     }
     let extension = match mime.unwrap_or_default().to_ascii_lowercase().as_str() {
         "application/epub+zip" => "epub",
+        "application/pdf" => "pdf",
         "application/vnd.comicbook+zip" | "application/x-cbz" => "cbz",
         "application/zip" | "application/x-zip-compressed" => "zip",
         "audio/mpeg" | "audio/mp3" => "mp3",
@@ -1975,6 +1977,9 @@ impl LocalFilesService {
         novels: &crate::novel::NovelService,
         file: &Found,
     ) -> Result<Option<String>, String> {
+        if file.rel.to_ascii_lowercase().ends_with(".pdf") {
+            return self.import_pdf(novels, file).await;
+        }
         if file.size as usize > crate::epub::MAX_FILE_BYTES {
             return Err(format!("{} is larger than 64 MB", file.rel));
         }
@@ -1987,6 +1992,35 @@ impl LocalFilesService {
             .import_epub_bytes(bytes)
             .await
             .map(|(source, key)| Some(format!("{source}:{key}")))
+    }
+
+    /// A PDF becomes a book: read where it is when it has a path, else copied out first.
+    async fn import_pdf(
+        self: &Arc<Self>,
+        novels: &crate::novel::NovelService,
+        file: &Found,
+    ) -> Result<Option<String>, String> {
+        let name = file_name(&file.rel).to_owned();
+        let imported = match &file.open {
+            Opener::Path(path) => novels.import_pdf_file(path, Some(&name)).await,
+            Opener::Document(_) => {
+                let temp = self.temp_file(&name)?;
+                let service = self.clone();
+                let (copy, target) = (file.clone(), temp.clone());
+                let copied =
+                    tauri::async_runtime::spawn_blocking(move || service.copy_to(&copy, &target))
+                        .await
+                        .map_err(|error| error.to_string())
+                        .and_then(|result| result);
+                let imported = match copied {
+                    Ok(()) => novels.import_pdf_file(&temp, Some(&name)).await,
+                    Err(error) => Err(error),
+                };
+                let _ = std::fs::remove_file(&temp);
+                imported
+            }
+        };
+        imported.map(|(source, key)| Some(format!("{source}:{key}")))
     }
 
     async fn import_pages(
@@ -2654,7 +2688,7 @@ mod tests {
         touch(&root.join("Download/Shows/S01E01.mkv"), b"x");
         touch(&root.join("music/Album/1.mp3"), b"x");
         touch(&root.join("music/Album/2.flac"), b"x");
-        touch(&root.join("Documents/report.pdf"), b"x");
+        touch(&root.join("Documents/report.docx"), b"x");
         touch(&root.join(".thumbnails/a.jpg"), b"x");
         std::fs::create_dir_all(root.join("Alarms")).unwrap();
         touch(&root.join("song.mp3"), b"x");

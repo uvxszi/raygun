@@ -143,6 +143,44 @@ opt-level = 3
 [profile.dev.package.rten-vecmath]
 opt-level = 3
 
+# PDF pages drawn and their text read (`raygun_net::pdf`, hayro over vello_cpu): unoptimized, a page
+# took seconds to draw in the debug builds the emulator runs.
+[profile.dev.package.hayro]
+opt-level = 3
+
+[profile.dev.package.hayro-interpret]
+opt-level = 3
+
+[profile.dev.package.hayro-syntax]
+opt-level = 3
+
+[profile.dev.package.hayro-font]
+opt-level = 3
+
+[profile.dev.package.hayro-jpeg2000]
+opt-level = 3
+
+[profile.dev.package.hayro-jbig2]
+opt-level = 3
+
+[profile.dev.package.hayro-ccitt]
+opt-level = 3
+
+[profile.dev.package.vello_cpu]
+opt-level = 3
+
+[profile.dev.package.vello_common]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
 # Panics unwind, never abort (M46.7): on Windows, Lua's errors (Shosetsu scripts, mlua) travel as
 # SEH unwinds through Rust frames, and with `panic = "abort"` any script error ended the whole app.
 # Unwinding also lets a panic stop one worker thread instead of the process.

@@ -2913,6 +2913,7 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a14afde3344be69225fec4f6f44f6a219a3a492f9d8301eb25ef608fe4b7014c"
 dependencies = [
+ "brotli 8.0.4",
  "hayro-postscript",
 ]
 
@@ -5352,6 +5353,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-latex"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cf850381ae0dbb131f36e31d6090f55363d079ab3e518ad0323b9cb6a96d115"
+dependencies = [
+ "bumpalo",
+]
+
+[[package]]
 name = "pulp"
 version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5675,6 +5685,7 @@ dependencies = [
  "md-5 0.11.0",
  "mlua",
  "p256",
+ "pulldown-latex",
  "quick-xml",
  "rand_core 0.6.4",
  "raygun-model",
@@ -5740,13 +5751,17 @@ version = "1.7.0"
 dependencies = [
  "axum",
  "futures-util",
+ "hayro",
  "image",
  "jxl-encoder",
  "jxl-oxide",
+ "memmap2",
  "raygun-model",
  "reqwest",
  "rustls",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
  "sha2 0.11.1",
  "tempfile",
  "thiserror 2.0.21",

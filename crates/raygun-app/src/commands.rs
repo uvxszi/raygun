@@ -3783,21 +3783,45 @@ pub async fn novel_import_epub(
     })
 }
 
-/// Imports an uploaded EPUB (sent with `upload_*` in slices) into the novel library; returns its
-/// source and id.
+/// Imports an uploaded book, EPUB or PDF (sent with `upload_*` in slices), into the novel library;
+/// returns its source and id. `name` is the file's name (a PDF without a title takes it).
 #[tauri::command]
 #[specta::specta]
 pub async fn novel_import_epub_upload(
     novels: tauri::State<'_, NovelService>,
     uploads: tauri::State<'_, crate::uploads::Uploads>,
     upload_id: String,
+    name: Option<String>,
 ) -> Result<ImportedBook, String> {
     let file = uploads.take(&upload_id)?;
-    let (source_id, novel_id) = novels.import_epub_file(file).await?;
+    let (source_id, novel_id) = novels.import_book_upload(file, name).await?;
     Ok(ImportedBook {
         source_id,
         novel_id,
     })
+}
+
+/// A PDF chapter's text, read from its pages: its blocks, and where each page starts.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_pdf_text(
+    novels: tauri::State<'_, NovelService>,
+    title_id: String,
+    chapter_id: String,
+) -> Result<raygun_model::PdfChapterText, String> {
+    novels.pdf_text(&title_id, &chapter_id).await
+}
+
+/// Where `query` appears in a PDF: a book's whole document, or a source chapter's pages.
+#[tauri::command]
+#[specta::specta]
+pub async fn novel_pdf_search(
+    novels: tauri::State<'_, NovelService>,
+    title_id: String,
+    chapter_id: String,
+    query: String,
+) -> Result<Vec<raygun_model::PdfSearchHit>, String> {
+    novels.pdf_search(&title_id, &chapter_id, &query).await
 }
 
 /// Whether the device can read text aloud.

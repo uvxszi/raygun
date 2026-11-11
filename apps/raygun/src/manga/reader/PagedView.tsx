@@ -10,6 +10,7 @@ import type {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { pageIdentity } from './drawnPages';
 import { ReaderImage } from './ReaderImage';
 
 /** Horizontal movement that counts as a swipe. */
@@ -185,7 +186,7 @@ export const PagedView: FC<PagedViewProps> = ({
       className={`relative h-[100dvh] w-full select-none [-webkit-touch-callout:none] ${fitted ? 'flex items-center justify-center overflow-hidden' : 'grid overflow-auto [place-items:safe_center]'}`}
     >
       <ReaderImage
-        key={`${current}:${pages[current]}`}
+        key={`${current}:${pageIdentity(pages[current] ?? '')}`}
         url={pages[current] ?? ''}
         index={current}
         imageRef={(element) => {

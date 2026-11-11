@@ -17,6 +17,8 @@ pub enum Kind {
     /// A list of songs or radio streams (M3U, PLS), queued in order. A `.m3u8` file can turn out
     /// to be HLS once it's read.
     Playlist,
+    /// A book (PDF or EPUB): imported into the library and opened in the reader.
+    Book,
     /// Not something Raygun plays.
     Other,
 }
@@ -209,6 +211,7 @@ fn by_type(mime: &str, remote: bool, extension: Option<&str>) -> Option<Kind> {
         "application/ogg" | "application/x-ogg" => by_name().unwrap_or(Kind::Audio),
         "application/mp4" | "application/x-matroska" => by_name().unwrap_or(Kind::Video),
         "application/x-flac" => Kind::Audio,
+        "application/pdf" | "application/x-pdf" | "application/epub+zip" => Kind::Book,
         essence if essence.starts_with("video/") => Kind::Video,
         essence if essence.starts_with("audio/") => Kind::Audio,
         // A picture, a document: the name may still say (a file manager's guess).
@@ -221,6 +224,7 @@ fn by_extension(extension: &str, remote: bool) -> Kind {
         "m3u8" if remote => Kind::Streaming(StreamFormat::Hls),
         "m3u8" | "m3u" | "pls" => Kind::Playlist,
         "mpd" => Kind::Streaming(StreamFormat::Dash),
+        "pdf" | "epub" => Kind::Book,
         // On the web `.ts` is as likely a script as a video.
         "ts" if remote => Kind::Other,
         extension if VIDEO_EXTENSIONS.contains(&extension) => Kind::Video,

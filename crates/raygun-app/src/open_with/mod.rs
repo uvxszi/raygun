@@ -1,8 +1,9 @@
 //! Media and links other apps hand to Raygun: Android's "Open with" and "Share" (the plugin's
 //! `OpenWith.kt` reads the intent), and files the desktop app is started with, also when a copy
 //! is already running (the second copy passes them on). Videos open in the video player, songs
-//! and playlists play in the music player, a Spotify link opens the song import, and other links
-//! and words go to Search, where a YouTube link shows its card.
+//! and playlists play in the music player, books (PDF, EPUB) join the library and open in the
+//! reader, a Spotify link opens the song import, and other links and words go to Search, where a
+//! YouTube link shows its card.
 //!
 //! Android documents (`content://`) are read through the access the sharing app gave: the video
 //! player plays them as they are, songs are copied into `opened/` first (Rust reads files by path:
@@ -42,6 +43,10 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 const TAG_BYTES: usize = 512 * 1024;
 const TAG_TIMEOUT: Duration = Duration::from_secs(8);
 const LOCAL_DENIED: &str = "Raygun may not reach devices on this network";
+/// Books other apps hand over are copied here (under `opened/`) while they're imported.
+const BOOKS_DIR: &str = ".books";
+/// How long a book at a web address may take to arrive.
+const BOOK_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// What another app handed over: files and addresses, and shared text.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -274,6 +279,11 @@ impl OpenWith {
             .map(|(_, kind)| *kind)
             .find(|kind| *kind != Kind::Other);
         match first {
+            Some(Kind::Book) => {
+                if let Some((item, _)) = sorted.iter().find(|(_, kind)| *kind == Kind::Book) {
+                    self.open_book(item).await;
+                }
+            }
             Some(kind @ (Kind::Video | Kind::Streaming(_))) => {
                 if let Some((item, _)) = sorted.iter().find(|(_, other)| *other == kind) {
                     self.play_video(item, kind).await;
@@ -309,6 +319,7 @@ impl OpenWith {
                 };
                 match kind {
                     Kind::Video | Kind::Streaming(_) => self.play_video(&item, kind).await,
+                    Kind::Book => self.open_book(&item).await,
                     _ => self.play_songs(vec![(item, kind)]).await,
                 }
             }
@@ -317,6 +328,168 @@ impl OpenWith {
                 self.open_route(format!("/browse?tab=search&q={}", encode(&query)));
             }
         }
+    }
+
+    /// Imports a book (PDF or EPUB) into the library and opens it where reading stopped.
+    async fn open_book(&self, item: &Handed) {
+        let name = item
+            .name
+            .clone()
+            .or_else(|| route::title_of(None, &item.uri))
+            .unwrap_or_default();
+        let opened = match route::location(&item.uri) {
+            Some(Location::File(path)) => {
+                self.media_access().await;
+                self.import_book(&path, &name).await
+            }
+            Some(Location::Document(uri)) => match self.copy_book(&uri, item).await {
+                Ok(copy) => {
+                    let imported = self.import_book(&copy, &name).await;
+                    let _ = tokio::fs::remove_file(&copy).await;
+                    imported
+                }
+                Err(error) => Err(error),
+            },
+            Some(Location::Web(url)) => match self.fetch_book(&url).await {
+                Ok(copy) => {
+                    let imported = self.import_book(&copy, &name).await;
+                    let _ = tokio::fs::remove_file(&copy).await;
+                    imported
+                }
+                Err(error) => Err(error),
+            },
+            None => Err("not an address".to_owned()),
+        };
+        match opened {
+            Ok(route) => self.open_route(route),
+            Err(error) => {
+                tracing::warn!(%error, "a book another app opened couldn't be read");
+                self.problem(OpenWithProblemKind::Unreadable, item.shown_name());
+            }
+        }
+    }
+
+    /// Imports the book at `path` and gives the reader's route for it: the chapter where reading
+    /// stopped, else the first.
+    async fn import_book(&self, path: &Path, name: &str) -> Result<String, String> {
+        let novels = self.app.state::<crate::novel::NovelService>();
+        let probe = path.to_path_buf();
+        let pdf = tauri::async_runtime::spawn_blocking(move || {
+            use std::io::Read;
+            let mut head = [0u8; 1024];
+            let read = std::fs::File::open(&probe)
+                .and_then(|mut file| file.read(&mut head))
+                .unwrap_or(0);
+            raygun_net::pdf::is_pdf(&head[..read])
+        })
+        .await
+        .map_err(to_message)?;
+        let (source_id, remote_id) = if pdf {
+            novels.import_pdf_file(path, Some(name)).await?
+        } else {
+            let bytes = tokio::fs::read(path).await.map_err(to_message)?;
+            novels.import_epub_bytes(bytes).await?
+        };
+        let db = self.app.state::<crate::startup::AppDb>().inner().0.clone();
+        let title = raygun_db::titles::find_title(&db, &source_id, &remote_id)
+            .await
+            .map_err(to_message)?
+            .ok_or("the book wasn't stored")?;
+        let mut units = raygun_db::titles::units(&db, &title.id)
+            .await
+            .map_err(to_message)?;
+        units.sort_by(|a, b| {
+            a.fields
+                .number
+                .unwrap_or(f64::MAX)
+                .total_cmp(&b.fields.number.unwrap_or(f64::MAX))
+        });
+        let chapter = units
+            .iter()
+            .find(|unit| unit.completed_at.is_none())
+            .or(units.first())
+            .ok_or("the book has no chapters")?;
+        let encode =
+            |text: &str| url::form_urlencoded::byte_serialize(text.as_bytes()).collect::<String>();
+        Ok(format!(
+            "/novel/read?title={}&chapter={}",
+            encode(&title.id),
+            encode(&chapter.id)
+        ))
+    }
+
+    /// A book at a web address, fetched into a file of its own (deleted once imported).
+    async fn fetch_book(&self, url: &str) -> Result<PathBuf, String> {
+        self.app
+            .state::<crate::local_network::LocalNetwork>()
+            .check(url, LOCAL_DENIED)
+            .await?;
+        let client = raygun_net::http_client().map_err(to_message)?;
+        let mut response = raygun_net::with_user_agent(client.get(url), std::iter::empty())
+            .timeout(BOOK_TIMEOUT)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .map_err(to_message)?;
+        let target = self.book_copy_path()?;
+        let mut file = tokio::fs::File::create(&target).await.map_err(to_message)?;
+        let mut size: u64 = 0;
+        let written = async {
+            while let Some(chunk) = response.chunk().await.map_err(to_message)? {
+                size += chunk.len() as u64;
+                if size > raygun_net::pdf::MAX_PDF_BYTES {
+                    return Err("The book is too large".to_owned());
+                }
+                tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+                    .await
+                    .map_err(to_message)?;
+            }
+            tokio::io::AsyncWriteExt::flush(&mut file)
+                .await
+                .map_err(to_message)
+        }
+        .await;
+        if let Err(error) = written {
+            let _ = tokio::fs::remove_file(&target).await;
+            return Err(error);
+        }
+        Ok(target)
+    }
+
+    /// Where a book being imported is copied first: a file of its own under `opened/`.
+    fn book_copy_path(&self) -> Result<PathBuf, String> {
+        let dir = copies_dir(&self.app.state::<crate::startup::AppPaths>().0).join(BOOKS_DIR);
+        std::fs::create_dir_all(&dir).map_err(to_message)?;
+        Ok(dir.join(uuid::Uuid::new_v4().simple().to_string()))
+    }
+
+    /// Copies a shared book document into a file of its own (deleted once imported).
+    #[cfg(target_os = "android")]
+    async fn copy_book(&self, uri: &str, _item: &Handed) -> Result<PathBuf, String> {
+        let target = self.book_copy_path()?;
+        let (app, uri, copy) = (self.app.clone(), uri.to_owned(), target.clone());
+        tauri::async_runtime::spawn_blocking(move || {
+            use std::io::Read;
+            let input = open_document(&app, &uri)?;
+            let mut output = std::fs::File::create(&copy).map_err(to_message)?;
+            let copied = std::io::copy(
+                &mut input.take(raygun_net::pdf::MAX_PDF_BYTES + 1),
+                &mut output,
+            )
+            .map_err(to_message)?;
+            if copied > raygun_net::pdf::MAX_PDF_BYTES {
+                let _ = std::fs::remove_file(&copy);
+                return Err("The book is too large".to_owned());
+            }
+            Ok(copy)
+        })
+        .await
+        .map_err(to_message)?
+    }
+
+    #[cfg(not(target_os = "android"))]
+    async fn copy_book(&self, _uri: &str, _item: &Handed) -> Result<PathBuf, String> {
+        Err("documents open only on Android".into())
     }
 
     /// Plays one video or stream in the video player.

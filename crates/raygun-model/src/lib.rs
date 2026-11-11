@@ -7318,6 +7318,12 @@ pub enum BackupOutcome {
 pub enum TextBlock {
     Paragraph {
         text: String,
+        /// The paragraph in parts when it holds formulas or raised or lowered text; `text` is
+        /// then its plain form (formulas as their text), which progress, search, translation
+        /// and exports read.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(optional)]
+        parts: Option<Vec<TextPart>>,
     },
     Heading {
         text: String,
@@ -7327,6 +7333,48 @@ pub enum TextBlock {
     Image {
         url: String,
     },
+    /// A formula on a line of its own.
+    Math {
+        /// `<math>…</math>`: MathML elements and attributes only.
+        mathml: String,
+        /// The formula as text (its TeX, or a linear form such as `x² + 1`).
+        text: String,
+        /// The formula in words, for reading aloud.
+        speech: String,
+    },
+}
+
+impl TextBlock {
+    /// A paragraph of plain text.
+    pub fn paragraph(text: impl Into<String>) -> Self {
+        Self::Paragraph {
+            text: text.into(),
+            parts: None,
+        }
+    }
+}
+
+/// One part of a paragraph that holds more than plain text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TextPart {
+    Text {
+        text: String,
+    },
+    /// Raised text: an exponent, a footnote mark.
+    Sup {
+        text: String,
+    },
+    /// Lowered text: an index, a chemical formula's count.
+    Sub {
+        text: String,
+    },
+    /// A formula in the line.
+    Math {
+        mathml: String,
+        text: String,
+        speech: String,
+    },
 }
 
 /// What the novel reader needs for one chapter.
@@ -7335,11 +7383,69 @@ pub enum TextBlock {
 pub struct NovelChapter {
     pub title_id: String,
     pub title: String,
-    /// `lastPage` and `totalPages` hold the character offset and length while partly read.
+    /// `lastPage` and `totalPages` hold the character offset and length while partly read (the
+    /// page and the page count for a PDF chapter).
     pub chapter: MangaChapterInfo,
+    /// Empty for a PDF chapter, whose text `novel_pdf_text` reads.
     pub blocks: Vec<TextBlock>,
     pub previous_chapter_id: Option<String>,
     pub next_chapter_id: Option<String>,
+    /// Set when the chapter is pages of a PDF document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub pdf: Option<PdfChapter>,
+}
+
+/// A chapter read as the pages of a PDF document (a book from the device, or a source's chapter).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfChapter {
+    /// Each page's picture through the local proxy (`/pdf/…`), in reading order; the reader adds
+    /// `w=<pixels>` for the width it shows them at.
+    pub pages: Vec<String>,
+    /// The document's own number (from 1) of the chapter's first page.
+    pub first_page: u32,
+    /// How the pages are read: the title's own mode, else the comics reader's default.
+    pub reader_mode: ReaderMode,
+    pub own_reader_mode: Option<ReaderMode>,
+    /// The document's bookmarks within the chapter.
+    pub contents: Vec<PdfContentsEntry>,
+}
+
+/// One of a PDF's bookmarks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfContentsEntry {
+    pub title: String,
+    /// The page it leads to, from 0, in the chapter's pages.
+    pub page: u32,
+    /// 0 for the top level.
+    pub level: u32,
+}
+
+/// A PDF chapter's text, read from its pages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfChapterText {
+    pub blocks: Vec<TextBlock>,
+    /// The block each page's text starts at, one per page (`blocks.len()` for a page without
+    /// text at the end).
+    pub page_starts: Vec<u32>,
+}
+
+/// A place in a PDF's text that matched a search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfSearchHit {
+    /// The chapter holding the page.
+    pub chapter_id: String,
+    /// The page within the chapter, from 0.
+    pub page: u32,
+    /// The document's own page number, from 1.
+    pub page_number: u32,
+    pub before: String,
+    pub matched: String,
+    pub after: String,
 }
 
 /// Where an imported book can be opened (M33).

@@ -207,10 +207,17 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: '/novel/read',
     component: NovelReaderPage,
-    validateSearch: (search: Record<string, unknown>) => ({
-      title: text(search.title),
-      chapter: text(search.chapter),
-    }),
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { title: string; chapter: string; page?: number } => {
+      // A PDF chapter opened at a page (a search result).
+      const page = Number(search.page);
+      return {
+        title: text(search.title),
+        chapter: text(search.chapter),
+        ...(search.page !== undefined && Number.isInteger(page) && page >= 0 ? { page } : {}),
+      };
+    },
   }),
   createRoute({
     getParentRoute: () => rootRoute,

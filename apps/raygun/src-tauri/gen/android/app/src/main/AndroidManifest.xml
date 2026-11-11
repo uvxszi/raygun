@@ -30,7 +30,8 @@
             </intent-filter>
             <!-- Other apps' "Open with" and "Share" (the plugin's OpenWith.kt reads them, Rust's
                  open_with plays them): videos open in the video player, songs and playlists play
-                 in the music player, shared links and words go to Search. -->
+                 in the music player, books (PDF, EPUB) open in the reader, shared links and words
+                 go to Search. -->
             <!-- Files and streams by their type. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -52,6 +53,8 @@
                 <data android:mimeType="application/x-matroska" />
                 <data android:mimeType="application/x-flac" />
                 <data android:mimeType="application/pls+xml" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/epub+zip" />
             </intent-filter>
             <!-- Streams and files by their name when no type is given. Path patterns stop at the
                  first dot they meet, so each name also has a form for one dot earlier on. -->
@@ -87,6 +90,10 @@
                 <data android:pathPattern=".*\\..*\\.m3u" />
                 <data android:pathPattern=".*\\.pls" />
                 <data android:pathPattern=".*\\..*\\.pls" />
+                <data android:pathPattern=".*\\.pdf" />
+                <data android:pathPattern=".*\\..*\\.pdf" />
+                <data android:pathPattern=".*\\.epub" />
+                <data android:pathPattern=".*\\..*\\.epub" />
             </intent-filter>
             <!-- Shared files: one, or several songs to play in order. -->
             <intent-filter>
@@ -103,6 +110,8 @@
                 <data android:mimeType="application/ogg" />
                 <data android:mimeType="application/x-matroska" />
                 <data android:mimeType="application/pls+xml" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/epub+zip" />
             </intent-filter>
             <!-- Shared links and words. -->
             <intent-filter>
