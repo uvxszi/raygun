@@ -311,6 +311,30 @@ return {
     );
 }
 
+/// A listing keeps the authors a script names for its novels (most name none).
+#[tokio::test(flavor = "multi_thread")]
+async fn listings_keep_the_authors_a_script_names() {
+    let code = r#"-- {"id":9010,"ver":"1.0.0","libVer":"1.0.0"}
+return {
+    id = 9010, name = "Authors", baseURL = "https://example.org",
+    listings = { Listing("All", false, function()
+        return {
+            Novel { title = "Emma", link = "/emma", authors = { "Jane Austen" } },
+            Novel { title = "Beowulf", link = "/beowulf" },
+        }
+    end) },
+    getPassage = function() return "" end,
+    parseNovel = function() return NovelInfo {} end,
+}"#;
+    let extension = load(code, &[]).await.unwrap();
+    let listing = extension
+        .call("novel", "popular", &json!({ "page": 1 }))
+        .await
+        .unwrap();
+    assert_eq!(listing["items"][0]["authors"], json!(["Jane Austen"]));
+    assert_eq!(listing["items"][1]["authors"], json!([]));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_shosetsu_script_serves_novel_source_calls() {
     let address = serve();

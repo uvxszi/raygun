@@ -134,8 +134,9 @@ async fn gutenberg_lists_books_splits_chapters_and_reads_passages() {
                 let params = query_params(&uri);
                 let entries = match params.get("query").map(String::as_str) {
                     Some("nothing") => String::new(),
-                    _ => "<entry><id>https://www.gutenberg.org/ebooks/authors/search.opds/?query=x</id><title>Authors</title></entry>\
-                          <entry><id>https://www.gutenberg.org/ebooks/84.opds</id><title>Frankenstein &amp; more</title></entry>"
+                    _ => "<entry><id>https://www.gutenberg.org/ebooks/authors/search.opds/?query=x</id><title>Authors</title><content type=\"text\">One author name matches your search.</content></entry>\
+                          <entry><id>https://www.gutenberg.org/ebooks/84.opds</id><title>Frankenstein &amp; more</title><content type=\"text\">Mary Wollstonecraft Shelley</content></entry>\
+                          <entry><id>https://www.gutenberg.org/ebooks/10.opds</id><title>The King James Bible</title><content type=\"text\">35,980 downloads</content></entry>"
                         .to_owned(),
                 };
                 let start = params.get("start_index").cloned().unwrap_or_default();
@@ -185,9 +186,12 @@ async fn gutenberg_lists_books_splits_chapters_and_reads_passages() {
         .manga_list(provider, crate::manga::MangaList::Popular, 1)
         .await
         .unwrap();
-    assert_eq!(popular.items.len(), 1, "author entries are skipped");
+    assert_eq!(popular.items.len(), 2, "author entries are skipped");
     assert_eq!(popular.items[0].id, "84");
     assert_eq!(popular.items[0].title, "Frankenstein & more");
+    // The line under a book's title is its author, or the feed's order for a book without one.
+    assert_eq!(popular.items[0].authors, ["Mary Wollstonecraft Shelley"]);
+    assert!(popular.items[1].authors.is_empty());
     assert_eq!(
         popular.items[0].cover_url.as_deref(),
         Some(format!("http://{address}/cache/epub/84/pg84.cover.medium.jpg").as_str())

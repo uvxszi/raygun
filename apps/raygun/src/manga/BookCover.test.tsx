@@ -1,10 +1,11 @@
+import type { MangaCard, MangaSource } from '@raygun/bindings';
 import { fireEvent, screen, within } from '@testing-library/react';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { bindingsMock } from '../test/bindingsMock';
 import { libraryEntry } from '../test/libraryEntry';
 import { renderWithProviders } from '../test/renderWithProviders';
-import { bookCoverLook, bookWords } from './bookWords';
+import { authorsIn, bookCoverLook, bookWords, withAuthors } from './bookWords';
 import { MangaCover } from './MangaCover';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -116,5 +117,78 @@ describe('Drawn book covers', () => {
     const dracula = item('Dracula');
     expect(dracula.querySelector('img')).toHaveAttribute('src', 'http://127.0.0.1:1/cover/dracula');
     expect(within(dracula).getByTestId('book-cover')).toBeInTheDocument();
+  });
+
+  const BOOKS: MangaSource = {
+    id: 'x.books/novel',
+    name: 'Old Books',
+    extensionId: 'x.books',
+    enabled: true,
+  };
+  const listed = (id: string, title: string, authors?: string[]): MangaCard => ({
+    sourceId: BOOKS.id,
+    id,
+    title,
+    coverUrl: null,
+    inLibrary: false,
+    ...(authors ? { authors } : {}),
+  });
+
+  it('draws the authors a source lists on the covers of the books it finds', async () => {
+    AppShellWrapper.seedCore();
+    commands.novelSources.mockResolvedValue(ok([BOOKS]));
+    commands.catalogGlobalSearch.mockResolvedValue(
+      ok([
+        {
+          source: BOOKS,
+          items: [listed('emma', 'Emma', ['Jane Austen']), listed('beowulf', 'Emma and Beowulf')],
+          hasNextPage: false,
+          error: null,
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/browse?tab=search&type=novel&q=emma');
+
+    const cards = await screen.findAllByTestId('manga-card');
+    const card = (title: string) =>
+      cards.find((each) => each.getAttribute('aria-label') === title)!;
+    expect(words(within(card('Emma')).getByTestId('book-cover'))).toMatchObject({
+      title: 'Emma',
+      author: 'Jane Austen',
+    });
+    // A book listed without its authors still gets a cover, with its title only.
+    expect(words(within(card('Emma and Beowulf')).getByTestId('book-cover'))).toMatchObject({
+      title: 'Emma and Beowulf',
+      author: null,
+    });
+  });
+
+  it("draws the authors on a source's own list of books", async () => {
+    AppShellWrapper.seedCore();
+    commands.novelSources.mockResolvedValue(ok([BOOKS]));
+    commands.novelBrowse.mockResolvedValue(
+      ok({ items: [listed('emma', 'Emma', ['Jane Austen', 'An Editor'])], hasNextPage: false }),
+    );
+    await AppShellWrapper.mount(`/novel/source?id=${encodeURIComponent(BOOKS.id)}`);
+
+    const card = await screen.findByTestId('manga-card');
+    expect(words(within(card).getByTestId('book-cover'))).toMatchObject({
+      title: 'Emma',
+      author: 'Jane Austen, An Editor',
+    });
+  });
+
+  it('reads authors from cached answers, and fills them in from a later one', () => {
+    expect(authorsIn({ authors: ['Jane Austen', '', 3] })).toEqual(['Jane Austen']);
+    expect(authorsIn({ authors: [] })).toBeUndefined();
+    expect(authorsIn({ title: 'Emma' })).toBeUndefined();
+
+    const bare = listed('emma', 'Emma');
+    const named = listed('emma', 'Emma', ['Jane Austen']);
+    expect(withAuthors(bare, named).authors).toEqual(['Jane Austen']);
+    expect(withAuthors(named, listed('emma', 'Emma', ['Someone Else'])).authors).toEqual([
+      'Jane Austen',
+    ]);
+    expect(withAuthors(bare, bare)).toBe(bare);
   });
 });

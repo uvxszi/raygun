@@ -38,18 +38,25 @@ export const findInCache = <T>(
   return null;
 };
 
-/** Everything `match` finds in the answers cached under `prefix`, each once by `key`. */
+/**
+ * Everything `match` finds in the answers cached under `prefix`, each once by `key`: the first
+ * find, or with `merge`, the first combined with each later one (to fill what it lacked).
+ */
 export const collectFromCache = <T>(
   client: QueryClient,
   prefix: QueryKey,
   match: (record: Record<string, unknown>) => T | null,
   key: (item: T) => string,
+  merge?: (kept: T, found: T) => T,
 ): T[] => {
   const seen = new Map<string, T>();
   for (const [, data] of client.getQueriesData<unknown>({ queryKey: prefix })) {
     walk(data, (record) => {
       const item = match(record);
-      if (item !== null && !seen.has(key(item))) seen.set(key(item), item);
+      if (item === null) return false;
+      const kept = seen.get(key(item));
+      if (kept === undefined) seen.set(key(item), item);
+      else if (merge) seen.set(key(item), merge(kept, item));
       return false;
     });
   }

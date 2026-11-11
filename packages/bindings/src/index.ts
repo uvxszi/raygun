@@ -3613,6 +3613,8 @@ export type LibraryDuplicate = {
 	title: string,
 	sourceName: string,
 	coverUrl: string | null,
+	/**  The title's authors: a book without a cover gets one drawn with them. */
+	authors?: string[],
 };
 
 /**  The user's lists for titles (M46, CloudStream's watch status). Each title is in at most one. */
@@ -4009,6 +4011,11 @@ export type MangaCard = {
 	 *  nothing).
 	 */
 	fromListing?: boolean,
+	/**
+	 *  Who wrote it: the listing's, else what this device stored when the title was opened or
+	 *  saved (none for videos). A book without a cover gets one drawn with them.
+	 */
+	authors?: string[],
 };
 
 export type MangaChapterInfo = {
@@ -4219,6 +4226,8 @@ export type MangaUpdateItem = {
 	chapter: MangaChapterInfo,
 	/**  Unix ms. */
 	foundAt: number | null,
+	/**  The title's authors: a book without a cover gets one drawn with them. */
+	authors?: string[],
 };
 
 /**  Progress of a library update (M28). */

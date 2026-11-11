@@ -53,6 +53,16 @@ const entries = (xml: string) =>
  */
 const AUDIO_ICON = 'ZHlxyWU8AAAAAElFTkSuQmCC';
 
+/**
+ * The line under a book's title in a feed: its author as Gutenberg prints it ("Alexandre Dumas and
+ * Auguste Maquet"), or for a book without one the feed's order ("1004 downloads", "Nov 10, 2026"),
+ * which isn't kept.
+ */
+const listedAuthors = (entry: string): string[] => {
+  const line = decode(/<content[^>]*>([\s\S]*?)<\/content>/.exec(entry)?.[1] ?? '').trim();
+  return line && !/^[\d,]+ downloads?$|^[A-Z][a-z]{2} \d{1,2}, \d{4}$/.test(line) ? [line] : [];
+};
+
 /** A page of books from an OPDS feed (author and subject entries, and recordings, are skipped). */
 const feed = async (params: string, page: number): Promise<MangaPage> => {
   const start = (page - 1) * FEED_PAGE + 1;
@@ -62,7 +72,9 @@ const feed = async (params: string, page: number): Promise<MangaPage> => {
     if (entry.includes(AUDIO_ICON)) return [];
     const id = /<id>[^<]*\/ebooks\/(\d+)\.opds<\/id>/.exec(entry)?.[1];
     const title = /<title>([\s\S]*?)<\/title>/.exec(entry)?.[1];
-    return id && title ? [{ id, title: decode(title.trim()), coverUrl: cover(id) }] : [];
+    return id && title
+      ? [{ id, title: decode(title.trim()), coverUrl: cover(id), authors: listedAuthors(entry) }]
+      : [];
   });
   return { items, hasNextPage: all.length >= FEED_PAGE };
 };

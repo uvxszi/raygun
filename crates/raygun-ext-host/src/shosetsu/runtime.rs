@@ -1117,6 +1117,11 @@ fn novel_items(value: &Value) -> Vec<serde_json::Value> {
                 "id": link,
                 "title": string(&novel.get("title").ok()?).unwrap_or_else(|| link.clone()),
                 "coverUrl": string(&novel.get("imageURL").ok()?),
+                // Few scripts name authors in listings; those that do are kept for the card.
+                "authors": novel
+                    .get::<Value>("authors")
+                    .map(|authors| strings(&authors))
+                    .unwrap_or_default(),
             }))
         })
         .collect()

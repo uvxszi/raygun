@@ -351,6 +351,11 @@ export type MangaSummary = {
   coverUrl?: string | null;
   /** Sent when the app fetches the cover, e.g. a User-Agent or Referer the host requires. */
   coverHeaders?: Record<string, string>;
+  /**
+   * Who wrote it, when the list's own answer says (send no extra request for it): a book without
+   * a cover gets one drawn with its title and authors. At most 6 are kept.
+   */
+  authors?: string[];
   /** An adult title; the app hides it while NSFW content is off. */
   nsfw?: boolean;
 };

@@ -26,7 +26,7 @@ import { collectFromCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 import { videoTitleScore } from '../watch/videoMatch';
 import { groupWords } from './groupWords';
-import { bookWords } from './bookWords';
+import { authorsIn, bookWords, withAuthors } from './bookWords';
 import { MangaCover } from './MangaCover';
 import { createLimiter, formatNumber, mangaSize, videoSize } from './matchSize';
 import type { MatchSize } from './matchSize';
@@ -84,7 +84,14 @@ const refreshLibrary = (client: QueryClient, medium: Medium) =>
     client.invalidateQueries({ queryKey: [medium, 'categories'] }),
   ]);
 
-type Found = { card: MangaCard; sourceName: string; score: number; size: MatchSize | null };
+type Found = {
+  card: MangaCard;
+  sourceName: string;
+  score: number;
+  size: MatchSize | null;
+  /** Who wrote it, for a book's drawn cover. */
+  authors?: readonly string[];
+};
 
 type Order = 'closest' | 'most';
 
@@ -132,6 +139,7 @@ export const OtherSources: FC<{
           }
           // A title's page carries the stored title's id; its card is by the source's.
           const id = typeof record.remoteId === 'string' ? record.remoteId : record.id;
+          const authors = authorsIn(record);
           return typeof id === 'string'
             ? {
                 sourceId: record.sourceId,
@@ -139,10 +147,12 @@ export const OtherSources: FC<{
                 title: record.title,
                 coverUrl: typeof record.coverUrl === 'string' ? record.coverUrl : null,
                 inLibrary: record.inLibrary === true,
+                ...(authors ? { authors } : {}),
               }
             : null;
         },
         (card) => `${card.sourceId}:${card.id}`,
+        withAuthors,
       ),
     [client, medium, sourceId],
   );
@@ -170,7 +180,12 @@ export const OtherSources: FC<{
   const found: Found[] = close.map((match, index) => {
     const view = details[index]?.data;
     const size = view ? ('episodes' in view ? videoSize(view) : mangaSize(view)) : null;
-    return { ...match, size };
+    // The card's authors, else those of the title page asked for its size (a book's).
+    const authors =
+      match.card.authors?.length || !view || !('authors' in view)
+        ? match.card.authors
+        : view.authors;
+    return { ...match, size, authors };
   });
   const loadingAt = (index: number) => index < DETAILED && details[index]?.isPending === true;
   const most = Math.max(0, ...found.map((match) => match.size?.units ?? 0));
@@ -320,7 +335,7 @@ const Match: FC<{
   /** The library title this match can replace. */
   migrateFrom: string | null;
 }> = ({ medium, match, loading, most, migrateFrom }) => {
-  const { card, sourceName, size } = match;
+  const { card, sourceName, size, authors } = match;
   const { t } = useTranslation();
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -394,7 +409,7 @@ const Match: FC<{
           <MangaCover
             url={card.coverUrl}
             video={medium === 'video'}
-            book={bookWords(medium, card.title)}
+            book={bookWords(medium, card.title, authors)}
             className="w-10 shrink-0 rounded"
           />
           <span className="flex min-w-0 flex-col gap-0.5">

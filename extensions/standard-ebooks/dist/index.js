@@ -1,4 +1,4 @@
-// dev.raygun.standard-ebooks 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.standard-ebooks 1.2.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -100,10 +100,16 @@
     const item = match[2] ?? "";
     const title = /<span property="schema:name">([\s\S]*?)<\/span>/.exec(item)?.[1];
     const cover = /<img src="([^"]+)"/.exec(item)?.[1];
+    const authors = [
+      ...item.matchAll(
+        /property="schema:author"[^>]*>\s*(?:<a [^>]*>\s*)?<span property="schema:name">([\s\S]*?)<\/span>/g
+      )
+    ].map((author) => plainText(author[1] ?? "")).filter(Boolean);
     return {
       id,
       title: title ? plainText(title) : "",
-      coverUrl: cover ? absolute(decode(cover)) : null
+      coverUrl: cover ? absolute(decode(cover)) : null,
+      authors
     };
   }).filter((book) => BOOK_ID.test(book.id) && book.title !== "");
   var pick = (filters2, key, options) => {

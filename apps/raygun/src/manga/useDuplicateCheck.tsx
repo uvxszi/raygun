@@ -63,7 +63,7 @@ export const useDuplicateCheck = (medium: Medium) => {
                   <MangaCover
                     url={duplicate.coverUrl}
                     video={medium === 'video'}
-                    book={bookWords(medium, duplicate.title)}
+                    book={bookWords(medium, duplicate.title, duplicate.authors)}
                     className="w-full"
                   />
                 </span>

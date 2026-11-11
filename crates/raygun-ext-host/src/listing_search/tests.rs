@@ -12,6 +12,7 @@ fn item(id: usize, title: &str) -> MangaSummary {
         title: title.to_owned(),
         cover_url: None,
         cover_headers: Default::default(),
+        authors: Vec::new(),
         nsfw: false,
     }
 }

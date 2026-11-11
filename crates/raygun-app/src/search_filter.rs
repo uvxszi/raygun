@@ -154,6 +154,7 @@ mod tests {
             in_library,
             adult,
             from_listing: false,
+            authors: Vec::new(),
         }
     }
 

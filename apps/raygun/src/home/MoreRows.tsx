@@ -289,7 +289,7 @@ export const PopularTitlesSection: FC<{ id: string; medium: Medium }> = ({ id, m
                       <MangaCover
                         url={item.coverUrl}
                         video={video}
-                        book={bookWords(medium, item.title)}
+                        book={bookWords(medium, item.title, item.authors)}
                         className="w-full rounded-xl"
                       />
                       {video && (

@@ -631,7 +631,13 @@ impl Opds {
                 } else {
                     return None;
                 };
-                Some(json!({ "id": id, "title": entry.title, "coverUrl": entry.image(true) }))
+                // The feed names each publication's authors: the cards show them as they are.
+                Some(json!({
+                    "id": id,
+                    "title": entry.title,
+                    "coverUrl": entry.image(true),
+                    "authors": entry.authors,
+                }))
             })
             .collect();
         json!({ "items": items, "hasNextPage": feed.link("next").is_some() })

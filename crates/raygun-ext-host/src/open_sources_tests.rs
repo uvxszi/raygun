@@ -90,14 +90,14 @@ fn meta(fields: &[(&str, &str)]) -> Value {
 
 // ---- Standard Ebooks ----
 
-fn ebook_item(id: &str, title: &str) -> String {
+fn ebook_item(id: &str, title: &str, author: &str) -> String {
     let slug = id.replace('/', "_");
     format!(
         r#"<li typeof="schema:Book" about="/ebooks/{id}">
         <div class="thumbnail-container" aria-hidden="true"><a href="/ebooks/{id}" property="schema:url"><picture>
         <img src="/images/covers/{slug}/abc/cover@2x.jpg" alt="" property="schema:image"/></picture></a></div>
         <p><a href="/ebooks/{id}" property="schema:url"><span property="schema:name">{title}</span></a></p>
-        <p class="author" typeof="schema:Person" property="schema:author"><a href="/ebooks/someone"><span property="schema:name">Someone</span></a></p>
+        <p class="author" typeof="schema:Person" property="schema:author" resource="/ebooks/someone"><a href="https://standardebooks.org/ebooks/someone" property="schema:url"><span property="schema:name">{author}</span></a></p>
         </li>"#
     )
 }
@@ -183,11 +183,11 @@ async fn standard_ebooks_lists_books_and_reads_their_chapters() {
                     let page = params.get("page").cloned().unwrap_or_default();
                     let books = match (params.get("query").map(String::as_str), page.as_str()) {
                         (Some("nothing"), _) => String::new(),
-                        (_, "2") => ebook_item("mary-shelley/frankenstein", "Frankenstein"),
+                        (_, "2") => ebook_item("mary-shelley/frankenstein", "Frankenstein", "Mary Shelley"),
                         _ => [
-                            ebook_item("charles-dickens/barnaby-rudge", "Barnaby Rudge"),
-                            ebook_item(WAR_AND_PEACE, "War &amp; Peace"),
-                            ebook_item("Not An Id", "Broken"),
+                            ebook_item("charles-dickens/barnaby-rudge", "Barnaby Rudge", "Charles Dickens"),
+                            ebook_item(WAR_AND_PEACE, "War &amp; Peace", "Leo Tolstoy"),
+                            ebook_item("Not An Id", "Broken", "Nobody"),
                         ]
                         .concat(),
                     };
@@ -228,6 +228,9 @@ async fn standard_ebooks_lists_books_and_reads_their_chapters() {
         ["Barnaby Rudge", "War & Peace"],
         "a malformed id is left out"
     );
+    // The catalogue page names each book's author: the cards have them without asking more.
+    assert_eq!(popular.items[0].authors, ["Charles Dickens"]);
+    assert_eq!(popular.items[1].authors, ["Leo Tolstoy"]);
     assert_eq!(
         popular.items[0].cover_url.as_deref(),
         Some(

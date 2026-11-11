@@ -2,7 +2,7 @@
 //! reading progress. Refreshing a title rewrites only its `remote_*` columns; the user's choices
 //! and progress stay.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use sqlx::sqlite::SqliteRow;
 use sqlx::{AssertSqlSafe, Row};
@@ -385,19 +385,28 @@ async fn counted_titles(
         .collect())
 }
 
-/// Which of a source's titles are in the library, by the source's ids.
-pub async fn in_library(
+/// What this device holds about a title a source lists: whether it's in the library, and the
+/// authors stored when it was opened or saved.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListedTitle {
+    pub in_library: bool,
+    pub authors: Vec<String>,
+}
+
+/// The stored titles among a source's listed ones, by the source's ids, in one query: titles
+/// never opened or saved aren't in it.
+pub async fn listed(
     db: &Db,
     source_id: &str,
     remote_ids: &[String],
-) -> Result<HashSet<String>, DbError> {
+) -> Result<HashMap<String, ListedTitle>, DbError> {
     if remote_ids.is_empty() {
-        return Ok(HashSet::new());
+        return Ok(HashMap::new());
     }
     let placeholders = vec!["?"; remote_ids.len()].join(", ");
     let sql = format!(
-        "SELECT remote_id FROM title WHERE source_id = ?1 AND deleted = 0
-             AND user_in_library_at IS NOT NULL AND remote_id IN ({placeholders})"
+        "SELECT remote_id, user_in_library_at, remote_authors
+             FROM title WHERE source_id = ?1 AND deleted = 0 AND remote_id IN ({placeholders})"
     );
     let mut query = sqlx::query(AssertSqlSafe(sql)).bind(source_id);
     for id in remote_ids {
@@ -407,7 +416,17 @@ pub async fn in_library(
         .fetch_all(db.pool())
         .await?
         .iter()
-        .map(|row| row.get("remote_id"))
+        .map(|row| {
+            let authors = row
+                .get::<Option<String>, _>("remote_authors")
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_default();
+            let listed = ListedTitle {
+                in_library: row.get::<Option<i64>, _>("user_in_library_at").is_some(),
+                authors,
+            };
+            (row.get("remote_id"), listed)
+        })
         .collect())
 }
 

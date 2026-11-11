@@ -23,6 +23,8 @@ const STATUSES: [&str; 6] = [
 const MEDIA_TYPES: [&str; 4] = ["movie", "series", "anime", "other"];
 /// Headers a source may not set on image requests.
 const FORBIDDEN_HEADERS: [&str; 4] = ["host", "content-length", "connection", "transfer-encoding"];
+/// Most authors a listed title keeps: a card has room for a line of them.
+const MAX_LISTED_AUTHORS: usize = 6;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MangaSummary {
@@ -31,6 +33,8 @@ pub struct MangaSummary {
     pub cover_url: Option<String>,
     /// Sent when the app fetches the cover (some hosts refuse bare requests).
     pub cover_headers: BTreeMap<String, String>,
+    /// Who wrote it, when the listing says: a book without a cover gets one drawn with them.
+    pub authors: Vec<String>,
     /// Marked adult by the source; hidden while NSFW content is off (M35).
     pub nsfw: bool,
 }
@@ -288,6 +292,7 @@ pub(crate) fn parse_listing(value: &Value) -> MangaListing {
                         title: text(item.get("title"))?,
                         cover_url: url(item.get("coverUrl")),
                         cover_headers: headers(item.get("coverHeaders")),
+                        authors: listed_authors(item.get("authors")),
                         nsfw: item.get("nsfw").and_then(Value::as_bool).unwrap_or(false),
                     })
                 })
@@ -341,6 +346,25 @@ pub(crate) fn parse_details(value: &Value, requested: &str) -> Option<MangaDetai
 
 fn or_else(first: Vec<String>, second: impl FnOnce() -> Vec<String>) -> Vec<String> {
     if first.is_empty() { second() } else { first }
+}
+
+/// A listed title's authors, read as leniently as a title page's: a list of names (blanks and
+/// anything not text left out) or one name as text, each once, at most [`MAX_LISTED_AUTHORS`].
+fn listed_authors(value: Option<&Value>) -> Vec<String> {
+    let names = match value {
+        Some(Value::String(_)) => text(value).into_iter().collect(),
+        _ => texts(value),
+    };
+    let mut kept: Vec<String> = Vec::new();
+    for name in names {
+        if kept.len() == MAX_LISTED_AUTHORS {
+            break;
+        }
+        if !kept.contains(&name) {
+            kept.push(name);
+        }
+    }
+    kept
 }
 
 /// A source's chapters or episodes (under `key`); unnamed ones are called "<noun> <number>". A
@@ -548,6 +572,33 @@ mod tests {
         assert_eq!(listing.items[1].id, "42");
         assert_eq!(listing.items[1].cover_url, None, "only http(s) covers");
         assert_eq!(parse_listing(&json!(null)).items, vec![]);
+    }
+
+    #[test]
+    fn listed_titles_keep_their_authors() {
+        let listing = parse_listing(&json!({
+            "items": [
+                { "id": "1", "title": "Emma", "authors": [" Jane Austen ", "", 7, "Jane Austen"] },
+                { "id": "2", "title": "Dracula", "authors": "Bram Stoker" },
+                { "id": "3", "title": "Beowulf" },
+                { "id": "4", "title": "Anthology", "authors": { "name": "Someone" } },
+                { "id": "5", "title": "Many", "authors": ["A", "B", "C", "D", "E", "F", "G"] },
+            ],
+        }));
+        let authors: Vec<Vec<String>> = listing
+            .items
+            .iter()
+            .map(|item| item.authors.clone())
+            .collect();
+        assert_eq!(
+            authors[0],
+            ["Jane Austen"],
+            "trimmed, blanks and repeats left out"
+        );
+        assert_eq!(authors[1], ["Bram Stoker"], "one name as text");
+        assert!(authors[2].is_empty());
+        assert!(authors[3].is_empty(), "neither a list nor text");
+        assert_eq!(authors[4], ["A", "B", "C", "D", "E", "F"]);
     }
 
     #[test]

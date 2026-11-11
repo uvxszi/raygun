@@ -39,6 +39,22 @@ export const titleLength = (title: string) =>
 export type BookWords = { title: string; author?: string | null };
 
 /**
+ * The authors a cached answer names for a title (a listing's card, a title page, a library
+ * entry), when it names any.
+ */
+export const authorsIn = (record: Record<string, unknown>): string[] | undefined => {
+  if (!Array.isArray(record.authors)) return undefined;
+  const names = record.authors.filter(
+    (name): name is string => typeof name === 'string' && name.trim() !== '',
+  );
+  return names.length > 0 ? names : undefined;
+};
+
+/** A title seen again elsewhere keeps what it had, and takes the authors it lacked. */
+export const withAuthors = <T extends { authors?: readonly string[] }>(kept: T, found: T): T =>
+  kept.authors?.length || !found.authors?.length ? kept : { ...kept, authors: found.authors };
+
+/**
  * The drawn cover's words for a title of `medium`: books (`novel`) get one, other media none.
  * `authors` may be a list, joined as the cover prints it.
  */

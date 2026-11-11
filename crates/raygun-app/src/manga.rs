@@ -381,6 +381,7 @@ impl MangaService {
                 remote_id: row.title.fields.remote_id,
                 title: row.title.fields.title,
                 found_at: row.found_at as f64,
+                authors: row.title.fields.authors,
             })
             .collect())
     }

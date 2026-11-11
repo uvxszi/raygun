@@ -26,7 +26,7 @@ export const ChapterUpdateRow: FC<{ item: MangaUpdateItem }> = ({ item }) => {
       >
         <MangaCover
           url={item.coverUrl}
-          book={bookWords(item.medium, item.title)}
+          book={bookWords(item.medium, item.title, item.authors)}
           className="w-10 shrink-0 rounded"
         />
         <span className="flex min-w-0 flex-col">

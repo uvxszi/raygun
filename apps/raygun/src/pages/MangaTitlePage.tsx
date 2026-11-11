@@ -65,7 +65,7 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       cover={
         <MangaCover
           url={known.coverUrl}
-          book={bookWords(medium, known.title)}
+          book={bookWords(medium, known.title, known.authors)}
           className="w-full rounded-xl shadow-lg"
         />
       }
