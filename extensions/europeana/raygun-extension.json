@@ -1,0 +1,15 @@
+{
+  "id": "dev.raygun.europeana",
+  "name": "Europeana",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain and open licences only (Public Domain Mark, CC0, CC BY, CC BY-SA): films and recordings from Europe's archives, libraries and museums through Europeana, each credited to the institution that holds it. Needs your own free API key from your europeana.eu account, entered in this source's settings.",
+  "author": "Raygun",
+  "website": "https://www.europeana.eu",
+  "provides": ["video.source", "music.metadata"],
+  "permissions": { "net": ["api.europeana.eu"] },
+  "contentRating": "safe",
+  "settings": [{ "key": "apiKey", "type": "text", "label": "API key", "required": true }]
+}

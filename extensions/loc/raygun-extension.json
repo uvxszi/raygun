@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.loc",
+  "name": "Library of Congress",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain in the United States only: films published more than 95 years ago and sound recordings published more than 100 years ago, from the Library of Congress's online collections (Edison's films and records, the Spanish-American War, early animation, the Westinghouse Works, early San Francisco and New York, the National Screening Room); items whose rights statement names a restriction are left out.",
+  "author": "Raygun",
+  "website": "https://www.loc.gov/film-and-videos/",
+  "provides": ["video.source", "music.metadata"],
+  "permissions": { "net": ["www.loc.gov"] },
+  "contentRating": "safe"
+}

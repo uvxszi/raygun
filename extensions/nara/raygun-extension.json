@@ -1,0 +1,15 @@
+{
+  "id": "dev.raygun.nara",
+  "name": "National Archives",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Unrestricted US government records: films from the National Archives Catalog, only those the National Archives marks free of use and access restrictions. Needs your own API key, which the National Archives gives on request by email to Catalog_API@nara.gov; enter it in this source's settings.",
+  "author": "Raygun",
+  "website": "https://catalog.archives.gov",
+  "provides": ["video.source"],
+  "permissions": { "net": ["catalog.archives.gov"] },
+  "contentRating": "safe",
+  "settings": [{ "key": "apiKey", "type": "text", "label": "API key", "required": true }]
+}

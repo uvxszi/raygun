@@ -312,6 +312,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/europeana:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/fyyd:
     devDependencies:
       '@raygun/sdk':
@@ -372,6 +378,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  extensions/loc:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   extensions/loyalbooks:
     devDependencies:
       '@raygun/sdk':
@@ -379,6 +391,12 @@ importers:
         version: link:../../packages/sdk
 
   extensions/musicbrainz:
+    devDependencies:
+      '@raygun/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
+  extensions/nara:
     devDependencies:
       '@raygun/sdk':
         specifier: workspace:*

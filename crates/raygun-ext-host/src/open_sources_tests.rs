@@ -1341,3 +1341,658 @@ async fn internet_archive_asks_for_open_audio_and_public_domain_films_only() {
         "collection:(prelinger) AND mediatype:(movies) AND licenseurl:*publicdomain*"
     );
 }
+
+// ---- Library of Congress ----
+
+/// A film as loc.gov's lists give it.
+fn loc_film(id: &str, title: &str, date: &str) -> Value {
+    json!({
+        "id": format!("http://www.loc.gov/item/{id}/"),
+        "url": format!("https://www.loc.gov/item/{id}/"),
+        "title": title, "date": date, "access_restricted": false,
+        "partof": ["national screening room", "catalog"],
+        "resources": [{
+            "caption": "Digital viewing copy", "height": 1080, "width": 1440,
+            "video": format!("https://tile.loc.gov/storage-services/service/mbrs/ntscrm/{id}/{id}.mp4"),
+            "video_stream": format!("https://tile.loc.gov/streaming-services/iiif/service:mbrs:ntscrm:{id}:{id}/full/full/0/full/default.m3u8"),
+            "poster": format!("//tile.loc.gov/storage-services/service/mbrs/ntscrm/{id}/{id}.jpg"),
+        }],
+    })
+}
+
+/// A film's own page (`at=item,resources`) with its rights statement and advisory.
+fn loc_item(id: &str, date: &str, advisory: Option<&str>) -> Value {
+    let mut item = json!({
+        "title": "Pack mules with ammunition on the Santiago Trail, Cuba", "date": date,
+        "access_restricted": false,
+        "partof": [{ "title": "national screening room", "count": 1294 }],
+        "rights": ["<p>The Library of Congress is not aware of any U.S. copyright or other restrictions in the vast majority of motion pictures in these collections. Absent any such restrictions, these materials are free to use and reuse.</p>\r\n<p>In rare cases, copyrighted motion pictures are made available by special permission.</p>\r\n<p>Credit Line: Library of Congress, Motion Picture, Broadcasting, and Recorded Sound Division.</p>\r\n<p>More about <a href=\"/legal/\">Copyright and other Restrictions</a>.</p>"],
+        "summary": ["A great pack train approaches rapidly."],
+        "created_published": ["United States : Edison Manufacturing Co., 1898."],
+        "contributor_names": [
+            "Paley, William Daly, 1857-1924, camera", "Thomas A. Edison, Inc",
+            "Theodore Roosevelt Association Collection (Library of Congress)",
+        ],
+        "contributors": [{ "paley, william daly": "https://www.loc.gov/search/?fa=contributor:paley" }],
+        "genre": ["Actualities (Motion pictures)", "Silent films"],
+    });
+    if let Some(advisory) = advisory {
+        item["rights_advisory"] = json!([advisory]);
+    }
+    json!({ "item": item, "resources": loc_film(id, "", date)["resources"] })
+}
+
+const LOC_EDISON: &str = "/collections/edison-company-motion-pictures-and-sound-recordings/";
+
+#[tokio::test]
+async fn loc_keeps_to_the_api_limit_and_offers_public_domain_films_only() {
+    let times: Arc<Mutex<Vec<std::time::Instant>>> = Arc::default();
+    let seen: Seen = Arc::default();
+    let (timed, searches) = (times.clone(), seen.clone());
+    let app = Router::new().fallback(move |uri: Uri| {
+        let (timed, searches) = (timed.clone(), searches.clone());
+        async move {
+            timed.lock().unwrap().push(std::time::Instant::now());
+            let mut params = query_params(&uri);
+            params.insert("path".to_owned(), uri.path().to_owned());
+            searches.lock().unwrap().push(params);
+            match uri.path() {
+                LOC_EDISON => {
+                    let mut later = loc_film("later", "A later film", "1955");
+                    later["partof"] = json!(["national screening room"]);
+                    let mut closed = loc_film("closed", "Closed", "1910");
+                    closed["access_restricted"] = json!(true);
+                    let mut jukebox = loc_film("jukebox", "Lent", "1910");
+                    jukebox["partof"] = json!(["national jukebox"]);
+                    let mut silent = loc_film("silent", "Pictures only", "1910");
+                    silent["resources"] = json!([{ "image": "//tile.loc.gov/a.jpg" }]);
+                    json_response(StatusCode::OK, json!({
+                        "results": [
+                            loc_film("98501077", "Pack mules with ammunition on the Santiago Trail, Cuba", "1898"),
+                            later, closed, jukebox, silent,
+                            loc_film("mp76000243", "Oscar Straus", "191?"),
+                        ],
+                        "pagination": { "current": 1, "next": "https://www.loc.gov/collections/x/?sp=2" },
+                    }))
+                }
+                "/item/98501077/" => json_response(StatusCode::OK, loc_item("98501077", "1898", None)),
+                "/item/mp76000243/" => json_response(
+                    StatusCode::OK,
+                    loc_item("mp76000243", "191?", Some("Rights status not evaluated.")),
+                ),
+                "/film-and-videos/" => StatusCode::TOO_MANY_REQUESTS.into_response(),
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+    });
+    let address = serve(app);
+    let host = local_host("loc", &["https://www.loc.gov"], address).await;
+    let provider = "dev.raygun.loc/films";
+
+    let popular = host
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let ids: Vec<_> = popular.items.iter().map(|item| item.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["98501077", "mp76000243"],
+        "published before 1931, open, not the Jukebox's, with a video"
+    );
+    assert_eq!(
+        popular.items[0].cover_url.as_deref(),
+        Some("https://tile.loc.gov/storage-services/service/mbrs/ntscrm/98501077/98501077.jpg")
+    );
+    assert!(popular.has_next_page);
+    let asked = last(&seen);
+    let cutoff = chrono::Datelike::year(&chrono::Utc::now()) - 96;
+    assert_eq!(asked["dates"], format!("1800/{cutoff}"));
+    assert_eq!(asked["fa"], "online-format:video");
+    assert_eq!(asked["at"], "results,pagination");
+    assert_eq!(asked["fo"], "json");
+
+    let details = host.manga_details(provider, "98501077").await.unwrap();
+    assert_eq!(details.year, Some(1898));
+    let description = details.description.unwrap();
+    assert!(
+        description.contains("Made by: William Daly Paley (camera), Thomas A. Edison, Inc"),
+        "{description}"
+    );
+    assert!(description.ends_with(
+        "Public domain in the United States. Credit: Library of Congress, Motion Picture, Broadcasting, and Recorded Sound Division."
+    ));
+    let episodes = host.video_episodes(provider, "98501077").await.unwrap();
+    assert_eq!(episodes.len(), 1);
+    let servers = host.video_servers(provider, &episodes[0].id).await.unwrap();
+    let videos = servers[0].videos.as_ref().unwrap();
+    assert_eq!(videos[0].quality, Some(1080));
+    assert!(videos[0].url.ends_with("/98501077.mp4"));
+    assert_eq!(videos[1].format.as_deref(), Some("hls"));
+    let refused = host
+        .manga_details(provider, "mp76000243")
+        .await
+        .unwrap_err();
+    assert!(refused.contains("rights restrictions"), "{refused}");
+    assert_eq!(
+        seen.lock().unwrap().len(),
+        3,
+        "a film's episodes and videos come from its page, read once"
+    );
+
+    // Too many requests: the API shuts the client out for an hour, and nothing is asked meanwhile.
+    let blocked = host.manga_search(provider, "fire", 1).await.unwrap_err();
+    assert!(blocked.contains("slow down"), "{blocked}");
+    let again = host.manga_search(provider, "parade", 1).await.unwrap_err();
+    assert!(again.contains("slow down"), "{again}");
+    let times = times.lock().unwrap();
+    assert_eq!(times.len(), 4, "asked nothing while shut out");
+    for pair in times.windows(2) {
+        assert!(
+            pair[1] - pair[0] >= std::time::Duration::from_millis(3000),
+            "one request at a time, 3.1 s apart: {:?}",
+            pair[1] - pair[0]
+        );
+    }
+}
+
+// ---- National Archives ----
+
+/// A first-party extension with `bases` pointed at `address`, its network access limited to it,
+/// and its `apiKey` setting given.
+async fn keyed_local_host(
+    name: &str,
+    id: &str,
+    bases: &[&str],
+    address: SocketAddr,
+    key: &str,
+) -> ExtensionHost {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../extensions")
+        .join(name);
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("raygun-extension.json")).unwrap())
+            .unwrap();
+    manifest["permissions"]["net"] = json!(["127.0.0.1"]);
+    let mut code = std::fs::read_to_string(dir.join("dist/index.js")).unwrap();
+    for base in bases {
+        assert!(code.contains(base), "{name} bundle doesn't use {base}");
+        code = code.replace(base, &format!("http://{address}"));
+    }
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host
+        .load_with_settings(
+            vec![ExtensionSource::built_in(&[
+                ("raygun-extension.json", &manifest.to_string()),
+                ("dist/index.js", &code),
+            ])],
+            crate::UserSettings::from([(
+                id.to_owned(),
+                BTreeMap::from([("apiKey".to_owned(), json!(key))]),
+            )]),
+        )
+        .await;
+    assert_eq!(
+        infos[0].status,
+        ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    host
+}
+
+/// A moving-image record as the catalogue describes it (shapes from its open data).
+fn nara_record(id: u64, title: &str, use_status: &str, objects: Value) -> Value {
+    json!({
+        "naId": id, "title": title, "levelOfDescription": "item",
+        "generalRecordsTypes": ["Moving Images"],
+        "productionDates": [{ "year": 1936, "logicalDate": "1936-01-01" }],
+        "scopeAndContentNote": "Horses of the Spanish Riding School perform.",
+        "shotList": "LS, riders enter the hall. MS, a horse in levade.",
+        "useRestriction": { "status": use_status },
+        "accessRestriction": { "status": "Unrestricted" },
+        "digitalObjects": objects,
+        "ancestors": [
+            { "distance": 2, "levelOfDescription": "recordGroup", "naId": 440, "recordGroupNumber": 111,
+              "title": "Records of the Office of the Chief Signal Officer" },
+            { "distance": 1, "levelOfDescription": "series", "naId": 25061,
+              "title": "Motion Picture Films from the Army Library Copy Collection",
+              "creators": [{ "creatorType": "Most Recent",
+                "heading": "Department of Defense. Department of the Army. Office of the Chief Signal Officer. (1964 - )" }] },
+        ],
+        "localIdentifier": format!("111-M-{id}"),
+    })
+}
+
+fn nara_file(designator: Option<&str>, url: &str) -> Value {
+    let mut object = json!({
+        "objectType": "Audio/Visual File (MP4)",
+        "objectFilename": url.rsplit('/').next().unwrap(),
+        "objectUrl": url,
+        "objectDescription": "Download this film.",
+    });
+    if let Some(designator) = designator {
+        object["objectDesignator"] = json!(designator);
+    }
+    object
+}
+
+/// `records/search`'s answer, wrapped as the API wraps it.
+fn nara_answer(records: &[Value], total: u64) -> Value {
+    let hits: Vec<Value> = records
+        .iter()
+        .map(|record| json!({ "_id": record["naId"].to_string(), "_source": { "record": record } }))
+        .collect();
+    json!({
+        "body": { "hits": { "total": { "value": total, "relation": "eq" }, "hits": hits } },
+        "statusCode": 200,
+    })
+}
+
+const NARA_KEY: &str = "a-key";
+
+#[tokio::test]
+async fn nara_offers_unrestricted_films_with_their_reels() {
+    let lz = "https://catalog.archives.gov/medialz/mopix/111/m";
+    let records = vec![
+        nara_record(
+            35486,
+            "DIE GANGARTEN DES PFERDES (SPANISCHE REITSCHULE)",
+            "Unrestricted",
+            json!([
+                nara_file(Some("Reel 2 of 2"), &format!("{lz}/111-m-111-r2.mp4")),
+                nara_file(
+                    Some("Reel 1 of 2"),
+                    "https://s3.amazonaws.com/NARAprodstorage/lz/mopix/111/m/111-m-111-r1.mp4",
+                ),
+                nara_file(
+                    Some("Reel 1 of 2"),
+                    "https://s3.dualstack.us-east-1.amazonaws.com/NARAprodstorage/lz/mopix/111/m/111-m-111-r1.mp4",
+                ),
+                { "objectType": "Portable Document File (PDF)", "objectFilename": "sheet.pdf",
+                  "objectUrl": "https://catalog.archives.gov/medialz/sheet.pdf" },
+            ]),
+        ),
+        nara_record(
+            14117,
+            "TEHERAN CONFERENCE, IRAN",
+            "Restricted - Possibly",
+            json!([nara_file(None, &format!("{lz}/111-adc-310.mp4"))]),
+        ),
+        nara_record(
+            75411,
+            "SECRETARY KNOX INSPECTS NOUMEA",
+            "Undetermined",
+            json!([nara_file(None, &format!("{lz}/428-npc-193.mp4"))]),
+        ),
+        nara_record(
+            102045538,
+            "NASA SYNCOM PROJECT",
+            "Unrestricted",
+            json!([{ "objectType": "Image (JPG)", "objectDesignator": "111-DD Release Sheet",
+                     "objectFilename": "sheet.jpg", "objectUrl": "https://catalog.archives.gov/medialz/sheet.jpg" }]),
+        ),
+        nara_record(
+            75465,
+            "CARRIER ACTIVITY ABOARD USS PHILIPPINE SEA (CVA-47)",
+            "Unrestricted",
+            json!([nara_file(None, &format!("{lz}/428-npc-328.mp4"))]),
+        ),
+    ];
+    let seen: Seen = Arc::default();
+    let searches = seen.clone();
+    let app = Router::new().route(
+        "/records/search",
+        get(move |uri: Uri, headers: axum::http::HeaderMap| {
+            let (searches, records) = (searches.clone(), records.clone());
+            async move {
+                let mut params = query_params(&uri);
+                let key = headers
+                    .get("x-api-key")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or_default()
+                    .to_owned();
+                params.insert("key".to_owned(), key.clone());
+                searches.lock().unwrap().push(params.clone());
+                match key.as_str() {
+                    NARA_KEY => {}
+                    // The catalogue's web front answers a refused key with its own page.
+                    "web-page" => {
+                        return (
+                            [(header::CONTENT_TYPE, "text/html")],
+                            "<!doctype html><html></html>",
+                        )
+                            .into_response();
+                    }
+                    _ => {
+                        return json_response(
+                            StatusCode::FORBIDDEN,
+                            json!({ "message": "Forbidden" }),
+                        );
+                    }
+                }
+                let found: Vec<Value> = match params.get("naId") {
+                    Some(id) => records
+                        .iter()
+                        .filter(|record| record["naId"].as_u64() == id.parse().ok())
+                        .cloned()
+                        .collect(),
+                    None => records.clone(),
+                };
+                json_response(StatusCode::OK, nara_answer(&found, 130))
+            }
+        }),
+    );
+    let address = serve(app);
+    let base = "https://catalog.archives.gov/api/v2";
+    let host = keyed_local_host("nara", "dev.raygun.nara", &[base], address, NARA_KEY).await;
+    let provider = "dev.raygun.nara/films";
+
+    let popular = host
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let listed: Vec<_> = popular
+        .items
+        .iter()
+        .map(|item| (item.id.as_str(), item.title.as_str()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("35486", "Die Gangarten Des Pferdes (Spanische Reitschule)"),
+            (
+                "75465",
+                "Carrier Activity Aboard USS Philippine Sea (CVA-47)"
+            ),
+        ],
+        "unrestricted in use and access, with an MP4"
+    );
+    assert!(popular.has_next_page, "60 of 130");
+    let asked = last(&seen);
+    assert_eq!(asked["key"], NARA_KEY);
+    assert_eq!(asked["q"], "*");
+    assert_eq!(asked["ancestorNaId"], "25061");
+    assert_eq!(asked["typeOfMaterials"], "Moving Images");
+    assert_eq!(asked["availableOnline"], "true");
+    assert_eq!(asked["limit"], "60");
+    assert_eq!(asked["page"], "1");
+
+    host.manga_search_filtered(
+        provider,
+        "horses",
+        2,
+        &filters(&[("recordGroup", "111"), ("decade", "1930")]),
+    )
+    .await
+    .unwrap();
+    let asked = last(&seen);
+    assert_eq!(asked["q"], "horses");
+    assert_eq!(asked["recordGroupNumber"], "111");
+    assert_eq!(
+        (asked["startDate"].as_str(), asked["endDate"].as_str()),
+        ("1930", "1939")
+    );
+    assert_eq!(asked["page"], "2");
+
+    // A listed film opens without another request; its reels are its episodes, in order.
+    let before = seen.lock().unwrap().len();
+    let details = host.manga_details(provider, "35486").await.unwrap();
+    assert_eq!(details.year, Some(1936));
+    let description = details.description.unwrap();
+    for part in [
+        "Horses of the Spanish Riding School perform.",
+        "Shot list: LS, riders enter the hall.",
+        "Made by: Department of Defense. Department of the Army. Office of the Chief Signal Officer",
+        "Series: Motion Picture Films from the Army Library Copy Collection",
+        "Record Group 111: Records of the Office of the Chief Signal Officer",
+        "National Archives Identifier 35486 (111-M-35486). Unrestricted use and access.",
+    ] {
+        assert!(description.contains(part), "{part}: {description}");
+    }
+    let episodes = host.video_episodes(provider, "35486").await.unwrap();
+    let reels: Vec<_> = episodes
+        .iter()
+        .map(|episode| (episode.id.as_str(), episode.name.as_str()))
+        .collect();
+    assert_eq!(
+        reels,
+        [("35486/0", "Reel 1 of 2"), ("35486/1", "Reel 2 of 2")],
+        "each file once, by reel"
+    );
+    let servers = host.video_servers(provider, "35486/0").await.unwrap();
+    assert_eq!(
+        servers[0].videos.as_ref().unwrap()[0].url,
+        "https://catalog.archives.gov/medialz/mopix/111/m/111-m-111-r1.mp4",
+        "the storage bucket's address becomes the catalogue's own"
+    );
+    let single = host.video_episodes(provider, "75465").await.unwrap();
+    assert_eq!(single[0].name, "Film");
+    assert_eq!(seen.lock().unwrap().len(), before, "all from the lists");
+
+    let restricted = host.manga_details(provider, "14117").await.unwrap_err();
+    assert!(restricted.contains("restricted"), "{restricted}");
+    assert_eq!(last(&seen)["naId"], "14117");
+
+    // A key the catalogue refuses (a 403, or its web page where JSON was asked for).
+    for key in ["refused", "web-page"] {
+        let host = keyed_local_host("nara", "dev.raygun.nara", &[base], address, key).await;
+        let error = host
+            .manga_list(provider, MangaList::Popular, 1)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            crate::needs_setup_in(&error),
+            Some("dev.raygun.nara"),
+            "{key}: {error}"
+        );
+        assert!(error.contains("didn't accept the API key"), "{error}");
+        assert!(host.needs_setup("dev.raygun.nara").is_some());
+    }
+}
+
+// ---- Europeana ----
+
+const EUROPEANA_KEY: &str = "a-key";
+const SOUND_AND_VISION: &str = "2051906/data_euscreenXL_media_10692";
+
+fn europeana_record() -> Value {
+    let file = "https://www.openbeelden.nl/files/10/661368.mp4";
+    json!({ "success": true, "object": {
+        "proxies": [
+            { "europeanaProxy": true, "dctermsCreated": { "def": ["#1950-11-28"] } },
+            { "europeanaProxy": false,
+              "dcTitle": { "en": ["Displaced persons find asylum"], "nl": ["Ontheemden vinden asiel"] },
+              "dcDescription": { "en": ["Elderly people from camps arrive in Eindhoven."] },
+              "dcCreator": { "en": ["Polygoon-Profilti (producer)", "Netherlands Institute for Sound and Vision (curator)"] },
+              "dctermsCreated": { "def": ["1950-11-28"] },
+              "dcLanguage": { "def": ["nl"] } },
+        ],
+        "aggregations": [{
+            "edmIsShownBy": file,
+            "hasView": ["https://www.openbeelden.nl/files/10/661368.ogv"],
+            "edmRights": { "def": ["http://creativecommons.org/licenses/by-sa/4.0/"] },
+            "edmDataProvider": { "def": ["http://data.europeana.eu/organization/4538"] },
+            "edmProvider": { "def": ["http://data.europeana.eu/organization/1607"] },
+            "webResources": [
+                { "about": file, "ebucoreHasMimeType": "video/mp4", "ebucoreHeight": 576 },
+                { "about": "https://www.openbeelden.nl/files/10/661368.ogv", "ebucoreHasMimeType": "video/ogg" },
+            ],
+        }],
+        "organizations": [
+            { "about": "http://data.europeana.eu/organization/4538", "prefLabel": { "en": ["Netherlands Institute for Sound & Vision"] } },
+            { "about": "http://data.europeana.eu/organization/1607", "prefLabel": { "en": ["EUscreen"] } },
+        ],
+        "concepts": [{ "about": "http://data.europeana.eu/concept/3286", "prefLabel": { "en": ["World War II"] } }],
+        "europeanaAggregation": {
+            "edmPreview": "https://api.europeana.eu/thumbnail/v2/url.json?uri=x&type=VIDEO",
+            "edmLandingPage": format!("https://www.europeana.eu/item/{SOUND_AND_VISION}"),
+        },
+    } })
+}
+
+#[tokio::test]
+async fn europeana_offers_openly_licensed_files_and_credits_their_holders() {
+    let seen: Seen = Arc::default();
+    let searches = seen.clone();
+    let app = Router::new().fallback(move |uri: Uri, headers: axum::http::HeaderMap| {
+        let searches = searches.clone();
+        async move {
+            let mut params = query_params(&uri);
+            let key = headers
+                .get("x-api-key")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            params.insert("key".to_owned(), key.clone());
+            params.insert("path".to_owned(), uri.path().to_owned());
+            params.insert(
+                "refinements".to_owned(),
+                uri.query().unwrap_or_default().matches("qf=").count().to_string(),
+            );
+            searches.lock().unwrap().push(params.clone());
+            if key != EUROPEANA_KEY {
+                return json_response(
+                    StatusCode::UNAUTHORIZED,
+                    json!({ "success": false, "error": "API key is invalid" }),
+                );
+            }
+            let item = |id: &str, rights: &str, file: &str| {
+                json!({ "id": format!("/{id}"), "title": [id], "rights": [rights],
+                        "edmIsShownBy": [file], "edmPreview": [format!("https://api.europeana.eu/thumbnail/v2/url.json?uri={id}")],
+                        "dataProvider": ["Romanian Radio Broadcasting Company"], "language": ["ro"] })
+            };
+            match uri.path() {
+                "/search.json" if params.get("theme").map(String::as_str) == Some("music") => {
+                    let mut hora = item(
+                        "2059208/hora",
+                        "http://creativecommons.org/licenses/by-sa/4.0/",
+                        "https://resource.culturalia.ro/x/P_15042_01.mp3",
+                    );
+                    hora["dcTitleLangAware"] = json!({ "en": ["Hora beaten"], "ro": ["Hora bătută"] });
+                    json_response(StatusCode::OK, json!({ "success": true, "items": [
+                        hora,
+                        item("2059219/page", "http://creativecommons.org/publicdomain/mark/1.0/",
+                            "http://gallica.bnf.fr/ark:/12148/bpt6k13111729/f1.audio"),
+                        item("2059201/closed", "http://creativecommons.org/licenses/by-nc/4.0/",
+                            "https://example.org/a.mp3"),
+                    ] }))
+                }
+                "/search.json" => {
+                    let mut film = item(SOUND_AND_VISION, "http://creativecommons.org/licenses/by-sa/4.0/",
+                        "https://www.openbeelden.nl/files/10/661368.mp4");
+                    film["dcTitleLangAware"] = json!({ "nl": ["Ontheemden vinden asiel"], "en": ["Displaced persons find asylum"] });
+                    json_response(StatusCode::OK, json!({ "success": true, "totalResults": 7584, "items": [
+                        film,
+                        item("08604/closed", "http://rightsstatements.org/vocab/InC/1.0/", "https://example.org/b.mp4"),
+                        item("08604/vimeo", "http://creativecommons.org/publicdomain/mark/1.0/", "https://vimeo.com/438840139"),
+                    ] }))
+                }
+                path if path == format!("/{SOUND_AND_VISION}.json") => {
+                    json_response(StatusCode::OK, europeana_record())
+                }
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+    });
+    let address = serve(app);
+    let base = "https://api.europeana.eu/record/v2";
+    let host = keyed_local_host(
+        "europeana",
+        "dev.raygun.europeana",
+        &[base],
+        address,
+        EUROPEANA_KEY,
+    )
+    .await;
+    let provider = "dev.raygun.europeana/videos";
+
+    let popular = host
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    let listed: Vec<_> = popular
+        .items
+        .iter()
+        .map(|item| (item.id.as_str(), item.title.as_str()))
+        .collect();
+    assert_eq!(
+        listed,
+        [(SOUND_AND_VISION, "Displaced persons find asylum")],
+        "openly licensed files only"
+    );
+    assert!(popular.has_next_page);
+    let asked = last(&seen);
+    assert_eq!(asked["key"], EUROPEANA_KEY, "the key goes in a header");
+    assert!(!asked.contains_key("wskey"), "never in the address");
+    assert_eq!(asked["reusability"], "open");
+    assert_eq!(asked["refinements"], "2", "videos with an MP4");
+
+    host.manga_search_filtered(
+        provider,
+        "voetbal: ajax",
+        1,
+        &filters(&[
+            ("country", "netherlands"),
+            ("provider", "Netherlands Institute for Sound & Vision"),
+        ]),
+    )
+    .await
+    .unwrap();
+    let asked = last(&seen);
+    assert_eq!(asked["query"], "voetbal ajax", "search operators left out");
+    assert_eq!(asked["refinements"], "4");
+
+    let details = host
+        .manga_details(provider, SOUND_AND_VISION)
+        .await
+        .unwrap();
+    assert_eq!(details.title, "Displaced persons find asylum");
+    assert_eq!(details.year, Some(1950));
+    assert_eq!(details.genres, ["World War II"]);
+    let description = details.description.unwrap();
+    assert!(
+        description
+            .contains("Licence: CC BY-SA 4.0 (http://creativecommons.org/licenses/by-sa/4.0/).")
+    );
+    assert!(description.ends_with(
+        "Provided by Netherlands Institute for Sound & Vision through EUscreen and Europeana."
+    ));
+    let episodes = host
+        .video_episodes(provider, SOUND_AND_VISION)
+        .await
+        .unwrap();
+    assert_eq!(episodes.len(), 1, "the Ogg view doesn't play everywhere");
+    let servers = host.video_servers(provider, &episodes[0].id).await.unwrap();
+    let videos = servers[0].videos.as_ref().unwrap();
+    assert_eq!(
+        (videos[0].url.as_str(), videos[0].quality),
+        ("https://www.openbeelden.nl/files/10/661368.mp4", Some(576))
+    );
+
+    let songs = host.search_music("hora", 10).await;
+    let tracks = &songs[0].tracks;
+    assert_eq!(
+        tracks.len(),
+        1,
+        "audio files under an open licence: {tracks:?}"
+    );
+    assert_eq!(
+        tracks[0].title, "Hora bătută",
+        "in the recording's own language"
+    );
+    assert_eq!(
+        tracks[0].artist.as_deref(),
+        Some("Romanian Radio Broadcasting Company")
+    );
+
+    let refused = keyed_local_host("europeana", "dev.raygun.europeana", &[base], address, "old")
+        .await
+        .manga_list(provider, MangaList::Popular, 1)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        crate::needs_setup_in(&refused),
+        Some("dev.raygun.europeana"),
+        "{refused}"
+    );
+}
