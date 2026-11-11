@@ -181,6 +181,13 @@ extension's own, so its `permissions.net` must name `www.youtube.com`, `music.yo
 | `search(query, limit?)`        | Songs, then music videos, from YouTube Music (10 without a limit, at most 50).                                    |
 | `stream(video, options?)`      | A video's audio (an id or an address), checked to play to its end, with the `headers` to send; `targetKbps` and `decodable` (AAC over Opus) pick the format. |
 | `playlist(playlist)`           | Every video of a playlist (an id or an address with `list=`).                                                     |
+| `liveSearch(query, limit?)`    | Streams on the air now matching `query` (youtube.com's Live filter), else those YouTube's Live page features; with their channel and viewers (20 without a limit, at most 50). |
+| `channelLive(channel)`         | A channel's Live tab (its `UC…` id, `@handle` or address): what's on the air, then what's coming up, then what was streamed. |
+| `live(video)`                  | A live stream's HLS playlist (`url`, `headers`), from the first of YouTube's app clients whose segments play; rejects for a video that isn't live or has ended. |
+
+A video source's `{ url: 'youtube:<id>', live: true }` plays the stream in Raygun's player through
+`live` when a YouTube source is installed, else in YouTube's embedded player; a source can also
+answer `live`'s playlist itself as `{ url, headers, format: 'hls', live: true }`.
 
 ## `raygun.log` and `console`
 

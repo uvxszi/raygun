@@ -14,6 +14,8 @@ fn item(id: usize, title: &str) -> MangaSummary {
         cover_headers: Default::default(),
         authors: Vec::new(),
         nsfw: false,
+        live: None,
+        subtitle: None,
     }
 }
 

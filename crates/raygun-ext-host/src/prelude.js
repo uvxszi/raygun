@@ -120,6 +120,11 @@
           ),
         ),
       playlist: async (playlist) => unwrap(await native.youtubePlaylist(String(playlist ?? ''))),
+      liveSearch: async (query, limit) =>
+        unwrap(await native.youtubeLiveSearch(String(query ?? ''), Number(limit) || 0)),
+      channelLive: async (channel) =>
+        unwrap(await native.youtubeChannelLive(String(channel ?? ''))),
+      live: async (video) => unwrap(await native.youtubeLive(String(video ?? ''))),
     }),
     providers: Object.freeze({
       register: (provider) => {

@@ -428,6 +428,13 @@ enum Request {
         prefs: crate::youtube::StreamPrefs,
         reply: oneshot::Sender<Result<crate::youtube::Stream, String>>,
     },
+    /// A YouTube live stream's playlist from Raygun's YouTube module, asked through
+    /// `extension`'s own fetch.
+    YouTubeLive {
+        extension: String,
+        video: String,
+        reply: oneshot::Sender<Result<crate::youtube::LiveStream, String>>,
+    },
 }
 
 /// An extension for a lane to load.
@@ -2253,6 +2260,44 @@ impl ExtensionHost {
             expires_at: stream.expires_at,
         })
     }
+
+    /// A YouTube live stream's HLS playlist from Raygun's YouTube module (`raygun.youtube.live`),
+    /// asked through `extension_id`'s own fetch, so its permissions and cookies apply: the video
+    /// player plays live YouTube links with it when a YouTube source is installed.
+    pub async fn youtube_live(
+        &self,
+        extension_id: &str,
+        video: &str,
+        limit: Duration,
+    ) -> Result<crate::youtube::LiveStream, CallError> {
+        let lane = self
+            .directory()
+            .lanes
+            .get(extension_id)
+            .copied()
+            .ok_or_else(|| CallError::UnknownProvider(extension_id.to_owned()))?;
+        let (reply, answer) = oneshot::channel();
+        self.shared.lanes[lane]
+            .send(Request::YouTubeLive {
+                extension: extension_id.to_owned(),
+                video: video.to_owned(),
+                reply,
+            })
+            .map_err(|_| CallError::HostStopped)?;
+        let name = || "YouTube".to_owned();
+        match tokio::time::timeout(limit, answer).await {
+            Err(_) => Err(CallError::Timeout {
+                name: name(),
+                after: limit,
+            }),
+            Ok(Err(_)) => Err(CallError::HostStopped),
+            Ok(Ok(Err(message))) => Err(CallError::Said {
+                name: name(),
+                message,
+            }),
+            Ok(Ok(Ok(stream))) => Ok(stream),
+        }
+    }
 }
 
 /// One source's songs, or why it had none.
@@ -2481,6 +2526,26 @@ impl LaneState {
                 let answer = async {
                     match loaded.as_deref() {
                         Some(Extension::Js(js)) => js.youtube_stream(&video, prefs).await,
+                        Some(_) => Err("This source can't ask YouTube".to_owned()),
+                        None => Err("That source isn't installed".to_owned()),
+                    }
+                };
+                tokio::select! {
+                    answer = answer => {
+                        let _ = reply.send(answer);
+                    }
+                    () = reply.closed() => {}
+                }
+            }
+            Request::YouTubeLive {
+                extension,
+                video,
+                mut reply,
+            } => {
+                let loaded = self.loaded.borrow().get(&extension).cloned();
+                let answer = async {
+                    match loaded.as_deref() {
+                        Some(Extension::Js(js)) => js.youtube_live(&video).await,
                         Some(_) => Err("This source can't ask YouTube".to_owned()),
                         None => Err("That source isn't installed".to_owned()),
                     }

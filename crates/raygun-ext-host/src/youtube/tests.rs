@@ -772,3 +772,418 @@ async fn playlists_are_read_page_by_page_in_one_session() {
     assert_eq!(next["context"]["client"]["visitorData"], VISITOR);
     assert_eq!(header(&sent[2], "X-Goog-Visitor-Id"), Some(VISITOR));
 }
+
+// ---- Live streams ----
+
+#[test]
+fn watching_counts_read_as_numbers() {
+    assert_eq!(parse::watching("23,849 watching"), Some(23_849));
+    assert_eq!(parse::watching("3.6K watching"), Some(3_600));
+    assert_eq!(parse::watching("1.2M watching now"), Some(1_200_000));
+    assert_eq!(parse::watching("12 waiting"), None);
+    assert_eq!(parse::watching("129M views"), None);
+}
+
+#[test]
+fn the_live_page_marks_what_is_on_the_air_coming_up_or_over() {
+    let videos = parse::live_videos(&json("live-page.json"));
+    let summary: Vec<_> = videos
+        .iter()
+        .map(|video| (video.live, video.upcoming, video.viewers.is_some()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (true, false, true),
+            (true, false, true),
+            (false, false, false),
+            (false, true, false),
+        ]
+    );
+    let first = &videos[0];
+    assert!(is_video_id(&first.id));
+    assert!(first.channel.is_some() && first.channel_id.is_some());
+    assert!(first.viewers.unwrap() > 1000, "{:?}", first.viewers);
+    assert!(
+        first
+            .thumbnail_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("https://i.ytimg.com/"))
+    );
+}
+
+#[test]
+fn live_search_rows_name_their_channel_and_viewers() {
+    let videos = parse::live_videos(&json("live-search.json"));
+    assert_eq!(videos.len(), 2);
+    let first = &videos[0];
+    assert_eq!(first.id, "rFZHOHl-L8A");
+    assert_eq!(first.channel.as_deref(), Some("Lofi Girl"));
+    assert_eq!(
+        first.channel_id.as_deref(),
+        Some("UCSJ4gkVC6NrvII8umztf0Ow")
+    );
+    assert!(first.live && !first.upcoming);
+    assert_eq!(first.viewers, Some(10_856));
+}
+
+#[test]
+fn a_channels_live_tab_reads_its_cards() {
+    let home = json("live-channel-home.json");
+    assert_eq!(
+        parse::streams_tab(&home).as_deref(),
+        Some("EgdzdHJlYW1z8gYECgJ6AA%3D%3D")
+    );
+    let (title, avatar) = parse::channel_header(&home);
+    assert_eq!(title.as_deref(), Some("Lofi Girl"));
+    assert!(avatar.is_some());
+    let videos = parse::live_videos(&json("live-channel-streams.json"));
+    let states: Vec<_> = videos
+        .iter()
+        .map(|video| (video.live, video.viewers.is_some()))
+        .collect();
+    assert_eq!(states, [(false, false), (true, true), (true, true)]);
+    assert_eq!(
+        videos[0].channel, None,
+        "a past stream's views and age name no channel"
+    );
+}
+
+#[test]
+fn channels_are_named_by_id_handle_or_address() {
+    let id = "UCSJ4gkVC6NrvII8umztf0Ow";
+    assert_eq!(channel_ref(id), Some(ChannelRef::Id(id.to_owned())));
+    assert_eq!(
+        channel_ref(&format!("https://www.youtube.com/channel/{id}/streams")),
+        Some(ChannelRef::Id(id.to_owned()))
+    );
+    assert_eq!(
+        channel_ref("@LofiGirl"),
+        Some(ChannelRef::Address(
+            "https://www.youtube.com/@LofiGirl".to_owned()
+        ))
+    );
+    assert_eq!(
+        channel_ref("youtube.com/@LofiGirl/streams"),
+        Some(ChannelRef::Address(
+            "https://www.youtube.com/@LofiGirl".to_owned()
+        ))
+    );
+    assert_eq!(
+        channel_ref("https://m.youtube.com/c/LofiGirl"),
+        Some(ChannelRef::Address(
+            "https://www.youtube.com/c/LofiGirl".to_owned()
+        ))
+    );
+    assert_eq!(channel_ref("https://example.org/@LofiGirl"), None);
+    assert_eq!(channel_ref("@"), None);
+}
+
+const MASTER: &str = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=269034,RESOLUTION=256x144\nhttps://manifest.googlevideo.com/api/manifest/hls_playlist/CLIENT/itag/91/index.m3u8\n";
+
+fn media_playlist(client: &str) -> String {
+    let mut body = "#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:100\n".to_owned();
+    for sequence in 100..106 {
+        body.push_str(&format!(
+            "#EXTINF:5.0,\nhttps://rr1---sn-x.googlevideo.com/videoplayback/{client}/sq/{sequence}/file/seg.ts\n"
+        ));
+    }
+    body
+}
+
+/// YouTube as it answered on 2026-11-11 for a stream on the air: every client gives a live
+/// playlist, but ANDROID_VR's segments are refused.
+fn youtube_live_today(request: &Request) -> (u16, String) {
+    if request.url.ends_with("/sw.js_data") {
+        return (200, sw_data());
+    }
+    if request.url.contains("/youtubei/v1/player") {
+        let client = request.body.as_deref().and_then(client_name).unwrap();
+        let answer = fixture("player-live.json").replace(
+            "/expire/1794460641/",
+            &format!("/expire/1794460641/client/{client}/"),
+        );
+        return (200, answer);
+    }
+    if request.url.contains("/api/manifest/hls_variant/") {
+        let client = request
+            .url
+            .split("/client/")
+            .nth(1)
+            .unwrap()
+            .split('/')
+            .next()
+            .unwrap();
+        return (200, MASTER.replace("CLIENT", client));
+    }
+    if request.url.contains("/api/manifest/hls_playlist/") {
+        let client = request
+            .url
+            .split("/hls_playlist/")
+            .nth(1)
+            .unwrap()
+            .split('/')
+            .next()
+            .unwrap();
+        return (200, media_playlist(client));
+    }
+    if request.url.contains("/videoplayback/") {
+        return if request.url.contains("/ANDROID_VR/") {
+            (403, String::new())
+        } else {
+            (206, "ab".into())
+        };
+    }
+    (404, String::new())
+}
+
+#[tokio::test]
+async fn live_playlists_come_from_the_first_client_whose_segments_play() {
+    let youtube = YouTube::new(None);
+    let http = Fake::new(youtube_live_today);
+    let stream = youtube
+        .live(&http, "https://www.youtube.com/live/rFZHOHl-L8A")
+        .await
+        .unwrap();
+    assert_eq!(stream.client, "VISIONOS");
+    assert!(stream.url.contains("/client/VISIONOS/"), "{}", stream.url);
+    assert!(stream.live);
+    assert_eq!(stream.channel.as_deref(), Some("Lofi Girl"));
+    assert_eq!(
+        stream.headers.get("User-Agent").map(String::as_str),
+        Some(clients::PLAYER_CLIENTS[1].user_agent)
+    );
+    let urls = http.urls();
+    assert_eq!(urls.len(), 9, "{urls:#?}");
+    {
+        let sent = http.sent.borrow();
+        // The segment three from the live edge, two bytes of it, as the client.
+        let check = &sent[4];
+        assert!(check.url.ends_with("/sq/103/file/seg.ts"), "{}", check.url);
+        assert_eq!(header(check, "Range"), Some("bytes=0-1"));
+        assert_eq!(
+            header(check, "User-Agent"),
+            Some(clients::PLAYER_CLIENTS[0].user_agent)
+        );
+    }
+
+    // The client whose playlist played goes first from then on.
+    let http = Fake::new(youtube_live_today);
+    let again = youtube.live(&http, "rFZHOHl-L8A").await.unwrap();
+    assert_eq!(again.client, "VISIONOS");
+    assert_eq!(
+        http.urls()[0],
+        "https://www.youtube.com/youtubei/v1/player?prettyPrint=false VISIONOS"
+    );
+}
+
+#[tokio::test]
+async fn a_video_that_isnt_live_has_no_live_playlist() {
+    let youtube = YouTube::new(None);
+    let http = Fake::new(|request: &Request| {
+        if request.url.ends_with("/sw.js_data") {
+            return (200, sw_data());
+        }
+        (200, fixture("player.json").replace("CLIENT", "ANDROID_VR"))
+    });
+    let error = youtube.live(&http, "wU26xVT_vBU").await.unwrap_err();
+    assert_eq!(error, NOT_LIVE);
+    assert_eq!(http.sent.borrow().len(), 2, "no other client is asked");
+}
+
+#[tokio::test]
+async fn live_searches_and_the_live_page_keep_streams_on_the_air() {
+    let youtube = YouTube::new(None);
+    let http = Fake::new(|request: &Request| {
+        if request.url.ends_with("/sw.js_data") {
+            return (200, sw_data());
+        }
+        let body: Value = serde_json::from_str(request.body.as_deref().unwrap_or("{}")).unwrap();
+        if request.url.contains("/youtubei/v1/search") && body["params"] == clients::LIVE_FILTER {
+            return (200, fixture("live-search.json"));
+        }
+        if request.url.contains("/youtubei/v1/browse") && body["browseId"] == clients::LIVE_PAGE {
+            return (200, fixture("live-page.json"));
+        }
+        (404, String::new())
+    });
+    let found = youtube.live_search(&http, "lofi", None).await.unwrap();
+    assert_eq!(found.len(), 2);
+    let featured = youtube.live_search(&http, " ", Some(1)).await.unwrap();
+    assert_eq!(featured.len(), 1, "the limit holds");
+    assert!(featured[0].live);
+    let featured = youtube.live_search(&http, "", None).await.unwrap();
+    assert_eq!(featured.len(), 2, "what isn't on the air is left out");
+}
+
+#[tokio::test]
+async fn a_channels_live_tab_is_read_from_its_handle() {
+    let youtube = YouTube::new(None);
+    let http = Fake::new(|request: &Request| {
+        if request.url.ends_with("/sw.js_data") {
+            return (200, sw_data());
+        }
+        let body: Value = serde_json::from_str(request.body.as_deref().unwrap_or("{}")).unwrap();
+        if request.url.contains("/navigation/resolve_url") {
+            assert_eq!(body["url"], "https://www.youtube.com/@LofiGirl");
+            return (
+                200,
+                r#"{"endpoint":{"browseEndpoint":{"browseId":"UCSJ4gkVC6NrvII8umztf0Ow"}}}"#.into(),
+            );
+        }
+        if request.url.contains("/youtubei/v1/browse") {
+            return if body.get("params").is_some() {
+                assert_eq!(body["params"], "EgdzdHJlYW1z8gYECgJ6AA%3D%3D");
+                (200, fixture("live-channel-streams.json"))
+            } else {
+                (200, fixture("live-channel-home.json"))
+            };
+        }
+        (404, String::new())
+    });
+    let channel = youtube.channel_live(&http, "@LofiGirl").await.unwrap();
+    assert_eq!(channel.id, "UCSJ4gkVC6NrvII8umztf0Ow");
+    assert_eq!(channel.title.as_deref(), Some("Lofi Girl"));
+    let live: Vec<bool> = channel.videos.iter().map(|video| video.live).collect();
+    assert_eq!(live, [true, true, false], "on the air first");
+    assert!(
+        channel
+            .videos
+            .iter()
+            .all(|video| video.channel.as_deref() == Some("Lofi Girl")
+                && video.channel_id.as_deref() == Some("UCSJ4gkVC6NrvII8umztf0Ow"))
+    );
+}
+/// Raygun's YouTube module's live calls against YouTube itself, through an extension's own fetch
+/// as an installed YouTube source would ask: YouTube's Live page, a search, and a featured
+/// stream's playlist, whose variant and a segment near the live edge are fetched as the player
+/// does: `cargo test -p raygun-ext-host --lib -- --ignored youtube_live_streams_live --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs network access to YouTube"]
+async fn youtube_live_streams_live() {
+    use crate::manga::MangaList;
+    use crate::{ExtensionHost, ExtensionSource, HostConfig};
+
+    const ID: &str = "dev.example.youtube-live";
+    let manifest = serde_json::json!({
+        "id": ID, "name": "YouTube live", "version": "1.0.0", "apiVersion": 1, "runtime": "js",
+        "entry": "dist/index.js", "provides": ["video.source"],
+        "permissions": { "net": ["www.youtube.com", "music.youtube.com", "*.googlevideo.com"] },
+    });
+    let code = r"
+        const page = (videos) => ({
+          items: videos.map((video) => ({
+            id: video.id, title: video.title, coverUrl: video.thumbnailUrl, subtitle: video.channel,
+            live: video.live, viewers: video.viewers,
+          })),
+          hasNextPage: false,
+        });
+        raygun.providers.register({
+          kind: 'video.source', id: 'live', name: 'YouTube live',
+          popular: async () => page(await raygun.youtube.liveSearch('', 10)),
+          search: async ({ query }) => page(await raygun.youtube.liveSearch(query, 10)),
+          details: async ({ id }) => {
+            const channel = await raygun.youtube.channelLive(id);
+            return { title: channel.title ?? id, description: channel.videos.map((video) => video.title).join('\n') };
+          },
+          episodes: async () => ({ episodes: [] }),
+          servers: async () => ({ servers: [] }),
+          videos: async () => ({ videos: [] }),
+        });
+    ";
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host
+        .load(vec![ExtensionSource::built_in(&[
+            ("raygun-extension.json", &manifest.to_string()),
+            ("dist/index.js", code),
+        ])])
+        .await;
+    assert_eq!(
+        infos[0].status,
+        raygun_model::ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    let provider = format!("{ID}/live");
+
+    let featured = host
+        .manga_list(&provider, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    println!("YouTube's Live page: {} on the air", featured.items.len());
+    for item in &featured.items {
+        println!(
+            "  {} {:?} · {:?} watching · {}",
+            item.id,
+            item.subtitle,
+            item.live.and_then(|live| live.viewers),
+            item.title
+        );
+    }
+    assert!(!featured.items.is_empty());
+    assert!(featured.items.iter().all(|item| item.live.is_some()));
+
+    let searched = host.manga_search(&provider, "lofi", 1).await.unwrap();
+    println!("search \"lofi\": {} on the air", searched.items.len());
+    assert!(!searched.items.is_empty());
+
+    let channel = host.manga_details(&provider, "@LofiGirl").await.unwrap();
+    println!("Lofi Girl's Live tab: {:?}", channel.description);
+    assert_eq!(channel.title, "Lofi Girl");
+
+    let client = raygun_net::http_client().unwrap();
+    let mut played = false;
+    for item in searched.items.iter().take(3) {
+        let stream = match host
+            .youtube_live(ID, &item.id, std::time::Duration::from_secs(40))
+            .await
+        {
+            Ok(stream) => stream,
+            Err(error) => {
+                println!("{}: {error}", item.id);
+                continue;
+            }
+        };
+        println!("{} plays from {}: {}", item.id, stream.client, stream.url);
+        let agent = stream
+            .headers
+            .get("User-Agent")
+            .cloned()
+            .unwrap_or_default();
+        let master = client
+            .get(&stream.url)
+            .header("User-Agent", &agent)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let variant = playlist_uris(&stream.url, &master)
+            .into_iter()
+            .next()
+            .unwrap();
+        let media = client
+            .get(&variant)
+            .header("User-Agent", &agent)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let segment = playlist_uris(&variant, &media).into_iter().last().unwrap();
+        let status = client
+            .get(&segment)
+            .header("User-Agent", &agent)
+            .send()
+            .await
+            .unwrap()
+            .status();
+        println!("  a segment near the live edge: HTTP {status}");
+        assert!(status.is_success());
+        played = true;
+        break;
+    }
+    assert!(played, "a live stream's playlist played");
+}

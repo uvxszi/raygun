@@ -2287,6 +2287,9 @@
   },
   "watch": {
     "title": "Watch",
+    "liveBadge": "Live",
+    "liveNow": "Live now",
+    "liveWatching": "Live, {{viewers}} watching",
     "continue": "Continue watching",
     "removeContinue": "Remove {{title}} from Continue watching?",
     "resumeTitle": "Resume {{title}}",

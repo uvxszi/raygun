@@ -5645,7 +5645,7 @@ pub enum MangaBrowseMode {
 }
 
 /// A title in a source's catalogue.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaCard {
     pub source_id: String,
@@ -5666,9 +5666,29 @@ pub struct MangaCard {
     /// saved (none for videos). A book without a cover gets one drawn with them.
     #[serde(default)]
     pub authors: Vec<String>,
+    /// On the air now: a video source's live stream (its card is marked live, with its viewers).
+    #[serde(default)]
+    #[specta(optional)]
+    pub live: Option<LiveNow>,
+    /// A short line under the title, as the listing gives it (a live stream's channel and game).
+    #[serde(default)]
+    #[specta(optional)]
+    pub subtitle: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// A live stream as a source's listing describes it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveNow {
+    /// People watching now, as the source counts them.
+    #[serde(default)]
+    pub viewers: Option<u32>,
+    /// When it went live, Unix ms.
+    #[serde(default)]
+    pub started_at: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaListingPage {
     pub items: Vec<MangaCard>,

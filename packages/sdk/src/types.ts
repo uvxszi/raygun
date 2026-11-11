@@ -358,6 +358,17 @@ export type MangaSummary = {
   authors?: string[];
   /** An adult title; the app hides it while NSFW content is off. */
   nsfw?: boolean;
+  /**
+   * A short line under the title, at most 120 characters: a live stream's channel and what it
+   * streams ("ChessChannel · Chess").
+   */
+  subtitle?: string | null;
+  /** On the air now (a video source's live stream): its card is marked live. */
+  live?: boolean;
+  /** With `live`: the people watching now, a whole number. */
+  viewers?: number | null;
+  /** With `live`: when it went live, in Unix milliseconds. */
+  startedAt?: number | null;
 };
 
 /**
@@ -573,11 +584,21 @@ export type Video = {
   /** Height in pixels (a whole number); the app orders links by the user's preferred quality. */
   quality?: number;
   headers?: Record<string, string>;
-  /** Streaming manifests; leave it out (or `progressive`) for a plain video file. */
-  format?: 'hls' | 'dash' | 'progressive';
+  /**
+   * Streaming manifests; leave it out (or `progressive`) for a plain video file. `page` is a web
+   * page (https) that plays the video in its site's own player, for sites whose terms allow only
+   * that (Twitch's embeddable player): Raygun opens it in its browser instead of its player.
+   */
+  format?: 'hls' | 'dash' | 'progressive' | 'page';
   subtitles?: VideoSubtitle[];
   /** Chapters: the player marks them and offers to skip openings, endings and recaps. */
   timestamps?: VideoTimestamp[];
+  /**
+   * A live stream: the player starts at its live edge, shows how far behind it is, and keeps no
+   * place to resume. A `youtube:` link marked live plays its HLS playlist in Raygun's player when
+   * a YouTube source is installed (else YouTube's embedded player).
+   */
+  live?: boolean;
 };
 
 /** A chapter of a video, in seconds from the start (Aniyomi's `TimeStamp`). */
@@ -900,6 +921,49 @@ export type YouTubePlaylist = {
   videos: YouTubeVideo[];
 };
 
+/** A video on a YouTube live listing: on the air now, coming up, or streamed before. */
+export type YouTubeLiveVideo = {
+  id: string;
+  title: string;
+  channel: string | null;
+  /** The channel's id (`UC…`), when the listing names it. */
+  channelId: string | null;
+  /** On the air now. */
+  live: boolean;
+  /** Scheduled and not started yet. */
+  upcoming: boolean;
+  /** People watching now, when YouTube says. */
+  viewers: number | null;
+  /** The largest picture. */
+  thumbnailUrl: string | null;
+  thumbnails: YouTubeThumbnail[];
+};
+
+/** A channel's Live tab. */
+export type YouTubeLiveChannel = {
+  /** The channel's id (`UC…`). */
+  id: string;
+  title: string | null;
+  avatarUrl: string | null;
+  /** On the air first, then coming up, then streamed before. */
+  videos: YouTubeLiveVideo[];
+};
+
+/** A live stream's HLS playlist, checked to play: a `Video` with `format: 'hls'` and `live`. */
+export type YouTubeLiveStream = {
+  url: string;
+  /** Send these with it (a `Video`'s `headers`). */
+  headers: Record<string, string>;
+  /** Unix milliseconds after which the address stops working. */
+  expiresAt: number | null;
+  title: string | null;
+  channel: string | null;
+  /** On the air now (else a broadcast that has just ended). */
+  live: boolean;
+  /** One of YouTube's app clients. */
+  client: string;
+};
+
 /**
  * The `raygun` global: everything an extension can reach. Extensions run in QuickJS, not a
  * browser or Node: there is no `fetch`, `URL`, `setTimeout`, `require` or DOM.
@@ -968,6 +1032,18 @@ export type RaygunApi = {
     ): Promise<YouTubeStream>;
     /** A playlist's videos (an id or an address with `list=`), every page of them. */
     playlist(playlist: string): Promise<YouTubePlaylist>;
+    /**
+     * Streams on the air now: those matching `query` (youtube.com's Live search filter), else
+     * the ones YouTube's Live page features (an empty query). 20 without a limit, at most 50.
+     */
+    liveSearch(query: string, limit?: number): Promise<YouTubeLiveVideo[]>;
+    /** A channel's Live tab (its `UC…` id, `@handle` or address). */
+    channelLive(channel: string): Promise<YouTubeLiveChannel>;
+    /**
+     * A live stream's HLS playlist (an id or an address), from the first of YouTube's app clients
+     * whose segments play. Rejects for a video that isn't live or a stream that has ended.
+     */
+    live(video: string): Promise<YouTubeLiveStream>;
   };
   providers: {
     /**

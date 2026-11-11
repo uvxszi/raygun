@@ -40,8 +40,9 @@ pub fn parse_pending(url: &str) -> Option<EpisodeRef> {
     serde_json::from_str(url.strip_prefix(PENDING)?).ok()
 }
 
-/// A link a download can save: a web address that isn't DASH or a YouTube video, or a torrent
-/// (listed as failed while torrents can't play, so taken only while they can).
+/// A link a download can save: a web address that isn't DASH, a YouTube video, a live stream or a
+/// page that plays in its site's own player, or a torrent (listed as failed while torrents can't
+/// play, so taken only while they can).
 pub fn downloadable(request: &VideoRequest) -> bool {
     if raygun_torrent::is_torrent(&request.url, request.format.as_deref()) {
         return true;
@@ -49,9 +50,12 @@ pub fn downloadable(request: &VideoRequest) -> bool {
     let url = request.url.to_lowercase();
     (url.starts_with("https://") || url.starts_with("http://"))
         && !url.contains(".mpd")
+        && !request.live
         && !matches!(
             request.format.as_deref(),
-            Some("dash") | Some(raygun_ext_host::video::TORRENT)
+            Some("dash")
+                | Some(raygun_ext_host::video::TORRENT)
+                | Some(raygun_ext_host::video::PAGE)
         )
 }
 
@@ -253,6 +257,15 @@ mod tests {
         assert!(!downloadable(&request("https://cdn/a.mpd", None)));
         assert!(downloadable(&request("magnet:?xt", Some("torrent"))));
         assert!(downloadable(&request("https://cdn/a.m3u8", Some("hls"))));
+        assert!(!downloadable(&request(
+            "https://player.twitch.tv/?channel=a",
+            Some("page")
+        )));
+        let live = VideoRequest {
+            live: true,
+            ..request("https://cdn/live.m3u8", Some("hls"))
+        };
+        assert!(!downloadable(&live), "a live stream never ends");
 
         let groups = vec![
             Group::finished(

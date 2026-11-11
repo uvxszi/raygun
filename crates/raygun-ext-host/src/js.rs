@@ -603,6 +603,15 @@ impl JsExtension {
             .stream(&ExtensionHttp(self.shared.clone()), video, prefs)
             .await
     }
+
+    /// A YouTube live stream's playlist from Raygun's YouTube module, asked through this
+    /// extension's own fetch, as its `raygun.youtube.live` would.
+    pub async fn youtube_live(&self, video: &str) -> Result<crate::youtube::LiveStream, String> {
+        let _running = Running::new(&self.shared);
+        crate::youtube::YouTube::shared()
+            .live(&ExtensionHttp(self.shared.clone()), video)
+            .await
+    }
 }
 
 /// What a failed provider call tells the user: the thrown message alone. The stack trace, which
@@ -910,6 +919,58 @@ fn install_youtube<'js>(
                 async move {
                     let found = YouTube::shared()
                         .playlist(&ExtensionHttp(s.clone()), &playlist)
+                        .await;
+                    s.restart_budget();
+                    envelope(found.and_then(|found| to_json(&found)))
+                }
+            }),
+        )?,
+    )?;
+    let s = shared.clone();
+    native.set(
+        "youtubeLiveSearch",
+        Function::new(
+            ctx.clone(),
+            Async(move |query: String, limit: f64| {
+                let s = s.clone();
+                async move {
+                    let limit = (limit.is_finite() && limit >= 1.0).then_some(limit as usize);
+                    let found = YouTube::shared()
+                        .live_search(&ExtensionHttp(s.clone()), &query, limit)
+                        .await;
+                    s.restart_budget();
+                    envelope(found.and_then(|found| to_json(&found)))
+                }
+            }),
+        )?,
+    )?;
+    let s = shared.clone();
+    native.set(
+        "youtubeChannelLive",
+        Function::new(
+            ctx.clone(),
+            Async(move |channel: String| {
+                let s = s.clone();
+                async move {
+                    let found = YouTube::shared()
+                        .channel_live(&ExtensionHttp(s.clone()), &channel)
+                        .await;
+                    s.restart_budget();
+                    envelope(found.and_then(|found| to_json(&found)))
+                }
+            }),
+        )?,
+    )?;
+    let s = shared.clone();
+    native.set(
+        "youtubeLive",
+        Function::new(
+            ctx.clone(),
+            Async(move |video: String| {
+                let s = s.clone();
+                async move {
+                    let found = YouTube::shared()
+                        .live(&ExtensionHttp(s.clone()), &video)
                         .await;
                     s.restart_budget();
                     envelope(found.and_then(|found| to_json(&found)))

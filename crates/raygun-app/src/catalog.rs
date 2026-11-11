@@ -893,6 +893,8 @@ fn listing_cards(
                 title: item.title,
                 from_listing: false,
                 authors,
+                live: item.live,
+                subtitle: item.subtitle,
             }
         })
         .collect()
@@ -1437,6 +1439,8 @@ mod tests {
                         cover_headers: BTreeMap::new(),
                         authors: Vec::new(),
                         nsfw: false,
+                        live: None,
+                        subtitle: None,
                     })
                     .collect(),
                 has_next_page: false,
@@ -1472,6 +1476,8 @@ mod tests {
             cover_headers: BTreeMap::new(),
             authors: authors.iter().map(|name| (*name).to_owned()).collect(),
             nsfw: id == "adult",
+            live: None,
+            subtitle: None,
         };
         let stored = |in_library: bool, authors: &[&str]| titles::ListedTitle {
             in_library,

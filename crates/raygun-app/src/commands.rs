@@ -1702,7 +1702,9 @@ pub async fn youtube_link(text: String) -> Result<Option<raygun_model::YouTubeLi
     Ok(Some(crate::ytdlp::describe(&client, link).await))
 }
 
-/// Plays a YouTube video from an address typed in Search, in YouTube's embed (M46.47).
+/// Plays a YouTube video from an address typed in Search, in YouTube's embed (M46.47). A live
+/// stream plays in Raygun's player instead when an installed YouTube source can ask for its
+/// playlist (`video::youtube_live_request`; anything else is told apart by YouTube's answer).
 #[tauri::command]
 #[specta::specta]
 pub async fn youtube_play(
@@ -1711,7 +1713,22 @@ pub async fn youtube_play(
     title: String,
     channel: Option<String>,
 ) -> Result<(), String> {
-    crate::video::play_youtube(&app, &video_id, &title, channel).await
+    let link = format!("{}{video_id}", crate::video::YOUTUBE_LINK);
+    let request = raygun_model::VideoRequest {
+        key: format!("url:{link}"),
+        title,
+        subtitle: channel,
+        poster: None,
+        url: link,
+        headers: std::collections::BTreeMap::new(),
+        format: None,
+        subtitles: Vec::new(),
+        group: None,
+        chapters: Vec::new(),
+        anime: None,
+        live: true,
+    };
+    crate::video::play(&app, request).await
 }
 
 /// Raygun's newest release next to this copy (M46.47); `refresh` asks GitHub now.

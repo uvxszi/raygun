@@ -1,3 +1,4 @@
+import type { LiveNow } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { CheckSquare, FolderPlus, ImageIcon } from 'lucide-react';
 import { memo, useState } from 'react';
@@ -13,6 +14,7 @@ import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
 import { bookWords } from './bookWords';
 import { MangaCover } from './MangaCover';
 import { AdultMark } from '../shell/AdultMark';
+import { LiveMark } from '../shell/LiveMark';
 import { groupWords } from './groupWords';
 import { ROUTES } from './medium';
 import { GroupPickSheet } from '../select/GroupPickSheet';
@@ -36,13 +38,15 @@ export type MangaGridItem = {
   /** Where it opens, when not the medium's title page (Stremio titles in the video library). */
   link?: { to: string; search: Record<string, string> };
   /** A line under the cover. */
-  subtitle?: string;
+  subtitle?: string | null;
   /** The source it came from (a search result), as a tag apart from the line. */
   source?: string;
   /** Marked adult by its source, or from a source rated for adults: an 18+ tag. */
   adult?: boolean;
   /** Who wrote it, when known: a book without a cover gets one drawn with them. */
   authors?: readonly string[];
+  /** On the air now (a live stream): marked live, with its viewers. */
+  live?: LiveNow | null;
 };
 
 /**
@@ -163,6 +167,7 @@ const MangaGridView: FC<{
                         selectable && !item.link ? (picking ? 'pl-7' : 'group-hover/pick:pl-7') : ''
                       }`}
                     >
+                      {item.live && <LiveMark live={item.live} />}
                       {item.inLibrary && (
                         <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-3xs font-bold">
                           {t('manga.inLibraryBadge')}
