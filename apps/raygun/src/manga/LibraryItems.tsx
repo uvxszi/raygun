@@ -15,6 +15,7 @@ import { videoTitleLink } from '../watch/useVideoLibrary';
 import { CARD_MENU_CLASS } from './CardPlayButton';
 import type { LibraryDisplay } from './libraryDisplay';
 import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
+import { bookWords } from './bookWords';
 import { MangaCover } from './MangaCover';
 import { ROUTES } from './medium';
 import type { Medium } from './medium';
@@ -198,6 +199,7 @@ const LibraryItem: FC<ItemProps> = ({
     extend: () => onLongPress(entry),
   };
   const pickLabel = t('search.select.pick', { title: entry.title });
+  const book = bookWords(medium, entry.title, entry.authors);
 
   if (mode === 'list') {
     return (
@@ -207,7 +209,12 @@ const LibraryItem: FC<ItemProps> = ({
           className={`flex items-center gap-3 rounded-xl px-2 py-1.5 ${selected ? '' : 'hover:bg-surface'}`}
         >
           <span className="relative w-10 shrink-0 overflow-hidden rounded-md">
-            <MangaCover url={entry.coverUrl} video={medium === 'video'} className="w-full" />
+            <MangaCover
+              url={entry.coverUrl}
+              video={medium === 'video'}
+              book={book}
+              className="w-full"
+            />
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
@@ -230,7 +237,8 @@ const LibraryItem: FC<ItemProps> = ({
     );
   }
 
-  const compact = mode === 'compactGrid';
+  // A drawn cover prints the title itself: no title laid over it.
+  const compact = mode === 'compactGrid' && !(book && !entry.coverUrl);
   const coverOnly = mode === 'coverOnlyGrid';
   return (
     <PickTarget pick={pick} label={pickLabel}>
@@ -239,6 +247,7 @@ const LibraryItem: FC<ItemProps> = ({
           <MangaCover
             url={entry.coverUrl}
             video={medium === 'video'}
+            book={book}
             className={`w-full ${selected ? 'opacity-75' : ''}`}
           />
           {/* The circle takes the top left corner while it shows: the badges move over. */}
@@ -274,7 +283,9 @@ const LibraryItem: FC<ItemProps> = ({
         {mode === 'comfortableGrid' && (
           <span className="line-clamp-2 min-h-8 text-xs font-medium">{entry.title}</span>
         )}
-        {coverOnly && <span className="sr-only">{entry.title}</span>}
+        {(coverOnly || (mode === 'compactGrid' && !compact)) && (
+          <span className="sr-only">{entry.title}</span>
+        )}
       </Link>
     </PickTarget>
   );

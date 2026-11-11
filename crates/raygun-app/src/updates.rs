@@ -10,6 +10,10 @@
 //!   for "Install unknown apps" when Raygun doesn't have it; the release is signed with the same
 //!   key, so it installs as an update;
 //! - the portable exe and everything else: the release page opens, nothing is replaced.
+//!
+//! A newer release an automatic check finds is offered in the app (`AppUpdate::prompt`) with
+//! Later (asked again a day later) and Skip this version (not offered again on this device; a
+//! newer release is). `Settings::check_updates` turns the automatic checks off.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -36,6 +40,12 @@ const LAST_CHECK_KEY: &str = "updates.lastCheck";
 const ANNOUNCED_KEY: &str = "updates.announced";
 /// The last version whose "What's new" was shown (`local_meta`).
 const NOTES_SHOWN_KEY: &str = "updates.notesShown";
+/// The version skipped on this device (`local_meta`): it isn't offered again.
+const SKIPPED_KEY: &str = "updates.skipped";
+/// When the offer was last put off with Later, Unix ms (`local_meta`).
+const LATER_KEY: &str = "updates.later";
+/// Later puts the offer off this long.
+const LATER_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 const TAG_API: &str = "https://api.github.com/repos/uvxszi/raygun/releases/tags/";
 /// `(version, notes)` for every `docs/releases/v<version>.md`, oldest first (`build.rs`).
 const BUNDLED_NOTES: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/release_notes.rs"));
@@ -91,16 +101,19 @@ impl UpdateService {
                     state: UpdateState::Idle,
                     progress: None,
                     message: None,
+                    prompt: false,
+                    skipped: false,
                 },
                 None,
             )),
         })
     }
 
-    /// Checks on every start (after the app settles), then once a day, in release builds; a
-    /// development build checks only when asked. What a check found isn't kept between runs, so
-    /// the start's check is what lets Home say a release is out. Failed background checks are
-    /// quiet and try again an hour later; battery saver and the background stretch every wait.
+    /// Checks on every start (after the app settles), then once a day, in release builds, while
+    /// `Settings::check_updates` is on; a development build checks only when asked. What a check
+    /// found isn't kept between runs, so the start's check is what lets Home say a release is
+    /// out. Failed background checks are quiet and try again an hour later; battery saver and the
+    /// background stretch every wait.
     pub fn start(self: &std::sync::Arc<Self>) {
         if cfg!(debug_assertions) {
             return;
@@ -112,7 +125,7 @@ impl UpdateService {
             loop {
                 let now = crate::catalog::now_ms();
                 let due = last_ok.is_none_or(|at| now - at >= CHECK_EVERY.as_millis() as i64);
-                if due {
+                if due && service.checks_by_itself().await {
                     match service.check_with(true).await {
                         Ok(_) => last_ok = Some(now),
                         Err(error) => tracing::info!(%error, "update check failed"),
@@ -125,6 +138,50 @@ impl UpdateService {
 
     pub fn current(&self) -> AppUpdate {
         self.state.lock().expect("update state poisoned").0.clone()
+    }
+
+    /// Whether automatic checks are on (Settings → About → Check for updates automatically).
+    async fn checks_by_itself(&self) -> bool {
+        crate::settings::load(&self.db())
+            .await
+            .map(|settings| settings.check_updates)
+            .unwrap_or(true)
+    }
+
+    /// What this device said about offers: the skipped version and when Later was pressed.
+    async fn offer_marks(&self) -> (Option<String>, Option<i64>) {
+        let db = self.db();
+        let skipped = raygun_db::local_value(&db, SKIPPED_KEY)
+            .await
+            .ok()
+            .flatten();
+        let later = raygun_db::local_value(&db, LATER_KEY)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|at| at.trim().parse::<i64>().ok());
+        (skipped, later)
+    }
+
+    /// Later: the offer goes away, and comes back a day later at the earliest.
+    pub async fn put_off(&self) -> AppUpdate {
+        let now = crate::catalog::now_ms();
+        let _ = raygun_db::set_local_value(&self.db(), LATER_KEY, &now.to_string()).await;
+        self.change(|update| update.prompt = false);
+        self.current()
+    }
+
+    /// Skip this version: the newest release isn't offered again on this device.
+    pub async fn skip(&self) -> AppUpdate {
+        let Some(latest) = self.current().latest else {
+            return self.current();
+        };
+        let _ = raygun_db::set_local_value(&self.db(), SKIPPED_KEY, &latest).await;
+        self.change(|update| {
+            update.prompt = false;
+            update.skipped = true;
+        });
+        self.current()
     }
 
     /// Reads the latest release.
@@ -163,8 +220,14 @@ impl UpdateService {
                 self.remember_check().await;
                 let latest = release.tag_name.trim_start_matches('v').to_owned();
                 let asset = pick_asset(self.kind, &release.assets);
+                let (skipped, later) = self.offer_marks().await;
+                let now = crate::catalog::now_ms();
                 self.change_with_asset(asset.clone(), |update| {
                     update.available = newer(&latest, &update.current);
+                    update.skipped = is_skipped(&latest, skipped.as_deref());
+                    // Only an automatic check offers it; one asked for in About shows it there.
+                    update.prompt =
+                        quiet && offers(update.available, &latest, skipped.as_deref(), later, now);
                     update.latest = Some(latest);
                     update.notes = release.body.clone();
                     if release.html_url.starts_with(REPO_URL) {
@@ -172,11 +235,11 @@ impl UpdateService {
                     }
                     update.asset_name = asset.as_ref().map(|asset| asset.name.clone());
                     update.asset_size = asset.as_ref().map(|asset| asset.size as f64);
-                    update.checked_at = Some(crate::catalog::now_ms() as f64);
+                    update.checked_at = Some(now as f64);
                     update.state = UpdateState::Idle;
                 });
                 let found = self.current();
-                if quiet && found.available {
+                if quiet && found.available && !found.skipped {
                     self.announce(&found).await;
                 }
                 Ok(found)
@@ -319,6 +382,10 @@ impl UpdateService {
         };
         if !update.available {
             return Err("This is the newest Raygun".into());
+        }
+        // Acted on: the offer has been answered.
+        if update.prompt {
+            self.change(|update| update.prompt = false);
         }
         let Some(asset) = asset else {
             self.open_page(&update.page_url)?;
@@ -634,6 +701,24 @@ fn notes_due(shown: Option<&str>, ran_before: bool, current: &str) -> bool {
     }
 }
 
+/// Whether `latest` was skipped here: it's the skipped version (or older than it).
+fn is_skipped(latest: &str, skipped: Option<&str>) -> bool {
+    skipped.is_some_and(|skipped| !newer(latest, skipped))
+}
+
+/// Whether an automatic check offers `latest`: newer than this copy, not skipped, and not put
+/// off with Later within [`LATER_FOR`] (a clock set back doesn't hold it off).
+fn offers(
+    available: bool,
+    latest: &str,
+    skipped: Option<&str>,
+    later: Option<i64>,
+    now: i64,
+) -> bool {
+    let put_off = later.is_some_and(|at| (0..LATER_FOR.as_millis() as i64).contains(&(now - at)));
+    available && !is_skipped(latest, skipped) && !put_off
+}
+
 /// The release file this kind of copy updates from (named by the release workflow).
 fn pick_asset(kind: InstallKind, assets: &[Asset]) -> Option<Asset> {
     let lower = |asset: &&Asset| asset.name.to_ascii_lowercase();
@@ -730,6 +815,31 @@ mod tests {
         assert!(
             all.windows(2)
                 .all(|pair| newer(&pair[0].version, &pair[1].version))
+        );
+    }
+
+    #[test]
+    fn a_skipped_version_is_not_offered_again_but_a_newer_one_is() {
+        let now = 10 * 24 * 60 * 60 * 1000;
+        assert!(offers(true, "1.7.0", None, None, now));
+        assert!(!offers(false, "1.7.0", None, None, now), "nothing newer");
+        assert!(!offers(true, "1.7.0", Some("1.7.0"), None, now));
+        assert!(is_skipped("1.7.0", Some("1.7.0")));
+        assert!(offers(true, "1.8.0", Some("1.7.0"), None, now));
+        assert!(!is_skipped("1.8.0", Some("1.7.0")));
+        assert!(!is_skipped("1.7.0", None));
+    }
+
+    #[test]
+    fn later_puts_the_offer_off_for_a_day() {
+        let day = LATER_FOR.as_millis() as i64;
+        let now = 10 * day;
+        assert!(!offers(true, "1.7.0", None, Some(now - 1000), now));
+        assert!(!offers(true, "1.7.0", None, Some(now - day + 1), now));
+        assert!(offers(true, "1.7.0", None, Some(now - day), now));
+        assert!(
+            offers(true, "1.7.0", None, Some(now + 60_000), now),
+            "a clock set back doesn't hold it off"
         );
     }
 

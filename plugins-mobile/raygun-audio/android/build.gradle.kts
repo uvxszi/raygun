@@ -18,6 +18,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
+
+    // Plain JVM tests of the pure parts (OutputRoutingTest); Android's classes answer defaults.
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
@@ -41,4 +46,5 @@ dependencies {
     // Tauri's own JSON mapper, for the commands Rust runs without the activity (DirectCalls);
     // tauri-android ships it at run time.
     compileOnly("com.fasterxml.jackson.core:jackson-databind:2.15.3")
+    testImplementation("junit:junit:4.13.2")
 }

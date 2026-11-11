@@ -12,6 +12,7 @@ import {
   useHistory,
 } from '../collections/useCollections';
 import { useHasProvider } from '../extensions/useExtensions';
+import { bookWords } from '../manga/bookWords';
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
@@ -144,7 +145,11 @@ const ContinueReading: FC<SectionProps> = ({ id }) => {
                 }
               />
               <span className="relative">
-                <MangaCover url={entry.coverUrl} className="w-full rounded-xl" />
+                <MangaCover
+                  url={entry.coverUrl}
+                  book={bookWords(entry.medium, entry.title, entry.authors)}
+                  className="w-full rounded-xl"
+                />
                 {entry.unread > 0 && (
                   <span className="bg-primary text-background absolute top-1.5 left-1.5 rounded-md px-1.5 text-xs font-bold">
                     {entry.unread}

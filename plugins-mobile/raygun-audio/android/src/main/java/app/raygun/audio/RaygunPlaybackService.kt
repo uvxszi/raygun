@@ -19,6 +19,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
@@ -87,10 +88,16 @@ private class WakeFollower(private val player: ExoPlayer) : Player.Listener {
     }
 }
 
-/** Puts a [SoundProcessor] in the player's audio sink. */
+/**
+ * Puts a [SoundProcessor] in the player's audio sink, and follows each AudioTrack it plays
+ * through (`route`), to keep it on the output picked in Devices (OutputRouting).
+ */
 @UnstableApi
-private class SoundRenderersFactory(context: Context, private val processor: SoundProcessor) :
-    DefaultRenderersFactory(context) {
+private class SoundRenderersFactory(
+    context: Context,
+    private val processor: SoundProcessor,
+    private val route: RouteWatch,
+) : DefaultRenderersFactory(context) {
     override fun buildAudioSink(
         context: Context,
         enableFloatOutput: Boolean,
@@ -99,13 +106,16 @@ private class SoundRenderersFactory(context: Context, private val processor: Sou
         DefaultAudioSink.Builder(context)
             .setAudioProcessors(arrayOf(processor))
             .setEnableFloatOutput(enableFloatOutput)
-            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
+            .setAudioOutputProvider(
+                RoutedOutputProvider(AudioTrackAudioOutputProvider.Builder(context).build(), route),
+            )
             .build()
 }
 
-/** A player and the processor its sound goes through. */
+/** A player, the processor its sound goes through, and where Android sends that sound. */
 @UnstableApi
-class Deck(val player: ExoPlayer, val processor: SoundProcessor) {
+class Deck(val player: ExoPlayer, val processor: SoundProcessor, val route: RouteWatch) {
     /** Stops the deck once its fade-out is over, unless it's reused meanwhile. */
     var stopAt: Runnable? = null
 }
@@ -163,9 +173,32 @@ class RaygunPlaybackService : MediaSessionService() {
     lateinit var mirror: MirrorPlayer
         private set
 
-    /** Forgets the output picked in Devices once it's gone (headphones switched off). */
+    /** Keeps the playing deck's sound on the output picked in Devices (OutputRouting). */
+    private val keeper = OutputKeeper(main) { decks.getOrNull(current)?.route?.current }
+
+    /**
+     * Forgets the output picked in Devices once it's gone (headphones switched off), and when
+     * headphones are connected after it: Android gives them the sound, and so does Raygun.
+     */
     private val outputs = object : AudioDeviceCallback() {
+        /** Devices connected so far: the first call, on registering, lists them all. */
+        private val known = mutableSetOf<Int>()
+        private var listed = false
+
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) {
+            val fresh = added.filter { known.add(it.id) }
+            if (!listed) {
+                listed = true
+                return
+            }
+            if (RaygunSound.output != null && fresh.any { it.isSink && takesOverSound(it.type) }) {
+                RaygunSound.output = null
+                applyOutput(null)
+            }
+        }
+
         override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) {
+            for (device in removed) known.remove(device.id)
             val chosen = RaygunSound.output ?: return
             if (removed.any { it.id == chosen.id }) {
                 RaygunSound.output = null
@@ -178,7 +211,8 @@ class RaygunPlaybackService : MediaSessionService() {
         super.onCreate()
         repeat(2) { index ->
             val processor = SoundProcessor().apply { setConfig(RaygunSound.config) }
-            val player = ExoPlayer.Builder(this, SoundRenderersFactory(this, processor))
+            val route = RouteWatch(main, keeper::routingChanged)
+            val player = ExoPlayer.Builder(this, SoundRenderersFactory(this, processor, route))
                 .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ index == 0)
                 .setHandleAudioBecomingNoisy(true)
                 .build()
@@ -186,7 +220,7 @@ class RaygunPlaybackService : MediaSessionService() {
             player.addListener(WakeFollower(player))
             // The output picked in Devices (M46.43), for players made after it.
             RaygunSound.output?.let { player.setPreferredAudioDevice(it) }
-            decks.add(Deck(player, processor))
+            decks.add(Deck(player, processor, route))
             shown.add(RaygunSessionPlayer(player, ::fromRaygun))
         }
         mirror = MirrorPlayer(this)
@@ -230,10 +264,20 @@ class RaygunPlaybackService : MediaSessionService() {
         mirror.show()
     }
 
-    /** Plays through `device` (M46.43: Bluetooth headphones, the speakerâ€¦), or Android's choice. */
+    /**
+     * Plays through `device` (M46.43: Bluetooth headphones, the speaker...), or Android's choice:
+     * both players, for every song from now on, and the song playing at once (OutputKeeper).
+     */
     fun applyOutput(device: AudioDeviceInfo?) {
-        for (each in decks) each.player.setPreferredAudioDevice(device)
+        keeper.picked { for (each in decks) each.player.setPreferredAudioDevice(device) }
     }
+
+    /** Where Android sends the playing song's sound now: null while no native song plays. */
+    fun routedOutput(): AudioDeviceInfo? =
+        decks.getOrNull(current)?.route?.current?.takeIf { it.isPlaying }?.routedDevice()
+
+    /** The output picked was asked for, and Android kept the playing song elsewhere. */
+    val outputRefused: Boolean get() = keeper.refused
 
     /** New sound settings: every player's processor follows them, and the reverb. */
     fun applySound(config: SoundConfig, reverbPreset: Short?) {
@@ -340,6 +384,7 @@ class RaygunPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         instance = null
+        keeper.stop()
         main.removeCallbacksAndMessages(null)
         getSystemService(AudioManager::class.java)?.unregisterAudioDeviceCallback(outputs)
         session?.release()

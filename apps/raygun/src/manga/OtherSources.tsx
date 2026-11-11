@@ -26,6 +26,7 @@ import { collectFromCache } from '../shell/queryMemory';
 import { SourceIssue } from '../shell/SourceIssue';
 import { videoTitleScore } from '../watch/videoMatch';
 import { groupWords } from './groupWords';
+import { bookWords } from './bookWords';
 import { MangaCover } from './MangaCover';
 import { createLimiter, formatNumber, mangaSize, videoSize } from './matchSize';
 import type { MatchSize } from './matchSize';
@@ -393,6 +394,7 @@ const Match: FC<{
           <MangaCover
             url={card.coverUrl}
             video={medium === 'video'}
+            book={bookWords(medium, card.title)}
             className="w-10 shrink-0 rounded"
           />
           <span className="flex min-w-0 flex-col gap-0.5">

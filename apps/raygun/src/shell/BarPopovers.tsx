@@ -12,6 +12,7 @@ import {
   useVideoDownloadMenu,
 } from '../downloads/downloadMenus';
 import { chapterUpdateLink } from '../manga/chapterUpdateLink';
+import { bookWords } from '../manga/bookWords';
 import { MangaCover } from '../manga/MangaCover';
 import { useMangaDownloads, useMangaLiveEvents, useMangaUpdates } from '../manga/useManga';
 import { Artwork } from '../library/Artwork';
@@ -109,7 +110,13 @@ const UpdatesPopover: FC<{ anchor: HTMLElement; onClose: () => void }> = ({ anch
   const rows: MiniRow[] = [
     ...(chapters.data ?? []).map((item) => ({
       key: `c-${item.chapter.id}`,
-      picture: <MangaCover url={item.coverUrl} className="w-full rounded" />,
+      picture: (
+        <MangaCover
+          url={item.coverUrl}
+          book={bookWords(item.medium, item.title)}
+          className="w-full rounded"
+        />
+      ),
       title: item.title,
       detail: item.chapter.name,
       at: item.foundAt ?? 0,

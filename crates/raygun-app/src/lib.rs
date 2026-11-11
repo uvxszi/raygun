@@ -335,6 +335,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::connect_link,
             commands::devices_set_sharing,
             commands::app_update_install,
+            commands::app_update_later,
+            commands::app_update_skip,
             commands::app_open_page,
             commands::app_open_link,
             commands::app_whats_new,
