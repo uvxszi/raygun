@@ -58,7 +58,41 @@ export type PlayerRequest = {
   autoplay?: boolean;
   nextPromptMs?: number;
   loadingText?: string;
+  /** A live stream as its source marks it: it starts at its live edge (`VideoRequest::live`). */
+  live?: boolean;
 };
+
+/** What a link's names say about it (`video_quality::LinkFacts`). */
+export type LinkFacts = {
+  height: number | null;
+  range: QualityRange;
+  codec: string | null;
+  bitDepth: number | null;
+  audio: string | null;
+  sizeBytes: number | null;
+  release: string | null;
+};
+
+export type QualityRange = 'sdr' | 'hdr' | 'dv';
+
+/** A step of the Quality menu (`video_quality::QualityRow`). */
+export type QualityRow = {
+  /** `<height>:<range>`, as the `quality` request names it. */
+  key: string;
+  height: number;
+  range: QualityRange;
+  codec: string | null;
+} & (
+  | { state: 'playing' | 'variant' | 'missing' }
+  | { state: 'thisSource'; group: number; link: number }
+  | { state: 'otherSource'; group: number; link: number; source: string }
+);
+
+/** One of the playing stream's own variants, for the `variants` request. */
+export type VariantInfo = { height: number; range: QualityRange; codec: string | null };
+
+/** Where one live segment starts on the player's clock (`video_audio::LiveAnchor`). */
+export type LiveAnchor = { sequence: number; startMs: number };
 
 export type EpisodeItem = {
   label: string;
@@ -73,6 +107,12 @@ export type SourceLink = {
   failed: boolean;
   /** It played last time for this title. */
   worked?: boolean;
+  /** What its names say: resolution, HDR, codec, sound, size, release. */
+  facts?: LinkFacts;
+  /** The bit rate a file of its size needs over the episode's length, kb/s. */
+  bitrateKbps?: number | null;
+  /** The connection speed measured while it played, kb/s. */
+  speedKbps?: number | null;
 };
 
 export type SourceGroup = {
@@ -84,6 +124,12 @@ export type SourceGroup = {
   unreliable?: boolean;
   /** It played last time for this title: tried first. */
   worked?: boolean;
+  /** Its best picture height among links that can play. */
+  best?: number | null;
+  /** How many of its links can play. */
+  options?: number;
+  /** The connection speed measured while it played, kb/s. */
+  speedKbps?: number | null;
 };
 
 export type PlayerUpdate =
@@ -99,9 +145,18 @@ export type PlayerUpdate =
       hasPrevious: boolean;
       autoplay?: boolean;
     }
-  /** `playingFrom`: the source the video plays from, once it has played a while. */
-  | { type: 'sources'; groups: SourceGroup[]; playingFrom?: string | null }
-  | { type: 'chapters'; id: string; items: VideoChapter[] };
+  /** `playingFrom`: the source the video plays from, once it has played a while; `order`: the
+   * order Sources lists them in by clean name. */
+  | { type: 'sources'; groups: SourceGroup[]; playingFrom?: string | null; order?: number[] }
+  | { type: 'chapters'; id: string; items: VideoChapter[] }
+  /** The Quality menu; `notice` when a step tapped can't play. */
+  | { type: 'qualities'; items: QualityRow[]; wanted?: string | null; notice?: string | null }
+  /** Settings changed in the app while a video plays (`video::settings_changed`): followed at
+   * once, as a request's would be. */
+  | ({ type: 'prefs' } & Pick<
+      PlayerRequest,
+      'prefs' | 'seekStepMs' | 'appLanguage' | 'subtitleLanguage' | 'subtitleMode'
+    >);
 
 export type ReportState = 'progress' | 'ended' | 'error' | 'switched' | 'closed';
 
@@ -111,7 +166,19 @@ export type Position = {
   durationMs: number | null;
   /** The video loops: Rust doesn't count its watched point as finishing it. */
   looping?: boolean;
+  /** A live stream: its position is its own clock, never a place to resume. */
+  live?: boolean;
+  /** Where the segment playing starts on that clock (AI subtitles place the sound by it). */
+  liveAnchor?: LiveAnchor | null;
+  /** The connection's measured speed, kb/s. */
+  bandwidthKbps?: number | null;
 };
+
+/** What a report or request says beside the position: live streams and the connection. */
+const extras = (at: Position) => ({
+  ...(at.live ? { live: true, liveAnchor: at.liveAnchor ?? null } : {}),
+  ...(at.bandwidthKbps ? { bandwidthKbps: Math.round(at.bandwidthKbps) } : {}),
+});
 
 /** Progress and what happened: saved for resuming; `error` makes a session try the next link. */
 export const sendReport = (id: string, state: ReportState, at: Position, error?: string) => {
@@ -121,9 +188,10 @@ export const sendReport = (id: string, state: ReportState, at: Position, error?:
       id,
       state,
       positionMs: Math.max(0, Math.round(at.positionMs)),
-      durationMs: at.durationMs && at.durationMs > 0 ? Math.round(at.durationMs) : null,
+      durationMs: !at.live && at.durationMs && at.durationMs > 0 ? Math.round(at.durationMs) : null,
       error: error ?? null,
       looping: at.looping ?? false,
+      ...extras(at),
     }),
   );
 };

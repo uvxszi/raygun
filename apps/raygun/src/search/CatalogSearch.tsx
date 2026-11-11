@@ -35,7 +35,7 @@ import { SourceFiltersPanel } from './SourceFiltersPanel';
 import { rankResults, titleScore } from './rankResults';
 import type { RankedCard } from './rankResults';
 import { videoTitleScore } from '../watch/videoMatch';
-import { keepCards, keepSource, useSearchFilter } from './searchFilter';
+import { hidesSaved, keepCard, keepCards, keepSource, useSearchFilter } from './searchFilter';
 import { useSeenTitles } from './seenBefore';
 import { answeredFirst, failingLast, useSourceHealth } from './sourceHealth';
 import {
@@ -256,9 +256,13 @@ export const RankedResults: FC<{
     [results, query, medium],
   );
   // Titles already seen (Home, sources' pages, the library) show until every source has
-  // answered (M46.47), after the answers that came.
+  // answered (M46.47), after the answers that came, as the filters keep them.
   const waiting = answered < sources.length;
   const seen = useSeenTitles(medium, query, waiting);
+  const adultSources = useMemo(
+    () => new Set(sources.filter((source) => source.adult).map((source) => source.id)),
+    [sources],
+  );
   const ranked: RankedCard[] = useMemo(() => {
     if (!waiting) return answers;
     const searchedIds = new Set(sources.map((source) => source.id));
@@ -269,13 +273,14 @@ export const RankedResults: FC<{
         .filter(
           (card) =>
             searchedIds.has(card.sourceId) &&
+            keepCard(filter, card, medium, adultSources.has(card.sourceId)) &&
             !answers.some(
               (answer) => answer.card.sourceId === card.sourceId && answer.card.id === card.id,
             ),
         )
         .map((card) => ({ card, sourceName: named.get(card.sourceId) ?? '' })),
     ];
-  }, [waiting, answers, seen, sources]);
+  }, [waiting, answers, seen, sources, filter, medium, adultSources]);
   const failures = results
     .filter((result) => result.error)
     .map((result) => ({ name: result.source.name, error: result.error ?? '' }));
@@ -292,17 +297,16 @@ export const RankedResults: FC<{
   const drawn = useDrawnCount(Math.min(ranked.length, cap), FIRST_CARDS, FIRST_CARDS, query.trim());
   // The same cards while nothing they show changes: the grid isn't drawn again for nothing.
   const fromListing = t('search.fromListing');
-  const items = useMemo(() => {
-    const adultSources = new Set(
-      sources.filter((source) => source.adult).map((source) => source.id),
-    );
-    return ranked.slice(0, drawn).map(({ card, sourceName }) => ({
-      ...toGridItems([card])[0]!,
-      source: sourceName,
-      ...(card.fromListing ? { subtitle: fromListing } : {}),
-      ...(card.adult || adultSources.has(card.sourceId) ? { adult: true } : {}),
-    }));
-  }, [ranked, drawn, sources, fromListing]);
+  const items = useMemo(
+    () =>
+      ranked.slice(0, drawn).map(({ card, sourceName }) => ({
+        ...toGridItems([card])[0]!,
+        source: sourceName,
+        ...(card.fromListing ? { subtitle: fromListing } : {}),
+        ...(card.adult || adultSources.has(card.sourceId) ? { adult: true } : {}),
+      })),
+    [ranked, drawn, adultSources, fromListing],
+  );
   return (
     <div data-testid="ranked-results" className="flex flex-col gap-3">
       {answered < sources.length && (
@@ -367,6 +371,7 @@ const InYourLibrary: FC<{ medium: Medium; query: string; onMore: () => void }> =
           title: entry.title,
           coverUrl: entry.coverUrl,
           unread: entry.unread,
+          author: entry.authors.join(', ') || null,
         }))}
       />
     </section>
@@ -397,14 +402,23 @@ const SourceSearch: FC<{
   sourceId: string;
   query: string;
   landscape?: boolean;
-}> = ({ medium, sourceId, query, landscape = false }) => {
+  /** The source is rated for adults: under "18+ only" all its titles stay. */
+  adult?: boolean;
+}> = ({ medium, sourceId, query, landscape = false, adult = false }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState<FilterValues>({});
   const filters = useSourceFilters(medium, sourceId);
   const search = useFilteredSearch(medium, sourceId, query, values);
   const filter = useSearchFilter();
-  const items = keepCards(filter, search.data?.pages.flatMap((page) => page.items) ?? []);
+  // One source's own search isn't filtered in Rust (sources' pages share it): Search's filters
+  // apply here.
+  const items = keepCards(
+    filter,
+    search.data?.pages.flatMap((page) => page.items) ?? [],
+    medium,
+    adult,
+  );
   const hasFilters = (filters.data?.length ?? 0) > 0;
   const active = Object.keys(values).length;
   // Its search failed or found nothing: every title shown came from its listings.
@@ -598,11 +612,15 @@ export const CatalogSearch: FC<{
         sourceId={sourceId}
         // Video sites' thumbnails are 16:9 (M46.45).
         landscape={Boolean(all.find((source) => source.id === sourceId)?.searchPill)}
+        adult={Boolean(all.find((source) => source.id === sourceId)?.adult)}
         grouped={asked.grouped}
         noneOn={asked.custom && picked.length === 0}
         popular={!query.trim() && all.length > 0}
         onOnly={onOnly}
-        onLibrary={relevant && medium !== 'video' ? onLibrary : undefined}
+        // "Not in library" leaves out what's already in it, this list too.
+        onLibrary={
+          relevant && medium !== 'video' && !hidesSaved(filter, medium) ? onLibrary : undefined
+        }
       />
     </div>
   );
@@ -620,6 +638,8 @@ const CatalogResultsView: FC<{
   /** The one source searched with its filters, or `''`. */
   sourceId: string;
   landscape: boolean;
+  /** That one source is rated for adults: under "18+ only" all its titles stay. */
+  adult: boolean;
   /** A row each (By source) rather than one list. */
   grouped: boolean;
   /** Custom sources is on with every source off. */
@@ -635,6 +655,7 @@ const CatalogResultsView: FC<{
   searched,
   sourceId,
   landscape,
+  adult,
   grouped,
   noneOn,
   popular,
@@ -689,6 +710,7 @@ const CatalogResultsView: FC<{
           sourceId={sourceId}
           query={query}
           landscape={landscape}
+          adult={adult}
         />
       )}
     </>

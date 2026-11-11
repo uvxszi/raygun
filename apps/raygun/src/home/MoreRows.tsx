@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { BookCard } from '../audiobooks/BookRow';
 import { useBookDirectory, useOpenAudiobook } from '../audiobooks/useAudiobooks';
+import { bookWords } from '../manga/bookWords';
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import type { Medium } from '../manga/medium';
@@ -285,7 +286,12 @@ export const PopularTitlesSection: FC<{ id: string; medium: Medium }> = ({ id, m
                     className="flex flex-col gap-1.5"
                   >
                     <span className="relative">
-                      <MangaCover url={item.coverUrl} video={video} className="w-full rounded-xl" />
+                      <MangaCover
+                        url={item.coverUrl}
+                        video={video}
+                        book={bookWords(medium, item.title)}
+                        className="w-full rounded-xl"
+                      />
                       {video && (
                         <CardPlayButton
                           label={t('menu.playTitle', { name: item.title })}

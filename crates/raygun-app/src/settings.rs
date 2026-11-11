@@ -170,6 +170,11 @@ pub async fn update_many(
             changes.push(SettingChange::SearchFilter(pill));
         }
     }
+    for change in &mut changes {
+        if let SettingChange::SearchFilter(prefs) = change {
+            *prefs = one_adult_switch(*prefs);
+        }
+    }
     let mut rows = Vec::with_capacity(changes.len());
     for change in &changes {
         change.validate().map_err(SettingsError::Invalid)?;
@@ -187,8 +192,9 @@ fn turns_adult_on(changes: &[SettingChange]) -> bool {
         .any(|change| matches!(change, SettingChange::ShowNsfw(true)))
 }
 
-/// Search's "No 18+" pill after `changes`: turning 18+ content on (from off) switches the pill on,
-/// so 18+ results show only once it's switched off too, unless the same changes set the pill.
+/// Search's "No 18+" pill after `changes`: turning 18+ content on (from off) switches the pill on
+/// (and "18+ only" off), so 18+ results show only once it's switched off too, unless the same
+/// changes set the pill. Search's other filters stay as they were.
 fn pill_after(
     before: &Settings,
     changes: &[SettingChange],
@@ -196,8 +202,21 @@ fn pill_after(
     let sets_pill = changes
         .iter()
         .any(|change| matches!(change, SettingChange::SearchFilter(_)));
-    (!before.show_nsfw && turns_adult_on(changes) && !sets_pill)
-        .then_some(raygun_model::SearchFilterPrefs { no_adult: true })
+    (!before.show_nsfw && turns_adult_on(changes) && !sets_pill).then_some(
+        raygun_model::SearchFilterPrefs {
+            no_adult: true,
+            adult_only: false,
+            ..before.search_filter
+        },
+    )
+}
+
+/// "No 18+" and "18+ only" turn each other off; asked for both, the pill wins (it hides more).
+fn one_adult_switch(prefs: raygun_model::SearchFilterPrefs) -> raygun_model::SearchFilterPrefs {
+    raygun_model::SearchFilterPrefs {
+        adult_only: prefs.adult_only && !prefs.no_adult,
+        ..prefs
+    }
 }
 
 /// The JSON a change is stored as: its value alone.
@@ -278,6 +297,31 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
         app.state::<std::sync::Arc<crate::discovery::DiscoveryService>>()
             .nudge();
     }
+    // A video playing follows its settings at once (the subtitles' style, languages, seek step);
+    // at start there is none to tell.
+    let player = differs("videoPlayer", &|before| {
+        before.video_player == settings.video_player
+    }) || differs("subtitleLanguage", &|before| {
+        before.subtitle_language == settings.subtitle_language
+    }) || differs("autoSubtitles", &|before| {
+        before.auto_subtitles == settings.auto_subtitles
+    }) || differs("seekSeconds", &|before| {
+        before.seek_seconds == settings.seek_seconds
+    });
+    if player && before.is_some() {
+        crate::video::settings_changed(app).await;
+    }
+    if differs("network", &|before| before.network == settings.network) {
+        crate::network_mode::apply(app, &settings.network);
+    }
+}
+
+/// The settings as services use them: what Data Saver changes while it applies
+/// (`Settings::with_data_saver`) changed; what's stored stays as it is.
+pub async fn load_in_effect(db: &Db) -> Result<Settings, SettingsError> {
+    Ok(load(db)
+        .await?
+        .with_data_saver(raygun_net::network_mode::data_saver()))
 }
 
 /// After rows arrived from elsewhere (a sync, a restored backup, an undone sync): what they
@@ -325,7 +369,7 @@ mod tests {
         assert!(on.search_filter.no_adult);
 
         // The pill switched off stays off while 18+ content stays on.
-        let off = SearchFilterPrefs { no_adult: false };
+        let off = SearchFilterPrefs::default();
         update(&db, SettingChange::SearchFilter(off)).await.unwrap();
         let again = update(&db, SettingChange::ShowNsfw(true)).await.unwrap();
         assert!(!again.search_filter.no_adult);
@@ -348,6 +392,47 @@ mod tests {
         .await
         .unwrap();
         assert!(!both.search_filter.no_adult);
+    }
+
+    #[tokio::test]
+    async fn the_pill_and_adult_only_turn_each_other_off_and_other_filters_stay() {
+        use raygun_model::SearchFilterPrefs;
+        let temp = TempDir::new().unwrap();
+        let db = open(&temp).await;
+        let filters = SearchFilterPrefs {
+            adult_only: true,
+            playable_videos: true,
+            hide_saved_books: true,
+            ..SearchFilterPrefs::default()
+        };
+        update(&db, SettingChange::SearchFilter(filters))
+            .await
+            .unwrap();
+
+        // Turning 18+ content on switches the pill on, "18+ only" off, and keeps the rest.
+        let on = update(&db, SettingChange::ShowNsfw(true)).await.unwrap();
+        assert_eq!(
+            on.search_filter,
+            SearchFilterPrefs {
+                no_adult: true,
+                adult_only: false,
+                ..filters
+            }
+        );
+
+        // Asked for both, the pill wins.
+        let both = update(
+            &db,
+            SettingChange::SearchFilter(SearchFilterPrefs {
+                no_adult: true,
+                adult_only: true,
+                ..filters
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(both.search_filter.no_adult && !both.search_filter.adult_only);
+        assert!(both.search_filter.playable_videos && both.search_filter.hide_saved_books);
     }
 
     #[tokio::test]

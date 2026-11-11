@@ -100,6 +100,9 @@ impl RemoteService {
     /// Turning the server on. On Android 17 it needs local network access first, or no other
     /// device could reach it.
     pub async fn set_enabled(&self, enabled: bool) -> Result<RemoteStatus, String> {
+        if enabled {
+            raygun_net::network_mode::check_online()?;
+        }
         if enabled && !self.local_network().allowed().await {
             return Err(REMOTE_DENIED.into());
         }
@@ -124,6 +127,21 @@ impl RemoteService {
             state.error = None;
         }
         self.status().await
+    }
+
+    /// Offline Mode turned on or off: the server stops while it's on, so nothing reaches it or is
+    /// announced; once it's off, it runs again if it was on.
+    pub async fn follow_network(&self, offline: bool) {
+        if offline {
+            let mut state = self.lock();
+            if let Some(running) = state.running.take() {
+                running.stop();
+                tracing::info!("remote stopped while offline");
+            }
+            state.advertised = None;
+        } else if self.enabled().await.unwrap_or(false) && self.lock().running.is_none() {
+            self.run().await;
+        }
     }
 
     /// Opens a new one-time code for this device's link QR code (the server starts first),
@@ -205,6 +223,10 @@ impl RemoteService {
     }
 
     async fn run(&self) {
+        // Nothing listens on the local network while Offline Mode is on (`follow_network`).
+        if raygun_net::network_mode::offline() {
+            return;
+        }
         let app = self.app.clone();
         let access = Access::new(
             self.pairing.clone(),

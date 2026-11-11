@@ -259,6 +259,20 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.privacy.clearHistory',
   ),
 
+  ...on('network')('offline.title'),
+  ...on('network', 'dataSaver.title')(
+    'dataSaver.enabled',
+    'dataSaver.mobileDataOnly',
+    'dataSaver.limitVideo',
+    'dataSaver.limitMusic',
+    'dataSaver.fewerSources',
+    'dataSaver.noPrefetch',
+    'dataSaver.noBackgroundLookups',
+    'dataSaver.smallerCovers',
+    'dataSaver.noTrailers',
+    'dataSaver.imagesWhenVisible',
+  ),
+
   ...on('data', 'data.backups.title')(
     'settings.createBackup',
     'settings.importBackup',
@@ -310,5 +324,5 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
   ...on('ai', 'ai.transcription.title')('ai.transcription.engine'),
   ...on('ai', 'ai.textReading.title')('ai.textReading.reader', 'ai.textReading.import'),
   ...on('ai', 'ai.onDevice.title')('ai.onDevice.storage'),
-  ...on('about')('updater.check', 'settings.license'),
+  ...on('about')('updater.check', 'updater.autoCheck', 'settings.license'),
 ];

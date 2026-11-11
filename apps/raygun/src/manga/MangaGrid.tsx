@@ -10,6 +10,7 @@ import { MenuButton } from '../shell/MenuButton';
 import { SourceTag } from '../shell/SourceTag';
 import { CARD_MENU_CLASS, CardPlayButton } from './CardPlayButton';
 import { COVER_GRID_CLASS, coverGridStyle } from './coverGrid';
+import { bookWords } from './bookWords';
 import { MangaCover } from './MangaCover';
 import { AdultMark } from '../shell/AdultMark';
 import { groupWords } from './groupWords';
@@ -40,6 +41,8 @@ export type MangaGridItem = {
   source?: string;
   /** Marked adult by its source, or from a source rated for adults: an 18+ tag. */
   adult?: boolean;
+  /** Who wrote it, when known: a book without a cover gets one drawn with it. */
+  author?: string | null;
 };
 
 /**
@@ -129,92 +132,101 @@ const MangaGridView: FC<{
             : coverGridStyle(settings?.coverSize ?? 0)
         }
       >
-        {items.map((item) => (
-          <li key={`${item.sourceId}:${item.id}`}>
-            <Selectable picked={pickOf(item)} disabled={Boolean(item.link)}>
-              <Link
-                to={item.link?.to ?? ROUTES[medium].title}
-                search={item.link?.search ?? { source: item.sourceId, id: item.id }}
-                aria-label={item.title}
-                data-testid="manga-card"
-                // A long press picks: the webview would start dragging the link instead.
-                draggable={false}
-                className="flex flex-col gap-1"
-              >
-                <span className="relative overflow-hidden rounded-xl">
-                  <MangaCover
-                    url={item.coverUrl}
-                    video={medium === 'video'}
-                    landscape={landscape}
-                    className="w-full"
-                  />
-                  {/* The pick circle takes the top left corner while it shows (its ⋮ keeps the
+        {items.map((item) => {
+          const book = bookWords(medium, item.title, item.author);
+          // A drawn cover prints the title itself: no title laid over it.
+          const titleOver = compact && !(book && !item.coverUrl);
+          return (
+            <li key={`${item.sourceId}:${item.id}`}>
+              <Selectable picked={pickOf(item)} disabled={Boolean(item.link)}>
+                <Link
+                  to={item.link?.to ?? ROUTES[medium].title}
+                  search={item.link?.search ?? { source: item.sourceId, id: item.id }}
+                  aria-label={item.title}
+                  data-testid="manga-card"
+                  // A long press picks: the webview would start dragging the link instead.
+                  draggable={false}
+                  className="flex flex-col gap-1"
+                >
+                  <span className="relative overflow-hidden rounded-xl">
+                    <MangaCover
+                      url={item.coverUrl}
+                      video={medium === 'video'}
+                      landscape={landscape}
+                      book={book}
+                      className="w-full"
+                    />
+                    {/* The pick circle takes the top left corner while it shows (its ⋮ keeps the
                       top right): the badges move over. */}
-                  <span
-                    className={`absolute top-1.5 right-11 left-1.5 flex flex-wrap gap-1 transition-[padding] ${
-                      selectable && !item.link ? (picking ? 'pl-7' : 'group-hover/pick:pl-7') : ''
-                    }`}
-                  >
-                    {item.inLibrary && (
-                      <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-3xs font-bold">
-                        {t('manga.inLibraryBadge')}
+                    <span
+                      className={`absolute top-1.5 right-11 left-1.5 flex flex-wrap gap-1 transition-[padding] ${
+                        selectable && !item.link ? (picking ? 'pl-7' : 'group-hover/pick:pl-7') : ''
+                      }`}
+                    >
+                      {item.inLibrary && (
+                        <span className="bg-primary text-background rounded-md px-1.5 py-0.5 text-3xs font-bold">
+                          {t('manga.inLibraryBadge')}
+                        </span>
+                      )}
+                      {unreadBadges && item.unread ? (
+                        <span
+                          aria-label={t(medium === 'video' ? 'watch.unwatched' : 'manga.unread', {
+                            count: item.unread,
+                          })}
+                          className="bg-primary text-background rounded-md px-1.5 text-xs font-bold"
+                        >
+                          {item.unread}
+                        </span>
+                      ) : null}
+                      {downloadBadges && item.downloaded ? (
+                        <span
+                          aria-label={t('manga.downloadedCount', { count: item.downloaded })}
+                          className="bg-foreground text-background rounded-md px-1.5 text-xs font-bold"
+                        >
+                          {item.downloaded}
+                        </span>
+                      ) : null}
+                    </span>
+                    {titleOver && (
+                      <span
+                        className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-8 pb-2 pl-2 ${video ? 'pr-12' : 'pr-2'}`}
+                      >
+                        <span className="line-clamp-2 text-xs font-semibold text-white">
+                          {item.title}
+                        </span>
                       </span>
                     )}
-                    {unreadBadges && item.unread ? (
-                      <span
-                        aria-label={t(medium === 'video' ? 'watch.unwatched' : 'manga.unread', {
-                          count: item.unread,
-                        })}
-                        className="bg-primary text-background rounded-md px-1.5 text-xs font-bold"
-                      >
-                        {item.unread}
-                      </span>
-                    ) : null}
-                    {downloadBadges && item.downloaded ? (
-                      <span
-                        aria-label={t('manga.downloadedCount', { count: item.downloaded })}
-                        className="bg-foreground text-background rounded-md px-1.5 text-xs font-bold"
-                      >
-                        {item.downloaded}
-                      </span>
-                    ) : null}
+                    {video && (
+                      <CardPlayButton
+                        label={t('menu.playTitle', { name: item.title })}
+                        onPlay={() => play(card(item))}
+                      />
+                    )}
+                    <MenuButton
+                      label={t('menu.options', { name: item.title })}
+                      items={() => itemMenu(item)}
+                      className={CARD_MENU_CLASS}
+                      iconSize={16}
+                    />
                   </span>
-                  {compact && (
-                    <span
-                      className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-8 pb-2 pl-2 ${video ? 'pr-12' : 'pr-2'}`}
-                    >
-                      <span className="line-clamp-2 text-xs font-semibold text-white">
-                        {item.title}
-                      </span>
+                  {!compact && (
+                    <span className="line-clamp-2 text-xs font-medium">{item.title}</span>
+                  )}
+                  {compact && !titleOver && <span className="sr-only">{item.title}</span>}
+                  {item.subtitle && (
+                    <span className="text-muted line-clamp-1 text-2xs">{item.subtitle}</span>
+                  )}
+                  {(item.source || item.adult) && (
+                    <span className="flex min-w-0 items-center gap-1">
+                      {item.adult && <AdultMark />}
+                      {item.source && <SourceTag name={item.source} />}
                     </span>
                   )}
-                  {video && (
-                    <CardPlayButton
-                      label={t('menu.playTitle', { name: item.title })}
-                      onPlay={() => play(card(item))}
-                    />
-                  )}
-                  <MenuButton
-                    label={t('menu.options', { name: item.title })}
-                    items={() => itemMenu(item)}
-                    className={CARD_MENU_CLASS}
-                    iconSize={16}
-                  />
-                </span>
-                {!compact && <span className="line-clamp-2 text-xs font-medium">{item.title}</span>}
-                {item.subtitle && (
-                  <span className="text-muted line-clamp-1 text-2xs">{item.subtitle}</span>
-                )}
-                {(item.source || item.adult) && (
-                  <span className="flex min-w-0 items-center gap-1">
-                    {item.adult && <AdultMark />}
-                    {item.source && <SourceTag name={item.source} />}
-                  </span>
-                )}
-              </Link>
-            </Selectable>
-          </li>
-        ))}
+                </Link>
+              </Selectable>
+            </li>
+          );
+        })}
       </ul>
       {grouping && (
         <GroupPickSheet

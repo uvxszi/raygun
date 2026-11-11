@@ -473,6 +473,22 @@ impl SongDownloadService {
         self.changed("");
     }
 
+    /// Offline Mode turned on: running downloads stop where they are and wait in their places,
+    /// keeping what they saved; the workers wait for it to end (`device_state::downloads_held`).
+    pub fn hold_for_offline(&self) {
+        let running: Vec<String> = self
+            .running
+            .lock()
+            .expect("running poisoned")
+            .values()
+            .map(|running| running.id.clone())
+            .collect();
+        for id in running {
+            self.stop_running(&id, Stop::Paused);
+        }
+        self.changed("");
+    }
+
     /// Wakes both workers: something was queued.
     fn wake_workers(&self) {
         self.wake.notify_one();
@@ -611,6 +627,12 @@ impl SongDownloadService {
             Err(Failure::Stopped)
         } else {
             self.fetch(&row, &stop, lane).await
+        };
+        // Offline Mode pauses a download, whatever it ended with: it waits in its place, and
+        // nothing is counted against the song or its sources.
+        let result = match result {
+            Err(_) if raygun_net::network_mode::offline() => Err(Failure::Stopped),
+            other => other,
         };
         self.running.lock().expect("running poisoned").remove(&lane);
         let live = self.live.lock().expect("live poisoned").remove(&row.id);

@@ -1,3 +1,4 @@
+import type { StremioItem } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { Compass } from 'lucide-react';
 import type { FC } from 'react';
@@ -6,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { StremioCatalogRowView, StremioRow } from '../watch/StremioRow';
 import { useStremioAddons, useStremioCatalogs, useStremioSearchRows } from '../watch/useStremio';
 import { SourceIssue } from '../shell/SourceIssue';
-import { useSearchFilter } from './searchFilter';
+import { keepAddon, keepStremioItems, useSearchFilter } from './searchFilter';
 
 type Props = {
   query: string;
@@ -17,23 +18,33 @@ type Props = {
 
 /**
  * Whether an addon's rows show: an addon rated for adults' don't while 18+ is left out (Search's
- * "No 18+"); Rust doesn't ask it then, this covers rows kept from before.
+ * "No 18+"), the others' don't under "18+ only"; Rust doesn't ask them then, this covers rows
+ * kept from before. Its titles follow Videos' "Playable only" (`keep`).
  */
-const useAddonShown = () => {
-  const { noAdult } = useSearchFilter();
+const useAddonFilter = () => {
+  const filter = useSearchFilter();
   const addons = useStremioAddons();
   const adult = new Set(
     (addons.data ?? []).filter((addon) => addon.adult).map((addon) => addon.id),
   );
-  return (addonId: string) => !(noAdult && adult.has(addonId));
+  return {
+    shown: (addonId: string) => keepAddon(filter, adult.has(addonId)),
+    keep: (items: StremioItem[]) => keepStremioItems(filter, items),
+  };
 };
 
 /** Every addon's search results, a row per catalog, each shown as it arrives. */
 const SearchRows: FC<Props> = ({ query, limit, kind }) => {
   const { t } = useTranslation();
   const search = useStremioSearchRows(query);
-  const shown = useAddonShown();
-  const rows = search.rows.filter((row) => (!kind || row.kind === kind) && shown(row.addonId));
+  const { shown, keep } = useAddonFilter();
+  const rows = search.rows
+    .filter((row) => (!kind || row.kind === kind) && shown(row.addonId))
+    .map((row) => {
+      const items = keep(row.items);
+      return items === row.items ? row : { ...row, items };
+    })
+    .filter((row) => row.items.length > 0);
   if (rows.length === 0) {
     return (
       <p className="text-muted text-sm">
@@ -59,7 +70,7 @@ const SearchRows: FC<Props> = ({ query, limit, kind }) => {
 export const VideoResults: FC<Props> = ({ query, limit, kind }) => {
   const { t } = useTranslation();
   const catalogs = useStremioCatalogs();
-  const shown = useAddonShown();
+  const { shown, keep } = useAddonFilter();
   if (query.trim() !== '') return <SearchRows query={query} limit={limit} kind={kind} />;
   if (catalogs.error) return <SourceIssue>{catalogs.error.message}</SourceIssue>;
   if (catalogs.isPending) return <p className="text-muted text-sm">{t('search.searching')}</p>;
@@ -83,6 +94,7 @@ export const VideoResults: FC<Props> = ({ query, limit, kind }) => {
           key={`${catalog.addonId}-${catalog.kind}-${catalog.catalogId}`}
           catalog={catalog}
           quiet
+          keep={keep}
         />
       ))}
     </div>

@@ -269,6 +269,10 @@ impl CoverFallbacks {
         {
             return found.url;
         }
+        // Offline Mode: no source is asked; the cover's placeholder shows.
+        if raygun_net::network_mode::offline() {
+            return None;
+        }
         let _turn = self.lookups.turn().await;
         // Another lookup may have found it while this one waited.
         if let Some(FoundCover { url: Some(url), .. }) = self.remembered(&key).await {

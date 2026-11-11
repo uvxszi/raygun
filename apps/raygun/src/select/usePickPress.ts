@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { DragEvent, MouseEvent, PointerEvent } from 'react';
 
+import { claimHold } from '../shell/holdClaims';
 import { HOLD_MS } from './scopeContext';
 
 /** How far a finger may move during the hold before it counts as a scroll, px. */
@@ -87,6 +88,8 @@ export const usePickPress = (pick: PickState) => {
       clearTimeout(heldTimer.current);
       cancelHold();
       if (!touch.current || onOwnControl(event.currentTarget, event.target)) return;
+      // The hold picks: a held icon shows no name for it (shell/ControlLabels).
+      claimHold(event);
       hold.current = {
         timer: setTimeout(() => {
           hold.current = null;

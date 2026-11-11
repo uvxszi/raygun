@@ -151,6 +151,7 @@ impl SyncService {
 
     /// Pairs with the device that showed `text` and syncs with it right away.
     pub async fn join(&self, text: &str) -> Result<SyncStatus, String> {
+        raygun_net::network_mode::check_online()?;
         let peer = self
             .engine
             .join(text)
@@ -162,8 +163,24 @@ impl SyncService {
         self.status().await
     }
 
+    /// Offline Mode turned on or off: device sync stops listening and announcing while it's on,
+    /// and serves again once it's off when it was on.
+    pub async fn follow_network(&self, offline: bool) {
+        if offline {
+            let mut state = self.lock();
+            state.discovery = None;
+            if let Some(running) = state.running.take() {
+                running.stop();
+                tracing::info!("device sync stopped while offline");
+            }
+        } else if self.enabled().await.unwrap_or(false) && self.lock().running.is_none() {
+            self.run().await;
+        }
+    }
+
     /// Syncs with one device, or every paired device.
     pub async fn sync_now(&self, device_id: Option<&str>) -> Result<SyncStatus, String> {
+        raygun_net::network_mode::check_online()?;
         match device_id {
             Some(device_id) => {
                 self.engine
@@ -298,6 +315,7 @@ impl SyncService {
     }
 
     async fn sync_all(&self) -> Result<(), String> {
+        raygun_net::network_mode::check_online()?;
         for peer in store::peers(&self.db()).await.map_err(to_message)? {
             if let Err(error) = self.engine.sync_with(&peer.device_id).await {
                 tracing::info!(peer = %peer.name, %error, "sync failed");
@@ -317,6 +335,10 @@ impl SyncService {
     }
 
     async fn run(&self) {
+        // Nothing listens or is announced on the local network while Offline Mode is on.
+        if raygun_net::network_mode::offline() {
+            return;
+        }
         let result = self.engine.serve().await;
         let mut state = self.lock();
         match result {

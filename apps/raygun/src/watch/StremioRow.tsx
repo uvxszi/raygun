@@ -234,18 +234,20 @@ export const StremioRow: FC<{ row: StremioCatalogRow }> = ({ row }) => {
 /**
  * A catalog as a row (Stremio's board): its first page is asked for once the row comes near the
  * window. On the board (`quiet`) a row with nothing, or whose addon failed, shows nothing at all;
- * on an addon's own page it says so.
+ * on an addon's own page it says so. `keep` narrows its titles (Search's filters).
  */
-export const StremioCatalogRowView: FC<{ catalog: StremioCatalogInfo; quiet?: boolean }> = ({
-  catalog,
-  quiet = false,
-}) => {
+export const StremioCatalogRowView: FC<{
+  catalog: StremioCatalogInfo;
+  quiet?: boolean;
+  keep?: (items: StremioItem[]) => StremioItem[];
+}> = ({ catalog, quiet = false, keep }) => {
   const { t } = useTranslation();
   const [ref, seen] = useInView<HTMLElement>();
   const page = useStremioRow(catalog, seen);
   const kind = t(`watch.kind.${catalog.kind}`, { defaultValue: catalog.kind });
   const title = rowTitle(catalog.name, kind);
-  const items = page.data?.items ?? [];
+  const listed = page.data?.items ?? [];
+  const items = keep ? keep(listed) : listed;
   if (quiet && (page.isError || (page.data && items.length === 0))) return null;
   let body: ReactNode;
   if (page.isError) {

@@ -201,6 +201,10 @@ impl CastService {
     }
 
     fn search(self: &Arc<Self>) {
+        // Offline Mode: the local network isn't searched (`go_offline`).
+        if raygun_net::network_mode::offline() {
+            return;
+        }
         self.browse();
         let due = {
             let mut inner = self.lock();
@@ -225,6 +229,19 @@ impl CastService {
             let found = service.describe_all(answers, false).await;
             service.found_round(found);
         });
+    }
+
+    /// Offline Mode turned on: casting ends (playing goes on here), and Cast devices aren't
+    /// listened for until it's off and devices are asked for again.
+    pub async fn go_offline(&self) {
+        if self.connected()
+            && let Err(error) = self.disconnect(true).await
+        {
+            tracing::warn!(%error, "casting didn't end");
+        }
+        if self.browsing.swap(false, Ordering::SeqCst) {
+            raygun_remote::discovery::stop_browsing(Some(googlecast::SERVICE));
+        }
     }
 
     /// Starts listening for Cast devices the first time devices are asked for. Android only lets
@@ -451,6 +468,7 @@ impl CastService {
     /// Adds a TV by its address: an IP address or name with an optional port, or the address of
     /// its description.
     pub async fn add(self: &Arc<Self>, address: &str) -> Result<CastDevice, String> {
+        raygun_net::network_mode::check_online()?;
         let address = address.trim();
         if address.is_empty() {
             return Err("Type the TV's address".into());
@@ -652,6 +670,7 @@ impl CastService {
         position_ms: f64,
         subtitle: Option<usize>,
     ) -> Result<(), String> {
+        raygun_net::network_mode::check_online()?;
         let (known, payload) = {
             let inner = self.lock();
             let known = inner

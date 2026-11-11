@@ -55,10 +55,12 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
   useBackLayer(true, onClose);
   const above = useContext(SheetAboveContext);
 
-  // On the document's body, so a transformed or scrolling ancestor never carries it along.
+  // On the document's body, so a transformed or scrolling ancestor never carries it along. Clear
+  // of the status bar, and of a cutout and a navigation bar at the sides (landscape); the body
+  // keeps clear of the bottom's.
   return createPortal(
     <div
-      className={`motion-fade fixed inset-0 flex items-end justify-center bg-black/60 sm:items-center ${above ? 'z-[80]' : 'z-50'}`}
+      className={`motion-fade fixed inset-0 flex items-end justify-center bg-black/60 pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] sm:items-center ${above ? 'z-[80]' : 'z-50'}`}
       onPointerDown={(event) => {
         pressedBackdrop.current = event.target === event.currentTarget;
       }}
@@ -89,7 +91,7 @@ const DialogSheet: FC<Omit<SheetProps, 'anchor' | 'popoverWidth'>> = ({
         </div>
         <div
           data-testid="sheet-body"
-          className="flex min-h-0 flex-1 touch-pan-y flex-col gap-4 overflow-y-auto overscroll-contain px-5 pt-2 pb-[calc(1.25rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+          className="flex min-h-0 flex-1 touch-pan-y flex-col gap-4 overflow-y-auto overscroll-contain px-5 pt-2 pb-[calc(1.25rem+var(--safe-bottom))] [-webkit-overflow-scrolling:touch]"
         >
           {children}
         </div>

@@ -3,6 +3,7 @@ import type { FC, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useBackLayer } from './backLayers';
+import { safeInsets } from './safeArea';
 
 /** Space kept between the popover and the window's edges, and from its button. */
 const MARGIN = 8;
@@ -18,20 +19,24 @@ const inLaterPopover = (panel: HTMLElement, node: Node) =>
 /**
  * Where a popover of `width` goes beside `anchor`: under it when it fits (or there's more room
  * there), else above; lined up with its left edge, or its right edge near the window's right.
+ * It stays inside the safe area (clear of the status bar, a cutout and the navigation bar).
  */
 const placeBeside = (anchor: DOMRect, width: number, height: number): Place => {
-  const below = window.innerHeight - anchor.bottom - MARGIN * 2;
-  const above = anchor.top - MARGIN * 2;
+  const safe = safeInsets();
+  const start = safe.left + MARGIN;
+  const end = window.innerWidth - safe.right - MARGIN;
+  const below = window.innerHeight - safe.bottom - anchor.bottom - MARGIN * 2;
+  const above = anchor.top - safe.top - MARGIN * 2;
   const under = height <= below || below >= above;
   const room = Math.max(under ? below : above, 120);
   const shown = Math.min(height, room);
   const top = under ? anchor.bottom + MARGIN : anchor.top - MARGIN - shown;
   const leftAligned = anchor.left;
   const rightAligned = anchor.right - width;
-  const left = leftAligned + width + MARGIN <= window.innerWidth ? leftAligned : rightAligned;
+  const left = leftAligned + width <= end ? leftAligned : rightAligned;
   return {
-    top: Math.max(MARGIN, top),
-    left: Math.min(Math.max(MARGIN, left), window.innerWidth - width - MARGIN),
+    top: Math.max(safe.top + MARGIN, top),
+    left: Math.min(Math.max(start, left), end - width),
     maxHeight: room,
   };
 };

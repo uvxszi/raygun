@@ -179,7 +179,7 @@ export const QuickAccessDrawer: FC<{ blocked: boolean }> = ({ blocked }) => {
                 ? `min(${DRAWER_WIDE_REM}rem, ${DRAWER_WIDE_VW}vw)`
                 : `${DRAWER_NARROW_REM}rem`,
             }}
-            className="bg-surface absolute inset-y-0 right-0 flex flex-col overflow-hidden rounded-l-3xl pt-[max(0.75rem,env(safe-area-inset-top))] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] shadow-2xl shadow-black/40"
+            className="bg-surface absolute inset-y-0 right-0 flex flex-col overflow-hidden rounded-l-3xl pt-[max(0.75rem,var(--safe-top))] pr-[var(--safe-right)] pb-[var(--safe-bottom)] shadow-2xl shadow-black/40"
           >
             <div
               className={`flex shrink-0 items-center pb-2 ${expanded ? 'justify-between pr-2 pl-4' : 'justify-center'}`}

@@ -33,7 +33,13 @@ pub struct TableSpec {
 
 /// Setting keys kept to the device they were set on: switches each device turns on for itself,
 /// and fonts, which name what's installed there.
-pub const DEVICE_ONLY_SETTINGS: &[&str] = &["manualBrowserChecks", "runSourceCode", "fonts"];
+pub const DEVICE_ONLY_SETTINGS: &[&str] = &[
+    "manualBrowserChecks",
+    "runSourceCode",
+    "fonts",
+    "checkUpdates",
+    "network",
+];
 
 const STAMP: [&str; 3] = ["updated_at_hlc", "origin_device", "deleted"];
 

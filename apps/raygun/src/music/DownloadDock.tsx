@@ -35,10 +35,7 @@ export const DownloadDock: FC = () => {
 
   if (summary.recordings > 0 && !minimized) {
     return (
-      <div
-        data-testid="download-dock"
-        className="shrink-0 pr-[max(0.5rem,env(safe-area-inset-right))] pb-2 pl-[max(0.5rem,env(safe-area-inset-left))] lg:px-4"
-      >
+      <div data-testid="download-dock" className="shrink-0 px-2 pb-2 lg:px-4">
         <div className="mx-auto w-full max-w-md">
           <RecordingHost onMinimize={() => setMinimized(true)} />
         </div>
@@ -53,10 +50,7 @@ export const DownloadDock: FC = () => {
     ? t('songs.dock.showRecording', { count: summary.left, percent })
     : t('songs.dock.openDownloads', { count: summary.left, percent });
   return (
-    <div
-      data-testid="download-dock"
-      className="flex shrink-0 justify-end pr-[max(0.75rem,env(safe-area-inset-right))] pb-1.5 lg:pr-5"
-    >
+    <div data-testid="download-dock" className="flex shrink-0 justify-end pr-3 pb-1.5 lg:pr-5">
       <button
         type="button"
         aria-label={label}

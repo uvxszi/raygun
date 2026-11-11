@@ -83,6 +83,20 @@ const THROW_MIN_SPEED = 1800;
 export const throwDuration = (remaining: number, speed: number) =>
   Math.min(0.24, Math.max(0.08, Math.abs(remaining) / Math.max(Math.abs(speed), THROW_MIN_SPEED)));
 
+/** The song coming in starts no faster than this (px/s): faster, its spring would overshoot. */
+const COME_IN_MAX_SPEED = 6000;
+
+/**
+ * Where the song a throw brings in starts (px from its place) and how fast it moves (px/s): on
+ * the side opposite the throw, carrying on the throw's way. Next (thrown left) comes in from the
+ * right, the one before (thrown right) from the left.
+ */
+export const comeIn = (direction: 'next' | 'previous', speed: number, width: number) => {
+  const toward = direction === 'next' ? -1 : 1;
+  const pace = Math.min(Math.max(Math.abs(speed), THROW_MIN_SPEED), COME_IN_MAX_SPEED);
+  return { from: -toward * width, velocity: toward * pace };
+};
+
 /** Dragged down this far (px) or this fast (px/s), the full player closes. */
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 500;

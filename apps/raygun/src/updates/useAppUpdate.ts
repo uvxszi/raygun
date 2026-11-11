@@ -4,7 +4,8 @@ import { useEffect } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 
-const KEY = ['appUpdate'] as const;
+export const APP_UPDATE_KEY = ['appUpdate'] as const;
+const KEY = APP_UPDATE_KEY;
 
 /** Raygun's newest release next to this copy (M46.47); follows the updater's events. */
 export const useAppUpdate = () => {

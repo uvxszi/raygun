@@ -11,6 +11,7 @@ import { useFavorites, usePlaylists } from '../collections/useCollections';
 import { usePlaylistMenuItems } from '../collections/usePlaylistMenu';
 import { useLayout } from '../layout/useLayout';
 import { useLocalFolders } from '../localFiles/useLocalFolders';
+import { bookWords } from '../manga/bookWords';
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
@@ -92,6 +93,7 @@ const TitleRow: FC<{ medium: 'manga' | 'novel' | 'video'; title: string }> = ({
               <MangaCover
                 url={entry.coverUrl}
                 video={medium === 'video'}
+                book={bookWords(medium, entry.title, entry.authors)}
                 className="w-full rounded-xl"
               />
               <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>

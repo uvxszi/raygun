@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { OfflineBadge } from '../network/OfflineSwitch';
 import { IncognitoBadge } from '../privacy/IncognitoBadge';
 import { TextField } from './TextField';
 
@@ -113,6 +114,7 @@ export const TopBar: FC<TopBarProps> = ({
       )}
       {/* Incognito (M47) shows on every screen while it's on; the desktop bar has its own. */}
       <IncognitoBadge phoneOnly className="mx-1" />
+      <OfflineBadge phoneOnly className="mx-1" />
       {actions && <div className="flex shrink-0 items-center">{actions}</div>}
     </header>
   );

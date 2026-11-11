@@ -466,6 +466,21 @@ async fn loaded(extension: &StoreExtension, converted: &Converted) -> Option<Ext
     Some(host)
 }
 
+/// A picture's size, or "AVIF" for one the reader shows (web views read AVIF) that Raygun's
+/// own decoder doesn't.
+fn picture_size(bytes: &[u8]) -> Result<String, String> {
+    match raygun_net::bitmap::decode(bytes) {
+        Ok(image) => {
+            let (width, height) = image.dimensions();
+            Ok(format!("{width}×{height}"))
+        }
+        Err(_) if matches!(bytes.get(4..12), Some(b"ftypavif" | b"ftypavis")) => {
+            Ok("AVIF".to_owned())
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// What one sampled source answers: its first popular page, then the first title's details,
 /// chapters and a chapter's pages (the oldest one first, as newer ones may be locked).
 async fn sample_one(
@@ -561,10 +576,8 @@ async fn sample_one(
                         tokio::time::timeout(wait, host.manga_image(by, address, &page.headers))
                             .await
                             .unwrap_or_else(|_| Err("slow".into()))
-                            .and_then(|bytes| {
-                                raygun_net::bitmap::decode(&bytes).map(|image| image.dimensions())
-                            })
-                            .map(|size| format!("drawn by the source {}×{}", size.0, size.1))
+                            .and_then(|bytes| picture_size(&bytes))
+                            .map(|size| format!("drawn by the source {size}"))
                     }
                     None => raygun_net::images::fetch_image(
                         &raygun_net::http_client().unwrap(),
@@ -573,10 +586,7 @@ async fn sample_one(
                     )
                     .await
                     .map_err(|error| error.to_string())
-                    .and_then(|image| {
-                        raygun_net::bitmap::decode(&image.bytes).map(|image| image.dimensions())
-                    })
-                    .map(|size| format!("{}×{}", size.0, size.1)),
+                    .and_then(|image| picture_size(&image.bytes)),
                 };
                 match picture {
                     Ok(size) => line.push_str(&format!(", picture {size}")),

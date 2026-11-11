@@ -536,6 +536,10 @@ async fn load_converted(
     let code = converted
         .code
         .replace(&extension.sources[0].base_url, &base);
+    // `MIHON_TEST_DUMP=<file>`: the converted code, to read when a test fails.
+    if let Some(path) = std::env::var_os("MIHON_TEST_DUMP") {
+        std::fs::write(path, &code).unwrap();
+    }
     let package = convert::package(
         &local,
         &Converted {
@@ -3376,5 +3380,405 @@ async fn a_srcset_read_as_an_address_keeps_its_list() {
     assert_eq!(
         popular.items[0].cover_url.as_deref(),
         Some(format!("http://{address}/c/one-175.jpg").as_str())
+    );
+}
+
+/// A companion's function passed by reference from its own extension, a returned `if` decoding
+/// as a reified type, a class delegating to its list, an extension property's setter and
+/// overloads told apart by their parameters' types.
+#[tokio::test]
+async fn converted_code_reads_companions_branches_and_overloads() {
+    let dto = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
+
+import eu.kanade.tachiyomi.source.model.SManga
+import kotlinx.serialization.Serializable
+
+@Serializable
+class ComicDto(
+    val name: String,
+    val status_name: String?,
+    private val genres: List<String> = emptyList(),
+) {
+    fun toSManga(): SManga = SManga.create().apply {
+        title = name
+        genre = genres.joinToString()
+    }
+
+    companion object {
+        fun ComicDto.createManga(): SManga = SManga.create().also {
+            it.title = name
+            it.url = "/" + (status_name?.let(::convertStatus) ?: SManga.UNKNOWN)
+        }
+
+        private fun convertStatus(status: String): Int = when (status) {
+            "Ongoing" -> SManga.ONGOING
+            else -> SManga.COMPLETED
+        }
+    }
+}
+
+@Serializable
+class Results(
+    private val offset: Int,
+    private val limit: Int,
+    private val results: List<ComicDto>,
+    private val total: Int,
+) : Iterable<ComicDto> by results {
+    val hasNext: Boolean
+        get() = total > results.size + offset * limit
+}
+
+@Serializable
+class Wrapper(val data: Results)
+"##;
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport android.content.SharedPreferences\nimport keiyoushi.utils.getPreferences\nimport keiyoushi.utils.parseAs\nimport keiyoushi.utils.toJsonString\nimport kotlinx.serialization.SerializationException\nimport kotlinx.serialization.json.JsonElement\nimport kotlinx.serialization.json.jsonObject\nimport kotlinx.serialization.json.Json\nimport okhttp3.Response\nimport eu.kanade.tachiyomi.extension.en.fixturestand.ComicDto.Companion.createManga",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private val preferences = getPreferences()
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private inline fun <reified T> Response.parseAs(): T = parseAs(json)
+
+    private inline fun <reified T> String.decodeAs(route: String?): T {
+        val decoded = parseAs<JsonElement>()
+        return if (route != null) {
+            val element = decoded.jsonObject[route] ?: throw IllegalStateException("no route")
+            element.parseAs()
+        } else {
+            decoded.parseAs()
+        }
+    }
+
+    private var slugCache: Map<Int, String>? = null
+    private var SharedPreferences.slugs: Map<Int, String>
+        get() {
+            slugCache?.let { return it }
+            val json = getString("slugs", "{}")!!
+            slugCache = try {
+                json.parseAs<Map<Int, String>>()
+            } catch (_: SerializationException) {
+                emptyMap()
+            }
+            return slugCache!!
+        }
+        set(map) {
+            slugCache = map
+            edit().putString("slugs", map.toJsonString()).apply()
+        }
+
+    private fun describe(manga: SManga): String = "manga " + manga.title
+
+    private fun describe(id: String): String = "id " + id
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val text = """{"page":{"data":{"offset":0,"limit":1,"total":3,"results":[{"name":"A","status_name":"Ongoing","genres":["x","y"]},{"name":"B","status_name":null}]}}}"""
+        val results = text.decodeAs<Wrapper>("page").data
+        val names = results.map { it.createManga() }.map { it.title + it.url }
+        preferences.slugs += mapOf(1 to "one")
+        val slugs = preferences.slugs.toMutableMap()
+        slugs[2] = "two"
+        preferences.slugs = slugs
+        val manga = SManga.create().apply { title = "T" }
+        val fetched = client.get("$baseUrl/wrapper.json").parseAs<Wrapper>().data
+        val list = names + listOf(
+            results.first().toSManga().genre!!,
+            fetched.map { it.createManga().title }.joinToString(",") + fetched.hasNext,
+            results.hasNext.toString(),
+            preferences.slugs.values.joinToString(","),
+            describe(manga),
+            describe("7"),
+        )
+        return MangasPage(list.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[
+            (
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            ),
+            (
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/Dto.kt",
+                dto,
+            ),
+        ],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let app = Router::new().route(
+        "/wrapper.json",
+        get(|| async {
+            r#"{"data":{"offset":0,"limit":1,"total":1,"results":[{"name":"C","status_name":null}]},"extra":1}"#
+        }),
+    );
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "A/1", "B/0", "x, y", "Cfalse", "true", "one,two", "manga T", "id 7"
+        ]
+    );
+}
+
+/// The runtime's stand-ins for commons-text, java-string-similarity and java-nat-sort (whose
+/// dependencies then convert), and for Android's handlers and clocks.
+#[tokio::test]
+async fn converted_code_uses_library_stand_ins() {
+    let build = format!(
+        "{STANDALONE_BUILD}dependencies {{\n    implementation(\"org.apache.commons:commons-text:1.11.0\")\n    implementation(\"info.debatty:java-string-similarity:2.0.0\")\n    implementation(\"com.github.gpanther:java-nat-sort:natural-comparator-1.1\")\n}}\n"
+    );
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport org.apache.commons.text.StringSubstitutor\nimport info.debatty.java.stringsimilarity.Levenshtein\nimport info.debatty.java.stringsimilarity.JaroWinkler\nimport net.greypanther.natsort.CaseInsensitiveSimpleNaturalComparator\nimport okhttp3.Headers.Companion.toHeaders\nimport android.os.Handler\nimport android.os.Looper\nimport android.os.SystemClock\nimport kotlin.math.roundToInt",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val sub = StringSubstitutor(mapOf("title" to "Vol", "number" to "2"), "{", "}")
+        val strict = StringSubstitutor(mapOf("a" to "1"), "{", "}").apply {
+            isEnableUndefinedVariableException = true
+        }
+        val failed = runCatching { strict.replace("{a}{b}") }.isFailure
+        val distance = Levenshtein().distance("kitten", "sitting")
+        val similarity = JaroWinkler().similarity("MARTHA", "MARHTA")
+        val sorted = listOf("a10", "A2", "a1").sortedWith { left, right ->
+            CaseInsensitiveSimpleNaturalComparator.getInstance<String>().compare(left, right)
+        }
+        val headers = mapOf("X-One" to "1").toHeaders()
+        var posted = ""
+        Handler(Looper.getMainLooper()).post { posted = "posted" }
+        val names = listOf(
+            sub.replace("{title} {number} {missing}") + "|" + failed,
+            distance.toInt().toString(),
+            (similarity * 1000).roundToInt().toString(),
+            sorted.joinToString(","),
+            headers["X-One"] + (-7).floorDiv(2) + Math.floorMod(-7, 2),
+            posted + (SystemClock.elapsedRealtime() >= 0),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        &build,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Vol 2 {missing}|true",
+            "3",
+            "961",
+            "a1,A2,a10",
+            "1-41",
+            "postedtrue"
+        ]
+    );
+}
+
+/// Arguments of the source's own extensions in their places (named ones, a trailing lambda past
+/// defaults), kotlinx serializers passed to decoders, the source's private extensions unseen by
+/// its DTOs, Java's `NumberFormatException` and a decoded URL fragment.
+#[tokio::test]
+async fn converted_code_places_extension_arguments_and_serializers() {
+    let dto = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
+
+import eu.kanade.tachiyomi.source.model.SManga
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonTransformingSerializer
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.put
+
+@Serializable
+class Payload(val manga: MangaDto? = null)
+
+@Serializable
+class MangaDto(val name: String, private val slug: String) {
+    fun toSManga() = SManga.create().apply {
+        title = name
+        url = slug
+    }
+}
+
+@Serializable
+class PageDto(val src: String)
+
+@Serializable
+class ChapterDto(
+    @Serializable(PageListSerializer::class) val pages: List<PageDto> = emptyList(),
+    val ranked: List<
+        @Serializable(TupleSerializer::class)
+        PageDto,
+        > = emptyList(),
+)
+
+object PageListSerializer : JsonTransformingSerializer<List<PageDto>>(ListSerializer(PageDto.serializer())) {
+    override fun transformDeserialize(element: JsonElement) = JsonArray(
+        element.jsonArray.map { page ->
+            when (page) {
+                is JsonPrimitive -> buildJsonObject { put("src", page.content) }
+                else -> page
+            }
+        },
+    )
+}
+
+object TupleSerializer : JsonTransformingSerializer<PageDto>(PageDto.serializer()) {
+    override fun transformDeserialize(element: JsonElement) = buildJsonObject {
+        put("src", element.jsonArray[1])
+    }
+}
+"##;
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport keiyoushi.utils.jsonInstance",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun String.wrap(prefix: String = "<", suffix: String = ">", transform: (String) -> String): String =
+        prefix + transform(this) + suffix
+
+    private val SManga.slug: String
+        get() = "source-ext"
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val payload = jsonInstance.decodeFromString(Payload.serializer(), """{"manga":{"name":"P","slug":"p-1"}}""")
+        val failed = try {
+            "x".toInt()
+            "no"
+        } catch (e: NumberFormatException) {
+            "nfe"
+        }
+        val names = listOf(
+            "x".wrap { it.uppercase() },
+            "y".wrap(suffix = "]") { it + it },
+            payload.manga!!.toSManga().url,
+            failed,
+            String(listOf('a', 'b').toCharArray()),
+            jsonInstance.decodeFromString(ChapterDto.serializer(), """{"pages":["a.jpg",{"src":"b.jpg"}],"ranked":[[0,"c.jpg"]]}""")
+                .let { chapter -> (chapter.pages + chapter.ranked).joinToString(",") { it.src } },
+            buildList {
+                data class Found(val name: String, val count: Int)
+
+                listOf("b", "a", "b").groupBy { it }.forEach { (name, all) -> add(Found(name, all.size)) }
+                sortBy { it.name }
+            }.joinToString(",") { "${it.name}${it.count}" },
+            "https://h.example/p#%7B%22a%22%3A1%7D".toHttpUrl().fragment!!,
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[
+            (
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            ),
+            (
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/Dto.kt",
+                dto,
+            ),
+        ],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "<X>",
+            "<yy]",
+            "p-1",
+            "nfe",
+            "ab",
+            "a.jpg,b.jpg,c.jpg",
+            "a1,b2",
+            "{\"a\":1}"
+        ]
     );
 }

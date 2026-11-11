@@ -11,6 +11,8 @@ use std::fmt;
 /// Why a request to a source failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IssueKind {
+    /// Offline Mode is on ([`crate::network_mode`]): nothing was sent, and nobody failed.
+    OfflineMode,
     /// No route to the internet at all.
     Offline,
     /// The site's name didn't resolve (no connection, or the site is gone).
@@ -47,6 +49,7 @@ impl IssueKind {
     /// A stable name for the kind (`bot-check`, `rate-limited`...), for logs and the UI.
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::OfflineMode => "offline-mode",
             Self::Offline => "offline",
             Self::Dns => "dns",
             Self::Timeout => "timeout",
@@ -68,6 +71,7 @@ impl IssueKind {
     /// The short sentence for this kind of failure of `source` (its name for people).
     pub fn summary(self, source: &str) -> String {
         match self {
+            Self::OfflineMode => crate::network_mode::OFFLINE_MESSAGE.to_owned(),
             Self::Offline => "No internet connection".to_owned(),
             Self::Dns => format!("Couldn't find {source}'s site — check your connection"),
             Self::Timeout => format!("{source} didn't answer in time"),
@@ -89,11 +93,12 @@ impl IssueKind {
     }
 
     /// Whether the failure is about the network or the site rather than the extension or this
-    /// device: worth trying again later.
+    /// device: worth trying again later (Offline Mode's once it's off).
     pub fn is_transient(self) -> bool {
         matches!(
             self,
-            Self::Offline
+            Self::OfflineMode
+                | Self::Offline
                 | Self::Dns
                 | Self::Timeout
                 | Self::Refused
@@ -107,6 +112,8 @@ impl IssueKind {
     /// explains everything after it, a 404 the least.
     pub fn weight(self) -> u8 {
         match self {
+            // Nothing was sent: whatever the script made of it, that's why.
+            Self::OfflineMode => 10,
             Self::BotCheck => 9,
             Self::RateLimited => 8,
             Self::Offline | Self::Dns => 7,
@@ -226,20 +233,31 @@ const CHECK_MARKS: [&str; 16] = [
     "g-recaptcha",
 ];
 
-/// Whether an answer is a browser check rather than the site: Cloudflare's challenge header, or a
-/// check page from Cloudflare, DDoS-Guard, DataDome, PerimeterX, Imperva or Sucuri. Only failed
-/// answers (403, 429, 503 and the like) are looked at: a site that answers is no check.
+/// Whether an answer is a browser check rather than the site: Cloudflare's challenge header, AWS
+/// WAF's challenge or CAPTCHA (an empty 202 or a 405 naming its action), or a check page from
+/// Cloudflare, DDoS-Guard, DataDome, PerimeterX, Imperva or Sucuri. Otherwise only failed answers
+/// (403, 429, 503 and the like) are looked at: a site that answers is no check.
 pub fn is_bot_check<'a>(
     status: u16,
-    mut headers: impl Iterator<Item = (&'a str, &'a str)>,
+    headers: impl Iterator<Item = (&'a str, &'a str)>,
     body: &str,
 ) -> bool {
+    let headers: Vec<(&str, &str)> = headers.collect();
+    let named = |header: &str, values: &[&str]| {
+        headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case(header)
+                && values
+                    .iter()
+                    .any(|wanted| value.trim().eq_ignore_ascii_case(wanted))
+        })
+    };
+    if named("x-amzn-waf-action", &["challenge", "captcha"]) {
+        return true;
+    }
     if status < 400 {
         return false;
     }
-    if headers.any(|(name, value)| {
-        name.eq_ignore_ascii_case("cf-mitigated") && value.eq_ignore_ascii_case("challenge")
-    }) {
+    if named("cf-mitigated", &["challenge"]) {
         return true;
     }
     if !matches!(status, 403 | 429 | 503) {
@@ -315,6 +333,9 @@ const DNS_MARKS: [&str; 8] = [
 /// The kind of a failed request: the network's (offline, lookup, timeout, TLS, refused) as far
 /// as the error's causes tell.
 pub fn request_kind(error: &reqwest::Error) -> IssueKind {
+    if crate::network_mode::is_offline_error(error) {
+        return IssueKind::OfflineMode;
+    }
     if error.is_timeout() {
         return IssueKind::Timeout;
     }
@@ -355,6 +376,12 @@ pub fn request_kind(error: &reqwest::Error) -> IssueKind {
 /// The innermost cause of a failed request, which says what happened ("operation timed out", "No
 /// such host is known"); reqwest's own message repeats the whole address.
 pub fn request_detail(host: &str, error: &reqwest::Error) -> String {
+    if crate::network_mode::is_offline_error(error) {
+        return format!(
+            "{host} wasn't asked: {}",
+            crate::network_mode::OFFLINE_MESSAGE
+        );
+    }
     if error.is_timeout() {
         return format!("{host} didn't answer in time");
     }
@@ -389,6 +416,9 @@ pub fn answer_detail(host: &str, status: u16, kind: IssueKind) -> String {
 /// message, another service's error): a status it names, a timeout, a lookup, a refused
 /// connection, a script error. `None` when the text is a plain sentence that says it all.
 pub fn text_kind(text: &str) -> Option<IssueKind> {
+    if crate::network_mode::mentions_offline(text) {
+        return Some(IssueKind::OfflineMode);
+    }
     let lower = text.to_ascii_lowercase();
     if CHECK_MARKS.iter().any(|mark| lower.contains(mark))
         || lower.contains("cloudflare")
@@ -569,6 +599,16 @@ mod tests {
             std::iter::empty(),
             "<html><title>DDoS-Guard</title></html>"
         ));
+        // AWS WAF's challenge answers an empty 202.
+        assert!(is_bot_check(
+            202,
+            [("x-amzn-waf-action", "challenge")].into_iter(),
+            "",
+        ));
+        assert_eq!(
+            answer_kind(405, [("X-Amzn-Waf-Action", "captcha")].into_iter(), ""),
+            Some(IssueKind::BotCheck)
+        );
         // A site that answers is no check, and a plain 403 is a refusal.
         assert!(!is_bot_check(200, std::iter::empty(), cloudflare));
         assert!(!is_bot_check(403, std::iter::empty(), "Forbidden"));
@@ -658,6 +698,8 @@ mod tests {
 
     #[tokio::test]
     async fn refused_and_unknown_hosts_are_told_apart() {
+        // Online throughout, whatever tests of Offline Mode do meanwhile.
+        let _online = crate::network_mode::tests::switched();
         let client = crate::http_client().unwrap();
         // A port nothing listens on.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -681,5 +723,20 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(request_kind(&unknown), IssueKind::Dns, "{unknown:?}");
+    }
+
+    #[test]
+    fn offline_mode_reads_as_itself_and_explains_everything() {
+        assert_eq!(
+            text_kind("Example Comics: Offline mode is on"),
+            Some(IssueKind::OfflineMode)
+        );
+        assert_eq!(
+            IssueKind::OfflineMode.summary("Deezer"),
+            "Offline mode is on"
+        );
+        assert_eq!(IssueKind::OfflineMode.as_str(), "offline-mode");
+        assert!(IssueKind::OfflineMode.weight() > IssueKind::BotCheck.weight());
+        assert!(IssueKind::OfflineMode.is_transient());
     }
 }

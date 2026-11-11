@@ -14,10 +14,13 @@ import {
   ShieldCheck,
   Smartphone,
   Sparkles,
+  WifiOff,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { FC } from 'react';
 
+import { SAVER_DEFAULTS } from '../network/dataSaver';
+import { NetworkSettings } from '../network/OfflineSwitch';
 import type { PlatformOnly } from '../shell/useIsDesktop';
 import { DownloadSettings } from './DownloadSettings';
 import { PermissionsSettings } from './PermissionsSettings';
@@ -193,6 +196,21 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     reset: resetKeys('notifications'),
   },
   { id: 'privacy', icon: Shield, screen: PrivacySettings, reset: resetKeys('privacy') },
+  {
+    id: 'network',
+    icon: WifiOff,
+    screen: NetworkSettings,
+    // Data Saver goes back to its defaults; Offline Mode stays as it is.
+    reset: (current, defaults) => [
+      {
+        key: 'network',
+        value: {
+          offline: current.network?.offline ?? false,
+          dataSaver: defaults.network?.dataSaver ?? SAVER_DEFAULTS,
+        },
+      },
+    ],
+  },
   // What Android lets Raygun do; nothing here is a setting to reset.
   { id: 'permissions', icon: ShieldCheck, screen: PermissionsSettings, only: 'phone' },
   { id: 'devices', icon: Smartphone, to: '/settings/devices' },
@@ -218,6 +236,7 @@ export type SettingsSectionId =
   | 'downloads'
   | 'browse'
   | 'privacy'
+  | 'network'
   | 'permissions'
   | 'ai'
   | 'data';

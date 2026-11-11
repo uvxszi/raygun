@@ -273,7 +273,7 @@ describe('Music search: songs, artists and albums', () => {
         }),
     );
     await AppShellWrapper.mount('/browse?tab=search&type=music&view=songs&q=get%20lucky');
-    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenCalledWith('get lucky'));
+    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenCalledWith('get lucky', true));
     emitEvent('searchProgressEvent', {
       query: 'get lucky',
       total: 2,

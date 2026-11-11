@@ -41,6 +41,8 @@ const VOLATILE = new Set([
   'localNetwork',
   'ytdlp',
   'incognito',
+  // Offline Mode and Data Saver are Rust's to say on every start.
+  'network',
   // What to continue watching and the history follow the player, which saves after this cache
   // does: a restored answer would show an episode left behind.
   'watch',

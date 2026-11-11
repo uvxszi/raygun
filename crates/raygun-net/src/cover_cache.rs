@@ -135,6 +135,51 @@ pub enum Fetched {
     Unchanged,
 }
 
+/// Pixels a cover is asked for at while Data Saver wants smaller covers.
+const SMALL_COVER: u32 = 300;
+
+/// A smaller picture of the same cover where its address names its size (Data Saver): Apple's
+/// `…/600x600bb.jpg`, Deezer's `…/1000x1000-000000-80-0-0.jpg`, YouTube's thumbnails, TMDB's
+/// `/t/p/<size>/` and the Cover Art Archive's `front`. `None` when there's none smaller.
+pub fn smaller_version(url: &str) -> Option<String> {
+    let (head, file) = url.rsplit_once('/')?;
+    // `<w>x<h><rest>` in the last segment: Apple's `bb.jpg`, Deezer's `-000000-80-0-0.jpg`.
+    let sized = |rest_mark: &str| -> Option<String> {
+        let (size, rest) = file.split_once(rest_mark)?;
+        let (width, height) = size.split_once('x')?;
+        let width: u32 = width.parse().ok()?;
+        let _height: u32 = height.parse().ok()?;
+        (width > SMALL_COVER)
+            .then(|| format!("{head}/{SMALL_COVER}x{SMALL_COVER}{rest_mark}{rest}"))
+    };
+    if url.contains("mzstatic.com") {
+        return sized("bb.");
+    }
+    if url.contains("dzcdn.net") {
+        return sized("-");
+    }
+    if url.contains("i.ytimg.com/vi/") || url.contains("img.youtube.com/vi/") {
+        let large = ["maxresdefault.jpg", "sddefault.jpg", "hqdefault.jpg"];
+        return large
+            .contains(&file)
+            .then(|| format!("{head}/mqdefault.jpg"));
+    }
+    if url.contains("image.tmdb.org/t/p/")
+        && let Some((base, rest)) = url.split_once("/t/p/")
+        && let Some((size, file)) = rest.split_once('/')
+    {
+        let width = size
+            .strip_prefix('w')
+            .and_then(|width| width.parse::<u32>().ok());
+        let larger = size == "original" || width.is_some_and(|width| width > 342);
+        return larger.then(|| format!("{base}/t/p/w342/{file}"));
+    }
+    if url.contains("coverartarchive.org/") && (file == "front" || file == "back") {
+        return Some(format!("{url}-250"));
+    }
+    None
+}
+
 /// Fetches an image, conditionally when validators are known.
 async fn fetch(
     client: &reqwest::Client,
@@ -143,6 +188,13 @@ async fn fetch(
     known: Option<&Meta>,
     timeout: Duration,
 ) -> Result<Fetched, String> {
+    // Offline Mode: covers come from the cache only.
+    crate::network_mode::check(url)?;
+    // Data Saver: a smaller picture where the address offers one (kept as the cover's own).
+    let smaller = crate::network_mode::smaller_covers()
+        .then(|| smaller_version(url))
+        .flatten();
+    let url = smaller.as_deref().unwrap_or(url);
     // A connected server's covers sign in (`server_auth`).
     let mut request = crate::server_auth::get(client, url, headers).timeout(timeout);
     if let Some(meta) = known {
@@ -574,7 +626,11 @@ impl CoverCache {
                 self.convert_later(token);
             }
             let refresh = self.refresh_ms.load(Ordering::Relaxed);
-            if refresh > 0 && now_ms().saturating_sub(meta.checked_ms) > refresh {
+            // An old copy is what there is while Offline Mode is on: it's checked once it's off.
+            if refresh > 0
+                && now_ms().saturating_sub(meta.checked_ms) > refresh
+                && crate::network_mode::allows(url)
+            {
                 self.check_later(client, token, url, headers, kept, meta);
             }
             return Ok(bytes);

@@ -10,6 +10,8 @@ import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.WebViewCompat
+import app.raygun.audio.OfflineGateClient
 import app.raygun.audio.OpenWith
 import app.raygun.audio.RaygunWindow
 import app.raygun.audio.WebAwake
@@ -17,6 +19,9 @@ import app.raygun.audio.WebAwake
 class MainActivity : TauriActivity() {
   /** Lets mDNS (device sync discovery) through Android's Wi-Fi multicast filter. */
   private var multicastLock: WifiManager.MulticastLock? = null
+
+  /** What the system bars and a cutout cover, told to the page (`--safe-*`). */
+  private val safeArea = SafeArea(this)
 
   /** wry's own webview field (`WryActivity.mWebView`), or null if a wry version renamed it. */
   private val wryWebView: java.lang.reflect.Field? by lazy {
@@ -42,6 +47,7 @@ class MainActivity : TauriActivity() {
     // Before wry hears of it: Tauri stops sending this webview scripts (see RaygunWindow).
     RaygunWindow.closing(this)
     RaygunWindow.destroyed(this)
+    safeArea.detach()
     super.onDestroy()
     // Raygun may carry on without this activity (music plays on): its webview goes with it, or
     // YouTube's player in it (kept awake by WebAwake) would play on where nothing controls it.
@@ -60,9 +66,21 @@ class MainActivity : TauriActivity() {
     super.onNewIntent(intent)
   }
 
-  /** wry hands over its webview here: it goes in a parent that can keep it playing off screen. */
+  /**
+   * wry hands over its webview here: it goes in a parent that can keep it playing off screen, and
+   * its client gets Offline Mode's gate in front (it loads nothing from the network while on).
+   */
   override fun setContentView(view: View?) {
+    (view as? WebView)?.let { webView ->
+      runCatching { WebViewCompat.getWebViewClient(webView) }
+        .getOrNull()
+        ?.let { client -> webView.webViewClient = OfflineGateClient(client) }
+    }
     super.setContentView(view?.let { WebAwake.host(this, it) })
+    (view as? WebView)?.let { webView ->
+      safeArea.attach(webView)
+      ViewCompat.requestApplyInsets(findViewById(android.R.id.content))
+    }
   }
 
   // Held only while Raygun is in front: it costs battery, and sync runs in the foreground (M21).
@@ -104,6 +122,7 @@ class MainActivity : TauriActivity() {
     ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
       val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
       view.setPadding(0, 0, 0, keyboard)
+      safeArea.update(insets)
       insets
     }
   }

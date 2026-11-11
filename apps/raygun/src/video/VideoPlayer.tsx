@@ -40,34 +40,55 @@ import { useTranslation } from 'react-i18next';
 
 import { formatTime } from '../player/formatTime';
 import { useCaptions } from '../player/spoken';
-import { AiSubtitles } from './AiSubtitles';
 import { CastPanel, CastStage } from './Cast';
-import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
+import { LiveBadge, LiveDelayPrompt } from './LiveControls';
+import { DVR_MIN_MS, HOLD_STEP_MS, readLive, useLiveStream } from './liveStream';
+import type { LiveView } from './liveStream';
+import {
+  attachMedia,
+  embeddedCueLines,
+  engineKind,
+  ladderStep,
+  pictureHeight,
+} from './mediaEngine';
 import type { MediaEngine, StreamProblem } from './mediaEngine';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
+import { QualityPanel } from './QualityPanel';
+import { SourcesPanel } from './SourcesPanel';
 import { sendReport, sendRequest } from './protocol';
 import type { PlayerRequest, Position, TitleState } from './protocol';
 import { SubtitleLines } from './SubtitleLines';
+import { SubtitlesPanel } from './SubtitlesPanel';
+import type { SubtitleOption } from './SubtitlesPanel';
+import { usePictureBox } from './pictureBox';
+import { VIGNETTE } from './vignette';
 import { CueEditor } from './CueEditor';
 import { applyCueEdits, editKey, withCueEdit } from './cueEdits';
 import type { CueEdit, CueEdits } from './cueEdits';
 import { cuesAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import {
+  coveredAhead,
   fromCaptions,
   toCaptions,
   translationName,
   translationStatus,
   useVideoTranslations,
 } from './subtitleProgress';
-import { TranslateSubtitles } from './TranslateSubtitles';
 import { TimeBar } from './TimeBar';
 import { applyLoop, loopAround, wentRound } from './videoLoop';
-import { choiceOf, languageOf, languagePrefs, pickAudio, pickSubtitles } from './trackPicking';
-import type { TrackOption } from './trackPicking';
+import {
+  choiceOf,
+  languageOf,
+  languagePrefs,
+  listedLanguages,
+  pickAudio,
+  pickSubtitles,
+} from './trackPicking';
+import type { LanguageInput } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { VideoSettingsPanel } from './VideoSettingsPanel';
-import { sourceName, sourceNote, sourcesChecked } from './waiting';
+import { sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
 import { useBackLayer } from '../shell/backLayers';
 import { useAppActive } from '../shell/deviceState';
@@ -77,6 +98,8 @@ type PanelKind =
   | 'sources'
   | 'speed'
   | 'subtitles'
+  /** Settings → Player → Subtitles, opened from the subtitles panel's Style. */
+  | 'subtitleStyle'
   | 'audio'
   | 'quality'
   | 'aspect'
@@ -124,11 +147,22 @@ const readVolume = () => {
   }
 };
 
-const positionOf = (video: HTMLVideoElement | null): Position => ({
-  positionMs: (video?.currentTime ?? 0) * 1000,
-  durationMs: video && Number.isFinite(video.duration) ? video.duration * 1000 : null,
-  looping: useVideoPlayerStore.getState().looping,
-});
+const positionOf = (video: HTMLVideoElement | null): Position => {
+  const state = useVideoPlayerStore.getState();
+  const engine = state.engine;
+  const positionMs = (video?.currentTime ?? 0) * 1000;
+  // A live stream's position is its own clock, with where the segment playing starts on it.
+  const live =
+    Boolean(state.request?.live) || Boolean(engine?.isLive()) || video?.duration === Infinity;
+  return {
+    positionMs,
+    durationMs: video && Number.isFinite(video.duration) ? video.duration * 1000 : null,
+    looping: state.looping,
+    live,
+    liveAnchor: live ? (engine?.liveAnchor(positionMs) ?? null) : null,
+    bandwidthKbps: engine?.bandwidthKbps() ?? null,
+  };
+};
 
 /** The window's own full screen (Tauri), else the page's. */
 const setWindowFullscreen = async (on: boolean) => {
@@ -313,8 +347,6 @@ type StageProps = {
   onClose: () => void;
 };
 
-type SubtitleOption = TrackOption & { cues?: Cue[]; hint?: string };
-
 /** A subtitle file's cues, fetched once (through the proxy's `/subtitle/` route) and kept. */
 const loadSubtitleFile = (cache: Map<string, Cue[]>, subtitle: VideoSubtitle): Promise<Cue[]> => {
   const cached = cache.get(subtitle.url);
@@ -328,6 +360,9 @@ const loadSubtitleFile = (cache: Map<string, Cue[]>, subtitle: VideoSubtitle): P
       return cues;
     });
 };
+
+/** How long a wait after a seek goes on before the ring shows (`SEEK_WAIT_MS` on Android). */
+const SEEK_WAIT_MS = 5_000;
 
 /** One video: the picture, its subtitles, and the controls. Mounted again for each load. */
 const VideoStage: FC<StageProps> = ({
@@ -378,7 +413,10 @@ const VideoStage: FC<StageProps> = ({
     aniskip: false,
     next: false,
     elsewhere: false,
+    liveReported: false,
   });
+  /** The variants last told to Rust, for the Quality menu. */
+  const reportedVariants = useRef('');
   const skipped = useRef(new Set<number>());
   /** The time at the last tick, to see a loop go round. */
   const lastTimeMs = useRef(0);
@@ -386,6 +424,9 @@ const VideoStage: FC<StageProps> = ({
 
   const [playing, setPlaying] = useState(false);
   const [waiting, setWaiting] = useState(true);
+  /** A seek's wait, before the ring shows for it (`SEEK_WAIT_MS`). */
+  const [seekHold, setSeekHold] = useState(false);
+  const seekTimer = useRef<number | undefined>(undefined);
   const [timeMs, setTimeMs] = useState(request.startMs ?? 0);
   const [durationMs, setDurationMs] = useState(0);
   const [bufferedMs, setBufferedMs] = useState(0);
@@ -410,6 +451,8 @@ const VideoStage: FC<StageProps> = ({
   const [hint, setHint] = useState<string | null>(null);
   /** The video has played: the source it comes from no longer shows under the ring. */
   const [begun, setBegun] = useState(false);
+  /** A live stream as the tick last read it; null for anything else. */
+  const [liveView, setLiveView] = useState<LiveView | null>(null);
   const sources = useVideoPlayerStore((state) => state.sources);
   const pickedSource = useVideoPlayerStore((state) => state.pickedSource);
 
@@ -418,17 +461,40 @@ const VideoStage: FC<StageProps> = ({
     : (request.title ?? '');
   const maxVolume = MAX_VOLUME;
 
-  // ---- AI subtitles (M46.33): the lines so far, a track like any other ----
+  // ---- AI subtitles (M46.33): the lines so far, a track like any other once there are lines
+  // or they're being made ----
   const ai = useCaptions(id);
   const aiCues: Cue[] = (ai.data?.cues ?? []).map((cue) => ({
     startMs: cue.startMs,
     endMs: cue.endMs,
     lines: [cue.text],
   }));
+  const aiMaking = Boolean(ai.data?.running || ai.data?.preparing);
   const aiOptions: SubtitleOption[] =
-    aiCues.length > 0 || ai.data?.running
-      ? [{ key: 'ai', label: t('desktopPlayer.ai.track'), language: null, cues: aiCues }]
+    aiCues.length > 0 || aiMaking
+      ? [
+          {
+            key: 'ai',
+            label: t('desktopPlayer.ai.track'),
+            language: null,
+            cues: aiCues,
+            hint: ai.data?.preparing
+              ? t('desktopPlayer.ai.preparing')
+              : ai.data?.running
+                ? t('desktopPlayer.ai.ahead', {
+                    time: formatTime(coveredAhead(ai.data.covered, timeMs)),
+                  })
+                : undefined,
+          },
+        ]
       : [];
+  // ---- A live stream: its edge, and the picture held behind it for AI subtitles ----
+  const liveStream = useLiveStream(
+    liveView,
+    timeMs,
+    ai.data?.running ? (ai.data.liveDelayMs ?? null) : null,
+    videoRef,
+  );
   // ---- Translated subtitles: a track each, lines showing as they're translated ----
   const translated = useVideoTranslations(id).data;
   const translations = useMemo(() => translated ?? [], [translated]);
@@ -438,13 +504,20 @@ const VideoStage: FC<StageProps> = ({
     () => translations.map((translation) => fromCaptions(translation.cues)),
     [translations],
   );
-  const translatedOptions: SubtitleOption[] = translations.map((translation, index) => ({
-    key: `translated:${translation.id}`,
-    label: translationName(translation, t),
-    language: translation.language,
-    cues: translatedCues[index] ?? [],
-    hint: translationStatus(translation, t, timeMs),
-  }));
+  const translatedOptions: SubtitleOption[] = translations.flatMap((translation, index) =>
+    // Listed once it has lines or is being made (its models downloading included).
+    translation.cues.length > 0 || translation.running || translation.downloading !== null
+      ? [
+          {
+            key: `translated:${translation.id}`,
+            label: translationName(translation, t),
+            language: translation.language,
+            cues: translatedCues[index] ?? [],
+            hint: translationStatus(translation, t, timeMs),
+          },
+        ]
+      : [],
+  );
 
   // ---- What can be chosen ----
   const fileOptions: SubtitleOption[] = (request.subtitles ?? []).map((subtitle, index) => {
@@ -485,6 +558,10 @@ const VideoStage: FC<StageProps> = ({
       () => setControlsShown(false),
       prefs.controlsSeconds * 1_000,
     );
+  };
+  const endSeekHold = () => {
+    window.clearTimeout(seekTimer.current);
+    setSeekHold(false);
   };
   const seekTo = (positionMs: number) => {
     const video = videoRef.current;
@@ -533,7 +610,19 @@ const VideoStage: FC<StageProps> = ({
     engineRef.current?.setTextTrack(key?.startsWith('embedded:') ? Number(key.slice(9)) : -1);
     if (!save) return;
     const option = subtitleOptions(engineRef.current).find((candidate) => candidate.key === key);
-    remember({ subtitle: option ? choiceOf(option) : { off: true } });
+    // AI subtitles just started aren't listed until their first lines: they're remembered by
+    // name, as their saved file is found next time.
+    const chosen =
+      option ?? (key === 'ai' ? { key, label: t('desktopPlayer.ai.track'), language: null } : null);
+    remember({ subtitle: chosen ? choiceOf(chosen) : { off: true } });
+  };
+  /** Subtitles read here (a file, or one found in the addons): a track of their own, shown. */
+  const addCues = (label: string, language: string | null, cues: Cue[]) => {
+    const key = `added:${added.length}`;
+    setAdded([...added, { key, label, language, cues }]);
+    setSubtitleKey(key);
+    setLastSubtitle(key);
+    engineRef.current?.setTextTrack(-1);
   };
   const playElsewhere = async (player: string | null = readPlayer()) => {
     const video = videoRef.current;
@@ -556,20 +645,21 @@ const VideoStage: FC<StageProps> = ({
   };
 
   // ---- Which tracks play, once the stream is known ----
+  const languageInput: LanguageInput = {
+    audioLanguage: prefs.audioLanguage,
+    audioFallback: prefs.audioFallback,
+    subtitleFallback: prefs.subtitleFallback,
+    appLanguage,
+    subtitleLanguage,
+    subtitleMode,
+    spoken: request.spokenLanguage ?? null,
+    device: typeof navigator === 'undefined' ? [] : navigator.languages,
+  };
   const pickTracks = () => {
     if (flags.current.picked) return;
     flags.current.picked = true;
     const current = engineRef.current;
-    const languages = languagePrefs({
-      audioLanguage: prefs.audioLanguage,
-      audioFallback: prefs.audioFallback,
-      subtitleFallback: prefs.subtitleFallback,
-      appLanguage,
-      subtitleLanguage,
-      subtitleMode,
-      spoken: request.spokenLanguage ?? null,
-      device: typeof navigator === 'undefined' ? [] : navigator.languages,
-    });
+    const languages = languagePrefs(languageInput);
     // Audio first: whether subtitles turn on depends on the language it's in.
     const audio = (current?.audioTracks() ?? []).map((track) => ({
       key: String(track.id),
@@ -595,10 +685,38 @@ const VideoStage: FC<StageProps> = ({
   };
 
   // ---- The stream ----
+  /** The stream's own sizes and the one playing go to Rust, for the Quality menu. */
+  const reportVariants = () => {
+    const video = videoRef.current;
+    const items = (engineRef.current?.variants() ?? []).map(({ height, range, codec }) => ({
+      height,
+      range,
+      codec,
+    }));
+    const height = video ? pictureHeight(video.videoWidth, video.videoHeight) : 0;
+    const playing =
+      height > 0
+        ? {
+            height,
+            range:
+              items.find((item) => ladderStep(item.height) === ladderStep(height))?.range ?? 'sdr',
+          }
+        : null;
+    const json = JSON.stringify({ items, playing });
+    if (json === reportedVariants.current) return;
+    reportedVariants.current = json;
+    sendRequest(id, 'variants', positionOf(video).positionMs, { items, playing });
+  };
   const onTracks = useEffectEvent(() => {
     setTracksVersion((version) => version + 1);
     // HLS and DASH know their tracks before the video's metadata: picking now spares a switch.
     if (engineRef.current?.tracksKnown()) pickTracks();
+    reportVariants();
+    // A live stream says so at once: AI subtitles need where its segments sit.
+    if (!flags.current.liveReported && engineRef.current?.isLive()) {
+      flags.current.liveReported = true;
+      sendReport(id, 'progress', positionOf(videoRef.current));
+    }
   });
   const onFatal = useEffectEvent((message: string, problem: StreamProblem) => {
     const video = videoRef.current;
@@ -652,6 +770,8 @@ const VideoStage: FC<StageProps> = ({
           attached = engineAttached;
           engineRef.current = engineAttached;
           setEngine(engineAttached);
+          // Reports read a live stream's clock and the connection's speed from it.
+          useVideoPlayerStore.setState({ engine: engineAttached });
           onTracks();
         })
         .catch((error: unknown) => {
@@ -667,6 +787,7 @@ const VideoStage: FC<StageProps> = ({
       if (state.open && state.request?.id !== request.id) {
         sendReport(request.id, 'switched', positionOf(video));
       }
+      if (attached && state.engine === attached) useVideoPlayerStore.setState({ engine: null });
       attached?.destroy();
       engineRef.current = null;
     };
@@ -685,6 +806,8 @@ const VideoStage: FC<StageProps> = ({
     }
     lastTimeMs.current = now;
     setTimeMs(now);
+    setLiveView(readLive(video, engineRef.current, Boolean(request.live)));
+    liveStream.keepUp();
     if (subtitleKey?.startsWith('embedded:')) setEmbeddedLines(embeddedCueLines(video));
     const chapter = skippableAt(chapters, now, durationMs);
     if (prefs.autoSkip && chapter && !skipped.current.has(chapter.startMs)) {
@@ -705,6 +828,7 @@ const VideoStage: FC<StageProps> = ({
       case 'playing':
         setPlaying(!video.paused);
         setWaiting(false);
+        endSeekHold();
         setBegun(true);
         if (useVideoPlayerStore.getState().pickedSource)
           useVideoPlayerStore.setState({ pickedSource: false });
@@ -712,9 +836,19 @@ const VideoStage: FC<StageProps> = ({
       case 'canplay':
         setPlaying(!video.paused);
         setWaiting(false);
+        endSeekHold();
         break;
       case 'waiting':
         setWaiting(true);
+        break;
+      case 'seeking':
+        // Once the video has played, a seek's wait shows the ring only if it lasts: most are
+        // ready before it could be read (a first load and another source show it at once).
+        if (begun) {
+          setSeekHold(true);
+          window.clearTimeout(seekTimer.current);
+          seekTimer.current = window.setTimeout(() => setSeekHold(false), SEEK_WAIT_MS);
+        }
         break;
       case 'pause':
         // A looping stream at its end goes round at once (`ended` comes next).
@@ -728,6 +862,10 @@ const VideoStage: FC<StageProps> = ({
         break;
       case 'durationchange':
         setDurationMs(Number.isFinite(video.duration) ? video.duration * 1000 : 0);
+        break;
+      case 'resize':
+        // Another variant plays: the Quality menu marks it.
+        reportVariants();
         break;
       case 'progress':
         if (video.buffered.length > 0)
@@ -749,7 +887,11 @@ const VideoStage: FC<StageProps> = ({
         if (!flags.current.started) {
           flags.current.started = true;
           const startMs = request.startMs ?? 0;
-          if (startMs > 0) video.currentTime = startMs / 1000;
+          // A live stream starts where its engine starts it: at its live edge.
+          const live = Boolean(request.live) || Boolean(engineRef.current?.isLive());
+          if (startMs > 0 && !live && video.duration !== Infinity) {
+            video.currentTime = startMs / 1000;
+          }
           video.playbackRate = speed / 100;
           video.preservesPitch = prefs.pitchCorrection;
           if (!request.external) void video.play().catch(() => {});
@@ -776,10 +918,12 @@ const VideoStage: FC<StageProps> = ({
       'playing',
       'canplay',
       'waiting',
+      'seeking',
       'pause',
       'timeupdate',
       'seeked',
       'durationchange',
+      'resize',
       'progress',
       'ended',
       'loadedmetadata',
@@ -818,6 +962,18 @@ const VideoStage: FC<StageProps> = ({
     if (loadingText !== null) videoRef.current?.pause();
   }, [loadingText, videoRef]);
 
+  // A step tapped in Quality that no other source has: Rust says so.
+  const onQualityNotice = useEffectEvent((text: string) => showHint(text));
+  useEffect(
+    () =>
+      useVideoPlayerStore.subscribe((state, previous) => {
+        if (state.qualityNotice && state.qualityNotice !== previous.qualityNotice) {
+          onQualityNotice(state.qualityNotice.text);
+        }
+      }),
+    [],
+  );
+
   // Volume, past 100 % through a gain node when boosting.
   useEffect(() => {
     const video = videoRef.current;
@@ -842,6 +998,7 @@ const VideoStage: FC<StageProps> = ({
       window.clearTimeout(hideTimer.current);
       window.clearTimeout(clickTimer.current);
       window.clearTimeout(hintTimer.current);
+      window.clearTimeout(seekTimer.current);
     },
     [],
   );
@@ -1063,7 +1220,9 @@ const VideoStage: FC<StageProps> = ({
   const chapterNow = [...chapters].reverse().find((chapter) => chapter.startMs <= timeMs);
   const audioTracks = engine?.audioTracks() ?? [];
   const qualities = engine?.qualities() ?? [];
-  const busy = (waiting || loadingText !== null) && !notice;
+  const busy = ((waiting && !seekHold) || loadingText !== null) && !notice;
+  // Subtitles are sized and placed by the picture as it shows, not the window.
+  const picture = usePictureBox(videoRef, aspect);
   // Before the picture: which source it comes from ("Trying source 2 of 5 · Vidstream").
   const waitingNote = begun || loadingText !== null ? null : sourceNote(sources, pickedSource);
   const VolumeIcon = muted || volume <= 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
@@ -1095,8 +1254,26 @@ const VideoStage: FC<StageProps> = ({
           toggleFullscreen();
         }}
       />
-      <SubtitleLines lines={lines} style={prefs.subtitleStyle} lifted={controlsVisible} />
-      <SubtitleLines lines={secondLines} style={prefs.subtitleStyle} lifted={false} at="top" />
+      {/* The shade behind the controls, under the subtitles (`vignette.ts`). */}
+      <div
+        aria-hidden
+        data-testid="player-vignette"
+        className={`pointer-events-none absolute inset-0 transition-opacity duration-200 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
+        style={{ backgroundImage: VIGNETTE }}
+      />
+      <SubtitleLines
+        lines={lines}
+        style={prefs.subtitleStyle}
+        lifted={controlsVisible}
+        box={picture}
+      />
+      <SubtitleLines
+        lines={secondLines}
+        style={prefs.subtitleStyle}
+        lifted={false}
+        at="top"
+        box={picture}
+      />
 
       <Middle>
         {notice ? (
@@ -1165,6 +1342,15 @@ const VideoStage: FC<StageProps> = ({
         </div>
       )}
 
+      {/* AI subtitles on a live stream: hold the picture behind its edge so they keep up. */}
+      {liveStream.offer && liveStream.neededMs !== null && (
+        <LiveDelayPrompt
+          neededMs={liveStream.neededMs}
+          onDelay={() => liveStream.hold(liveStream.neededMs ?? 0)}
+          onDecline={liveStream.decline}
+        />
+      )}
+
       <div
         className={`transition-opacity duration-200 ${controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
         onMouseEnter={() => setOverControls(true)}
@@ -1177,15 +1363,31 @@ const VideoStage: FC<StageProps> = ({
           onElsewhere={() => setPanel(panel === 'players' ? null : 'players')}
           fullscreen={fullscreen}
         />
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-5 pt-12 pb-3">
-          <TimeBar
-            timeMs={timeMs}
-            durationMs={durationMs}
-            bufferedMs={bufferedMs}
-            chapters={chapters}
-            seekStepMs={seekStepMs}
-            onSeek={seekTo}
-          />
+        <div className="absolute inset-x-0 bottom-0 px-5 pt-12 pb-3">
+          {liveStream.live ? (
+            // A live stream's DVR window, hidden when there's too little to seek in.
+            liveStream.dvr && liveStream.dvr.edgeMs - liveStream.dvr.startMs >= DVR_MIN_MS ? (
+              <TimeBar
+                timeMs={timeMs - liveStream.dvr.startMs}
+                durationMs={liveStream.dvr.edgeMs - liveStream.dvr.startMs}
+                bufferedMs={bufferedMs - liveStream.dvr.startMs}
+                chapters={[]}
+                seekStepMs={seekStepMs}
+                onSeek={(ms) => seekTo(ms + (liveStream.dvr?.startMs ?? 0))}
+              />
+            ) : (
+              <div className="h-5" />
+            )
+          ) : (
+            <TimeBar
+              timeMs={timeMs}
+              durationMs={durationMs}
+              bufferedMs={bufferedMs}
+              chapters={chapters}
+              seekStepMs={seekStepMs}
+              onSeek={seekTo}
+            />
+          )}
           <div className="mt-1 flex items-center gap-1">
             <IconButton
               label={playing ? t('videoPlayer.pause') : t('videoPlayer.play')}
@@ -1245,17 +1447,25 @@ const VideoStage: FC<StageProps> = ({
                 className="accent-primary w-0 opacity-0 transition-all group-hover/volume:w-24 group-hover/volume:opacity-100 focus:w-24 focus:opacity-100"
               />
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setShowRemaining(!showRemaining);
-                savePrefs({ showRemaining: !showRemaining });
-              }}
-              className="ml-2 rounded px-1 text-sm tabular-nums text-white/90 hover:text-white"
-            >
-              {showRemaining ? `−${formatTime(remainingMs)}` : formatTime(timeMs)} /{' '}
-              {formatTime(durationMs)}
-            </button>
+            {liveStream.live ? (
+              <LiveBadge
+                atLive={liveStream.atLive}
+                behindMs={liveStream.behindMs}
+                onGoLive={liveStream.goLive}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRemaining(!showRemaining);
+                  savePrefs({ showRemaining: !showRemaining });
+                }}
+                className="ml-2 rounded px-1 text-sm tabular-nums text-white/90 hover:text-white"
+              >
+                {showRemaining ? `−${formatTime(remainingMs)}` : formatTime(timeMs)} /{' '}
+                {formatTime(durationMs)}
+              </button>
+            )}
             {chapterNow?.name && (
               <span className="ml-3 truncate text-sm text-white/70">{chapterNow.name}</span>
             )}
@@ -1268,13 +1478,6 @@ const VideoStage: FC<StageProps> = ({
             >
               {speed / 100}×
             </button>
-            <IconButton
-              label={t('videoPlayer.subtitles')}
-              pressed={subtitleKey !== null}
-              onClick={() => setPanel(panel === 'subtitles' ? null : 'subtitles')}
-            >
-              <Captions aria-hidden size={20} />
-            </IconButton>
             {audioTracks.length > 1 && (
               <IconButton
                 label={t('videoPlayer.audio')}
@@ -1283,7 +1486,8 @@ const VideoStage: FC<StageProps> = ({
                 <AudioLines aria-hidden size={20} />
               </IconButton>
             )}
-            {qualities.length > 1 && (
+            {/* Quality, then subtitles, beside the picture's aspect. */}
+            {(session || qualities.length > 1) && (
               <IconButton
                 label={t('desktopPlayer.quality')}
                 onClick={() => setPanel(panel === 'quality' ? null : 'quality')}
@@ -1291,6 +1495,13 @@ const VideoStage: FC<StageProps> = ({
                 <Layers aria-hidden size={20} />
               </IconButton>
             )}
+            <IconButton
+              label={t('videoPlayer.subtitles')}
+              pressed={subtitleKey !== null}
+              onClick={() => setPanel(panel === 'subtitles' ? null : 'subtitles')}
+            >
+              <Captions aria-hidden size={20} />
+            </IconButton>
             <IconButton
               label={t('videoPlayer.aspect')}
               onClick={() => setPanel(panel === 'aspect' ? null : 'aspect')}
@@ -1360,145 +1571,56 @@ const VideoStage: FC<StageProps> = ({
       )}
       {panel === 'subtitles' && (
         <PlayerPanel title={t('videoPlayer.subtitles')} onClose={() => setPanel(null)}>
-          <PanelHeading>{t('videoPlayer.delay')}</PanelHeading>
-          <div className="flex items-center gap-2 px-3 py-1">
-            <button
-              type="button"
-              onClick={() => changeDelay(delayMs - 100)}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-            >
-              −0.1 s
-            </button>
-            <DelayField delayMs={delayMs} onChange={changeDelay} />
-            <button
-              type="button"
-              onClick={() => changeDelay(delayMs + 100)}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-            >
-              +0.1 s
-            </button>
-            <button
-              type="button"
-              disabled={delayMs === 0}
-              onClick={() => changeDelay(0)}
-              className="rounded-lg px-2 py-1.5 text-sm hover:bg-white/10 disabled:opacity-40"
-            >
-              {t('videoPlayer.reset')}
-            </button>
-          </div>
-          <PanelHeading>{t('videoPlayer.subtitles')}</PanelHeading>
-          <PanelOption
-            label={t('videoPlayer.off')}
-            selected={subtitleKey === null}
-            onSelect={() => selectSubtitle(null)}
-          />
-          {subtitleOptions(engine).map((option) => (
-            <PanelOption
-              key={option.key}
-              label={option.label}
-              hint={
-                option.hint ??
-                (option.key.startsWith('embedded:')
-                  ? t('desktopPlayer.inTheVideo')
-                  : option.language)
-              }
-              selected={option.key === subtitleKey}
-              onSelect={() => selectSubtitle(option.key)}
-            />
-          ))}
-          <label className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-white/10">
-            {t('videoPlayer.addSubtitleFile')}
-            <input
-              type="file"
-              accept=".srt,.vtt,.ass,.ssa,.sub,.txt"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                void file.text().then((text) => {
-                  const key = `added:${added.length}`;
-                  const extension = file.name.split('.').pop() ?? null;
-                  setAdded([
-                    ...added,
-                    {
-                      key,
-                      label: file.name,
-                      language: null,
-                      cues: parseSubtitles(text, extension),
-                    },
-                  ]);
-                  setSubtitleKey(key);
-                  setLastSubtitle(key);
-                  engineRef.current?.setTextTrack(-1);
-                });
-              }}
-            />
-          </label>
-          <FindSubtitles
-            videoKey={id}
-            onPick={(label, language, cues) => {
-              const key = `added:${added.length}`;
-              setAdded([...added, { key, label, language, cues }]);
-              setSubtitleKey(key);
-              setLastSubtitle(key);
-              engineRef.current?.setTextTrack(-1);
-            }}
-          />
-          <AiSubtitles
+          <SubtitlesPanel
             videoKey={id}
             url={request.url ?? ''}
             format={request.format ?? null}
             positionMs={timeMs}
-            onStarted={() => selectSubtitle('ai')}
+            options={subtitleOptions(engine)}
+            languages={listedLanguages(languageInput)}
+            selected={subtitleKey}
+            onSelect={(key) => selectSubtitle(key)}
+            onAdd={addCues}
+            delayMs={delayMs}
+            onDelay={changeDelay}
+            onStyle={() => setPanel('subtitleStyle')}
+            second={secondKey}
+            onSecond={setSecondKey}
+            onAiStarted={() => selectSubtitle('ai')}
             onClose={onClose}
+            translate={{
+              sourceName: trackOption?.label ?? null,
+              blocked: translateBlocked,
+              source: translateSource,
+              defaultLanguage: subtitleLanguage || appLanguage || i18n.language,
+              translations,
+              onShow: (translation) => selectSubtitle(`translated:${translation}`, false),
+            }}
+            find={<FindSubtitles videoKey={id} onPick={addCues} />}
+            editor={
+              subtitleKey && (
+                <>
+                  <PanelHeading>{t('cueEdit.title')}</PanelHeading>
+                  {subtitleKey.startsWith('embedded:') ? (
+                    <p className="px-3 py-1 text-xs text-white/60">{t('cueEdit.embedded')}</p>
+                  ) : (
+                    <CueEditor
+                      original={originalCues}
+                      edits={trackEdits}
+                      timeMs={timeMs}
+                      delayMs={delayMs}
+                      onDelay={changeDelay}
+                      onEdit={changeCue}
+                    />
+                  )}
+                </>
+              )
+            }
           />
-          <TranslateSubtitles
-            videoKey={id}
-            sourceName={trackOption?.label ?? null}
-            blocked={translateBlocked}
-            source={translateSource}
-            defaultLanguage={subtitleLanguage || appLanguage || i18n.language}
-            positionMs={timeMs}
-            translations={translations}
-            onShow={(translation) => selectSubtitle(`translated:${translation}`, false)}
-          />
-          <label className="flex items-center gap-3 px-3 pt-3 pb-1.5 text-sm">
-            <span className="flex-1">{t('videoPlayer.secondSubtitles')}</span>
-            <select
-              value={secondKey ?? ''}
-              onChange={(event) => setSecondKey(event.target.value || null)}
-              className="max-w-40 rounded-lg bg-white/10 px-2 py-1 outline-none"
-            >
-              <option value="" className="bg-neutral-900">
-                {t('videoPlayer.off')}
-              </option>
-              {subtitleOptions(engine)
-                .filter((option) => !option.key.startsWith('embedded:'))
-                .map((option) => (
-                  <option key={option.key} value={option.key} className="bg-neutral-900">
-                    {option.label}
-                  </option>
-                ))}
-            </select>
-          </label>
-          {subtitleKey && (
-            <>
-              <PanelHeading>{t('cueEdit.title')}</PanelHeading>
-              {subtitleKey.startsWith('embedded:') ? (
-                <p className="px-3 py-1 text-xs text-white/60">{t('cueEdit.embedded')}</p>
-              ) : (
-                <CueEditor
-                  original={originalCues}
-                  edits={trackEdits}
-                  timeMs={timeMs}
-                  delayMs={delayMs}
-                  onDelay={changeDelay}
-                  onEdit={changeCue}
-                />
-              )}
-            </>
-          )}
         </PlayerPanel>
+      )}
+      {panel === 'subtitleStyle' && (
+        <VideoSettingsPanel page="subtitles" onClose={() => setPanel(null)} />
       )}
       {panel === 'audio' && (
         <PlayerPanel title={t('videoPlayer.audio')} onClose={() => setPanel(null)}>
@@ -1518,30 +1640,64 @@ const VideoStage: FC<StageProps> = ({
         </PlayerPanel>
       )}
       {panel === 'quality' && (
-        <PlayerPanel title={t('desktopPlayer.quality')} onClose={() => setPanel(null)}>
-          <PanelOption
-            label={t('desktopPlayer.auto')}
-            selected={engine?.quality() === -1}
-            onSelect={() => {
-              engineRef.current?.setQuality(-1);
-              setTracksVersion((version) => version + 1);
-            }}
-          />
-          {[...qualities].reverse().map((quality) => (
-            <PanelOption
-              key={quality.id}
-              label={quality.label}
-              selected={engine?.quality() === quality.id}
-              onSelect={() => {
-                engineRef.current?.setQuality(quality.id);
-                setTracksVersion((version) => version + 1);
-              }}
-            />
-          ))}
-        </PlayerPanel>
+        <QualityPanel
+          videoKey={id}
+          positionMs={timeMs}
+          engine={engine}
+          onClose={() => {
+            setPanel(null);
+            setTracksVersion((version) => version + 1);
+          }}
+          onAsked={showHint}
+        />
       )}
       {panel === 'more' && (
         <PlayerPanel title={t('videoPlayer.more')} onClose={() => setPanel(null)}>
+          {liveStream.live && (
+            <>
+              {/* How far behind live the picture plays (for AI subtitles, or by choice). */}
+              <PanelHeading>{t('videoPlayer.liveDelayTitle')}</PanelHeading>
+              <div className="flex items-center gap-2 px-3 py-1 text-sm">
+                <button
+                  type="button"
+                  onClick={() =>
+                    liveStream.hold((liveStream.heldMs || liveStream.behindMs) - HOLD_STEP_MS)
+                  }
+                  className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-white/20"
+                >
+                  −5 s
+                </button>
+                <span className="flex-1 text-center tabular-nums">
+                  {liveStream.heldMs > 0
+                    ? t('videoPlayer.seconds', { n: Math.round(liveStream.heldMs / 1000) })
+                    : t('videoPlayer.liveAtEdge')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    liveStream.hold((liveStream.heldMs || liveStream.behindMs) + HOLD_STEP_MS)
+                  }
+                  className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-white/20"
+                >
+                  +5 s
+                </button>
+              </div>
+              {liveStream.neededMs !== null && (
+                <PanelOption
+                  label={t('videoPlayer.liveMatchAi', {
+                    n: t('videoPlayer.seconds', { n: Math.round(liveStream.neededMs / 1000) }),
+                  })}
+                  selected={liveStream.heldMs >= liveStream.neededMs - 3_000}
+                  onSelect={() => liveStream.hold(liveStream.neededMs ?? 0)}
+                />
+              )}
+              <PanelOption
+                label={t('videoPlayer.goLive')}
+                selected={liveStream.atLive}
+                onSelect={liveStream.goLive}
+              />
+            </>
+          )}
           <PanelOption label={t('videoPlayer.playOnTv')} onSelect={() => setPanel('cast')} />
           <PanelOption
             label={t('videoPlayer.loop')}
@@ -1640,7 +1796,7 @@ const TopBar: FC<TopBarProps> = ({ onClose, setPanel, onElsewhere, fullscreen = 
     <div
       data-tauri-drag-region={fullscreen ? undefined : 'deep'}
       data-testid="player-top-bar"
-      className="absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/80 to-transparent px-3 pt-3 pb-10"
+      className="absolute inset-x-0 top-0 flex items-center gap-2 px-3 pt-3 pb-10"
     >
       <IconButton label={t('desktopPlayer.close')} onClick={onClose}>
         <ArrowLeft aria-hidden size={22} />
@@ -1733,44 +1889,6 @@ const KeysPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
   );
 };
 
-/** The subtitle delay as a typed number of seconds (M46.33), −60 to 60. */
-const DelayField: FC<{ delayMs: number; onChange: (ms: number) => void }> = ({
-  delayMs,
-  onChange,
-}) => {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState<string | null>(null);
-  const commit = () => {
-    if (draft === null) return;
-    const seconds = Number(draft.replace(',', '.'));
-    if (Number.isFinite(seconds)) {
-      onChange(Math.round(Math.max(-60, Math.min(60, seconds)) * 1000));
-    }
-    setDraft(null);
-  };
-  return (
-    <label className="flex flex-1 items-center justify-center gap-1 text-sm tabular-nums">
-      <input
-        type="text"
-        inputMode="decimal"
-        aria-label={t('desktopPlayer.delaySeconds')}
-        value={draft ?? (delayMs / 1000).toFixed(2)}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            commit();
-            (event.target as HTMLInputElement).blur();
-          }
-          event.stopPropagation();
-        }}
-        className="w-16 rounded-md bg-white/10 px-2 py-1 text-center outline-none focus:ring-1 focus:ring-white/40"
-      />
-      s
-    </label>
-  );
-};
-
 /**
  * Find subtitles (M46.33): every added addon's subtitles for this film or episode; with no addon
  * that has subtitles, the suggested one (OpenSubtitles) can be added in one tap.
@@ -1860,100 +1978,50 @@ const FindSubtitles: FC<{
 
 type SessionPanelProps = { kind: 'episodes' | 'sources'; positionMs: number; onClose: () => void };
 
-/** A session's episodes or sources; picking one asks Rust for it. */
-const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
+/** A session's episodes or sources ([`SourcesPanel`]); picking one asks Rust for it. */
+const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) =>
+  kind === 'sources' ? (
+    <SourcesPanel positionMs={positionMs} onClose={onClose} />
+  ) : (
+    <EpisodesPanel positionMs={positionMs} onClose={onClose} />
+  );
+
+const EpisodesPanel: FC<{ positionMs: number; onClose: () => void }> = ({
+  positionMs,
+  onClose,
+}) => {
   const { t } = useTranslation();
   const id = useVideoPlayerStore((state) => state.request?.id ?? '');
   const episodes = useVideoPlayerStore((state) => state.episodes);
-  const sources = useVideoPlayerStore((state) => state.sources);
-  const playingFrom = useVideoPlayerStore((state) => state.playingFrom);
   const autoplay = useVideoPlayerStore((state) => state.autoplay);
-  const prefs = useVideoPlayerStore((state) => state.prefs);
-  if (kind === 'episodes') {
-    return (
-      <PlayerPanel title={t('videoPlayer.episodes')} onClose={onClose} at="top">
+  return (
+    <PlayerPanel title={t('videoPlayer.episodes')} onClose={onClose} at="top">
+      <PanelOption
+        label={autoplay ? t('videoPlayer.autoplayOn') : t('videoPlayer.autoplayOff')}
+        selected={autoplay}
+        toggle
+        onSelect={() => {
+          useVideoPlayerStore.setState({ autoplay: !autoplay });
+          sendRequest(id, 'autoplay', positionMs, { on: !autoplay });
+        }}
+      />
+      <PanelHeading>{t('videoPlayer.episodes')}</PanelHeading>
+      {episodes.map((episode, index) => (
         <PanelOption
-          label={autoplay ? t('videoPlayer.autoplayOn') : t('videoPlayer.autoplayOff')}
-          selected={autoplay}
-          toggle
+          key={`${index}-${episode.label}`}
+          label={episode.label}
+          hint={
+            episode.downloaded
+              ? t('videoPlayer.downloaded')
+              : episode.watched
+                ? t('desktopPlayer.watched')
+                : null
+          }
+          selected={episode.current}
           onSelect={() => {
-            useVideoPlayerStore.setState({ autoplay: !autoplay });
-            sendRequest(id, 'autoplay', positionMs, { on: !autoplay });
+            if (!episode.current) sendRequest(id, 'episode', positionMs, { index });
           }}
         />
-        <PanelHeading>{t('videoPlayer.episodes')}</PanelHeading>
-        {episodes.map((episode, index) => (
-          <PanelOption
-            key={`${index}-${episode.label}`}
-            label={episode.label}
-            hint={
-              episode.downloaded
-                ? t('videoPlayer.downloaded')
-                : episode.watched
-                  ? t('desktopPlayer.watched')
-                  : null
-            }
-            selected={episode.current}
-            onSelect={() => {
-              if (!episode.current) sendRequest(id, 'episode', positionMs, { index });
-            }}
-          />
-        ))}
-      </PlayerPanel>
-    );
-  }
-  const shown = sources
-    .map((group, index) => ({ group, index }))
-    .filter(
-      ({ group }) =>
-        (group.state !== 'failed' || prefs.showFailedSources) &&
-        (group.state !== 'empty' || prefs.showEmptySources),
-    );
-  return (
-    <PlayerPanel title={t('videoPlayer.sources')} onClose={onClose} at="top">
-      {playingFrom && (
-        <p className="text-muted px-4 py-2 text-sm">
-          {t('videoPlayer.playingFrom', { n: playingFrom })}
-        </p>
-      )}
-      {shown.map(({ group, index }) => (
-        <div key={`${index}-${group.name}`} className="flex flex-col">
-          <PanelHeading>
-            {group.name}
-            {group.state === 'resolving' && ` · ${t('videoPlayer.resolving')}`}
-            {group.state === 'failed' && ` · ${t('videoPlayer.failed')}`}
-            {group.state === 'empty' && ` · ${t('videoPlayer.empty')}`}
-            {group.unreliable && ` · ${t('videoPlayer.unreliable')}`}
-            {group.worked && !group.unreliable && ` · ${t('videoPlayer.workedLastTime')}`}
-          </PanelHeading>
-          {group.links.map((link, linkIndex) => (
-            <PanelOption
-              key={`${linkIndex}-${link.label}`}
-              label={link.label}
-              hint={
-                link.failed
-                  ? t('videoPlayer.failed')
-                  : link.worked
-                    ? t('videoPlayer.workedLastTime')
-                    : null
-              }
-              selected={link.current}
-              onSelect={() => {
-                if (link.current) return;
-                // Loads from where the video is; the ring names the source while it does.
-                useVideoPlayerStore.setState({
-                  pickedSource: true,
-                  notice: null,
-                  loadingText: t('videoPlayer.loadingSource', {
-                    n: sourceName(group, linkIndex) ?? group.name,
-                  }),
-                });
-                sendRequest(id, 'source', positionMs, { group: index, link: linkIndex });
-                onClose();
-              }}
-            />
-          ))}
-        </div>
       ))}
     </PlayerPanel>
   );

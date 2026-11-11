@@ -346,6 +346,7 @@ impl ArtistFollows {
             // Leave startup to the rest of the app.
             tokio::time::sleep(Duration::from_secs(90)).await;
             loop {
+                raygun_net::network_mode::wait_online().await;
                 service.check_due(false).await;
                 crate::device_state::rest(LOOP_EVERY).await;
             }

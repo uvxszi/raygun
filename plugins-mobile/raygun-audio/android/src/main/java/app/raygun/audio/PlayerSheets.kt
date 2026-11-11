@@ -12,21 +12,7 @@ import org.json.JSONObject
 import java.util.Locale
 import kotlin.concurrent.thread
 
-/** Colours offered for subtitles in the player, as in Settings (0xAARRGGBB and a label key). */
-private val TEXT_COLORS = listOf(
-    0xFFFFFFFF.toInt() to "colorWhite",
-    0xFFFFEB3B.toInt() to "colorYellow",
-    0xFF80DEEA.toInt() to "colorCyan",
-    0xFFA5D6A7.toInt() to "colorGreen",
-    0xFFBDBDBD.toInt() to "colorGrey",
-    0xFF000000.toInt() to "colorBlack",
-)
-private val BACKGROUNDS = listOf(
-    0x00000000 to "colorNone",
-    0x80000000.toInt() to "colorBlackHalf",
-    0xBF000000.toInt() to "colorBlackMost",
-    0xFF000000.toInt() to "colorBlack",
-)
+/** Subtitle edges, as in Settings; the colours offered are in `PlayerCaptions.kt`. */
 private val EDGES = listOf("none", "outline", "shadow", "raised", "depressed")
 private val SLEEP_MINUTES = listOf(15, 30, 45, 60, 90)
 /** These match `SUBTITLE_MODES`, `VideoResolution::ALL` and `SEEK_SECONDS` in Settings. */
@@ -76,82 +62,11 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         sheet.show()
     }
 
-    /** The video's qualities (HLS and DASH variants): automatic, or one held. */
-    fun quality() {
-        val tracks = host.tracks.qualities()
-        val sheet = PlayerSheet(host, label("quality", "Quality"))
-        val auto = host.tracks.qualityAuto()
-        // Every variant of an automatic choice counts as selected; this is the one playing.
-        val playing = host.player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }
-        sheet.row(label("qualityAuto", "Automatic"), playing?.takeIf { auto }, auto) {
-            host.tracks.selectQuality(null)
-            sheet.dismiss()
-        }
-        tracks.forEach { track ->
-            sheet.row(host.tracks.qualityName(track), selected = !auto && track.selected) {
-                host.tracks.selectQuality(track)
-                sheet.dismiss()
-            }
-        }
-        sheet.show()
-    }
+    /** The Quality sheet: resolutions from this stream or other sources ([PlayerQuality]). */
+    fun quality() = host.quality.open()
 
-    fun sources() {
-        val groups = host.sources
-        val sheet = PlayerSheet(host, label("sources", "Sources"))
-        var shown = 0
-        host.playingFrom?.let { sheet.row(label("playingFrom", "Playing from {n}", it), null, onClick = null) }
-        for (group in 0 until groups.length()) {
-            val server = groups.optJSONObject(group) ?: continue
-            val links = server.optJSONArray("links") ?: JSONArray()
-            val state = server.optString("state")
-            if (links.length() == 0) {
-                val hidden = (state == "failed" && !host.prefs.showFailedSources) ||
-                    (state == "empty" && !host.prefs.showEmptySources)
-                if (hidden) continue
-                val detail = when (state) {
-                    "resolving" -> label("resolving", "finding links…")
-                    // Why, in the source's own words, kept short.
-                    "failed" -> label("failed", "failed") +
-                        (server.text("error")?.let { ": ${it.take(120)}" } ?: "")
-                    else -> label("empty", "no videos")
-                }
-                sheet.row(server.optString("name"), detail, onClick = null)
-                shown += 1
-                continue
-            }
-            // Failed lately and tried last (M46.17).
-            val unreliable = when {
-                server.optBoolean("unreliable") -> " · " + label("unreliable", "didn't work lately")
-                server.optBoolean("worked") -> " · " + label("workedLastTime", "worked last time")
-                else -> ""
-            }
-            sheet.header(server.optString("name") + unreliable)
-            for (link in 0 until links.length()) {
-                val entry = links.optJSONObject(link) ?: continue
-                val current = entry.optBoolean("current")
-                val failed = entry.optBoolean("failed")
-                val note = when {
-                    failed -> label("failed", "failed")
-                    entry.optBoolean("worked") -> label("workedLastTime", "worked last time")
-                    else -> null
-                }
-                val row = sheet.row(entry.optString("label"), note, current) {
-                    sheet.dismiss()
-                    if (!current) host.chooseSource(group, link)
-                }
-                // The list opens at the source playing, wherever it is.
-                if (current) sheet.reveal(row)
-                shown += 1
-            }
-        }
-        if (shown == 0) {
-            host.showHint(label("findingSource", "Finding a source…"))
-            host.request("ready")
-            return
-        }
-        sheet.show()
-    }
+    /** Sources: clean names with their options, or the raw list ([PlayerSourcesSheet]). */
+    fun sources() = host.sourcesSheet.open()
 
     fun audio() {
         val tracks = host.tracks.list(C.TRACK_TYPE_AUDIO)
@@ -172,17 +87,28 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val tracks = host.tracks.list(C.TRACK_TYPE_TEXT)
         val live = host.liveTracks
         val sheet = PlayerSheet(host, label("subtitles", "Subtitles"))
-        // Delay and style come first: they are what is changed most while watching.
-        val delay = host.state.subtitleDelayMs
-        val shown = String.format(Locale.ROOT, "%+.1f", delay / 1000.0)
-        sheet.stepper(label("delay", "Delay"), "$shown s", listOf(
-            "−1" to { host.setSubtitleDelay(delay - 1000); subtitles() },
-            "−0.1" to { host.setSubtitleDelay(delay - 100); subtitles() },
-            "+0.1" to { host.setSubtitleDelay(delay + 100); subtitles() },
-            "+1" to { host.setSubtitleDelay(delay + 1000); subtitles() },
-            "0" to { host.setSubtitleDelay(0); subtitles() },
+        // What adds subtitles comes first, as buttons of its own (each opens its sheet): the list
+        // below only holds subtitles to show.
+        sheet.subtitleTools(host, listOf(
+            SubtitleTool(R.drawable.raygun_ic_note_add, label("addSubtitleFile", "Add a subtitle file"), null) {
+                sheet.dismiss()
+                host.pickSubtitleFile()
+            },
+            SubtitleTool(R.drawable.raygun_ic_auto_awesome, label("aiTranscribe", "Transcribe with AI"), transcribeDetail()) {
+                transcribe()
+            },
+            SubtitleTool(R.drawable.raygun_ic_translate, label("translate", "Translate subtitles"), translateDetail()) {
+                translate()
+            },
         ))
+        // Delay and style: what is changed most while watching.
+        sheet.delayField(host, host.state.subtitleDelayMs) { delay ->
+            host.setSubtitleDelay(delay)
+            subtitles()
+        }
         sheet.row(label("style", "Style")) { style() }
+
+        sheet.header(label("subtitles", "Subtitles"))
         val off = host.tracks.textOff() && live.primary == null
         sheet.row(label("off", "Off"), selected = off) {
             live.show(null)
@@ -191,30 +117,31 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.remember(JSONObject().put("subtitle", JSONObject().put("off", true)))
             subtitles()
         }
-        tracks.forEachIndexed { index, track ->
+        // The video's tracks and files, then AI subtitles and translations once there are lines
+        // or they're being made; the viewer's languages first, each language's tracks together.
+        class Choice(val language: String?, val add: () -> Unit)
+        val choices = tracks.mapIndexedNotNull { index, track ->
             // The saved AI subtitles while the ones being made show.
-            if (live.hides(track)) return@forEachIndexed
-            sheet.row(host.tracks.name(track, index + 1), selected = !off && live.primary == null && track.selected) {
-                live.show(null)
-                host.tracks.select(C.TRACK_TYPE_TEXT, track)
-                host.state.subtitleOff = false
-                host.state.subtitle = track.choice()
-                host.remember(JSONObject().put("subtitle", track.choice().toJson()))
-                subtitles()
+            if (live.hides(track)) return@mapIndexedNotNull null
+            Choice(track.language) {
+                sheet.row(host.tracks.name(track, index + 1), selected = !off && live.primary == null && track.selected) {
+                    live.show(null)
+                    host.tracks.select(C.TRACK_TYPE_TEXT, track)
+                    host.state.subtitleOff = false
+                    host.state.subtitle = track.choice()
+                    host.remember(JSONObject().put("subtitle", track.choice().toJson()))
+                    subtitles()
+                }
+            }
+        } + live.tracks.values.filter { it.shown }.map { track ->
+            Choice(track.language) {
+                sheet.row(liveName(track), liveDetail(track), selected = live.primary == track.id) {
+                    live.show(track.id)
+                    subtitles()
+                }
             }
         }
-        live.tracks.values.forEach { track ->
-            sheet.row(liveName(track), liveDetail(track), selected = live.primary == track.id) {
-                live.show(track.id)
-                subtitles()
-            }
-        }
-        sheet.row(label("addSubtitleFile", "Add a subtitle file")) {
-            sheet.dismiss()
-            host.pickSubtitleFile()
-        }
-        sheet.row(label("aiTranscribe", "Transcribe with AI"), transcribeDetail()) { transcribe() }
-        sheet.row(label("translate", "Translate subtitles"), translateDetail()) { translate() }
+        byLanguages(choices, host.languages.listed) { it.language }.forEach { it.add() }
 
         sheet.header(label("secondSubtitles", "Second subtitles"))
         val second = host.second.current
@@ -224,24 +151,28 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.remember(JSONObject().put("secondarySubtitle", JSONObject.NULL))
             subtitles()
         }
-        host.sidecars.forEachIndexed { index, sidecar ->
-            if (live.isAiFile(sidecar) && live.tracks.containsKey(LiveSubtitles.AI_TRACK)) return@forEachIndexed
+        val seconds = host.sidecars.mapIndexedNotNull { index, sidecar ->
+            if (live.isAiFile(sidecar) && live.aiListed) return@mapIndexedNotNull null
             val name = sidecar.label?.takeIf { !Languages.onlyNames(it, sidecar.language) }
                 ?: languageName(sidecar.language)
                 ?: sidecar.label
                 ?: label("track", "Track {n}", (index + 1).toString())
-            sheet.row(name, selected = second == sidecar) {
-                host.loadSecond(sidecar)
-                host.remember(JSONObject().put("secondarySubtitle", sidecar.choice().toJson()))
-                subtitles()
+            Choice(sidecar.language ?: sidecar.label) {
+                sheet.row(name, selected = second == sidecar) {
+                    host.loadSecond(sidecar)
+                    host.remember(JSONObject().put("secondarySubtitle", sidecar.choice().toJson()))
+                    subtitles()
+                }
+            }
+        } + live.tracks.values.filter { it.shown }.map { track ->
+            Choice(track.language) {
+                sheet.row(liveName(track), selected = secondLive == track.id) {
+                    host.second.showLive(track.id)
+                    subtitles()
+                }
             }
         }
-        live.tracks.values.forEach { track ->
-            sheet.row(liveName(track), selected = secondLive == track.id) {
-                host.second.showLive(track.id)
-                subtitles()
-            }
-        }
+        byLanguages(seconds, host.languages.listed) { it.language }.forEach { it.add() }
 
         watch(sheet, ::subtitles)
         sheet.show()
@@ -276,7 +207,8 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val status = track.status
         status.error?.let { return it.lineSequence().firstOrNull() }
         status.downloading?.let { return label("translateDownloading", "Downloading the models… {n}%", it.toString()) }
-        val ahead = status.aheadOf(host.player.currentPosition)
+        // A live stream's tracks are timed by its own clock.
+        val ahead = status.aheadOf(host.liveStream.clockMs())
         if (track.kind == "ai") {
             return when {
                 status.preparing -> label("aiPreparing", "Getting the sound…")
@@ -545,22 +477,37 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             "−" to { host.updateStyle(look.copy(position = (look.position - 2).coerceAtLeast(0))); style() },
             "+" to { host.updateStyle(look.copy(position = (look.position + 2).coerceAtMost(40))); style() },
         ))
-        val color = TEXT_COLORS.indexOfFirst { it.first == look.textColor }
-        sheet.header(label("textColor", "Text colour"))
-        sheet.chips(TEXT_COLORS.map { colorName(it.second) }, color) { picked ->
-            host.updateStyle(look.copy(textColor = TEXT_COLORS[picked].first))
+        // Each colour beside its name, and Custom for one of the viewer's own.
+        val textColor = label("textColor", "Text colour")
+        sheet.header(textColor)
+        sheet.swatches(host, TEXT_SWATCHES, look.textColor, { color ->
+            host.updateStyle(look.copy(textColor = color))
             style()
+        }) {
+            customColor(textColor, look.textColor, opacity = false) { base, color -> base.copy(textColor = color) }
         }
         sheet.header(label("edge", "Edge"))
         sheet.chips(EDGES.map { edgeName(it) }, EDGES.indexOf(look.edge)) { picked ->
             host.updateStyle(look.copy(edge = EDGES[picked]))
             style()
         }
-        sheet.header(label("background", "Background"))
-        val background = BACKGROUNDS.indexOfFirst { it.first == look.backgroundColor }
-        sheet.chips(BACKGROUNDS.map { colorName(it.second) }, background) { picked ->
-            host.updateStyle(look.copy(backgroundColor = BACKGROUNDS[picked].first))
+        if (look.edge != "none") {
+            val edgeColor = label("edgeColor", "Edge colour")
+            sheet.header(edgeColor)
+            sheet.swatches(host, EDGE_SWATCHES, look.edgeColor, { color ->
+                host.updateStyle(look.copy(edgeColor = color))
+                style()
+            }) {
+                customColor(edgeColor, look.edgeColor, opacity = false) { base, color -> base.copy(edgeColor = color) }
+            }
+        }
+        val background = label("background", "Background")
+        sheet.header(background)
+        sheet.swatches(host, BACKGROUND_SWATCHES, look.backgroundColor, { color ->
+            host.updateStyle(look.copy(backgroundColor = color))
             style()
+        }) {
+            customColor(background, look.backgroundColor, opacity = true) { base, color -> base.copy(backgroundColor = color) }
         }
         sheet.row(label("bold", "Bold"), selected = look.bold) {
             host.updateStyle(look.copy(bold = !look.bold))
@@ -577,7 +524,16 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         sheet.show()
     }
 
-    private fun colorName(key: String) = label(key, key.removePrefix("color"))
+    /**
+     * A colour of the viewer's own for one part of the style ([ColorPicker]): shown on the
+     * subtitles as it changes and kept in Settings once picked; Done goes back to Style.
+     */
+    private fun customColor(title: String, current: Int, opacity: Boolean, change: (SubtitleLook, Int) -> SubtitleLook) {
+        ColorPicker(host, title, current, opacity, { color, save ->
+            val next = change(host.prefs.style, color)
+            if (save) host.updateStyle(next) else host.previewStyle(next)
+        }, ::style).show()
+    }
 
     private fun edgeName(edge: String) =
         label("edge" + edge.replaceFirstChar { it.uppercase() }, edge.replaceFirstChar { it.uppercase() })
@@ -656,13 +612,13 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
 
     fun more() {
         val sheet = PlayerSheet(host, label("more", "More"))
-        if (host.tracks.qualities().size > 1) {
-            val quality = if (host.tracks.qualityAuto()) {
-                label("qualityAuto", "Automatic")
-            } else {
-                host.player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }
-            }
-            sheet.row(label("quality", "Quality"), quality) { quality() }
+        // Quality has its own button now; a live stream's delay behind the edge is here.
+        if (host.liveStream.isLive) {
+            val held = host.liveStream.heldMs
+            sheet.row(
+                label("liveDelayTitle", "Live delay"),
+                if (held > 0) label("seconds", "{n} s", (held / 1000).toString()) else label("liveAtEdge", "At the live edge"),
+            ) { host.liveStream.delaySheet() }
         }
         sheet.row(label("playOnTv", "Play on TV")) {
             sheet.dismiss()

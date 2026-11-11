@@ -90,7 +90,7 @@ describe('Recent searches', () => {
     commands.searchRecentAdd.mockClear();
     await user.clear(screen.getByRole('searchbox', { name: 'Search' }));
     await user.type(screen.getByRole('searchbox', { name: 'Search' }), 'lucky');
-    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenLastCalledWith('lucky'));
+    await vi.waitFor(() => expect(commands.onlineSearch).toHaveBeenLastCalledWith('lucky', true));
     await screen.findAllByTestId('online-track-row');
     // Switching pills isn't a search made.
     await user.click(screen.getByRole('button', { name: 'Songs' }));

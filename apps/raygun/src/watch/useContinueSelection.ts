@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, PointerEvent } from 'react';
 
 import { useBackLayer } from '../shell/backLayers';
+import { claimHold } from '../shell/holdClaims';
 
 /** How long a finger holds an entry before it's picked, ms. */
 const HOLD_MS = 450;
@@ -96,6 +97,7 @@ export const usePickGestures = (selecting: boolean, onPick: (range: boolean) => 
       held.current = false;
       if (!touch.current) return;
       cancelHold();
+      claimHold(event);
       hold.current = {
         timer: setTimeout(() => {
           hold.current = null;

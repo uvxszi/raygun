@@ -310,6 +310,46 @@ describe('Novels', () => {
     await within(reader).findByText('[en] ember. Rain fell on the panes.');
   });
 
+  it('keeps what paragraphs show while changed layers translate them again', async () => {
+    const user = userEvent.setup();
+    commands.novelChapter.mockResolvedValue(
+      ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await within(reader).findByText('It was a dreary night of Nov');
+    await user.click(within(reader).getByRole('button', { name: 'AI layers' }));
+    const sheet = await screen.findByRole('dialog', { name: 'AI layers' });
+    await user.click(within(sheet).getByRole('button', { name: 'Translate' }));
+    await within(reader).findByText('[en] ember. Rain fell on the panes.');
+
+    // German comes when the test lets it: the English stays meanwhile, not the book's words.
+    const pending: (() => void)[] = [];
+    commands.readerAiTranslate.mockImplementation(
+      (request: { texts: string[]; to?: string }) =>
+        new Promise((resolve) => {
+          pending.push(() =>
+            resolve(ok(request.texts.map((text) => `[${request.to ?? ''}] ${text}`))),
+          );
+        }),
+    );
+    await user.selectOptions(within(sheet).getByRole('combobox', { name: 'Translate into' }), 'de');
+    await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));
+    expect(within(reader).getByText('[en] ember. Rain fell on the panes.')).toBeInTheDocument();
+    expect(within(reader).queryByText('ember. Rain fell on the panes.')).not.toBeInTheDocument();
+    await act(async () => {
+      for (const answer of pending.splice(0)) answer();
+    });
+    await within(reader).findByText('[de] ember. Rain fell on the panes.');
+    expect(
+      within(reader).queryByText('[en] ember. Rain fell on the panes.'),
+    ).not.toBeInTheDocument();
+
+    // Off, the book's own words show at once.
+    await user.click(within(sheet).getByRole('switch'));
+    expect(within(reader).getByText('ember. Rain fell on the panes.')).toBeInTheDocument();
+  });
+
   it('offers the models this device needs to translate a book', async () => {
     const user = userEvent.setup();
     commands.novelChapter.mockResolvedValue(

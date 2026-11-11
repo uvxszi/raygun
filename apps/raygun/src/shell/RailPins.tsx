@@ -39,6 +39,7 @@ import { useTranslation } from 'react-i18next';
 import { PlaylistCover } from '../collections/PlaylistCover';
 import { Artwork } from '../library/Artwork';
 import { useOpenWebsite } from '../websites/useWebsites';
+import { claimHold } from './holdClaims';
 import { LetterAvatar } from './LetterAvatar';
 import { Popover } from './Popover';
 import { QuickAccessMenu } from './QuickAccessMenu';
@@ -234,6 +235,7 @@ const Row: FC<RowProps> = ({
           type="button"
           aria-label={narrow ? name : undefined}
           onClick={() => onOpenSite(item.search.site ?? '')}
+          onPointerDown={claimHold}
           onContextMenu={openMenu}
           className={`${look} text-left`}
         >
@@ -245,6 +247,8 @@ const Row: FC<RowProps> = ({
           search={item.search as never}
           replace={drawer}
           aria-label={narrow ? name : undefined}
+          // A long press opens quick access's own menu: no name shows for it.
+          onPointerDown={claimHold}
           onContextMenu={openMenu}
           className={look}
         >

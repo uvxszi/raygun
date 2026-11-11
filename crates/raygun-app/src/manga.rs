@@ -430,6 +430,7 @@ impl MangaService {
     }
 
     async fn run_update(&self, manual: bool, only: Option<HashSet<String>>) -> Result<(), String> {
+        raygun_net::network_mode::check_online()?;
         let started = std::time::Instant::now();
         let db = self.db();
         let mut library = titles::library(&db, KIND).await.map_err(to_message)?;
@@ -585,6 +586,8 @@ impl MangaService {
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(SCHEDULER_DELAY).await;
             loop {
+                // Library updates wait for Offline Mode to end.
+                raygun_net::network_mode::wait_online().await;
                 let manga = app.state::<MangaService>();
                 let hours = match crate::settings::load(&manga.db()).await {
                     Ok(settings) => settings.manga_update_hours,

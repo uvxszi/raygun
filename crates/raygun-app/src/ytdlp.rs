@@ -207,6 +207,8 @@ impl YtDlpService {
 
     /// yt-dlp, fetched first when it isn't here.
     async fn ready(&self) -> Result<PathBuf, String> {
+        // yt-dlp goes to the network on its own: it doesn't run while Offline Mode is on.
+        raygun_net::network_mode::check_online()?;
         if !supported() {
             return Err("YouTube downloads need Raygun on a computer".into());
         }
@@ -424,6 +426,7 @@ impl YtDlpService {
         title: &str,
         kind: YtDlpKind,
     ) -> Result<String, String> {
+        raygun_net::network_mode::check_online()?;
         if !supported() {
             return Err("YouTube downloads need Raygun on a computer".into());
         }

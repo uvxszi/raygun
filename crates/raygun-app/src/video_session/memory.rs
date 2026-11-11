@@ -38,6 +38,10 @@ pub struct SourceStat {
     pub worked: i64,
     /// How often it worked, fading by [`HALF_LIFE_MS`] from `worked`.
     pub score: f64,
+    /// The connection speed measured while it played (kb/s, smoothed), for the Sources sheet.
+    pub speed_kbps: f64,
+    /// When that was measured, Unix ms (0: never).
+    pub speed_at: i64,
 }
 
 /// How servers and addons did lately, by name. One that failed since it last worked goes to the
@@ -105,9 +109,30 @@ impl SourceHealth {
         self.prune(now);
     }
 
+    /// A connection speed measured while the source played: a third of it goes into what's kept.
+    pub fn measured(&mut self, name: &str, kbps: u64, now: i64) {
+        let stat = self.sources.entry(name.to_owned()).or_default();
+        let kbps = kbps as f64;
+        stat.speed_kbps = if stat.speed_kbps > 0.0 {
+            stat.speed_kbps * (2.0 / 3.0) + kbps / 3.0
+        } else {
+            kbps
+        };
+        stat.speed_at = now;
+        self.prune(now);
+    }
+
+    /// The source's measured speed, kb/s.
+    pub fn speed(&self, name: &str) -> Option<u64> {
+        self.sources
+            .get(name)
+            .filter(|stat| stat.speed_kbps >= 1.0)
+            .map(|stat| stat.speed_kbps.round() as u64)
+    }
+
     /// Forgets sources not heard of for two months, and keeps the most recent few hundred.
     fn prune(&mut self, now: i64) {
-        let last = |stat: &SourceStat| stat.failed.max(stat.worked);
+        let last = |stat: &SourceStat| stat.failed.max(stat.worked).max(stat.speed_at);
         self.sources
             .retain(|_, stat| now - last(stat) < FORGET_AFTER_MS);
         if self.sources.len() > MAX_SOURCES {
@@ -372,6 +397,7 @@ pub fn rank_candidates(candidates: &[SourceCandidate], ranking: &Ranking) -> Vec
         failed: None,
         mismatch: false,
         height: video_quality::label_height(&candidate.label),
+        size: None,
         request: raygun_model::VideoRequest {
             key: String::new(),
             title: String::new(),
@@ -384,6 +410,7 @@ pub fn rank_candidates(candidates: &[SourceCandidate], ranking: &Ranking) -> Vec
             group: None,
             chapters: Vec::new(),
             anime: None,
+            live: false,
         },
     };
     let mut ranked: Vec<(RankKey, SourceRank)> = candidates

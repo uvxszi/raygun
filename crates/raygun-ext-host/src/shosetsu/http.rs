@@ -234,6 +234,13 @@ impl Fetcher {
             });
         }
         let host = url.host_str().unwrap_or_default().to_owned();
+        // Offline Mode: nothing is sent; the failure names it, so no source is blamed.
+        if !raygun_net::network_mode::allows(url.as_str()) {
+            return Err(FetchError::Unreachable {
+                host,
+                detail: raygun_net::network_mode::OFFLINE_MESSAGE.to_owned(),
+            });
+        }
         let method = reqwest::Method::from_bytes(request.method.to_ascii_uppercase().as_bytes())
             .map_err(|_| FetchError::BadUrl {
                 url: url.to_string(),

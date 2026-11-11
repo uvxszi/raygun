@@ -141,6 +141,8 @@ impl PodcastService {
                     }
                 }
             }
+            // Feeds are read again once Offline Mode is off.
+            raygun_net::network_mode::wait_online().await;
             let last = raygun_db::local_value(&db, LAST_REFRESH)
                 .await
                 .ok()
@@ -1510,7 +1512,13 @@ impl PodcastService {
         let id = episode_id.to_owned();
         tauri::async_runtime::spawn(async move {
             if let Ok(_turn) = turns.acquire_owned().await {
-                job.run().await;
+                // Offline Mode pauses downloads: one it stopped goes on once it's off.
+                loop {
+                    raygun_net::network_mode::wait_online().await;
+                    if !job.run().await {
+                        break;
+                    }
+                }
             }
             downloading
                 .lock()
@@ -1736,7 +1744,8 @@ enum Stop {
 }
 
 impl DownloadJob {
-    async fn run(self) {
+    /// Fetches the episode; true when Offline Mode stopped it, to go on once it's off.
+    async fn run(&self) -> bool {
         let relative = format!(
             "{FOLDER}/{}/{}.{}",
             self.episode.podcast_id,
@@ -1756,7 +1765,7 @@ impl DownloadJob {
         };
         if self.is_cancelled() {
             self.forget().await;
-            return;
+            return false;
         }
         let _ = store::put_download(&self.db, &record, now_ms()).await;
         announce(&self.app, &self.episode.podcast_id);
@@ -1768,7 +1777,14 @@ impl DownloadJob {
             }
             Err(Stop::Cancelled) => {
                 self.forget().await;
-                return;
+                return false;
+            }
+            // Offline Mode pauses it: it waits in the queue for Offline Mode to end.
+            Err(Stop::Failed(_)) if raygun_net::network_mode::offline() => {
+                record.state = "queued".into();
+                let _ = store::put_download(&self.db, &record, now_ms()).await;
+                announce(&self.app, &self.episode.podcast_id);
+                return true;
             }
             Err(Stop::Failed(error)) => {
                 tracing::info!(episode = %self.episode.fields.title, %error, "episode file failed; capturing its stream");
@@ -1781,7 +1797,7 @@ impl DownloadJob {
                     }
                     Err(Stop::Cancelled) => {
                         self.forget().await;
-                        return;
+                        return false;
                     }
                     Err(Stop::Failed(capture)) => {
                         tracing::warn!(episode = %self.episode.fields.title, %error, %capture, "episode download failed");
@@ -1795,6 +1811,7 @@ impl DownloadJob {
         }
         let _ = store::put_download(&self.db, &record, now_ms()).await;
         announce(&self.app, &self.episode.podcast_id);
+        false
     }
 
     /// Captures the episode's stream (M46.49): its bytes through the stream proxy by ranges, else

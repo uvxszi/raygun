@@ -102,14 +102,86 @@
       })
       .join('\n');
 
-  /** Java's `String.format`, for `%s`, `%d` and `%%`. */
+  /**
+   * Java's `String.format`: `%s`, `%d`, `%x`, `%o`, `%f`, `%e`, `%c`, `%b`, `%n` and `%%`, with
+   * positions (`%1$s`), flags (`-`, `0`, `+`, ` `, `,`), widths and precisions (`%02x`, `%.2f`).
+   */
   K.format = (pattern, ...args) => {
     let next = 0;
-    return pattern.replace(/%(\d+\$)?([sdf%])/g, (whole, position, kind) => {
-      if (kind === '%') return '%';
-      const value = position ? args[parseInt(position, 10) - 1] : args[next++];
-      return kind === 'd' ? String(Math.trunc(Number(value))) : K.str(value);
-    });
+    const grouped = (digits) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return String(pattern).replace(
+      /%(\d+\$)?([-#+ 0,(]*)(\d+)?(?:\.(\d+))?([sSdxXofeEcbBn%])/g,
+      (whole, position, flags, width, precision, kind) => {
+        if (kind === '%') return '%';
+        if (kind === 'n') return '\n';
+        const value = position ? args[parseInt(position, 10) - 1] : args[next++];
+        let text;
+        let numeric = false;
+        // A whole number's conversion of something that isn't one: written as it is.
+        if ('dxXo'.includes(kind) && typeof value !== 'bigint' && !Number.isFinite(Number(value)))
+          return K.str(value);
+        switch (kind) {
+          case 'd': {
+            numeric = true;
+            const number = typeof value === 'bigint' ? value : BigInt(Math.trunc(Number(value)));
+            const digits = (number < 0n ? -number : number).toString();
+            const sign =
+              number < 0n ? '-' : flags.includes('+') ? '+' : flags.includes(' ') ? ' ' : '';
+            text = sign + (flags.includes(',') ? grouped(digits) : digits);
+            break;
+          }
+          case 'x':
+          case 'X':
+          case 'o': {
+            numeric = true;
+            const radix = kind === 'o' ? 8 : 16;
+            let number = typeof value === 'bigint' ? value : BigInt(Math.trunc(Number(value)));
+            // Negative values as Java writes them: the 32-bit (else 64-bit) two's complement.
+            if (number < 0n) number += number >= -(2n ** 31n) ? 2n ** 32n : 2n ** 64n;
+            text = number.toString(radix);
+            if (flags.includes('#')) text = (radix === 16 ? '0x' : '0') + text;
+            if (kind === 'X') text = text.toUpperCase();
+            break;
+          }
+          case 'f':
+          case 'e':
+          case 'E': {
+            numeric = true;
+            const number = Number(value);
+            const digits = precision === undefined ? 6 : parseInt(precision, 10);
+            text = kind === 'f' ? number.toFixed(digits) : number.toExponential(digits);
+            if (kind !== 'f') text = text.replace(/e([+-])(\d)$/, 'e$10$2');
+            if (kind === 'E') text = text.toUpperCase();
+            if (flags.includes(',') && kind === 'f') {
+              const [whole_, fraction] = text.split('.');
+              text = grouped(whole_) + (fraction === undefined ? '' : `.${fraction}`);
+            }
+            if (number >= 0 && flags.includes('+')) text = `+${text}`;
+            break;
+          }
+          case 'c':
+            text = typeof value === 'number' ? String.fromCodePoint(value) : K.str(value);
+            break;
+          case 'b':
+          case 'B':
+            text = String(value !== null && value !== undefined && value !== false);
+            if (kind === 'B') text = text.toUpperCase();
+            break;
+          default:
+            text = K.str(value);
+            if (precision !== undefined) text = text.slice(0, parseInt(precision, 10));
+            if (kind === 'S') text = text.toUpperCase();
+        }
+        const size = width === undefined ? 0 : parseInt(width, 10);
+        if (text.length >= size) return text;
+        if (flags.includes('-')) return text.padEnd(size);
+        if (numeric && flags.includes('0')) {
+          const sign = /^[-+ ]/.test(text) ? text[0] : '';
+          return sign + text.slice(sign.length).padStart(size - sign.length, '0');
+        }
+        return text.padStart(size);
+      },
+    );
   };
 
   K.joinToString = (

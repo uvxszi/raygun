@@ -441,7 +441,10 @@ impl ImportService {
             .filter(|(matched, added)| **added && matched.pending)
             .map(|(matched, _)| matched.song)
             .collect();
-        let _ = raygun_db::collections::mark_unavailable(&db, &missing, now_ms()).await;
+        // Nothing is marked while Offline Mode is on: no source was asked.
+        if !raygun_net::network_mode::offline() {
+            let _ = raygun_db::collections::mark_unavailable(&db, &missing, now_ms()).await;
+        }
         if !pending.is_empty() {
             let app = self.app.clone();
             let id = id.clone();
@@ -467,7 +470,7 @@ impl ImportService {
                         let _ =
                             raygun_db::collections::set_track_source(db, &key, &found, false).await;
                         import.keep_matches(&[&matched]).await;
-                    } else {
+                    } else if !raygun_net::network_mode::offline() {
                         let _ =
                             raygun_db::collections::mark_unavailable(db, &[key], now_ms()).await;
                     }

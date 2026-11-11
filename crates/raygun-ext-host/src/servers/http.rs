@@ -90,6 +90,24 @@ impl Http {
         limit: usize,
     ) -> Result<Answer, Failure> {
         let host = self.host.clone();
+        // Offline Mode: a server, even one on the local network, isn't asked.
+        if raygun_net::network_mode::offline()
+            && !raygun_net::network_mode::is_this_device(&self.host)
+        {
+            let detail = format!(
+                "{host} wasn't asked: {}",
+                raygun_net::network_mode::OFFLINE_MESSAGE
+            );
+            return Err(Failure {
+                message: detail.clone(),
+                trouble: Some(Trouble {
+                    kind: IssueKind::OfflineMode,
+                    detail,
+                }),
+                answered: false,
+                checked: None,
+            });
+        }
         let exchange = async move {
             let mut response = request
                 .send()
