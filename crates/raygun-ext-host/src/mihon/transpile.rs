@@ -606,12 +606,17 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                         }
                     }
                     // A class's own extensions (`private fun Float.formatNumber()`) are the
-                    // source's (`transpile::class_definition`).
+                    // source's (`transpile::class_definition`), and the class's own, called with
+                    // the instance from its code.
                     if let Member::Fun(fun) = nested
                         && fun.receiver.is_some()
                         && fun.body.is_some()
                     {
                         cx.extensions.insert(fun.name.clone());
+                        cx.member_extensions
+                            .entry(inner.name.clone())
+                            .or_default()
+                            .insert(fun.name.clone());
                     }
                 }
                 // Its constructor's properties too (`GenreRoute::name`).
@@ -1265,6 +1270,9 @@ fn class_definition(
         ));
     }
     let mut inits = 0;
+    // The same extensions as the class's own, with the instance (`KT.mext`), by name: each
+    // overload's receiver type and function.
+    let mut member_extensions: Vec<(String, Vec<String>)> = Vec::new();
     for member in &class.members {
         match member {
             Member::Fun(fun) if fun.body.is_some() && fun.receiver.is_some() => {
@@ -1273,15 +1281,27 @@ fn class_definition(
                     .as_ref()
                     .map(|ty| ty.name.as_str())
                     .unwrap_or("");
+                let receiver = receiver.rsplit('.').next().unwrap_or(receiver);
                 let function = writer
                     .function(fun)
                     .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?;
                 extensions.push(format!(
                     "self.extension({}, {function}, {}, {});",
                     quote(&fun.name),
-                    quote(receiver.rsplit('.').next().unwrap_or(receiver)),
+                    quote(receiver),
                     shape(fun, &class.type_params)
                 ));
+                let with_instance = writer
+                    .member_extension(fun, &class.name)
+                    .map_err(|reason| format!("{}.{}: {reason}", class.name, fun.name))?;
+                let overload = format!("[{}, {with_instance}]", quote(receiver));
+                match member_extensions
+                    .iter_mut()
+                    .find(|(name, _)| *name == fun.name)
+                {
+                    Some((_, list)) => list.push(overload),
+                    None => member_extensions.push((fun.name.clone(), vec![overload])),
+                }
             }
             Member::Fun(fun) if fun.body.is_some() => {
                 let mut method = fun.clone();
@@ -1415,7 +1435,7 @@ fn class_definition(
         statics.push(format!("{}: {function}", quote(&fun.name)));
     }
     Ok(format!(
-        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, serialNames: {serial_names}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], delegate: {delegate}, superArgs: {super_args}, entries: [{entries}], entryArgs: {{{entry_args}}}, members: {{{methods}}}, statics: {{{statics}}} }});",
+        "{extensions}D.{name} = KT.defineClass({{ name: {quoted}, qualified: {qualified}, serialName: {serial}, kind: {kind:?}, typeParams: [{type_params}], params: [{params}], types: {{{types}}}, serialNames: {serial_names}, proto: {{{proto}}}, defaults: {{{defaults}}}, required: {required}, supers: [{supers}], delegate: {delegate}, superArgs: {super_args}, entries: [{entries}], entryArgs: {{{entry_args}}}, members: {{{methods}}}, statics: {{{statics}}}, memberExtensions: {{{member_extensions}}} }});",
         // Its own properties' JSON names (`@SerialName("md_comic_md_genres") val genres`), which
         // win over another class's property of the same name.
         serial_names = serde_json::to_string(
@@ -1446,6 +1466,11 @@ fn class_definition(
                 .unwrap_or(&class.name)
         ),
         statics = statics.join(", "),
+        member_extensions = member_extensions
+            .iter()
+            .map(|(name, overloads)| format!("{}: [{}]", quote(name), overloads.join(", ")))
+            .collect::<Vec<_>>()
+            .join(", "),
         name = class.name,
         quoted = quote(&class.name),
         required = serde_json::to_string(&required_fields(class)).unwrap_or_else(|_| "[]".into()),

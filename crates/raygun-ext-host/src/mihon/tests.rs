@@ -3555,7 +3555,8 @@ class Wrapper(val data: Results)
 /// OkHttp writes them; a rate limit given by name with the requests it's for (Chikari's), text
 /// helpers' named arguments, a reified function returning its type given the one expected, JSON
 /// with raw control characters in its strings (as kotlinx.serialization reads it), `null`'s
-/// `toBoolean()`, and a part of a text appended (`append(text, start, end)`, LanorTrad's).
+/// `toBoolean()`, a part of a text appended (`append(text, start, end)`, LanorTrad's), and a
+/// class's own extension function reaching its instance (NoxManga's signer).
 #[tokio::test]
 async fn converted_code_reads_indexes_companions_and_segments() {
     let library = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
@@ -3585,6 +3586,17 @@ class Unscrambler(private val seed: Int) {
         val picked = B2y.V_CGH[seed % B2y.V_CGH.size][2]
         return "$count $picked ${B2y().first(1)}"
     }
+}
+
+class Signer(private val base: () -> String) {
+    private var made: String? = null
+
+    private fun String.signed(): String {
+        made = base() + this
+        return made!!
+    }
+
+    fun sign(text: String): String = text.signed() + "|" + made
 }
 
 class Counter {
@@ -3661,6 +3673,7 @@ class Counter {
             Unscrambler(3).sizes(),
             address,
             Counter().report(),
+            Signer { "B" }.sign("/x"),
             item("""{"data":{"name":"x"}}""").label(),
             item("{\"data\":{\"name\":\"a\nb\"}}").label().replace("\n", "|") + " " + maybeTrue.toBoolean(),
         )
@@ -3717,6 +3730,7 @@ class Counter {
             "6 15 10",
             "https://pages.example/full-list/o:popular~t:MANGA,MANHWA/a%20b%2Fc",
             "1 1 2 2 2",
+            "B/x|B/x",
             "item x",
             "item a|b false",
         ]

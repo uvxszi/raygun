@@ -453,6 +453,16 @@
       if (types) pendingTypes = null;
     }
   };
+  /// A class's own extension function called from its code (`chain.fetchSigner(request)` in an
+  /// interceptor): with the instance, whose members it reads past its receiver's; the source's
+  /// extension of that name when the instance has none.
+  KT.mext = (source, instance, name, receiver, args) => {
+    const overloads = instance && instance.__mext && instance.__mext[name];
+    if (!overloads || !overloads.length) return source.ext(name, receiver, args);
+    const fitting =
+      overloads.find(([type]) => type && receiver != null && KT.is(receiver, type)) ?? overloads[0];
+    return enter((...rest) => fitting[1](instance, ...rest), args, receiver);
+  };
   /// Arguments with a trailing lambda added, keeping the types they carry.
   const withLambda = (args, lambda) =>
     lambda
@@ -10823,6 +10833,14 @@
         definition.name,
         ...definition.supers.map((name) => name.split('<')[0].split('.').pop()),
       ];
+      // The class's own extension functions, called with the instance (`KT.mext`).
+      if (definition.memberExtensions && Object.keys(definition.memberExtensions).length)
+        Object.defineProperty(object, '__mext', {
+          value: definition.memberExtensions,
+          enumerable: false,
+          writable: true,
+          configurable: true,
+        });
       object.__fields = definition.params;
       for (const name of definition.params) {
         let value = fields[name];
@@ -10924,6 +10942,19 @@
         }
         for (const name of inherited.__classes)
           if (!object.__classes.includes(name)) object.__classes.push(name);
+        // The parent's own extension functions too, the child's first.
+        if (inherited.__mext) {
+          const own = object.__mext ?? {};
+          const merged = { ...inherited.__mext };
+          for (const [name, overloads] of Object.entries(own))
+            merged[name] = [...overloads, ...(merged[name] ?? [])];
+          Object.defineProperty(object, '__mext', {
+            value: merged,
+            enumerable: false,
+            writable: true,
+            configurable: true,
+          });
+        }
       }
       // Fields in the order they're declared, once the instance has its functions and its
       // parent's (whose constructor runs first, as in Kotlin), and its `init` blocks among them.

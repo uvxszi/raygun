@@ -39,6 +39,10 @@ pub struct Context {
     pub reified: HashMap<String, usize>,
     /// Those of them returning their first reified type (`fun <reified T> Response.data(): T`).
     pub reified_returns: HashSet<String>,
+    /// Extension functions a declared class has for its own code, by class
+    /// (`private fun Interceptor.Chain.fetchSigner()` in an interceptor): called with the
+    /// instance, whose members they read past their receiver's.
+    pub member_extensions: HashMap<String, HashSet<String>>,
     /// The source's own classes (`ReadRealm`, its theme's), whose companions' values are its
     /// constants (`ReadRealm.IMAGE_URL`).
     pub source_classes: HashSet<String>,
@@ -1131,6 +1135,40 @@ impl<'a> Gen<'a> {
     }
 
     // ---- Functions ----
+
+    /// A declared class's own extension function: `async ($$outer, $receiver, …) => { … }`, its
+    /// receiver's members first, then the instance's (`baseUrl()` its constructor's function,
+    /// `signer = it` its field), as Kotlin's two implicit receivers.
+    pub fn member_extension(&mut self, fun: &FunDecl, class: &str) -> Result<String, String> {
+        let depth = self.receivers.len();
+        self.push_receiver("$$outer", [Some(class)]);
+        let result = self.function(fun);
+        self.receivers.truncate(depth);
+        self.receiver_labels.truncate(depth);
+        let code = result?;
+        let rest = code
+            .strip_prefix("async (")
+            .ok_or_else(|| format!("{}: not a function", fun.name))?;
+        Ok(format!("async ($$outer, {rest}"))
+    }
+
+    /// The instance whose class has `name` as its own extension, among the implicit receivers
+    /// (a member's `$this`, a member extension's `$$outer`), innermost first.
+    fn member_extension_dispatch(&self, name: &str) -> Option<String> {
+        self.receivers
+            .iter()
+            .zip(&self.receiver_labels)
+            .rev()
+            .find(|(_, labels)| {
+                labels.iter().any(|label| {
+                    self.cx
+                        .member_extensions
+                        .get(label)
+                        .is_some_and(|names| names.contains(name))
+                })
+            })
+            .map(|(receiver, _)| receiver.clone())
+    }
 
     /// A function's JavaScript: `async ($a, $b = 2) => { … }`; a receiver comes first as `$this`.
     pub fn function(&mut self, fun: &FunDecl) -> Result<String, String> {
@@ -3096,17 +3134,28 @@ impl<'a> Gen<'a> {
                     .transpose()?;
                 let mut call_args = args;
                 let lambda_arg = lambda.unwrap_or_else(|| "null".to_owned());
+                // A class's own extension, called from its code: with the instance.
+                let dispatch = own_extension
+                    .then(|| self.member_extension_dispatch(name))
+                    .flatten();
                 let call = |receiver: &str| {
                     if own_extension {
                         let mut all = call_args.clone();
                         if lambda_arg != "null" {
                             all.push(lambda_arg.clone());
                         }
-                        format!(
-                            "self.ext({}, {receiver}, {})",
-                            quote(name),
-                            typed_args(&all, passed_types.as_deref())
-                        )
+                        match &dispatch {
+                            Some(dispatch) => format!(
+                                "KT.mext(self, {dispatch}, {}, {receiver}, {})",
+                                quote(name),
+                                typed_args(&all, passed_types.as_deref())
+                            ),
+                            None => format!(
+                                "self.ext({}, {receiver}, {})",
+                                quote(name),
+                                typed_args(&all, passed_types.as_deref())
+                            ),
+                        }
                     } else {
                         format!(
                             "KT.m({receiver}, {}, [{}], {}, {lambda_arg}, {type_arg})",
