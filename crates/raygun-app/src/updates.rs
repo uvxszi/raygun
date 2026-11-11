@@ -32,6 +32,8 @@ const MAX_INSTALLER_BYTES: u64 = 600 << 20;
 /// A failed background check tries again after this long.
 const RETRY_EVERY: Duration = Duration::from_secs(60 * 60);
 const LAST_CHECK_KEY: &str = "updates.lastCheck";
+/// The latest version a notification was posted for, so each is announced once.
+const ANNOUNCED_KEY: &str = "updates.announced";
 /// The last version whose "What's new" was shown (`local_meta`).
 const NOTES_SHOWN_KEY: &str = "updates.notesShown";
 const TAG_API: &str = "https://api.github.com/repos/uvxszi/raygun/releases/tags/";
@@ -173,7 +175,11 @@ impl UpdateService {
                     update.checked_at = Some(crate::catalog::now_ms() as f64);
                     update.state = UpdateState::Idle;
                 });
-                Ok(self.current())
+                let found = self.current();
+                if quiet && found.available {
+                    self.announce(&found).await;
+                }
+                Ok(found)
             }
             Err(error) if quiet => {
                 self.change(|update| {
@@ -193,6 +199,34 @@ impl UpdateService {
     }
 
     /// When a check last answered; also how a later start knows an earlier version ran here.
+    /// Posts a notification for a newer version a background check found, once per version
+    /// (unless switched off in Settings → Notifications).
+    async fn announce(&self, found: &AppUpdate) {
+        let Some(latest) = found.latest.as_deref() else {
+            return;
+        };
+        let db = self.db();
+        let told = raygun_db::local_value(&db, ANNOUNCED_KEY)
+            .await
+            .ok()
+            .flatten();
+        if told.as_deref() == Some(latest) {
+            return;
+        }
+        let wanted = crate::settings::load(&db)
+            .await
+            .map(|settings| settings.notifications.app_updates)
+            .unwrap_or(true);
+        if wanted {
+            crate::notifications::show_notice(
+                &self.app,
+                crate::notifications::news::app_update_notice(latest),
+            )
+            .await;
+        }
+        let _ = raygun_db::set_local_value(&db, ANNOUNCED_KEY, latest).await;
+    }
+
     async fn remember_check(&self) {
         let now = crate::catalog::now_ms();
         let _ = raygun_db::set_local_value(&self.db(), LAST_CHECK_KEY, &now.to_string()).await;

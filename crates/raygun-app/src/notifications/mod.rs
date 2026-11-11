@@ -12,6 +12,7 @@
 //! Tapping a notification opens a screen: the route waits here until the UI takes it.
 
 mod model;
+pub mod news;
 #[cfg(test)]
 mod tests;
 
@@ -59,8 +60,8 @@ pub struct NoticeChannel {
     pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
-    /// Whether its notices may make a sound, vibrate and pop up. Only news of releases do (new
-    /// songs, chapters, episodes, Raygun's own update); everything else is silent. Android keeps a
+    /// Whether its notices may make a sound, vibrate and pop up. Only news does (new releases,
+    /// chapters and episodes, Raygun's own update); everything else is silent. Android keeps a
     /// channel's importance as first made, so a channel that goes quiet takes a new id and its old
     /// one is listed in [`RETIRED_CHANNELS`].
     pub alerts: bool,
@@ -74,6 +75,22 @@ pub const RELEASES: NoticeChannel = NoticeChannel {
     alerts: true,
 };
 
+/// New chapters and episodes found by library updates and feed refreshes, one per title.
+pub const LIBRARY_UPDATES: NoticeChannel = NoticeChannel {
+    id: "raygun.library.updates",
+    name: "Library updates",
+    description: "New chapters and episodes in your library",
+    alerts: true,
+};
+
+/// A newer Raygun, found by a background check.
+pub const APP_UPDATES: NoticeChannel = NoticeChannel {
+    id: "raygun.app.updates",
+    name: "Raygun updates",
+    description: "A new version of Raygun",
+    alerts: true,
+};
+
 /// What waits for Raygun to be open: a song in YouTube's player paused, songs to record.
 pub const PLAYBACK: NoticeChannel = NoticeChannel {
     id: "raygun.playback.quiet",
@@ -84,7 +101,7 @@ pub const PLAYBACK: NoticeChannel = NoticeChannel {
 
 /// Every channel [`Notice`]s use.
 #[cfg_attr(not(test), allow(dead_code))]
-pub const CHANNELS: [&NoticeChannel; 2] = [&RELEASES, &PLAYBACK];
+pub const CHANNELS: [&NoticeChannel; 4] = [&RELEASES, &LIBRARY_UPDATES, &APP_UPDATES, &PLAYBACK];
 
 /// Channel ids no longer used (made with a sound before they went quiet): the plugin deletes them.
 pub const RETIRED_CHANNELS: [&str; 1] = ["raygun.playback"];

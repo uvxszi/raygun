@@ -243,6 +243,16 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
   ...on('browse', 'discover.charts')('discover.region', 'discover.tagSongsTitle'),
   ...on('browse', 'websites.title')('websites.blockAds', 'websites.blockPopups', 'websites.list'),
 
+  ...on('notifications')(
+    'settings.notifications.artistReleases',
+    'settings.notifications.comics',
+    'settings.notifications.books',
+    'settings.notifications.videos',
+    'settings.notifications.podcasts',
+    'settings.notifications.audiobooks',
+    'settings.notifications.appUpdates',
+  ),
+
   ...on('privacy')(
     'settings.privacy.history',
     'settings.privacy.recentlyPlayed',

@@ -13,7 +13,7 @@ import { Sheet } from '../shell/Sheet';
 import type { Medium } from './medium';
 
 /** Library titles Rust leaves out while 18+ content is off (`library_hidden`); none while on. */
-const useHiddenEntries =(medium: Medium) => {
+const useHiddenEntries = (medium: Medium) => {
   const showNsfw = useSettings().data?.showNsfw;
   return useQuery({
     queryKey: [medium, 'library', 'hidden', showNsfw],

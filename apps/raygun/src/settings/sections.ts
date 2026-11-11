@@ -1,4 +1,5 @@
 import {
+  Bell,
   BookOpen,
   Compass,
   Database,
@@ -28,6 +29,7 @@ import { BrowseSettings } from './screens/BrowseSettings';
 import { DataSettings } from './screens/DataSettings';
 import { LibrarySettings } from './screens/LibrarySettings';
 import { MusicPlayerSettings } from './screens/MusicPlayerSettings';
+import { NotificationSettings } from './screens/NotificationSettings';
 import { PrivacySettings } from './screens/PrivacySettings';
 import { QuickAccessSettings } from './screens/QuickAccessSettings';
 import { ReaderSettings } from './screens/ReaderSettings';
@@ -183,6 +185,12 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'discovery',
       'websites',
     ),
+  },
+  {
+    id: 'notifications',
+    icon: Bell,
+    screen: NotificationSettings,
+    reset: resetKeys('notifications'),
   },
   { id: 'privacy', icon: Shield, screen: PrivacySettings, reset: resetKeys('privacy') },
   // What Android lets Raygun do; nothing here is a setting to reset.

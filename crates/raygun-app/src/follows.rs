@@ -329,7 +329,11 @@ impl ArtistFollows {
         if let Ok(json) = serde_json::to_string(&news) {
             let _ = raygun_db::set_local_value(&self.db(), NEWS, &json).await;
         }
-        for item in &fresh {
+        let wanted = crate::settings::load(&self.db())
+            .await
+            .map(|settings| settings.notifications.artist_releases)
+            .unwrap_or(true);
+        for item in fresh.iter().filter(|_| wanted) {
             crate::notifications::show_notice(&self.app, release_notice(item)).await;
         }
         let _ = ArtistReleasesEvent.emit(&self.app);
