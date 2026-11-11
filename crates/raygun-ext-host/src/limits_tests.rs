@@ -205,6 +205,45 @@ async fn garbage_that_refers_to_itself_goes_after_the_call() {
 /// What a runtime may still hold after a call that made garbage, once it's collected.
 const COLLECTED: usize = 2 * MIB;
 
+/// Spins for `args.ms` milliseconds without waiting.
+const SPIN: &str = "const end = Date.now() + args.ms; while (Date.now() < end) {} return 'done';";
+
+#[tokio::test]
+async fn converted_code_gets_twice_the_time_without_waiting() {
+    let host = host(Limits {
+        cpu_budget: Duration::from_millis(500),
+        ..small_limits()
+    });
+    load(
+        &host,
+        vec![
+            extension("dev.raygun.spin", false, SPIN),
+            extension("nuclear.spin", true, SPIN),
+        ],
+    )
+    .await;
+    let error = host
+        .call("dev.raygun.spin/p", "run", json!({ "ms": 750 }))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            CallError::Exhausted {
+                what: Exhaustion::Time,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        host.call("nuclear.spin/p", "run", json!({ "ms": 750 }))
+            .await
+            .unwrap(),
+        json!("done")
+    );
+}
+
 #[tokio::test]
 async fn runaway_regular_expressions_and_deep_calls_stop_and_the_lane_goes_on() {
     let host = host(Limits {

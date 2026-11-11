@@ -3782,3 +3782,68 @@ object TupleSerializer : JsonTransformingSerializer<PageDto>(PageDto.serializer(
         ]
     );
 }
+
+/// How long converted code takes over a long loop of string and byte work (Nicomanga's payload
+/// decoding, character by character): `MIHON_LOOP_LENGTH` characters (100 000 by default).
+#[tokio::test]
+#[ignore = "timing, run by hand"]
+async fn converted_loop_speed() {
+    let length: usize = std::env::var("MIHON_LOOP_LENGTH")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(100_000);
+    let body = r##"override val supportsLatest = true
+
+    private fun decode(encoded: String): String {
+        val key = KEY
+        val bytes = ByteArray(encoded.length)
+        for (i in encoded.indices) {
+            bytes[i] = (((encoded.codePointAt(i) - 19968) xor key[i % key.length].code) and 0xFF).toByte()
+        }
+        return String(bytes, Charsets.UTF_8)
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val encoded = buildString { repeat(LENGTH) { append((19968 + (it % 64)).toChar()) } }
+        val started = System.currentTimeMillis()
+        val decoded = decode(encoded)
+        val took = System.currentTimeMillis() - started
+        return MangasPage(listOf(SManga.create().apply { title = "${decoded.length} in $took ms"; url = "/x" }), false)
+    }
+
+    companion object {
+        private const val KEY = "NicoMangaX2"
+        private const val LENGTH = 100000
+    }"##
+        .replace("100000", &length.to_string());
+    let source = STANDALONE_SOURCE
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace("override val supportsLatest = false", &body);
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await;
+    match listing {
+        Ok(listing) => println!("decoded {}", listing.items[0].title),
+        Err(error) => println!("failed: {error}"),
+    }
+}

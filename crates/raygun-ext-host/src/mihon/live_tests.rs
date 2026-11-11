@@ -457,8 +457,18 @@ async fn loaded(extension: &StoreExtension, converted: &Converted) -> Option<Ext
         .iter()
         .map(|(name, text)| (name.as_str(), text.as_str()))
         .collect();
+    // `MIHON_CPU_BUDGET=<seconds>`: how long a script may run without waiting, to see how long a
+    // slow source's work takes.
+    let mut limits = crate::js::Limits::default();
+    if let Some(seconds) = std::env::var("MIHON_CPU_BUDGET")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        limits.cpu_budget = std::time::Duration::from_secs(seconds);
+    }
     let host = ExtensionHost::start(HostConfig {
         lanes: 1,
+        limits,
         ..HostConfig::default()
     })
     .ok()?;
@@ -557,7 +567,16 @@ async fn sample_one(
     }
     let mut problem = String::new();
     for chapter in tried {
-        match tokio::time::timeout(wait, host.manga_pages(&provider, &chapter.id)).await {
+        let asked = std::time::Instant::now();
+        let answer = tokio::time::timeout(wait, host.manga_pages(&provider, &chapter.id)).await;
+        if full {
+            println!(
+                "pages of {} answered in {} ms",
+                extension.name,
+                asked.elapsed().as_millis()
+            );
+        }
+        match answer {
             Ok(Ok(pages)) if !pages.is_empty() => {
                 stages[3] = true;
                 line.push_str(&format!(
