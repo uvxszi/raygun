@@ -411,6 +411,60 @@ survey kept (`MIHON_SURVEY_DUMP` with `MIHON_SURVEY_DUMP_ALL=1`) and lists what 
 of the runtime's objects that they lack (`Integer.rotateLeft`, `Parser.xmlParser` once), which
 loading a conversion doesn't show.
 
+## Web views (design)
+
+Not built yet. What sources ask of a web view, and how a converted source could run that part
+through a hidden one of Raygun's, behind the same kind of window machinery as browser checks
+(`raygun_ext_host::browser_check`).
+
+**What sources ask for.** 38 conversions call Keiyoushi's `runWebView(timeout) { … }`
+(`keiyoushi/utils/WebView.kt`) on some path, which fails today naming the site ("reads … in a web
+view, which Raygun doesn't have"); 6 of the 13 refusals drive one too (the pam theme's three, Temple
+Scan, ProComic, Comix). The DSL loads a page (`loadUrl`, `loadData`) with settings (`userAgent`,
+`blockImages`, `javaScriptEnabled`, `domStorageEnabled`) and reads what the page's scripts make:
+`evaluateJs`, `poll`, `onPageStarted`/`onPageFinished`, `injectAtDocumentStart`,
+`webMessageBridge` (the page posts messages to a named object for the given origins),
+`getLocalStorage`; the run ends with `resolve`/`reject` or its timeout. About 20 use only these;
+17 also answer the page's requests themselves (`interceptRequest`: block, replace, or hold a
+request; `proxyRequest`: send it through the source's client). Three more (Japscan, Scan Manga,
+MangaLivre) open a visible challenge or verification for the person: that is the manual
+browser check, not a hidden view.
+
+**Runtime.** The converter emits the `runWebView` lambda as a call on a scope object (as for
+`apply`), and `kotlin.js` implements Keiyoushi's scope over a native `webView(op, args)`: commands
+(`open` with the settings and the source's User-Agent, `load`, `loadData`, `evaluate`,
+`injectAtStart`, `bridge`, `close`) and, in order, events (page started or finished, an error, a
+bridge message, a request to answer) that wake the scope's hooks on the runtime's lane. `poll` and
+the timeout are the runtime's timers; a hook that throws rejects; any end closes the view. The
+host gets the views from the app as a trait object in `HostConfig` (as the cookie jar and browser
+checks are wired); without one the call keeps today's message.
+
+**Platforms.** Each view is apart from Raygun: its own browser data, no bridge to Raygun's pages
+or IPC but the message names the source asked for, limited to the origins it named.
+
+- Android: a WebView in its own process (as `BrowserCheckActivity` in `:check`), not shown,
+  laid out off screen at a phone's size (pages that measure themselves, ProComic's
+  `layOutHidden`); bridges through androidx's `addWebMessageListener`, document-start scripts
+  through `addDocumentStartJavaScript`; commands and events through a bound service's Messenger.
+  `shouldInterceptRequest` runs on WebView's own threads, so an intercepted request waits there
+  (with the run's deadline) for the source's handler, which runs in the runtime.
+- Desktop: a hidden Tauri webview with its own profile (`web/views`, beside the websites' and
+  checks') and no capabilities; scripts by initialization scripts and `eval`; results and bridge
+  messages through a custom scheme per view, since the window has no Tauri IPC; interception
+  through WebView2's `WebResourceRequested` on Windows (as the websites' blocker), not offered
+  elsewhere (sources that need it fail as today).
+
+**Limits.** One view per extension at a time and a few per host; the source's timeout, at most
+60 s; a view that meets a browser check (Turnstile, a captcha page) rejects as one, so the manual
+flow applies, and Raygun never solves it; the view's cookies reach the extension's cookie jar only
+as the source reads them (`CookieManager`), as Mihon's do.
+
+**Order.** (1) The runtime's scope, the `webView` native and its trait, the converter's lambda,
+tested against a scripted fake view (fixture pages, canned script answers); (2) the Android host
+without interception, checked on the emulator with the sources that need none (Cubari, Jago
+Dibuja, MangaUp, NamiComi, Inkr, BookWalker, Zebrack…); (3) interception, Android first; (4) the
+desktop host. Steps 2–4 need device checks.
+
 ## Running source code in a container
 
 A second tier for extensions that can't be converted: their own compiled code, run apart from
