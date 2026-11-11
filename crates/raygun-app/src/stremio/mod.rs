@@ -576,7 +576,14 @@ impl StremioService {
         let asks = rows
             .into_iter()
             .map(|(addon, manifest, catalog)| {
-                self.row(addon, manifest, catalog, Vec::new(), REQUEST_TIMEOUT)
+                self.row(
+                    addon,
+                    manifest,
+                    catalog,
+                    Vec::new(),
+                    REQUEST_TIMEOUT,
+                    &active,
+                )
             })
             .collect::<Vec<_>>();
         Ok(join_all(asks).await)
@@ -612,7 +619,7 @@ impl StremioService {
             .collect();
         let extras = catalog.request_extras(&values, skip);
         let row = self
-            .row(addon, manifest, catalog, extras, REQUEST_TIMEOUT)
+            .row(addon, manifest, catalog, extras, REQUEST_TIMEOUT, &loaded)
             .await;
         match row.error {
             Some(error) => Err(error),
@@ -620,7 +627,9 @@ impl StremioService {
         }
     }
 
-    /// One catalog's results for `query`. A search for another query stops this one.
+    /// One catalog's results for `query`, as Search's filters keep them: an addon they leave
+    /// out ("No 18+", "18+ only") isn't asked, and "Playable only" keeps the titles an addon gives
+    /// streams for. A search for another query stops this one.
     pub async fn search_catalog(
         &self,
         addon_id: &str,
@@ -635,10 +644,8 @@ impl StremioService {
             .find(|addon| addon.row.id == addon_id)
             .ok_or_else(|| "This addon was removed or turned off".to_owned())?;
         let manifest = addon.manifest().ok_or("This addon has no manifest")?;
-        // Search's "No 18+": an adult addon isn't asked.
-        if self.is_adult(&addon.row.id, manifest)
-            && crate::search_filter::current(&self.app).await.no_adult
-        {
+        let filter = crate::search_filter::current(&self.app).await;
+        if !crate::search_filter::asks_addon(filter, self.is_adult(&addon.row.id, manifest)) {
             return Ok(StremioCatalogRow {
                 addon_id: addon_id.to_owned(),
                 addon_name: manifest.name.clone(),
@@ -658,24 +665,33 @@ impl StremioService {
                 catalog.kind == kind && catalog.id == catalog_id && catalog.searchable()
             })
             .ok_or_else(|| "The addon no longer searches this catalog".to_owned())?;
-        self.searching(&query, self.search_row(addon, manifest, catalog, &query))
+        let mut row = self
+            .searching(
+                &query,
+                self.search_row(addon, manifest, catalog, &query, &active),
+            )
             .await
-            .ok_or_else(|| "A newer search replaced this one".to_owned())
+            .ok_or_else(|| "A newer search replaced this one".to_owned())?;
+        crate::search_filter::keep_items(filter, &mut row.items);
+        Ok(row)
     }
 
-    /// Every catalog that searches, asked for `query` a few at a time; rows without results are
-    /// left out. A newer search stops this one.
+    /// Every catalog that searches, asked for `query` a few at a time, as Search's filters keep
+    /// them ([`Self::search_catalog`]); rows without results are left out. A newer search stops
+    /// this one.
     pub async fn search(&self, query: &str) -> Result<Vec<StremioCatalogRow>, String> {
         let query = query.trim().to_owned();
         if query.is_empty() {
             return Ok(Vec::new());
         }
         let active = self.active().await?;
-        let no_adult = crate::search_filter::current(&self.app).await.no_adult;
+        let filter = crate::search_filter::current(&self.app).await;
         let rows = active
             .iter()
             .filter_map(|addon| Some((addon, addon.manifest()?)))
-            .filter(|(addon, manifest)| !(no_adult && self.is_adult(&addon.row.id, manifest)))
+            .filter(|(addon, manifest)| {
+                crate::search_filter::asks_addon(filter, self.is_adult(&addon.row.id, manifest))
+            })
             .flat_map(|(addon, manifest)| {
                 manifest
                     .catalogs
@@ -688,7 +704,9 @@ impl StremioService {
             .collect::<Vec<_>>();
         let asks = rows
             .into_iter()
-            .map(|(addon, manifest, catalog)| self.search_row(addon, manifest, catalog, &query))
+            .map(|(addon, manifest, catalog)| {
+                self.search_row(addon, manifest, catalog, &query, &active)
+            })
             .collect::<Vec<_>>();
         let found = self
             .searching(&query, join_all(asks))
@@ -696,6 +714,10 @@ impl StremioService {
             .ok_or_else(|| "A newer search replaced this one".to_owned())?;
         Ok(found
             .into_iter()
+            .map(|mut row| {
+                crate::search_filter::keep_items(filter, &mut row.items);
+                row
+            })
             .filter(|row| !row.items.is_empty())
             .collect())
     }
@@ -706,9 +728,10 @@ impl StremioService {
         manifest: &Manifest,
         catalog: &Catalog,
         query: &str,
+        addons: &[Loaded],
     ) -> StremioCatalogRow {
         let extras = vec![("search".to_owned(), query.to_owned())];
-        self.row(addon, manifest, catalog, extras, SEARCH_TIMEOUT)
+        self.row(addon, manifest, catalog, extras, SEARCH_TIMEOUT, addons)
             .await
     }
 
@@ -739,6 +762,8 @@ impl StremioService {
         }
     }
 
+    /// A catalog's page as a row; each title says whether one of `addons` (those turned on count)
+    /// gives streams for it.
     async fn row(
         &self,
         addon: &Loaded,
@@ -746,6 +771,7 @@ impl StremioService {
         catalog: &Catalog,
         extras: Vec<(String, String)>,
         timeout: Duration,
+        addons: &[Loaded],
     ) -> StremioCatalogRow {
         let url = protocol::resource_url(
             &addon.row.transport_url,
@@ -761,6 +787,11 @@ impl StremioService {
             Ok(value) => (protocol::parse_metas(&value, &catalog.kind), None),
             Err(error) => (Vec::new(), Some(error.message)),
         };
+        let streams: Vec<&Manifest> = addons
+            .iter()
+            .filter(|loaded| loaded.row.enabled)
+            .filter_map(Loaded::manifest)
+            .collect();
         StremioCatalogRow {
             addon_id: addon.row.id.clone(),
             addon_name: manifest.name.clone(),
@@ -774,7 +805,11 @@ impl StremioService {
                 .unwrap_or_default(),
             items: items
                 .into_iter()
-                .map(|preview| self.listed(item(preview)))
+                .map(|preview| {
+                    let mut listed = self.listed(item(preview));
+                    listed.playable = plays(&streams, &listed.kind, &listed.id);
+                    listed
+                })
                 .collect(),
             error,
         }
@@ -2189,7 +2224,16 @@ fn item(preview: MetaPreview) -> StremioItem {
         poster_shape: preview.poster_shape,
         release_info: preview.release_info.as_deref().map(release_label),
         rating: preview.rating,
+        playable: false,
     }
+}
+
+/// Whether one of the addons' manifests gives streams for a title of `kind` with this `id`, as
+/// playing it asks (a series' episodes carry its id first: `tt0903747:1:2`). Nothing is fetched.
+fn plays(addons: &[&Manifest], kind: &str, id: &str) -> bool {
+    addons
+        .iter()
+        .any(|manifest| manifest.serves("stream", kind, id))
 }
 
 fn stream_view(stream: protocol::Stream) -> StremioStream {
@@ -2388,6 +2432,37 @@ mod tests {
                 ("subtitles".into(), None, 1),
             ]
         );
+    }
+
+    #[test]
+    fn titles_play_when_an_addon_gives_streams_for_their_type_and_id() {
+        let movies_and_series = protocol::parse_manifest(&serde_json::json!({
+            "id": "streams", "name": "Streams", "types": ["movie", "series"],
+            "idPrefixes": ["tt", "kitsu"], "resources": ["stream"], "catalogs": []
+        }))
+        .unwrap();
+        let channels = protocol::parse_manifest(&serde_json::json!({
+            "id": "channels", "name": "Channels", "types": ["channel"],
+            "resources": [{ "name": "stream", "types": ["channel"], "idPrefixes": ["yt_id:"] }],
+            "catalogs": []
+        }))
+        .unwrap();
+        let details_only = protocol::parse_manifest(&serde_json::json!({
+            "id": "meta", "name": "Meta", "types": ["movie", "series"],
+            "resources": ["meta"], "catalogs": []
+        }))
+        .unwrap();
+
+        // An addon with details only plays nothing.
+        assert!(!plays(&[&details_only], "movie", "tt0111161"));
+        let addons = [&details_only, &movies_and_series, &channels];
+        assert!(plays(&addons, "movie", "tt0111161"));
+        assert!(plays(&addons, "series", "kitsu:1"));
+        assert!(plays(&addons, "channel", "yt_id:UC123"));
+        // The wrong type, or an id outside the prefixes, doesn't.
+        assert!(!plays(&addons, "tv", "tt0111161"));
+        assert!(!plays(&addons, "movie", "mal:5114"));
+        assert!(!plays(&[], "movie", "tt0111161"));
     }
 
     #[test]

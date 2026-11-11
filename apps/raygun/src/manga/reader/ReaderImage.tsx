@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { PageTextOverlay } from '../../readerAi/PageTextOverlay';
 import { usePageAi } from '../../readerAi/useReaderAi';
+import { useSteadyPicture } from './steadyPicture';
 
 type ReaderImageProps = {
   url: string;
@@ -26,7 +27,9 @@ const withAttempt = (url: string, attempt: number) =>
  * One reader page: a spinner while it loads, and when it fails a note and a retry instead of a
  * broken picture. Decoding happens off the main thread. The parent is `relative`, so the status
  * sits over the page's place. With the reader's AI layers on, the page shows as it came until
- * the layers drew it again, and a translation's words lie over it.
+ * the layers drew it again, and a translation's words lie over it. A picture the layers drew (or
+ * the page as it came, once they're off) replaces the one on screen only once it's decoded, on
+ * the same element, so the page never goes blank or changes size meanwhile.
  */
 const ReaderImageView: FC<ReaderImageProps> = ({
   url,
@@ -42,11 +45,10 @@ const ReaderImageView: FC<ReaderImageProps> = ({
   const [state, setState] = useState<'loading' | 'loaded' | 'failed'>('loading');
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const ai = usePageAi(url);
-  const src = ai.src ?? withAttempt(url, attempt);
+  const src = useSteadyPicture(url, ai.src ?? withAttempt(url, attempt), state === 'loaded');
   return (
     <>
       <img
-        key={src}
         ref={(element) => {
           setImage(element);
           imageRef?.(element);

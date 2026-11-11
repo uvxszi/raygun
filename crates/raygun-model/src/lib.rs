@@ -238,7 +238,7 @@ pub struct Settings {
     /// (`discover`) by default; a hidden choice falls back to the first shown tab.
     #[serde(default = "browse_start_tab")]
     pub browse_start_tab: String,
-    /// Search's own switches: no 18+ sources or titles, no explicit songs; both off by default.
+    /// Search's own switches: the "No 18+" pill and each kind's Filters; all off by default.
     pub search_filter: SearchFilterPrefs,
     /// Sources whose search fails or finds nothing are looked through instead: their listings
     /// are matched against the query (on, 20 matches, 5 pages by default).
@@ -700,12 +700,29 @@ pub enum LyricsClearScope {
 
 /// Search's "No 18+" pill, shown only while 18+ content is on (`Settings::show_nsfw`); turning
 /// that on switches the pill on again (`raygun-app::settings::update_many`). Explicit songs follow
-/// `Settings::explicit_music` alone. Older rows' `noExplicit` is ignored.
+/// `Settings::explicit_music` alone. Older rows' `noExplicit` is ignored. The other fields are
+/// what each kind's Filters sheet switches on (`raygun-app::search_filter` applies them).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SearchFilterPrefs {
     /// "No 18+": sources rated for adults aren't asked, and titles marked adult are left out.
     pub no_adult: bool,
+    /// "18+ only" (videos, comics, books): only titles marked adult and those of sources rated
+    /// for adults. Counts only while 18+ content is on; it and `no_adult` turn each other off.
+    pub adult_only: bool,
+    /// Audio's "Explicit only": only songs their source marks explicit. Counts only while
+    /// Explicit music is on (`Settings::explicit_music`).
+    pub explicit_only: bool,
+    /// Audio's "Playable only": only songs that come with a stream of their own (an address, a
+    /// file or a YouTube video), not those a source only describes.
+    pub playable_songs: bool,
+    /// Videos' "Playable only": movies and series from Stremio addons only when an addon that's
+    /// on gives streams for them (`StremioItem::playable`); video sources play their own titles.
+    pub playable_videos: bool,
+    /// Comics' "Not in library": titles already in the library are left out.
+    pub hide_saved_comics: bool,
+    /// Books' "Not in library".
+    pub hide_saved_books: bool,
 }
 
 /// A library title left out of the library while 18+ content is off (`Settings::show_nsfw`):
@@ -4659,6 +4676,10 @@ pub struct SearchProgress {
 pub enum SearchPart {
     Songs {
         result: ProviderSearchResult,
+        /// A search asked without Search's song filters (Find a source), kept apart from
+        /// Search's own answers for the same words.
+        #[serde(default)]
+        unfiltered: bool,
     },
     Artists {
         provider: ProviderInfo,
@@ -7980,6 +8001,10 @@ pub struct StremioItem {
     pub poster_shape: String,
     pub release_info: Option<String>,
     pub rating: Option<String>,
+    /// An addon that's on gives streams for it (its type, and its id among the addon's id
+    /// prefixes), so it can play: Search's "Playable only" keeps these.
+    #[serde(default)]
+    pub playable: bool,
 }
 
 /// One catalog's first page on the Watch home, in search, or a catalog page.

@@ -382,7 +382,21 @@
     },
     "filter": {
       "label": "Leave out",
-      "noAdult": "No 18+"
+      "noAdult": "No 18+",
+      "button": "Filters",
+      "title": "Search filters",
+      "buttonActive_one": "Search filters, {{count}} on",
+      "buttonActive_other": "Search filters, {{count}} on",
+      "adultOnly": "18+ only",
+      "adultOnlyHint": "Only titles marked 18+, and everything from 18+ sources and addons. Turns No 18+ off.",
+      "adultOnlyAllHint": "Videos, comics and books: only titles marked 18+, and everything from 18+ sources and addons. Turns No 18+ off.",
+      "explicitOnly": "Explicit only",
+      "explicitOnlyHint": "Only songs their source marks explicit.",
+      "playable": "Playable only",
+      "playableSongsHint": "Only songs that come with a stream from their source. Songs a source only describes are hidden: Raygun looks for a stream for those when they play, and may find none.",
+      "playableVideosHint": "Movies and series from addons show only when an addon you have gives streams for their kind and ID. Titles from video sources play from their own source and always show.",
+      "hideSaved": "Not in library",
+      "hideSavedHint": "Titles already in your library are hidden."
     },
     "type": {
       "all": "All",

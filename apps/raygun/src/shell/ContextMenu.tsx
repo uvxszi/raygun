@@ -248,7 +248,7 @@ export const ContextMenuHost: FC = () => {
           role="alertdialog"
           aria-label={confirming.confirm}
           className={`flex flex-col gap-3 ${
-            sheet ? 'px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]' : 'max-w-72 p-2'
+            sheet ? 'px-4 pt-2 pb-[calc(1rem+var(--safe-bottom))]' : 'max-w-72 p-2'
           }`}
         >
           <p className={sheet ? 'text-[clamp(1rem,4.3vw,1.125rem)]' : 'text-sm'}>
@@ -280,7 +280,7 @@ export const ContextMenuHost: FC = () => {
             onScroll={() => {
               if (press.current) press.current.moved = true;
             }}
-            className="flex min-h-0 flex-1 touch-pan-y flex-col overflow-y-auto overscroll-contain px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+            className="flex min-h-0 flex-1 touch-pan-y flex-col overflow-y-auto overscroll-contain px-2 pb-[calc(0.75rem+var(--safe-bottom))] [-webkit-overflow-scrolling:touch]"
           >
             {rows.map(({ item, index }) => renderItem(item, index))}
           </div>
@@ -295,7 +295,7 @@ export const ContextMenuHost: FC = () => {
     sheet ? (
       <div
         data-menu-backdrop=""
-        className="motion-fade fixed inset-0 z-[90] flex items-end justify-center bg-black/60"
+        className="motion-fade fixed inset-0 z-[90] flex items-end justify-center bg-black/60 pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)]"
         onPointerDown={(event) => {
           pressedBackdrop.current = event.target === event.currentTarget;
         }}

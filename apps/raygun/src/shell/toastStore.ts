@@ -14,7 +14,7 @@ export type Toast = {
  * The space taken at the bottom by the recording bar, the player bar and the tabs, so the toast
  * sits above them.
  */
-const bottomBars = () => {
+export const bottomBars = () => {
   const tops = ['download-dock', 'mini-player', 'bottom-tabs']
     .map((id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top)
     .filter((top): top is number => top !== undefined && top > 0);

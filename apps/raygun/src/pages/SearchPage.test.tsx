@@ -68,7 +68,7 @@ describe('Search', () => {
     expect(within(group).getAllByTestId('online-track-row')).toHaveLength(2);
     expect(group).toHaveTextContent('Louis Armstrong · Hot Fives');
     expect(bindingsMock.commands.onlineSearch).toHaveBeenCalledTimes(1);
-    expect(bindingsMock.commands.onlineSearch).toHaveBeenCalledWith('armstrong');
+    expect(bindingsMock.commands.onlineSearch).toHaveBeenCalledWith('armstrong', true);
   });
 
   it('plays results from the tapped track, finding streams for those without one', async () => {

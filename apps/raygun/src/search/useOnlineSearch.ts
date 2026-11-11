@@ -5,7 +5,7 @@ import { useMemo } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
 import { rememberPlay } from '../music/playContext';
-import { keepSongs, useSearchFilter } from './searchFilter';
+import { keepSongs, useSearchFilter, withoutSongFilters } from './searchFilter';
 import { SEARCH_KEYS, streamed, useStreamedAnswers } from './searchStream';
 
 /** Results stay fresh for a while, so going back to Search doesn't re-run the query. */
@@ -17,14 +17,15 @@ export type SearchProgressCount = { answered: number; total: number };
 /**
  * Songs for a search from the library and every music source. While the sources are asked,
  * `data` holds those that answered (`progress` says how many of how many), so the first
- * answers show at once.
+ * answers show at once. Search's own filters (Audio's Explicit only and Playable only) narrow
+ * them unless `filtered` is false (Find a source lists every source's answer).
  */
-export const useOnlineSearch = (query: string) => {
+export const useOnlineSearch = (query: string, filtered = true) => {
   const trimmed = query.trim();
-  const key = SEARCH_KEYS.songs(trimmed);
+  const key = filtered ? SEARCH_KEYS.songs(trimmed) : SEARCH_KEYS.allSongs(trimmed);
   const search = useQuery({
     queryKey: key,
-    queryFn: () => streamed(key, () => unwrapResult(commands.onlineSearch(trimmed))),
+    queryFn: () => streamed(key, () => unwrapResult(commands.onlineSearch(trimmed, filtered))),
     enabled: trimmed.length > 0,
     staleTime: RESULTS_STALE_MS,
   });
@@ -37,8 +38,9 @@ export const useOnlineSearch = (query: string) => {
     search.isFetching && parts && parts.total > 0
       ? { answered: parts.answered.length, total: parts.total }
       : undefined;
-  // Search's "No 18+" and "No explicit" cover answers kept from before they were set.
-  const filter = useSearchFilter();
+  // Search's "No 18+", "No explicit" and Filters cover answers kept from before they were set.
+  const searchFilter = useSearchFilter();
+  const filter = filtered ? searchFilter : withoutSongFilters(searchFilter);
   const shown = search.data ?? partial;
   const data = useMemo(() => shown && keepSongs(filter, shown), [shown, filter]);
   return { ...search, data, progress };

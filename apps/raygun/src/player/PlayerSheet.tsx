@@ -80,7 +80,7 @@ import {
 
 /** The sheet's sides keep clear of a phone's cutout and its navigation bar when on its side. */
 const GUTTER =
-  'pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(1.5rem,env(safe-area-inset-right))] lg:pl-[max(2.5rem,env(safe-area-inset-left))] lg:pr-[max(2.5rem,env(safe-area-inset-right))]';
+  'pl-[max(1.5rem,var(--safe-left))] pr-[max(1.5rem,var(--safe-right))] lg:pl-[max(2.5rem,var(--safe-left))] lg:pr-[max(2.5rem,var(--safe-right))]';
 
 /**
  * Full-screen player. Its handle closes it on a tap, or as it's dragged down; so do Back and
@@ -178,7 +178,7 @@ export const PlayerSheet: FC = () => {
           // Below the status bar and the camera's cutout: the handle and the header's buttons
           // start under the top inset, never in it. A layer of its own (`will-change`): moving
           // it is the compositor's work, nothing in it is painted again.
-          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] will-change-transform"
+          className="bg-background fixed inset-x-0 top-[var(--app-bar,0px)] bottom-0 isolate z-50 flex flex-col overflow-hidden pt-[calc(0.75rem+var(--safe-top))] pb-[max(1rem,var(--safe-bottom))] will-change-transform"
         >
           <HoldWhileLeaving drag={drag} />
           {prefs.background && item?.artworkUrl && !isVideo && (

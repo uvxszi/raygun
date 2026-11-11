@@ -19,7 +19,7 @@ import { NoSources } from './NoSources';
 import { MusicResults } from './MusicResults';
 import { VideoResults } from './VideoResults';
 import type { SearchType, SearchView } from './searchTypes';
-import { keepSource, useSearchFilter } from './searchFilter';
+import { keepSource, selectSourceResult, useSearchFilter } from './searchFilter';
 import { sourceSearchOptions } from './useCatalogSearch';
 import { SourceIssue } from '../shell/SourceIssue';
 import { RankedResults } from './CatalogSearch';
@@ -92,7 +92,9 @@ const PreviewRows: FC<{ medium: Medium; query: string; sources: MangaSource[] }>
   const client = useQueryClient();
   const filter = useSearchFilter();
   // Sources are asked in order, as many as could still fill the rows: answered ones with
-  // results count, pending ones might (M46.7). Each answer re-renders and may ask the next.
+  // results (as Search's filters keep them) count, pending ones might (M46.7). Each answer
+  // re-renders and may ask the next.
+  const kept = selectSourceResult(filter, medium);
   let asked = 0;
   let filled = 0;
   for (const source of sources) {
@@ -102,7 +104,7 @@ const PreviewRows: FC<{ medium: Medium; query: string; sources: MangaSource[] }>
       sourceSearchOptions(medium, source.id, query).queryKey,
     );
     const answered = state?.status === 'success' || state?.status === 'error';
-    if (!answered || (state.data?.items.length ?? 0) > 0) filled += 1;
+    if (!answered || (kept(state.data ?? null)?.items.length ?? 0) > 0) filled += 1;
   }
   const results = useQueries({
     queries: sources

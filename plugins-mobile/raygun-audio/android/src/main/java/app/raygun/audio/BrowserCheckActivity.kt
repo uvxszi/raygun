@@ -105,9 +105,10 @@ class BrowserCheckActivity : AppCompatActivity() {
 
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            fitsSystemWindows = true
             setBackgroundColor(PANEL)
         }
+        // Clear of the system bars, a camera cutout (at a side in landscape) and the keyboard.
+        SafeInsets.pad(column, keyboard = true)
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL

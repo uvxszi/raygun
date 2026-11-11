@@ -266,7 +266,7 @@ export const SearchPanel: FC<{
     <div data-testid="search-page" className="flex flex-col gap-4">
       {/* Holding a result (or Ctrl/Shift-click) picks it; the bar acts on all picked (M46.50). */}
       <SelectionScope>
-        {/* The kinds, then Search's "No 18+" and "No explicit" beside them (below on phones). */}
+        {/* The kinds, then Search's "No 18+" and the kind's Filters beside them (below on phones). */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div
             ref={typeRow}
@@ -278,7 +278,7 @@ export const SearchPanel: FC<{
               <Fragment key={option}>{typePill(option)}</Fragment>
             ))}
           </div>
-          <SearchFilterToggles />
+          <SearchFilterToggles type={type} view={type === 'music' ? musicView : undefined} />
         </div>
         {/* A YouTube address plays or downloads as it is (M46.47). */}
         <YouTubeLinkCard query={query} />

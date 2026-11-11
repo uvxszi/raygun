@@ -24,7 +24,7 @@ import { SourceFiltersPanel } from './SourceFiltersPanel';
 import { rankResults, titleScore } from './rankResults';
 import type { RankedCard } from './rankResults';
 import { videoTitleScore } from '../watch/videoMatch';
-import { keepCards, keepSource, useSearchFilter } from './searchFilter';
+import { hidesSaved, keepCard, keepCards, keepSource, useSearchFilter } from './searchFilter';
 import { useSeenTitles } from './seenBefore';
 import { answeredFirst, failingLast, useSourceHealth } from './sourceHealth';
 import {
@@ -236,7 +236,7 @@ export const RankedResults: FC<{
     [results, query, medium],
   );
   // Titles already seen (Home, sources' pages, the library) show until every source has
-  // answered (M46.47), after the answers that came.
+  // answered (M46.47), after the answers that came, as the filters keep them.
   const seen = useSeenTitles(medium, query);
   const searchedIds = new Set(sources.map((source) => source.id));
   const named = new Map(sources.map((source) => [source.id, source.name]));
@@ -249,6 +249,7 @@ export const RankedResults: FC<{
             .filter(
               (card) =>
                 searchedIds.has(card.sourceId) &&
+                keepCard(filter, card, medium, adultSources.has(card.sourceId)) &&
                 !answers.some(
                   (answer) => answer.card.sourceId === card.sourceId && answer.card.id === card.id,
                 ),
@@ -369,14 +370,23 @@ const SourceSearch: FC<{
   sourceId: string;
   query: string;
   landscape?: boolean;
-}> = ({ medium, sourceId, query, landscape = false }) => {
+  /** The source is rated for adults: under "18+ only" all its titles stay. */
+  adult?: boolean;
+}> = ({ medium, sourceId, query, landscape = false, adult = false }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState<FilterValues>({});
   const filters = useSourceFilters(medium, sourceId);
   const search = useFilteredSearch(medium, sourceId, query, values);
   const filter = useSearchFilter();
-  const items = keepCards(filter, search.data?.pages.flatMap((page) => page.items) ?? []);
+  // One source's own search isn't filtered in Rust (sources' pages share it): Search's filters
+  // apply here.
+  const items = keepCards(
+    filter,
+    search.data?.pages.flatMap((page) => page.items) ?? [],
+    medium,
+    adult,
+  );
   const hasFilters = (filters.data?.length ?? 0) > 0;
   const active = Object.keys(values).length;
   // Its search failed or found nothing: every title shown came from its listings.
@@ -552,7 +562,7 @@ export const CatalogSearch: FC<{
           />
         </div>
       )}
-      {relevant && medium !== 'video' && onLibrary && (
+      {relevant && medium !== 'video' && onLibrary && !hidesSaved(filter, medium) && (
         <InYourLibrary medium={medium} query={query} onMore={onLibrary} />
       )}
       {asked.custom && picked.length === 0 ? (
@@ -584,6 +594,7 @@ export const CatalogSearch: FC<{
           query={query}
           // Video sites' thumbnails are 16:9 (M46.45).
           landscape={Boolean(all.find((source) => source.id === sourceId)?.searchPill)}
+          adult={Boolean(all.find((source) => source.id === sourceId)?.adult)}
         />
       )}
     </div>

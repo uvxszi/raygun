@@ -25,7 +25,9 @@ export const ToastHost: FC = () => {
   if (!toast) return null;
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 z-[95] flex justify-center px-4 pb-3"
+      // Clear of a cutout or a navigation bar at the sides, and of the gesture area with no bars
+      // under it (the readers).
+      className={`pointer-events-none fixed inset-x-0 z-[95] flex justify-center pr-[max(1rem,var(--safe-right))] pl-[max(1rem,var(--safe-left))] ${toast.bottom > 0 ? 'pb-3' : 'pb-[calc(0.75rem+var(--safe-bottom))]'}`}
       style={{ bottom: toast.bottom }}
     >
       <div

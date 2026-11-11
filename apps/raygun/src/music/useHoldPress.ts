@@ -5,6 +5,8 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from 'react';
 
+import { claimHold } from '../shell/holdClaims';
+
 /** How long a press lasts before it counts as held, ms. */
 export const HOLD_MS = 500;
 
@@ -48,6 +50,8 @@ export const useHoldPress = ({ onTap, onHold, disabled = false }: HoldPress) => 
     props: {
       onPointerDown: (event: ReactPointerEvent) => {
         if (disabled || event.button !== 0) return;
+        // The hold is the button's own: no name shows for it (shell/ControlLabels).
+        claimHold(event);
         stop();
         held.current = false;
         setHolding(true);

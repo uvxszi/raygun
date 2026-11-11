@@ -6,6 +6,7 @@ import { usePlaybackSync } from '../player/usePlayback';
 import { useApplySize } from '../settings/useApplySize';
 import { useApplyColors, useApplyTheme } from '../settings/useApplyTheme';
 import { useSettings, useSettingsEvents } from '../settings/useSettings';
+import { ControlLabels } from '../shell/ControlLabels';
 import { MiniplayerWindow } from './MiniplayerWindow';
 
 /**
@@ -23,5 +24,11 @@ export const MiniplayerApp: FC = () => {
   useSyncLanguage(settings.data?.language);
   useSettingsEvents();
   usePlaybackSync();
-  return <MiniplayerWindow />;
+  return (
+    <>
+      <MiniplayerWindow />
+      {/* Its buttons say their names on hover, as the main window's do. */}
+      <ControlLabels />
+    </>
+  );
 };

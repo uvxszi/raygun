@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 
 import type { Medium } from '../manga/medium';
 import { collectFromCache } from '../shell/queryMemory';
-import { useSearchFilter } from './searchFilter';
+import { keepTrack, useSearchFilter } from './searchFilter';
 import { videoTitleScore } from '../watch/videoMatch';
 import { titleScore } from './rankResults';
 
@@ -45,7 +45,7 @@ const songScore = (track: OnlineTrack, query: string) =>
  */
 export const useSeenSongs = (query: string): OnlineTrack[] => {
   const client = useQueryClient();
-  const { noExplicit } = useSearchFilter();
+  const filter = useSearchFilter();
   const wanted = query.trim();
   return useMemo(() => {
     if (wanted.length < 2) return [];
@@ -53,7 +53,8 @@ export const useSeenSongs = (query: string): OnlineTrack[] => {
     const tracks = new Map<string, OnlineTrack>();
     for (const root of SONG_ROOTS) {
       for (const track of collectFromCache(client, root, asTrack, key)) {
-        if (noExplicit && track.explicit) continue;
+        // Search's filters: no explicit songs, or only those, or only ones that stream.
+        if (!keepTrack(filter, track)) continue;
         if (!tracks.has(key(track))) tracks.set(key(track), track);
       }
     }
@@ -64,7 +65,7 @@ export const useSeenSongs = (query: string): OnlineTrack[] => {
       .slice(0, SHOWN)
       .map((entry) => entry.track);
     // Read once per query: the live answers take over when they come.
-  }, [client, wanted, noExplicit]);
+  }, [client, wanted, filter]);
 };
 
 /** A cached title as a card: search results and browse pages as they are, titles by remote id. */

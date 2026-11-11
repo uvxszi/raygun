@@ -21,7 +21,7 @@ export const BottomTabs: FC = () => {
       aria-label={t('nav.main')}
       data-testid="bottom-tabs"
       // Above the player bar: swiped down, the bar slides under the tabs, not over them.
-      className="bg-surface relative z-10 grid grid-flow-col auto-cols-fr pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="bg-surface relative z-10 grid grid-flow-col auto-cols-fr pb-[var(--safe-bottom)] lg:hidden"
     >
       {bar.map(({ id, to, search, labelKey, icon: Icon }) => (
         <Link
