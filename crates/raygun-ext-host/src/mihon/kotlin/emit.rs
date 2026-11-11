@@ -37,6 +37,8 @@ pub struct Context {
     /// The source's functions with reified type parameters (`inline fun <reified T> …`): how
     /// many, which a call passes along with its arguments.
     pub reified: HashMap<String, usize>,
+    /// Those of them returning their first reified type (`fun <reified T> Response.data(): T`).
+    pub reified_returns: HashSet<String>,
     /// The source's own classes (`ReadRealm`, its theme's), whose companions' values are its
     /// constants (`ReadRealm.IMAGE_URL`).
     pub source_classes: HashSet<String>,
@@ -1221,7 +1223,7 @@ impl<'a> Gen<'a> {
             }
             let code = match body {
                 Body::Expr(expr) => {
-                    if untyped_decoder(expr) {
+                    if writer.takes_expected_type(expr) {
                         writer.expected = fun.ret.clone();
                     }
                     if branches_value(expr) {
@@ -1737,7 +1739,10 @@ impl<'a> Gen<'a> {
         value: Option<&Expr>,
     ) -> Result<String, String> {
         // `return client.get(url).parseAs()`: decoded as the function's return type.
-        if label.is_none() && self.depth == 0 && value.is_some_and(untyped_decoder) {
+        if label.is_none()
+            && self.depth == 0
+            && value.is_some_and(|value| self.takes_expected_type(value))
+        {
             self.expected = self.return_type.clone();
         }
         // `return if (…) { ….parseAs() } else { ….parseAs() }`: each branch's last value too.
@@ -1914,13 +1919,30 @@ impl<'a> Gen<'a> {
         result
     }
 
+    /// A call given no type that takes the one expected of it: a decoder (`parseAs()`), or one
+    /// of the source's functions returning its reified type (`return response.parseData()` in a
+    /// function returning `ChapterListDto`).
+    fn takes_expected_type(&self, expr: &Expr) -> bool {
+        untyped_decoder(expr)
+            || matches!(
+                expr,
+                Expr::Call { callee, type_args, .. }
+                    if type_args.is_empty()
+                        && matches!(
+                            &**callee,
+                            Expr::Member { name, .. } | Expr::Name(name)
+                                if self.cx.reified_returns.contains(name)
+                        )
+            )
+    }
+
     /// A branch's value: a bare `parseAs()` decodes as the returned type while a returned `if`
     /// or `when` is written, a nested one passes it on, anything else is written without it.
     fn branch_value(&mut self, expr: &Expr) -> Result<String, String> {
         if self.tail_expected.is_none() || branches_value(expr) {
             return self.expr(expr);
         }
-        if untyped_decoder(expr) {
+        if self.takes_expected_type(expr) {
             self.expected = self.tail_expected.clone();
         }
         self.without_tail(|writer| writer.expr(expr))

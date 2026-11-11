@@ -2285,7 +2285,7 @@ async fn converted_code_makes_and_uses_key_pairs() {
             verified.toString(),
             String(opened),
             String(unpadded),
-            (x.toByteArray().size >= 32).toString(),
+            (BigInteger(1, x.toByteArray()) == x && x.toByteArray().size <= 33).toString(),
         )
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
     }"##,
@@ -3552,11 +3552,21 @@ class Wrapper(val data: Results)
 /// from another class's code (Publus's `B2y.V_CGH`), items of lists, texts and maps by index (and
 /// a missing one refused), constants and the source's values read in a loop; a class's `val`s
 /// worked out once (OneReader's key pair), its getters at each read; path segments written as
-/// OkHttp writes them; a rate limit given by name with the requests it's for (Chikari's), and
-/// text helpers' named arguments.
+/// OkHttp writes them; a rate limit given by name with the requests it's for (Chikari's), text
+/// helpers' named arguments, and a reified function returning its type given the one expected.
 #[tokio::test]
 async fn converted_code_reads_indexes_companions_and_segments() {
     let library = r##"package eu.kanade.tachiyomi.extension.en.fixturestand
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+class Envelope<T>(val data: T)
+
+@Serializable
+class Item(val name: String) {
+    fun label() = "item $name"
+}
 
 class B2y {
     companion object {
@@ -3591,6 +3601,10 @@ class Counter {
 "##;
     let source = STANDALONE_SOURCE
         .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport keiyoushi.utils.parseAs",
+        )
+        .replace(
             "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
             "",
         )
@@ -3605,6 +3619,12 @@ class Counter {
     private val table = intArrayOf(5, 6, 7, 8)
 
     private class State(var payload: IntArray, var length: Int)
+
+    private inline fun <reified T> String.unwrap(): T = parseAs<Envelope<T>>().data
+
+    private fun item(text: String): Item {
+        return text.unwrap()
+    }
 
     override suspend fun getLatestUpdates(page: Int): MangasPage {
         val state = State(IntArray(6) { it }, 6)
@@ -3636,6 +3656,7 @@ class Counter {
             Unscrambler(3).sizes(),
             address,
             Counter().report(),
+            item("""{"data":{"name":"x"}}""").label(),
         )
         return MangasPage(list.map { name -> SManga.create().apply { title = name; url = "/x" } }, false)
     }
@@ -3690,6 +3711,7 @@ class Counter {
             "6 15 10",
             "https://pages.example/full-list/o:popular~t:MANGA,MANHWA/a%20b%2Fc",
             "1 1 2 2 2",
+            "item x",
         ]
     );
 }

@@ -441,6 +441,17 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                     if count > 0 {
                         cx.reified.insert(fun.name.clone(), count);
                     }
+                    // `inline fun <reified T> Response.parseData(): T`: a call with no type
+                    // takes the one expected of it.
+                    let first = fun
+                        .modifiers
+                        .iter()
+                        .find_map(|modifier| modifier.strip_prefix("reified:"));
+                    if let (Some(first), Some(ret)) = (first, &fun.ret)
+                        && ret.name == first
+                    {
+                        cx.reified_returns.insert(fun.name.clone());
+                    }
                 }
                 match member {
                     Member::Fun(fun) if fun.receiver.is_some() => {

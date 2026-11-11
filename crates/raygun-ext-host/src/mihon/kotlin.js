@@ -1406,6 +1406,9 @@
       return match ? matchResult(match) : null;
     },
     replace: (regex, [text, replacement]) => STRING.replace(KT.str(text), [regex, replacement]),
+    // `regex.replaceFirst(input, "/s0/$1")`: the first match only.
+    replaceFirst: (regex, [text, replacement]) =>
+      STRING.replaceFirst(KT.str(text), [regex, replacement]),
     split: (regex, [text]) =>
       KT.str(text).split(new RegExp(regex.source, regex.flags.replace('g', ''))),
     toString: (regex) => regex.source,
@@ -11658,9 +11661,14 @@
       // A title as Mihon's library hands it over: with the name it was listed under, which some
       // sources' details read (GlobalComix's slug of the title).
       const titleOf = (id) => manga({ url: id, memo: memos.get(id), title: memos.title(id) ?? '' });
-      const update = async (id, details) => {
+      const update = async (id, details, both = false) => {
         await ready();
-        const answer = await self.call('fetchMangaUpdate', [titleOf(id), [], details, !details]);
+        const answer = await self.call('fetchMangaUpdate', [
+          titleOf(id),
+          [],
+          details || both,
+          !details || both,
+        ]);
         if (answer && answer.manga) {
           memos.keep(id, answer.manga.memo, answer.manga.title);
           memos.save();
@@ -11703,7 +11711,10 @@
           });
         },
         chapters: async ({ id }) => {
-          const answer = await update(id, false);
+          let answer = await update(id, false);
+          // A source that reads its chapters only with its details (`if (!fetchDetails) return
+          // SMangaUpdate(manga, chapters)`, as Mihon's library asks for both): both.
+          if (!(answer?.chapters ?? []).length) answer = await update(id, false, true);
           return {
             chapters: (answer.chapters ?? []).map((item) => ({
               id: (keepFacts(chapterIdOf(item), item), chapterIdOf(item)),
