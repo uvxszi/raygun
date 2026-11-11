@@ -475,6 +475,71 @@ impl PodcastService {
         })
     }
 
+    /// The same book at the audiobook sources (Find in other sources): each source searched for
+    /// `title`, and the books whose title answers it by the same author (when both say), closest
+    /// first. Every source's copy shows, even of a recording two sources share; `own_feed` (the
+    /// book itself) doesn't. A source that fails is left out unless all do.
+    pub async fn audiobooks_elsewhere(
+        &self,
+        title: &str,
+        author: Option<&str>,
+        own_feed: &str,
+    ) -> Result<Vec<AudiobookResult>, String> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Ok(Vec::new());
+        }
+        let extensions = self.app.state::<Arc<ExtensionService>>().inner().clone();
+        let (_ready, host) = extensions.ready().await;
+        let providers = host.providers(AUDIOBOOK_DIRECTORY).await;
+        if providers.is_empty() {
+            return Err("No audiobook source is installed".into());
+        }
+        let answers = futures_util::future::join_all(providers.iter().map(|provider| async move {
+            // A search shown in the directory moments ago is the same answer.
+            let ask = directory::Ask {
+                provider: provider.id.clone(),
+                list: "search".into(),
+                query: title.to_lowercase(),
+                page: 1,
+            };
+            if let Some(found) = self.pages.get(&ask) {
+                return Ok(found);
+            }
+            let answer = host.audiobooks(&provider.id, "search", title, 1).await;
+            if let Ok(found) = &answer {
+                self.pages.put(ask, found.clone());
+            }
+            answer
+        }))
+        .await;
+        let mut pages = Vec::new();
+        let mut errors = Vec::new();
+        for (provider, answer) in providers.into_iter().zip(answers) {
+            match answer {
+                Ok(found) => pages.push((provider.name, found)),
+                Err(error) => errors.push(raygun_net::issue::named(&provider.name, &error)),
+            }
+        }
+        if pages.is_empty() && !errors.is_empty() {
+            return Err(raygun_net::issue::joined(&errors));
+        }
+        Ok(directory::elsewhere(pages, title, author, own_feed)
+            .into_iter()
+            .map(|found| AudiobookResult {
+                artwork_url: self.artwork(found.book.artwork_url.as_deref()),
+                title: found.name.title,
+                author: found.name.author,
+                edition: found.name.edition,
+                feed_url: found.book.feed_url,
+                runtime: found.book.runtime,
+                language: found.book.language,
+                description: found.book.description,
+                source: found.source,
+            })
+            .collect())
+    }
+
     /// Downloads every chapter of a book that isn't yet; returns how many were queued.
     pub async fn download_all(&self, id: &str) -> Result<u32, String> {
         let db = self.db();

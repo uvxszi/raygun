@@ -8026,6 +8026,9 @@ pub enum AiProviderKind {
     /// An OpenAI-compatible transcription server (faster-whisper-server, whisper.cpp): only
     /// transcribes.
     WhisperServer,
+    /// Google's Cloud Translation API (Basic, v2) with the user's API key. Its translations are
+    /// shown with Google's attribution.
+    Google,
 }
 
 impl AiProviderKind {
@@ -8041,7 +8044,7 @@ impl AiProviderKind {
 
     /// Whether it works without a key.
     pub fn key_optional(self) -> bool {
-        !matches!(self, Self::Claude | Self::Deepl)
+        !matches!(self, Self::Claude | Self::Deepl | Self::Google)
     }
 
     /// Whether a provider of this kind, with or without a key, can translate.
@@ -8062,6 +8065,59 @@ pub struct AiProvider {
     pub has_key: bool,
     /// The key's last four characters.
     pub key_hint: Option<String>,
+}
+
+/// Words to translate on their own (a selection in a book, a title to search for elsewhere):
+/// from a language or detected, into one, with a translator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TextTranslateRequest {
+    pub text: String,
+    /// The language it's written in, a BCP 47 tag; empty to detect it.
+    #[serde(default)]
+    pub from: String,
+    pub to: String,
+    /// Who translates: empty for this device (its models picked by language), an AI catalogue
+    /// translation model (this device, that model first), or `ai:<provider id>`.
+    #[serde(default)]
+    pub translator: String,
+    /// What the text is likely in when `from` is empty (the dictionary's answer, the book's
+    /// language): said back when the translator doesn't tell.
+    #[serde(default)]
+    pub hint: String,
+}
+
+/// Words translated, and how.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TextTranslation {
+    pub text: String,
+    /// The language it was translated from: the one asked, else the one detected (by the
+    /// translator, else from the hint or the words); empty when unknown.
+    pub from: String,
+    /// `from` was detected rather than asked.
+    pub detected: bool,
+    pub to: String,
+    /// The translator, as asked (empty for this device's choice).
+    pub translator: String,
+    /// A provider's name; empty for this device.
+    pub translator_name: String,
+    /// A provider's kind; `None` for this device.
+    pub kind: Option<AiProviderKind>,
+    /// This device's models it went through, in turn.
+    pub models: Vec<String>,
+}
+
+/// The languages and translator picked last for translating a selection: a book's own, else the
+/// last anywhere.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslateChoice {
+    /// Empty: detect.
+    pub from: String,
+    pub to: String,
+    /// As [`TextTranslateRequest::translator`].
+    pub translator: String,
 }
 
 /// A provider to add (no `id`) or change.

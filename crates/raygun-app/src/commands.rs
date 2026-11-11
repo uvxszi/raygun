@@ -1947,6 +1947,25 @@ pub async fn audiobook_directory(
         .await
 }
 
+/// The same book at the audiobook sources (Find in other sources): every source's copy whose
+/// title answers `title`, by the same author when both say, without the book's own feed.
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobooks_elsewhere(
+    app: tauri::AppHandle,
+    podcasts: Podcasts<'_>,
+    title: String,
+    author: Option<String>,
+    feed_url: String,
+) -> Result<Vec<raygun_model::AudiobookResult>, String> {
+    let skip = crate::search_filter::current(&app).await.no_adult;
+    raygun_ext_host::without_adult_sources(
+        skip,
+        podcasts.audiobooks_elsewhere(&title, author.as_deref(), &feed_url),
+    )
+    .await
+}
+
 /// Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
 /// queued (M46.48).
 #[tauri::command]
@@ -2144,6 +2163,41 @@ pub async fn reader_ai_translate(
     request: raygun_model::ReaderAiTranslateRequest,
 ) -> Result<Vec<String>, String> {
     reader_ai.translate(request).await
+}
+
+/// Words translated on their own (a selection in a book, a title to search for elsewhere): from
+/// a language or detected, by this device or a translator from Settings → AI; says who translated
+/// and what the words were read as.
+#[tauri::command]
+#[specta::specta]
+pub async fn text_translate(
+    app: tauri::AppHandle,
+    request: raygun_model::TextTranslateRequest,
+) -> Result<raygun_model::TextTranslation, String> {
+    crate::text_translation::translate(&app, request).await
+}
+
+/// The languages and translator picked last for translating a book's selections, else any
+/// book's.
+#[tauri::command]
+#[specta::specta]
+pub async fn text_translate_choice(
+    app: tauri::AppHandle,
+    title_id: Option<String>,
+) -> Result<Option<raygun_model::TranslateChoice>, String> {
+    crate::text_translation::choice(&app, title_id.as_deref()).await
+}
+
+/// Remembers the languages and translator picked for a book's selections (and as the last
+/// choice); nothing is kept while incognito is on.
+#[tauri::command]
+#[specta::specta]
+pub async fn text_translate_remember(
+    app: tauri::AppHandle,
+    title_id: Option<String>,
+    choice: raygun_model::TranslateChoice,
+) -> Result<(), String> {
+    crate::text_translation::remember(&app, title_id.as_deref(), choice).await
 }
 
 /// A file of an installed model the readers run themselves (Anime4K's shaders).

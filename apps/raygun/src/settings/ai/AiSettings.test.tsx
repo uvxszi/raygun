@@ -163,7 +163,7 @@ const SECTIONS = [
   [
     'providers',
     'Online providers',
-    'Claude, OpenAI-compatible services and DeepL; keys stay encrypted on this device',
+    'Claude, OpenAI-compatible services, DeepL and Google Translate; keys stay encrypted on this device',
   ],
   ['models', 'On-device models', 'Run on this device: nothing leaves it'],
 ] as const;
@@ -500,6 +500,37 @@ describe('Settings → AI', () => {
       baseUrl: null,
       model: 'qwen3:8b',
       key: 'sk-local',
+    });
+  });
+
+  it("adds Google Translate with its API key, Google's disclaimer and site beside it", async () => {
+    const user = userEvent.setup();
+    await AppShellWrapper.mount('/settings/ai');
+    const providers = await region('Online providers');
+    await user.click(within(providers).getByRole('button', { name: 'Add provider' }));
+    const form = screen.getByRole('form', { name: 'Provider settings' });
+    await user.selectOptions(within(form).getByLabelText('Service'), 'google');
+    // The key is required (no "optional"), and Google takes no model name.
+    expect(within(form).getByLabelText('API key')).toBeInTheDocument();
+    expect(within(form).queryByLabelText('Model')).not.toBeInTheDocument();
+    expect(
+      within(form).getByPlaceholderText('https://translation.googleapis.com'),
+    ).toBeInTheDocument();
+    expect(within(form).getByTestId('google-disclaimer')).toHaveTextContent(
+      /^THIS SERVICE MAY CONTAIN TRANSLATIONS POWERED BY GOOGLE\./,
+    );
+    await user.click(within(form).getByRole('button', { name: 'About Cloud Translation' }));
+    expect(commands.appOpenLink).toHaveBeenCalledWith('https://cloud.google.com/translate');
+
+    await user.type(within(form).getByLabelText('API key'), 'AIza-test');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(commands.aiProviderSave).toHaveBeenCalledWith({
+      id: null,
+      kind: 'google',
+      name: 'Google Translate',
+      baseUrl: null,
+      model: null,
+      key: 'AIza-test',
     });
   });
 

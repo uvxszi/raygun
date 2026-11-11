@@ -570,6 +570,11 @@ export const commands = {
 	 */
 	audiobookDirectory: (list: string, query: string, page: number) => typedError<AudiobookPage, string>(__TAURI_INVOKE("audiobook_directory", { list, query, page })),
 	/**
+	 *  The same book at the audiobook sources (Find in other sources): every source's copy whose
+	 *  title answers `title`, by the same author when both say, without the book's own feed.
+	 */
+	audiobooksElsewhere: (title: string, author: string | null, feedUrl: string) => typedError<AudiobookResult[], string>(__TAURI_INVOKE("audiobooks_elsewhere", { title, author, feedUrl })),
+	/**
 	 *  Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
 	 *  queued (M46.48).
 	 */
@@ -620,6 +625,28 @@ export const commands = {
 	readerAiPageText: (url: string) => typedError<PageTextBlock[], string>(__TAURI_INVOKE("reader_ai_page_text", { url })),
 	/**  Texts translated for a reader's translation layer, in order. */
 	readerAiTranslate: (request: ReaderAiTranslateRequest) => typedError<string[], string>(__TAURI_INVOKE("reader_ai_translate", { request })),
+	/**
+	 *  Words translated on their own (a selection in a book, a title to search for elsewhere): from
+	 *  a language or detected, by this device or a translator from Settings → AI; says who translated
+	 *  and what the words were read as.
+	 */
+	textTranslate: (request: TextTranslateRequest) => typedError<TextTranslation, string>(__TAURI_INVOKE("text_translate", { request })),
+	/**
+	 *  The languages and translator picked last for translating a book's selections, else any
+	 *  book's.
+	 */
+	textTranslateChoice: (titleId: string | null) => typedError<{
+	/**  Empty: detect. */
+	from: string,
+	to: string,
+	/**  As [`TextTranslateRequest::translator`]. */
+	translator: string,
+} | null, string>(__TAURI_INVOKE("text_translate_choice", { titleId })),
+	/**
+	 *  Remembers the languages and translator picked for a book's selections (and as the last
+	 *  choice); nothing is kept while incognito is on.
+	 */
+	textTranslateRemember: (titleId: string | null, choice: TranslateChoice) => typedError<null, string>(__TAURI_INVOKE("text_translate_remember", { titleId, choice })),
 	/**  A file of an installed model the readers run themselves (Anime4K's shaders). */
 	aiModelText: (id: string) => typedError<string, string>(__TAURI_INVOKE("ai_model_text", { id })),
 	/**  Whether a queue item is a podcast episode or a book's chapter, and whose (M46.32). */
@@ -1996,7 +2023,12 @@ export type AiProviderKind = "claude" | "openAiCompatible" | "deepl" |
  *  An OpenAI-compatible transcription server (faster-whisper-server, whisper.cpp): only
  *  transcribes.
  */
-"whisperServer";
+"whisperServer" | 
+/**
+ *  Google's Cloud Translation API (Basic, v2) with the user's API key. Its translations are
+ *  shown with Google's attribution.
+ */
+"google";
 
 /**  An anime episode, for looking up its openings and endings on AniSkip (M45). */
 export type AnimeEpisode = {
@@ -7464,6 +7496,48 @@ export type TextPart = { kind: "text"; text: string } |
 /**  A formula in the line. */
 { kind: "math"; mathml: string; text: string; speech: string };
 
+/**
+ *  Words to translate on their own (a selection in a book, a title to search for elsewhere):
+ *  from a language or detected, into one, with a translator.
+ */
+export type TextTranslateRequest = {
+	text: string,
+	/**  The language it's written in, a BCP 47 tag; empty to detect it. */
+	from?: string,
+	to: string,
+	/**
+	 *  Who translates: empty for this device (its models picked by language), an AI catalogue
+	 *  translation model (this device, that model first), or `ai:<provider id>`.
+	 */
+	translator?: string,
+	/**
+	 *  What the text is likely in when `from` is empty (the dictionary's answer, the book's
+	 *  language): said back when the translator doesn't tell.
+	 */
+	hint?: string,
+};
+
+/**  Words translated, and how. */
+export type TextTranslation = {
+	text: string,
+	/**
+	 *  The language it was translated from: the one asked, else the one detected (by the
+	 *  translator, else from the hint or the words); empty when unknown.
+	 */
+	from: string,
+	/**  `from` was detected rather than asked. */
+	detected: boolean,
+	to: string,
+	/**  The translator, as asked (empty for this device's choice). */
+	translator: string,
+	/**  A provider's name; empty for this device. */
+	translatorName: string,
+	/**  A provider's kind; `None` for this device. */
+	kind: AiProviderKind | null,
+	/**  This device's models it went through, in turn. */
+	models: string[],
+};
+
 /**  Color theme. `System` follows the OS light/dark preference. */
 export type Theme = "system" | "light" | "dark" | 
 /**  Pure black background for OLED screens. */
@@ -7624,6 +7698,18 @@ export type TranscriptionPrefs = {
 	onlineModel?: string,
 	/**  Online: confirmed once that batches cost money. */
 	onlineConfirmed?: boolean,
+};
+
+/**
+ *  The languages and translator picked last for translating a selection: a book's own, else the
+ *  last anywhere.
+ */
+export type TranslateChoice = {
+	/**  Empty: detect. */
+	from: string,
+	to: string,
+	/**  As [`TextTranslateRequest::translator`]. */
+	translator: string,
 };
 
 /**  Progress reading a chapter aloud (M33). */

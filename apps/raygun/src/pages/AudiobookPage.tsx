@@ -12,11 +12,13 @@ import {
   SquareCheckBig,
   Trash2,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHasProvider } from '../extensions/useExtensions';
 import { SelectionTopBar } from '../manga/LibrarySelection';
+import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { PodcastPickActions } from '../podcasts/PodcastPickActions';
 import { usePickList } from '../select/usePickList';
 import {
@@ -68,6 +70,9 @@ export const AudiobookPage: FC = () => {
   const openPage = useOpenPodcastPage();
   const forget = useForgetPosition();
   const client = useQueryClient();
+  // The same book at the other audiobook sources, when there's one to ask.
+  const [finding, setFinding] = useState(false);
+  const canFind = useHasProvider('audiobook.directory') === true;
   const view = book.data;
   const shown = useMemo(
     () => (view?.chapters ?? []).filter((chapter) => matchesSearch(find.query, [chapter.title])),
@@ -328,6 +333,15 @@ export const AudiobookPage: FC = () => {
       </div>
       {error && <SourceIssue>{error.message}</SourceIssue>}
       {view.description && <ShowNotes text={view.description} clamp />}
+      {canFind && <FindInOtherSourcesButton open={finding} onToggle={() => setFinding(!finding)} />}
+      {canFind && finding && (
+        <OtherSources
+          medium="audiobook"
+          title={view.title}
+          author={view.author}
+          feedUrl={view.feedUrl}
+        />
+      )}
       <section aria-labelledby="audiobook-chapters" className="flex flex-col gap-2">
         <h2 id="audiobook-chapters" className="font-semibold">
           {filtered && shown.length !== view.chapterCount

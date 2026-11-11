@@ -28,6 +28,16 @@ const SAMPLE: &str = "Good morning! Three new chapters are waiting in your libra
 /// Progress events are sent at most this often (in bytes received).
 const PROGRESS_STEP: u64 = 256 * 1024;
 
+/// Texts a provider translated: who it was, and what it read them as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderTranslation {
+    pub name: String,
+    pub kind: AiProviderKind,
+    pub texts: Vec<String>,
+    /// The language the provider found the texts in, when it was left to work it out and said.
+    pub detected: Option<String>,
+}
+
 /// A model downloading now: the bytes in so far, and what cancels it.
 struct Running {
     received: u64,
@@ -263,6 +273,25 @@ impl AiService {
         to: &str,
         content: translate::Content,
     ) -> Result<(String, Vec<String>), String> {
+        let done = self
+            .translate_detailed(id, lines, from, to, content, false)
+            .await?;
+        Ok((done.name, done.texts))
+    }
+
+    /// [`Self::translate_texts_from`] with who translated and, when `from` is `None`, the
+    /// language the provider read the texts as: from its answer, and with `ask_detection` from
+    /// its detection (Google's, LibreTranslate's) when the answer didn't say, unless Data Saver
+    /// is on. Offline Mode stops it before anything is sent (but to a translator on this device).
+    pub async fn translate_detailed(
+        &self,
+        id: &str,
+        lines: &[String],
+        from: Option<&str>,
+        to: &str,
+        content: translate::Content,
+        ask_detection: bool,
+    ) -> Result<ProviderTranslation, String> {
         let provider = self
             .stored_providers()
             .await?
@@ -271,7 +300,7 @@ impl AiService {
             .ok_or_else(|| "This translator was removed in Settings → AI".to_owned())?;
         let key = self.vault.get(&secret_name(id));
         let ask = || {
-            translate::translate_as(
+            translate::translate_detecting(
                 &self.client,
                 &provider,
                 key.as_deref(),
@@ -291,13 +320,38 @@ impl AiService {
         ) {
             result = ask().await;
         }
-        match result {
-            Ok(translated) => Ok((provider.name.clone(), translated)),
+        let done = match result {
+            Ok(done) => done,
             Err(error) => {
                 tracing::info!(provider = %provider.name, %error, ?content, "translation failed");
-                Err(issue_text(&provider.name, &error))
+                return Err(issue_text(&provider.name, &error));
             }
+        };
+        let mut detected = done.detected;
+        if ask_detection
+            && from.is_none()
+            && detected.is_none()
+            // Data Saver goes without the extra request; the words' own language is guessed.
+            && !raygun_net::network_mode::data_saver()
+            && let Some(first) = lines.first()
+        {
+            // An older LibreTranslate server doesn't say what it read: its detection does.
+            detected = translate::detect(
+                &self.client,
+                &provider,
+                key.as_deref(),
+                std::slice::from_ref(first),
+            )
+            .await
+            .ok()
+            .and_then(|found| found.into_iter().next().flatten());
         }
+        Ok(ProviderTranslation {
+            name: provider.name.clone(),
+            kind: from_kind(provider.kind),
+            texts: done.texts,
+            detected,
+        })
     }
 
     /// How much of a model downloading now is in, in bytes.
@@ -658,16 +712,18 @@ fn store_key(vault: &Vault, provider_id: &str, key: Option<String>) -> Result<()
 /// A translator's failure as an issue: one sentence naming it (rate limited, refused, didn't
 /// answer...), the provider's own words after it.
 fn issue_text(name: &str, error: &TranslateError) -> String {
-    use raygun_net::issue::{Issue, IssueKind, status_kind};
+    use raygun_net::issue::{Issue, IssueKind, request_kind, status_kind};
     let kind = match error {
         TranslateError::Provider { status, .. } => status_kind(*status),
-        TranslateError::QuotaUsed => Some(IssueKind::RateLimited),
-        TranslateError::Http(error) if error.is_timeout() => Some(IssueKind::Timeout),
-        TranslateError::Http(error) if error.is_connect() => Some(IssueKind::Unreachable),
-        TranslateError::Http(_) => Some(IssueKind::Unreachable),
+        TranslateError::QuotaUsed | TranslateError::RateLimited(_) => Some(IssueKind::RateLimited),
+        TranslateError::Offline => Some(IssueKind::OfflineMode),
+        // Offline Mode, a timeout, a name that didn't resolve…, as the request's causes tell.
+        TranslateError::Http(error) => Some(request_kind(error)),
         _ => None,
     };
     match kind {
+        // Nothing was sent: the one sentence says it all.
+        Some(IssueKind::OfflineMode) => Issue::new(IssueKind::OfflineMode, name, "").to_string(),
         Some(kind) => Issue::new(kind, name, error.to_string()).to_string(),
         None => raygun_net::issue::named(name, &error.to_string()),
     }
@@ -691,6 +747,7 @@ fn to_kind(kind: AiProviderKind) -> ProviderKind {
         AiProviderKind::LibreTranslate => ProviderKind::LibreTranslate,
         AiProviderKind::MyMemory => ProviderKind::MyMemory,
         AiProviderKind::WhisperServer => ProviderKind::WhisperServer,
+        AiProviderKind::Google => ProviderKind::Google,
     }
 }
 
@@ -702,6 +759,7 @@ fn from_kind(kind: ProviderKind) -> AiProviderKind {
         ProviderKind::LibreTranslate => AiProviderKind::LibreTranslate,
         ProviderKind::MyMemory => AiProviderKind::MyMemory,
         ProviderKind::WhisperServer => AiProviderKind::WhisperServer,
+        ProviderKind::Google => AiProviderKind::Google,
     }
 }
 
@@ -730,5 +788,34 @@ mod tests {
             from_kind(to_kind(AiProviderKind::Deepl)),
             AiProviderKind::Deepl
         );
+        assert_eq!(
+            from_kind(to_kind(AiProviderKind::Google)),
+            AiProviderKind::Google
+        );
+    }
+
+    #[test]
+    fn translator_failures_read_as_issues() {
+        let limited = issue_text(
+            "Google Translate",
+            &TranslateError::RateLimited("User Rate Limit Exceeded".into()),
+        );
+        assert!(limited.starts_with("Google Translate is limiting requests"));
+        assert!(limited.ends_with("User Rate Limit Exceeded"));
+        assert_eq!(
+            issue_text("Google Translate", &TranslateError::Offline),
+            "Offline mode is on"
+        );
+        let refused = issue_text(
+            "Google Translate",
+            &TranslateError::Provider {
+                status: 400,
+                message: "API key not valid".into(),
+            },
+        );
+        assert!(refused.starts_with("Google Translate refused access"));
+        assert!(refused.contains("API key not valid"));
+        assert!(!AiProviderKind::Google.key_optional());
+        assert!(AiProviderKind::Google.translates() && !AiProviderKind::Google.transcribes());
     }
 }
