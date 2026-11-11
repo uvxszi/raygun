@@ -162,8 +162,17 @@ async fn play_from(
     start_at: Option<i64>,
 ) -> Result<(), String> {
     app.state::<VideoSessions>().end();
+    // A live YouTube stream plays its playlist in Raygun's player when a YouTube source can ask
+    // for it; anything else from YouTube plays in YouTube's embed.
+    let request = match youtube_live_request(app, &request).await {
+        Some(live) => live,
+        None => request,
+    };
     if let Some(video_id) = request.url.strip_prefix(YOUTUBE_LINK) {
         return play_youtube(app, video_id, &request.title, request.subtitle.clone()).await;
+    }
+    if is_page(&request) {
+        return play_page(app, &request).await;
     }
     // A torrent takes a while to open (a magnet link's details come from peers): the player
     // opens at once with the title and waits.
@@ -207,6 +216,75 @@ async fn play_from(
 
 /// A video source's link to a YouTube video (M46.35): `youtube:<video id>`.
 pub const YOUTUBE_LINK: &str = "youtube:";
+
+/// Whether a link is a web page that plays the video in its site's own player (`format: "page"`,
+/// `raygun_ext_host::video::PAGE`): a site whose terms allow only its embeddable player.
+pub fn is_page(request: &VideoRequest) -> bool {
+    request.format.as_deref() == Some(raygun_ext_host::video::PAGE)
+}
+
+/// Opens a page link in Raygun's browser, where the site's own player plays it (Twitch's player
+/// can't be framed by Raygun's window: its embeds need an https parent page). Music pauses as
+/// for other videos.
+pub async fn play_page(app: &AppHandle, request: &VideoRequest) -> Result<(), String> {
+    raygun_net::network_mode::check_online()?;
+    let websites = app
+        .try_state::<std::sync::Arc<crate::websites::WebsiteService>>()
+        .ok_or("Raygun's browser isn't available")?
+        .inner()
+        .clone();
+    crate::playback::other_media_started(app).await;
+    websites
+        .open_page(
+            &format!("{}video", crate::websites::PAGE_PREFIX),
+            &request.url,
+        )
+        .await
+}
+
+/// How long finding a live YouTube stream's playlist may take before the embed plays it.
+const YOUTUBE_LIVE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// A YouTube link its source marks live (`youtube:<id>` with `live`) as a request for Raygun's
+/// player: the stream's HLS playlist from Raygun's YouTube module, asked through an installed
+/// YouTube source (the YouTube extension, Nuclear's YouTube plugin), so the player's live edge,
+/// DVR window and live subtitles apply. None without such a source (Raygun ships none), for
+/// anything not marked live, or when YouTube gives no playlist that plays: the embed plays it.
+pub async fn youtube_live_request(app: &AppHandle, request: &VideoRequest) -> Option<VideoRequest> {
+    let video_id = request.url.strip_prefix(YOUTUBE_LINK)?;
+    if !request.live {
+        return None;
+    }
+    let extensions = app
+        .try_state::<std::sync::Arc<crate::extensions::ExtensionService>>()?
+        .inner()
+        .clone();
+    let listed: Vec<String> = extensions
+        .list()
+        .await
+        .into_iter()
+        .flat_map(|extension| extension.providers)
+        .map(|provider| provider.id)
+        .collect();
+    for extension in crate::resolver::youtube_extensions(&listed) {
+        match extensions
+            .youtube_live(&extension, video_id, YOUTUBE_LIVE_LIMIT)
+            .await
+        {
+            Ok(stream) => {
+                let mut live = request.clone();
+                live.url = stream.url;
+                live.headers = stream.headers;
+                live.format = Some("hls".to_owned());
+                return Some(live);
+            }
+            Err(error) => {
+                tracing::info!(%extension, video = video_id, %error, "no live playlist from YouTube");
+            }
+        }
+    }
+    None
+}
 
 /// Plays a YouTube video in YouTube's embed with its own controls, as trailers do (M46.4); the
 /// video player isn't used.

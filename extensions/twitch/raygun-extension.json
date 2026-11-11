@@ -1,0 +1,20 @@
+{
+  "id": "dev.raygun.twitch",
+  "name": "Twitch",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Live channels, past broadcasts and clips from Twitch's official API: what's live now by viewers, by category and language, channel search, and each channel's page with its stream, videos and top clips. They play in Twitch's own player in Raygun's browser, as Twitch's developer agreement requires; Twitch's channel page there has the chat. Needs the Client ID and Client Secret of an application you register at dev.twitch.tv/console.",
+  "author": "Raygun",
+  "website": "https://www.twitch.tv",
+  "provides": ["video.source"],
+  "permissions": {
+    "net": ["api.twitch.tv", "id.twitch.tv"]
+  },
+  "contentRating": "suggestive",
+  "settings": [
+    { "key": "clientId", "type": "text", "label": "Client ID", "required": true },
+    { "key": "clientSecret", "type": "text", "label": "Client Secret", "required": true }
+  ]
+}

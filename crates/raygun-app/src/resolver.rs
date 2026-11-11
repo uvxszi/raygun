@@ -72,6 +72,25 @@ fn youtube_audio_call(listed: &[String], video_id: &str) -> (&'static str, Strin
     }
 }
 
+/// The installed YouTube sources through whose own fetch Raygun's YouTube module may ask YouTube,
+/// in turn: the YouTube extension (any of its providers), then Nuclear's YouTube plugin. None
+/// when neither is installed: Raygun ships no YouTube source.
+pub fn youtube_extensions(listed: &[String]) -> Vec<String> {
+    let extension_of = |provider: &str| provider.split('/').next().unwrap_or(provider).to_owned();
+    let mut found: Vec<String> = Vec::new();
+    for wanted in [YOUTUBE_STREAMS, NUCLEAR_YOUTUBE_STREAMS] {
+        let extension = extension_of(wanted);
+        if listed
+            .iter()
+            .any(|provider| extension_of(provider) == extension)
+            && !found.contains(&extension)
+        {
+            found.push(extension);
+        }
+    }
+    found
+}
+
 /// What "via …" says for a provider no installed extension lists: YouTube's embed (no YouTube
 /// extension installed), or a remembered pick of an extension removed since. Its extension's own
 /// name, from the last part of its id (`dev.raygun.audius/stream` → `Audius`).
@@ -1147,6 +1166,21 @@ mod tests {
         );
         // Neither: the YouTube extension's call, whose error says it isn't there.
         assert_eq!(youtube_audio_call(&[], "abc").0, YOUTUBE_STREAMS);
+    }
+
+    #[test]
+    fn live_youtube_asks_through_whichever_youtube_source_is_installed() {
+        let listed = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            youtube_extensions(&listed(&[
+                NUCLEAR_YOUTUBE_STREAMS,
+                "dev.raygun.youtube/videos",
+                "dev.example.films/films",
+            ])),
+            ["dev.raygun.youtube", "nuclear.nuclear-plugin-youtube"],
+            "the YouTube extension by any of its providers, first"
+        );
+        assert!(youtube_extensions(&listed(&["dev.example.films/films"])).is_empty());
     }
 
     use super::*;

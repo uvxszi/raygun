@@ -1680,6 +1680,14 @@ impl VideoSessions {
             (request, resume, session.start_at)
         };
         let (request, resume, start_at) = prepared;
+        // A live YouTube stream plays its playlist here when a YouTube source can ask for it.
+        let request = match crate::video::youtube_live_request(&self.app, &request).await {
+            Some(live) => live,
+            None => request,
+        };
+        if !self.is_current(generation) {
+            return;
+        }
         // A YouTube link plays in YouTube's embed: the player that opened for it closes.
         if let Some(video_id) = request.url.strip_prefix(crate::video::YOUTUBE_LINK) {
             let _ = crate::video::update_player(&self.app, &json!({ "type": "close" }));
@@ -1693,6 +1701,15 @@ impl VideoSessions {
             .await
             {
                 tracing::warn!(%error, "couldn't open the YouTube player");
+            }
+            return;
+        }
+        // A page plays in its site's own player, in Raygun's browser: the player closes.
+        if crate::video::is_page(&request) {
+            let _ = crate::video::update_player(&self.app, &json!({ "type": "close" }));
+            self.end();
+            if let Err(error) = crate::video::play_page(&self.app, &request).await {
+                tracing::warn!(%error, "couldn't open the video's page");
             }
             return;
         }

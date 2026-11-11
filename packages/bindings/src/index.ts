@@ -847,7 +847,11 @@ export const commands = {
 	author: string | null,
 	thumbnailUrl: string | null,
 } | null, string>(__TAURI_INVOKE("youtube_link", { text })),
-	/**  Plays a YouTube video from an address typed in Search, in YouTube's embed (M46.47). */
+	/**
+	 *  Plays a YouTube video from an address typed in Search, in YouTube's embed (M46.47). A live
+	 *  stream plays in Raygun's player instead when an installed YouTube source can ask for its
+	 *  playlist (`video::youtube_live_request`; anything else is told apart by YouTube's answer).
+	 */
 	youtubePlay: (videoId: string, title: string, channel: string | null) => typedError<null, string>(__TAURI_INVOKE("youtube_play", { videoId, title, channel })),
 	/**  yt-dlp and FFmpeg on this device (M46.47). */
 	ytdlpStatus: () => typedError<YtDlpStatus, string>(__TAURI_INVOKE("ytdlp_status")),
@@ -4040,6 +4044,14 @@ export type ListeningStats = {
 	topArtists?: string[],
 };
 
+/**  A live stream as a source's listing describes it. */
+export type LiveNow = {
+	/**  People watching now, as the source counts them. */
+	viewers?: number | null,
+	/**  When it went live, Unix ms. */
+	startedAt?: number | null,
+};
+
 /**  A file Add files couldn't add, and why. */
 export type LocalAddFailure = {
 	name: string,
@@ -4344,6 +4356,10 @@ export type MangaCard = {
 	 *  saved (none for videos). A book without a cover gets one drawn with them.
 	 */
 	authors?: string[],
+	/**  On the air now: a video source's live stream (its card is marked live, with its viewers). */
+	live?: LiveNow | null,
+	/**  A short line under the title, as the listing gives it (a live stream's channel and game). */
+	subtitle?: string | null,
 };
 
 export type MangaChapterInfo = {

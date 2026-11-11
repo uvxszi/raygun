@@ -1,0 +1,186 @@
+{
+  "contents": {
+    "twoColumnSearchResultsRenderer": {
+      "primaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "videoRenderer": {
+                      "videoId": "rFZHOHl-L8A",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/rFZHOHl-L8A/hq720.jpg",
+                            "width": 360,
+                            "height": 202
+                          },
+                          {
+                            "url": "https://i.ytimg.com/vi/rFZHOHl-L8A/hq720.jpg",
+                            "width": 720,
+                            "height": 404
+                          }
+                        ]
+                      },
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "lofi hip hop radio 📚 beats to relax/study to"
+                          }
+                        ]
+                      },
+                      "longBylineText": {
+                        "runs": [
+                          {
+                            "text": "Lofi Girl",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Lofi Girl",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "viewCountText": {
+                        "runs": [
+                          {
+                            "text": "10,856"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "shortViewCountText": {
+                        "runs": [
+                          {
+                            "text": "10K"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "badges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_LIVE_NOW",
+                            "label": "LIVE"
+                          }
+                        },
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_SIMPLE",
+                            "label": "24 products"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "JD-kMIpDfnY",
+                      "thumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://i.ytimg.com/vi/JD-kMIpDfnY/hq720.jpg",
+                            "width": 360,
+                            "height": 202
+                          },
+                          {
+                            "url": "https://i.ytimg.com/vi/JD-kMIpDfnY/hq720.jpg",
+                            "width": 720,
+                            "height": 404
+                          }
+                        ]
+                      },
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "lofi hip hop radio 💤 beats to sleep/chill to"
+                          }
+                        ]
+                      },
+                      "longBylineText": {
+                        "runs": [
+                          {
+                            "text": "Lofi Girl",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          {
+                            "text": "Lofi Girl",
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "viewCountText": {
+                        "runs": [
+                          {
+                            "text": "3,146"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "shortViewCountText": {
+                        "runs": [
+                          {
+                            "text": "3.1K"
+                          },
+                          {
+                            "text": " watching"
+                          }
+                        ]
+                      },
+                      "badges": [
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_LIVE_NOW",
+                            "label": "LIVE"
+                          }
+                        },
+                        {
+                          "metadataBadgeRenderer": {
+                            "style": "BADGE_STYLE_TYPE_SIMPLE",
+                            "label": "24 products"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

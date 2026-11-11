@@ -155,6 +155,8 @@ mod tests {
             adult,
             from_listing: false,
             authors: Vec::new(),
+            live: None,
+            subtitle: None,
         }
     }
 

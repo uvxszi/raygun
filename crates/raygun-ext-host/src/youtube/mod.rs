@@ -14,6 +14,10 @@
 //!   out, with the client's own User-Agent, which the stream answer carries for the player.
 //! - Playlists are youtube.com's `browse` of `VL<id>`, page by page; a mix (`RD…`), which has no
 //!   page, is its watch panel.
+//! - Live streams: youtube.com's search with its Live filter, YouTube's Live page (the streams it
+//!   features), a channel's Live tab, and a stream's HLS playlist from the `player` answers of the
+//!   same app clients. Not every client's playlist plays (some want a proof-of-origin token for
+//!   their segments), so one segment near the live edge is asked for before it's handed out.
 //!
 //! Requests go through the calling extension's own fetch: its network permissions, cookies and
 //! turns with each site apply.
@@ -130,6 +134,56 @@ pub struct Playlist {
     pub videos: Vec<Video>,
 }
 
+/// A video on a live listing: on the air now, coming up, or streamed before.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVideo {
+    pub id: String,
+    pub title: String,
+    pub channel: Option<String>,
+    /// The channel's id (`UC…`), when the listing names it.
+    pub channel_id: Option<String>,
+    /// On the air now.
+    pub live: bool,
+    /// Scheduled and not started yet.
+    pub upcoming: bool,
+    /// People watching now, when YouTube says.
+    pub viewers: Option<u64>,
+    /// The largest picture.
+    pub thumbnail_url: Option<String>,
+    pub thumbnails: Vec<Thumbnail>,
+}
+
+/// A channel's Live tab.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveChannel {
+    /// The channel's id (`UC…`).
+    pub id: String,
+    pub title: Option<String>,
+    pub avatar_url: Option<String>,
+    /// On the air first, then coming up, then streamed before.
+    pub videos: Vec<LiveVideo>,
+}
+
+/// A live stream's playlist, checked to play.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveStream {
+    /// An HLS playlist naming every quality.
+    pub url: String,
+    /// What the player sends with its requests (the User-Agent of the client it was given to).
+    pub headers: BTreeMap<String, String>,
+    /// Unix milliseconds after which the address stops working.
+    pub expires_at: Option<i64>,
+    pub title: Option<String>,
+    pub channel: Option<String>,
+    /// On the air now (else a broadcast that has just ended).
+    pub live: bool,
+    /// The app client that gave it.
+    pub client: String,
+}
+
 /// What a stream is for.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -174,6 +228,12 @@ const STREAM_BUDGET: Duration = Duration::from_secs(7);
 const MAX_PAGES: usize = 50;
 /// No further page is asked once reading a playlist took this long.
 const PLAYLIST_BUDGET: Duration = Duration::from_secs(45);
+/// Live streams a live listing gives when the caller names no number.
+const DEFAULT_LIVE: usize = 20;
+/// No other client is asked for a live playlist once looking took this long.
+const LIVE_BUDGET: Duration = Duration::from_secs(10);
+/// Said of a video that isn't a live stream.
+pub const NOT_LIVE: &str = "This YouTube video isn't a live stream";
 
 /// Whether this platform's players play Opus: everywhere Raygun runs but Apple's.
 const fn opus_plays() -> bool {
@@ -199,6 +259,58 @@ pub(crate) fn is_video_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+/// A YouTube channel id: `UC` and 22 characters of `[A-Za-z0-9_-]`.
+pub(crate) fn is_channel_id(id: &str) -> bool {
+    id.len() == 24
+        && id.starts_with("UC")
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+/// What a text names as a channel: its id, or an address YouTube resolves to one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ChannelRef {
+    Id(String),
+    Address(String),
+}
+
+/// A channel named by its id, its `@handle`, or an address (`/channel/UC…`, `/@handle`, `/c/…`,
+/// `/user/…`).
+fn channel_ref(text: &str) -> Option<ChannelRef> {
+    let text = text.trim();
+    if is_channel_id(text) {
+        return Some(ChannelRef::Id(text.to_owned()));
+    }
+    let handle_ok = |handle: &str| {
+        !handle.is_empty()
+            && handle.len() <= 100
+            && handle
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '·'))
+    };
+    if let Some(handle) = text.strip_prefix('@') {
+        return handle_ok(handle)
+            .then(|| ChannelRef::Address(format!("{}/@{handle}", clients::WEB)));
+    }
+    let url = youtube_url(text)?;
+    let segments: Vec<&str> = url
+        .path_segments()?
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    match segments.as_slice() {
+        ["channel", id, ..] if is_channel_id(id) => Some(ChannelRef::Id((*id).to_owned())),
+        [handle, ..] if handle.strip_prefix('@').is_some_and(handle_ok) => {
+            Some(ChannelRef::Address(format!("{}/{handle}", clients::WEB)))
+        }
+        [kind @ ("c" | "user"), name, ..] => Some(ChannelRef::Address(format!(
+            "{}/{kind}/{name}",
+            clients::WEB
+        ))),
+        _ => None,
+    }
 }
 
 fn is_playlist_id(id: &str) -> bool {
@@ -276,6 +388,8 @@ struct Session {
     visitor: Option<(String, Instant)>,
     /// The client whose stream worked last: asked first.
     preferred: Option<usize>,
+    /// The client whose live playlist played last: asked first for live streams.
+    live_preferred: Option<usize>,
     /// Videos in a row InnerTube gave no stream for.
     failures: u32,
     resting_until: Option<Instant>,
@@ -657,6 +771,240 @@ impl YouTube {
             videos,
         })
     }
+
+    // ---- Live streams ----
+
+    /// Streams on the air now: those matching `query` (youtube.com's search with its Live
+    /// filter), else the ones YouTube's Live page features. At most `limit` (20 without one).
+    pub(crate) async fn live_search(
+        &self,
+        http: &impl Http,
+        query: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<LiveVideo>, String> {
+        let limit = limit.unwrap_or(DEFAULT_LIVE).clamp(1, MAX_SEARCH);
+        let visitor = self.visitor(http).await;
+        let query = query.trim();
+        let ask = if query.is_empty() {
+            ("browse", json!({ "browseId": clients::LIVE_PAGE }))
+        } else {
+            (
+                "search",
+                json!({ "query": query, "params": clients::LIVE_FILTER }),
+            )
+        };
+        let answer = self.web(http, ask.0, visitor.as_deref(), &ask.1).await?;
+        let mut found: Vec<LiveVideo> = parse::live_videos(&answer)
+            .into_iter()
+            .filter(|video| video.live)
+            .collect();
+        found.truncate(limit);
+        Ok(found)
+    }
+
+    /// A channel's Live tab (its id, `@handle` or address): what's on the air first, then what's
+    /// coming up, then what was streamed before. A channel that never streamed has none.
+    pub(crate) async fn channel_live(
+        &self,
+        http: &impl Http,
+        channel: &str,
+    ) -> Result<LiveChannel, String> {
+        let wanted =
+            channel_ref(channel).ok_or_else(|| format!("{channel:?} isn't a YouTube channel"))?;
+        let visitor = self.visitor(http).await;
+        let visitor = visitor.as_deref();
+        let id = match wanted {
+            ChannelRef::Id(id) => id,
+            ChannelRef::Address(url) => {
+                let answer = self
+                    .web(
+                        http,
+                        "navigation/resolve_url",
+                        visitor,
+                        &json!({ "url": url }),
+                    )
+                    .await?;
+                parse::resolved_channel(&answer)
+                    .ok_or_else(|| "YouTube has no such channel".to_owned())?
+            }
+        };
+        let home = self
+            .web(http, "browse", visitor, &json!({ "browseId": id }))
+            .await?;
+        let (title, avatar_url) = parse::channel_header(&home);
+        let Some(params) = parse::streams_tab(&home) else {
+            return Ok(LiveChannel {
+                id,
+                title,
+                avatar_url,
+                videos: Vec::new(),
+            });
+        };
+        let page = self
+            .web(
+                http,
+                "browse",
+                visitor,
+                &json!({ "browseId": id, "params": params }),
+            )
+            .await?;
+        let mut videos = parse::live_videos(&page);
+        videos.sort_by_key(|video| match (video.live, video.upcoming) {
+            (true, _) => 0,
+            (false, true) => 1,
+            _ => 2,
+        });
+        // A channel's own tab doesn't name it on each card.
+        for video in &mut videos {
+            if video.channel.is_none() {
+                video.channel.clone_from(&title);
+            }
+            video.channel_id.get_or_insert_with(|| id.clone());
+        }
+        Ok(LiveChannel {
+            id,
+            title,
+            avatar_url,
+            videos,
+        })
+    }
+
+    /// The order clients are asked for a live playlist: the one whose playlist played last, then
+    /// the rest in theirs.
+    fn live_client_order(&self) -> Vec<&'static PlayerClient> {
+        let preferred = self.session().live_preferred;
+        preferred
+            .into_iter()
+            .chain((0..PLAYER_CLIENTS.len()).filter(|index| Some(*index) != preferred))
+            .filter_map(|index| PLAYER_CLIENTS.get(index))
+            .collect()
+    }
+
+    /// A live stream's playlist (an id or an address): HLS naming every quality, from the first
+    /// app client whose segments play ([`live_plays`]). A video that isn't a live stream, or a
+    /// stream that has ended and became a plain video, has none.
+    pub(crate) async fn live(&self, http: &impl Http, video: &str) -> Result<LiveStream, String> {
+        let id = video_id(video).ok_or_else(|| format!("{video:?} isn't a YouTube video"))?;
+        let started = Instant::now();
+        let visitor = self.visitor(http).await;
+        let mut refusal: Option<String> = None;
+        let mut trouble: Option<String> = None;
+        for client in self.live_client_order() {
+            if started.elapsed() > LIVE_BUDGET {
+                break;
+            }
+            let answer = match send(http, clients::player(client, &id, visitor.as_deref()))
+                .await
+                .and_then(|answer| json_of(answer, "YouTube"))
+            {
+                Ok(answer) => answer,
+                Err(error) => {
+                    trouble.get_or_insert(error);
+                    continue;
+                }
+            };
+            match parse::playability(&answer) {
+                Playability::Ok => {}
+                Playability::Gone(reason) => return Err(reason),
+                Playability::Refused(reason) => {
+                    refusal.get_or_insert(reason);
+                    continue;
+                }
+            }
+            if !parse::is_live_content(&answer) {
+                return Err(NOT_LIVE.to_owned());
+            }
+            let Some(url) = parse::hls_manifest(&answer) else {
+                if !parse::is_live(&answer) {
+                    return Err("This live stream has ended".to_owned());
+                }
+                continue;
+            };
+            if !live_plays(http, &url, client.user_agent).await {
+                tracing::debug!(
+                    client = client.name,
+                    video = %id,
+                    "its live playlist's segments don't play"
+                );
+                trouble.get_or_insert_with(|| "YouTube's live playlist didn't play".to_owned());
+                continue;
+            }
+            self.session().live_preferred = PLAYER_CLIENTS.iter().position(|known| known == client);
+            let details = parse::details(&answer);
+            return Ok(LiveStream {
+                url,
+                headers: BTreeMap::from([("User-Agent".to_owned(), client.user_agent.to_owned())]),
+                expires_at: details
+                    .expires_in_seconds
+                    .and_then(|seconds| i64::try_from(seconds).ok())
+                    .map(|seconds| now_ms().saturating_add(seconds.saturating_mul(1000))),
+                title: details.title,
+                channel: details.channel,
+                live: parse::is_live(&answer),
+                client: client.name.to_owned(),
+            });
+        }
+        Err(refusal
+            .or(trouble)
+            .unwrap_or_else(|| "YouTube gave no live playlist Raygun can play".to_owned()))
+    }
+}
+
+/// The addresses an HLS playlist names (its variants, or its segments), resolved against it.
+fn playlist_uris(base: &str, body: &str) -> Vec<String> {
+    let base = url::Url::parse(base).ok();
+    body.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| match &base {
+            Some(base) => base.join(line).ok().map(String::from),
+            None => line.starts_with("https://").then(|| line.to_owned()),
+        })
+        .collect()
+}
+
+/// Whether a live playlist's segments are handed out: its first variant's playlist, then the
+/// segment three from its live edge, asked as the client it was given to.
+async fn live_plays(http: &impl Http, master: &str, user_agent: &str) -> bool {
+    let fetch = |url: String| async move {
+        let request = clients::get(
+            url,
+            vec![("User-Agent", user_agent.to_owned())],
+            Duration::from_secs(5),
+        );
+        send(http, request)
+            .await
+            .ok()
+            .filter(|answer| answer.status == 200 && answer.body.starts_with("#EXTM3U"))
+    };
+    let Some(top) = fetch(master.to_owned()).await else {
+        return false;
+    };
+    // A playlist naming variants, or already one of segments.
+    let media = if top.body.contains("#EXT-X-STREAM-INF") {
+        let Some(variant) = playlist_uris(master, &top.body).into_iter().next() else {
+            return false;
+        };
+        match fetch(variant.clone()).await {
+            Some(answer) => (variant, answer.body),
+            None => return false,
+        }
+    } else {
+        (master.to_owned(), top.body)
+    };
+    let segments = playlist_uris(&media.0, &media.1);
+    let Some(segment) = segments.iter().rev().nth(2).or(segments.last()) else {
+        return false;
+    };
+    let check = clients::get(
+        segment.clone(),
+        vec![
+            ("Range", "bytes=0-1".to_owned()),
+            ("User-Agent", user_agent.to_owned()),
+        ],
+        Duration::from_secs(5),
+    );
+    matches!(send(http, check).await, Ok(answer) if matches!(answer.status, 200 | 206))
 }
 
 /// Sends a request, waiting no longer than it allows.

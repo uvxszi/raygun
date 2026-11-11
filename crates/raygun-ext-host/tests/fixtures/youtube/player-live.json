@@ -1,0 +1,24 @@
+{
+  "playabilityStatus": {
+    "status": "OK",
+    "liveStreamability": {
+      "liveStreamabilityRenderer": {
+        "videoId": "rFZHOHl-L8A",
+        "pollDelayMs": "30000"
+      }
+    }
+  },
+  "streamingData": {
+    "expiresInSeconds": "21540",
+    "hlsManifestUrl": "https://manifest.googlevideo.com/api/manifest/hls_variant/expire/1794460641/id/rFZHOHl-L8A.1/source/yt_live_broadcast/file/index.m3u8"
+  },
+  "videoDetails": {
+    "videoId": "rFZHOHl-L8A",
+    "title": "lofi hip hop radio - beats to relax/study to",
+    "lengthSeconds": "0",
+    "channelId": "UCSJ4gkVC6NrvII8umztf0Ow",
+    "author": "Lofi Girl",
+    "isLive": true,
+    "isLiveContent": true
+  }
+}
