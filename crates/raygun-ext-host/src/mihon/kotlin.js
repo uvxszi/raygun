@@ -4549,6 +4549,14 @@
         ensureSuccess: false,
         redirect: this.followsRedirects ? null : 'manual',
       });
+      // AWS WAF's challenge answers an empty 202 (or 200) naming its action: no page for the
+      // source, a browser check (which the person may then pass by hand), not an empty listing.
+      const action = raw.header ? raw.header('x-amzn-waf-action') : null;
+      if (raw.code < 300 && /^(challenge|captcha)$/i.test(KT.str(action ?? '').trim()))
+        throw new KotlinError(
+          `${request.url.host} answered with a browser check (AWS WAF)`,
+          'IOException',
+        );
       return new Response(raw, request);
     }
     newCall(request) {

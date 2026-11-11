@@ -3749,6 +3749,44 @@ class Counter {
     );
 }
 
+/// AWS WAF's challenge, an empty 202 naming its action, fails the call as a browser check rather
+/// than giving the source an empty page to list nothing from (FireCross's).
+#[tokio::test]
+async fn an_aws_waf_challenge_is_a_browser_check() {
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            STANDALONE_SOURCE,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let app = Router::new().route(
+        "/list/page/1",
+        get(|| async {
+            (
+                axum::http::StatusCode::ACCEPTED,
+                [("x-amzn-waf-action", "challenge")],
+                "",
+            )
+        }),
+    );
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let error = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Popular,
+            1,
+        )
+        .await
+        .unwrap_err();
+    assert!(error.contains("browser check"), "{error}");
+}
+
 /// The runtime's stand-ins for commons-text, java-string-similarity and java-nat-sort (whose
 /// dependencies then convert), and for Android's handlers and clocks.
 #[tokio::test]
