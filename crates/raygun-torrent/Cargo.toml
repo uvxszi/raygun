@@ -1,0 +1,32 @@
+[package]
+name = "raygun-torrent"
+description = "Raygun torrent streaming: a torrent's video file read in order, for the stream proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+raygun-resolver.workspace = true
+# Pure Rust BitTorrent (Apache-2.0): magnet links and .torrent files, DHT, trackers, and files
+# read as they arrive with the pieces ahead of the reader fetched first. Without its default
+# features: reqwest stays the workspace's (rustls on ring), and the vendored
+# `librqbit-sha1-wrapper` hashes with ring (see third_party/README.md).
+librqbit = { version = "=9.1.0", default-features = false }
+# `torrent_from_bytes` needs one of its hash features named; the vendored wrapper uses ring for both.
+librqbit-core = { version = "=9.1.0", default-features = false, features = ["sha1-ring"] }
+rustls.workspace = true
+tokio = { workspace = true, features = ["time", "io-util"] }
+tracing.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+url = "2"
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+reqwest.workspace = true
+# The live test reads the stream through the proxy, as the players do.
+raygun-net.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std"] }

@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { hostLabel } from '../extensions/hostLabel';
+import { RunsOn } from '../extensions/RunsOn';
 
 import { SettingsForm } from '../extensions/SettingsForm';
 import { useExtension, useUninstallExtension } from '../extensions/useExtensions';
@@ -120,6 +121,11 @@ export const ExtensionDetailPage: FC = () => {
           <p className="text-muted px-1">{t('extensions.noNetwork')}</p>
         )}
       </section>
+      {info.sites && info.sites.length > 0 && (
+        <section className="flex flex-col gap-1 px-1 text-sm">
+          <RunsOn sites={info.sites} large />
+        </section>
+      )}
       {info.compatibility && (
         <section
           data-testid="extension-compatibility"

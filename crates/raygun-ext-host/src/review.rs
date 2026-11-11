@@ -8,6 +8,7 @@ use raygun_model::{MediaSource, ProviderInfo};
 use serde_json::{Value, json};
 
 use crate::audiobook::{self, AUDIOBOOK_DIRECTORY};
+use crate::dictionary::{self, DICTIONARY};
 use crate::host::{
     LYRICS, MUSIC_CHARTS, MUSIC_INFO, MUSIC_METADATA, MUSIC_RECOMMEND, MUSIC_STREAM, MUSIC_TAGS,
     albums_in, allowed_source, artist_names, artists_in, events_in, parse_album, parse_artist_info,
@@ -97,6 +98,7 @@ const PODCAST: &str = "a title and an http(s) feedUrl";
 const BOOK: &str = "a title, and an http(s) feedUrl or an id";
 const BOOK_CHAPTER: &str = "an http(s) audioUrl";
 const COMMENT: &str = "an author and a text";
+const ENTRY: &str = "a word, and a meaning with a definition";
 
 /// How the app reads `method`'s answer from a provider of `kind`; `None` for a call the app never
 /// makes.
@@ -310,6 +312,9 @@ pub fn review(kind: &str, method: &str, answer: &Value) -> Option<Review> {
                 "no book: it needs a title (and chapters with audio)",
             )
         }
+        (DICTIONARY, "define") => listing("entries", ENTRY, answer, Some("entries"), |value| {
+            dictionary::parse_entries(value, "en").len()
+        }),
         _ => return None,
     };
     Some(review)
@@ -319,7 +324,10 @@ pub fn review(kind: &str, method: &str, answer: &Value) -> Option<Review> {
 pub fn time_limit(kind: &str, method: &str) -> Duration {
     match (kind, method) {
         (MUSIC_METADATA, "album" | "playlist") => CALL_TIMEOUT,
-        (MUSIC_METADATA | MUSIC_STREAM | LYRICS | MUSIC_INFO | AUDIOBOOK_DIRECTORY, _)
+        (
+            MUSIC_METADATA | MUSIC_STREAM | LYRICS | MUSIC_INFO | AUDIOBOOK_DIRECTORY | DICTIONARY,
+            _,
+        )
         | (MUSIC_CHARTS, "tagSongs")
         | (VIDEO_SOURCE, "comments") => INTERACTIVE_TIMEOUT,
         // A search row, or the popular titles it shows before anything is typed.
@@ -715,7 +723,14 @@ mod tests {
         )))
         .unwrap();
         let kinds = kinds.as_object().unwrap();
-        assert_eq!(kinds.len(), 12);
+        // Thirteen kinds of providers, and site scripts (`crate::site`), which have no calls.
+        assert_eq!(kinds.len(), 14);
+        assert!(
+            kinds["site.scripts"]["required"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
         for (kind, info) in kinds {
             for list in ["required", "optional"] {
                 for method in info[list].as_array().unwrap() {

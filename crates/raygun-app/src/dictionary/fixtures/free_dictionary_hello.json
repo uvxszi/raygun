@@ -1,0 +1,59 @@
+[
+  {
+    "word": "hello",
+    "phonetics": [
+      {
+        "audio": "https://api.dictionaryapi.dev/media/pronunciations/en/hello-au.mp3",
+        "sourceUrl": "https://commons.wikimedia.org/w/index.php?curid=1",
+        "license": { "name": "BY-SA 4.0", "url": "https://creativecommons.org/licenses/by-sa/4.0" }
+      },
+      {
+        "text": "/həˈləʊ/",
+        "audio": "https://api.dictionaryapi.dev/media/pronunciations/en/hello-uk.mp3"
+      },
+      { "text": "/həˈloʊ/", "audio": "" }
+    ],
+    "meanings": [
+      {
+        "partOfSpeech": "noun",
+        "definitions": [
+          { "definition": "A word said as a greeting.", "synonyms": [], "antonyms": [] }
+        ],
+        "synonyms": ["greeting"],
+        "antonyms": []
+      },
+      {
+        "partOfSpeech": "interjection",
+        "definitions": [
+          {
+            "definition": "A greeting said when meeting someone.",
+            "synonyms": ["hi"],
+            "antonyms": ["goodbye"],
+            "example": "Hello, everyone."
+          },
+          { "definition": "Said when answering the telephone.", "synonyms": [], "antonyms": [] }
+        ],
+        "synonyms": [],
+        "antonyms": ["bye"]
+      }
+    ],
+    "license": { "name": "CC BY-SA 3.0", "url": "https://creativecommons.org/licenses/by-sa/3.0" },
+    "sourceUrls": ["https://en.wiktionary.org/wiki/hello"]
+  },
+  {
+    "word": "hello",
+    "phonetic": "/hɛˈləʊ/",
+    "phonetics": [],
+    "origin": "A variant of an older greeting.",
+    "meanings": [
+      {
+        "partOfSpeech": "noun",
+        "definitions": [{ "definition": "An expression of puzzlement.", "synonyms": [], "antonyms": [] }],
+        "synonyms": [],
+        "antonyms": []
+      }
+    ],
+    "license": { "name": "CC BY-SA 3.0", "url": "https://creativecommons.org/licenses/by-sa/3.0" },
+    "sourceUrls": ["https://en.wiktionary.org/wiki/hello"]
+  }
+]

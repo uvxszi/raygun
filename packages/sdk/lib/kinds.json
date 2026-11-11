@@ -77,6 +77,14 @@
       "radio": { "artist": "", "title": null, "limit": 40 }
     }
   },
+  "dictionary": {
+    "label": "Words looked up in the book reader",
+    "required": ["define"],
+    "optional": [],
+    "args": {
+      "define": { "word": "", "language": "en" }
+    }
+  },
   "manga.source": {
     "label": "Comics: lists, search, chapters and pages",
     "required": ["popular", "search", "details", "chapters", "pages"],
@@ -129,6 +137,12 @@
       "search": { "query": "", "limit": 30 },
       "top": { "limit": 30 }
     }
+  },
+  "site.scripts": {
+    "label": "Scripts and styles for websites in Raygun's browser",
+    "required": [],
+    "optional": [],
+    "args": {}
   },
   "audiobook.directory": {
     "label": "Audiobooks to find, with their chapters",

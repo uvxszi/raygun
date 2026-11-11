@@ -314,6 +314,11 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
     if differs("network", &|before| before.network == settings.network) {
         crate::network_mode::apply(app, &settings.network);
     }
+    if differs("torrents", &|before| before.torrents == settings.torrents)
+        && let Some(torrents) = app.try_state::<std::sync::Arc<crate::torrents::TorrentService>>()
+    {
+        torrents.settings_changed(&settings.torrents).await;
+    }
     // YouTube's players: the audio track and codec (the next load's address), SponsorBlock's
     // parts (the song playing follows at once).
     if differs("youtube", &|before| before.youtube == settings.youtube)
@@ -631,6 +636,10 @@ mod tests {
         assert!(loaded.swap_sides);
         assert_eq!(loaded.subtitle_style.size, 150);
         assert_eq!(loaded.subtitle_style.position, 8);
+        // Lines keep to 80 % of the picture's width, and no colour counts as picked.
+        assert_eq!(loaded.subtitle_style.max_width, 80);
+        assert!(!loaded.subtitle_style.text_color_chosen);
+        assert!(!loaded.subtitle_style.background_color_chosen);
         assert_eq!(loaded.default_speed, 100);
 
         let player = |change: fn(&mut raygun_model::VideoPlayerPrefs)| {
@@ -646,6 +655,8 @@ mod tests {
             player(|prefs| prefs.volume_boost = 35),
             player(|prefs| prefs.skip_wait_seconds = 4),
             player(|prefs| prefs.subtitle_style.size = 20),
+            player(|prefs| prefs.subtitle_style.max_width = 30),
+            player(|prefs| prefs.subtitle_style.max_width = 120),
             player(|prefs| prefs.audio_language = "not a tag!".into()),
         ] {
             assert!(update(&db, bad.clone()).await.is_err(), "{bad:?}");

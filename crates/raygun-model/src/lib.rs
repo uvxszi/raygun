@@ -6,8 +6,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+mod dictionary;
 mod years;
 
+pub use dictionary::*;
 pub use years::year_range_label;
 
 /// Build and runtime facts about the running app.
@@ -237,6 +239,9 @@ pub struct Settings {
     /// The readers' AI layers: pages upscaled, lines restored, text translated (v1.3.0).
     #[serde(default)]
     pub reader_ai: ReaderAiPrefs,
+    /// Word lookups in the book reader.
+    #[serde(default)]
+    pub dictionary: DictionaryPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
@@ -278,9 +283,67 @@ pub struct Settings {
     pub network: NetworkPrefs,
     /// What the desktop sidebar shows and in what order (M46.29).
     pub rail: RailPrefs,
+    /// Torrent links playing in the video player (this device only).
+    #[serde(default)]
+    pub torrents: TorrentPrefs,
     /// YouTube's videos and songs: parts skipped with SponsorBlock, the audio track that plays.
     #[serde(default)]
     pub youtube: YouTubePrefs,
+}
+
+/// Torrent streaming (`raygun_torrent`): videos that sources give as torrents (Stremio addons'
+/// `infoHash` streams, magnet links, `.torrent` files) play in the video player as their pieces
+/// arrive. This device only (`raygun_db::sync::DEVICE_ONLY_SETTINGS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TorrentPrefs {
+    /// Torrent links play. Off until turned on after the explanation: torrents share the
+    /// video's pieces with other people while it plays.
+    pub enabled: bool,
+    /// Only on Wi-Fi or a wired network, never over mobile data.
+    pub wifi_only: bool,
+    /// What the torrent cache holds at most, in GB ([`TORRENT_CACHE_GB`]): the pieces of the
+    /// video playing (a bigger video doesn't play) and of torrents shared on.
+    pub cache_gb: u32,
+    /// Pieces are shared on after a video closes, while Raygun runs; off, they're deleted.
+    pub seed: bool,
+    /// The port other peers connect to; 0 takes any free one.
+    pub port: u16,
+    /// Peers are also found through the DHT, not only through trackers.
+    pub dht: bool,
+}
+
+impl Default for TorrentPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            wifi_only: true,
+            cache_gb: 4,
+            seed: false,
+            port: 0,
+            dht: true,
+        }
+    }
+}
+
+/// The torrent cache sizes offered, in GB.
+pub const TORRENT_CACHE_GB: [u32; 7] = [1, 2, 4, 8, 16, 32, 64];
+
+impl TorrentPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if !TORRENT_CACHE_GB.contains(&self.cache_gb) {
+            return Err(format!("{} GB isn't an offered cache size", self.cache_gb));
+        }
+        if self.port != 0 && self.port < 1024 {
+            return Err("The port is 0 (any) or 1024 to 65535".into());
+        }
+        Ok(())
+    }
+
+    /// The cache's size in bytes.
+    pub fn cache_bytes(&self) -> u64 {
+        u64::from(self.cache_gb) * 1_000_000_000
+    }
 }
 
 /// Quick access: the desktop sidebar's list (M46.29) and the phone's drawer. The audio library
@@ -2723,15 +2786,25 @@ pub struct SubtitleStyle {
     pub italic: bool,
     /// Colours are 0xAARRGGBB.
     pub text_color: u32,
+    /// The text colour was picked (white included): it wins over the colours a subtitle file
+    /// gives its lines. Unpicked, only a colour other than white does.
+    pub text_color_chosen: bool,
     pub edge: SubtitleEdge,
     pub edge_color: u32,
-    /// Behind each line; fully transparent by default.
+    /// Behind each line, in boxes with rounded corners; fully transparent by default.
     pub background_color: u32,
+    /// The background was picked ("None" included): it replaces the backgrounds a file sets.
+    pub background_color_chosen: bool,
     /// Distance from the bottom, in percent of the picture's height, 0–40.
     pub position: u32,
+    /// The widest a line gets, in percent of the picture's width, 40–100; longer ones wrap.
+    pub max_width: u32,
     /// Ignores the colours, fonts and positions a subtitle file sets itself.
     pub ignore_embedded: bool,
 }
+
+/// The line width subtitles keep to unless changed, in percent of the picture's width.
+pub const SUBTITLE_MAX_WIDTH: u32 = 80;
 
 impl Default for SubtitleStyle {
     fn default() -> Self {
@@ -2741,10 +2814,13 @@ impl Default for SubtitleStyle {
             bold: false,
             italic: false,
             text_color: 0xFFFF_FFFF,
+            text_color_chosen: false,
             edge: SubtitleEdge::Outline,
             edge_color: 0xFF00_0000,
             background_color: 0,
+            background_color_chosen: false,
             position: 8,
+            max_width: SUBTITLE_MAX_WIDTH,
             ignore_embedded: false,
         }
     }
@@ -2935,6 +3011,9 @@ impl VideoPlayerPrefs {
         if !(50..=200).contains(&style.size) || style.position > 40 {
             return Err("That subtitle size or position isn't offered".into());
         }
+        if !(40..=100).contains(&style.max_width) {
+            return Err("Subtitle lines are 40 % to 100 % of the picture's width".into());
+        }
         for tag in [
             &self.subtitle_fallback,
             &self.audio_language,
@@ -3007,6 +3086,7 @@ impl Default for Settings {
             lyrics_cache: LyricsCachePrefs::default(),
             lyrics_translation: LyricsTranslationPrefs::default(),
             reader_ai: ReaderAiPrefs::default(),
+            dictionary: DictionaryPrefs::default(),
             failing_sources_last: true,
             browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
@@ -3023,6 +3103,7 @@ impl Default for Settings {
             audio_quality: AudioQualityPrefs::default(),
             network: NetworkPrefs::default(),
             rail: RailPrefs::default(),
+            torrents: TorrentPrefs::default(),
             youtube: YouTubePrefs::default(),
         }
     }
@@ -3095,6 +3176,13 @@ impl Settings {
             SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::ReaderAi(prefs) => self.reader_ai = prefs,
+            SettingChange::Torrents(prefs) => self.torrents = prefs,
+            SettingChange::Dictionary(prefs) => {
+                self.dictionary = DictionaryPrefs {
+                    language: prefs.language.trim().to_owned(),
+                    ..prefs
+                }
+            }
             SettingChange::LyricsTranslation(prefs) => {
                 self.lyrics_translation = LyricsTranslationPrefs {
                     language: prefs.language.trim().to_owned(),
@@ -3196,6 +3284,8 @@ pub enum SettingChange {
     LyricsCache(LyricsCachePrefs),
     LyricsTranslation(LyricsTranslationPrefs),
     ReaderAi(ReaderAiPrefs),
+    Torrents(TorrentPrefs),
+    Dictionary(DictionaryPrefs),
     #[serde(rename = "youtube")]
     YouTube(YouTubePrefs),
 }
@@ -3269,6 +3359,8 @@ impl SettingChange {
             Self::LyricsCache(_) => "lyricsCache",
             Self::LyricsTranslation(_) => "lyricsTranslation",
             Self::ReaderAi(_) => "readerAi",
+            Self::Torrents(_) => "torrents",
+            Self::Dictionary(_) => "dictionary",
             Self::YouTube(_) => "youtube",
         }
     }
@@ -3326,6 +3418,8 @@ impl SettingChange {
             }
             Self::Hidden(prefs) => prefs.validate(),
             Self::ReaderAi(prefs) => prefs.validate(),
+            Self::Torrents(prefs) => prefs.validate(),
+            Self::Dictionary(prefs) => prefs.validate(),
             Self::SearchListings(prefs) => prefs.validate(),
             Self::ContentOverrides(overrides) => overrides.validate(),
             Self::Rail(prefs) => prefs.validate(),
@@ -4032,6 +4126,11 @@ pub struct ExtensionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub needs_setup: Option<SetupNeed>,
+    /// Where a site-scripts extension's scripts run in the websites browser: its match patterns
+    /// (`https://*.youtube.com/*`).
+    #[serde(default)]
+    #[specta(optional)]
+    pub sites: Vec<String>,
 }
 
 /// How much of a Nuclear plugin runs in Raygun (M17).
@@ -4242,6 +4341,11 @@ pub struct CatalogEntry {
     #[serde(default)]
     #[specta(optional)]
     pub unsupported: Option<String>,
+    /// Where a site-scripts extension's scripts would run in the websites browser: its match
+    /// patterns, as its repository lists them (checked against the package at install).
+    #[serde(default)]
+    #[specta(optional)]
+    pub sites: Vec<String>,
 }
 
 /// What kind of server a connection is: servers people own, added by address and sign-in.
@@ -6716,6 +6820,11 @@ pub struct WebsitePrefs {
     pub custom_list_url: Option<String>,
     /// Sites open in desktop mode.
     pub desktop: bool,
+    /// A page that plays keeps playing while the browser is off screen (Android: a media
+    /// notification with its controls; desktop: a minimized window).
+    pub background_play: bool,
+    /// Site scripts turned off on a site: extension ids by the site's id.
+    pub scripts_off: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 impl Default for WebsitePrefs {
@@ -6726,6 +6835,8 @@ impl Default for WebsitePrefs {
             blocklist: Blocklist::HageziMulti,
             custom_list_url: None,
             desktop: false,
+            background_play: true,
+            scripts_off: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -6763,6 +6874,30 @@ pub struct Website {
     /// Where it was left, when it opens there rather than at `url`.
     pub last_url: Option<String>,
     pub block_ads: bool,
+    /// The site-scripts extensions that run on its address, by name (turned off ones left out).
+    #[serde(default)]
+    pub scripts: Vec<String>,
+}
+
+/// An installed site-scripts extension, as Settings → Browse → Websites lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteScriptsInfo {
+    pub extension_id: String,
+    pub name: String,
+    /// The sites its scripts name, for people (`youtube.com`; `*` for every site).
+    pub sites: Vec<String>,
+    /// The user's websites its scripts run on, each with its switch.
+    pub websites: Vec<SiteScriptsWebsite>,
+}
+
+/// One of the user's websites a site-scripts extension runs on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteScriptsWebsite {
+    pub id: String,
+    pub name: String,
+    pub on: bool,
 }
 
 /// The downloaded blocklist.
@@ -6881,6 +7016,8 @@ pub enum StorageArea {
     MusicArt,
     /// Downloaded chapters, books, comics and videos: not a cache.
     Downloads,
+    /// Pieces of torrents playing or shared on (a cache, `TorrentPrefs::cache_gb`).
+    Torrents,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -8638,7 +8775,8 @@ pub enum StremioStreamKind {
     YouTube,
     /// Opens outside Raygun (a web page).
     External,
-    /// A torrent: a torrent app plays it; `target` is its magnet link.
+    /// A torrent: Raygun's player plays it once torrents are turned on (`TorrentPrefs`), else a
+    /// torrent app; `target` is its magnet link.
     Torrent,
     /// Opens another title's page; `target` is `<type>/<id>`.
     Title,

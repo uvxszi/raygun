@@ -6,7 +6,14 @@ import { create } from 'zustand';
 import { PLAYER_DEFAULTS, withDefaults } from '../settings/playerOptions';
 import type { PlayerPrefs } from '../settings/playerOptions';
 import type { MediaEngine } from './mediaEngine';
-import type { EpisodeItem, PlayerRequest, PlayerUpdate, QualityRow, SourceGroup } from './protocol';
+import type {
+  EpisodeItem,
+  PlayerRequest,
+  PlayerUpdate,
+  QualityRow,
+  SourceGroup,
+  TorrentTransfer,
+} from './protocol';
 
 const DEFAULT_SEEK_STEP_MS = 10_000;
 const DEFAULT_PROMPT_MS = 15_000;
@@ -58,6 +65,8 @@ type VideoPlayerState = {
   pickedSource: boolean;
   /** Loop this video (More): on until the player closes, across a session's episodes. */
   looping: boolean;
+  /** How the torrent playing is doing, when the video is a torrent's. */
+  transfer: TorrentTransfer | null;
   /** What plays on a TV (Play on TV): while there is one, the player is its remote. Kept when
    * the player closes, as the TV plays on. */
   cast: CastStatus | null;
@@ -95,6 +104,7 @@ const loaded = (request: PlayerRequest, state: VideoPlayerState) => ({
   chapters: request.chapters ?? [],
   loadingText: null,
   notice: null,
+  transfer: null,
 });
 
 const CLOSED = {
@@ -126,6 +136,7 @@ const CLOSED = {
   showSources: 0,
   pickedSource: false,
   looping: false,
+  transfer: null,
 } satisfies Partial<VideoPlayerState>;
 
 /** The webview's video player (desktop, M46.4), driven by Rust's `videoPlayerEvent`s. */
@@ -195,6 +206,11 @@ export const useVideoPlayerStore = create<VideoPlayerState>((set) => ({
             state,
           );
           return { prefs, seekStepMs, appLanguage, subtitleLanguage, subtitleMode };
+        }
+        case 'transfer': {
+          if (update.id !== state.request?.id) return state;
+          const { peers, seeds, downloadBps, have, len, dataSaver } = update;
+          return { transfer: { peers, seeds, downloadBps, have, len, dataSaver } };
         }
         case 'chapters': {
           if (update.id !== state.request?.id) return state;

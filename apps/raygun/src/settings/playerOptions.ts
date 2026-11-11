@@ -153,12 +153,18 @@ export const DEFAULT_SUBTITLE_STYLE: Required<SubtitleStyle> = {
   bold: false,
   italic: false,
   textColor: 0xffffffff,
+  textColorChosen: false,
   edge: 'outline',
   edgeColor: 0xff000000,
   backgroundColor: 0,
+  backgroundColorChosen: false,
   position: 8,
+  maxWidth: 80,
   ignoreEmbedded: false,
 };
+
+/** The line widths offered, in percent of the picture's width (`SubtitleStyle::max_width`). */
+export const SUBTITLE_MAX_WIDTH = { min: 40, max: 100, step: 5 };
 
 /** Matches `VideoPlayerPrefs::default()` in raygun-model. */
 export const PLAYER_DEFAULTS: PlayerPrefs = {

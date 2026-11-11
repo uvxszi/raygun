@@ -262,6 +262,7 @@ pub fn parse(text: &str) -> Option<RepoIndex> {
                 sha256: String::new(),
                 size: 0,
                 format: PackageFormat::Kodi,
+                sites: Vec::new(),
             })
         })
         .collect();

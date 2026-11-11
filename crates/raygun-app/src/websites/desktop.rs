@@ -5,6 +5,10 @@
 //! to the site. Where a site was left and its switch are reported the way Android's browser
 //! reports them. Files the site downloads show in a Downloads menu that appears with the first:
 //! how far each is, then Open (or Retry).
+//!
+//! Site scripts (`super::scripts`) are initialization scripts of the window, after Raygun's page
+//! bridge; switching one on or off makes the window again. Offers from pages (WebView2's web
+//! messages, Windows) show in an "In Raygun" menu while the page has some.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -42,7 +46,66 @@ struct Request {
     block_popups: bool,
     blocklist: PathBuf,
     profile: PathBuf,
+    #[serde(default)]
+    background_play: bool,
+    /// Raygun's page bridge (`super::scripts::BRIDGE`).
+    #[serde(default)]
+    bridge_code: String,
+    #[serde(default)]
+    site_scripts: Vec<SiteScripts>,
+    #[serde(default)]
+    suggestions: Vec<Suggestion>,
 }
+
+/// An extension's site scripts as the window gets them (`super::scripts::BrowserScripts`).
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SiteScripts {
+    id: String,
+    name: String,
+    #[serde(default)]
+    code: String,
+    on: bool,
+}
+
+/// Site scripts a repository has for the site (`super::scripts::Suggestion`).
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Suggestion {
+    id: String,
+    name: String,
+    repository: String,
+}
+
+/// Offers the page made (Windows), newest first, and the menu that shows them.
+#[derive(Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct Offers {
+    menu: Option<Submenu<Wry>>,
+    list: Vec<Offer>,
+    /// Names offers in menu ids, so a click finds the one it was made for.
+    next: u64,
+}
+
+/// One offer, as checked lightly here; Raygun checks it again before it acts.
+#[derive(Clone)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct Offer {
+    number: u64,
+    extension: String,
+    page: String,
+    kind: String,
+    url: String,
+    title: Option<String>,
+    offer: serde_json::Value,
+}
+
+/// Offers kept per page, at most.
+#[cfg_attr(not(windows), allow(dead_code))]
+const MAX_OFFERS: usize = 20;
+/// Offers the menu lists, the newest.
+#[cfg_attr(not(windows), allow(dead_code))]
+const MENU_OFFERS: usize = 5;
 
 /// The open site windows, by label, for their Downloads menus.
 #[derive(Default)]
@@ -74,6 +137,14 @@ struct Site {
     list: Blocklist,
     /// The webview's User-Agent once read (Windows), for downloads.
     user_agent: Mutex<Option<String>>,
+    scripts: Vec<SiteScripts>,
+    suggestions: Vec<Suggestion>,
+    offers: Mutex<Offers>,
+    /// Pages are told when the window is minimized, so their own pauses can be told apart.
+    background_play: bool,
+    minimized: AtomicBool,
+    /// Where reports go (`super::WebsiteReports`).
+    send: Arc<dyn Fn(String) + Send + Sync>,
 }
 
 impl Site {
@@ -170,9 +241,22 @@ pub fn open(
         popup_item: Mutex::new(None),
         list: Blocklist::load(&request.blocklist),
         user_agent: Mutex::new(None),
+        scripts: request
+            .site_scripts
+            .iter()
+            .map(|script| SiteScripts {
+                code: String::new(),
+                ..script.clone()
+            })
+            .collect(),
+        suggestions: request.suggestions.clone(),
+        offers: Mutex::new(Offers::default()),
+        background_play: request.background_play,
+        minimized: AtomicBool::new(false),
+        send: Arc::new(report),
     });
     let menu = menu(app, &label, &site).map_err(|error| error.to_string())?;
-    let report = Arc::new(report);
+    let report = site.send.clone();
     let report_load = report.clone();
 
     let on_navigation = site.clone();
@@ -217,6 +301,10 @@ pub fn open(
             NewWindowResponse::Deny
         })
         .on_page_load(move |window, payload| {
+            if payload.event() == PageLoadEvent::Started {
+                // A new page: the old one's offers go with it.
+                on_load.clear_offers(&window);
+            }
             if payload.event() == PageLoadEvent::Finished {
                 *on_load.url.lock().expect("site poisoned") = payload.url().clone();
                 on_load.show_title(&window);
@@ -227,6 +315,20 @@ pub fn open(
         .on_document_title_changed(move |window, title| {
             *on_title.title.lock().expect("site poisoned") = title;
             on_title.show_title(&window);
+        });
+    // Raygun's page bridge first, then each extension's scripts that are on here, in every frame
+    // (each checks its own patterns and frames).
+    let builder = std::iter::once(request.bridge_code.as_str())
+        .chain(
+            request
+                .site_scripts
+                .iter()
+                .filter(|script| script.on)
+                .map(|script| script.code.as_str()),
+        )
+        .filter(|code| !code.is_empty())
+        .fold(builder, |builder, code| {
+            builder.initialization_script_for_all_frames(code)
         });
     // Downloads are Raygun's (Windows: `DownloadStarting`, in `install_downloads`).
     #[cfg(not(windows))]
@@ -287,6 +389,15 @@ pub fn open(
             }
             report(on_close.report());
         }
+        // Pages hear when the window is minimized and back (`raygunPage.state.background`).
+        tauri::WindowEvent::Resized(_) if on_close.background_play => {
+            let minimized = watched.is_minimized().unwrap_or(false);
+            if on_close.minimized.swap(minimized, Ordering::Relaxed) != minimized {
+                let _ = watched.eval(format!(
+                    "window.__raygunPageReceive && window.__raygunPageReceive({{type:'state',background:{minimized},call:false,audioActive:false}})"
+                ));
+            }
+        }
         tauri::WindowEvent::Destroyed => {
             report(on_close.report());
             if let Some(sites) = watched.app_handle().try_state::<OpenSites>() {
@@ -305,11 +416,239 @@ pub fn open(
     #[cfg(windows)]
     install_downloads(&window, site.clone());
     #[cfg(windows)]
+    install_messages(&window, site.clone());
+    #[cfg(windows)]
     install_blocker(&window, site);
     Ok(())
 }
 
+/// Closes a site's window and waits until it's gone, so it can be made again under its label.
+pub async fn close(app: &AppHandle, id: &str) {
+    let label = label(id);
+    let Some(window) = app.get_webview_window(&label) else {
+        return;
+    };
+    let _ = window.close();
+    for _ in 0..60 {
+        if app.get_webview_window(&label).is_none() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 impl Site {
+    /// Forgets the page's offers (a new page started) and takes the menu down.
+    fn clear_offers(&self, window: &WebviewWindow) {
+        let mut offers = self.offers.lock().expect("site poisoned");
+        if offers.list.is_empty() {
+            return;
+        }
+        offers.list.clear();
+        self.show_offers(window, &mut offers);
+    }
+
+    /// A message from the page's bridge (Windows' web messages): offers come and go.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn take_message(&self, window: &WebviewWindow, source: &str, json: &str) {
+        let Ok(serde_json::Value::Object(mut message)) = serde_json::from_str(json) else {
+            return;
+        };
+        let Some(serde_json::Value::Object(message)) = message.remove("raygunBridge") else {
+            return;
+        };
+        let text = |value: Option<&serde_json::Value>| {
+            value.and_then(serde_json::Value::as_str).map(str::to_owned)
+        };
+        let Some(extension) = text(message.get("extension")) else {
+            return;
+        };
+        // Only scripts this window runs offer anything.
+        if !self
+            .scripts
+            .iter()
+            .any(|script| script.on && script.id == extension)
+        {
+            return;
+        }
+        let mut offers = self.offers.lock().expect("site poisoned");
+        match message.get("type").and_then(serde_json::Value::as_str) {
+            Some("offer") => {
+                let Some(offer) = message.get("offer").cloned() else {
+                    return;
+                };
+                let kind = text(offer.get("kind")).unwrap_or_default();
+                let url = text(offer.get("url")).unwrap_or_default();
+                let web = (url.starts_with("https://") || url.starts_with("http://"))
+                    && url.len() <= 2048;
+                if !matches!(kind.as_str(), "video" | "song" | "playlist") || !web {
+                    return;
+                }
+                let title = text(offer.get("title"))
+                    .map(|title| title.chars().take(300).collect::<String>())
+                    .filter(|title| !title.trim().is_empty());
+                offers.list.retain(|known| known.url != url);
+                offers.next += 1;
+                let number = offers.next;
+                offers.list.insert(
+                    0,
+                    Offer {
+                        number,
+                        extension,
+                        page: source.to_owned(),
+                        kind,
+                        url,
+                        title,
+                        offer,
+                    },
+                );
+                offers.list.truncate(MAX_OFFERS);
+            }
+            Some("withdraw") => match text(message.get("url")) {
+                Some(url) => offers
+                    .list
+                    .retain(|known| known.extension != extension || known.url != url),
+                None => offers.list.retain(|known| known.extension != extension),
+            },
+            _ => return,
+        }
+        self.show_offers(window, &mut offers);
+    }
+
+    /// The "In Raygun" menu, made again from the offers: each offer's own menu holds what
+    /// Raygun can do with it. It's on the menu bar only while there are offers.
+    fn show_offers(&self, window: &WebviewWindow, offers: &mut Offers) {
+        if let (Some(menu), Some(bar)) = (offers.menu.take(), window.menu()) {
+            let _ = bar.remove(&menu);
+        }
+        if offers.list.is_empty() {
+            return;
+        }
+        match self.offers_menu(window.app_handle(), &offers.list) {
+            Ok(menu) => {
+                if let Some(bar) = window.menu()
+                    && bar.append(&menu).is_ok()
+                {
+                    offers.menu = Some(menu);
+                }
+            }
+            Err(error) => tracing::debug!(%error, "the browser's offers menu wasn't made"),
+        }
+    }
+
+    fn offers_menu(&self, app: &AppHandle, list: &[Offer]) -> tauri::Result<Submenu<Wry>> {
+        let menu = Submenu::with_id(app, format!("{}:offers", self.label), "▶ In Raygun", true)?;
+        for offer in list.iter().take(MENU_OFFERS) {
+            let id = |action: &str| format!("{}:offer:{}:{action}", self.label, offer.number);
+            let mut actions = vec![("play", "Play in Raygun")];
+            if offer.kind != "playlist" {
+                actions.push(("queue", "Add to queue"));
+            }
+            if offer.kind == "song" {
+                actions.push(("save", "Save to your library"));
+            }
+            if offer.kind != "playlist" {
+                actions.push(("download", "Download"));
+            }
+            let title = offer.title.clone().unwrap_or_else(|| offer.url.clone());
+            let kind = match offer.kind.as_str() {
+                "song" => "Song",
+                "playlist" => "Playlist",
+                _ => "Video",
+            };
+            let items = actions
+                .into_iter()
+                .map(|(action, text)| MenuItem::with_id(app, id(action), text, true, None::<&str>))
+                .collect::<tauri::Result<Vec<_>>>()?;
+            let item_refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = items
+                .iter()
+                .map(|item| item as &dyn tauri::menu::IsMenuItem<Wry>)
+                .collect();
+            let one = Submenu::with_items(
+                app,
+                menu_safe(&format!("{kind}: {}", shorten(&title, 60))),
+                true,
+                &item_refs,
+            )?;
+            menu.append(&one)?;
+        }
+        Ok(menu)
+    }
+
+    /// Hands an offer and what was picked for it to Raygun, which checks it and acts.
+    fn offer_action(&self, window: &WebviewWindow, number: &str, action: &str) {
+        let offer = {
+            let offers = self.offers.lock().expect("site poisoned");
+            offers
+                .list
+                .iter()
+                .find(|offer| offer.number.to_string() == number)
+                .cloned()
+        };
+        let Some(offer) = offer else {
+            return;
+        };
+        if action == "play" {
+            // Raygun plays it now; the page stops.
+            let _ = window.eval(
+                "document.querySelectorAll('video,audio').forEach(function(media){media.pause()})",
+            );
+        }
+        (self.send)(
+            serde_json::json!({
+                "pageAction": {
+                    "site": self.id,
+                    "page": offer.page,
+                    "extension": offer.extension,
+                    "action": action,
+                    "offer": offer.offer,
+                }
+            })
+            .to_string(),
+        );
+    }
+
+    /// The menu's switch for an extension's scripts on this site: Raygun keeps it and makes the
+    /// window again, where it was.
+    fn switch_scripts(&self, extension: &str) {
+        let Some(script) = self.scripts.iter().find(|script| script.id == extension) else {
+            return;
+        };
+        (self.send)(
+            serde_json::json!({
+                "siteScripts": {
+                    "site": self.id,
+                    "extension": extension,
+                    "on": !script.on,
+                    "page": self.url.lock().expect("site poisoned").as_str(),
+                }
+            })
+            .to_string(),
+        );
+    }
+
+    /// Installs site scripts a repository has for the site; the window is made again with them.
+    fn install_scripts(&self, extension: &str) {
+        let Some(suggestion) = self
+            .suggestions
+            .iter()
+            .find(|suggestion| suggestion.id == extension)
+        else {
+            return;
+        };
+        (self.send)(
+            serde_json::json!({
+                "installSiteScripts": {
+                    "site": self.id,
+                    "extension": suggestion.id,
+                    "repository": suggestion.repository,
+                    "page": self.url.lock().expect("site poisoned").as_str(),
+                }
+            })
+            .to_string(),
+        );
+    }
+
     /// A download from this window, before its place is picked.
     fn download_request(
         &self,
@@ -531,6 +870,16 @@ fn percent(done: f64, total: f64) -> u32 {
     ((done / total).clamp(0.0, 1.0) * 100.0).floor() as u32
 }
 
+/// `text` cut to `most` characters, with an ellipsis when it was longer.
+fn shorten(text: &str, most: usize) -> String {
+    if text.chars().count() <= most {
+        return text.to_owned();
+    }
+    let mut cut: String = text.chars().take(most.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
+}
+
 /// Menu text as written: Windows reads `&` as a shortcut mark.
 fn menu_safe(text: &str) -> String {
     if cfg!(windows) {
@@ -687,6 +1036,29 @@ fn menu(app: &AppHandle, label: &str, site: &Arc<Site>) -> tauri::Result<Menu<Wr
             &popup,
         ],
     )?;
+    // Site scripts: a switch for each that runs here, and the repositories' ones to install.
+    if !site.scripts.is_empty() || !site.suggestions.is_empty() {
+        page_menu.append(&PredefinedMenuItem::separator(app)?)?;
+        for script in &site.scripts {
+            page_menu.append(&CheckMenuItem::with_id(
+                app,
+                id(&format!("script:{}", script.id)),
+                menu_safe(&format!("Site scripts: {}", script.name)),
+                true,
+                script.on,
+                None::<&str>,
+            )?)?;
+        }
+        for suggestion in &site.suggestions {
+            page_menu.append(&MenuItem::with_id(
+                app,
+                id(&format!("install:{}", suggestion.id)),
+                menu_safe(&format!("Install {}…", suggestion.name)),
+                true,
+                None::<&str>,
+            )?)?;
+        }
+    }
     if cfg!(target_os = "macos") {
         // macOS menus can't hold plain items at the top.
         Menu::with_items(app, &[&page_menu])
@@ -702,6 +1074,20 @@ fn menu_action(window: &WebviewWindow, site: &Site, action: &str) {
     }
     if action == "downloads-all" {
         show_raygun_downloads(window.app_handle());
+        return;
+    }
+    if let Some(rest) = action.strip_prefix("offer:") {
+        if let Some((number, what)) = rest.split_once(':') {
+            site.offer_action(window, number, what);
+        }
+        return;
+    }
+    if let Some(extension) = action.strip_prefix("script:") {
+        site.switch_scripts(extension);
+        return;
+    }
+    if let Some(extension) = action.strip_prefix("install:") {
+        site.install_scripts(extension);
         return;
     }
     let current = || site.url.lock().expect("site poisoned").clone();
@@ -818,6 +1204,56 @@ pub fn clear_marked(web: &Path) {
     if mark.exists() && std::fs::remove_dir_all(web.join(PROFILE)).is_ok() {
         let _ = std::fs::remove_file(mark);
     }
+}
+
+/// Hears the page bridge's messages (WebView2's `WebMessageReceived`): objects, which wry's
+/// own text messages never are.
+#[cfg(windows)]
+fn install_messages(window: &WebviewWindow, site: Arc<Site>) {
+    let app = window.app_handle().clone();
+    let label = window.label().to_owned();
+    let started = window.with_webview(move |platform| {
+        // SAFETY: as in `install_blocker`: on the UI thread, with its controller.
+        if let Err(error) = unsafe { add_messages(&platform.controller(), site, app, label) } {
+            tracing::warn!(%error, "the browser's page messages didn't start");
+        }
+    });
+    if let Err(error) = started {
+        tracing::warn!(%error, "the browser's page messages didn't start");
+    }
+}
+
+#[cfg(windows)]
+unsafe fn add_messages(
+    controller: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
+    site: Arc<Site>,
+    app: AppHandle,
+    label: String,
+) -> windows::core::Result<()> {
+    use webview2_com::WebMessageReceivedEventHandler;
+    use windows::core::PWSTR;
+
+    unsafe {
+        let webview = controller.CoreWebView2()?;
+        let handler = WebMessageReceivedEventHandler::create(Box::new(move |_sender, args| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let mut source = PWSTR::null();
+            args.Source(&mut source)?;
+            let source = webview2_com::take_pwstr(source);
+            let mut json = PWSTR::null();
+            args.WebMessageAsJson(&mut json)?;
+            let json = webview2_com::take_pwstr(json);
+            if let Some(window) = app.get_webview_window(&label) {
+                site.take_message(&window, &source, &json);
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        webview.add_WebMessageReceived(&handler, &mut token)?;
+    }
+    Ok(())
 }
 
 /// Answers listed requests with 403 before they leave (WebView2's `WebResourceRequested`).

@@ -4,7 +4,8 @@
 //! them. Files land in `downloads/video/<id>/` and play back through the stream proxy's `/local`
 //! route under the same progress key, so resuming and Continue watching carry over. Episodes can
 //! be queued without a link (`auto`): their links are looked up when their turn comes. Subtitle
-//! tracks are picked per download and remembered per source (`subtitles`).
+//! tracks are picked per download and remembered per source (`subtitles`). A torrent's video
+//! downloads whole through the torrent engine (`torrents`) and is kept as the file.
 
 pub mod auto;
 pub mod hls;
@@ -302,6 +303,10 @@ impl VideoDownloadService {
         let headers = &link.headers;
         let progress = Arc::new(Progress::default());
         let stopped = || self.is_stopped(id);
+        let torrents = self
+            .app
+            .try_state::<Arc<crate::torrents::TorrentService>>()
+            .map(|torrents| torrents.inner().clone());
         let job = Job {
             client: &self.client,
             dir: &dir,
@@ -309,6 +314,7 @@ impl VideoDownloadService {
             preferred: self.preferred_quality().await,
             stopped: &stopped,
             progress: &progress,
+            torrents: torrents.as_deref(),
         };
         // Progress is written from a side task, so fetching never waits on the database.
         let reporter = {
@@ -348,16 +354,26 @@ impl VideoDownloadService {
         title_id: Option<String>,
         pick: SubtitlePick,
     ) -> Result<(), String> {
-        if !request.url.starts_with("https://") && !request.url.starts_with("http://") {
+        let torrent = raygun_torrent::is_torrent(&request.url, request.format.as_deref());
+        if torrent {
+            // A torrent downloads while torrents may play.
+            if let Some(reason) = crate::torrents::unavailable_now(&self.app).await
+                && !raygun_net::network_mode::offline()
+            {
+                return Err(reason);
+            }
+        } else if !request.url.starts_with("https://") && !request.url.starts_with("http://") {
             return Err("Only web addresses can be downloaded".into());
         }
         if request.format.as_deref() == Some("dash") {
             return Err("DASH streams can't be downloaded yet".into());
         }
-        self.app
-            .state::<LocalNetwork>()
-            .check(&request.url, local_network::VIDEOS_DENIED)
-            .await?;
+        if !request.url.starts_with("magnet:") {
+            self.app
+                .state::<LocalNetwork>()
+                .check(&request.url, local_network::VIDEOS_DENIED)
+                .await?;
+        }
         request.subtitles = self.pick_subtitles(request.subtitles, pick).await;
         let new = NewDownload {
             key: request.key,
@@ -872,11 +888,16 @@ struct Job<'a> {
     /// Paused or removed: stop, keeping what was saved.
     stopped: &'a (dyn Fn() -> bool + Sync),
     progress: &'a Progress,
+    /// The torrent engine, for torrents' videos.
+    torrents: Option<&'a crate::torrents::TorrentService>,
 }
 
 impl Job<'_> {
     /// Downloads a link by its kind; returns the playable file's name.
     async fn video(&self, url: &str, format: Option<&str>) -> Result<String, Failure> {
+        if raygun_torrent::is_torrent(url, format) {
+            return self.torrent(url).await;
+        }
         let lower = url.to_lowercase();
         let format = format.unwrap_or_default();
         if format == "dash" || lower.contains(".mpd") {
@@ -888,6 +909,41 @@ impl Job<'_> {
         } else {
             self.progressive(url).await
         }
+    }
+
+    /// A torrent's video, fetched whole by the torrent engine into `torrent/` and kept as the
+    /// file. A stopped run keeps its pieces: the next one checks them and continues.
+    async fn torrent(&self, url: &str) -> Result<String, Failure> {
+        let torrents = self
+            .torrents
+            .ok_or_else(|| Failure::Error(crate::torrents::TORRENTS_OFF.into()))?;
+        let folder = self.dir.join("torrent");
+        let report = |have: u64, len: u64| {
+            self.progress.total_bytes.store(len, Ordering::SeqCst);
+            self.progress.bytes.store(have, Ordering::SeqCst);
+        };
+        let path = match torrents.download(url, &folder, &report, self.stopped).await {
+            Ok(path) => path,
+            Err(crate::torrents::DownloadError::Stopped) => return Err(Failure::Stopped),
+            Err(crate::torrents::DownloadError::Failed(message)) => {
+                return Err(Failure::Error(message));
+            }
+        };
+        let extension = path
+            .extension()
+            .map(|extension| extension.to_string_lossy().to_ascii_lowercase())
+            .filter(|extension| {
+                !extension.is_empty()
+                    && extension.len() <= 5
+                    && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
+            })
+            .unwrap_or_else(|| "mp4".into());
+        let name = format!("video.{extension}");
+        tokio::fs::rename(&path, self.dir.join(&name))
+            .await
+            .map_err(io_failure)?;
+        let _ = tokio::fs::remove_dir_all(&folder).await;
+        Ok(name)
     }
 
     /// A plain video file, continuing a partial one with a Range request. Returns its name.

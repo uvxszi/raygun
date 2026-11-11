@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { AdultMark } from '../shell/AdultMark';
 import { hostLabel } from './hostLabel';
+import { RunsOn } from './RunsOn';
 
 /**
  * What a repository says about an extension (M46.7): version, author, what it does and the
@@ -42,6 +43,7 @@ export const EntryInfo: FC<{ entry: CatalogEntry; repoName: string }> = ({ entry
           <p className="text-muted">{t('extensions.noNetwork')}</p>
         )}
       </div>
+      <RunsOn sites={entry.sites ?? []} />
     </div>
   );
 };

@@ -109,3 +109,17 @@ export const parseSubtitles = (text: string, format?: string | null): Cue[] => {
 /** The lines showing at `timeMs`. */
 export const cuesAt = (cues: Cue[], timeMs: number): string[] =>
   cues.filter((cue) => cue.startMs <= timeMs && timeMs < cue.endMs).flatMap((cue) => cue.lines);
+
+/**
+ * The lines of the cue showing at `timeMs` in a track made as it plays (AI subtitles, a
+ * translation): the last cue to start, until it ends. One shows at a time: a stretch heard again
+ * (a window that met a line cut at the end of the one before) brings a cue over one already
+ * there, and both would show, one under the other.
+ */
+export const latestCueAt = (cues: Cue[], timeMs: number): string[] => {
+  let latest: Cue | null = null;
+  for (const cue of cues) {
+    if (cue.startMs <= timeMs && (!latest || cue.startMs >= latest.startMs)) latest = cue;
+  }
+  return latest && timeMs < latest.endMs ? latest.lines : [];
+};

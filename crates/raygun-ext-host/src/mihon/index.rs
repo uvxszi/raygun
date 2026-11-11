@@ -455,6 +455,7 @@ pub fn to_repo_index(store: &Store) -> Result<RepoIndex, String> {
                 sha256: String::new(),
                 size: 0,
                 format: PackageFormat::Mihon,
+                sites: Vec::new(),
             })
         })
         .collect();

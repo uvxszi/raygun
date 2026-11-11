@@ -197,8 +197,8 @@ pub fn parse_videos(value: &Value) -> Vec<VideoLink> {
     value.get("videos").map(videos_of).unwrap_or_default()
 }
 
-/// The format a link marks as needing a torrent app (Miru's `torrent` videos): a `.torrent`
-/// file's address or a magnet link. Raygun doesn't play these; the app says so.
+/// The format of a torrent link (Miru's `torrent` videos): a `.torrent` file's address or a
+/// magnet link, played by the app's torrent engine once torrents are turned on.
 pub const TORRENT: &str = "torrent";
 
 /// A torrent's link: a web address or a magnet link.

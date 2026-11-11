@@ -943,6 +943,21 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         invoke.resolve()
     }
 
+    /**
+     * The browser's site scripts, to its process: the list after an install (`{site, siteScripts,
+     * installed}`) or why one failed (`{site, extension, error}`).
+     */
+    @Command
+    fun websiteScripts(invoke: Invoke) {
+        val context = activity.applicationContext
+        context.sendBroadcast(
+            Intent(WebsiteActivity.ACTION_SCRIPTS)
+                .setPackage(context.packageName)
+                .putExtra(WebsiteActivity.EXTRA_REPORT, invoke.getArgs().toString()),
+        )
+        invoke.resolve()
+    }
+
     // ---- Browser checks passed by hand (experimental): see BrowserCheckActivity ----
 
     /**

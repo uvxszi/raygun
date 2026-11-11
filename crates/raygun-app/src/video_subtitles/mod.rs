@@ -776,20 +776,7 @@ impl VideoSubtitles {
             if state.watching.as_deref() != Some(key) {
                 return;
             }
-            let replace = all || state.sent_ai.is_empty();
-            if replace {
-                state.sent_ai.clear();
-            }
-            let fresh: Vec<Caption> = heard
-                .cues
-                .iter()
-                .filter(|cue| replace || !state.sent_ai.contains(&(cue.start_ms, cue.end_ms)))
-                .cloned()
-                .collect();
-            state
-                .sent_ai
-                .extend(fresh.iter().map(|cue| (cue.start_ms, cue.end_ms)));
-            (fresh, replace)
+            ai_batch(&mut state.sent_ai, &heard.cues, all)
         };
         let ahead = entries::covered_ahead(&heard.covered, anchor);
         push(
@@ -1193,6 +1180,28 @@ impl VideoSubtitles {
     }
 }
 
+/// The AI cues Android's player gets next, and whether they replace all it has: every cue the
+/// first time, when `all` is asked, and when a cue it was sent is gone (a later window heard that
+/// part again and replaced it), since the player would keep showing the old line under the new
+/// one; else only the cues it hasn't had. `sent` is what it has, by start and end.
+fn ai_batch(sent: &mut HashSet<(u32, u32)>, cues: &[Caption], all: bool) -> (Vec<Caption>, bool) {
+    let stale = || {
+        let now: HashSet<(u32, u32)> = cues.iter().map(|cue| (cue.start_ms, cue.end_ms)).collect();
+        sent.iter().any(|cue| !now.contains(cue))
+    };
+    let replace = all || sent.is_empty() || stale();
+    if replace {
+        sent.clear();
+    }
+    let fresh: Vec<Caption> = cues
+        .iter()
+        .filter(|cue| !sent.contains(&(cue.start_ms, cue.end_ms)))
+        .cloned()
+        .collect();
+    sent.extend(fresh.iter().map(|cue| (cue.start_ms, cue.end_ms)));
+    (fresh, replace)
+}
+
 /// A translated track as Android's player takes it.
 fn translation_update(view: &SubtitleTranslation, cues: Vec<Caption>, replace: bool) -> Value {
     json!({
@@ -1364,5 +1373,46 @@ mod tests {
         assert_eq!(update["status"]["aheadMs"], 3_000);
         assert_eq!(update["status"]["readyUntilMs"], 64_000);
         assert_eq!(update["replace"], false);
+    }
+
+    #[test]
+    fn ai_cues_heard_again_replace_what_the_player_has() {
+        let cue = |start_ms: u32, end_ms: u32, text: &str| Caption {
+            start_ms,
+            end_ms,
+            text: text.into(),
+        };
+        let mut sent = HashSet::new();
+        // The first batch is every cue.
+        let first = [cue(1_000, 3_000, "Hello"), cue(3_000, 5_000, "there")];
+        let (cues, replace) = ai_batch(&mut sent, &first, false);
+        assert!(replace);
+        assert_eq!(cues.len(), 2);
+        // New cues come alone.
+        let grown = [
+            first[0].clone(),
+            first[1].clone(),
+            cue(30_000, 32_000, "Later"),
+        ];
+        let (cues, replace) = ai_batch(&mut sent, &grown, false);
+        assert!(!replace);
+        assert_eq!(cues, vec![cue(30_000, 32_000, "Later")]);
+        // Nothing new: nothing goes.
+        let (cues, replace) = ai_batch(&mut sent, &grown, false);
+        assert!(!replace && cues.is_empty());
+        // A window heard again replaced "there": the player gets the whole list, or it would
+        // show the old line under the new one.
+        let heard_again = [
+            first[0].clone(),
+            cue(3_200, 5_400, "There, now"),
+            cue(30_000, 32_000, "Later"),
+        ];
+        let (cues, replace) = ai_batch(&mut sent, &heard_again, false);
+        assert!(replace);
+        assert_eq!(cues, heard_again.to_vec());
+        // Asked for everything.
+        let (cues, replace) = ai_batch(&mut sent, &heard_again, true);
+        assert!(replace);
+        assert_eq!(cues.len(), 3);
     }
 }

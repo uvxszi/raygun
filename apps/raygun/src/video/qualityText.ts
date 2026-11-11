@@ -46,8 +46,14 @@ export const optionDetail = (link: SourceLink, group: SourceGroup, t: TFunction)
       : link.worked
         ? t('videoPlayer.workedLastTime')
         : null;
+  const seeds = link.torrent?.seeds ?? null;
   const parts = [
     codec,
+    link.torrent
+      ? seeds === null
+        ? t('videoPlayer.torrent')
+        : t('videoPlayer.torrentSeeds', { count: seeds, n: seeds })
+      : null,
     facts.audio ?? null,
     facts.sizeBytes ? formatSize(facts.sizeBytes) : null,
     link.bitrateKbps ? t('videoPlayer.bitrateNeeds', { n: formatSpeed(link.bitrateKbps) }) : null,

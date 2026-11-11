@@ -91,6 +91,14 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.showFailedSources',
     'settings.player.showEmptySources',
   ),
+  ...on('video', 'settings.torrents.title')(
+    'settings.torrents.enabled',
+    'settings.torrents.wifiOnly',
+    'settings.torrents.cache',
+    'settings.torrents.seed',
+    'settings.torrents.dht',
+    'settings.torrents.port',
+  ),
   ...on(player('controls'), 'settings.player.section.controls.title')(
     'settings.player.aspect',
     'settings.player.controlsTimeout',
@@ -132,6 +140,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.textColor',
     'settings.player.backgroundColor',
     'settings.player.subtitlePosition',
+    'settings.player.subtitleMaxWidth',
   ),
   ...onlyOn(
     'phone',
@@ -235,6 +244,11 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.indent',
     'settings.paged',
     'settings.speechRate',
+  ),
+  ...on('reader', 'dictionary.settings.title')(
+    'dictionary.settings.enabled',
+    'dictionary.settings.sources',
+    'dictionary.settings.language',
   ),
 
   ...on('browse', 'settings.content')(

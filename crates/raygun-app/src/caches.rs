@@ -153,6 +153,10 @@ impl Caches {
             StorageArea::Downloads => {
                 return Err("Remove downloads from Downloads, not here".into());
             }
+            // The torrent engine's own (`torrents`).
+            StorageArea::Torrents => {
+                return Err("Torrents' pieces are cleared by the torrent engine".into());
+            }
         }
         Ok(())
     }

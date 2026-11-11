@@ -220,6 +220,8 @@ export const DEFAULT_SETTINGS: Settings = {
     blocklist: 'hageziMulti',
     customListUrl: null,
     desktop: false,
+    backgroundPlay: true,
+    scriptsOff: {},
   },
   layout: LAYOUT_DEFAULTS,
   accentColor: '#e5484d',
@@ -268,6 +270,7 @@ export const DEFAULT_SETTINGS: Settings = {
     },
   },
   rail: RAIL_DEFAULTS,
+  torrents: { enabled: false, wifiOnly: true, cacheGb: 4, seed: false, port: 0, dht: true },
   youtube: YOUTUBE_DEFAULTS,
   transcription: {
     engine: 'off',
@@ -637,6 +640,10 @@ export const bindingsMock = {
     novelImportEpubUpload: vi.fn(),
     novelPdfText: vi.fn(),
     novelPdfSearch: vi.fn(),
+    novelSearchBook: vi.fn(),
+    dictionaryLookup: vi.fn(),
+    dictionarySources: vi.fn(),
+    dictionaryOpenPage: vi.fn(),
     ttsAvailable: vi.fn(),
     ttsSpeak: vi.fn(),
     ttsStop: vi.fn(),
@@ -743,6 +750,8 @@ export const bindingsMock = {
     websiteBlocklistStatus: vi.fn(),
     websiteBlocklistUpdate: vi.fn(),
     websiteClearData: vi.fn(),
+    websiteSiteScripts: vi.fn(),
+    websiteSetSiteScripts: vi.fn(),
     websiteDownloads: vi.fn(),
     websiteDownloadCancel: vi.fn(),
     websiteDownloadRetry: vi.fn(),
@@ -1463,6 +1472,28 @@ export const seedBindings = () => {
   commands.novelSetRead.mockResolvedValue(ok(null));
   commands.novelPdfText.mockResolvedValue(ok({ blocks: [], pageStarts: [] }));
   commands.novelPdfSearch.mockResolvedValue(ok([]));
+  commands.novelSearchBook.mockResolvedValue(
+    ok({ hits: [], searched: 0, chapters: 0, more: false }),
+  );
+  commands.dictionarySources.mockResolvedValue(ok([]));
+  commands.dictionaryOpenPage.mockResolvedValue(ok(null));
+  commands.dictionaryLookup.mockImplementation(async (request: { text: string }) =>
+    ok({
+      query: request.text,
+      word: '',
+      language: 'en',
+      languageName: null,
+      formOf: null,
+      pronunciations: [],
+      meanings: [],
+      etymology: null,
+      credits: [],
+      onlineUrl: 'https://en.wiktionary.org/w/index.php?search=' + request.text,
+      kept: false,
+      offline: false,
+      issues: [],
+    }),
+  );
   commands.novelImportEpub.mockResolvedValue(ok({ sourceId: 'local.epub', novelId: 'abc' }));
   commands.ttsAvailable.mockResolvedValue(ok(false));
   commands.ttsSpeak.mockResolvedValue(ok(null));
@@ -1570,6 +1601,7 @@ export const seedBindings = () => {
   commands.coversWebviewJxl.mockResolvedValue(null);
   commands.songMemoryUsage.mockResolvedValue(ok({ songs: 0, coverSources: 0 }));
   commands.websiteList.mockResolvedValue(ok([]));
+  commands.websiteSiteScripts.mockResolvedValue(ok([]));
   commands.websiteDownloads.mockResolvedValue([]);
   commands.websiteDownloadCancel.mockResolvedValue(null);
   for (const command of [
@@ -1579,6 +1611,7 @@ export const seedBindings = () => {
     commands.websiteSetBlockAds,
     commands.websiteOpen,
     commands.websiteClearData,
+    commands.websiteSetSiteScripts,
     commands.websiteDownloadRetry,
     commands.websiteDownloadRemove,
     commands.websiteDownloadOpen,

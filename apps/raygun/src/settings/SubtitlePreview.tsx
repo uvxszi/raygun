@@ -34,7 +34,15 @@ export const SubtitlePreview: FC<{ style: Required<SubtitleStyle> }> = ({ style 
       data-testid="subtitle-preview"
       className="relative h-40 overflow-hidden rounded-xl bg-gradient-to-br from-slate-500 via-slate-700 to-slate-950"
     >
-      <p className="absolute inset-x-0 px-4 text-center" style={{ bottom: `${style.position}%` }}>
+      <p
+        className="absolute inset-x-0 text-center"
+        style={{
+          bottom: `${style.position}%`,
+          // Lines wrap within the chosen share of the width, as over a video.
+          paddingLeft: `${(100 - style.maxWidth) / 2}%`,
+          paddingRight: `${(100 - style.maxWidth) / 2}%`,
+        }}
+      >
         <span
           data-testid="subtitle-preview-text"
           style={{
@@ -46,6 +54,7 @@ export const SubtitlePreview: FC<{ style: Required<SubtitleStyle> }> = ({ style 
             fontStyle: style.italic ? 'italic' : 'normal',
             fontSize: `${(style.size / 100) * 1.125}rem`,
             padding: '0.1em 0.3em',
+            borderRadius: '0.25em',
             boxDecorationBreak: 'clone',
             WebkitBoxDecorationBreak: 'clone',
           }}

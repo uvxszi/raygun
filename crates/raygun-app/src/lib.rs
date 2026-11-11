@@ -24,6 +24,7 @@ mod details;
 mod device_link;
 mod device_state;
 mod device_sync;
+mod dictionary;
 mod discovery;
 mod durations;
 mod epub;
@@ -82,6 +83,7 @@ mod sponsorblock;
 mod startup;
 mod stremio;
 mod system_ui;
+mod torrents;
 mod tts;
 mod updates;
 mod uploads;
@@ -515,6 +517,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::website_blocklist_status,
             commands::website_blocklist_update,
             commands::website_clear_data,
+            websites::scripts::website_site_scripts,
+            websites::scripts::website_set_site_scripts,
             website_downloads::website_downloads,
             website_downloads::website_download_cancel,
             website_downloads::website_download_retry,
@@ -550,6 +554,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             device_state::device_state,
             device_state::device_set_visible,
             network_mode::network_status,
+            dictionary::dictionary_lookup,
+            dictionary::dictionary_sources,
+            dictionary::dictionary_open_page,
+            dictionary::novel_search_book,
             network_mode::network_set_offline,
             permissions::permissions_list,
             permissions::permission_request,

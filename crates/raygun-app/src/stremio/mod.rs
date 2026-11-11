@@ -1304,12 +1304,12 @@ impl StremioService {
             .find(|suggestion| suggestion.url.contains("opensubtitles") && !suggestion.added)
     }
 
-    /// Plays a stream: direct ones in Raygun's player (with subtitles), YouTube ones in the
-    /// embedded player, outside links in the browser.
+    /// Plays a stream: direct ones and torrents in Raygun's player (with subtitles), YouTube
+    /// ones in the embedded player, outside links in the browser.
     pub async fn play(&self, request: StremioPlayRequest, language: &str) -> Result<(), String> {
         let stream = &request.stream;
         match stream.kind {
-            StremioStreamKind::Direct => {
+            StremioStreamKind::Direct | StremioStreamKind::Torrent => {
                 let video = self.request(&request, language).await?;
                 if request.external {
                     crate::video::play_elsewhere(&self.app, video).await
@@ -1338,9 +1338,6 @@ impl StremioService {
                 .map_err(|error| error.to_string())
             }
             StremioStreamKind::External => self.open_link(&stream.target),
-            StremioStreamKind::Torrent => {
-                Err("This is a torrent: a torrent app plays it, from its magnet link".into())
-            }
             StremioStreamKind::Server => {
                 Err("Only the Stremio app plays this kind of stream (archives, Usenet)".into())
             }
@@ -1386,21 +1383,25 @@ impl StremioService {
         self.open_link(&protocol::configure_url(&url))
     }
 
-    /// What the player gets for a direct stream, with the subtitle addons' tracks (`language`
-    /// first). Also what a download saves.
+    /// What the player gets for a direct stream or a torrent, with the subtitle addons' tracks
+    /// (`language` first). Also what a download saves.
     pub async fn request(
         &self,
         request: &StremioPlayRequest,
         language: &str,
     ) -> Result<VideoRequest, String> {
         let stream = &request.stream;
-        if stream.kind != StremioStreamKind::Direct {
-            return Err("Only direct streams can be played or saved here".into());
+        match stream.kind {
+            StremioStreamKind::Direct => {
+                self.app
+                    .state::<LocalNetwork>()
+                    .check(&stream.target, local_network::VIDEOS_DENIED)
+                    .await?;
+            }
+            // Peers are on the internet; whether torrents may play now is the player's check.
+            StremioStreamKind::Torrent => {}
+            _ => return Err("Only direct streams and torrents can be played or saved here".into()),
         }
-        self.app
-            .state::<LocalNetwork>()
-            .check(&stream.target, local_network::VIDEOS_DENIED)
-            .await?;
         let meta = match &request.meta_id {
             Some(meta_id) => self
                 .find_meta(&request.kind, meta_id, false)
@@ -1452,13 +1453,18 @@ impl StremioService {
         // A live channel's streams play from their live edge (`behaviorHints.isLive`).
         let live = target.kind == "tv" || meta.as_ref().is_some_and(|meta| meta.live);
         let network = self.app.state::<LocalNetwork>();
+        // Torrents are listed either way; while they can't play (turned off, mobile data) they're
+        // marked with why.
+        let torrents_unavailable = crate::torrents::unavailable_now(&self.app).await;
+        let torrent_cache = crate::torrents::cache_bytes(&self.app).await;
         let mut playable = Vec::new();
         for group in groups? {
             let mut links = Vec::new();
             for stream in group.streams {
-                let youtube = match stream.kind {
-                    StremioStreamKind::Direct => false,
-                    StremioStreamKind::YouTube => true,
+                let (youtube, torrent) = match stream.kind {
+                    StremioStreamKind::Direct => (false, false),
+                    StremioStreamKind::YouTube => (true, false),
+                    StremioStreamKind::Torrent => (false, true),
                     _ => continue,
                 };
                 let label = [stream.name.clone(), stream.description.clone()]
@@ -1482,6 +1488,12 @@ impl StremioService {
                     .map(|size| size as u64);
                 let blocked = if youtube {
                     None
+                } else if torrent {
+                    // A video known to be larger than the torrent cache can't play.
+                    torrents_unavailable.clone().or_else(|| {
+                        let named = crate::video_quality::link_facts(&[Some(&label)], size, None);
+                        crate::torrents::too_large(named.size_bytes, torrent_cache)
+                    })
                 } else {
                     network
                         .check(&stream.target, local_network::VIDEOS_DENIED)
@@ -2145,8 +2157,10 @@ fn direct_request(request: &StremioPlayRequest, extra: &[VideoSubtitle]) -> Vide
     subtitles.truncate(MAX_SUBTITLES);
     let lower = stream.target.to_lowercase();
     let path = lower.split(['?', '#']).next().unwrap_or(&lower);
-    let format = if path.ends_with(".m3u8") || (!path.ends_with(".mpd") && lower.contains(".m3u8"))
-    {
+    // A torrent's magnet link (`infoHash`, `fileIdx` and trackers): the torrent engine plays it.
+    let format = if stream.kind == StremioStreamKind::Torrent {
+        Some(raygun_torrent::FORMAT.to_owned())
+    } else if path.ends_with(".m3u8") || (!path.ends_with(".mpd") && lower.contains(".m3u8")) {
         Some("hls".to_owned())
     } else if path.ends_with(".mpd") || lower.contains(".mpd") {
         Some("dash".to_owned())

@@ -9,6 +9,7 @@
 pub mod blocklist;
 #[cfg(not(target_os = "android"))]
 mod desktop;
+pub mod scripts;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,6 +31,9 @@ const LIST_FILE: &str = "blocklist.bin";
 const STATUS_KEY: &str = "web.blocklist";
 /// The list is downloaded again when a site opens after this long.
 const REFRESH: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// Site scripts turned off, by site (`WebsitePrefs::scripts_off`).
+type ScriptsOff = std::collections::BTreeMap<String, Vec<String>>;
 /// The biggest list read (HaGeZi PRO is about 4 MB).
 const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;
 
@@ -102,6 +106,23 @@ impl WebsiteService {
         self.app.state::<AppDb>().inner().0.clone()
     }
 
+    /// The websites folder: the blocklist, the desktop profile, site scripts for Android.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
+    /// What says which site scripts run on a site: the installed ones (as last loaded: a list
+    /// doesn't wait for extensions to load) and the switches.
+    async fn scripts_context(&self) -> (Vec<raygun_ext_host::site::SiteExtension>, ScriptsOff) {
+        let installed = self
+            .app
+            .try_state::<Arc<crate::extensions::ExtensionService>>()
+            .map(|extensions| extensions.site_extensions_now())
+            .unwrap_or_default();
+        (installed, self.prefs().await.scripts_off)
+    }
+
     async fn prefs(&self) -> WebsitePrefs {
         crate::settings::load(&self.db())
             .await
@@ -109,7 +130,17 @@ impl WebsiteService {
             .unwrap_or_default()
     }
 
-    fn view(&self, site: store::Website) -> Website {
+    fn view(
+        &self,
+        site: store::Website,
+        (installed, off): &(Vec<raygun_ext_host::site::SiteExtension>, ScriptsOff),
+    ) -> Website {
+        let scripts = scripts::names_for(
+            installed,
+            off,
+            &site.id,
+            &scripts::pages_of(&site.url, site.last_url.as_deref()),
+        );
         let host = url::Url::parse(&site.url)
             .ok()
             .and_then(|url| url.host_str().map(str::to_owned))
@@ -126,15 +157,17 @@ impl WebsiteService {
             icon,
             last_url: site.last_url,
             block_ads: site.block_ads,
+            scripts,
         }
     }
 
     pub async fn list(&self) -> Result<Vec<Website>, String> {
+        let context = self.scripts_context().await;
         Ok(store::list(&self.db())
             .await
             .map_err(to_message)?
             .into_iter()
-            .map(|site| self.view(site))
+            .map(|site| self.view(site, &context))
             .collect())
     }
 
@@ -147,13 +180,14 @@ impl WebsiteService {
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| default_name(&url));
         let db = self.db();
+        let context = self.scripts_context().await;
         if let Some(site) = store::list(&db)
             .await
             .map_err(to_message)?
             .into_iter()
             .find(|site| site.url == url.as_str())
         {
-            return Ok(self.view(site));
+            return Ok(self.view(site, &context));
         }
         let id = store::add(&db, &name, url.as_str())
             .await
@@ -164,7 +198,7 @@ impl WebsiteService {
             .ok_or("The site wasn't saved")?;
         self.refresh_list_later().await;
         crate::quick_access::add(&self.app, website_pin(&site.id, &site.name)).await;
-        Ok(self.view(site))
+        Ok(self.view(site, &context))
     }
 
     pub async fn edit(&self, id: &str, name: &str, url: &str) -> Result<(), String> {
@@ -239,7 +273,11 @@ impl WebsiteService {
         let prefs = self.prefs().await;
         let list = self.dir.join(LIST_FILE);
         self.refresh_list_later().await;
-        let request = serde_json::json!({
+        // Site scripts (`scripts`): the installed ones that run on the site, and the ones its
+        // repositories have for it.
+        let pages = scripts::pages_of(home, Some(url));
+        let mut plan = scripts::plan(&self.app, id, &pages, None).await;
+        let mut request = serde_json::json!({
             "id": id,
             "url": url,
             "home": home,
@@ -249,8 +287,44 @@ impl WebsiteService {
             "blocklist": list.to_string_lossy(),
             // The desktop browser's own profile (M46.6).
             "profile": self.dir.join("desktop").to_string_lossy(),
+            "backgroundPlay": prefs.background_play,
         });
+        if cfg!(target_os = "android") {
+            // Android's browser reads them in its own process.
+            match scripts::write_files(&self.dir, &mut plan) {
+                Ok(bridge) => request["bridge"] = bridge.into(),
+                Err(error) => {
+                    tracing::warn!(%error, "site scripts weren't written");
+                    plan.scripts.clear();
+                }
+            }
+        } else {
+            request["bridgeCode"] = scripts::BRIDGE.into();
+        }
+        request["siteScripts"] = serde_json::to_value(&plan.scripts).map_err(to_message)?;
+        request["suggestions"] = serde_json::to_value(&plan.suggestions).map_err(to_message)?;
         self.launch(&request)
+    }
+
+    /// Opens a site again (desktop: its window is made anew, so it gets its scripts as they are
+    /// now), at `page` when given, else where it was left.
+    #[cfg(not(target_os = "android"))]
+    pub async fn reopen(self: &Arc<Self>, id: &str, page: Option<&str>) -> Result<(), String> {
+        desktop::close(&self.app, id).await;
+        if id.starts_with(PAGE_PREFIX) {
+            let page = page.ok_or("The page isn't known")?;
+            return self.open_page(id, page).await;
+        }
+        let site = store::get(&self.db(), id)
+            .await
+            .map_err(to_message)?
+            .ok_or("The site was removed")?;
+        let url = page
+            .filter(|page| page.starts_with("https://") || page.starts_with("http://"))
+            .or(site.last_url.as_deref())
+            .unwrap_or(&site.url)
+            .to_owned();
+        self.show(&site.id, &url, &site.url, site.block_ads).await
     }
 
     #[cfg(target_os = "android")]
@@ -467,6 +541,10 @@ pub fn install(app: &AppHandle) {
             if let Ok(serde_json::Value::Object(mut fields)) =
                 serde_json::from_str::<serde_json::Value>(&json)
             {
+                // A page's offer taken, a site's scripts switched, suggested ones installed.
+                if scripts::take_report(&app, &mut fields) {
+                    continue;
+                }
                 if let Some(download) = fields.remove("download") {
                     crate::website_downloads::take_request(&app, download);
                     continue;

@@ -15,6 +15,7 @@
 //! `/media/<token>/<scheme>/<host>/<path>`, with their playlists rewritten to lead back to it.
 //! Font files the app links (the device's own fonts on Android) are served at `/font/<token>`.
 //! Pages of PDF books and chapters are drawn at `/pdf/<token>/<page>?w=<pixels>` ([`crate::pdf`]).
+//! A torrent's video is read as its pieces arrive at `/torrent/<token>/<name>` ([`torrent`]).
 //! While a video plays on a TV, a second listener serves it on the local network ([`lan`]).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -37,6 +38,7 @@ use crate::images::{ImageError, fetch_image};
 use crate::manifest::{self, Manifest};
 use crate::page_cache::{PageCache, sniff_content_type};
 use crate::pdf::PdfStore;
+use torrent::TorrentLinks;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
@@ -106,6 +108,7 @@ struct ProxyState {
     covers: Option<CoverCache>,
     local: Option<PathBuf>,
     pdfs: PdfStore,
+    torrents: torrent::Shared,
 }
 
 /// What the proxy serves from disk besides streams.
@@ -164,6 +167,7 @@ pub struct StreamProxy {
     media: MediaLinks,
     fonts: FontLinks,
     pdfs: PdfStore,
+    torrents: TorrentLinks,
     /// What the routes share, for the local network's listener (Play on TV).
     state: ProxyState,
 }
@@ -445,6 +449,7 @@ impl StreamProxy {
             pdf_dir,
             pages.clone(),
         );
+        let torrents = torrent::shared();
         let state = ProxyState {
             address,
             registry: registry.clone(),
@@ -457,6 +462,7 @@ impl StreamProxy {
             covers: covers.clone(),
             local,
             pdfs: pdfs.clone(),
+            torrents: torrents.clone(),
         };
         let shared = state.clone();
         let router = Router::new()
@@ -468,6 +474,7 @@ impl StreamProxy {
             .route("/local/{*path}", get(serve_local))
             .route("/font/{token}", get(serve_font))
             .route("/pdf/{token}/{page}", get(serve_pdf_page))
+            .route("/torrent/{token}/{name}", get(serve_torrent))
             .route(
                 "/media/{token}/{*rest}",
                 get(serve_media).options(preflight),
@@ -497,6 +504,7 @@ impl StreamProxy {
                 files: fonts,
             },
             pdfs,
+            torrents: TorrentLinks::new(address, torrents),
             state: shared,
         })
     }
@@ -526,6 +534,11 @@ impl StreamProxy {
     /// The PDF documents whose pages `/pdf/` draws.
     pub fn pdfs(&self) -> PdfStore {
         self.pdfs.clone()
+    }
+
+    /// The handle that links torrents' files at `/torrent/` and sets what serves them.
+    pub fn torrents(&self) -> TorrentLinks {
+        self.torrents.clone()
     }
 
     pub fn address(&self) -> SocketAddr {
@@ -669,6 +682,15 @@ async fn serve_pdf_page(
         }
     };
     with_cors(response)
+}
+
+/// A torrent's file, as far as its pieces have come ([`torrent`]).
+async fn serve_torrent(
+    State(state): State<ProxyState>,
+    Path((token, name)): Path<(String, String)>,
+    request: Request,
+) -> Response {
+    with_cors(torrent::serve(&state.torrents, &format!("{token}/{name}"), request).await)
 }
 
 /// A font file linked with [`FontLinks::link`], by its token.
@@ -1160,6 +1182,7 @@ fn with_cors(mut response: Response) -> Response {
 }
 
 pub mod lan;
+pub mod torrent;
 
 #[cfg(test)]
 mod tests;

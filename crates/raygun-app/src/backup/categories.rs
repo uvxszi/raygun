@@ -136,8 +136,10 @@ pub async fn usage(app: &AppHandle) -> Result<Vec<DataUsage>, String> {
                 found.files,
                 Some(found.bytes),
             ),
-            // Files made for sharing are a cache too: in the total.
-            StorageArea::Shared => entry(&mut usage, DataCategory::Caches).bytes += found.bytes,
+            // Files made for sharing are a cache too: in the total, as are torrents' pieces.
+            StorageArea::Shared | StorageArea::Torrents => {
+                entry(&mut usage, DataCategory::Caches).bytes += found.bytes
+            }
             StorageArea::Downloads => {
                 entry(&mut usage, DataCategory::Downloads).bytes = found.bytes
             }
@@ -164,6 +166,14 @@ pub async fn usage(app: &AppHandle) -> Result<Vec<DataUsage>, String> {
         videos,
         Some(subtitle_bytes),
     );
+    // Words looked up in the book reader: in the total.
+    if let Some(dictionary) = app.try_state::<Arc<crate::dictionary::DictionaryService>>() {
+        let dictionary = dictionary.inner().clone();
+        let (_, bytes) = tauri::async_runtime::spawn_blocking(move || dictionary.usage())
+            .await
+            .unwrap_or_default();
+        entry(&mut usage, DataCategory::Caches).bytes += bytes as f64;
+    }
     let opened_dir = opened_dir(app);
     let (opened, opened_bytes) = tauri::async_runtime::spawn_blocking(move || {
         let (entries, bytes) = folder_usage(&opened_dir);
@@ -408,6 +418,9 @@ pub async fn clear(
             }
             remove_dir(subtitles_dir(app)).await?;
             remove_dir(opened_dir(app)).await?;
+            if let Some(dictionary) = app.try_state::<Arc<crate::dictionary::DictionaryService>>() {
+                dictionary.clear().await?;
+            }
         }
     }
     Ok(())

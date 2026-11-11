@@ -58,6 +58,7 @@ import { SourcesPanel } from './SourcesPanel';
 import { sendReport, sendRequest } from './protocol';
 import type { PlayerRequest, Position, TitleState } from './protocol';
 import { SubtitleLines } from './SubtitleLines';
+import { transferText } from './transferText';
 import { SubtitlesPanel } from './SubtitlesPanel';
 import type { SubtitleOption } from './SubtitlesPanel';
 import { usePictureBox } from './pictureBox';
@@ -65,7 +66,7 @@ import { VIGNETTE } from './vignette';
 import { CueEditor } from './CueEditor';
 import { applyCueEdits, editKey, withCueEdit } from './cueEdits';
 import type { CueEdit, CueEdits } from './cueEdits';
-import { cuesAt, parseSubtitles } from './subtitles';
+import { cuesAt, latestCueAt, parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import {
   coveredAhead,
@@ -131,6 +132,8 @@ const savePlayer = (id: string) => {
 };
 const REPORT_INTERVAL_MS = 5_000;
 const FRAME_SECONDS = 1 / 30;
+/** The video's saved AI subtitles (`CaptionService::video_track`), not a translation's file. */
+const isAiFile = (url: string) => url.includes('/local/subtitles/ai/') && !url.includes('.tr.');
 const ASPECTS: VideoAspect[] = ['fit', 'crop', 'stretch'];
 const FIT: Record<VideoAspect, string> = {
   fit: 'object-contain',
@@ -532,9 +535,15 @@ const VideoStage: FC<StageProps> = ({
       original: track.original,
       forced: track.forced || /forced/i.test(track.label),
     })),
-    // The saved AI track is the live one when that's there.
+    // The saved AI track is the live one when that's there (known by its address, whatever the
+    // app's language names it).
     ...fileOptions.filter(
-      (option) => !(aiOptions.length > 0 && option.label === t('desktopPlayer.ai.track')),
+      (option, index) =>
+        !(
+          aiOptions.length > 0 &&
+          (isAiFile(request.subtitles?.[index]?.url ?? '') ||
+            option.label === t('desktopPlayer.ai.track'))
+        ),
     ),
     ...aiOptions,
     ...translatedOptions,
@@ -1154,12 +1163,18 @@ const VideoStage: FC<StageProps> = ({
     setCueEdits(next);
     remember({ subtitleEdits: next });
   };
+  // AI subtitles and translations show one cue at a time (`latestCueAt`): a stretch heard again
+  // would otherwise show twice, one line under the other.
+  const linesOf = (key: string, cues: Cue[]) =>
+    key === 'ai' || key.startsWith('translated:')
+      ? latestCueAt(cues, timeMs - delayMs)
+      : cuesAt(cues, timeMs - delayMs);
   const lines = !subtitleKey
     ? []
     : subtitleKey.startsWith('embedded:')
       ? embeddedLines
-      : cuesAt(currentCues, timeMs - delayMs);
-  const secondLines = secondKey ? cuesAt(cuesOf(secondKey, secondLoaded), timeMs - delayMs) : [];
+      : linesOf(subtitleKey, currentCues);
+  const secondLines = secondKey ? linesOf(secondKey, cuesOf(secondKey, secondLoaded)) : [];
   // Translating the main subtitles: their lines as shown (with edits), or the AI subtitles,
   // which Rust follows as they grow. The video's own tracks can't be read as text.
   const translateSource = (): SubtitleSource | null => {
@@ -1225,6 +1240,9 @@ const VideoStage: FC<StageProps> = ({
   const picture = usePictureBox(videoRef, aspect);
   // Before the picture: which source it comes from ("Trying source 2 of 5 · Vidstream").
   const waitingNote = begun || loadingText !== null ? null : sourceNote(sources, pickedSource);
+  // A torrent's peers and speed while the picture waits for its pieces.
+  const transfer = useVideoPlayerStore((state) => state.transfer);
+  const transferNote = transferText(transfer, t);
   const VolumeIcon = muted || volume <= 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
   return (
@@ -1270,7 +1288,7 @@ const VideoStage: FC<StageProps> = ({
       <SubtitleLines
         lines={secondLines}
         style={prefs.subtitleStyle}
-        lifted={false}
+        lifted={controlsVisible}
         at="top"
         box={picture}
       />
@@ -1289,7 +1307,7 @@ const VideoStage: FC<StageProps> = ({
             onElsewhere={notice.elsewhere ? () => setPanel('players') : undefined}
           />
         ) : busy ? (
-          <LoadingRing text={loadingText} note={waitingNote} />
+          <LoadingRing text={loadingText} note={waitingNote} extra={transferNote} />
         ) : null}
       </Middle>
 
@@ -2113,11 +2131,16 @@ const useNoteText = () => {
 
 /**
  * The player's waiting ring (as the Android player draws it): an accent arc turning over a faint
- * track (only its rotation animates), with what's happening and a note under it.
+ * track (only its rotation animates), with what's happening and a note under it (and `extra`, a
+ * torrent's peers).
  */
-const LoadingRing: FC<{ text?: string | null; note?: WaitingNote | null }> = ({ text, note }) => {
+const LoadingRing: FC<{
+  text?: string | null;
+  note?: WaitingNote | null;
+  extra?: string | null;
+}> = ({ text, note, extra }) => {
   const { t } = useTranslation();
-  const noteText = useNoteText()(note ?? null);
+  const noteText = [useNoteText()(note ?? null), extra].filter(Boolean).join(' · ') || null;
   return (
     <div role="status" className="flex flex-col items-center gap-3">
       <svg

@@ -78,6 +78,13 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.NoDisplay" />
+        <!-- A website playing with the browser off screen: its media notification and session, in
+             the browser's process. -->
+        <service
+            android:name="app.raygun.audio.WebMediaService"
+            android:process=":web"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
         <service
             android:name="app.raygun.audio.RaygunDownloadService"
             android:exported="false"

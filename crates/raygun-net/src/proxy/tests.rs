@@ -941,3 +941,152 @@ async fn nothing_is_fetched_through_the_proxy_while_offline() {
     assert_eq!(answer.text().await.unwrap(), "ok");
     assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
+
+/// A file of four pieces where each piece is there or not yet, as a torrent's are: reads wait at
+/// a missing piece until it arrives.
+struct FakePieces {
+    data: Vec<u8>,
+    have: Mutex<Vec<bool>>,
+    arrived: tokio::sync::Notify,
+}
+
+const PIECE: usize = 16;
+
+impl FakePieces {
+    fn has(&self, piece: usize) -> bool {
+        self.have.lock().unwrap()[piece]
+    }
+
+    fn arrive(&self, piece: usize) {
+        self.have.lock().unwrap()[piece] = true;
+        self.arrived.notify_one();
+    }
+}
+
+type Waiting = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+struct PieceReader {
+    pieces: Arc<FakePieces>,
+    position: usize,
+    waiting: Option<Waiting>,
+}
+
+impl tokio::io::AsyncRead for PieceReader {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        loop {
+            let len = self.pieces.data.len();
+            if self.position >= len {
+                return std::task::Poll::Ready(Ok(()));
+            }
+            let piece = self.position / PIECE;
+            if self.pieces.has(piece) {
+                let end = ((piece + 1) * PIECE).min(len);
+                let count = (end - self.position).min(buf.remaining());
+                let start = self.position;
+                buf.put_slice(&self.pieces.data[start..start + count]);
+                self.position += count;
+                return std::task::Poll::Ready(Ok(()));
+            }
+            let pieces = self.pieces.clone();
+            let waiting = self
+                .waiting
+                .get_or_insert_with(|| Box::pin(async move { pieces.arrived.notified().await }));
+            match waiting.as_mut().poll(cx) {
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+                std::task::Poll::Ready(()) => self.waiting = None,
+            }
+        }
+    }
+}
+
+struct FakeTorrent(Arc<FakePieces>);
+
+impl torrent::ArrivingFiles for FakeTorrent {
+    fn file_len(&self, token: &str) -> Option<u64> {
+        (token == "film").then_some(self.0.data.len() as u64)
+    }
+
+    fn read_from(
+        &self,
+        _token: &str,
+        start: u64,
+    ) -> futures_util::future::BoxFuture<'static, std::io::Result<torrent::FileReader>> {
+        let pieces = self.0.clone();
+        Box::pin(async move {
+            Ok(Box::pin(PieceReader {
+                pieces,
+                position: start as usize,
+                waiting: None,
+            }) as torrent::FileReader)
+        })
+    }
+}
+
+#[tokio::test]
+async fn torrent_files_are_served_by_range_as_their_pieces_arrive() {
+    let proxy = proxy().await;
+    let links = proxy.torrents();
+    let url = links.link("film", "Sintel (2010).mkv");
+    assert!(url.ends_with("/torrent/film/Sintel__2010_.mkv"), "{url}");
+    // Nothing serves the route yet.
+    assert_eq!(reqwest::get(&url).await.unwrap().status(), 404);
+
+    let data: Vec<u8> = (0..64u8).collect();
+    let pieces = Arc::new(FakePieces {
+        data: data.clone(),
+        have: Mutex::new(vec![true, true, false, true]),
+        arrived: tokio::sync::Notify::new(),
+    });
+    links.serve(Arc::new(FakeTorrent(pieces.clone())));
+
+    // The whole file: the answer starts at once and waits at the missing third piece.
+    let whole = reqwest::get(&url).await.unwrap();
+    assert_eq!(whole.status(), 200);
+    assert_eq!(whole.headers()[header::CONTENT_LENGTH], "64");
+    assert_eq!(whole.headers()[header::CONTENT_TYPE], "video/x-matroska");
+    assert_eq!(whole.headers()[header::ACCEPT_RANGES], "bytes");
+    let body = tokio::spawn(whole.bytes());
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!body.is_finished(), "the body waits for the third piece");
+    pieces.arrive(2);
+    assert_eq!(body.await.unwrap().unwrap().as_ref(), data.as_slice());
+
+    // A seek: the range asked for, and only it.
+    let client = reqwest::Client::new();
+    let part = client
+        .get(&url)
+        .header(header::RANGE, "bytes=40-50")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(part.status(), 206);
+    assert_eq!(part.headers()[header::CONTENT_RANGE], "bytes 40-50/64");
+    assert_eq!(part.headers()[header::CONTENT_LENGTH], "11");
+    assert_eq!(part.bytes().await.unwrap().as_ref(), &data[40..=50]);
+
+    // The end of the file, as players ask for an index kept there.
+    let tail = client
+        .get(&url)
+        .header(header::RANGE, "bytes=-4")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(tail.status(), 206);
+    assert_eq!(tail.bytes().await.unwrap().as_ref(), &data[60..]);
+
+    // Past the end, and a file that isn't open.
+    let past = client
+        .get(&url)
+        .header(header::RANGE, "bytes=64-")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(past.status(), 416);
+    assert_eq!(past.headers()[header::CONTENT_RANGE], "bytes */64");
+    let other = links.link("closed", "film.mp4");
+    assert_eq!(reqwest::get(&other).await.unwrap().status(), 404);
+}

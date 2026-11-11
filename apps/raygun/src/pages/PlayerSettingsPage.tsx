@@ -21,6 +21,7 @@ import {
   SKIP_WAIT_SECONDS,
   SUBTITLE_EDGES,
   SUBTITLE_FONTS,
+  SUBTITLE_MAX_WIDTH,
   SUBTITLE_MODES,
   TAP_ACTIONS,
   TEXT_COLORS,
@@ -433,12 +434,13 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           disabled={busy}
           onChange={(italic) => setStyle({ italic })}
         />
+        {/* A colour picked wins over the file's own colours, white and "None" too. */}
         <PrefColor
           title={t('settings.player.textColor')}
           value={style.textColor}
           disabled={busy}
           colors={colorOptions(TEXT_COLORS, t)}
-          onChange={(textColor) => setStyle({ textColor })}
+          onChange={(textColor) => setStyle({ textColor, textColorChosen: true })}
         />
         <PrefChoice
           title={t('settings.player.edge')}
@@ -463,7 +465,7 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           disabled={busy}
           colors={colorOptions(BACKGROUND_COLORS, t)}
           opacity
-          onChange={(backgroundColor) => setStyle({ backgroundColor })}
+          onChange={(backgroundColor) => setStyle({ backgroundColor, backgroundColorChosen: true })}
         />
         <PrefSlider
           title={t('settings.player.subtitlePosition')}
@@ -474,6 +476,17 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           format={(value) => `${value}%`}
           disabled={busy}
           onChange={(position) => setStyle({ position })}
+        />
+        <PrefSlider
+          title={t('settings.player.subtitleMaxWidth')}
+          summary={t('settings.player.subtitleMaxWidthHint')}
+          value={style.maxWidth}
+          min={SUBTITLE_MAX_WIDTH.min}
+          max={SUBTITLE_MAX_WIDTH.max}
+          step={SUBTITLE_MAX_WIDTH.step}
+          format={(value) => `${value}%`}
+          disabled={busy}
+          onChange={(maxWidth) => setStyle({ maxWidth })}
         />
         {phone && (
           <PrefSwitch

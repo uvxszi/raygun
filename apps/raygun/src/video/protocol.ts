@@ -113,6 +113,18 @@ export type SourceLink = {
   bitrateKbps?: number | null;
   /** The connection speed measured while it played, kb/s. */
   speedKbps?: number | null;
+  /** A torrent, with the seeds its source names. */
+  torrent?: { seeds: number | null } | null;
+};
+
+/** How the torrent playing is doing (Rust's `torrents`): peers, speed, what's here. */
+export type TorrentTransfer = {
+  peers: number;
+  seeds: number;
+  downloadBps: number;
+  have: number;
+  len: number;
+  dataSaver: boolean;
 };
 
 export type SourceGroup = {
@@ -149,6 +161,8 @@ export type PlayerUpdate =
    * order Sources lists them in by clean name. */
   | { type: 'sources'; groups: SourceGroup[]; playingFrom?: string | null; order?: number[] }
   | { type: 'chapters'; id: string; items: VideoChapter[] }
+  /** The torrent playing, once a second. */
+  | ({ type: 'transfer'; id: string } & TorrentTransfer)
   /** The Quality menu; `notice` when a step tapped can't play. */
   | { type: 'qualities'; items: QualityRow[]; wanted?: string | null; notice?: string | null }
   /** Settings changed in the app while a video plays (`video::settings_changed`): followed at

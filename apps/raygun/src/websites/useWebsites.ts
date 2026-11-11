@@ -11,7 +11,7 @@ export const useWebsites = () =>
     queryFn: () => unwrapResult(commands.websiteList()),
   });
 
-const useWebsiteMutation = <Args>(run: (args: Args) => Promise<unknown>) => {
+const useWebsiteMutation = <Args, Result>(run: (args: Args) => Promise<Result>) => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: run,
@@ -60,3 +60,19 @@ export const useUpdateBlocklist = () => {
 
 export const useClearWebsiteData = () =>
   useMutation({ mutationFn: () => unwrapResult(commands.websiteClearData()) });
+
+const SITE_SCRIPTS = [...WEBSITES, 'siteScripts'] as const;
+
+/** Installed site scripts and the websites they run on (Settings → Browse → Websites). */
+export const useSiteScripts = () =>
+  useQuery({
+    queryKey: SITE_SCRIPTS,
+    queryFn: () => unwrapResult(commands.websiteSiteScripts()),
+  });
+
+/** One site's switch for an extension's site scripts; applies when the site next opens. */
+export const useSetSiteScripts = () =>
+  useWebsiteMutation(
+    ({ siteId, extensionId, on }: { siteId: string; extensionId: string; on: boolean }) =>
+      unwrapResult(commands.websiteSetSiteScripts(siteId, extensionId, on)),
+  );

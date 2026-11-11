@@ -16,6 +16,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useSettings } from '../settings/useSettings';
 import { useBackLayer } from '../shell/backLayers';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
@@ -42,19 +43,22 @@ export type StreamTarget = {
   metaId: string;
 };
 
-/** Only direct streams that aren't DASH can be saved. */
-const savable = (stream: StremioStream) =>
-  stream.kind === 'direct' && !stream.target.toLowerCase().includes('.mpd');
+/** Direct streams that aren't DASH can be saved, and torrents while they play here. */
+const savable = (stream: StremioStream, torrents: boolean) =>
+  (stream.kind === 'direct' && !stream.target.toLowerCase().includes('.mpd')) ||
+  (stream.kind === 'torrent' && torrents);
 
-/** Plays here, or opens something here (another title, a web page). */
-const usableHere = (stream: StremioStream) =>
+/** Plays here, or opens something here (another title, a web page); torrents once turned on. */
+const usableHere = (stream: StremioStream, torrents: boolean) =>
   stream.kind === 'direct' ||
   stream.kind === 'youTube' ||
   stream.kind === 'external' ||
-  stream.kind === 'title';
+  stream.kind === 'title' ||
+  (stream.kind === 'torrent' && torrents);
 
-/** Needs another app: a torrent app, or Stremio's own streaming server. */
-const elsewhere = (stream: StremioStream) => stream.kind === 'torrent' || stream.kind === 'server';
+/** Needs another app: Stremio's own streaming server, or a torrent app while torrents are off. */
+const elsewhere = (stream: StremioStream, torrents: boolean) =>
+  (stream.kind === 'torrent' && !torrents) || stream.kind === 'server';
 
 const StreamLabel: FC<{ stream: StremioStream; fallback: string; note?: string | null }> = ({
   stream,
@@ -137,7 +141,7 @@ const ElsewhereStreams: FC<{ streams: StremioStream[]; addonName: string }> = ({
                   <StreamLabel
                     stream={stream}
                     fallback={addonName}
-                    note={t(torrent ? 'watch.needsTorrentApp' : 'watch.needsStremio')}
+                    note={t(torrent ? 'watch.torrentsOff' : 'watch.needsStremio')}
                   />
                 </div>
                 {items.length > 0 && (
@@ -167,11 +171,13 @@ const StreamGroup: FC<{
   onSave: (stream: StremioStream) => void;
   /** Where a session would try it, and what played last time. */
   rank?: SourceRank | null;
-}> = ({ group, intent, busy, onPick, onSave, rank = null }) => {
+  /** Torrents play here (Settings → Video player → Torrents). */
+  torrents: boolean;
+}> = ({ group, intent, busy, onPick, onSave, rank = null, torrents }) => {
   const { t } = useTranslation();
   const usable = (stream: StremioStream) =>
-    intent === 'download' ? savable(stream) : usableHere(stream);
-  const listed = group.streams.filter((stream) => !elsewhere(stream));
+    intent === 'download' ? savable(stream, torrents) : usableHere(stream, torrents);
+  const listed = group.streams.filter((stream) => !elsewhere(stream, torrents));
   // In the order a session tries them, the stream that played last time first.
   const here =
     rank && rank.links.length === listed.length
@@ -179,7 +185,7 @@ const StreamGroup: FC<{
       : listed;
   const worked = (stream: StremioStream) =>
     rank?.workedLink != null && listed[rank.workedLink] === stream;
-  const other = group.streams.filter(elsewhere);
+  const other = group.streams.filter((stream) => elsewhere(stream, torrents));
   return (
     <section aria-label={group.addonName} className="flex flex-col gap-2">
       <h3 className="text-muted text-xs font-semibold tracking-wide uppercase">
@@ -217,9 +223,11 @@ const StreamGroup: FC<{
                     ? t('watch.opensInBrowser')
                     : stream.kind === 'title'
                       ? t('watch.opensTitle')
-                      : intent === 'download' && !savable(stream)
+                      : intent === 'download' && !savable(stream, torrents)
                         ? t('watch.cantDownload')
-                        : null
+                        : stream.kind === 'torrent'
+                          ? t('watch.torrent')
+                          : null
                 }
               />
               {worked(stream) && (
@@ -239,7 +247,7 @@ const StreamGroup: FC<{
                   <Play aria-hidden size={18} className="shrink-0" />
                 ))}
             </button>
-            {intent === 'play' && savable(stream) && (
+            {intent === 'play' && savable(stream, torrents) && (
               <button
                 type="button"
                 aria-label={t('watch.downloadLink', {
@@ -295,6 +303,7 @@ export const StreamPicker: FC<{
   useBackLayer(true, onClose);
   const navigate = useNavigate();
   const groups = useStremioStreams(target.kind, target.metaId, target.videoId);
+  const torrents = useSettings().data?.torrents?.enabled ?? false;
   const play = useStremioPlay();
   const download = useDownloadStremio();
   const withStreams = (groups.data ?? []).filter(
@@ -304,7 +313,7 @@ export const StreamPicker: FC<{
   const candidates = withStreams.map((group) => ({
     name: group.addonName,
     links: group.streams
-      .filter((stream) => !elsewhere(stream))
+      .filter((stream) => !elsewhere(stream, torrents))
       .map((stream) => ({
         label: streamLabel(stream, group.addonName),
         tag: stream.bingeGroup,
@@ -398,6 +407,7 @@ export const StreamPicker: FC<{
               busy={busy}
               onPick={pick}
               onSave={save}
+              torrents={torrents}
             />
           ))}
           {error && <SourceIssue>{error.message}</SourceIssue>}

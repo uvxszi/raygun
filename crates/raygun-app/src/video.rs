@@ -165,6 +165,41 @@ async fn play_from(
     if let Some(video_id) = request.url.strip_prefix(YOUTUBE_LINK) {
         return play_youtube(app, video_id, &request.title, request.subtitle.clone()).await;
     }
+    // A torrent takes a while to open (a magnet link's details come from peers): the player
+    // opens at once with the title and waits.
+    if raygun_torrent::is_torrent(&request.url, request.format.as_deref())
+        && crate::video_downloads::offline(app, &request.key)
+            .await
+            .is_none()
+    {
+        if let Some(reason) = crate::torrents::unavailable_now(app).await {
+            return Err(reason);
+        }
+        let sessions = app.state::<VideoSessions>();
+        let mut shell = session_shell(
+            app,
+            &request.title,
+            request.subtitle.as_deref().unwrap_or_default(),
+        )
+        .await;
+        shell["session"] = json!(false);
+        shell["loadingText"] = json!(sessions.label("torrentFindingPeers", "Finding peers…"));
+        open_player(app, &shell)?;
+        return match prepare(app, &request, None, start_at).await {
+            // Opened again with the video (an update could come before the window exists).
+            Ok(mut payload) => {
+                payload["labels"] = sessions.labels();
+                open_player(app, &payload)
+            }
+            Err(error) => {
+                let update = json!({ "type": "error", "text": error });
+                let _ = update_player(app, &update);
+                // A failure at once can come before the window exists: it's told again.
+                tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                update_player(app, &update)
+            }
+        };
+    }
     let mut payload = prepare(app, &request, None, start_at).await?;
     payload["labels"] = app.state::<VideoSessions>().labels();
     open_player(app, &payload)
@@ -212,14 +247,30 @@ pub async fn play_elsewhere(app: &AppHandle, request: VideoRequest) -> Result<()
 
 /// The player's request for a video: where to start (saved progress unless `start_at`), after
 /// recording that it started. `resume` replaces the request saved for resuming (a session saves
-/// an episode reference). A finished download plays instead of the stream.
+/// an episode reference). A finished download plays instead of the stream. A torrent opens now
+/// and plays through the stream proxy (`torrents`); a torrent playing before closes.
 pub async fn prepare(
     app: &AppHandle,
     request: &VideoRequest,
     resume: Option<String>,
     start_at: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    let address = playable_address(app, &request.url)?;
+    let torrent = raygun_torrent::is_torrent(&request.url, request.format.as_deref());
+    let downloaded = crate::video_downloads::offline(app, &request.key).await;
+    let torrents = app.try_state::<std::sync::Arc<crate::torrents::TorrentService>>();
+    let address = match (&downloaded, &torrents) {
+        // Its download plays: nothing is fetched.
+        (Some(offline), _) if torrent => offline.url.clone(),
+        (None, Some(torrents)) if torrent => torrents.address_for(request).await?,
+        (None, None) if torrent => return Err(crate::torrents::TORRENTS_OFF.into()),
+        _ => playable_address(app, &request.url)?,
+    };
+    // Anything else the player loads closes the torrent it played.
+    if !(torrent && downloaded.is_none())
+        && let Some(torrents) = &torrents
+    {
+        torrents.other_video().await;
+    }
     // Offline Mode: only what's on this device plays (a download, a file, the proxy's).
     raygun_net::network_mode::check(&address)?;
     let db = app.state::<AppDb>().0.clone();
@@ -262,22 +313,28 @@ pub async fn prepare(
             .await
             .map_err(|error| error.to_string())?;
     }
-    // A finished download plays from the device, with its saved subtitles.
-    let (url, headers, format, subtitles) =
-        match crate::video_downloads::offline(app, &request.key).await {
-            Some(offline) => (
-                offline.url,
-                Default::default(),
-                offline.format,
-                offline.subtitles,
-            ),
-            None => (
-                address,
-                request.headers.clone(),
-                request.format.clone(),
-                proxied_subtitles(app, &request.subtitles),
-            ),
-        };
+    // A finished download plays from the device, with its saved subtitles; a torrent's file
+    // plays as a file (its link's headers and format are the torrent's, not the file's).
+    let (url, headers, format, subtitles) = match downloaded {
+        Some(offline) => (
+            offline.url,
+            Default::default(),
+            offline.format,
+            offline.subtitles,
+        ),
+        None if torrent => (
+            address,
+            Default::default(),
+            None,
+            proxied_subtitles(app, &request.subtitles),
+        ),
+        None => (
+            address,
+            request.headers.clone(),
+            request.format.clone(),
+            proxied_subtitles(app, &request.subtitles),
+        ),
+    };
     // AI subtitles made for this video (M46.33) play like any other track; a live stream's
     // are timed by a clock of that playing only (`captions::video_audio`).
     let mut subtitles = subtitles;
@@ -731,6 +788,15 @@ async fn handle_report(app: &AppHandle, json: &str) {
         tracing::warn!(%json, "unreadable video player report");
         return;
     };
+    // The player closed: a torrent it played closes (unless a TV plays it through this device).
+    if raw.get("state").and_then(Value::as_str) == Some("closed")
+        && !app
+            .try_state::<std::sync::Arc<crate::cast::CastService>>()
+            .is_some_and(|cast| cast.connected())
+        && let Some(torrents) = app.try_state::<std::sync::Arc<crate::torrents::TorrentService>>()
+    {
+        torrents.player_closed().await;
+    }
     // Where the viewer is: AI subtitles and translations keep ahead of there.
     let subtitles = app
         .try_state::<std::sync::Arc<crate::video_subtitles::VideoSubtitles>>()
@@ -1102,23 +1168,33 @@ pub async fn remove_many(app: &AppHandle, keys: &[String]) -> Result<u32, String
         .map_err(|error| error.to_string())
 }
 
-/// A video link as a request: its key is the address, its title the file name.
+/// A video link as a request: its key is the address, its title the file name (a magnet link's
+/// name).
 pub fn link_request(url: &str, title: Option<&str>, subtitle_url: Option<&str>) -> VideoRequest {
     let url = url.trim().to_owned();
+    let torrent = raygun_torrent::is_torrent(&url, None);
     let title = title
         .map(str::trim)
         .filter(|title| !title.is_empty())
         .map(str::to_owned)
+        .or_else(|| {
+            raygun_torrent::parse(&url)
+                .ok()
+                .filter(|_| torrent)
+                .and_then(|link| link.name().map(str::to_owned))
+        })
         .unwrap_or_else(|| {
             url.split(['?', '#'])
                 .next()
                 .and_then(|path| path.trim_end_matches('/').rsplit('/').next())
-                .filter(|name| !name.is_empty())
+                .filter(|name| !name.is_empty() && !name.starts_with("magnet:"))
                 .unwrap_or("Video")
                 .to_owned()
         });
     let lower = url.to_lowercase();
-    let format = if lower.contains(".m3u8") {
+    let format = if torrent {
+        Some(raygun_torrent::FORMAT.to_owned())
+    } else if lower.contains(".m3u8") {
         Some("hls".to_owned())
     } else if lower.contains(".mpd") {
         Some("dash".to_owned())
@@ -1239,6 +1315,27 @@ mod tests {
         assert_eq!(mp4.title, "A film");
         assert_eq!(mp4.format, None);
         assert_eq!(mp4.subtitles[0].url, "https://cdn.example/film.srt");
+
+        // A magnet link plays as a torrent, under its name.
+        let magnet = link_request(
+            "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel",
+            None,
+            None,
+        );
+        assert_eq!(magnet.title, "Sintel");
+        assert_eq!(magnet.format.as_deref(), Some("torrent"));
+        let unnamed = link_request(
+            "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10",
+            None,
+            None,
+        );
+        assert_eq!(unnamed.title, "Video");
+        let file = link_request(
+            "https://archive.org/download/a/a_archive.torrent",
+            None,
+            None,
+        );
+        assert_eq!(file.format.as_deref(), Some("torrent"));
     }
 
     fn episode(

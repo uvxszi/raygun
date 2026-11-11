@@ -27,6 +27,7 @@ const USAGE = `Usage:
   raygun-ext build [dir]
   raygun-ext validate [dir]
   raygun-ext test [dir] [<provider> <method> [key=value... | <JSON>]] [--set key=value]... [--nsfw] [--data <dir>]
+  raygun-ext test [dir] <page address> [--set key=value]... [--bundle <file>]   (site scripts)
   raygun-ext dev [dir] --android [--serial <device>]
   raygun-ext dev [dir] --into <extensions folder>
   raygun-ext pack [dir] --repo <repository folder> [--name <repository name>]
@@ -48,6 +49,7 @@ const { positionals, values } = parseArgs({
     set: { type: 'string', multiple: true },
     nsfw: { type: 'boolean' },
     data: { type: 'string' },
+    bundle: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -84,10 +86,11 @@ const main = async () => {
       return;
     }
     case 'validate': {
-      const { manifest, errors, warnings, providers } = await validate(dir);
+      const { manifest, errors, warnings, providers, sites = [] } = await validate(dir);
       for (const provider of providers) {
         console.log(`${provider.kind} ${provider.id}: ${provider.methods.join(', ')}`);
       }
+      if (sites.length > 0) console.log(`site.scripts on ${sites.join(', ')}`);
       for (const warning of warnings) console.warn(`warning: ${warning}`);
       for (const error of errors) console.error(`error: ${error}`);
       if (errors.length > 0) {
@@ -101,6 +104,15 @@ const main = async () => {
     }
     case 'test': {
       const { dir: folder, rest } = testWords(positionals.slice(1));
+      // Site scripts are tried on a page: which of them run there, and the script Raygun injects.
+      if (rest[0] && /^https?:\/\//i.test(rest[0])) {
+        process.exitCode = await runTest(folder, {
+          address: rest[0],
+          bundle: values.bundle,
+          settings: values.set,
+        });
+        return;
+      }
       const [provider, method, ...words] = rest;
       if (provider && !method) throw new Error(`test needs a method after the provider.\n${USAGE}`);
       process.exitCode = await runTest(folder, {

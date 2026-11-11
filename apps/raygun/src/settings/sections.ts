@@ -113,13 +113,14 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'autoSubtitles',
       'subtitleLanguage',
       'videoPlayer',
+      'torrents',
     ),
   },
   {
     id: 'reader',
     icon: BookOpen,
     screen: ReaderSettings,
-    reset: resetAll(resetKeys('mangaReader', 'novelReader'), (current, defaults) => [
+    reset: resetAll(resetKeys('mangaReader', 'novelReader', 'dictionary'), (current, defaults) => [
       // The book reader's font of the device's goes too; the interface's stays.
       { key: 'fonts', value: { ...current.fonts, reading: defaults.fonts?.reading ?? '' } },
     ]),

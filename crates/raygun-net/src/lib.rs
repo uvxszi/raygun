@@ -22,6 +22,7 @@ pub use issue::{Issue, IssueKind};
 pub use page_cache::PageCache;
 pub use pdf::PdfStore;
 pub use proxy::lan::{LanLinks, LanRoute, SubtitleFormat};
+pub use proxy::torrent::{ArrivingFiles, FileReader, TorrentLinks};
 pub use proxy::{
     FontLinks, ImageLinks, MediaLinks, ProxyStorage, StaticFiles, StreamProxy, artwork_url,
     image_token as proxy_image_token,

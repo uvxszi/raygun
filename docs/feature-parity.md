@@ -182,7 +182,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party
 | HLS/DASH, header injection | CloudStream | ✅ M38 |
 | Intro/outro skip (chapters, AniSkip) | aniyomi | ✅ M45 (source chapters, skip button with countdown or auto-skip, per-title intro length, AniSkip by MAL id or AniList search) |
 | Mark seen at a percentage, preserve position | aniyomi | ✅ M42.1 (watched point setting), M43 (counts on library episodes) |
-| Stremio catalogs, metadata, streams, subtitles | Stremio | ✅ M41 (torrent streams not yet) |
+| Stremio catalogs, metadata, streams, subtitles | Stremio | ✅ M41 (torrent streams through the built-in engine, once turned on) |
 | Video sources with servers streamed as they resolve | CloudStream, aniyomi | ✅ M42 (`video.source`, Internet Archive films) |
 | Source priority, quality profiles, failed/empty hosters | CloudStream, aniyomi | ✅ M42 (preferred quality, failed/empty servers) / 🔜 M44 (fallback, last server), M45 (profiles) |
 | Video library, history, continue watching, upcoming episodes | aniyomi, CloudStream | ✅ M43 (sources and Stremio titles, categories, filters, updates, upcoming) |
@@ -199,7 +199,7 @@ Status: ✅ done · 🔜 planned (milestone) · ⏸ on hold or needs third-party
 | Background downloads with notifications, parallel, Wi-Fi only, auto-download, delete after watching | aniyomi, CloudStream | 🔜 M49 |
 | Discover with every addon filter, search history, source home pages | Stremio, CloudStream | 🔜 M53 |
 | WebView resolver | CloudStream | 🔜 M55 |
-| Torrent streaming (TorrServer) | aniyomi | ✖ for now (legal risk; not in first-party code) |
+| Torrent streaming (TorrServer) | aniyomi | ✅ built in (`raygun-torrent`, librqbit): off until turned on and explained, Wi-Fi only by default; no torrent source is suggested |
 | External player | aniyomi | ✅ M45 (chooser or a set app; position read back) |
 | mpv scripts, custom Lua buttons, decoder tweaks | aniyomi | ✖ ExoPlayer instead of mpv on Android |
 | Chromecast | CloudStream | 🔜 M52 |

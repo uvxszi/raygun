@@ -726,8 +726,74 @@ export type AudiobookDirectoryProvider = ProviderBase & {
   chapters?(args: { id: string }): Promise<AudiobookDetails>;
 };
 
+// ---- Dictionaries: words looked up in the book reader ----
+
+/** How a word sounds: IPA, a recording, or both. */
+export type DictionaryPronunciation = {
+  /** With its slashes or brackets: `/ˈhæpi/`. */
+  ipa?: string | null;
+  /** Whose: an accent or a region (`UK`). */
+  label?: string | null;
+  /** http(s) only. */
+  audioUrl?: string | null;
+};
+
+/** One sense, with sentences using it. */
+export type DictionaryDefinition = { text: string; examples?: string[] };
+
+/** The word in another language, for one sense (`gloss`). */
+export type DictionaryTranslation = { language: string; terms: string[]; gloss?: string | null };
+
+/** The word as one part of speech. */
+export type DictionaryMeaning = {
+  /** `noun`, `verb`… */
+  partOfSpeech: string;
+  /** A sense without examples can be just its text. Meanings without any are dropped. */
+  definitions: (DictionaryDefinition | string)[];
+  synonyms?: string[];
+  antonyms?: string[];
+  translations?: DictionaryTranslation[];
+};
+
+/** What a dictionary says about a word. */
+export type DictionaryEntry = {
+  /** The headword. Required. */
+  word: string;
+  /** BCP 47; the language asked for when left out. */
+  language?: string;
+  /** The language's name (`French`). */
+  languageName?: string | null;
+  pronunciations?: DictionaryPronunciation[];
+  /** At least one with a definition. */
+  meanings: DictionaryMeaning[];
+  /** Where the word comes from, plain text. */
+  etymology?: string | null;
+  /**
+   * The word is a form of another (`went` → `go`). With `only` (the default), every sense is,
+   * and the reader shows the lemma's entry instead.
+   */
+  formOf?: { lemma: string; note?: string; only?: boolean } | null;
+  /** The full entry; http(s) only. */
+  url?: string | null;
+  /** Shown with the answer (`CC BY-SA 4.0`). */
+  license?: { name: string; url?: string | null } | null;
+};
+
+/**
+ * Words selected in the book reader, looked up. Raygun asks every dictionary at once (12 s
+ * each) and merges their answers in the user's order, after its own (Wiktionary, the Free
+ * Dictionary API). `language` is the words' language (BCP 47): answer `{ entries: [] }` for a
+ * word or a language the dictionary doesn't know. A word not found as selected is asked again
+ * in lower case and, in English, without its ending.
+ */
+export type DictionaryProvider = ProviderBase & {
+  kind: 'dictionary';
+  define(args: { word: string; language: string }): Promise<{ entries: DictionaryEntry[] }>;
+};
+
 export type Provider =
   | AudiobookDirectoryProvider
+  | DictionaryProvider
   | MusicRecommendProvider
   | MusicMetadataProvider
   | MusicStreamProvider
@@ -951,13 +1017,14 @@ export type Manifest = {
   /** Semver; a new version for every published change. */
   version: string;
   apiVersion: 1;
-  runtime: 'js';
-  /** The bundle `raygun-ext build` writes, normally `dist/index.js`. */
+  /** `site` for site scripts, which run in the pages of Raygun's websites browser. */
+  runtime: 'js' | 'site';
+  /** The bundle `raygun-ext build` writes, normally `dist/index.js`; one of a site's scripts. */
   entry: string;
   description?: string;
   author?: string;
-  /** Every provider kind the extension registers. */
-  provides: ProviderKind[];
+  /** Every provider kind the extension registers; `site.scripts` alone for site scripts. */
+  provides: (ProviderKind | 'site.scripts')[];
   permissions?: {
     /**
      * Hosts `raygun.http.fetch` may reach: `api.example.org` (that host only), `*.example.org`
@@ -977,4 +1044,21 @@ export type Manifest = {
   settings?: SettingDef[];
   /** The site the sources read (http or https); a source's menu opens it in Raygun's browser. */
   website?: string;
+  /** Site scripts' groups (runtime `site`): docs/extensions/site-scripts.md. */
+  site?: { scripts: SiteScriptGroup[] };
+};
+
+/** Scripts and styles for the pages some match patterns name (runtime `site`). */
+export type SiteScriptGroup = {
+  /** Match patterns like https://*.example.com/path, where a star in the path matches anything. */
+  matches: string[];
+  excludeMatches?: string[];
+  /** Scripts, run in order; `dist/<name>.js` is built from `src/<name>.ts` when there. */
+  js?: string[];
+  /** Style sheets, added at the start of the page. */
+  css?: string[];
+  /** `document-idle` when left out. */
+  runAt?: 'document-start' | 'document-end' | 'document-idle';
+  /** Frames too; the top page only when left out. */
+  allFrames?: boolean;
 };

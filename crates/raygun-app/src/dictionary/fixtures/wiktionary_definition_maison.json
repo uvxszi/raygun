@@ -1,0 +1,34 @@
+{
+  "fr": [
+    {
+      "partOfSpeech": "Noun",
+      "language": "French",
+      "definitions": [
+        { "definition": "<a rel=\"mw:WikiLink\" href=\"/wiki/house\" title=\"house\">house</a>" },
+        {
+          "definition": "<a rel=\"mw:WikiLink\" href=\"/wiki/home\" title=\"home\">home</a>",
+          "parsedExamples": [
+            {
+              "example": "Je rentre à la <b>maison</b>.",
+              "translation": "I'm going home."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "partOfSpeech": "Adjective",
+      "language": "French",
+      "definitions": [
+        { "definition": "<a rel=\"mw:WikiLink\" href=\"/wiki/homemade\" title=\"homemade\">homemade</a>" }
+      ]
+    }
+  ],
+  "other": [
+    {
+      "partOfSpeech": "Noun",
+      "language": "Middle French",
+      "definitions": [{ "definition": "house" }]
+    }
+  ]
+}

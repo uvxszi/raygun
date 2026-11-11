@@ -7,6 +7,7 @@ import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
 import { sendRequest } from './protocol';
 import type { SourceGroup } from './protocol';
 import { formatSpeed, optionDetail, optionTitle, sortedOptions } from './qualityText';
+import { transferText } from './transferText';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { sourceName } from './waiting';
 
@@ -41,6 +42,11 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
   const order = useVideoPlayerStore((state) => state.sourceOrder);
   const playingFrom = useVideoPlayerStore((state) => state.playingFrom);
   const prefs = useVideoPlayerStore((state) => state.prefs);
+  // A torrent playing: its peers and speed beside the option playing.
+  const transfer = transferText(
+    useVideoPlayerStore((state) => state.transfer),
+    t,
+  );
   const landscape = useLandscape();
   const [raw, setRaw] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
@@ -151,7 +157,11 @@ export const SourcesPanel: FC<Props> = ({ positionMs, onClose }) => {
           <PanelOption
             key={`${linkIndex}-${link.label}`}
             label={optionTitle(link, t)}
-            hint={optionDetail(link, group, t)}
+            hint={
+              [optionDetail(link, group, t), link.current ? transfer : null]
+                .filter(Boolean)
+                .join(' · ') || null
+            }
             selected={link.current}
             onSelect={() => choose(index, linkIndex)}
           />

@@ -165,6 +165,69 @@ describe('Websites', () => {
     expect(await within(group).findByRole('status')).toHaveTextContent('were cleared');
   });
 
+  it('says which site scripts run on a site added', async () => {
+    const user = userEvent.setup();
+    const youtube = {
+      ...SITE,
+      id: 'w2',
+      name: 'YouTube',
+      url: 'https://m.youtube.com/',
+      host: 'm.youtube.com',
+      lastUrl: null,
+      scripts: ['YouTube enhancements'],
+    };
+    commands.websiteAdd.mockResolvedValue(ok(youtube));
+    await AppShellWrapper.mount('/browse?tab=sources');
+    const section = await screen.findByRole('region', { name: 'Websites' });
+    await user.click(within(section).getByRole('button', { name: 'Add website' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Add website' });
+    await user.type(within(sheet).getByRole('textbox', { name: 'Address' }), 'm.youtube.com');
+    commands.websiteList.mockResolvedValue(ok([youtube]));
+    await user.click(within(sheet).getByRole('button', { name: 'Add' }));
+    expect(await screen.findByText('YouTube enhancements runs on this site')).toBeInTheDocument();
+    const open = await within(section).findByRole('button', { name: 'Open YouTube' });
+    expect(open).toHaveTextContent('m.youtube.com · YouTube enhancements');
+  });
+
+  it('switches site scripts per site and background play in Settings → Browse', async () => {
+    const user = userEvent.setup();
+    commands.websiteSiteScripts.mockResolvedValue(
+      ok([
+        {
+          extensionId: 'dev.raygun.noutube',
+          name: 'YouTube enhancements',
+          sites: ['https://m.youtube.com/*', 'https://music.youtube.com/*'],
+          websites: [{ id: 'w2', name: 'YouTube', on: true }],
+        },
+      ]),
+    );
+    await AppShellWrapper.mount('/settings/browse');
+    const scripts = await screen.findByRole('region', { name: 'Site scripts' });
+    expect(
+      await within(scripts).findByText('Runs on m.youtube.com, music.youtube.com'),
+    ).toBeInTheDocument();
+    const youtube = within(scripts).getByRole('switch', { name: 'YouTube' });
+    expect(youtube).toHaveAttribute('aria-checked', 'true');
+    await user.click(youtube);
+    expect(commands.websiteSetSiteScripts).toHaveBeenCalledWith('w2', 'dev.raygun.noutube', false);
+
+    const group = screen.getByRole('region', { name: 'Websites' });
+    await user.click(within(group).getByRole('switch', { name: 'Keep playing in the background' }));
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({
+      key: 'websites',
+      value: { ...DEFAULT_SETTINGS.websites, backgroundPlay: false },
+    });
+  });
+
+  it('says when no site scripts are installed', async () => {
+    await AppShellWrapper.mount('/settings/browse');
+    const scripts = await screen.findByRole('region', { name: 'Site scripts' });
+    expect(await within(scripts).findByText('No site scripts installed')).toBeInTheDocument();
+    expect(
+      within(scripts).getByRole('link', { name: /Find site scripts in Sources/ }),
+    ).toHaveAttribute('href', '/sources');
+  });
+
   it('lists saved sites in Library → Websites to open, edit and remove', async () => {
     const user = userEvent.setup();
     commands.websiteList.mockResolvedValue(ok([]));

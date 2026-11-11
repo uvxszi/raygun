@@ -37,6 +37,12 @@ import {
 import type { FC, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { BookSearchSheet } from '../dictionary/BookSearchSheet';
+import type { BookPlace } from '../dictionary/BookSearchSheet';
+import { useDictionaryPrefs } from '../dictionary/prefs';
+import { clearSelection, hasSelectionIn, useWordSelection } from '../dictionary/useWordSelection';
+import type { WordSelection } from '../dictionary/useWordSelection';
+import { WordLookup } from '../dictionary/WordLookup';
 import { ReadingFontChoices } from '../fonts/ReadingFont';
 import { READER_STACKS, quoteFamily, useInstalledFamily } from '../fonts/systemFonts';
 import { unwrapResult } from '../lib/commandResult';
@@ -383,8 +389,16 @@ const ChapterView: FC<{
   translated,
   pageStarts,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
+  // Word lookups (Settings → Reader → Dictionary): the text is selectable, and a selection is
+  // looked up; a long press then selects a word instead of reading aloud from the paragraph.
+  const lookups = useDictionaryPrefs().enabled;
+  const { block: askedBlock, page: askedPage } = useSearch({ from: '/novel/read' });
+  const navigate = useNavigate({ from: '/novel/read' });
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [lookup, setLookup] = useState<WordSelection | null>(null);
+  const [searchFor, setSearchFor] = useState<string | null>(null);
   // Where each block is as progress counts it: a character offset, or a PDF's page.
   const { starts, total } = useMemo(() => {
     if (!pageStarts) return textOffsets(data.blocks);
@@ -487,13 +501,22 @@ const ChapterView: FC<{
     [remember],
   );
 
-  // Where reading stood: the block holding the saved offset (a PDF's: its page's first block).
+  // Where reading stood: the block holding the saved offset (a PDF's: its page's first block);
+  // a search in the book opens a chapter at the paragraph (or the PDF page) it found.
   const saved = data.chapter.lastPage ?? 0;
-  const resumeAt = data.chapter.read
-    ? 0
-    : pageStarts
-      ? (pageStarts[Math.min(saved, pageStarts.length - 1)] ?? 0)
-      : blockAt(starts, saved);
+  const searched =
+    askedBlock !== undefined && askedBlock < data.blocks.length
+      ? askedBlock
+      : pageStarts && askedPage !== undefined
+        ? pageStarts[Math.min(askedPage, pageStarts.length - 1)]
+        : undefined;
+  const resumeAt =
+    searched ??
+    (data.chapter.read
+      ? 0
+      : pageStarts
+        ? (pageStarts[Math.min(saved, pageStarts.length - 1)] ?? 0)
+        : blockAt(starts, saved));
 
   // ---- Scroll mode ----
   useEffect(() => {
@@ -670,6 +693,10 @@ const ChapterView: FC<{
     press.current = null;
   };
 
+  /** Whether an event happened on the text, not in a lookup drawn over it. */
+  const fromText = (event: { currentTarget: EventTarget; target: EventTarget }) =>
+    (event.currentTarget as Node).contains(event.target as Node);
+
   const pressHandlers = onSpeakFrom
     ? {
         onPointerDown: (event: PointerEvent<HTMLElement>) => {
@@ -701,11 +728,40 @@ const ChapterView: FC<{
         onContextMenu: (event: MouseEvent<HTMLElement>) => event.preventDefault(),
       }
     : {};
+  // With lookups on, a long press is the system's: it selects a word (Read aloud from here is in
+  // the lookup), and the menu it would open over the text is the lookup's own.
+  const textHandlers = lookups
+    ? {
+        onContextMenu: (event: MouseEvent<HTMLElement>) => {
+          if (fromText(event)) event.preventDefault();
+        },
+      }
+    : pressHandlers;
 
   useEffect(() => () => cancelPress(), []);
 
+  /** The element the reader's text is selected in. */
+  const selectionRoot = () => (prefs.paged ? pagesRef.current : scrollRef.current);
+  const forgetSelection = useWordSelection(prefs.paged ? pagesRef : scrollRef, lookups, setLookup);
+  const closeLookup = useCallback(() => {
+    setLookup(null);
+    clearSelection();
+    forgetSelection();
+  }, [forgetSelection]);
+
   /** Swallows the click ending a long press; while reading, a tapped paragraph is read next. */
   const handledTap = (event: MouseEvent<HTMLElement>) => {
+    // The lookup and its sheets are in the text's tree but drawn elsewhere: not the reader's taps.
+    if (!fromText(event)) return true;
+    if (lookups) {
+      // A tap closes a lookup, or ends a selection (a drag of the mouse ends in a click too),
+      // and does nothing else; a double click selects a word.
+      if (lookup) {
+        closeLookup();
+        return true;
+      }
+      if (hasSelectionIn(selectionRoot()) || event.detail > 1) return true;
+    }
     if (longPressed.current) {
       longPressed.current = false;
       return true;
@@ -752,13 +808,15 @@ const ChapterView: FC<{
   }, []);
 
   const onTouchStart = (event: TouchEvent) => {
-    swipeStart.current = event.touches[0]?.clientX ?? null;
+    swipeStart.current = fromText(event) ? (event.touches[0]?.clientX ?? null) : null;
   };
   const onTouchEnd = (event: TouchEvent) => {
     const start = swipeStart.current;
     const end = event.changedTouches[0]?.clientX;
     swipeStart.current = null;
     if (start === null || end === undefined || Math.abs(end - start) < SWIPE_PX) return;
+    // A selection's handles being dragged aren't a page turn.
+    if (lookups && hasSelectionIn(selectionRoot())) return;
     if (end < start) forward();
     else back();
   };
@@ -792,6 +850,77 @@ const ChapterView: FC<{
       </button>
     </div>
   );
+  /** Brings a block into view: scrolled to, or its page turned to. */
+  const showBlock = (index: number) => {
+    const element = refs.current[index];
+    if (!element) return;
+    if (!prefs.paged) {
+      element.scrollIntoView?.({ block: 'center' });
+      return;
+    }
+    const container = pagesRef.current;
+    const width = pageWidth();
+    if (!container || width === 0) return;
+    const left = container.getBoundingClientRect().left - container.scrollLeft;
+    showPage(Math.floor((element.getBoundingClientRect().left - left) / width));
+  };
+
+  /** A place a search in the book found: in this chapter, or another opened there. */
+  const openPlace = (place: BookPlace) => {
+    setSearchFor(null);
+    if (place.chapterId === data.chapter.id) {
+      showBlock('block' in place ? place.block : (pageStarts?.[place.page] ?? 0));
+      return;
+    }
+    void navigate({
+      search: {
+        title: data.titleId,
+        chapter: place.chapterId,
+        ...('block' in place ? { block: place.block } : { page: place.page }),
+      },
+      replace: true,
+    });
+  };
+
+  // Drawn over the page (portals); its taps and swipes aren't the text's (`fromText`).
+  const lookupLayer = (
+    <>
+      {lookup && (
+        <WordLookup
+          key={`${lookup.block}:${lookup.text}`}
+          selection={lookup}
+          titleId={data.titleId}
+          appLanguage={i18n.resolvedLanguage ?? i18n.language ?? 'en'}
+          onClose={closeLookup}
+          onSearchBook={(text) => {
+            closeLookup();
+            setSearchFor(text);
+          }}
+          onReadAloud={
+            onSpeakFrom && lookup.block !== null
+              ? () => {
+                  const block = lookup.block;
+                  closeLookup();
+                  if (block !== null) onSpeakFrom(block);
+                }
+              : undefined
+          }
+        />
+      )}
+      {searchFor !== null && (
+        <BookSearchSheet
+          titleId={data.titleId}
+          chapterId={data.chapter.id}
+          initial={searchFor}
+          pdf={pageStarts !== undefined}
+          onPick={openPlace}
+          onClose={() => setSearchFor(null)}
+        />
+      )}
+    </>
+  );
+  const selectable = lookups ? 'selectable' : 'select-none';
+
   const blocks = data.blocks.map((block, index) => (
     <Block
       key={index}
@@ -814,10 +943,10 @@ const ChapterView: FC<{
         onClick={onPageClick}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
-        {...pressHandlers}
+        {...textHandlers}
         // Pages as wide as the column the scrolled text reads in (M46.38), not the whole window.
         style={{ maxWidth: PAGE_WIDTH[prefs.width] }}
-        className={`mx-auto h-[calc(100dvh-var(--app-bar,0px))] overflow-hidden outline-none select-none [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
+        className={`mx-auto h-[calc(100dvh-var(--app-bar,0px))] overflow-hidden outline-none ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
       >
         <div
           style={{
@@ -832,18 +961,20 @@ const ChapterView: FC<{
           {blocks}
           {endCard}
         </div>
+        {lookupLayer}
       </div>
     );
   }
   return (
     <div
+      ref={scrollRef}
       data-testid="novel-scroll"
       role="presentation"
       onClick={(event) => {
         if (!handledTap(event)) onToggleChrome();
       }}
-      {...pressHandlers}
-      className="px-5 pt-20 pb-24 select-none [-webkit-touch-callout:none] lg:[--reader-scale:1.2]"
+      {...textHandlers}
+      className={`px-5 pt-20 pb-24 ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2]`}
     >
       <article
         style={textStyle}
@@ -852,6 +983,7 @@ const ChapterView: FC<{
         {blocks}
       </article>
       {endCard}
+      {lookupLayer}
     </div>
   );
 };

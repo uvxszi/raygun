@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use serde::Deserialize;
 
 use crate::permissions::{HostPattern, NetPolicy};
+use crate::site::{RawSite, SiteScripts};
 
 pub const MANIFEST_FILE: &str = "raygun-extension.json";
 pub const API_VERSION: u32 = 1;
@@ -40,6 +41,9 @@ struct RawManifest {
     /// The site its sources read, opened from their menus (M46.11).
     #[serde(default)]
     website: Option<String>,
+    /// Scripts for the websites browser (runtime `site`, `crate::site`).
+    #[serde(default)]
+    site: Option<RawSite>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -139,6 +143,9 @@ pub enum Runtime {
     Server,
     /// A Mihon extension converted at install (`crate::mihon`), run with the Mihon prelude.
     Mihon,
+    /// Scripts and styles for websites (`crate::site`): nothing runs in Raygun; the websites
+    /// browser adds them to the pages they name. The entry is one of its scripts.
+    Site,
 }
 
 impl Runtime {
@@ -170,6 +177,8 @@ pub struct Manifest {
     pub mihon: Option<serde_json::Value>,
     /// An http(s) address; others are dropped.
     pub website: Option<String>,
+    /// A site-scripts extension's scripts (runtime `site`).
+    pub site: Option<SiteScripts>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -196,6 +205,8 @@ pub enum ManifestError {
         "setting {0:?}: duplicate or empty key, a select without options, a default of the wrong type, or a required switch"
     )]
     Setting(String),
+    #[error("site scripts: {0}")]
+    Site(String),
 }
 
 impl Manifest {
@@ -221,6 +232,7 @@ impl Manifest {
             "lnreader" => Runtime::LnReader,
             "server" => Runtime::Server,
             "mihon" => Runtime::Mihon,
+            "site" => Runtime::Site,
             _ => return Err(ManifestError::Runtime(raw.runtime)),
         };
         if !is_safe_entry(&raw.entry, runtime) {
@@ -229,6 +241,13 @@ impl Manifest {
         if let Some(kind) = raw.provides.iter().find(|kind| !is_kind(kind)) {
             return Err(ManifestError::Kind(kind.clone()));
         }
+        let site = site_section(
+            raw.site.as_ref(),
+            &raw.provides,
+            &raw.permissions,
+            &raw.entry,
+            runtime,
+        )?;
         let patterns = raw
             .permissions
             .net
@@ -278,6 +297,7 @@ impl Manifest {
             website: raw
                 .website
                 .filter(|url| url.starts_with("https://") || url.starts_with("http://")),
+            site,
         })
     }
 
@@ -311,6 +331,43 @@ impl Manifest {
     }
 }
 
+/// A site-scripts extension's `site` section, checked: only runtime `site` has one (and needs
+/// it), provides `site.scripts` and nothing else, reaches nothing through Raygun (its pages'
+/// requests are their own), and its entry is one of its scripts.
+fn site_section(
+    site: Option<&RawSite>,
+    provides: &[String],
+    permissions: &RawPermissions,
+    entry: &str,
+    runtime: Runtime,
+) -> Result<Option<SiteScripts>, ManifestError> {
+    let wrong = |reason: &str| Err(ManifestError::Site(reason.to_owned()));
+    if runtime != Runtime::Site {
+        if site.is_some() || provides.iter().any(|kind| kind == crate::site::KIND) {
+            return wrong("only runtime \"site\" has site scripts");
+        }
+        return Ok(None);
+    }
+    let Some(section) = site.cloned() else {
+        return wrong("runtime \"site\" needs a \"site\" section");
+    };
+    if provides != [crate::site::KIND] {
+        return wrong("runtime \"site\" provides [\"site.scripts\"] and nothing else");
+    }
+    if !permissions.net.is_empty() || permissions.webview {
+        return wrong("site scripts take no permissions: their pages' requests are the pages' own");
+    }
+    let scripts = SiteScripts::parse(section).map_err(ManifestError::Site)?;
+    if !scripts
+        .groups
+        .iter()
+        .any(|group| group.js.iter().any(|path| path == entry))
+    {
+        return wrong("the entry must be one of the scripts' js files");
+    }
+    Ok(Some(scripts))
+}
+
 /// Reverse-DNS: at least two dot-separated labels of `[a-z0-9-]`, each starting alphanumerically.
 pub fn is_extension_id(id: &str) -> bool {
     id.len() <= 100
@@ -339,7 +396,7 @@ fn is_label(label: &str, extra: &[u8]) -> bool {
 
 fn is_safe_entry(entry: &str, runtime: Runtime) -> bool {
     let extension = match runtime {
-        Runtime::Js | Runtime::Miru | Runtime::LnReader | Runtime::Mihon => ".js",
+        Runtime::Js | Runtime::Miru | Runtime::LnReader | Runtime::Mihon | Runtime::Site => ".js",
         Runtime::Shosetsu => ".lua",
         Runtime::Server => ".json",
     };
