@@ -18,6 +18,7 @@ pub mod apk;
 pub mod convert;
 pub mod gradle;
 pub mod index;
+mod keys;
 pub mod kotlin;
 mod pictures;
 mod proto;

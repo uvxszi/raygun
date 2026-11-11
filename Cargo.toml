@@ -61,6 +61,11 @@ debug = false
 [profile.dev.package.rquickjs-sys]
 opt-level = 3
 
+# RSA key pairs converted Mihon sources make (`KeyPairGenerator.getInstance("RSA")`): finding
+# 2048-bit primes is big-number arithmetic, slow unoptimized in the debug builds the emulator runs.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+
 # Whisper (M46.32) is matrix math on the CPU: unoptimized, one 30-second window took minutes in the
 # debug builds the emulator runs.
 [profile.dev.package.candle-core]

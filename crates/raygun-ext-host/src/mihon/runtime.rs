@@ -112,6 +112,12 @@ fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
         Function::new(ctx.clone(), |args: String| envelope(crypto(&args)))?,
     )?;
     native.set(
+        "keys",
+        Function::new(ctx.clone(), |args: String| {
+            envelope(super::keys::run(&args))
+        })?,
+    )?;
+    native.set(
         "evaluate",
         Function::new(ctx.clone(), |code: String| envelope(evaluate(&code)))?,
     )?;

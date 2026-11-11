@@ -916,6 +916,8 @@
   K.decrypt = (options) => unwrap(native.decrypt(JSON.stringify(options)));
   /** AES, digests, HMAC and PBKDF2 in Rust, bytes as base64 (`runtime.rs`'s `CryptoArgs`). */
   K.crypto = (args) => unwrap(native.crypto(JSON.stringify(args)));
+  /** Java's public keys (`mihon/keys.rs`): P-256 and RSA, keys as their DER encodings. */
+  K.keys = (args) => JSON.parse(unwrap(native.keys(JSON.stringify(args))));
   /** A site's script run in a JavaScript engine of its own (`QuickJs.create().evaluate`). */
   K.evaluate = (code) => unwrap(native.evaluate(K.str(code)));
   /** Bytes as `Uint8Array`s, converted in Rust: base64 both ways, UTF-8 both ways. */

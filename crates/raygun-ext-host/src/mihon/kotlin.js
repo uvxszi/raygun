@@ -638,7 +638,214 @@
       padding: !/nopadding/i.test(padding) && !/zerobyte/i.test(padding),
     };
   };
-  /// Java's `MessageDigest` and `Mac` by algorithm name, collecting what's `update`d.
+  // ---- Java's public keys (`mihon/keys.rs`: P-256 and RSA, keys as their DER encodings) ----
+
+  const P256 = {
+    p: 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn,
+    a: 0xffffffff00000001000000000000000000000000fffffffffffffffffffffffcn,
+    b: 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn,
+    n: 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n,
+    x: 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296n,
+    y: 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5n,
+  };
+  /// `ECPoint(x, y)`: a point's coordinates as `BigInteger`s.
+  const ecPoint = (x, y) => {
+    // P-256's own point is made as the runtime loads, before `bigIntOf` is.
+    const [affineX, affineY] = [x, y].map((value) =>
+      typeof value === 'bigint' ? value : bigIntOf(value),
+    );
+    return {
+      __class: 'ECPoint',
+      __classes: ['ECPoint'],
+      affineX,
+      affineY,
+      getAffineX: () => affineX,
+      getAffineY: () => affineY,
+    };
+  };
+  /// P-256's parameters (`AlgorithmParameters.getInstance("EC").getParameterSpec(…)`).
+  const p256Parameters = {
+    __class: 'ECParameterSpec',
+    __classes: ['ECParameterSpec', 'AlgorithmParameterSpec'],
+    curve: { field: { __class: 'ECFieldFp', p: P256.p, fieldSize: 256 }, a: P256.a, b: P256.b },
+    generator: ecPoint(P256.x, P256.y),
+    order: P256.n,
+    cofactor: 1,
+  };
+  const keyAlgorithm = (name) => (/^RSA/i.test(KT.str(name)) ? 'RSA' : 'EC');
+  /// A key as Java holds it: its DER encoding (`encoded`, `getEncoded()`), and what's in it.
+  const javaKey = (der, algorithm, isPublic) => {
+    let parts = null;
+    const described = () => (parts ??= K.keys({ op: 'describe', key: der, public: isPublic }));
+    const kind = `${algorithm}${isPublic ? 'Public' : 'Private'}Key`;
+    const key = {
+      __class: kind,
+      __classes: [kind, isPublic ? 'PublicKey' : 'PrivateKey', 'Key'],
+      isJavaKey: true,
+      isPublic,
+      der,
+      algorithm,
+      format: isPublic ? 'X.509' : 'PKCS#8',
+      getAlgorithm: () => algorithm,
+      getFormat: () => key.format,
+      getEncoded: () => fromBase64(der),
+      // An EC public key's point, an EC private key's scalar, an RSA key's numbers.
+      getW: () => ecPoint(bigIntOf(described().x, 16), bigIntOf(described().y, 16)),
+      getS: () => bigIntOf(described().s, 16),
+      getModulus: () => bigIntOf(described().modulus, 16),
+      getPublicExponent: () => bigIntOf(described().exponent, 16),
+      getParams: () => p256Parameters,
+    };
+    for (const [name, getter] of [
+      ['encoded', key.getEncoded],
+      ['w', key.getW],
+      ['s', key.getS],
+      ['modulus', key.getModulus],
+      ['publicExponent', key.getPublicExponent],
+      ['params', key.getParams],
+    ])
+      Object.defineProperty(key, name, { get: getter, enumerable: false });
+    return key;
+  };
+  const keyPairOf = (made, algorithm) => {
+    const pair = {
+      __class: 'KeyPair',
+      __classes: ['KeyPair'],
+      public: javaKey(made.public, algorithm, true),
+      private: javaKey(made.private, algorithm, false),
+    };
+    pair.getPublic = () => pair.public;
+    pair.getPrivate = () => pair.private;
+    return pair;
+  };
+  const keyPairGenerator = (name) => {
+    const algorithm = keyAlgorithm(name);
+    let bits = 2048;
+    const generate = () => keyPairOf(K.keys({ op: 'generate', algorithm, bits }), algorithm);
+    return {
+      __class: 'KeyPairGenerator',
+      // `initialize(2048)`, `initialize(ECGenParameterSpec("secp256r1"))` (P-256 is the curve).
+      initialize: (spec) => {
+        if (typeof spec === 'number') bits = spec;
+        else if (spec && spec.name && !/256|prime256v1/i.test(KT.str(spec.name)))
+          throw new KotlinError(
+            `Raygun has no curve ${KT.str(spec.name)}`,
+            'InvalidAlgorithmParameterException',
+          );
+        return KT.unit;
+      },
+      generateKeyPair: generate,
+      genKeyPair: generate,
+    };
+  };
+  const keyFactory = (name) => {
+    const algorithm = keyAlgorithm(name);
+    return {
+      __class: 'KeyFactory',
+      generatePublic: (spec) => {
+        if (spec && spec.keySpec === 'x509')
+          return javaKey(base64Of(spec.encoded), algorithm, true);
+        if (spec && spec.keySpec === 'ecPoint') {
+          const { public: der } = K.keys({
+            op: 'ecPublic',
+            x: spec.point.affineX.toString(16),
+            y: spec.point.affineY.toString(16),
+          });
+          return javaKey(der, 'EC', true);
+        }
+        if (spec && spec.keySpec === 'rsa') {
+          const { public: der } = K.keys({
+            op: 'rsaPublic',
+            modulus: bigIntOf(spec.modulus).toString(16),
+            exponent: bigIntOf(spec.exponent).toString(16),
+          });
+          return javaKey(der, 'RSA', true);
+        }
+        throw new KotlinError('Raygun reads no such key spec', 'InvalidKeySpecException');
+      },
+      generatePrivate: (spec) => {
+        if (spec && spec.keySpec === 'pkcs8')
+          return javaKey(base64Of(spec.encoded), algorithm, false);
+        throw new KotlinError('Raygun reads no such key spec', 'InvalidKeySpecException');
+      },
+    };
+  };
+  /// `KeyAgreement.getInstance("ECDH")`: the shared secret of a private key and a peer's public one.
+  const keyAgreement = () => {
+    let own = null;
+    let peer = null;
+    return {
+      __class: 'KeyAgreement',
+      init: (key) => ((own = key), KT.unit),
+      doPhase: (key) => ((peer = key), null),
+      generateSecret: () =>
+        fromBase64(K.keys({ op: 'agree', private: own.der, public: peer.der }).data),
+    };
+  };
+  /// `Signature.getInstance("SHA256withECDSA")`: signs or checks what's `update`d.
+  const javaSignature = (name) => {
+    if (!/^SHA256withECDSA$/i.test(KT.str(name)))
+      throw new KotlinError(`Raygun has no ${KT.str(name)} signatures`, 'NoSuchAlgorithmException');
+    let key = null;
+    let pending = [];
+    const take = () => {
+      const data = base64Of(pending);
+      pending = [];
+      return data;
+    };
+    return {
+      __class: 'Signature',
+      initSign: (privateKey) => ((key = privateKey), (pending = []), KT.unit),
+      initVerify: (publicKey) => ((key = publicKey), (pending = []), KT.unit),
+      update: (value, offset = 0, count = undefined) => {
+        const bytes = typeof value === 'number' ? [value & 255] : Array.from(u8Of(value));
+        pending.push(...bytes.slice(offset, count === undefined ? undefined : offset + count));
+        return KT.unit;
+      },
+      sign: () => fromBase64(K.keys({ op: 'sign', private: key.der, data: take() }).data),
+      verify: (signature) =>
+        K.keys({ op: 'verify', public: key.der, data: take(), signature: base64Of(signature) })
+          .valid,
+    };
+  };
+  /// RSA's `Cipher` (`RSA/ECB/PKCS1Padding`, `RSA/ECB/OAEPWithSHA-256AndMGF1Padding`): OAEP's mask
+  /// is over SHA-1 unless an `OAEPParameterSpec` says otherwise, as Java's is.
+  const rsaCipher = (name) => {
+    const text = KT.str(name);
+    const oaep = /OAEP/i.test(text);
+    let hash = (/OAEPWith(SHA-?\d+)And/i.exec(text) ?? [])[1] ?? 'SHA-1';
+    let mgfHash = 'SHA-1';
+    let key = null;
+    let encrypt = true;
+    let pending = [];
+    const run = () => {
+      const data = base64Of(pending);
+      pending = [];
+      return fromBase64(
+        K.keys({ op: 'rsa', key: key.der, encrypt, oaep, hash, mgfHash, data }).data,
+      );
+    };
+    return {
+      __class: 'Cipher',
+      init: (mode, givenKey, parameters = null) => {
+        encrypt = Number(mode) !== 2;
+        key = givenKey;
+        if (parameters && parameters.isOaep) {
+          hash = parameters.hash;
+          mgfHash = parameters.mgfHash;
+        }
+        return KT.unit;
+      },
+      update: (value) => {
+        pending.push(...Array.from(u8Of(value)));
+        return [];
+      },
+      doFinal: (value = null) => {
+        if (value !== null) pending.push(...Array.from(u8Of(value)));
+        return run();
+      },
+    };
+  }; /// Java's `MessageDigest` and `Mac` by algorithm name, collecting what's `update`d.
   const digester = (algorithm, keyed = false) => {
     let pending = [];
     let key = null;
@@ -1594,6 +1801,12 @@
       return out;
     },
     sorted: (l) => [...l].sort(KT.cmp),
+    toSortedSet: (l) => LIST.distinct(l).sort(KT.cmp),
+    // `bytes.fill(0)`, `fill(value, from, to)`.
+    fill: (l, [value, from = 0, to = l.length]) => {
+      for (let at = from; at < to; at++) l[at] = value;
+      return KT.unit;
+    },
     sortedDescending: (l) => [...l].sort((a, b) => KT.cmp(b, a)),
     sortedBy: async (l, _args, lambda) => sortBy(l, lambda),
     sortedByDescending: async (l, _args, lambda) => sortBy(l, lambda, true),
@@ -7121,6 +7334,14 @@
     askPassword: dialogClosed(null),
     askSelect: dialogClosed(null),
     askSelectOption: dialogClosed(null),
+    // `SequenceInputStream(first, second)`: one stream's bytes, then the other's.
+    SequenceInputStream: async ([first, second]) => {
+      const [head, tail] = [u8Of(await streamBytes(first)), u8Of(await streamBytes(second))];
+      const joined = new Uint8Array(head.length + tail.length);
+      joined.set(head);
+      joined.set(tail, head.length);
+      return inputStream(joined);
+    },
     GZIPInputStream: async ([stream]) =>
       inputStream(inflateBytes(await streamBytes(stream), 'gzip')),
     InflaterInputStream: async ([stream]) =>
@@ -7378,6 +7599,29 @@
     // Keiyoushi's `ratingStars(rating, max)`: five stars with halves.
     ratingStars: ([rating, max = 10], named_) => ratingStars(rating, named_?.max ?? max),
     PropertyDelegateProvider: (args, _named, lambda) => delegateProvider(lambda ?? args[0]),
+    // Java's key specs (`KeyFactory.generatePublic(X509EncodedKeySpec(bytes))`) and OAEP's parameters.
+    X509EncodedKeySpec: ([encoded]) => ({ keySpec: 'x509', encoded }),
+    PKCS8EncodedKeySpec: ([encoded]) => ({ keySpec: 'pkcs8', encoded }),
+    ECPublicKeySpec: ([point]) => ({ keySpec: 'ecPoint', point }),
+    RSAPublicKeySpec: ([modulus, exponent]) => ({ keySpec: 'rsa', modulus, exponent }),
+    ECGenParameterSpec: ([name]) => ({ __class: 'ECGenParameterSpec', name: KT.str(name) }),
+    ECPoint: ([x, y]) => ecPoint(x, y),
+    KeyPair: ([publicKey, privateKey]) => {
+      const pair = {
+        __class: 'KeyPair',
+        __classes: ['KeyPair'],
+        public: publicKey,
+        private: privateKey,
+      };
+      pair.getPublic = () => publicKey;
+      pair.getPrivate = () => privateKey;
+      return pair;
+    },
+    OAEPParameterSpec: ([hash, _mgf, mgfSpec]) => ({
+      isOaep: true,
+      hash: KT.str(hash),
+      mgfHash: (mgfSpec && mgfSpec.digest) || 'SHA-1',
+    }),
     // org.json's `JSONObject(text)` and `JSONArray(text)`.
     JSONObject: ([text]) =>
       orgJsonObject(
@@ -9008,10 +9252,30 @@
     },
     // Java's `Cipher`, `MessageDigest`, `Mac` and `SecretKeyFactory`, over the Rust natives.
     Cipher: {
-      getInstance: (name) => aesCipher(transformation(name)),
+      getInstance: (name) =>
+        /^RSA/i.test(KT.str(name)) ? rsaCipher(name) : aesCipher(transformation(name)),
       ENCRYPT_MODE: 1,
       DECRYPT_MODE: 2,
     },
+    KeyPairGenerator: { getInstance: (name) => keyPairGenerator(name) },
+    KeyFactory: { getInstance: (name) => keyFactory(name) },
+    KeyAgreement: { getInstance: () => keyAgreement() },
+    Signature: { getInstance: (name) => javaSignature(name) },
+    AlgorithmParameters: {
+      getInstance: () => ({
+        __class: 'AlgorithmParameters',
+        init: () => KT.unit,
+        getParameterSpec: () => p256Parameters,
+      }),
+    },
+    MGF1ParameterSpec: {
+      SHA1: { digest: 'SHA-1' },
+      SHA224: { digest: 'SHA-224' },
+      SHA256: { digest: 'SHA-256' },
+      SHA384: { digest: 'SHA-384' },
+      SHA512: { digest: 'SHA-512' },
+    },
+    PSource: { PSpecified: { DEFAULT: { __class: 'PSource' } } },
     MessageDigest: { getInstance: (algorithm) => digester(KT.str(algorithm)) },
     Mac: { getInstance: (algorithm) => digester(KT.str(algorithm), true) },
     SecretKeyFactory: {

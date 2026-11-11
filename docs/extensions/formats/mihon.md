@@ -247,7 +247,7 @@ Anything else is refused with the reason, which the catalogue then shows for tha
 - one of Keiyoushi's libraries whose code couldn't be read;
 - a call, object or name the runtime doesn't have (`emit::METHODS`, `GLOBALS` and `OBJECTS`,
   which a test keeps equal to `kotlin.js`'s tables), such as Android's `WebView`,
-  `StaticLayout` or `PdfRenderer`, or Java's `KeyPairGenerator`;
+  `PdfRenderer` or `ParcelFileDescriptor`;
 - what JavaScript can't say: a vararg before other parameters;
 - an object's `init` block.
 
@@ -273,6 +273,7 @@ the themes:
 | Kotlin | Its standard library, kotlinx.serialization and coroutines as the converted code calls them (`KT`), and `K`'s helpers (`substringAfter`, `trimIndent`, `String.format`…); org.json's `JSONObject`/`JSONArray`; `BigInteger` as JavaScript's `BigInt` |
 | AES (Madara's chapter protector) | OpenSSL-style `EVP_BytesToKey` and AES-CBC in Rust |
 | Keiyoushi's and Java's crypto | `ByteArray`s as lists of numbers 0–255 (text where bytes go is its UTF-8); `Base64` (Android's flags, Kotlin's `Default`/`UrlSafe`); `aesCbc`/`aesEcb`/`aesGcm`/`aesCtr`, `Cipher`, `MessageDigest`, `Mac`, `SecretKeyFactory` (PBKDF2), `decodeHex`, `md5`/`sha256` in Rust (`runtime.rs`'s `crypto`) |
+| Java's public keys | `KeyPairGenerator`, `KeyFactory` (X.509 and PKCS #8 encodings, a P-256 point, an RSA modulus), `KeyAgreement` (ECDH), `Signature` (`SHA256withECDSA`) and RSA's `Cipher`s (PKCS #1, OAEP) on P-256 and RSA in Rust (`mihon/keys.rs`) |
 | Keiyoushi's other helpers | `MarkdownDescription.Builder`, `toMarkdown` and `ratingStars` as plain text (Raygun shows descriptions as text), `tryParseZonedDateTime`, `Instant.tryParse`, Jsoup's `attrOrNull`, `selectLast`, `textNodes`, `createElement`, `:containsData` |
 | Android's graphics | `Bitmap`, `BitmapFactory`, `Canvas`, `Matrix`, `Rect`, `Paint`, `Color` over pictures held in Rust (`raygun_net::bitmap`) |
 | Bytes | Answers' bytes as `Uint8Array`s; okio's `Buffer` and `ByteString`, Java's byte streams, `ByteBuffer`; `GZIPOutputStream`/`DeflaterOutputStream` deflated in Rust |
@@ -298,27 +299,26 @@ Themes so far (ported from Keiyoushi's `lib-multisrc`, Apache-2.0):
 
 ## Coverage
 
-`mihon_convert_survey` converts every extension of Keiyoushi's store (1577 comic extensions as
-of 2026-11-10, read from a checkout of `keiyoushi/extensions-source` that day) and loads each
+`mihon_convert_survey` converts every extension of Keiyoushi's store (1587 comic extensions as
+of 2026-11-11, read from a checkout of `keiyoushi/extensions-source` that day) and loads each
 conversion as installing does (one that doesn't load counts as refused):
 
 | | Converted | Of |
 |---|---|---|
-| Madara | 242 | 242 |
-| MangaThemesia | 112 | 112 |
+| Madara | 243 | 243 |
+| MangaThemesia | 115 | 115 |
 | ComiciViewer, ZeistManga, GigaViewer | 81 | 81 |
 | Keyoapp | 16 | 16 |
 | MangaCatalog, YiiManga, PizzaReader | 40 | 40 |
 | Iken, InitManga, FoolSlide, GalleryAdults | 37 | 37 |
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
-| Other themes | 130 | 134 |
-| No theme | 815 | 858 |
-| All | 1530 (97.0%) | 1577 |
+| Other themes | 132 | 136 |
+| No theme | 826 | 862 |
+| All | 1547 (97.5%) | 1587 |
 
-The 47 refusals left are one or two extensions each, most of them on what has no stand-in:
-Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java's key pairs
-(`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
+The 40 refusals left are one or two extensions each, most of them on what has no stand-in:
+Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Keiyoushi's remote ZIP reading (`dataRange()`,
 `zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
 own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
 and zstd; one on Kotlin the converter doesn't read yet (a class declared in a function). Android's

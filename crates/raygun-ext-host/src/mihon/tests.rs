@@ -2070,6 +2070,115 @@ async fn converted_code_reads_formats_xml_and_java_helpers() {
     );
 }
 
+/// Java's key pairs: P-256 generated, agreed (ECDH), rebuilt from its point and signed with, and
+/// RSA's OAEP and PKCS #1 ciphers over a generated pair and a key read back from its encoding.
+#[tokio::test]
+async fn converted_code_makes_and_uses_key_pairs() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport java.math.BigInteger\nimport java.security.AlgorithmParameters\nimport java.security.KeyFactory\nimport java.security.KeyPairGenerator\nimport java.security.Signature\nimport java.security.interfaces.ECPublicKey\nimport java.security.spec.ECGenParameterSpec\nimport java.security.spec.ECParameterSpec\nimport java.security.spec.ECPoint\nimport java.security.spec.ECPublicKeySpec\nimport java.security.spec.MGF1ParameterSpec\nimport java.security.spec.X509EncodedKeySpec\nimport javax.crypto.Cipher\nimport javax.crypto.KeyAgreement\nimport javax.crypto.spec.OAEPParameterSpec\nimport javax.crypto.spec.PSource",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun ecPair() = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val alice = ecPair()
+        val bob = ecPair()
+        val one = KeyAgreement.getInstance("ECDH").run {
+            init(alice.private)
+            doPhase(bob.public, true)
+            generateSecret()
+        }
+        val point = (bob.public as ECPublicKey).w
+        val params = AlgorithmParameters.getInstance("EC").apply { init(ECGenParameterSpec("secp256r1")) }
+            .getParameterSpec(ECParameterSpec::class.java)
+        val p = params.curve.field.p
+        val x = point.affineX
+        val y = point.affineY
+        val onCurve = y * y % p == (x * x * x + params.curve.a * x + params.curve.b) % p
+        val rebuilt = KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(ECPoint(x, y), params))
+        val two = KeyAgreement.getInstance("ECDH").run {
+            init(alice.private)
+            doPhase(rebuilt, true)
+            generateSecret()
+        }
+        val signature = Signature.getInstance("SHA256withECDSA").run {
+            initSign(alice.private)
+            update("signed".toByteArray())
+            sign()
+        }
+        val verified = Signature.getInstance("SHA256withECDSA").run {
+            initVerify(alice.public)
+            update("signed".toByteArray())
+            verify(signature)
+        }
+        val rsa = KeyPairGenerator.getInstance("RSA").apply { initialize(1024) }.generateKeyPair()
+        val oaep = OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT)
+        val sealed = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding").run {
+            init(Cipher.ENCRYPT_MODE, rsa.public, oaep)
+            doFinal("key".toByteArray())
+        }
+        val opened = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding").run {
+            init(Cipher.DECRYPT_MODE, rsa.private, oaep)
+            doFinal(sealed)
+        }
+        val read = KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(rsa.public.encoded))
+        val padded = Cipher.getInstance("RSA/ECB/PKCS1Padding").run {
+            init(Cipher.ENCRYPT_MODE, read)
+            doFinal("old".toByteArray())
+        }
+        val unpadded = Cipher.getInstance("RSA/ECB/PKCS1Padding").run {
+            init(Cipher.DECRYPT_MODE, rsa.private)
+            doFinal(padded)
+        }
+        val names = listOf(
+            (one.size == 32 && one.contentEquals(two)).toString(),
+            onCurve.toString(),
+            verified.toString(),
+            String(opened),
+            String(unpadded),
+            (x.toByteArray().size >= 32).toString(),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(titles, ["true", "true", "true", "key", "old", "true"]);
+}
+
 /// org.json's `JSONObject`, `BigInteger` as JavaScript's `BigInt`, and `GZIPOutputStream` read
 /// back by `GZIPInputStream`.
 #[tokio::test]

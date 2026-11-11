@@ -222,6 +222,11 @@ pub const METHODS: &[&str] = &[
     "setBit", "bitLength", "bitCount", "negate", "abs", "intValue", "longValue", "doubleValue",
     "add", "subtract", "multiply", "divide", "remainder", "andNot", "toBigIntegerOrNull",
     "finish",
+    // Java's keys
+    "initialize", "generateKeyPair", "genKeyPair", "generatePublic", "generatePrivate",
+    "doPhase", "initSign", "initVerify", "sign", "verify", "getParameterSpec", "getPublic",
+    "getPrivate", "getAlgorithm", "getFormat", "getW", "getS", "getAffineX", "getAffineY",
+    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet",
     "unescapeEntities", "getProperty", "getValue",
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
     "toDuration", "isNegative", "isPositive", "isInfinite", "isFinite", "toNanos", "toMicros",
@@ -3301,7 +3306,9 @@ pub const GLOBALS: &[&str] = &[
     "injectLazy", "AtomicInteger", "AtomicLong", "AtomicBoolean", "AtomicReference",
     "ReentrantLock", "ReentrantReadWriteLock", "sleep", "AutoCloseable", "File", "Dispatcher",
     "PropertyDelegateProvider", "JSONObject", "JSONArray", "GZIPOutputStream",
-    "DeflaterOutputStream", "BigInteger",
+    "DeflaterOutputStream", "BigInteger", "X509EncodedKeySpec", "PKCS8EncodedKeySpec",
+    "ECPublicKeySpec", "RSAPublicKeySpec", "ECGenParameterSpec", "ECPoint", "OAEPParameterSpec",
+    "KeyPair", "SequenceInputStream",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -3328,5 +3335,6 @@ pub const OBJECTS: &[&str] = &[
     "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
     "applicationContext", "PreferenceManager", "BuildConfig", "File", "Dns",
     "DEFAULT_BUFFER_SIZE", "InputType", "SignStyle", "FormatStyle", "YearMonth", "LocalTime",
-    "WeekFields", "BigInteger",
+    "WeekFields", "BigInteger", "KeyPairGenerator", "KeyFactory", "KeyAgreement", "Signature",
+    "AlgorithmParameters", "MGF1ParameterSpec", "PSource",
 ];
