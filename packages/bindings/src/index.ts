@@ -5809,6 +5809,8 @@ export type SafeStartInfo = {
 	suspects: SourceRef[],
 	/**  Held back by this start. */
 	heldNow: SourceRef[],
+	/**  What went wrong in the last run, when a record says. */
+	lastCrash: CrashRecord | null,
 };
 
 /**  Why this start is a safe one. */

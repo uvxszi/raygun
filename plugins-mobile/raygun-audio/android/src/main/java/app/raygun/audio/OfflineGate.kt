@@ -136,14 +136,15 @@ class OfflineGateClient(private val inner: WebViewClient) : WebViewClient() {
      */
     @androidx.annotation.RequiresApi(26)
     override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-        CrashLog.rendererGone(view.context, detail)
-        leave(view, "renderer")
+        // Reported once per view and client: the first one shows the error screen.
+        val first = CrashLog.rendererGone(view.context, detail)
+        leave(view, "renderer", showScreen = first)
         return true
     }
 
-    private fun leave(view: WebView, kind: String) {
+    private fun leave(view: WebView, kind: String, showScreen: Boolean = true) {
         val activity = activityOf(view.context) ?: return
-        if (CrashLog.mainInFront) CrashLog.showErrorScreen(activity, kind)
+        if (showScreen && CrashLog.mainInFront) CrashLog.showErrorScreen(activity, kind)
         runCatching { (view.parent as? android.view.ViewGroup)?.removeView(view) }
         activity.finish()
     }

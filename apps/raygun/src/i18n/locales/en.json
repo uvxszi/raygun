@@ -5332,6 +5332,19 @@
     "recoveredStopped": "Raygun stopped while it last started. This start skipped what it restores at start.",
     "recoveredRenderer": "Raygun's screen stopped working last time. This start skipped the pages it saved.",
     "recoveredAsked": "Raygun started in safe mode, as asked.",
+    "recoveredKinds": {
+      "panic": "A part of Raygun stopped last time, and Raygun ended with it.",
+      "java": "Raygun stopped last time after an error on Android's side.",
+      "native": "Raygun crashed last time.",
+      "anr": "Raygun stopped responding last time, and Android ended it.",
+      "memory": "Android ended Raygun last time to free memory.",
+      "exit": "Android ended Raygun last time.",
+      "start": "Raygun stopped while it last started.",
+      "renderer": "Raygun's screen stopped working last time.",
+      "page": "Raygun's screen couldn't load last time.",
+      "ui": "Raygun's screen met an error last time."
+    },
+    "recoveredSkipped": "This start skipped what it restores at start, to be safe.",
     "suspects": "At work when it stopped",
     "heldNow": "Held back now (it happened twice with these at work)",
     "close": "Close"

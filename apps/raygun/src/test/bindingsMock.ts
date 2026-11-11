@@ -324,6 +324,7 @@ export const NORMAL_START: SafeStartInfo = {
   crashes: 0,
   suspects: [],
   heldNow: [],
+  lastCrash: null,
 };
 
 export const NO_INSTALLS: ExtensionInstallStatus = {

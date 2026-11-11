@@ -222,6 +222,7 @@ class WebsiteActivity : AppCompatActivity() {
     private var built = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        CrashLog.install(this)
         WebProcess.init()
         super.onCreate(savedInstanceState)
         val asked = intent.getStringExtra(EXTRA_REQUEST)
@@ -1572,6 +1573,7 @@ class WebsiteActivity : AppCompatActivity() {
 /** Clears the built-in browser's cookies, storage and cache, in its process, without a window. */
 class WebsiteDataActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        CrashLog.install(this)
         WebProcess.init()
         super.onCreate(savedInstanceState)
         CookieManager.getInstance().removeAllCookies(null)

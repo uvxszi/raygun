@@ -37,9 +37,20 @@ const unwrap = async <T,>(
   return answer.data;
 };
 
+/** A record's `Time:` line (milliseconds) as a date and time people read. */
+const readableTimes = (text: string, format: Intl.DateTimeFormat) =>
+  text.replace(/^Time: (\d{10,})$/m, (line, millis: string) => {
+    const at = Number(millis);
+    return Number.isFinite(at) ? `Time: ${format.format(new Date(at))}` : line;
+  });
+
 /** One record, read in full, to share or save. */
 const RecordSheet: FC<{ record: CrashRecord; onClose: () => void }> = ({ record, onClose }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const format = new Intl.DateTimeFormat(i18n.language, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  });
   const text = useQuery({
     queryKey: ['crashLog', record.id],
     queryFn: () => unwrap(commands.crashLog(record.id)),
@@ -61,7 +72,11 @@ const RecordSheet: FC<{ record: CrashRecord; onClose: () => void }> = ({ record,
           data-testid="crash-log-text"
           className="selectable bg-surface/70 max-h-[55dvh] overflow-auto rounded-xl p-3 font-mono text-xs break-words whitespace-pre-wrap"
         >
-          {text.data ?? (text.error ? String(text.error) : '…')}
+          {text.data !== undefined
+            ? readableTimes(text.data, format)
+            : text.error
+              ? String(text.error)
+              : '…'}
         </pre>
         <div className="flex gap-2">
           <button

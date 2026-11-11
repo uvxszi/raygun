@@ -93,6 +93,7 @@ class BrowserCheckActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
+        CrashLog.install(this)
         if (!dataReady && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             dataReady = true
             runCatching { WebView.setDataDirectorySuffix("check") }

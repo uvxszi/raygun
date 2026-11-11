@@ -209,6 +209,7 @@ class WebMediaService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         session = MediaSession(this, "RaygunWebsite").apply {
             setCallback(callback, main)
             setSessionActivity(openBrowser())

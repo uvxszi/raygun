@@ -1,5 +1,5 @@
 import { commands } from '@raygun/bindings';
-import type { SafeStartReason } from '@raygun/bindings';
+import type { SafeStartInfo, SafeStartReason } from '@raygun/bindings';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
@@ -12,6 +12,32 @@ const REASON_KEYS: Record<SafeStartReason, string> = {
   stopped: 'crash.recoveredStopped',
   renderer: 'crash.recoveredRenderer',
   asked: 'crash.recoveredAsked',
+};
+
+/** Kinds of crash record the notice can name (`crash_log.rs`, `CrashLog.kt`). */
+const KNOWN_KINDS = new Set([
+  'panic',
+  'java',
+  'native',
+  'anr',
+  'memory',
+  'exit',
+  'start',
+  'renderer',
+  'page',
+  'ui',
+]);
+
+/**
+ * What the notice says happened: the last run's own crash record when there is one (an
+ * exception, a native crash, the system ending it…), else why this start is a safe one.
+ */
+const recoveredKey = (info: SafeStartInfo): string[] => {
+  if (info.reason === 'asked') return [REASON_KEYS.asked];
+  const kind = info.lastCrash?.kind;
+  if (kind && KNOWN_KINDS.has(kind))
+    return [`crash.recoveredKinds.${kind}`, 'crash.recoveredSkipped'];
+  return [info.reason ? REASON_KEYS[info.reason] : REASON_KEYS.stopped];
 };
 
 /**
@@ -46,7 +72,14 @@ export const SafeStartNotice: FC = () => {
   return (
     <Sheet title={t('crash.recovered')} onClose={close}>
       <div data-testid="safe-start-notice" className="flex flex-col gap-3">
-        <p>{t(info.reason ? REASON_KEYS[info.reason] : 'crash.recoveredStopped')}</p>
+        <p>
+          {recoveredKey(info)
+            .map((key) => t(key))
+            .join(' ')}
+        </p>
+        {info.lastCrash?.summary && (
+          <p className="text-muted text-sm break-words">{info.lastCrash.summary}</p>
+        )}
         {info.heldNow.length > 0 && (
           <div className="flex flex-col gap-1">
             <span className="text-muted text-sm font-medium">{t('crash.heldNow')}</span>

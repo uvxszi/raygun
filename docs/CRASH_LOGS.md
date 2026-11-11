@@ -16,14 +16,14 @@ Raygun keeps its logs on the device and never sends them anywhere. This page say
 
 ### What a crash record holds
 
-Each record is a text file in `logs/crashes/` in Raygun's data folder. It starts with `Kind:`, `Time:`, `Version:` and `Summary:` lines, then the details. The kinds are:
+Each record is a text file in `logs/crashes/` in Raygun's data folder. It starts with `Kind:`, `Time:`, `Version:`, `Pid:` (and on Android `Process:`) and `Summary:` lines, then the details. The kinds are:
 
 | Kind | What happened | Details |
 |---|---|---|
 | `panic` | A part of Raygun's core stopped (a Rust panic). Raygun often goes on without it. | Message, place in the code, thread, backtrace, and which sources were loading or running |
 | `java` | An exception on the Android side ended Raygun. | Stack trace, device memory |
 | `renderer` | The page's renderer process ended: it crashed, or Android ended it to free memory. | Device memory, whether Raygun was in front |
-| `native`, `anr`, `memory`, `exit` | How Android says an earlier run ended (Android 11 and later), read at the next start. | A native crash keeps its tombstone beside the record (`<time>-native.tombstone.pb`; read it with AOSP's `pbtombstone`). An ANR keeps its thread dump. |
+| `java`, `native`, `anr`, `memory`, `exit` | How Android says one of Raygun's processes ended (Android 11 and later): a crash, a native crash, not responding, the system ending a process in use for memory, a signal. Read when a process starts, when Raygun comes to the front and when Crash logs opens. A crash Raygun recorded itself at the time (same process, same moment) isn't recorded again, and neither are processes Raygun ended itself. | A native crash keeps its tombstone beside the record (`<time>-native.tombstone.pb`; read it with AOSP's `pbtombstone`). An ANR keeps its thread dump. |
 | `start` | Raygun stopped within 20 s of starting and nothing else explained it. | The sources that were at work |
 | `ui`, `page` | The page met an error it couldn't get past, or Raygun's page couldn't load. | |
 

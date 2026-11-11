@@ -1508,6 +1508,16 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
      * storage and cookies go first, and the notifications about what was erased (releases,
      * downloads); the app's other processes (the built-in browser, browser checks) end with this one.
      */
+    /** How Raygun's processes ended lately, recorded as crash logs (`CrashLog.recordExits`). */
+    @Command
+    fun crashRecordExits(invoke: Invoke) {
+        val context = activity.applicationContext
+        thread(name = "raygun-exits") {
+            runCatching { CrashLog.recordExits(context) }
+            invoke.resolve()
+        }
+    }
+
     @Command
     fun restartApp(invoke: Invoke) {
         activity.runOnUiThread {
@@ -1530,7 +1540,10 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
                 val manager = activity.getSystemService(android.app.ActivityManager::class.java)
                 manager?.runningAppProcesses
                     ?.filter { it.uid == android.os.Process.myUid() && it.pid != android.os.Process.myPid() }
-                    ?.forEach { android.os.Process.killProcess(it.pid) }
+                    ?.forEach {
+                        CrashLog.expectExit(activity, it.pid)
+                        android.os.Process.killProcess(it.pid)
+                    }
                 Runtime.getRuntime().exit(0)
             }, 300)
         }

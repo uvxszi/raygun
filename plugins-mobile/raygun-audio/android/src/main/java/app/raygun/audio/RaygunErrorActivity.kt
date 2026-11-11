@@ -156,8 +156,9 @@ class RaygunErrorActivity : ComponentActivity() {
     private fun showLog() {
         showingLog = true
         val file = CrashLog.latest(this)
-        val log = file?.let { runCatching { it.readText().take(200_000) }.getOrNull() }
-            ?: "No crash log was kept."
+        val raw = file?.let { runCatching { it.readText().take(200_000) }.getOrNull() }
+        // Its time as this device shows dates, not milliseconds.
+        val log = raw?.let(CrashLog::readable) ?: "No crash log was kept."
         val body = label(log, 12f, textColor).apply {
             typeface = Typeface.MONOSPACE
             setTextIsSelectable(true)
@@ -224,7 +225,11 @@ class RaygunErrorActivity : ComponentActivity() {
         if (safe) {
             getSystemService(ActivityManager::class.java)?.runningAppProcesses
                 ?.filter { it.uid == Process.myUid() && it.pid != Process.myPid() && it.processName == packageName }
-                ?.forEach { Process.killProcess(it.pid) }
+                ?.forEach {
+                    // Ended on purpose: not a crash for the next start's records.
+                    CrashLog.expectExit(this, it.pid)
+                    Process.killProcess(it.pid)
+                }
         }
         packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
             startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

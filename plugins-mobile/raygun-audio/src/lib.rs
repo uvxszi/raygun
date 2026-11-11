@@ -778,6 +778,13 @@ impl<R: Runtime> NativeAudio<R> {
         .map(|listing| listing.files)
     }
 
+    /// Records how Raygun's processes ended lately as crash logs (Android 11+), each once.
+    #[cfg(target_os = "android")]
+    pub fn crash_record_exits(&self) -> Result<(), String> {
+        self.run::<serde_json::Value>("crashRecordExits", ())
+            .map(|_| ())
+    }
+
     /// Starts Raygun again from its first screen, ending its other processes (M46.51). The
     /// WebView's storage and cookies are cleared first.
     #[cfg(target_os = "android")]

@@ -34,7 +34,9 @@ describe('About → Crash logs', () => {
   beforeEach(() => {
     AppShellWrapper.seedCore();
     commands.crashLogs.mockResolvedValue(ok(LOGS));
-    commands.crashLog.mockResolvedValue(ok('Raygun crash record\nKind: renderer\n\nThe details'));
+    commands.crashLog.mockResolvedValue(
+      ok('Raygun crash record\nKind: renderer\nTime: 1700000000000\n\nThe details'),
+    );
   });
 
   it('lists what went wrong, newest first, and opens one to share or save', async () => {
@@ -48,6 +50,9 @@ describe('About → Crash logs', () => {
     await user.click(rows[0]!);
     const text = await screen.findByTestId('crash-log-text');
     await waitFor(() => expect(text).toHaveTextContent('The details'));
+    // Its time is a date people read, not milliseconds.
+    expect(text).not.toHaveTextContent('1700000000000');
+    expect(text).toHaveTextContent(/Time: .*2023/);
     const sheet = within(screen.getByRole('dialog'));
     await user.click(sheet.getByRole('button', { name: 'Share' }));
     expect(commands.crashLogShare).toHaveBeenCalledWith('1700000000000-renderer.txt');
@@ -80,6 +85,7 @@ describe('About → Crash logs', () => {
       crashes: 1,
       suspects: [{ id: 'dev.suspect', name: 'Suspect Source' }],
       heldNow: [],
+      lastCrash: null,
     };
     commands.safeStartStatus.mockResolvedValue(safe);
     commands.crashLogs.mockResolvedValue(ok({ ...LOGS, safeStart: safe }));
@@ -92,5 +98,25 @@ describe('About → Crash logs', () => {
     await user.click(within(notice).getByRole('button', { name: 'Close' }));
     expect(screen.queryByTestId('safe-start-notice')).not.toBeInTheDocument();
     expect(screen.getByText('This is a safe start')).toBeVisible();
+  });
+
+  it('says what went wrong last time when a record tells', async () => {
+    commands.safeStartStatus.mockResolvedValue({
+      ...NORMAL_START,
+      active: true,
+      reason: 'renderer',
+      crashes: 1,
+      lastCrash: {
+        id: '1700000000000-java.txt',
+        kind: 'java',
+        at: 1_700_000_000_000,
+        summary: 'CrashedByAdbException: shell-induced crash',
+      },
+    });
+    await AppShellWrapper.mount('/about/crashes');
+    const notice = await screen.findByTestId('safe-start-notice');
+    expect(notice).toHaveTextContent("Raygun stopped last time after an error on Android's side.");
+    expect(notice).not.toHaveTextContent("Raygun's screen stopped working");
+    expect(notice).toHaveTextContent('CrashedByAdbException: shell-induced crash');
   });
 });

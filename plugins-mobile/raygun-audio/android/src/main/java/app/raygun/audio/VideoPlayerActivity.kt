@@ -301,6 +301,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashLog.install(this)
         // Recreated by the system in a new process (after Raygun ended): nothing in Rust knows this
         // player, so it would wait for ever; Raygun's own screen comes instead.
         if (savedInstanceState != null && DirectCalls.plugin == null) {

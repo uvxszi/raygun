@@ -36,6 +36,8 @@ pub const DIR: &str = "crashes";
 const MARKER: &str = ".starting";
 /// What sources were doing, while a start is watched: one line each.
 const RUNNING: &str = ".running";
+/// When the last start began (milliseconds): what went wrong since is that run's.
+const LAST_START: &str = ".last-start";
 /// Left by the Kotlin side when the webview's renderer went.
 const RENDERER_GONE: &str = "renderer-gone";
 /// Left by "Start in safe mode" (the error pages).
@@ -77,6 +79,9 @@ pub struct SafeStart {
     pub held_back: Vec<String>,
     /// The error page asked to clear the caches.
     pub clear_caches: bool,
+    /// When the last start began, and this one (milliseconds).
+    pub since: u64,
+    pub started_at: u64,
 }
 
 impl SafeStart {
@@ -154,8 +159,10 @@ pub fn begin(logs: &Path) -> SafeStart {
     let previous: Option<Marker> = fs::read(dir.join(MARKER))
         .ok()
         .map(|bytes| serde_json::from_slice(&bytes).unwrap_or_default());
-    let start = decide(&dir, previous);
+    let mut start = decide(&dir, previous);
     let started_at = now_ms();
+    start.started_at = started_at;
+    let _ = fs::write(dir.join(LAST_START), started_at.to_string());
     let marker = Marker {
         started_at,
         version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -185,6 +192,10 @@ pub fn begin(logs: &Path) -> SafeStart {
 
 /// How this start begins, from the last one's marker and the flags left in `dir` (which it takes).
 fn decide(dir: &Path, previous: Option<Marker>) -> SafeStart {
+    let since = fs::read_to_string(dir.join(LAST_START))
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(0);
     let renderer = take(dir, RENDERER_GONE);
     let asked = take(dir, SAFE_ASKED);
     let clear_caches = take(dir, CLEAR_CACHES);
@@ -232,7 +243,22 @@ fn decide(dir: &Path, previous: Option<Marker>) -> SafeStart {
         suspects,
         held_back,
         clear_caches,
+        since,
+        started_at: now_ms(),
     }
+}
+
+/// What went wrong in the last run (between `since` and `until`): the newest record, one of
+/// Raygun's own or Android's account rather than the `start` record written when none was there.
+fn last_crash(records: &[CrashRecord], since: u64, until: u64) -> Option<CrashRecord> {
+    let (since, until) = (since as f64, until as f64);
+    let in_run = |record: &&CrashRecord| record.at >= since && record.at <= until;
+    records
+        .iter()
+        .filter(in_run)
+        .find(|record| record.kind != "start")
+        .or_else(|| records.iter().find(in_run))
+        .cloned()
 }
 /// A start that stopped without leaving a record of its own (a native crash, the system ending
 /// it): one is written now, naming what sources were doing. Android's own account of it, when
@@ -420,7 +446,7 @@ fn write_record(dir: &Path, kind: &str, at: u64, summary: &str, body: &str) -> O
         .take(300)
         .collect();
     let text = format!(
-        "Raygun crash record\nKind: {kind}\nTime: {at}\nVersion: {} ({}, {})\nSummary: \
+        "Raygun crash record\nKind: {kind}\nTime: {at}\nVersion: {} ({}, {})\nPid: {}\nSummary: \
          {summary}\n\n{body}",
         env!("CARGO_PKG_VERSION"),
         platform(),
@@ -429,6 +455,7 @@ fn write_record(dir: &Path, kind: &str, at: u64, summary: &str, body: &str) -> O
         } else {
             "release"
         },
+        std::process::id(),
     );
     let mut name = format!("{at}-{kind}.txt");
     let mut tries = 1;
@@ -585,6 +612,8 @@ pub struct SafeStartInfo {
     pub suspects: Vec<SourceRef>,
     /// Held back by this start.
     pub held_now: Vec<SourceRef>,
+    /// What went wrong in the last run, when a record says.
+    pub last_crash: Option<CrashRecord>,
 }
 
 /// About → Crash logs.
@@ -624,13 +653,40 @@ async fn safe_start_info(app: &AppHandle) -> SafeStartInfo {
         .try_state::<SafeStartState>()
         .map(|state| state.0.clone())
         .unwrap_or_default();
+    let last_crash = if start.active() {
+        record_exits(app).await;
+        let dir = crash_dir(app);
+        let list = tauri::async_runtime::spawn_blocking(move || records(&dir))
+            .await
+            .unwrap_or_default();
+        last_crash(&list, start.since, start.started_at)
+    } else {
+        None
+    };
     SafeStartInfo {
         active: start.active(),
         reason: start.reason,
         crashes: start.crashes,
         suspects: names(app, start.suspects.clone()).await,
         held_now: names(app, start.held_back.clone()).await,
+        last_crash,
     }
+}
+
+/// Android's account of how Raygun's processes ended lately, recorded first (`CrashLog.kt`):
+/// one that ended while Raygun ran on (the browser's, the error screen's) has no start of its own.
+async fn record_exits(app: &AppHandle) {
+    #[cfg(target_os = "android")]
+    {
+        let app = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            app.state::<tauri_plugin_raygun_audio::NativeAudio<tauri::Wry>>()
+                .crash_record_exits()
+        })
+        .await;
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
 }
 
 /// How this start began: a safe start after a crash, and the sources it names.
@@ -644,6 +700,7 @@ pub async fn safe_start_status(app: AppHandle) -> SafeStartInfo {
 #[tauri::command]
 #[specta::specta]
 pub async fn crash_logs(app: AppHandle) -> Result<CrashLogs, String> {
+    record_exits(&app).await;
     let dir = crash_dir(&app);
     let list = {
         let dir = dir.clone();
@@ -1002,6 +1059,28 @@ mod tests {
         assert!(zip.len() > 100);
     }
 
+    #[test]
+    fn the_last_crash_is_the_last_runs_own_record_rather_than_the_fallback() {
+        let record = |kind: &str, at: u64| CrashRecord {
+            id: format!("{at}-{kind}.txt"),
+            kind: kind.into(),
+            at: at as f64,
+            summary: String::new(),
+        };
+        // Newest first, as listed: this run's renderer record, then the last run's.
+        let list = [
+            record("renderer", 9_000),
+            record("start", 5_000),
+            record("java", 4_000),
+            record("panic", 1_000),
+        ];
+        let last = |since, until| last_crash(&list, since, until).map(|record| record.kind);
+        assert_eq!(last(2_000, 8_000).as_deref(), Some("java"));
+        assert_eq!(last(4_500, 8_000).as_deref(), Some("start"));
+        assert_eq!(last(6_000, 8_000), None);
+        assert_eq!(last(0, 10_000).as_deref(), Some("renderer"));
+    }
+
     /// [`begin`] without touching the process's global state (tests run side by side).
     fn begin_without_hook(logs: &Path) -> SafeStart {
         let dir = dir_in(logs);
@@ -1009,6 +1088,7 @@ mod tests {
             .ok()
             .map(|bytes| serde_json::from_slice(&bytes).unwrap_or_default());
         let start = decide(&dir, previous);
+        fs::write(dir.join(LAST_START), start.started_at.to_string()).unwrap();
         let marker = Marker {
             started_at: now_ms(),
             version: "test".into(),

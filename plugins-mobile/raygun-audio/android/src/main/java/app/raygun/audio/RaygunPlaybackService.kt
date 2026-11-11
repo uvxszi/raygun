@@ -209,6 +209,8 @@ class RaygunPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        // The system may start this process for the service alone.
+        CrashLog.install(this)
         repeat(2) { index ->
             val processor = SoundProcessor().apply { setConfig(RaygunSound.config) }
             val route = RouteWatch(main, keeper::routingChanged)

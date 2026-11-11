@@ -90,6 +90,8 @@ class MainActivity : TauriActivity() {
   override fun onResume() {
     super.onResume()
     CrashLog.mainInFront = true
+    // Raygun's other processes may have ended meanwhile (the browser's, the error screen's).
+    CrashLog.recordExitsLater(this)
     WebAwake.resumed()
     val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     multicastLock =
