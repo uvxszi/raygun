@@ -1,5 +1,8 @@
 //! Translation providers: Claude (the Messages API over HTTP; Rust has no official SDK), any
-//! OpenAI-compatible endpoint (including local Ollama and LM Studio) and DeepL.
+//! OpenAI-compatible endpoint (including local Ollama and LM Studio), DeepL, and the free ones:
+//! a LibreTranslate server (self-hosted or a public one, key optional) and MyMemory (anonymous
+//! with a daily limit; an email raises it, sent only when one was entered). A Whisper server
+//! (OpenAI-compatible transcription, self-hosted) is listed with them but only transcribes.
 //!
 //! One call translates a list of texts and must return one translation per text. Batching across
 //! a chapter and glossaries build on this in M37.
@@ -13,6 +16,17 @@ const ANTHROPIC_VERSION: &str = "2026-10-21";
 pub const OPENAI_BASE: &str = "http://localhost:11434/v1";
 const DEEPL_FREE: &str = "https://api-free.deepl.com";
 const DEEPL_PRO: &str = "https://api.deepl.com";
+/// MyMemory's own free endpoint.
+pub const MYMEMORY_BASE: &str = "https://api.mymemory.translated.net";
+/// MyMemory takes at most 500 bytes a text; longer ones go in pieces.
+const MYMEMORY_MAX_BYTES: usize = 480;
+/// MyMemory texts asked for at once.
+const MYMEMORY_AT_ONCE: usize = 4;
+/// LibreTranslate texts per request.
+const LIBRE_BATCH: usize = 40;
+/// A 429 is waited out this many times, when it says for how long (at most `MAX_RETRY_WAIT`).
+const RATE_RETRIES: usize = 2;
+const MAX_RETRY_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 /// Longest provider error text kept in a message.
 const MAX_ERROR_CHARS: usize = 300;
 
@@ -22,6 +36,11 @@ pub enum ProviderKind {
     Claude,
     OpenAiCompatible,
     Deepl,
+    LibreTranslate,
+    MyMemory,
+    /// An OpenAI-compatible transcription server (faster-whisper-server, whisper.cpp's server):
+    /// it hears words and doesn't translate.
+    WhisperServer,
 }
 
 /// A configured translator. Its key is kept apart, in the secrets store.
@@ -52,6 +71,9 @@ impl Provider {
                     DEEPL_FREE.into()
                 }
                 ProviderKind::Deepl => DEEPL_PRO.into(),
+                ProviderKind::MyMemory => MYMEMORY_BASE.into(),
+                // No public server is free and dependable: the address is the user's.
+                ProviderKind::LibreTranslate | ProviderKind::WhisperServer => String::new(),
             });
         base.trim_end_matches('/').to_owned()
     }
@@ -72,6 +94,12 @@ pub enum TranslateError {
     MissingKey(&'static str),
     #[error("{0} needs a model name")]
     MissingModel(&'static str),
+    #[error("{0} needs its server's address")]
+    MissingAddress(&'static str),
+    #[error("a Whisper server transcribes; it doesn't translate")]
+    TranscribesOnly,
+    #[error("MyMemory's free translations for today are used up")]
+    QuotaUsed,
     #[error("couldn't reach the translator: {0}")]
     Http(#[from] reqwest::Error),
     #[error("the translator answered {status}: {message}")]
@@ -137,6 +165,15 @@ pub async fn translate_as(
             }
             all
         }
+        ProviderKind::LibreTranslate => {
+            let mut all = Vec::with_capacity(texts.len());
+            for batch in texts.chunks(LIBRE_BATCH) {
+                all.extend(libretranslate(client, provider, key, batch, from, to).await?);
+            }
+            all
+        }
+        ProviderKind::MyMemory => mymemory(client, provider, key, texts, from, to).await?,
+        ProviderKind::WhisperServer => return Err(TranslateError::TranscribesOnly),
     };
     if translations.len() != texts.len() {
         return Err(TranslateError::CountMismatch {
@@ -297,6 +334,206 @@ async fn deepl(
         .iter()
         .filter_map(|item| item.get("text").and_then(Value::as_str).map(str::to_owned))
         .collect())
+}
+
+/// Sends a request again after a 429 that says how long to wait (`Retry-After` in seconds, up
+/// to `MAX_RETRY_WAIT`), a couple of times; other answers come back as they are.
+async fn send_waiting(
+    request: reqwest::RequestBuilder,
+) -> Result<reqwest::Response, TranslateError> {
+    let mut tries = 0;
+    loop {
+        let Some(again) = request.try_clone() else {
+            return Ok(request.send().await?);
+        };
+        let response = again.send().await?;
+        let wait = (response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS)
+            .then(|| retry_after(&response))
+            .flatten()
+            .filter(|wait| *wait <= MAX_RETRY_WAIT);
+        match wait {
+            Some(wait) if tries < RATE_RETRIES => {
+                tries += 1;
+                tracing::info!(?wait, "translator limiting requests: waiting");
+                tokio::time::sleep(wait).await;
+            }
+            _ => return Ok(response),
+        }
+    }
+}
+
+fn retry_after(response: &reqwest::Response) -> Option<std::time::Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(std::time::Duration::from_secs)
+}
+
+/// LibreTranslate's `/translate`, several texts in one request.
+async fn libretranslate(
+    client: &reqwest::Client,
+    provider: &Provider,
+    key: Option<&str>,
+    texts: &[String],
+    from: Option<&str>,
+    to: &str,
+) -> Result<Vec<String>, TranslateError> {
+    let base = provider.base(key);
+    if base.is_empty() {
+        return Err(TranslateError::MissingAddress("LibreTranslate"));
+    }
+    let mut body = json!({
+        "q": texts,
+        "source": from.map_or("auto".to_owned(), libre_language),
+        "target": libre_language(to),
+        "format": "text",
+    });
+    if let Some(key) = key {
+        body["api_key"] = json!(key);
+    }
+    let answer =
+        read_json(send_waiting(client.post(format!("{base}/translate")).json(&body)).await?)
+            .await?;
+    match answer.get("translatedText") {
+        Some(Value::Array(items)) => Ok(items
+            .iter()
+            .map(|item| item.as_str().unwrap_or_default().to_owned())
+            .collect()),
+        // An older server answers one text with one string.
+        Some(Value::String(text)) if texts.len() == 1 => Ok(vec![text.clone()]),
+        _ => Err(TranslateError::BadAnswer),
+    }
+}
+
+/// LibreTranslate's language codes: the base language, with Chinese by its characters.
+fn libre_language(code: &str) -> String {
+    let lower = code.replace('_', "-").to_lowercase();
+    match lower.as_str() {
+        "zh-hant" | "zh-tw" | "zh-hk" | "zh-mo" => "zt".into(),
+        "pt-br" => "pb".into(),
+        _ => base_language(&lower).to_owned(),
+    }
+}
+
+/// MyMemory's `/get`: a text a request, a few at once; texts over its limit go in pieces.
+async fn mymemory(
+    client: &reqwest::Client,
+    provider: &Provider,
+    email: Option<&str>,
+    texts: &[String],
+    from: Option<&str>,
+    to: &str,
+) -> Result<Vec<String>, TranslateError> {
+    let base = provider.base(email);
+    let pair = format!("{}|{}", from.unwrap_or("autodetect"), to);
+    let mut out = Vec::with_capacity(texts.len());
+    for group in texts.chunks(MYMEMORY_AT_ONCE) {
+        let asks: Vec<_> = group
+            .iter()
+            .map(|text| mymemory_text(client, &base, email, text, &pair))
+            .collect();
+        out.extend(futures_util::future::try_join_all(asks).await?);
+    }
+    Ok(out)
+}
+
+/// One text, in pieces when it's over MyMemory's limit.
+async fn mymemory_text(
+    client: &reqwest::Client,
+    base: &str,
+    email: Option<&str>,
+    text: &str,
+    pair: &str,
+) -> Result<String, TranslateError> {
+    let mut parts = Vec::new();
+    for piece in pieces(text, MYMEMORY_MAX_BYTES) {
+        parts.push(mymemory_one(client, base, email, piece, pair).await?);
+    }
+    Ok(parts.join(" "))
+}
+async fn mymemory_one(
+    client: &reqwest::Client,
+    base: &str,
+    email: Option<&str>,
+    text: &str,
+    pair: &str,
+) -> Result<String, TranslateError> {
+    if text.trim().is_empty() {
+        return Ok(text.to_owned());
+    }
+    let mut query = vec![("q", text), ("langpair", pair)];
+    if let Some(email) = email {
+        query.push(("de", email));
+    }
+    let url = reqwest::Url::parse_with_params(&format!("{base}/get"), &query)
+        .map_err(|_| TranslateError::MissingAddress("MyMemory"))?;
+    let request = client.get(url);
+    let answer = read_json(send_waiting(request).await?).await?;
+    if answer.get("quotaFinished").and_then(Value::as_bool) == Some(true) {
+        return Err(TranslateError::QuotaUsed);
+    }
+    let status = match answer.get("responseStatus") {
+        Some(Value::Number(number)) => number.as_u64().unwrap_or(200),
+        Some(Value::String(text)) => text.parse().unwrap_or(200),
+        _ => 200,
+    };
+    if status != 200 {
+        if status == 429 {
+            return Err(TranslateError::QuotaUsed);
+        }
+        let message = answer
+            .get("responseDetails")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        return Err(TranslateError::Provider {
+            status: status as u16,
+            message: message.chars().take(MAX_ERROR_CHARS).collect(),
+        });
+    }
+    answer
+        .pointer("/responseData/translatedText")
+        .and_then(Value::as_str)
+        .map(unescape)
+        .ok_or(TranslateError::BadAnswer)
+}
+
+/// A text in pieces of at most `max` bytes, cut after sentences where it can, else at spaces.
+fn pieces(text: &str, max: usize) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while rest.len() > max {
+        let mut cut = max;
+        while !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let head = &rest[..cut];
+        let at = head
+            .rfind(['.', '!', '?', '。', '！', '？'])
+            .map(|at| at + head[at..].chars().next().map_or(1, char::len_utf8))
+            .filter(|at| *at > max / 3)
+            .or_else(|| head.rfind(' ').filter(|at| *at > 0))
+            .unwrap_or(cut);
+        out.push(rest[..at].trim());
+        rest = rest[at..].trim_start();
+    }
+    if !rest.is_empty() || out.is_empty() {
+        out.push(rest);
+    }
+    out
+}
+
+/// MyMemory sometimes answers with HTML entities for quotes and ampersands.
+fn unescape(text: &str) -> String {
+    text.replace("&#39;", "'")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
 }
 
 fn base_language(code: &str) -> &str {

@@ -263,14 +263,15 @@ describe('Settings → AI', () => {
     await AppShellWrapper.mount('/settings/ai');
     const transcription = await region('Transcription');
 
-    // Claude can't hear: an OpenAI-compatible provider is added from here.
+    // Claude can't hear: a Whisper server (or an OpenAI-compatible provider) is added here.
     await user.click(
       await within(transcription).findByRole('button', {
-        name: /^Add an OpenAI-compatible provider/,
+        name: /^Add a Whisper server/,
       }),
     );
     const form = await screen.findByRole('form', { name: 'Provider settings' });
-    expect(within(form).getByLabelText('Service')).toHaveValue('openAiCompatible');
+    expect(within(form).getByLabelText('Service')).toHaveValue('whisperServer');
+    expect(form).toHaveTextContent('It only transcribes.');
     await user.click(within(form).getByRole('button', { name: 'Cancel' }));
 
     await user.click(within(transcription).getByRole('button', { name: /^Online model/ }));

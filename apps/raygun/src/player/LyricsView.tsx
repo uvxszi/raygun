@@ -9,15 +9,16 @@ import { useHasProvider } from '../extensions/useExtensions';
 import { SourceIssue } from '../shell/SourceIssue';
 import { LyricsSourceMenu } from '../sound/LyricsSourceMenu';
 import { LyricsTranslateMenu } from '../sound/LyricsTranslateMenu';
-import { useShownTranslation } from '../sound/lyricsTranslation';
+import { NOTHING_SHOWN, useShownTranslation } from '../sound/lyricsTranslation';
 import type { ShownTranslation } from '../sound/lyricsTranslation';
 import { TranslatedPlain } from '../sound/TranslatedLines';
 import { useSongEditStore } from '../sound/songEditStore';
+import { heardLines, useSongTranscription } from '../sound/useSongTranscription';
 import { trackQueryFor, useLyricsFor } from './lyricsQuery';
 import { usePlayerUiStore } from './playerUiStore';
 import { useLyricsLook } from './playerView';
 import { useCurrentLine, useFollowLine } from './useFollowLine';
-import { sendControl } from './usePlayback';
+import { sendControl, useReadPosition } from './usePlayback';
 
 type Variant = 'sheet' | 'panel';
 
@@ -43,7 +44,11 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
   const selectable = usePlayerUiStore((store) => store.lyricsSelectable);
   const setSelectable = usePlayerUiStore((store) => store.setLyricsSelectable);
   const containerRef = useRef<HTMLDivElement>(null);
-  const synced = lyrics.data?.synced ?? [];
+  const readPosition = useReadPosition();
+  // While the song's words are being heard, each window's lines show as it's done.
+  const transcription = useSongTranscription(query);
+  const heard = useMemo(() => heardLines(transcription.captions), [transcription.captions]);
+  const synced = heard ?? lyrics.data?.synced ?? [];
   const hasLines = synced.length > 0 || Boolean(lyrics.data?.plain);
   // The panel's card shrinks to a line while loading, without lyrics or after an error.
   const height = variant === 'panel' ? (hasLines ? 'h-[min(26rem,60svh)]' : 'h-auto') : '';
@@ -71,11 +76,11 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
       {synced.length > 0 ? (
         <SyncedLyrics
           lines={synced}
-          offsetMs={lyrics.data?.offsetMs ?? 0}
+          offsetMs={heard ? 0 : (lyrics.data?.offsetMs ?? 0)}
           variant={variant}
           align={align}
           container={containerRef}
-          shown={shown}
+          shown={heard ? NOTHING_SHOWN : shown}
         />
       ) : lyrics.data?.plain && (shown.translation || shown.romanization) ? (
         <TranslatedPlain lyrics={lyrics.data} shown={shown} variant={variant} align={align} />
@@ -103,7 +108,12 @@ export const LyricsView: FC<LyricsViewProps> = ({ item, variant = 'sheet' }) => 
           <LyricsSourceMenu query={query} current={lyrics.data ?? undefined} />
         )}
         {lyrics.data && hasLines && (
-          <LyricsTranslateMenu query={query} lyrics={lyrics.data} shown={shown} />
+          <LyricsTranslateMenu
+            query={query}
+            lyrics={lyrics.data}
+            shown={shown}
+            readPosition={readPosition}
+          />
         )}
         {!lyrics.isPending && (
           <button

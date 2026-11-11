@@ -391,6 +391,24 @@ mod tests {
                     "{line} → {translated}"
                 );
             }
+            // A song's worth of lines: when the first batch (8 lines, as lyrics are translated
+            // now) is in, against the whole song at once (as before).
+            let song: Vec<String> = (0..48)
+                .map(|line| format!("Ich habe dich so vermisst, Nacht {line}."))
+                .collect();
+            let started = std::time::Instant::now();
+            let mut first_batch = None;
+            for (index, line) in song.iter().enumerate() {
+                marian.translate(line, None).unwrap();
+                if index + 1 == 8 {
+                    first_batch = Some(started.elapsed());
+                }
+            }
+            println!(
+                "48 lines: first 8 after {:?}, all after {:?}",
+                first_batch.unwrap(),
+                started.elapsed()
+            );
         })
         .await
         .unwrap();

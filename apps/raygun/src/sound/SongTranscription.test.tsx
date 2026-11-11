@@ -1,8 +1,9 @@
-import type { Captions, TrackQuery } from '@raygun/bindings';
-import { screen, waitFor } from '@testing-library/react';
+import type { Captions, Lyrics, QueueItem, TrackQuery } from '@raygun/bindings';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FC } from 'react';
 
+import { LyricsView } from '../player/LyricsView';
 import { bindingsMock, emitEvent, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { TranscriptionStatus } from './TranscriptionStatus';
@@ -117,5 +118,86 @@ describe('song transcription', () => {
     commands.captions.mockClear();
     emitEvent('lyricsTranscribedEvent', KEY);
     await waitFor(() => expect(commands.captions).toHaveBeenCalledWith(KEY));
+  });
+});
+
+describe('transcribed lyrics in the player', () => {
+  const ITEM: QueueItem = {
+    id: 'q1',
+    title: SONG.title,
+    artist: SONG.artist,
+    album: null,
+    durationMs: 240_000,
+    artworkUrl: null,
+    mediaKind: 'audio',
+    source: { kind: 'url', url: 'https://example.com/ghost.flac', headers: {} },
+  };
+  const HEARD: Lyrics = {
+    providerName: 'Your lyrics',
+    synced: [{ timeMs: 1_000, text: 'Who you gonna call' }],
+    plain: null,
+    offsetMs: 0,
+    edited: true,
+    translations: [],
+  };
+  const SOURCE: Lyrics = {
+    ...HEARD,
+    providerName: 'Lyric Lines',
+    synced: [{ timeMs: 1_000, text: "If there's something strange" }],
+    edited: false,
+  };
+
+  it('shows the lines heard so far while the song is being heard', async () => {
+    commands.lyricsGet.mockResolvedValue(ok(SOURCE));
+    commands.captions.mockResolvedValue(
+      ok(
+        captions({
+          running: true,
+          cues: [
+            { startMs: 31_000, endMs: 33_000, text: 'Ghostbusters' },
+            { startMs: 1_000, endMs: 3_000, text: 'Who you gonna call' },
+          ],
+        }),
+      ),
+    );
+    renderWithProviders(<LyricsView item={ITEM} />);
+    const view = await screen.findByTestId('lyrics-view');
+    const lines = await within(view).findAllByRole('button', {
+      name: /Who you gonna call|Ghostbusters/,
+    });
+    expect(lines.map((line) => line.textContent)).toEqual(['Who you gonna call', 'Ghostbusters']);
+  });
+
+  it("deletes saved transcribed lyrics and shows a source's instead", async () => {
+    const user = userEvent.setup();
+    let deleted = false;
+    commands.lyricsGet.mockImplementation(async () => ok(deleted ? SOURCE : HEARD));
+    commands.lyricsForget.mockImplementation(async () => {
+      deleted = true;
+      return ok(null);
+    });
+    renderWithProviders(<LyricsView item={ITEM} />);
+    const view = await screen.findByTestId('lyrics-view');
+    await within(view).findByRole('button', { name: /Who you gonna call/ });
+    await user.click(within(view).getByRole('button', { name: /Lyrics from/ }));
+    const menu = await screen.findByTestId('lyrics-source-menu');
+    await user.click(within(menu).getByRole('button', { name: 'Delete saved lyrics' }));
+    expect(commands.lyricsForget).toHaveBeenCalledWith(
+      expect.objectContaining({ title: SONG.title, artist: SONG.artist }),
+    );
+    expect(await within(view).findByRole('button', { name: /something strange/ })).toBeVisible();
+    expect(within(view).queryByRole('button', { name: /Who you gonna call/ })).toBeNull();
+  });
+
+  it('says why deleting failed, keeping the menu open', async () => {
+    const user = userEvent.setup();
+    commands.lyricsGet.mockResolvedValue(ok(HEARD));
+    commands.lyricsForget.mockResolvedValue({ status: 'error', error: 'Disk is full' });
+    renderWithProviders(<LyricsView item={ITEM} />);
+    const view = await screen.findByTestId('lyrics-view');
+    await user.click(await within(view).findByRole('button', { name: /Lyrics from/ }));
+    const menu = await screen.findByTestId('lyrics-source-menu');
+    await user.click(within(menu).getByRole('button', { name: 'Delete saved lyrics' }));
+    await waitFor(() => expect(menu).toHaveTextContent('Disk is full'));
   });
 });

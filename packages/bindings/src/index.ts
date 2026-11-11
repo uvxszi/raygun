@@ -322,9 +322,10 @@ export const commands = {
 	/**
 	 *  Translates a song's lyrics into `language` (a BCP 47 tag) with `translator`: `device` (a model
 	 *  from the AI catalogue, downloaded first) or `ai:<provider id>`. The translation is kept and
-	 *  comes with the song's lyrics from then on (M46.48).
+	 *  comes with the song's lyrics from then on (M46.48). Lines go a few at a time from the one at
+	 *  `position_ms` (the listener's place), each batch kept and announced as it's done.
 	 */
-	lyricsTranslate: (query: TrackQuery, language: string, translator: string) => typedError<LyricsTranslation, string>(__TAURI_INVOKE("lyrics_translate", { query, language, translator })),
+	lyricsTranslate: (query: TrackQuery, language: string, translator: string, positionMs: number | null) => typedError<LyricsTranslation, string>(__TAURI_INVOKE("lyrics_translate", { query, language, translator, positionMs })),
 	/**
 	 *  Who can translate a song's lyrics into `language`: this device, with what it would download,
 	 *  then the translators from Settings → AI (M46.48).
@@ -1851,7 +1852,16 @@ export type AiProviderInput = {
 	key: string | null,
 };
 
-export type AiProviderKind = "claude" | "openAiCompatible" | "deepl";
+export type AiProviderKind = "claude" | "openAiCompatible" | "deepl" | 
+/**  A LibreTranslate server (self-hosted or public; key optional). */
+"libreTranslate" | 
+/**  MyMemory's free translations (anonymous; the key slot holds an optional email). */
+"myMemory" | 
+/**
+ *  An OpenAI-compatible transcription server (faster-whisper-server, whisper.cpp): only
+ *  transcribes.
+ */
+"whisperServer";
 
 /**  An anime episode, for looking up its openings and endings on AniSkip (M45). */
 export type AnimeEpisode = {
@@ -3849,6 +3859,8 @@ export type LyricsTranslationProgress = {
 	translator: string,
 	done: number,
 	total: number,
+	/**  Lines translated and kept so far: the song's lyrics show them now, the rest follow. */
+	saved: number,
 };
 
 /**  A translator that can translate a song's lyrics (M46.48), as the Translate menu lists it. */

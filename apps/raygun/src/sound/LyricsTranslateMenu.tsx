@@ -66,7 +66,9 @@ export const LyricsTranslateMenu: FC<{
   query: TrackQuery;
   lyrics: Lyrics;
   shown: ShownTranslation;
-}> = ({ query, lyrics, shown }) => {
+  /** The listener's place in the song, when it's playing: translating starts at that line. */
+  readPosition?: () => number;
+}> = ({ query, lyrics, shown, readPosition }) => {
   const { t } = useTranslation();
   const client = useQueryClient();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -105,7 +107,15 @@ export const LyricsTranslateMenu: FC<{
         }
         setDownloadPercent(null);
       }
-      return unwrapResult(commands.lyricsTranslate(query, target, option.id));
+      const position = readPosition?.();
+      return unwrapResult(
+        commands.lyricsTranslate(
+          query,
+          target,
+          option.id,
+          position === undefined ? null : Math.max(0, Math.round(position)),
+        ),
+      );
     },
     onSuccess: (translation) => {
       if (!translation) return;
@@ -121,16 +131,29 @@ export const LyricsTranslateMenu: FC<{
   const running = translate.isPending;
   const downloading = downloadPercent !== null;
 
-  // Lines done while this device translates the song.
+  // Lines done while the song is translated. Each batch is kept as it's done: the lyrics are
+  // read again to show it, and the translation being made is the one that shows.
+  const saved = useRef(0);
   useEffect(() => {
     if (!running) return;
+    saved.current = 0;
     const unlisten = events.lyricsTranslationEvent.listen(({ payload }) => {
-      if (payload.key === key) setProgress({ done: payload.done, total: payload.total });
+      if (payload.key !== key) return;
+      setProgress({ done: payload.done, total: payload.total });
+      if (payload.saved > saved.current) {
+        if (saved.current === 0) {
+          choose(key, { translator: payload.translator, language: payload.language });
+        }
+        saved.current = payload.saved;
+        void client.invalidateQueries({ queryKey: lyricsKey(query) });
+      }
     });
     return () => {
       void unlisten.then((stop) => stop());
     };
-  }, [running, key]);
+    // `query` is the song `key` names.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, key, choose, client]);
 
   // The models' download, a percent at a time (the events come every 256 KB).
   useEffect(() => {

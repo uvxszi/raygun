@@ -864,7 +864,8 @@ pub async fn lyrics_get(
 
 /// Translates a song's lyrics into `language` (a BCP 47 tag) with `translator`: `device` (a model
 /// from the AI catalogue, downloaded first) or `ai:<provider id>`. The translation is kept and
-/// comes with the song's lyrics from then on (M46.48).
+/// comes with the song's lyrics from then on (M46.48). Lines go a few at a time from the one at
+/// `position_ms` (the listener's place), each batch kept and announced as it's done.
 #[tauri::command]
 #[specta::specta]
 pub async fn lyrics_translate(
@@ -872,8 +873,11 @@ pub async fn lyrics_translate(
     query: TrackQuery,
     language: String,
     translator: String,
+    position_ms: Option<u32>,
 ) -> Result<raygun_model::LyricsTranslation, String> {
-    translations.translate(&query, &language, &translator).await
+    translations
+        .translate(&query, &language, &translator, position_ms)
+        .await
 }
 
 /// Who can translate a song's lyrics into `language`: this device, with what it would download,

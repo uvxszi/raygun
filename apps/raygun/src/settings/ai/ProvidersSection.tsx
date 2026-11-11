@@ -19,7 +19,25 @@ import { Problem } from '../Problem';
 const SELECT = 'bg-background min-w-0 rounded-xl px-4 py-3 outline-none';
 const ICON_BUTTON =
   'hover:bg-surface grid size-10 shrink-0 place-items-center rounded-full disabled:opacity-60';
-const KINDS: AiProviderKind[] = ['claude', 'openAiCompatible', 'deepl'];
+const KINDS: AiProviderKind[] = [
+  'claude',
+  'openAiCompatible',
+  'deepl',
+  'libreTranslate',
+  'myMemory',
+  'whisperServer',
+];
+/** Services that take no model name. */
+const NO_MODEL: AiProviderKind[] = ['deepl', 'libreTranslate', 'myMemory', 'whisperServer'];
+/** Services with a line saying what they are. */
+const KIND_ABOUT: AiProviderKind[] = ['libreTranslate', 'myMemory', 'whisperServer'];
+/** Services that need no key. */
+const KEY_OPTIONAL: AiProviderKind[] = [
+  'openAiCompatible',
+  'libreTranslate',
+  'myMemory',
+  'whisperServer',
+];
 
 /** A provider's service, name, key, address and model, in a sheet; `kind` starts a new one. */
 export const ProviderForm: FC<{
@@ -44,7 +62,7 @@ export const ProviderForm: FC<{
         kind,
         name: name.trim() || t(`ai.kind.${kind}`),
         baseUrl: baseUrl.trim() || null,
-        model: kind === 'deepl' ? null : model.trim() || null,
+        model: NO_MODEL.includes(kind) ? null : model.trim() || null,
         key: removeKey ? '' : key.trim() || null,
       },
       { onSuccess: onDone },
@@ -85,16 +103,24 @@ export const ProviderForm: FC<{
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-muted text-xs">
-            {kind === 'openAiCompatible' ? t('ai.apiKeyOptional') : t('ai.apiKey')}
+            {kind === 'myMemory'
+              ? t('ai.emailOptional')
+              : KEY_OPTIONAL.includes(kind)
+                ? t('ai.apiKeyOptional')
+                : t('ai.apiKey')}
           </span>
           <TextField
-            type="password"
+            type={kind === 'myMemory' ? 'email' : 'password'}
             autoComplete="off"
             value={key}
             disabled={removeKey}
             onChange={setKey}
             placeholder={
-              provider?.keyHint ? t('ai.savedKey', { hint: provider.keyHint }) : t('ai.pasteKey')
+              provider?.keyHint
+                ? t('ai.savedKey', { hint: provider.keyHint })
+                : kind === 'myMemory'
+                  ? t('ai.emailPlaceholder')
+                  : t('ai.pasteKey')
             }
             className={SHEET_FIELD}
             inputClassName={SHEET_INPUT}
@@ -123,7 +149,10 @@ export const ProviderForm: FC<{
             inputClassName={SHEET_INPUT}
           />
         </label>
-        {kind !== 'deepl' && (
+        {KIND_ABOUT.includes(kind) && (
+          <p className="text-muted text-xs">{t(`ai.kindAbout.${kind}`)}</p>
+        )}
+        {!NO_MODEL.includes(kind) && (
           <label className="flex flex-col gap-1">
             <span className="text-muted text-xs">{t('ai.model')}</span>
             <TextField
@@ -237,7 +266,8 @@ const ProviderRow: FC<{ provider: AiProvider }> = ({ provider }) => {
 
 /**
  * Online providers: Claude, OpenAI-compatible services and DeepL with their keys (kept in the
- * encrypted secrets store), each set up in a sheet.
+ * encrypted secrets store), the free LibreTranslate and MyMemory, and Whisper servers for
+ * transcription, each set up in a sheet.
  */
 export const ProvidersSection: FC = () => {
   const { t } = useTranslation();

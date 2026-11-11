@@ -185,6 +185,30 @@ impl AiService {
             .find(|provider| provider.id == id)
             .ok_or_else(|| "This translator was removed".to_owned())?;
         let key = self.vault.get(&secret_name(id));
+        if provider.kind == ProviderKind::WhisperServer {
+            // It only hears speech: answering its model list says the address works.
+            let (base, key) = self.transcriber(id).await?;
+            let mut request = self.client.get(format!("{base}/models"));
+            if let Some(key) = key {
+                request = request.bearer_auth(key);
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|error| issue_text(&provider.name, &TranslateError::Http(error)))?;
+            let status = response.status().as_u16();
+            return if response.status().is_success() {
+                Ok(format!("{} answered", provider.name))
+            } else {
+                Err(issue_text(
+                    &provider.name,
+                    &TranslateError::Provider {
+                        status,
+                        message: String::new(),
+                    },
+                ))
+            };
+        }
         let texts = [SAMPLE.to_owned()];
         let result = translate::translate(
             &self.client,
@@ -199,7 +223,7 @@ impl AiService {
             Ok(mut translations) => Ok(translations.remove(0)),
             Err(error) => {
                 tracing::info!(provider = %provider.name, %error, "translator test failed");
-                Err(error.to_string())
+                Err(issue_text(&provider.name, &error))
             }
         }
     }
@@ -261,15 +285,17 @@ impl AiService {
         if matches!(
             result,
             Err(TranslateError::CountMismatch { .. } | TranslateError::BadAnswer)
-        ) && provider.kind != ProviderKind::Deepl
-        {
+        ) && matches!(
+            provider.kind,
+            ProviderKind::Claude | ProviderKind::OpenAiCompatible
+        ) {
             result = ask().await;
         }
         match result {
             Ok(translated) => Ok((provider.name.clone(), translated)),
             Err(error) => {
                 tracing::info!(provider = %provider.name, %error, ?content, "translation failed");
-                Err(error.to_string())
+                Err(issue_text(&provider.name, &error))
             }
         }
     }
@@ -291,11 +317,19 @@ impl AiService {
             .into_iter()
             .find(|provider| provider.id == id)
             .ok_or_else(|| "The transcription provider was removed".to_owned())?;
-        if provider.kind != ProviderKind::OpenAiCompatible {
+        if !from_kind(provider.kind).transcribes() {
             return Err(format!(
-                "{} can't transcribe; pick an OpenAI-compatible provider",
+                "{} can't transcribe; pick an OpenAI-compatible provider or a Whisper server",
                 provider.name
             ));
+        }
+        if provider.kind == ProviderKind::WhisperServer
+            && provider
+                .base_url
+                .as_deref()
+                .is_none_or(|base| base.trim().is_empty())
+        {
+            return Err(format!("{} needs its server's address", provider.name));
         }
         let base = provider
             .base_url
@@ -557,6 +591,24 @@ fn store_key(vault: &Vault, provider_id: &str, key: Option<String>) -> Result<()
         .map_err(|error| error.to_string())
 }
 
+/// A translator's failure as an issue: one sentence naming it (rate limited, refused, didn't
+/// answer...), the provider's own words after it.
+fn issue_text(name: &str, error: &TranslateError) -> String {
+    use raygun_net::issue::{Issue, IssueKind, status_kind};
+    let kind = match error {
+        TranslateError::Provider { status, .. } => status_kind(*status),
+        TranslateError::QuotaUsed => Some(IssueKind::RateLimited),
+        TranslateError::Http(error) if error.is_timeout() => Some(IssueKind::Timeout),
+        TranslateError::Http(error) if error.is_connect() => Some(IssueKind::Unreachable),
+        TranslateError::Http(_) => Some(IssueKind::Unreachable),
+        _ => None,
+    };
+    match kind {
+        Some(kind) => Issue::new(kind, name, error.to_string()).to_string(),
+        None => raygun_net::issue::named(name, &error.to_string()),
+    }
+}
+
 fn secret_name(provider_id: &str) -> String {
     format!("provider:{provider_id}")
 }
@@ -572,6 +624,9 @@ fn to_kind(kind: AiProviderKind) -> ProviderKind {
         AiProviderKind::Claude => ProviderKind::Claude,
         AiProviderKind::OpenAiCompatible => ProviderKind::OpenAiCompatible,
         AiProviderKind::Deepl => ProviderKind::Deepl,
+        AiProviderKind::LibreTranslate => ProviderKind::LibreTranslate,
+        AiProviderKind::MyMemory => ProviderKind::MyMemory,
+        AiProviderKind::WhisperServer => ProviderKind::WhisperServer,
     }
 }
 
@@ -580,6 +635,9 @@ fn from_kind(kind: ProviderKind) -> AiProviderKind {
         ProviderKind::Claude => AiProviderKind::Claude,
         ProviderKind::OpenAiCompatible => AiProviderKind::OpenAiCompatible,
         ProviderKind::Deepl => AiProviderKind::Deepl,
+        ProviderKind::LibreTranslate => AiProviderKind::LibreTranslate,
+        ProviderKind::MyMemory => AiProviderKind::MyMemory,
+        ProviderKind::WhisperServer => AiProviderKind::WhisperServer,
     }
 }
 

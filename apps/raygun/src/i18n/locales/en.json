@@ -1762,11 +1762,21 @@
     "kind": {
       "claude": "Claude",
       "openAiCompatible": "OpenAI-compatible / local",
-      "deepl": "DeepL"
+      "deepl": "DeepL",
+      "libreTranslate": "LibreTranslate (free)",
+      "myMemory": "MyMemory (free)",
+      "whisperServer": "Whisper server (transcription)"
+    },
+    "kindAbout": {
+      "libreTranslate": "Free and open source. Use your own server or one that lets you in; some ask for a key.",
+      "myMemory": "Free without an account, up to about 5,000 characters a day. An email raises that to 50,000; it's only sent if you enter one.",
+      "whisperServer": "A transcription server with an OpenAI-style API, such as faster-whisper-server or whisper.cpp's server. It only transcribes."
     },
     "name": "Name",
     "apiKey": "API key",
     "apiKeyOptional": "API key (optional for local servers)",
+    "emailOptional": "Email (optional)",
+    "emailPlaceholder": "you@example.com",
     "pasteKey": "Paste your key",
     "savedKey": "Saved key ••••{{hint}} (leave empty to keep)",
     "removeKey": "Remove the saved key",
@@ -1774,13 +1784,19 @@
     "basePlaceholder": {
       "claude": "https://api.anthropic.com",
       "openAiCompatible": "http://localhost:11434/v1",
-      "deepl": "Chosen from the key"
+      "deepl": "Chosen from the key",
+      "libreTranslate": "http://localhost:5000",
+      "myMemory": "https://api.mymemory.translated.net",
+      "whisperServer": "http://localhost:8000/v1"
     },
     "model": "Model",
     "modelPlaceholder": {
       "claude": "claude-sonnet-5-5",
       "openAiCompatible": "e.g. qwen3:8b",
-      "deepl": ""
+      "deepl": "",
+      "libreTranslate": "",
+      "myMemory": "",
+      "whisperServer": ""
     },
     "save": "Save",
     "saveFailed": "Couldn't save the provider",
@@ -1837,8 +1853,8 @@
       "provider": "Provider",
       "pickProvider": "Pick a provider",
       "onlineHint": "The audio is sent there and may cost money; Raygun asks once first",
-      "addProvider": "Add an OpenAI-compatible provider",
-      "addProviderSummary": "Such as OpenAI or Groq, with its address and key",
+      "addProvider": "Add a Whisper server or an OpenAI-compatible provider",
+      "addProviderSummary": "Your own faster-whisper-server or whisper.cpp server for free, or OpenAI or Groq with a key",
       "onlineModel": "Online model",
       "podcasts": "Podcasts and audiobooks",
       "podcastsSummary": "Captions in the player",

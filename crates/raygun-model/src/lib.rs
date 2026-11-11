@@ -4090,6 +4090,8 @@ pub struct LyricsTranslationProgress {
     pub translator: String,
     pub done: u32,
     pub total: u32,
+    /// Lines translated and kept so far: the song's lyrics show them now, the rest follow.
+    pub saved: u32,
 }
 
 /// A chart a `music.charts` provider keeps (M46.9): its most played, trending, or a genre's top.
@@ -7101,6 +7103,35 @@ pub enum AiProviderKind {
     Claude,
     OpenAiCompatible,
     Deepl,
+    /// A LibreTranslate server (self-hosted or public; key optional).
+    LibreTranslate,
+    /// MyMemory's free translations (anonymous; the key slot holds an optional email).
+    MyMemory,
+    /// An OpenAI-compatible transcription server (faster-whisper-server, whisper.cpp): only
+    /// transcribes.
+    WhisperServer,
+}
+
+impl AiProviderKind {
+    /// Whether it translates text.
+    pub fn translates(self) -> bool {
+        self != Self::WhisperServer
+    }
+
+    /// Whether it hears speech (Settings → AI → Transcription).
+    pub fn transcribes(self) -> bool {
+        matches!(self, Self::OpenAiCompatible | Self::WhisperServer)
+    }
+
+    /// Whether it works without a key.
+    pub fn key_optional(self) -> bool {
+        !matches!(self, Self::Claude | Self::Deepl)
+    }
+
+    /// Whether a provider of this kind, with or without a key, can translate.
+    pub fn can_translate(self, has_key: bool) -> bool {
+        self.translates() && (has_key || self.key_optional())
+    }
 }
 
 /// A configured translator. Its key stays in the secrets store; only a hint is shown.
