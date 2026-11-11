@@ -354,17 +354,17 @@ Mango and Madokami convert.
 
 `mihon_popular_live` with a sample of 300 converted sources (2026-11-11) follows each listing
 through a title's details, its chapters and a chapter's pages: 226 of the 300 list their
-popular titles, and of those 96% give details, 94% chapters and 88% pages (189 first pictures
-load). Of the 74 that don't list, 34 meet a browser check, 12 refuse access (Japanese and Korean
-stores outside their countries, mostly), 9 are down or gone (DNS, refused connections, 5xx),
-7 list nothing (sites whose markup changed: Jeaz Scans' cards, Manhwa Indo's titles), 5 answer
-that the site changed or the page is gone, 4 want a sign-in or a setting, 2 are slow past 30 s,
-and one runs a declared class's extension function that reads its own constructor parameter
-(NoxManga's signer). Past the listing, pages fail on browser checks, purchases and sign-ins
-(locked chapters, "must be purchased"), stores outside their countries, sites that changed
-(picture addresses that now answer the home page or 404, Peach BL's absolute addresses prefixed
-again by its own code), sources that read their pages in a web view (Dilar), and Manga Saison's
-chapters, encrypted ZIP entries that Keiyoushi's reader refuses too.
+popular titles, and of those 96% give details, 94% chapters and 88% pages (188 first pictures
+load). Of the 74 that don't list, 35 meet a browser check (36 since AWS WAF's empty 202 fails
+as one: FireCross), 12 refuse access (Japanese and Korean stores outside their countries,
+mostly), 9 are down or gone (DNS, refused connections, 5xx), 7 list nothing (sites whose markup
+changed: Comic Verse's and Ulas Comic's ZeistManga blogs, Hades Scans under maintenance), 5
+answer that the site changed or the page is gone, 4 want a sign-in or a setting, and 2 are slow
+past 30 s. Past the listing, pages fail on browser checks, purchases and sign-ins (locked
+chapters, "must be purchased"), stores outside their countries, sites that changed (picture
+addresses that now answer the home page or 404, Peach BL's absolute addresses prefixed again by
+its own code, Taiyō's chapter data moved to another flight chunk) and sources that read their
+pages in a web view (Dilar).
 
 Gaps the live samples showed and that are closed since: pictures sent as `text/plain` (Keyoapp's
 CDN), MangaHub's key refresh (GraphQL errors beside data, `followRedirects(false)`), Kotlin's
@@ -388,8 +388,11 @@ the script time converted code needs (Nicomanga, Docomo), PDF chapters (JabraSca
 segments (MyNimeku's `o:popular~t:MANGA` listing), okio buffers read into others (Philia Scans'
 pictures), reified functions typed by their use (Xipi Manhua), chapters read with the details
 (BenDezOmniHero), JSON with raw control characters in its strings and `append(text, start, end)`
-(LanorTrad), `toBoolean()` on null (Sagrado Império da Britannia), and selectors' escapes read as
-Jsoup reads them (`:containsData(\"6:\[)`).
+(LanorTrad), `toBoolean()` on null (Sagrado Império da Britannia), selectors' escapes read as
+Jsoup reads them (`:containsData(\"6:\[)`), a declared class's own extension functions reaching
+its instance (NoxManga's signer, which now meets the site's browser check), and ZIP entries only
+flagged encrypted, stored as long as their contents, which the source deciphers itself (Manga
+Saison's AES-CBC pages).
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture
