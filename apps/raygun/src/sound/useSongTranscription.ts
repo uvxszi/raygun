@@ -1,5 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type { Captions, TrackQuery } from '@raygun/bindings';
+import type { Captions, LyricLine, TrackQuery } from '@raygun/bindings';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -18,6 +18,18 @@ export const transcriptionStage = (captions: Captions | undefined): Transcriptio
   if (captions.running) return captions.preparing ? 'preparing' : 'hearing';
   if (captions.queued !== null && captions.queued !== undefined) return 'queued';
   return 'idle';
+};
+
+/**
+ * The lines heard so far while a song's words are being heard (Rust hears from the listener's
+ * place, a window at a time), in time order; `null` when it isn't being heard or nothing is yet.
+ * Once the whole song is heard its words are its lyrics.
+ */
+export const heardLines = (captions: Captions | undefined): LyricLine[] | null => {
+  if (!captions?.running || captions.cues.length === 0) return null;
+  return [...captions.cues]
+    .sort((a, b) => a.startMs - b.startMs)
+    .map((cue) => ({ timeMs: cue.startMs, text: cue.text }));
 };
 
 /** How much of the recording was heard, 0–100, when its length is known. */

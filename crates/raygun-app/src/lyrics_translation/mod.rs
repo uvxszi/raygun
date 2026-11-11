@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use raygun_ai::marian::{self, Marian, Step};
 use raygun_db::lyrics_cache::{self as store, SOURCE_PREFIX, TranslationRow};
 use raygun_model::{
-    AiProviderKind, Lyrics, LyricsTranslation, LyricsTranslationKind, LyricsTranslationOrigin,
+    Lyrics, LyricsTranslation, LyricsTranslationKind, LyricsTranslationOrigin,
     LyricsTranslationProgress, LyricsTranslatorOption, TrackQuery,
 };
 use tauri::{AppHandle, Manager};
@@ -187,6 +187,62 @@ fn distinct_lines(lines: &[&str]) -> (Vec<String>, Vec<Option<usize>>) {
     (distinct, places)
 }
 
+/// The line showing at `position_ms` (the listener's place): the last synced line that started
+/// by then, offset applied; the first line without a place or synced lines.
+fn current_line(lyrics: &Lyrics, position_ms: Option<u32>) -> usize {
+    let Some(position) = position_ms else {
+        return 0;
+    };
+    let position = i64::from(position);
+    lyrics
+        .synced
+        .iter()
+        .rposition(|line| i64::from(line.time_ms) + i64::from(lyrics.offset_ms) <= position)
+        .unwrap_or(0)
+}
+
+/// The order the distinct lines are translated in: as they first come from line `from` to the
+/// end, then the ones only sung before it.
+fn line_order(places: &[Option<usize>], count: usize, from: usize) -> Vec<usize> {
+    let from = from.min(places.len());
+    let mut seen = vec![false; count];
+    let mut order = Vec::with_capacity(count);
+    for place in places[from..].iter().chain(&places[..from]).flatten() {
+        if !seen[*place] {
+            seen[*place] = true;
+            order.push(*place);
+        }
+    }
+    order
+}
+
+/// Lines in the first batch: few, so they show quickly.
+const FIRST_BATCH: usize = 8;
+/// Lines in each batch after it.
+const BATCH: usize = 16;
+
+/// `todo` in batches: a small first one, then larger ones.
+fn batches(todo: &[usize]) -> Vec<&[usize]> {
+    let first = todo.len().min(FIRST_BATCH);
+    let (head, rest) = todo.split_at(first);
+    std::iter::once(head)
+        .filter(|head| !head.is_empty())
+        .chain(rest.chunks(BATCH))
+        .collect()
+}
+
+/// Every line's translation as far as it's done (empty while not).
+fn per_line(places: &[Option<usize>], done: &[Option<String>]) -> Vec<String> {
+    places
+        .iter()
+        .map(|place| {
+            place
+                .and_then(|at| done.get(at).cloned().flatten())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
 /// The models a line goes through: straight from English when the song is English and the line
 /// has no other letters, else through English.
 fn route<'a>(plan: &'a marian::Plan, english: bool, line: &str) -> &'a [Step] {
@@ -354,10 +410,15 @@ impl LyricsTranslations {
             },
         };
         let mut options = vec![device];
-        for provider in ai.providers().await? {
+        for provider in ai
+            .providers()
+            .await?
+            .into_iter()
+            .filter(|p| p.kind.translates())
+        {
             options.push(LyricsTranslatorOption {
                 id: format!("{AI_PREFIX}{}", provider.id),
-                supported: provider.has_key || provider.kind == AiProviderKind::OpenAiCompatible,
+                supported: provider.kind.can_translate(provider.has_key),
                 kind: Some(provider.kind),
                 name: provider.name,
                 models: Vec::new(),
@@ -368,12 +429,16 @@ impl LyricsTranslations {
     }
 
     /// Translates the song's lyrics into `language` with `translator` (`device` or
-    /// `ai:<provider id>`), each different line once and all in one go, and keeps the result.
+    /// `ai:<provider id>`), each different line once, a few lines at a time: from the line at
+    /// `position_ms` (the listener's place) to the end, then the lines before it. Each batch is
+    /// kept and announced (`LyricsTranslationProgress::saved`) as soon as it's done, so the first
+    /// lines show while the rest are translated; a run that stopped partway goes on from there.
     pub async fn translate(
         &self,
         query: &TrackQuery,
         language: &str,
         translator: &str,
+        position_ms: Option<u32>,
     ) -> Result<LyricsTranslation, String> {
         language_tag(language)?;
         let lyrics = self
@@ -385,50 +450,159 @@ impl LyricsTranslations {
         if distinct.is_empty() {
             return Err("These lyrics have no words to translate".into());
         }
-        let key = raygun_resolver::track_key(query);
-        let (translated, by, origin) = if translator == DEVICE {
-            let translated = self.on_device(&key, language, &distinct).await?;
-            (translated, String::new(), LyricsTranslationOrigin::Device)
+        let ai_id = if translator == DEVICE {
+            None
         } else if let Some(id) = translator.strip_prefix(AI_PREFIX) {
-            let ai = self.app.state::<AiService>();
-            let (name, translated) = ai.translate_lyrics(id, &distinct, language).await?;
-            (translated, name, LyricsTranslationOrigin::Ai)
+            Some(id)
         } else {
             return Err("Pick a translator".into());
         };
-        let per_line: Vec<String> = places
-            .iter()
-            .map(|place| {
-                place
-                    .and_then(|index| translated.get(index))
-                    .map(|line| line.trim().to_owned())
-                    .unwrap_or_default()
+        let key = raygun_resolver::track_key(query);
+        let mut done = self
+            .unfinished(&key, translator, language, &lines, &places, distinct.len())
+            .await;
+        let order = line_order(&places, distinct.len(), current_line(&lyrics, position_ms));
+        let todo: Vec<usize> = order.into_iter().filter(|at| done[*at].is_none()).collect();
+        let total = distinct.len() as u32;
+        let progress = LyricsTranslationProgress {
+            key: key.clone(),
+            language: language.to_owned(),
+            translator: translator.to_owned(),
+            done: (distinct.len() - todo.len()) as u32,
+            total,
+            saved: (distinct.len() - todo.len()) as u32,
+        };
+        let _ = LyricsTranslationEvent(progress.clone()).emit(&self.app);
+        let mut by = String::new();
+        let started = Instant::now();
+        for batch in batches(&todo) {
+            let texts: Vec<String> = batch.iter().map(|at| distinct[*at].clone()).collect();
+            let before = done.iter().filter(|line| line.is_some()).count() as u32;
+            let translated = match ai_id {
+                None => {
+                    let app = self.app.clone();
+                    let report = progress.clone();
+                    self.translate_on_device(language, &texts, move |lines, _| {
+                        let _ = LyricsTranslationEvent(LyricsTranslationProgress {
+                            done: before + lines,
+                            saved: before,
+                            ..report.clone()
+                        })
+                        .emit(&app);
+                    })
+                    .await?
+                }
+                Some(id) => {
+                    let ai = self.app.state::<AiService>();
+                    let (name, translated) = ai.translate_lyrics(id, &texts, language).await?;
+                    by = name;
+                    translated
+                }
+            };
+            for (at, line) in batch.iter().zip(translated) {
+                done[*at] = Some(line.trim().to_owned());
+            }
+            let saved = done.iter().filter(|line| line.is_some()).count() as u32;
+            self.keep(&key, translator, language, &by, &lyrics, &places, &done)
+                .await?;
+            if saved == batch.len() as u32 + progress.saved {
+                tracing::info!(song = %key, %translator, lines = saved, elapsed = ?started.elapsed(), "first lyrics lines translated");
+            }
+            let _ = LyricsTranslationEvent(LyricsTranslationProgress {
+                done: saved,
+                saved,
+                ..progress.clone()
             })
+            .emit(&self.app);
+        }
+        if todo.is_empty() {
+            // Nothing new: the kept translation is kept again (made again only when it's whole).
+            self.keep(&key, translator, language, &by, &lyrics, &places, &done)
+                .await?;
+        }
+        tracing::info!(song = %key, %translator, %language, lines = distinct.len(), elapsed = ?started.elapsed(), "lyrics translated");
+        Ok(LyricsTranslation {
+            language: language.to_owned(),
+            kind: LyricsTranslationKind::Translation,
+            origin: if ai_id.is_some() {
+                LyricsTranslationOrigin::Ai
+            } else {
+                LyricsTranslationOrigin::Device
+            },
+            by,
+            translator: translator.to_owned(),
+            lines: per_line(&places, &done),
+        })
+    }
+
+    /// What a translation by `translator` into `language` that stopped partway already has, by
+    /// distinct line; nothing when there's none or it's whole (then it's made again).
+    async fn unfinished(
+        &self,
+        key: &str,
+        translator: &str,
+        language: &str,
+        lines: &[&str],
+        places: &[Option<usize>],
+        count: usize,
+    ) -> Vec<Option<String>> {
+        let mut done: Vec<Option<String>> = vec![None; count];
+        let mut rows = store::translations(&self.db(), key)
+            .await
+            .unwrap_or_default();
+        rows.extend(self.held_rows(key));
+        let kind = kind_name(LyricsTranslationKind::Translation);
+        let Some(row) = rows.into_iter().find(|row| {
+            row.translator == translator && row.language == language && row.kind == kind
+        }) else {
+            return done;
+        };
+        let kept: Vec<KeptLine> = serde_json::from_str(&row.lines).unwrap_or_default();
+        let by_text: HashMap<&str, &str> = kept
+            .iter()
+            .filter(|line| !line.translation.is_empty())
+            .map(|line| (line.text.trim(), line.translation.as_str()))
             .collect();
+        for (line, place) in lines.iter().zip(places) {
+            if let (Some(at), Some(translation)) = (place, by_text.get(line.trim())) {
+                done[*at] = Some((*translation).to_owned());
+            }
+        }
+        if done.iter().all(Option::is_some) {
+            return vec![None; count];
+        }
+        done
+    }
+
+    /// Keeps a translation as far as it's done (lines not done yet are empty).
+    #[allow(clippy::too_many_arguments)]
+    async fn keep(
+        &self,
+        key: &str,
+        translator: &str,
+        language: &str,
+        by: &str,
+        lyrics: &Lyrics,
+        places: &[Option<usize>],
+        done: &[Option<String>],
+    ) -> Result<(), String> {
         let row = TranslationRow {
             translator: translator.to_owned(),
             language: language.to_owned(),
             kind: kind_name(LyricsTranslationKind::Translation).to_owned(),
-            by_name: by.clone(),
-            lines: serde_json::to_string(&kept_lines(&lyrics, &per_line)).map_err(to_message)?,
+            by_name: by.to_owned(),
+            lines: serde_json::to_string(&kept_lines(lyrics, &per_line(places, done)))
+                .map_err(to_message)?,
             made_at: now_ms(),
         };
         if crate::privacy::incognito(&self.app) {
-            self.hold(&key, &[], vec![row]);
+            self.hold(key, &[], vec![row]);
+            Ok(())
         } else {
-            store::put_translation(&self.db(), &key, &row)
+            store::put_translation(&self.db(), key, &row)
                 .await
-                .map_err(to_message)?;
+                .map_err(to_message)
         }
-        tracing::info!(song = %key, %translator, %language, lines = distinct.len(), "lyrics translated");
-        Ok(LyricsTranslation {
-            language: language.to_owned(),
-            kind: LyricsTranslationKind::Translation,
-            origin,
-            by,
-            translator: translator.to_owned(),
-            lines: per_line,
-        })
     }
 
     /// Puts a kept translation first for the song, as the one picked.
@@ -446,32 +620,6 @@ impl LyricsTranslations {
         store::pick_translation(&self.db(), &key, translator, language, now_ms())
             .await
             .map_err(to_message)
-    }
-
-    /// Translates `lines` with the models that write `language`, line by line on a blocking
-    /// thread, reporting progress.
-    async fn on_device(
-        &self,
-        key: &str,
-        language: &str,
-        lines: &[String],
-    ) -> Result<Vec<String>, String> {
-        let app = self.app.clone();
-        let progress = LyricsTranslationProgress {
-            key: key.to_owned(),
-            language: language.to_owned(),
-            translator: DEVICE.to_owned(),
-            done: 0,
-            total: lines.len() as u32,
-        };
-        self.translate_on_device(language, lines, move |done, _| {
-            let _ = LyricsTranslationEvent(LyricsTranslationProgress {
-                done,
-                ..progress.clone()
-            })
-            .emit(&app);
-        })
-        .await
     }
 
     /// Translates `lines` with this device's models that write `language` (each line through
@@ -707,6 +855,35 @@ mod tests {
         );
         assert_eq!(laid[0].origin, LyricsTranslationOrigin::Ai);
         assert_eq!(laid[1].origin, LyricsTranslationOrigin::Device);
+    }
+
+    #[test]
+    fn lines_go_from_the_listeners_place_in_small_batches() {
+        let song = lyrics(
+            "Lyric Lines",
+            &[
+                (0, "a"),
+                (1_000, "b"),
+                (2_000, "a"),
+                (3_000, "c"),
+                (4_000, "d"),
+            ],
+        );
+        let lines = song.line_texts();
+        let (distinct, places) = distinct_lines(&lines);
+        assert_eq!(distinct, ["a", "b", "c", "d"]);
+        assert_eq!(current_line(&song, None), 0);
+        assert_eq!(current_line(&song, Some(3_500)), 3);
+        // From "c" on, then what came before it ("a" is sung again before "c", so it waits).
+        assert_eq!(line_order(&places, 4, 3), [2, 3, 0, 1]);
+        assert_eq!(line_order(&places, 4, 2), [0, 2, 3, 1]);
+
+        let todo: Vec<usize> = (0..45).collect();
+        let sizes: Vec<usize> = batches(&todo).iter().map(|batch| batch.len()).collect();
+        assert_eq!(sizes, [8, 16, 16, 5]);
+        assert!(batches(&[]).is_empty());
+        let done = vec![Some("A".to_owned()), None, Some("C".to_owned()), None];
+        assert_eq!(per_line(&places, &done), ["A", "", "A", "C", ""]);
     }
 
     #[test]

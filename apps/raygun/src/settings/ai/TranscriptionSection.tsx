@@ -33,7 +33,9 @@ export const TranscriptionSection: FC = () => {
     prefs && update.mutate({ key: 'transcription', value: { ...prefs, ...change } });
   const speech = models.filter((model) => model.kind === 'speech');
   const local = speech.find((model) => model.id === prefs?.localModel) ?? speech[0];
-  const compatible = providers.filter((provider) => provider.kind === 'openAiCompatible');
+  const compatible = providers.filter(
+    (provider) => provider.kind === 'openAiCompatible' || provider.kind === 'whisperServer',
+  );
 
   return (
     <>
@@ -116,7 +118,7 @@ export const TranscriptionSection: FC = () => {
           summary={t('ai.transcription.lyricsSummary')}
         />
       </PrefGroup>
-      {adding && <ProviderForm kind="openAiCompatible" onDone={() => setAdding(false)} />}
+      {adding && <ProviderForm kind="whisperServer" onDone={() => setAdding(false)} />}
     </>
   );
 };

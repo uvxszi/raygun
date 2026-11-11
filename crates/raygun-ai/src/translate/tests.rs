@@ -302,3 +302,217 @@ fn defaults_and_parsing() {
         Err(TranslateError::BadAnswer)
     ));
 }
+
+#[tokio::test]
+async fn libretranslate_sends_every_text_and_its_key() {
+    let (base, seen) = mock(200, json!({ "translatedText": ["Hallo", "Gute Nacht"] })).await;
+    let client = raygun_net::http_client().unwrap();
+    let libre = provider(ProviderKind::LibreTranslate, &base, None);
+    let out = translate(&client, &libre, Some("secret"), &texts(), None, "zh-Hant")
+        .await
+        .unwrap();
+    assert_eq!(out, ["Hallo", "Gute Nacht"]);
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.path, "/translate");
+        assert_eq!(seen.body["q"], json!(["Hello", "Good night"]));
+        assert_eq!(seen.body["source"], "auto");
+        assert_eq!(seen.body["target"], "zt");
+        assert_eq!(seen.body["api_key"], "secret");
+    }
+    // Without a key none is sent; without an address it says so.
+    let (base, seen) = mock(200, json!({ "translatedText": ["a", "b"] })).await;
+    let libre = provider(ProviderKind::LibreTranslate, &base, None);
+    translate(&client, &libre, None, &texts(), Some("en"), "de")
+        .await
+        .unwrap();
+    assert!(seen.lock().unwrap().body.get("api_key").is_none());
+    let nowhere = Provider {
+        base_url: None,
+        ..provider(ProviderKind::LibreTranslate, "", None)
+    };
+    assert!(matches!(
+        translate(&client, &nowhere, None, &texts(), None, "de").await,
+        Err(TranslateError::MissingAddress("LibreTranslate"))
+    ));
+}
+
+/// A MyMemory-like server: `GET /get`, each text reversed; counts requests and remembers queries.
+async fn mymemory_mock(
+    first_status: Option<u16>,
+) -> (
+    String,
+    Arc<Mutex<Vec<std::collections::HashMap<String, String>>>>,
+) {
+    use axum::response::IntoResponse;
+    let seen: Arc<Mutex<Vec<std::collections::HashMap<String, String>>>> = Arc::default();
+    let handler = {
+        let seen = seen.clone();
+        move |uri: axum::http::Uri| {
+            let seen = seen.clone();
+            let query: std::collections::HashMap<String, String> =
+                reqwest::Url::parse(&format!("http://local{uri}"))
+                    .unwrap()
+                    .query_pairs()
+                    .into_owned()
+                    .collect();
+            async move {
+                let count = {
+                    let mut seen = seen.lock().unwrap();
+                    seen.push(query.clone());
+                    seen.len()
+                };
+                if count == 1
+                    && let Some(status) = first_status
+                {
+                    return (
+                        StatusCode::from_u16(status).unwrap(),
+                        [("retry-after", "1")],
+                        String::new(),
+                    )
+                        .into_response();
+                }
+                let text: String = query["q"].chars().rev().collect();
+                json!({
+                    "responseData": { "translatedText": text },
+                    "quotaFinished": false,
+                    "responseStatus": 200
+                })
+                .to_string()
+                .into_response()
+            }
+        }
+    };
+    let app = Router::new().route("/get", axum::routing::get(handler));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}"), seen)
+}
+
+#[tokio::test]
+async fn mymemory_asks_text_by_text_and_sends_an_email_only_when_given() {
+    let (base, seen) = mymemory_mock(None).await;
+    let client = raygun_net::http_client().unwrap();
+    let mymemory = provider(ProviderKind::MyMemory, &base, None);
+    let out = translate(&client, &mymemory, None, &texts(), None, "it")
+        .await
+        .unwrap();
+    assert_eq!(out, ["olleH", "thgin dooG"]);
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(
+            seen.iter()
+                .all(|query| query["langpair"] == "autodetect|it")
+        );
+        assert!(seen.iter().all(|query| !query.contains_key("de")));
+    }
+    let (base, seen) = mymemory_mock(None).await;
+    let mymemory = provider(ProviderKind::MyMemory, &base, None);
+    translate(
+        &client,
+        &mymemory,
+        Some("me@example.com"),
+        &texts()[..1],
+        Some("en"),
+        "it",
+    )
+    .await
+    .unwrap();
+    assert_eq!(seen.lock().unwrap()[0]["de"], "me@example.com");
+    assert_eq!(seen.lock().unwrap()[0]["langpair"], "en|it");
+}
+
+#[tokio::test]
+async fn a_rate_limit_that_says_how_long_is_waited_out() {
+    let (base, seen) = mymemory_mock(Some(429)).await;
+    let client = raygun_net::http_client().unwrap();
+    let mymemory = provider(ProviderKind::MyMemory, &base, None);
+    let out = translate(&client, &mymemory, None, &texts()[..1], Some("en"), "it")
+        .await
+        .unwrap();
+    assert_eq!(out, ["olleH"]);
+    assert_eq!(seen.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn long_texts_go_in_pieces_after_sentences() {
+    let text = "This is a sentence. ".repeat(8);
+    let parts = pieces(text.trim_end(), 100);
+    assert_eq!(parts.len(), 2);
+    assert!(parts[0].ends_with('.') && parts.iter().all(|part| part.len() <= 100));
+    assert_eq!(parts.join(" "), text.trim_end());
+    // Without sentences it cuts at a space.
+    let words = "word ".repeat(30);
+    let cut = pieces(words.trim_end(), 100);
+    assert!(
+        cut.len() == 2
+            && cut
+                .iter()
+                .all(|part| part.len() <= 100 && !part.ends_with(' '))
+    );
+    assert_eq!(pieces("short", 100), ["short"]);
+    assert_eq!(unescape("it&#39;s &amp; &quot;so&quot;"), "it's & \"so\"");
+    assert_eq!(libre_language("pt-BR"), "pb");
+    assert_eq!(libre_language("de-AT"), "de");
+}
+
+#[tokio::test]
+async fn a_whisper_server_does_not_translate() {
+    let client = raygun_net::http_client().unwrap();
+    let whisper = provider(ProviderKind::WhisperServer, "http://127.0.0.1:9", None);
+    assert!(matches!(
+        translate(&client, &whisper, None, &texts(), None, "de").await,
+        Err(TranslateError::TranscribesOnly)
+    ));
+}
+
+/// MyMemory's free endpoint, anonymously: `cargo test -p raygun-ai -- --ignored mymemory_live`.
+#[tokio::test]
+#[ignore = "network"]
+async fn mymemory_live() {
+    let client = raygun_net::http_client().unwrap();
+    let mymemory = Provider {
+        id: "m".into(),
+        kind: ProviderKind::MyMemory,
+        name: "MyMemory".into(),
+        base_url: None,
+        model: None,
+    };
+    let lines = vec!["Hello world".to_owned(), "Good night".to_owned()];
+    let started = std::time::Instant::now();
+    let out = translate_as(
+        &client,
+        &mymemory,
+        None,
+        &lines,
+        None,
+        "it",
+        Content::Lyrics,
+    )
+    .await
+    .unwrap();
+    println!("MyMemory: {out:?} in {:?}", started.elapsed());
+    assert_eq!(out.len(), 2);
+    assert!(out[0].to_lowercase().contains("mondo"));
+}
+
+/// A LibreTranslate server: `LIBRETRANSLATE_URL=<address> [LIBRETRANSLATE_KEY=<key>] cargo test
+/// -p raygun-ai -- --ignored libretranslate_live`.
+#[tokio::test]
+#[ignore = "network"]
+async fn libretranslate_live() {
+    let Ok(base) = std::env::var("LIBRETRANSLATE_URL") else {
+        eprintln!("LIBRETRANSLATE_URL isn't set");
+        return;
+    };
+    let key = std::env::var("LIBRETRANSLATE_KEY").ok();
+    let client = raygun_net::http_client().unwrap();
+    let libre = provider(ProviderKind::LibreTranslate, &base, None);
+    let out = translate(&client, &libre, key.as_deref(), &texts(), Some("en"), "de")
+        .await
+        .unwrap();
+    println!("LibreTranslate: {out:?}");
+    assert_eq!(out.len(), 2);
+}

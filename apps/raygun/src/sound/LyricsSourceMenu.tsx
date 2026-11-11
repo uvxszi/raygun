@@ -49,15 +49,13 @@ export const LyricsSourceMenu: FC<{ query: TrackQuery; current: Lyrics | undefin
   const { edit, save } = useSongEdit(query);
   const transcription = useSongTranscription(query);
   const name = (provider: string) => lyricsSourceName(provider, t);
-  // Everything kept of this song's lyrics goes (M46.46): the source's, the transcription, its own.
-  // Hearing it stops first, or it would keep adding to what was just deleted.
+  // Everything kept of this song's lyrics goes (M46.46): the source's, the transcription (Rust
+  // stops hearing it first, or it would come back when it ends), its own. The lyrics are then
+  // asked for again, so another source's show.
   const forget = useMutation({
-    mutationFn: async () => {
-      await commands.captionsStop(transcription.key);
-      return unwrapResult(commands.lyricsForget(query));
-    },
+    mutationFn: () => unwrapResult(commands.lyricsForget(query)),
+    onSuccess: () => setAnchor(null),
     onSettled: () => {
-      setAnchor(null);
       void client.invalidateQueries({ queryKey: ['lyrics'] });
       void client.invalidateQueries({ queryKey: ['songEdit'] });
       void client.invalidateQueries({ queryKey: ['lyricsOptions'] });
@@ -169,6 +167,7 @@ export const LyricsSourceMenu: FC<{ query: TrackQuery; current: Lyrics | undefin
               <Trash2 aria-hidden size={15} className="shrink-0" />
               <span className="flex-1">{t('lyricsEdit.forget')}</span>
             </button>
+            {forget.error && <SourceIssue compact>{forget.error.message}</SourceIssue>}
           </div>
         </Sheet>
       )}

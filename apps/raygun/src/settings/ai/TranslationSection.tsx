@@ -16,7 +16,9 @@ import { readerTranslation } from './translators';
  */
 export const TranslationSection: FC = () => {
   const { t } = useTranslation();
-  const providers = useAiProviders().data ?? [];
+  const providers = (useAiProviders().data ?? []).filter(
+    (provider) => provider.kind !== 'whisperServer',
+  );
   const models = useAiModels().data ?? [];
   const comic = useReaderAiLayers('comic').layers;
   const novel = useReaderAiLayers('novel').layers;

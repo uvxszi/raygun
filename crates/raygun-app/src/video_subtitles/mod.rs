@@ -26,8 +26,8 @@ use std::time::{Duration, Instant};
 
 use futures_util::FutureExt;
 use raygun_model::{
-    AiProviderKind, Caption, LyricsTranslatorOption, SettingChange, SubtitleSource,
-    SubtitleTranslateRequest, SubtitleTranslation, TranscriptionEngine,
+    Caption, LyricsTranslatorOption, SettingChange, SubtitleSource, SubtitleTranslateRequest,
+    SubtitleTranslation, TranscriptionEngine,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -375,7 +375,7 @@ impl VideoSubtitles {
                 .into_iter()
                 .find(|provider| provider.id == provider_id)
                 .ok_or_else(|| "This translator was removed in Settings → AI".to_owned())?;
-            if !provider.has_key && provider.kind != AiProviderKind::OpenAiCompatible {
+            if !provider.kind.can_translate(provider.has_key) {
                 return Err(format!(
                     "{} needs its API key in Settings → AI",
                     provider.name
@@ -1070,11 +1070,12 @@ impl VideoSubtitles {
             .await
             .unwrap_or_default()
             .into_iter()
+            .filter(|provider| provider.kind.translates())
             .map(|provider| {
                 json!({
                     "id": format!("{AI_PREFIX}{}", provider.id),
                     "name": provider.name,
-                    "supported": provider.has_key || provider.kind == AiProviderKind::OpenAiCompatible,
+                    "supported": provider.kind.can_translate(provider.has_key),
                 })
             })
             .collect();

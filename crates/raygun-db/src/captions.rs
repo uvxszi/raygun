@@ -234,6 +234,23 @@ pub async fn clear(db: &Db, episode_id: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Forgets a key's captions and the copies kept aside for it (`<key>#ai`, `<key>#feed`).
+pub async fn clear_with_shelves(db: &Db, episode_id: &str) -> Result<(), DbError> {
+    let mut tx = db.pool().begin().await?;
+    for table in ["local_episode_caption", "local_caption_progress"] {
+        // The table names are the constants above; `#` shelves are matched by prefix.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {table} WHERE episode_id = ?1
+                 OR substr(episode_id, 1, length(?1) + 1) = ?1 || '#'"
+        )))
+        .bind(episode_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 fn merge(mut ranges: Vec<(i64, i64)>, added: (i64, i64)) -> Vec<(i64, i64)> {
     ranges.push(added);
     ranges.sort_unstable();
@@ -304,6 +321,28 @@ mod tests {
         assert!(cue_before(&db, "e1", 0).await.unwrap().is_none());
         clear(&db, "e1").await.unwrap();
         assert!(super::progress(&db, "e1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_song_is_forgotten_with_its_shelves_and_nothing_else() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = Db::open(&temp.path().join("raygun.db")).await.unwrap();
+        let line = [cue(0, 2_000, "Hello.")];
+        for key in [
+            "song:a|b",
+            "song:a|b#ai",
+            "song:a|b#feed",
+            "song:a|bc",
+            "song:x|y",
+        ] {
+            replace(&db, key, "local", &line).await.unwrap();
+        }
+        clear_with_shelves(&db, "song:a|b").await.unwrap();
+        for gone in ["song:a|b", "song:a|b#ai", "song:a|b#feed"] {
+            assert!(super::progress(&db, gone).await.unwrap().is_none());
+            assert!(cues(&db, gone).await.unwrap().is_empty());
+        }
+        assert_eq!(song_keys(&db).await.unwrap().len(), 2);
     }
 
     #[tokio::test]

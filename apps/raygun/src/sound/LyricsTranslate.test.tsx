@@ -216,6 +216,7 @@ describe('Lyrics translations', () => {
       expect.objectContaining({ title: 'Into the Night' }),
       'en',
       'ai:c1',
+      0,
     );
     const lines = await within(view).findAllByTestId('lyrics-translation');
     expect(lines.map((line) => line.textContent)).toEqual(['As if sinking', 'As if melting away']);
@@ -286,6 +287,7 @@ describe('Lyrics translations', () => {
         expect.objectContaining({ title: 'Into the Night' }),
         'en',
         'device',
+        0,
       ),
     );
     emitEvent('lyricsTranslationEvent', {
@@ -294,12 +296,58 @@ describe('Lyrics translations', () => {
       translator: 'device',
       done: 1,
       total: 2,
+      saved: 0,
     });
     expect(
       await screen.findByRole('status', { name: 'Translating line 1 of 2' }),
     ).toHaveTextContent('1/2');
     finishTranslation();
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  });
+
+  it('shows each batch of lines as it is translated, before the rest are done', async () => {
+    const user = userEvent.setup();
+    const partial = translation({
+      language: 'en',
+      origin: 'ai',
+      by: 'Claude',
+      translator: 'ai:c1',
+      lines: ['As if sinking', '', ''],
+    });
+    let kept: LyricsTranslation | null = null;
+    commands.lyricsGet.mockImplementation(async () =>
+      ok({ ...LYRICS, translations: kept ? [kept] : [] }),
+    );
+    commands.lyricsTranslateOptions.mockResolvedValue(ok([CLAUDE]));
+    let finish: () => void = () => {};
+    commands.lyricsTranslate.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(ok({ ...partial, lines: ['As if sinking', '', 'Melting'] }));
+        }),
+    );
+    show();
+    const view = await screen.findByTestId('lyrics-view');
+    await user.click(await within(view).findByRole('button', { name: 'Translate lyrics' }));
+    const menu = await screen.findByTestId('lyrics-translate-menu');
+    await user.click(await within(menu).findByRole('button', { name: /With Claude/ }));
+    await waitFor(() => expect(commands.lyricsTranslate).toHaveBeenCalled());
+    // The first batch is kept: it shows while the translation goes on.
+    kept = partial;
+    emitEvent('lyricsTranslationEvent', {
+      key: 'yoasobi|into the night',
+      language: 'en',
+      translator: 'ai:c1',
+      done: 1,
+      total: 2,
+      saved: 1,
+    });
+    const first = await within(view).findAllByTestId('lyrics-translation');
+    expect(first.map((line) => line.textContent)).toEqual(['As if sinking']);
+    expect(screen.getByRole('status', { name: 'Translating line 1 of 2' })).toBeInTheDocument();
+    kept = { ...partial, lines: ['As if sinking', '', 'Melting'] };
+    finish();
+    await waitFor(() => expect(within(view).getAllByTestId('lyrics-translation')).toHaveLength(2));
   });
 
   it('cancels the translation model’s download, translating nothing', async () => {

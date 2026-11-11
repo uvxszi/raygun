@@ -192,7 +192,10 @@ const LayerRow: FC<RowProps> = ({
 }) => {
   const { t } = useTranslation();
   const models = useAiModels().data ?? [];
-  const providers = useAiProviders().data ?? [];
+  // A Whisper server only hears speech: it translates nothing.
+  const providers = (useAiProviders().data ?? []).filter(
+    (provider) => provider.kind !== 'whisperServer',
+  );
   const Icon = ICONS[layer.kind];
   const name = t(`readerAi.kind.${layer.kind}`);
   const fitting = modelsFor(models, layer.kind);

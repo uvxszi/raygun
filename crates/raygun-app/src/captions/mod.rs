@@ -616,7 +616,7 @@ impl CaptionService {
             key,
             engine,
             duration,
-            follow: Follow::Whole,
+            follow: Follow::Song,
             anchor: &anchor,
             stop: stop.clone(),
         };
@@ -628,7 +628,8 @@ impl CaptionService {
                 .is_some_and(|progress| !progress.ranges.is_empty());
             return Err(song_failure(&error, heard));
         }
-        if stop.load(Ordering::Relaxed) {
+        // Stopped, or what was heard was deleted meanwhile (Delete saved lyrics): nothing is kept.
+        if stop.load(Ordering::Relaxed) || !self.heard_whole(key).await {
             return Ok(());
         }
         self.save_song_lyrics(key, query).await?;
@@ -1120,6 +1121,47 @@ impl CaptionService {
         }
     }
 
+    /// The listener's place in the song with captions key `key`, when it's the one playing.
+    fn song_position(&self, key: &str) -> Option<u32> {
+        let playback = self.app.try_state::<crate::playback::PlaybackService>()?;
+        let state = playback.state();
+        let id = state.current_item_id.as_deref()?;
+        let queue = playback.queue();
+        let item = queue.items.iter().find(|item| item.id == id)?;
+        (song_key(&TrackQuery::for_item(item)) == key).then(|| state.position_ms.max(0.0) as u32)
+    }
+
+    /// Forgets everything heard of a song (the lyrics menu's Delete saved lyrics): its hearing
+    /// stops and leaves the queue, and its captions go, kept shelves included. Waits a moment for
+    /// a window being heard to end, so it can't add its lines back after.
+    pub async fn forget_song(&self, query: &TrackQuery) -> Result<(), String> {
+        let key = song_key(query);
+        self.stop(&key);
+        for _ in 0..50 {
+            let busy = self
+                .state()
+                .songs
+                .current
+                .as_ref()
+                .is_some_and(|job| job.key == key);
+            if !busy {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        store::clear_with_shelves(&self.db(), &key)
+            .await
+            .map_err(to_message)?;
+        {
+            let mut state = self.state();
+            state.errors.remove(&key);
+            state.durations.remove(&key);
+        }
+        self.save_queue();
+        self.announce(&key);
+        Ok(())
+    }
+
     /// The listener's place in the episode, when it's the one playing.
     fn position_of(&self, episode_id: &str) -> Option<u32> {
         let podcasts = self
@@ -1170,6 +1212,7 @@ impl CaptionService {
                 Follow::Episode => self.position_of(id).map(u64::from),
                 Follow::Viewer => Some(job.anchor.load(Ordering::Relaxed)),
                 Follow::Whole => None,
+                Follow::Song => self.song_position(id).map(u64::from),
             };
             let anchor = listening.unwrap_or_else(|| job.anchor.load(Ordering::Relaxed));
             let mut at = progress.next_gap(anchor as i64).max(0) as u64;
@@ -1182,7 +1225,8 @@ impl CaptionService {
                     break;
                 }
             }
-            let limited = matches!(engine, Engine::Online { .. }) && job.follow != Follow::Whole;
+            let limited = matches!(engine, Engine::Online { .. })
+                && matches!(job.follow, Follow::Episode | Follow::Viewer);
             if limited && at > anchor + ONLINE_AHEAD_MS {
                 if listening.is_none() {
                     return Ok(());
@@ -1532,6 +1576,9 @@ enum Follow {
     Viewer,
     /// Nobody: the whole recording, from the start (offline subtitles).
     Whole,
+    /// A song, all of it: from the listener's place while it's the one playing, so the lines
+    /// sung now come first, then the rest.
+    Song,
 }
 
 struct Job<'a> {

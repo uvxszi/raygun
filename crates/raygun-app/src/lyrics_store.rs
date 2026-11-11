@@ -151,14 +151,16 @@ impl LyricsStore {
     }
 
     /// Forgets everything kept of a song's lyrics: the source's, the transcription and the
-    /// song's own lyrics (the lyrics menu's Delete saved lyrics).
+    /// song's own lyrics (the lyrics menu's Delete saved lyrics). A transcription still being
+    /// heard stops first, so it can't come back as the song's lyrics when it ends.
     pub async fn forget(&self, query: &TrackQuery) -> Result<(), String> {
         let key = raygun_resolver::track_key(query);
         let db = self.db();
+        self.app
+            .state::<Arc<crate::captions::CaptionService>>()
+            .forget_song(query)
+            .await?;
         store::remove(&db, std::slice::from_ref(&key))
-            .await
-            .map_err(to_message)?;
-        raygun_db::captions::clear(&db, &crate::captions::song_key(query))
             .await
             .map_err(to_message)?;
         let sound = self.app.state::<Arc<crate::sound::SoundService>>();
