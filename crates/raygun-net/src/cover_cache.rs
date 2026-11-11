@@ -12,8 +12,8 @@
 //! covers in use (the playing and queued songs', [`CoverCache::spare_with`]).
 //!
 //! Copies are stored as JPEG XL ([`crate::cover_format`]): a cover is kept as it came and served
-//! at once, then converted in the background, one at a time, and swapped in place; that file is
-//! the cache. Copies from before are converted when next seen, and each copy's check record says
+//! at once, then converted in the background, one at a time (resting while the app says so,
+//! [`CoverCache::convert_when`]), and swapped in place; that file is the cache. Copies from before are converted when next seen, and each copy's check record says
 //! how it's stored, so none is converted twice. A webview that shows JPEG XL (its probe said so,
 //! [`CoverCache::set_webview_jxl`], or its request lists `image/jxl`) gets the file as it is;
 //! other requests get a version made once and kept in memory ([`SHOWN_BYTES`]).
@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use futures_util::future::BoxFuture;
 use reqwest::header;
 
 use crate::cover_format::{self, Conversion, JXL_TYPE, Shown};
@@ -32,6 +33,8 @@ use crate::page_cache::{MAX_IMAGE_BYTES, evict_sparing, sniff_content_type, touc
 
 /// Names the covers in use now, which trimming leaves.
 type InUse = Arc<dyn Fn() -> HashSet<String> + Send + Sync>;
+/// Returns once background work may run (the app's power and background state).
+type Gate = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 const KEEP: &str = "keep";
 const META: &str = "meta";
@@ -293,6 +296,8 @@ struct Jxl {
     files: tokio::sync::Mutex<()>,
     showing: Mutex<Showing>,
     slots: tokio::sync::Semaphore,
+    /// What the worker waits for before each conversion ([`CoverCache::convert_when`]).
+    gate: Mutex<Option<Gate>>,
     /// Conversions run, for tests.
     #[cfg(test)]
     runs: std::sync::atomic::AtomicUsize,
@@ -306,6 +311,7 @@ impl Default for Jxl {
             files: tokio::sync::Mutex::new(()),
             showing: Mutex::default(),
             slots: tokio::sync::Semaphore::new(shown_at_once()),
+            gate: Mutex::new(None),
             #[cfg(test)]
             runs: std::sync::atomic::AtomicUsize::new(0),
         }
@@ -390,6 +396,13 @@ impl CoverCache {
     /// the stored files as they are.
     pub fn set_webview_jxl(&self, shows: bool) {
         self.jxl.webview.store(shows, Ordering::Relaxed);
+    }
+
+    /// What converting waits for before each cover: the app rests it in battery saver and while
+    /// it's in the background with nothing playing, and it picks up again after. Covers being
+    /// shown never wait.
+    pub fn convert_when(&self, gate: impl Fn() -> BoxFuture<'static, ()> + Send + Sync + 'static) {
+        *self.jxl.gate.lock().expect("cover gate poisoned") = Some(Arc::new(gate));
     }
 
     fn valid(token: &str) -> bool {
@@ -647,11 +660,22 @@ impl CoverCache {
         }
     }
 
-    /// The worker: converts queued copies one at a time until none is left. A copy queued again
-    /// while it's converted gets a second look, which its record ends at once unless the copy
-    /// changed meanwhile.
+    /// The worker: converts queued copies one at a time until none is left, waiting on the app's
+    /// gate ([`Self::convert_when`]) before each. A copy queued again while it's converted gets a
+    /// second look, which its record ends at once unless the copy changed meanwhile.
     async fn convert_queued(self) {
         loop {
+            {
+                let mut queue = self.jxl.queue.lock().expect("cover queue poisoned");
+                if queue.order.is_empty() {
+                    queue.running = false;
+                    return;
+                }
+            }
+            let gate = self.jxl.gate.lock().expect("cover gate poisoned").clone();
+            if let Some(gate) = gate {
+                gate().await;
+            }
             let next = {
                 let mut queue = self.jxl.queue.lock().expect("cover queue poisoned");
                 let next = queue.order.pop_front();

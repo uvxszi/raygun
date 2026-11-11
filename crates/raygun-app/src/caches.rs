@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use futures_util::FutureExt;
 use raygun_db::titles;
 use raygun_model::{CachePrefs, StorageArea, StorageSaving, StorageUsage};
 use raygun_net::cover_cache::Usage;
@@ -19,6 +20,9 @@ use crate::startup::AppDb;
 const MB: u64 = 1024 * 1024;
 /// The sweep of covers no longer in the library waits this long after start, out of the way.
 const SWEEP_DELAY: Duration = Duration::from_secs(30);
+/// While resting, cover conversions look again this often (stretched by `device_state::rest`),
+/// or at once when the device's state changes.
+const CONVERSION_REST: Duration = Duration::from_secs(10);
 
 pub struct Caches {
     pub pages: PageCache,
@@ -39,13 +43,24 @@ impl Caches {
         if prefs.clear_pages_on_start {
             let _ = std::fs::remove_dir_all(&pages_dir);
         }
+        let covers = CoverCache::new(
+            paths.cache(CacheKind::Covers),
+            u64::from(prefs.cover_cache_mb) * MB,
+            refresh_of(prefs),
+        );
+        // Storing covers as JPEG XL is background work: it rests in battery saver and while Raygun
+        // is in the background with nothing playing, and picks up again after.
+        covers.convert_when(|| {
+            async {
+                while crate::device_state::relaxed() {
+                    crate::device_state::rest(CONVERSION_REST).await;
+                }
+            }
+            .boxed()
+        });
         Self {
             pages: PageCache::new(pages_dir, u64::from(prefs.page_cache_mb) * MB),
-            covers: CoverCache::new(
-                paths.cache(CacheKind::Covers),
-                u64::from(prefs.cover_cache_mb) * MB,
-                refresh_of(prefs),
-            ),
+            covers,
             share: paths.cache(CacheKind::Share),
             music_art: paths.cache(CacheKind::Images),
             downloads: paths.downloads(),

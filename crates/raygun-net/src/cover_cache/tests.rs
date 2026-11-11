@@ -458,6 +458,54 @@ fn versions_made_for_other_webviews_stay_within_their_memory() {
     );
 }
 
+/// Converting rests while the app's gate holds (battery saver, in the background with nothing
+/// playing) and picks up again after; covers asked for meanwhile are served as they came.
+#[tokio::test]
+async fn conversions_rest_while_the_app_says_so_and_pick_up_after() {
+    use futures_util::FutureExt;
+    let (resting, rest) = tokio::sync::watch::channel(true);
+    let temp = tempfile::TempDir::new().unwrap();
+    let cache = CoverCache::new(temp.path().join("covers"), 1 << 24, Duration::ZERO);
+    cache.convert_when(move || {
+        let mut rest = rest.clone();
+        async move {
+            while *rest.borrow_and_update() {
+                if rest.changed().await.is_err() {
+                    return;
+                }
+            }
+        }
+        .boxed()
+    });
+    let jpeg = jpeg_of(&photo(240, 180));
+    cache.store("b0", false, &jpeg, &Meta::default()).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(cache.jxl.runs.load(Ordering::SeqCst), 0, "resting");
+    let served = cache.stored_served("b0", IMAGE_ACCEPT).await.unwrap();
+    assert_eq!(
+        (served.bytes, served.content_type),
+        (jpeg.clone(), "image/jpeg")
+    );
+    assert!(cache.jxl.queue.lock().unwrap().running, "the worker waits");
+
+    resting.send(false).unwrap();
+    settle_conversions(&cache).await;
+    assert_eq!(cache.jxl.runs.load(Ordering::SeqCst), 1);
+    let stored = std::fs::read(temp.path().join("covers/b0")).unwrap();
+    assert!(is_jxl(&stored), "converted once the rest ended");
+
+    // Resting again holds the next one until it ends.
+    resting.send(true).unwrap();
+    cache
+        .store("b1", false, &jpeg_of(&photo(200, 200)), &Meta::default())
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(cache.jxl.runs.load(Ordering::SeqCst), 1);
+    resting.send(false).unwrap();
+    settle_conversions(&cache).await;
+    assert_eq!(cache.jxl.runs.load(Ordering::SeqCst), 2);
+}
+
 #[test]
 fn requests_take_jpeg_xl_when_they_list_it_or_the_webview_shows_it() {
     assert!(takes_jxl("image/jxl,image/avif,image/*,*/*;q=0.8", false));
