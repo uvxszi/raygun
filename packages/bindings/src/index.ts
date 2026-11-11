@@ -1420,6 +1420,8 @@ export const commands = {
 	network?: NetworkPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
 	rail: RailPrefs,
+	/**  Torrent links playing in the video player (this device only). */
+	torrents?: TorrentPrefs,
 } | null, string>(__TAURI_INVOKE("songs_pick_folder")),
 	/**  Whether Raygun may still write to the picked folder. */
 	saveFolderState: (uri: string) => typedError<SaveFolderState, string>(__TAURI_INVOKE("save_folder_state", { uri })),
@@ -5777,7 +5779,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "torrents"; value: TorrentPrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -5948,6 +5950,8 @@ export type Settings = {
 	network?: NetworkPrefs,
 	/**  What the desktop sidebar shows and in what order (M46.29). */
 	rail: RailPrefs,
+	/**  Torrent links playing in the video player (this device only). */
+	torrents?: TorrentPrefs,
 };
 
 /**  A setting changed outside the Settings screens (in the video player, M45); carries its key. */
@@ -6395,7 +6399,9 @@ export type StorageArea =
 /**  Artwork read from the music library's files; it comes back only with a rescan. */
 "musicArt" | 
 /**  Downloaded chapters, books, comics and videos: not a cache. */
-"downloads";
+"downloads" | 
+/**  Pieces of torrents playing or shared on (a cache, `TorrentPrefs::cache_gb`). */
+"torrents";
 
 /**  Where Raygun keeps its data on this device. */
 export type StorageInfo = {
@@ -6996,6 +7002,32 @@ export type TitleRating = {
 	value: string,
 	/**  The title's page on that site. */
 	url: string | null,
+};
+
+/**
+ *  Torrent streaming (`raygun_torrent`): videos that sources give as torrents (Stremio addons'
+ *  `infoHash` streams, magnet links, `.torrent` files) play in the video player as their pieces
+ *  arrive. This device only (`raygun_db::sync::DEVICE_ONLY_SETTINGS`).
+ */
+export type TorrentPrefs = {
+	/**
+	 *  Torrent links play. Off until turned on after the explanation: torrents share the
+	 *  video's pieces with other people while it plays.
+	 */
+	enabled?: boolean,
+	/**  Only on Wi-Fi or a wired network, never over mobile data. */
+	wifiOnly?: boolean,
+	/**
+	 *  What the torrent cache holds at most, in GB ([`TORRENT_CACHE_GB`]): the pieces of the
+	 *  video playing (a bigger video doesn't play) and of torrents shared on.
+	 */
+	cacheGb?: number,
+	/**  Pieces are shared on after a video closes, while Raygun runs; off, they're deleted. */
+	seed?: boolean,
+	/**  The port other peers connect to; 0 takes any free one. */
+	port?: number,
+	/**  Peers are also found through the DHT, not only through trackers. */
+	dht?: boolean,
 };
 
 export type TrackColumn = {

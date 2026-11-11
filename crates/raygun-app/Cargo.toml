@@ -19,6 +19,7 @@ raygun-mcp.workspace = true
 raygun-remote.workspace = true
 raygun-sync.workspace = true
 raygun-ai.workspace = true
+raygun-torrent.workspace = true
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 reqwest.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

@@ -243,6 +243,9 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal var sourceOrder: JSONArray? = null
     /** The source playing, once it has played a while. */
     internal var playingFrom: String? = null
+    /** How the torrent playing is doing (Rust's `transfer` updates): peers and speed, for the ring's note. */
+    internal var transferNote: String? = null
+        private set
     /** The media source reads through [VideoCache]; a live stream must not (its playlists change). */
     private var cachedSource = false
     internal val several: Boolean get() = episodes.length() > 1
@@ -719,6 +722,11 @@ class VideoPlayerActivity : AppCompatActivity() {
                     loading.setNote(sourceNote())
                 }
             }
+            // A torrent playing: its peers and speed while the picture waits for pieces.
+            "transfer" -> if (update.optString("id") == videoId) {
+                transferNote = transferText(update)
+                if (loading.shown && !loading.finding && !problem.shown) loading.setNote(waitingNote())
+            }
             "castDevices", "cast", "castError" -> cast.onUpdate(update)
             // The Quality menu's steps (`video_quality::rows`).
             "qualities" -> quality.onUpdate(update)
@@ -753,6 +761,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         languages = LanguagePrefs.from(prefs, appLanguage, subtitleLanguage, subtitleMode, spokenLanguage)
         ended = false
         started = false
+        transferNote = null
         rebuffering = false
         nextCancelled = false
         nextRequested = false
@@ -1833,7 +1842,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         val ahead = (player.bufferedPosition - player.currentPosition).coerceAtLeast(0)
         val needed = if (rebuffering) REBUFFER_MS else START_BUFFER_MS
         loading.ring.progress = if (ahead > 0) (ahead.toFloat() / needed).coerceAtMost(0.99f) else null
-        val note = if (started) null else sourceNote()
+        val note = waitingNote()
         if (loading.shown) loading.setNote(note) else loading.show(null, note, dim = false)
         controls.setBusy(true)
     }
@@ -1860,6 +1869,32 @@ class VideoPlayerActivity : AppCompatActivity() {
             answered.toString(),
             total,
         )
+    }
+
+    /** Under the ring while the picture waits: the source before it starts, and a torrent's peers. */
+    private fun waitingNote(): String? =
+        listOfNotNull(if (started) null else sourceNote(), transferNote).joinToString(" · ").ifBlank { null }
+
+    /** "12 peers · 1.4 MB/s" for a torrent playing, or that peers are being found. */
+    private fun transferText(update: JSONObject): String {
+        val peers = update.optInt("peers")
+        val speed = update.optLong("downloadBps")
+        val parts = mutableListOf(
+            if (peers == 0) {
+                label("torrentFindingPeers", "Finding peers…")
+            } else {
+                countLabel("torrentPeers", "{n} peer", "{n} peers", peers.toString(), peers)
+            },
+        )
+        if (speed > 0) {
+            parts += if (speed >= 1_000_000) {
+                String.format(Locale.ROOT, "%.1f MB/s", speed / 1e6)
+            } else {
+                "${(speed / 1000).coerceAtLeast(1)} kB/s"
+            }
+        }
+        if (update.optBoolean("dataSaver")) parts += label("torrentDataSaver", "Data Saver doesn't make torrents smaller")
+        return parts.joinToString(" · ")
     }
 
     /** "Trying source 2 of 5 · Vidstream" for the link loading in a session, or just its name. */

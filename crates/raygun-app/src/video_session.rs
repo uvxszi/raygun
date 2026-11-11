@@ -532,6 +532,9 @@ fn sources_update(session: &Session, now: i64) -> Value {
                         "facts": facts,
                         "bitrateKbps": video_quality::bitrate_kbps(facts.size_bytes, session.duration_ms),
                         "speedKbps": session.link_speeds.get(&link.request.url),
+                        // A torrent, with the seeds its source names when it does.
+                        "torrent": raygun_torrent::is_torrent(&link.request.url, link.request.format.as_deref())
+                            .then(|| json!({ "seeds": raygun_torrent::seeds_in(&link.label) })),
                     })
                 })
                 .collect();
@@ -695,7 +698,8 @@ impl VideoSessions {
         Value::Object(self.labels.lock().expect("labels poisoned").clone())
     }
 
-    fn label(&self, key: &str, fallback: &str) -> String {
+    /// A word of the player's in the app's language (`videoPlayer.*`), or `fallback`.
+    pub(crate) fn label(&self, key: &str, fallback: &str) -> String {
         self.labels
             .lock()
             .expect("labels poisoned")
@@ -1422,6 +1426,14 @@ impl VideoSessions {
                 };
                 // Addons that search by name can answer with another season's files.
                 mark_mismatches(&mut groups, &episode.numbers);
+                // A season's torrent without a file index opens the episode's file.
+                for link in groups.iter_mut().flat_map(|group| group.links.iter_mut()) {
+                    link.request.url = raygun_torrent::with_episodes(
+                        &link.request.url,
+                        link.request.format.as_deref(),
+                        &episode.numbers,
+                    );
+                }
                 self.set_groups(generation, groups).await;
             }
         }
@@ -1454,6 +1466,8 @@ impl VideoSessions {
         else {
             return;
         };
+        // Torrents play while they may (turned on, not on mobile data when only for Wi-Fi).
+        let torrents_unavailable = crate::torrents::unavailable_now(&self.app).await;
         let source_id = row.fields.source_id.clone();
         let servers = match sources.servers(&source_id, &episode.remote_id).await {
             Ok(servers) => servers,
@@ -1466,24 +1480,34 @@ impl VideoSessions {
         let to_links = |links: Vec<raygun_model::VideoLinkView>| -> Vec<Link> {
             links
                 .into_iter()
-                .map(|link| Link {
-                    label: link_label(
-                        &row.fields.title,
-                        link.label.clone().unwrap_or_else(|| {
-                            link.quality.map_or_else(
-                                || self.label("video", "Video"),
-                                |height| format!("{height}p"),
-                            )
-                        }),
-                    ),
-                    tag: None,
-                    mismatch: false,
-                    height: link.quality,
-                    size: None,
-                    // Torrents (Miru) need a torrent app: listed, never played.
-                    failed: (link.format.as_deref() == Some(raygun_ext_host::video::TORRENT))
-                        .then(|| self.label("needsTorrentApp", "Needs a torrent app")),
-                    request: video_sources::link_request(&row, unit, single, link),
+                .map(|link| {
+                    let torrent = link.format.as_deref() == Some(raygun_ext_host::video::TORRENT);
+                    let mut request = video_sources::link_request(&row, unit, single, link.clone());
+                    if torrent {
+                        // A season's torrent opens the episode's file.
+                        request.url = raygun_torrent::with_episodes(
+                            &request.url,
+                            request.format.as_deref(),
+                            &episode.numbers,
+                        );
+                    }
+                    Link {
+                        label: link_label(
+                            &row.fields.title,
+                            link.label.clone().unwrap_or_else(|| {
+                                link.quality.map_or_else(
+                                    || self.label("video", "Video"),
+                                    |height| format!("{height}p"),
+                                )
+                            }),
+                        ),
+                        tag: None,
+                        mismatch: false,
+                        height: link.quality,
+                        size: None,
+                        failed: torrents_unavailable.clone().filter(|_| torrent),
+                        request,
+                    }
                 })
                 .collect()
         };
@@ -3041,6 +3065,31 @@ mod tests {
         assert_eq!(update["groups"][0]["speedKbps"], 9_000);
         assert_eq!(update["groups"][0]["links"][0]["current"], true);
         assert_eq!(update["groups"][2]["state"], "failed");
+        // Only torrents say so.
+        assert!(top["torrent"].is_null());
+    }
+
+    #[test]
+    fn torrents_in_the_sources_sheet_say_their_seeds() {
+        let mut state = quality_session();
+        let mut torrent = link(
+            "Torrentio 1080p · Film.2010.1080p.mkv 👤 42 💾 1.4 GB",
+            None,
+        );
+        torrent.request.url = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10".into();
+        torrent.request.format = Some(raygun_torrent::FORMAT.into());
+        let mut unknown = link("Torrent 720p", None);
+        unknown.request.url = "https://example.com/film.torrent".into();
+        state.groups.push(Group::finished(
+            "t".into(),
+            "Torrentio".into(),
+            vec![torrent, unknown],
+            None,
+        ));
+        let update = sources_update(&state, NOW);
+        let links = &update["groups"][3]["links"];
+        assert_eq!(links[0]["torrent"], json!({ "seeds": 42 }));
+        assert_eq!(links[1]["torrent"], json!({ "seeds": null }));
     }
 
     #[test]

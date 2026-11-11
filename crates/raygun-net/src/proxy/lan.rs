@@ -7,6 +7,7 @@
 //! - `media/<id>/<scheme>/<host>/<path>`: a remote stream (as the `/media/` route),
 //! - `stream/<token>`: a source registered with the proxy (a file on this device),
 //! - `local/<path>`: a downloaded video under the proxy's local folder,
+//! - `torrent/<token>/<name>`: a torrent's video as its pieces arrive,
 //! - `subtitle/<n>.vtt` or `.srt`: a subtitle file converted for the TV.
 //!
 //! The listener closes when the [`LanRoute`] is dropped.
@@ -137,7 +138,7 @@ impl LanRoute {
     /// device) on the route, or a remote stream fetched with `headers`. `None` for anything else.
     pub fn link(&self, url: &str, headers: &BTreeMap<String, String>) -> Option<String> {
         if let Some(path) = self.loopback_path(url) {
-            let known = ["stream/", "local/", "media/"]
+            let known = ["stream/", "local/", "media/", "torrent/"]
                 .iter()
                 .any(|prefix| path.starts_with(prefix));
             return known.then(|| format!("{}{path}", self.base()));
@@ -270,6 +271,10 @@ async fn serve_lan(State(lan): State<Arc<LanShared>>, request: Request) -> Respo
             None => StatusCode::NOT_FOUND.into_response(),
         },
         "subtitle" => lan_subtitle(&lan, rest).await,
+        "torrent" => with_dlna(
+            &lan,
+            super::torrent::serve(&lan.proxy.torrents, rest, request).await,
+        ),
         _ => StatusCode::NOT_FOUND.into_response(),
     };
     with_cors(response)

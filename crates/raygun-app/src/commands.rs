@@ -5036,12 +5036,14 @@ pub async fn song_memory_usage(
 pub async fn storage_usage(
     caches: tauri::State<'_, crate::caches::Caches>,
     db: tauri::State<'_, AppDb>,
+    torrents: tauri::State<'_, Arc<crate::torrents::TorrentService>>,
 ) -> Result<Vec<raygun_model::StorageUsage>, String> {
-    let prefs = settings::load(&db.0)
+    let settings = settings::load(&db.0)
         .await
-        .map_err(|error| error.to_string())?
-        .cache;
-    Ok(caches.usage(&prefs).await)
+        .map_err(|error| error.to_string())?;
+    let mut usage = caches.usage(&settings.cache).await;
+    usage.push(torrents.storage_usage(&settings.torrents).await);
+    Ok(usage)
 }
 
 /// What the webview's probe found at start: whether it shows JPEG XL. Covers stored as JPEG XL
@@ -5059,14 +5061,15 @@ pub fn covers_webview_jxl(caches: tauri::State<'_, crate::caches::Caches>, shows
 pub async fn storage_clear(
     caches: tauri::State<'_, crate::caches::Caches>,
     db: tauri::State<'_, AppDb>,
+    torrents: tauri::State<'_, Arc<crate::torrents::TorrentService>>,
     area: raygun_model::StorageArea,
 ) -> Result<Vec<raygun_model::StorageUsage>, String> {
-    caches.clear(area).await?;
-    let prefs = settings::load(&db.0)
-        .await
-        .map_err(|error| error.to_string())?
-        .cache;
-    Ok(caches.usage(&prefs).await)
+    if area == raygun_model::StorageArea::Torrents {
+        torrents.clear().await;
+    } else {
+        caches.clear(area).await?;
+    }
+    storage_usage(caches, db, torrents).await
 }
 
 // ---- Websites and the built-in browser (M46.3) ----

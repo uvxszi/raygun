@@ -1,0 +1,21 @@
+[package]
+edition = "2024"
+name = "librqbit-sha1-wrapper"
+version = "9.1.0"
+description = "Common interface around various sha1 implementations used in rqbit torrent client."
+license = "Apache-2.0"
+repository = "https://github.com/ikatson/rqbit"
+readme = "README.md"
+publish = false
+
+# Both of upstream's backends brought a C crypto library Raygun doesn't otherwise build (OpenSSL
+# through crypto-hash on Android, aws-lc). Here every feature is `ring`'s digests, which the
+# workspace already builds for rustls on every target. The feature names stay so librqbit's
+# feature lists still resolve.
+[features]
+default = []
+sha1-crypto-hash = []
+sha1-ring = []
+
+[dependencies]
+ring = "0.17"

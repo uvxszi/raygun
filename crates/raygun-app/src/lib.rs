@@ -81,6 +81,7 @@ mod source_detect;
 mod startup;
 mod stremio;
 mod system_ui;
+mod torrents;
 mod tts;
 mod updates;
 mod uploads;

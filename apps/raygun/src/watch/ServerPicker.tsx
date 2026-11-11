@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useSettings } from '../settings/useSettings';
 import { useBackLayer } from '../shell/backLayers';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { SubtitleChoice } from './SubtitleChoice';
@@ -30,12 +31,12 @@ type ServerState = 'ready' | 'resolving' | 'empty' | 'failed';
 /** Resolved servers first, then the ones still resolving; empty and failed ones last. */
 const ORDER: ServerState[] = ['ready', 'resolving', 'empty', 'failed'];
 
-/** A torrent (Miru sources) needs a torrent app: Raygun lists it but doesn't play it. */
+/** A torrent (magnet links, `.torrent` files): it plays here once torrents are turned on. */
 const isTorrent = (link: VideoLinkView) => link.format === 'torrent';
 
-/** DASH can play but not be saved. */
-const savable = (link: VideoLinkView) =>
-  link.format !== 'dash' && !link.url.includes('.mpd') && !isTorrent(link);
+/** DASH can play but not be saved; torrents save while they play here. */
+const savable = (link: VideoLinkView, torrents: boolean) =>
+  link.format !== 'dash' && !link.url.includes('.mpd') && (!isTorrent(link) || torrents);
 
 /** Plays a link here, or in another app (`external`). */
 type PlayLink = (link: VideoLinkView, external?: boolean) => void;
@@ -50,6 +51,9 @@ const LinkList: FC<{
   workedLink?: number | null;
 }> = ({ links, intent, onPlay, onDownload, busy, workedLink = null }) => {
   const { t } = useTranslation();
+  // Torrents play here once turned on (Settings → Video player → Torrents).
+  const torrents = useSettings().data?.torrents?.enabled ?? false;
+  const off = (link: VideoLinkView) => isTorrent(link) && !torrents;
   const worked = (link: VideoLinkView) => workedLink !== null && links[workedLink] === link;
   // The link that played last time first, as a session tries it.
   const shown = [...links.filter(worked), ...links.filter((link) => !worked(link))];
@@ -59,7 +63,7 @@ const LinkList: FC<{
         <li key={link.url} className="flex items-stretch gap-2">
           <button
             type="button"
-            disabled={busy || isTorrent(link) || (intent === 'download' && !savable(link))}
+            disabled={busy || off(link) || (intent === 'download' && !savable(link, torrents))}
             onClick={() => (intent === 'download' ? onDownload(link) : onPlay(link))}
             className="bg-background flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left disabled:opacity-60"
           >
@@ -67,15 +71,13 @@ const LinkList: FC<{
               <span className="text-sm font-medium wrap-anywhere">
                 {link.label ?? (isTorrent(link) ? t('watch.torrent') : t('watch.video'))}
               </span>
-              {isTorrent(link) && (
-                <span className="text-muted text-xs">{t('watch.needsTorrentApp')}</span>
-              )}
+              {off(link) && <span className="text-muted text-xs">{t('watch.torrentsOff')}</span>}
               {link.subtitles.length > 0 && (
                 <span className="text-muted text-xs">
                   {t('watch.subtitleCount', { count: link.subtitles.length })}
                 </span>
               )}
-              {intent === 'download' && !savable(link) && !isTorrent(link) && (
+              {intent === 'download' && !savable(link, torrents) && !off(link) && (
                 <span className="text-muted text-xs">{t('watch.cantDownload')}</span>
               )}
             </span>
@@ -97,7 +99,7 @@ const LinkList: FC<{
               <Play aria-hidden size={18} className="shrink-0" />
             )}
           </button>
-          {intent === 'play' && savable(link) && (
+          {intent === 'play' && savable(link, torrents) && (
             <button
               type="button"
               aria-label={t('watch.downloadLink', { name: link.label ?? t('watch.video') })}

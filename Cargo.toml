@@ -23,6 +23,7 @@ raygun-app = { path = "crates/raygun-app" }
 raygun-mcp = { path = "crates/raygun-mcp" }
 raygun-remote = { path = "crates/raygun-remote" }
 raygun-sync = { path = "crates/raygun-sync" }
+raygun-torrent = { path = "crates/raygun-torrent" }
 tauri-plugin-raygun-audio = { path = "plugins-mobile/raygun-audio" }
 
 tauri = { version = "2", features = [] }
@@ -191,7 +192,8 @@ opt-level = 3
 panic = "unwind"
 strip = true
 
-# rquickjs-sys ships no Android bindings; see third_party/README.md.
+# Vendored copies, changed to build for every target (see third_party/README.md).
 [patch.crates-io]
 rquickjs-sys = { path = "third_party/rquickjs-sys" }
 mp3lame-sys = { path = "third_party/mp3lame-sys" }
+librqbit-sha1-wrapper = { path = "third_party/librqbit-sha1-wrapper" }

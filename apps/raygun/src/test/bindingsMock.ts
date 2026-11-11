@@ -263,6 +263,7 @@ export const DEFAULT_SETTINGS: Settings = {
     },
   },
   rail: RAIL_DEFAULTS,
+  torrents: { enabled: false, wifiOnly: true, cacheGb: 4, seed: false, port: 0, dht: true },
   transcription: {
     engine: 'off',
     localModel: 'whisper-tiny',

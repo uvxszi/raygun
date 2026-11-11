@@ -97,6 +97,16 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     app.manage(proxy.pdfs());
     app.manage(proxy.media());
     app.manage(proxy.lan());
+    // Torrents play through the proxy's `/torrent/` route.
+    let torrents = crate::torrents::TorrentService::new(
+        app.handle().clone(),
+        paths.cache(raygun_paths::CacheKind::Torrents),
+        proxy.torrents(),
+        raygun_net::http_client()?,
+        &startup_settings.torrents,
+    );
+    torrents.start();
+    app.manage(torrents);
     app.manage(crate::fonts::FontService::new(proxy.fonts()));
     app.manage(crate::library::LibraryService::new(
         app.handle().clone(),

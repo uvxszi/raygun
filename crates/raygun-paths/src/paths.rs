@@ -28,6 +28,8 @@ pub enum CacheKind {
     Artists,
     /// Video exports being converted, until they're copied where they go.
     Convert,
+    /// Pieces of torrents being streamed, removed once the video closes.
+    Torrents,
 }
 
 impl CacheKind {
@@ -43,6 +45,7 @@ impl CacheKind {
             Self::Captions => "captions",
             Self::Artists => "artists",
             Self::Convert => "convert",
+            Self::Torrents => "torrents",
         }
     }
 }

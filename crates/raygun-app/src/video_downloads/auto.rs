@@ -40,8 +40,12 @@ pub fn parse_pending(url: &str) -> Option<EpisodeRef> {
     serde_json::from_str(url.strip_prefix(PENDING)?).ok()
 }
 
-/// A link a download can save: a web address that isn't DASH, a torrent or a YouTube video.
+/// A link a download can save: a web address that isn't DASH or a YouTube video, or a torrent
+/// (listed as failed while torrents can't play, so taken only while they can).
 pub fn downloadable(request: &VideoRequest) -> bool {
+    if raygun_torrent::is_torrent(&request.url, request.format.as_deref()) {
+        return true;
+    }
     let url = request.url.to_lowercase();
     (url.starts_with("https://") || url.starts_with("http://"))
         && !url.contains(".mpd")
@@ -247,7 +251,7 @@ mod tests {
     fn only_savable_links_are_tried_best_first() {
         assert!(!downloadable(&request("youtube:abc", None)));
         assert!(!downloadable(&request("https://cdn/a.mpd", None)));
-        assert!(!downloadable(&request("magnet:?xt", Some("torrent"))));
+        assert!(downloadable(&request("magnet:?xt", Some("torrent"))));
         assert!(downloadable(&request("https://cdn/a.m3u8", Some("hls"))));
 
         let groups = vec![

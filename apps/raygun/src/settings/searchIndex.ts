@@ -78,6 +78,14 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.player.showFailedSources',
     'settings.player.showEmptySources',
   ),
+  ...on('video', 'settings.torrents.title')(
+    'settings.torrents.enabled',
+    'settings.torrents.wifiOnly',
+    'settings.torrents.cache',
+    'settings.torrents.seed',
+    'settings.torrents.dht',
+    'settings.torrents.port',
+  ),
   ...on(player('controls'), 'settings.player.section.controls.title')(
     'settings.player.aspect',
     'settings.player.controlsTimeout',

@@ -136,8 +136,10 @@ pub async fn usage(app: &AppHandle) -> Result<Vec<DataUsage>, String> {
                 found.files,
                 Some(found.bytes),
             ),
-            // Files made for sharing are a cache too: in the total.
-            StorageArea::Shared => entry(&mut usage, DataCategory::Caches).bytes += found.bytes,
+            // Files made for sharing are a cache too: in the total, as are torrents' pieces.
+            StorageArea::Shared | StorageArea::Torrents => {
+                entry(&mut usage, DataCategory::Caches).bytes += found.bytes
+            }
             StorageArea::Downloads => {
                 entry(&mut usage, DataCategory::Downloads).bytes = found.bytes
             }

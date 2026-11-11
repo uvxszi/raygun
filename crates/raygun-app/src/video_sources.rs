@@ -185,14 +185,9 @@ impl VideoSourceService {
         Ok(link_views(videos, self.preferred_quality().await))
     }
 
-    /// Plays a link of a stored episode, resuming where it was left.
+    /// Plays a link of a stored episode, resuming where it was left. A torrent plays through
+    /// the torrent engine while torrents may play (`torrents`).
     pub async fn play(&self, request: VideoSourcePlay) -> Result<(), String> {
-        if request.link.format.as_deref() == Some(raygun_ext_host::video::TORRENT) {
-            return Err(
-                "This video is a torrent, which Raygun doesn't play: copy its link into a torrent app"
-                    .into(),
-            );
-        }
         let external = request.external;
         let video = self.request(request).await?;
         if external {

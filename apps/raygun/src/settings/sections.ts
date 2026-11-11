@@ -106,6 +106,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'autoSubtitles',
       'subtitleLanguage',
       'videoPlayer',
+      'torrents',
     ),
   },
   {

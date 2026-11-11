@@ -278,6 +278,64 @@ pub struct Settings {
     pub network: NetworkPrefs,
     /// What the desktop sidebar shows and in what order (M46.29).
     pub rail: RailPrefs,
+    /// Torrent links playing in the video player (this device only).
+    #[serde(default)]
+    pub torrents: TorrentPrefs,
+}
+
+/// Torrent streaming (`raygun_torrent`): videos that sources give as torrents (Stremio addons'
+/// `infoHash` streams, magnet links, `.torrent` files) play in the video player as their pieces
+/// arrive. This device only (`raygun_db::sync::DEVICE_ONLY_SETTINGS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TorrentPrefs {
+    /// Torrent links play. Off until turned on after the explanation: torrents share the
+    /// video's pieces with other people while it plays.
+    pub enabled: bool,
+    /// Only on Wi-Fi or a wired network, never over mobile data.
+    pub wifi_only: bool,
+    /// What the torrent cache holds at most, in GB ([`TORRENT_CACHE_GB`]): the pieces of the
+    /// video playing (a bigger video doesn't play) and of torrents shared on.
+    pub cache_gb: u32,
+    /// Pieces are shared on after a video closes, while Raygun runs; off, they're deleted.
+    pub seed: bool,
+    /// The port other peers connect to; 0 takes any free one.
+    pub port: u16,
+    /// Peers are also found through the DHT, not only through trackers.
+    pub dht: bool,
+}
+
+impl Default for TorrentPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            wifi_only: true,
+            cache_gb: 4,
+            seed: false,
+            port: 0,
+            dht: true,
+        }
+    }
+}
+
+/// The torrent cache sizes offered, in GB.
+pub const TORRENT_CACHE_GB: [u32; 7] = [1, 2, 4, 8, 16, 32, 64];
+
+impl TorrentPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if !TORRENT_CACHE_GB.contains(&self.cache_gb) {
+            return Err(format!("{} GB isn't an offered cache size", self.cache_gb));
+        }
+        if self.port != 0 && self.port < 1024 {
+            return Err("The port is 0 (any) or 1024 to 65535".into());
+        }
+        Ok(())
+    }
+
+    /// The cache's size in bytes.
+    pub fn cache_bytes(&self) -> u64 {
+        u64::from(self.cache_gb) * 1_000_000_000
+    }
 }
 
 /// Quick access: the desktop sidebar's list (M46.29) and the phone's drawer. The audio library
@@ -2828,6 +2886,7 @@ impl Default for Settings {
             audio_quality: AudioQualityPrefs::default(),
             network: NetworkPrefs::default(),
             rail: RailPrefs::default(),
+            torrents: TorrentPrefs::default(),
         }
     }
 }
@@ -2898,6 +2957,7 @@ impl Settings {
             SettingChange::Hidden(prefs) => self.hidden = prefs,
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::ReaderAi(prefs) => self.reader_ai = prefs,
+            SettingChange::Torrents(prefs) => self.torrents = prefs,
             SettingChange::LyricsTranslation(prefs) => {
                 self.lyrics_translation = LyricsTranslationPrefs {
                     language: prefs.language.trim().to_owned(),
@@ -2999,6 +3059,7 @@ pub enum SettingChange {
     LyricsCache(LyricsCachePrefs),
     LyricsTranslation(LyricsTranslationPrefs),
     ReaderAi(ReaderAiPrefs),
+    Torrents(TorrentPrefs),
 }
 
 impl SettingChange {
@@ -3070,6 +3131,7 @@ impl SettingChange {
             Self::LyricsCache(_) => "lyricsCache",
             Self::LyricsTranslation(_) => "lyricsTranslation",
             Self::ReaderAi(_) => "readerAi",
+            Self::Torrents(_) => "torrents",
         }
     }
 
@@ -3125,6 +3187,7 @@ impl SettingChange {
             }
             Self::Hidden(prefs) => prefs.validate(),
             Self::ReaderAi(prefs) => prefs.validate(),
+            Self::Torrents(prefs) => prefs.validate(),
             Self::SearchListings(prefs) => prefs.validate(),
             Self::ContentOverrides(overrides) => overrides.validate(),
             Self::Rail(prefs) => prefs.validate(),
@@ -6680,6 +6743,8 @@ pub enum StorageArea {
     MusicArt,
     /// Downloaded chapters, books, comics and videos: not a cache.
     Downloads,
+    /// Pieces of torrents playing or shared on (a cache, `TorrentPrefs::cache_gb`).
+    Torrents,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

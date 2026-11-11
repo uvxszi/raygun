@@ -275,12 +275,19 @@ internal class PlayerSourcesSheet(private val host: VideoPlayerActivity) {
         }
         return listOfNotNull(
             codec,
+            link.optJSONObject("torrent")?.let { torrent ->
+                torrent.number("seeds")?.toInt()?.let { seeds ->
+                    host.countLabel("torrentSeeds", "torrent · {n} seed", "torrent · {n} seeds", seeds.toString(), seeds)
+                } ?: label("torrent", "torrent")
+            },
             facts.text("audio"),
             facts.number("sizeBytes")?.let { size(it) },
             link.number("bitrateKbps")?.let { label("bitrateNeeds", "needs ~{n}", speed(it)) },
             measured?.let { label("speedMeasured", "{n} measured", speed(it)) },
             facts.text("release"),
             status,
+            // A torrent playing: its peers and speed.
+            host.transferNote?.takeIf { link.optBoolean("current") },
         ).joinToString(" · ").ifBlank { null }
     }
 

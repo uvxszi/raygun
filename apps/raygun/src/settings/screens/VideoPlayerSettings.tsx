@@ -6,6 +6,7 @@ import { shownOn, useIsDesktop } from '../../shell/useIsDesktop';
 import { PLAYER_PAGES, playerPagePath, withDefaults } from '../playerOptions';
 import type { PlayerPrefs, PlayerSettingsPage } from '../playerOptions';
 import { PrefAction, PrefChoice, PrefGroup, PrefLink, PrefSlider, PrefSwitch } from '../prefs';
+import { TorrentSettings } from '../TorrentSettings';
 import { useSettings, useUpdateSetting } from '../useSettings';
 
 /** Matches `VideoResolution::ALL` in raygun-model. */
@@ -26,7 +27,10 @@ type Props = {
   openPage?: (page: PlayerSettingsPage) => void;
 };
 
-/** Settings → Video player: resolution and what happens around videos, then the player's screens. */
+/**
+ * Settings → Video player: resolution and what happens around videos, torrents, then the
+ * player's screens.
+ */
 export const VideoPlayerSettings: FC<Props> = ({ openPage }) => {
   const { t } = useTranslation();
   const data = useSettings().data;
@@ -95,6 +99,7 @@ export const VideoPlayerSettings: FC<Props> = ({ openPage }) => {
           onChange={(showEmptySources) => setPlayer({ showEmptySources })}
         />
       </PrefGroup>
+      <TorrentSettings />
       <PrefGroup title={t('settings.videoPlayer')}>
         {PLAYER_PAGES.filter((page) => shownOn(page.only, desktop)).map((page) => {
           const title = t(`settings.player.section.${page.id}.title`);

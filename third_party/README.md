@@ -28,3 +28,15 @@ Only the encoder's sources are kept (`lame-3.100/include`, `lame-3.100/libmp3lam
 | `Cargo.toml` | `cc` for every host, no autotools; `publish = false`. |
 
 `src/lib.rs` (the bindings) is unchanged. Wired in through `[patch.crates-io]` in the workspace `Cargo.toml` (M46.18, saving songs as MP3).
+
+## librqbit-sha1-wrapper 9.1.0
+Upstream: https://github.com/ikatson/rqbit (Apache-2.0, `LICENSE-APACHE`). It's the hashing shim of librqbit, the torrent engine `raygun-torrent` uses.
+
+Upstream hashes with one of two C libraries: OpenSSL (through `crypto-hash`, which has no Android build here) or aws-lc. Raygun's copy hashes with `ring`, which the workspace already builds for rustls on every target, so torrents add no C crypto library:
+
+| File | Change |
+|---|---|
+| `src/lib.rs` | SHA-1 and SHA-256 from `ring::digest`, whatever feature is chosen; a SHA-1 test added. |
+| `Cargo.toml` | `ring` instead of `crypto-hash`/`aws-lc-rs`; the features `sha1-crypto-hash` and `sha1-ring` kept (empty) so librqbit's feature lists resolve; `publish = false`. |
+
+Wired in through `[patch.crates-io]` in the workspace `Cargo.toml`.

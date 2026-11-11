@@ -226,15 +226,17 @@ describe('Stremio addons in Watch', () => {
     const picker = await screen.findByRole('dialog', { name: 'Streams' });
     // Streams are asked for with the series, whose details say which ids its episodes go by.
     expect(commands.stremioStreams).toHaveBeenCalledWith('series', 'tt0903747', 'tt0903747:1:2');
-    // Torrents are folded away with how many there are, and what they need.
+    // While torrents are off, they're folded away with how many there are, and what they need.
     expect(
       within(picker).queryByRole('button', { name: /^Torrent 1080p/ }),
     ).not.toBeInTheDocument();
     await user.click(
-      await within(picker).findByRole('button', { name: '1 torrent: needs a torrent app' }),
+      await within(picker).findByRole('button', { name: '1 torrent (torrents are off)' }),
     );
     expect(within(picker).getByText('Torrent 1080p')).toBeInTheDocument();
-    expect(within(picker).getByText('Needs a torrent app')).toBeInTheDocument();
+    expect(
+      within(picker).getByText('Torrents are off: Settings → Video player → Torrents'),
+    ).toBeInTheDocument();
     await user.click(within(picker).getByRole('button', { name: 'More for Torrent 1080p' }));
     expect(screen.getByRole('menuitem', { name: 'Copy magnet link' })).toBeInTheDocument();
 

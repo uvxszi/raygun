@@ -58,6 +58,7 @@ import { SourcesPanel } from './SourcesPanel';
 import { sendReport, sendRequest } from './protocol';
 import type { PlayerRequest, Position, TitleState } from './protocol';
 import { SubtitleLines } from './SubtitleLines';
+import { transferText } from './transferText';
 import { SubtitlesPanel } from './SubtitlesPanel';
 import type { SubtitleOption } from './SubtitlesPanel';
 import { usePictureBox } from './pictureBox';
@@ -1225,6 +1226,9 @@ const VideoStage: FC<StageProps> = ({
   const picture = usePictureBox(videoRef, aspect);
   // Before the picture: which source it comes from ("Trying source 2 of 5 · Vidstream").
   const waitingNote = begun || loadingText !== null ? null : sourceNote(sources, pickedSource);
+  // A torrent's peers and speed while the picture waits for its pieces.
+  const transfer = useVideoPlayerStore((state) => state.transfer);
+  const transferNote = transferText(transfer, t);
   const VolumeIcon = muted || volume <= 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
   return (
@@ -1289,7 +1293,7 @@ const VideoStage: FC<StageProps> = ({
             onElsewhere={notice.elsewhere ? () => setPanel('players') : undefined}
           />
         ) : busy ? (
-          <LoadingRing text={loadingText} note={waitingNote} />
+          <LoadingRing text={loadingText} note={waitingNote} extra={transferNote} />
         ) : null}
       </Middle>
 
@@ -2113,11 +2117,16 @@ const useNoteText = () => {
 
 /**
  * The player's waiting ring (as the Android player draws it): an accent arc turning over a faint
- * track (only its rotation animates), with what's happening and a note under it.
+ * track (only its rotation animates), with what's happening and a note under it (and `extra`, a
+ * torrent's peers).
  */
-const LoadingRing: FC<{ text?: string | null; note?: WaitingNote | null }> = ({ text, note }) => {
+const LoadingRing: FC<{
+  text?: string | null;
+  note?: WaitingNote | null;
+  extra?: string | null;
+}> = ({ text, note, extra }) => {
   const { t } = useTranslation();
-  const noteText = useNoteText()(note ?? null);
+  const noteText = [useNoteText()(note ?? null), extra].filter(Boolean).join(' · ') || null;
   return (
     <div role="status" className="flex flex-col items-center gap-3">
       <svg

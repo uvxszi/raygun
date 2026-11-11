@@ -314,6 +314,11 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
     if differs("network", &|before| before.network == settings.network) {
         crate::network_mode::apply(app, &settings.network);
     }
+    if differs("torrents", &|before| before.torrents == settings.torrents)
+        && let Some(torrents) = app.try_state::<std::sync::Arc<crate::torrents::TorrentService>>()
+    {
+        torrents.settings_changed(&settings.torrents).await;
+    }
 }
 
 /// The settings as services use them: what Data Saver changes while it applies

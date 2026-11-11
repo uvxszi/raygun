@@ -112,6 +112,7 @@ fn job<'a>(
         preferred: raygun_model::VideoResolution::P720,
         stopped,
         progress,
+        torrents: None,
     }
 }
 
@@ -254,6 +255,13 @@ async fn live_streams_fail_and_a_pause_stops_the_download() {
         .video("https://cdn.example/a.mpd", None)
         .await;
     assert!(matches!(dash, Err(Failure::Error(_))));
+    // A torrent goes to the torrent engine, never fetched as a web file.
+    let torrent = job(&client, temp.path(), &headers, &running, &progress)
+        .video(&format!("{base}/film.torrent"), None)
+        .await;
+    assert!(
+        matches!(&torrent, Err(Failure::Error(message)) if message == crate::torrents::TORRENTS_OFF)
+    );
 }
 
 #[test]
