@@ -143,6 +143,9 @@ pub const METHODS: &[&str] = &[
     "plusYears", "minusHours", "plusHours", "minusMinutes", "plusMinutes", "minusSeconds",
     "plusSeconds", "getYear", "getMonthValue", "getDayOfMonth", "isBefore", "isAfter", "ofEpochDay",
     "unescapeEntities", "getProperty", "getValue",
+    // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
+    "toDuration", "isNegative", "isPositive", "isInfinite", "isFinite", "toNanos", "toMicros",
+    "toMillis", "toSeconds", "getSeconds", "toMinutes", "toHours", "toDays", "convert",
     // Interceptors, cookies, more Jsoup
     "proceed", "intercept", "addInterceptor", "addNetworkInterceptor", "toResponseBody",
     "peekBody", "followSslRedirects", "retryOnConnectionFailure", "cookieJar", "interceptors",
@@ -2918,7 +2921,8 @@ pub const OBJECTS: &[&str] = &[
     "OffsetDateTime", "Resources", "MonthDay", "javaClass", "jsonInstance", "DayOfWeek",
     "TextStyle", "Injekt", "GlobalScope", "SSLContext", "TriState", "STATE_IGNORE",
     "STATE_INCLUDE", "STATE_EXCLUDE", "RequestBody", "CookieJar", "Credentials", "Html",
-    "HttpURLConnection", "Duration", "Collections", "LazyThreadSafetyMode", "URLUtil", "Result",
+    "HttpURLConnection", "Duration", "DurationUnit", "Collections", "LazyThreadSafetyMode",
+    "URLUtil", "Result",
     "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
     "applicationContext", "PreferenceManager", "BuildConfig", "File",
 ];

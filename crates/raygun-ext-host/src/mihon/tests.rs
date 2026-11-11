@@ -1602,6 +1602,93 @@ class Entry(val name: String) : Named(name) {
     assert!(listing.has_next_page);
 }
 
+/// Kotlin's durations (`5.minutes.inWholeMilliseconds`, as MangaDex's token lifespan is), Java's
+/// time units, instants less a duration, and `lib:i18n`'s `intl.collator` (MangaDex's genres).
+#[tokio::test]
+async fn converted_code_reads_durations_units_and_collators() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private val lifespan = 5.minutes.inWholeMilliseconds
+
+    private val intl = Intl(
+        language = "en",
+        baseLanguage = "en",
+        availableLanguages = setOf("en", "pt-BR"),
+        classLoader = this::class.java.classLoader!!,
+    )
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val minted = System.currentTimeMillis() - 1000
+        val names = listOf(
+            lifespan.toString(),
+            (System.currentTimeMillis() - minted > lifespan).toString(),
+            (2.seconds + 500.milliseconds).inWholeMilliseconds.toString(),
+            90.seconds.toString(),
+            1.hours.inWholeMinutes.toString(),
+            3.toDuration(DurationUnit.SECONDS).inWholeMilliseconds.toString(),
+            TimeUnit.MILLISECONDS.toDays(172800000L).toString(),
+            (Clock.System.now() - 1.days < Clock.System.now()).toString(),
+            listOf("b", "c", "a").sortedWith(intl.collator).joinToString(""),
+            intl.format("greeting", "you"),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let build = STANDALONE_BUILD.to_owned()
+        + "dependencies {\n    implementation(project(\":lib:i18n\"))\n}\n";
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        &build,
+        &[
+            (
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            ),
+            ("assets/i18n/messages_en.properties", "greeting=Hello %s"),
+        ],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "300000",
+            "false",
+            "2500",
+            "1m 30s",
+            "60",
+            "3000",
+            "2",
+            "true",
+            "abc",
+            "Hello you",
+        ]
+    );
+}
+
 /// Sequences that don't end, `init` blocks, `++` on properties, names written with their
 /// package, comparators and formats, as converted code uses them.
 #[tokio::test]

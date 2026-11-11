@@ -93,6 +93,11 @@
       const drop = Array.isArray(right) ? right : [right];
       return left.filter((item) => !drop.some((other) => KT.eq(item, other)));
     }
+    // Instants and durations: `now - 1.days` is an instant, `end - start` a duration.
+    if (left && typeof left === 'object' && (left.isInstant || left.isDuration)) {
+      if (left.isInstant && right && right.isInstant) return duration(left.ms - right.ms);
+      return left.minus(right);
+    }
     return left - right;
   };
   KT.plusAssign = (current, value) => {
@@ -1962,6 +1967,8 @@
     const get = (key) => bundle[key] ?? baseBundle[key] ?? `[${key}]`;
     return {
       chosenLanguage: chosen,
+      // `intl.collator`: text ordered as the chosen language orders it.
+      collator: collator({ language: KT.str(chosen).split(/[-_]/)[0] }),
       get,
       format: (key, ...args) => K.format(get(key), ...args),
       languageDisplayName: (code) => {
@@ -3705,6 +3712,8 @@
   const exception = (kind) => (message) => new KotlinError(message ?? kind, kind);
   const durations = {};
   for (const [unit, ms] of [
+    ['nanoseconds', 1e-6],
+    ['microseconds', 1e-3],
     ['milliseconds', 1],
     ['seconds', 1000],
     ['minutes', 60000],
@@ -3712,6 +3721,161 @@
     ['days', 86400000],
   ])
     durations[unit] = ms;
+  /// A unit's milliseconds: Kotlin's `DurationUnit` or Java's `TimeUnit` (milliseconds if none).
+  const unitMsOf = (unit) => (unit && typeof unit.unitMs === 'number' ? unit.unitMs : 1);
+  /// Java's `TimeUnit` (and Kotlin's `DurationUnit`): a unit and its conversions
+  /// (`TimeUnit.MILLISECONDS.toDays(ms)`, `TimeUnit.SECONDS.convert(n, TimeUnit.MINUTES)`).
+  const timeUnit = (name, unitMs) => {
+    const within = (n, size) => Math.trunc((Number(n) * unitMs) / size);
+    return {
+      name,
+      unitMs,
+      ordinal: [
+        'NANOSECONDS',
+        'MICROSECONDS',
+        'MILLISECONDS',
+        'SECONDS',
+        'MINUTES',
+        'HOURS',
+        'DAYS',
+      ].indexOf(name),
+      toString: () => name,
+      toNanos: (n) => within(n, 1e-6),
+      toMicros: (n) => within(n, 1e-3),
+      toMillis: (n) => within(n, 1),
+      toSeconds: (n) => within(n, 1000),
+      toMinutes: (n) => within(n, 60000),
+      toHours: (n) => within(n, 3600000),
+      toDays: (n) => within(n, 86400000),
+      convert: (n, from) =>
+        n && n.isDuration
+          ? Math.trunc(n.ms / unitMs)
+          : Math.trunc((Number(n) * unitMsOf(from)) / unitMs),
+      sleep: (n) => pause(Number(n) * unitMs),
+    };
+  };
+  /// Kotlin's `Duration` (java.time's too, as `Duration.ofSeconds(…)` makes it): a length of time
+  /// in milliseconds, compared and added as one.
+  class KDuration {
+    constructor(ms) {
+      this.ms = Number(ms);
+      this.isDuration = true;
+    }
+    get inWholeNanoseconds() {
+      return Math.trunc(this.ms * 1e6);
+    }
+    get inWholeMicroseconds() {
+      return Math.trunc(this.ms * 1e3);
+    }
+    get inWholeMilliseconds() {
+      return Math.trunc(this.ms);
+    }
+    get inWholeSeconds() {
+      return Math.trunc(this.ms / 1000);
+    }
+    get inWholeMinutes() {
+      return Math.trunc(this.ms / 60000);
+    }
+    get inWholeHours() {
+      return Math.trunc(this.ms / 3600000);
+    }
+    get inWholeDays() {
+      return Math.trunc(this.ms / 86400000);
+    }
+    get absoluteValue() {
+      return new KDuration(Math.abs(this.ms));
+    }
+    isNegative() {
+      return this.ms < 0;
+    }
+    isPositive() {
+      return this.ms > 0;
+    }
+    isInfinite() {
+      return !Number.isFinite(this.ms);
+    }
+    isFinite() {
+      return Number.isFinite(this.ms);
+    }
+    isZero() {
+      return this.ms === 0;
+    }
+    plus(other) {
+      return new KDuration(this.ms + (other && other.isDuration ? other.ms : Number(other)));
+    }
+    minus(other) {
+      return new KDuration(this.ms - (other && other.isDuration ? other.ms : Number(other)));
+    }
+    times(factor) {
+      return new KDuration(this.ms * Number(factor));
+    }
+    div(divisor) {
+      return divisor && divisor.isDuration
+        ? this.ms / divisor.ms
+        : new KDuration(this.ms / Number(divisor));
+    }
+    unaryMinus() {
+      return new KDuration(-this.ms);
+    }
+    compareTo(other) {
+      return Math.sign(this.ms - (other && other.isDuration ? other.ms : Number(other)));
+    }
+    toLong(unit) {
+      return Math.trunc(this.ms / unitMsOf(unit));
+    }
+    toInt(unit) {
+      return Math.trunc(this.ms / unitMsOf(unit));
+    }
+    toDouble(unit) {
+      return this.ms / unitMsOf(unit);
+    }
+    // java.time's names.
+    toMillis() {
+      return Math.trunc(this.ms);
+    }
+    toNanos() {
+      return Math.trunc(this.ms * 1e6);
+    }
+    toSeconds() {
+      return Math.trunc(this.ms / 1000);
+    }
+    getSeconds() {
+      return Math.trunc(this.ms / 1000);
+    }
+    toMinutes() {
+      return Math.trunc(this.ms / 60000);
+    }
+    toHours() {
+      return Math.trunc(this.ms / 3600000);
+    }
+    toDays() {
+      return Math.trunc(this.ms / 86400000);
+    }
+    equals(other) {
+      return Boolean(other && other.isDuration && other.ms === this.ms);
+    }
+    /// Kotlin's spelling: `1d 2h 3m 4.5s`, `250ms`, `0s`.
+    toString() {
+      if (!Number.isFinite(this.ms)) return this.ms > 0 ? 'Infinity' : '-Infinity';
+      if (this.ms === 0) return '0s';
+      const sign = this.ms < 0 ? '-' : '';
+      let rest = Math.abs(this.ms);
+      if (rest < 1000) return `${sign}${rest}ms`;
+      const parts = [];
+      for (const [unit, size] of [
+        ['d', 86400000],
+        ['h', 3600000],
+        ['m', 60000],
+      ]) {
+        const count = Math.floor(rest / size);
+        if (count) parts.push(`${count}${unit}`);
+        rest -= count * size;
+      }
+      if (rest) parts.push(`${rest / 1000}s`);
+      return sign + parts.join(' ');
+    }
+  }
+  const duration = (ms) => new KDuration(ms);
 
   // ---- Streams: okio's `Buffer`, Java's byte streams and `ByteBuffer` ----
   // A `ByteArray` stays a list of numbers 0–255; streams and buffers hold `Uint8Array`s, so a
@@ -7186,12 +7350,22 @@
     },
     // java.time's `Duration`, as Kotlin's durations are here.
     Duration: {
-      ofMillis: (n) => ({ ms: Number(n), isDuration: true }),
-      ofSeconds: (n) => ({ ms: Number(n) * 1000, isDuration: true }),
-      ofMinutes: (n) => ({ ms: Number(n) * 60000, isDuration: true }),
-      ofHours: (n) => ({ ms: Number(n) * 3600000, isDuration: true }),
-      ofDays: (n) => ({ ms: Number(n) * 86400000, isDuration: true }),
-      ZERO: { ms: 0, isDuration: true },
+      ofMillis: (n) => duration(Number(n)),
+      ofSeconds: (n) => duration(Number(n) * 1000),
+      ofMinutes: (n) => duration(Number(n) * 60000),
+      ofHours: (n) => duration(Number(n) * 3600000),
+      ofDays: (n) => duration(Number(n) * 86400000),
+      ZERO: duration(0),
+      INFINITE: duration(Infinity),
+    },
+    DurationUnit: {
+      NANOSECONDS: timeUnit('NANOSECONDS', 1e-6),
+      MICROSECONDS: timeUnit('MICROSECONDS', 1e-3),
+      MILLISECONDS: timeUnit('MILLISECONDS', 1),
+      SECONDS: timeUnit('SECONDS', 1000),
+      MINUTES: timeUnit('MINUTES', 60000),
+      HOURS: timeUnit('HOURS', 3600000),
+      DAYS: timeUnit('DAYS', 86400000),
     },
     Collections: {
       synchronizedMap: (map) => map,
@@ -7258,7 +7432,7 @@
       Monotonic: {
         markNow: () => {
           const start = Date.now();
-          return { elapsedNow: () => ({ ms: Date.now() - start, isDuration: true }) };
+          return { elapsedNow: () => duration(Date.now() - start) };
         },
       },
     },
@@ -7402,11 +7576,13 @@
       getInstance: (where) => calendar(where && where.isZone ? where.offset : undefined),
     },
     TimeUnit: {
-      MILLISECONDS: { unitMs: 1 },
-      SECONDS: { unitMs: 1000 },
-      MINUTES: { unitMs: 60000 },
-      HOURS: { unitMs: 3600000 },
-      DAYS: { unitMs: 86400000 },
+      NANOSECONDS: timeUnit('NANOSECONDS', 1e-6),
+      MICROSECONDS: timeUnit('MICROSECONDS', 1e-3),
+      MILLISECONDS: timeUnit('MILLISECONDS', 1),
+      SECONDS: timeUnit('SECONDS', 1000),
+      MINUTES: timeUnit('MINUTES', 60000),
+      HOURS: timeUnit('HOURS', 3600000),
+      DAYS: timeUnit('DAYS', 86400000),
     },
     CacheControl: {
       FORCE_NETWORK: { isCacheControl: true },
@@ -7636,9 +7812,9 @@
     throw new KotlinError(`Raygun's runtime has no ${name}()`);
   };
 
-  // Durations (`1.seconds`) as numbers' properties.
-  for (const [unit, ms] of Object.entries(durations))
-    NUMBER[unit] = (n) => ({ ms: n * ms, isDuration: true });
+  // Durations (`1.seconds`) as numbers' properties, and `n.toDuration(DurationUnit.SECONDS)`.
+  for (const [unit, ms] of Object.entries(durations)) NUMBER[unit] = (n) => duration(n * ms);
+  NUMBER.toDuration = (n, [unit]) => duration(n * unitMsOf(unit));
 
   // ---- Classes a source declares ----
 
