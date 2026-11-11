@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { CheckSquare, FolderPlus, ImageIcon } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -46,9 +46,9 @@ export type MangaGridItem = {
  * Covers in a grid, each opening its title page. Compact puts the title over the cover's bottom
  * edge (Mihon's default); comfortable puts it underneath. A video's play button plays it; ⋮ (the
  * cover's top right) opens the title's full menu. In a selection scope a long press, a right
- * click or the circle on the cover's top left picks it.
+ * click or the circle on the cover's top left picks it. Drawn again only when its props change.
  */
-export const MangaGrid: FC<{
+const MangaGridView: FC<{
   items: MangaGridItem[];
   medium?: Medium;
   /** Wide 16:9 thumbnails in wider columns (M46.45: video sites). */
@@ -227,3 +227,5 @@ export const MangaGrid: FC<{
     </>
   );
 };
+
+export const MangaGrid = memo(MangaGridView);

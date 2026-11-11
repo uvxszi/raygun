@@ -11,6 +11,7 @@ import { PodcastResultList } from '../podcasts/PodcastResultList';
 import { usePodcastSearch, useTopPodcasts } from '../podcasts/usePodcasts';
 import { useMangaSources } from '../manga/useManga';
 import { Carousel } from '../shell/Carousel';
+import { useDrawnCount } from '../shell/useDrawnCount';
 import { OpeningBook } from './AudiobookSearch';
 import { useOpenBook } from './useOpenBook';
 import { SourceRow } from './CatalogSearch';
@@ -50,6 +51,8 @@ const Section: FC<{
 
 /** Rows a section of Search → All shows. */
 const PREVIEW_ROWS = 2;
+/** Sections whose results are drawn with the page; the others' follow (`useDrawnCount`). */
+const FIRST_SECTIONS = 3;
 /** Search → All's ranked comics and books: from this many sources, this many titles (M46.35). */
 const PREVIEW_SOURCES = 6;
 const PREVIEW_ITEMS = 12;
@@ -185,36 +188,63 @@ export const AllResults: FC<{
 }> = ({ query, onType }) => {
   const { t } = useTranslation();
   const blank = query.trim() === '';
+  const sections = [
+    ...(blank
+      ? []
+      : [
+          {
+            title: t('search.inYourLibrary'),
+            more: () => onType('library'),
+            body: <LibraryMatches query={query} limit={4} />,
+          },
+          {
+            title: t('search.type.music'),
+            more: () => onType('music'),
+            body: <MusicResults query={query} compact />,
+          },
+        ]),
+    {
+      title: t('library.media.podcast'),
+      more: () => onType('music', 'podcasts'),
+      body: <PodcastPreview query={query} />,
+    },
+    {
+      title: t('search.music.audiobooks'),
+      more: () => onType('music', 'audiobooks'),
+      body: <AudiobookPreview query={query} />,
+    },
+    {
+      title: t('search.type.video'),
+      more: () => onType('video'),
+      body: (
+        <>
+          <VideoResults query={query} limit={2} />
+          <CatalogPreview medium="video" query={query} />
+        </>
+      ),
+    },
+    {
+      title: t('library.media.manga'),
+      more: () => onType('manga'),
+      body: <CatalogPreview medium="manga" query={query} />,
+    },
+    {
+      title: t('library.media.novel'),
+      more: () => onType('novel'),
+      body: <CatalogPreview medium="novel" query={query} />,
+    },
+  ];
+  // Every section's heading at once; what the first ones found at once too, the others' as each
+  // part is on the screen (`useDrawnCount`).
+  const drawn = useDrawnCount(sections.length, FIRST_SECTIONS, 2, query.trim());
   return (
     <div data-testid="all-results" className="flex flex-col gap-8">
-      {blank ? (
-        <p className="text-muted text-sm">{t('search.popularHint')}</p>
-      ) : (
-        <>
-          <Section title={t('search.inYourLibrary')} onMore={() => onType('library')}>
-            <LibraryMatches query={query} limit={4} />
-          </Section>
-          <Section title={t('search.type.music')} onMore={() => onType('music')}>
-            <MusicResults query={query} compact />
-          </Section>
-        </>
-      )}
-      <Section title={t('library.media.podcast')} onMore={() => onType('music', 'podcasts')}>
-        <PodcastPreview query={query} />
-      </Section>
-      <Section title={t('search.music.audiobooks')} onMore={() => onType('music', 'audiobooks')}>
-        <AudiobookPreview query={query} />
-      </Section>
-      <Section title={t('search.type.video')} onMore={() => onType('video')}>
-        <VideoResults query={query} limit={2} />
-        <CatalogPreview medium="video" query={query} />
-      </Section>
-      <Section title={t('library.media.manga')} onMore={() => onType('manga')}>
-        <CatalogPreview medium="manga" query={query} />
-      </Section>
-      <Section title={t('library.media.novel')} onMore={() => onType('novel')}>
-        <CatalogPreview medium="novel" query={query} />
-      </Section>
+      {blank && <p className="text-muted text-sm">{t('search.popularHint')}</p>}
+      {sections.map((section, index) => (
+        <Section key={section.title} title={section.title} onMore={section.more}>
+          {index < drawn && section.body}
+        </Section>
+      ))}
     </div>
   );
 };

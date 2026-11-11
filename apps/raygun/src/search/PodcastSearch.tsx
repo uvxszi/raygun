@@ -5,7 +5,11 @@ import { useHasProvider } from '../extensions/useExtensions';
 import { PodcastResultList } from '../podcasts/PodcastResultList';
 import { usePodcastSearch, useTopPodcasts } from '../podcasts/usePodcasts';
 import { SourceIssue } from '../shell/SourceIssue';
+import { useDrawnCount } from '../shell/useDrawnCount';
 import { NoSources } from './NoSources';
+
+/** Shows drawn at first, then as many more at a time (`useDrawnCount`). */
+const FIRST_SHOWS = 24;
 
 /** Podcasts: the directory's results, or its top shows before anything is typed (Music's
  * Podcasts pill since M46.25). Without a podcast directory, the way to one. */
@@ -15,6 +19,8 @@ export const PodcastSearch: FC<{ query: string }> = ({ query }) => {
   const found = usePodcastSearch(directory === false ? '' : query);
   const top = useTopPodcasts(query === '' && directory !== false);
   const search = query ? found : top;
+  // Many shows: the first at once, the rest as each part is on the screen.
+  const drawn = useDrawnCount(search.data?.length ?? 0, FIRST_SHOWS, FIRST_SHOWS, query.trim());
   if (directory === false) {
     return (
       <div data-testid="podcast-search">
@@ -29,7 +35,9 @@ export const PodcastSearch: FC<{ query: string }> = ({ query }) => {
       {search.data?.length === 0 && query && (
         <p className="text-muted text-sm">{t('podcasts.noResults')}</p>
       )}
-      {search.data && search.data.length > 0 && <PodcastResultList results={search.data} />}
+      {search.data && search.data.length > 0 && (
+        <PodcastResultList results={search.data.slice(0, drawn)} />
+      )}
     </div>
   );
 };

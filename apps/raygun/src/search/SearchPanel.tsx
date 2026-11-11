@@ -1,6 +1,15 @@
 import type { MangaSource, RecentSearch } from '@raygun/bindings';
 import { ChevronRight } from 'lucide-react';
-import { Fragment, useEffect, useRef } from 'react';
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -63,7 +72,7 @@ const Section: FC<{ title: string; onMore?: () => void; children: ReactNode }> =
  * sources don't say what a result is until it's opened, so their answers stay under Movies and
  * Series too.
  */
-const VideoSearch: FC<{
+const VideoSearchView: FC<{
   query: string;
   view: VideoView;
   onView: (view: VideoView) => void;
@@ -75,12 +84,16 @@ const VideoSearch: FC<{
   const failures = useSourceHealth((state) => state.failures);
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
   const filter = useSearchFilter();
-  const sources = failingLast(
-    (listed.data ?? []).filter(
-      (source) => source.enabled && !source.searchPill && keepSource(filter, source),
-    ),
-    failures,
-    failingAtEnd,
+  const sources = useMemo(
+    () =>
+      failingLast(
+        (listed.data ?? []).filter(
+          (source) => source.enabled && !source.searchPill && keepSource(filter, source),
+        ),
+        failures,
+        failingAtEnd,
+      ),
+    [listed.data, filter, failures, failingAtEnd],
   );
   // The pills' rows: those with titles first, then those with none, then failures.
   const answers = useSourceAnswers(
@@ -115,7 +128,7 @@ const VideoSearch: FC<{
               source={source}
               medium="video"
               query={query}
-              onMore={() => onPill(source.id)}
+              onMore={onPill}
             />
           ))}
         </>
@@ -131,6 +144,9 @@ const VideoSearch: FC<{
     </div>
   );
 };
+
+/** Drawn again only when what it shows changes, not as a pill above it answers a tap. */
+const VideoSearch = memo(VideoSearchView);
 
 /** Videos' own pills: its views, then each video site that brings a pill (YouTube, PeerTube…). */
 const VideoPillRow: FC<{
@@ -183,17 +199,92 @@ const opensResult = (event: MouseEvent) => {
   return Boolean(target) && !target?.closest('[role="group"], [role="tablist"]');
 };
 
+type OnType = (type: SearchType, view?: SearchView, pill?: string) => void;
+
+type ResultsProps = {
+  query: string;
+  type: SearchType;
+  /** The pill chosen within Audio or Videos: its own pill row shows it at once. */
+  view?: SearchView;
+  pill?: string;
+  /** Video sources that bring their own pill. */
+  pills: MangaSource[];
+  onType: OnType;
+};
+
+/**
+ * What a kind shows under the pills. Drawn again only when what it shows changes: a pill answers
+ * a tap at once and this follows (`SearchPanel`); within Videos, its own pills answer at once
+ * and what they lead to follows here.
+ */
+const SearchResultsView: FC<ResultsProps> = ({ query, type, view, pill, pills, onType }) => {
+  const blank = query.trim() === '';
+  const musicView = viewIn<MusicView>('music', view);
+  const videoView = viewIn<VideoView>('video', view);
+  const pillSource = type === 'video' ? pills.find((source) => source.id === pill) : undefined;
+  const videoChoice = useMemo(
+    () => ({ view: videoView, site: pillSource }),
+    [videoView, pillSource],
+  );
+  const shownVideo = useDeferredValue(videoChoice);
+  const onMusicView = useCallback((next: MusicView) => onType('music', next), [onType]);
+  const onVideoView = useCallback((next: VideoView) => onType('video', next), [onType]);
+  const onSite = useCallback((id: string) => onType('video', undefined, id), [onType]);
+  const onLibrary = useCallback(() => onType('library'), [onType]);
+  return (
+    <>
+      {type === 'all' && <AllResults query={query} onType={onType} />}
+      {type === 'music' && <MusicResults query={query} view={musicView} onView={onMusicView} />}
+      {type === 'video' && (
+        <VideoPillRow
+          view={videoView}
+          site={pillSource?.id ?? null}
+          sites={pills}
+          onView={onVideoView}
+          onSite={onSite}
+        />
+      )}
+      {type === 'video' && shownVideo.site && (
+        <CatalogSearch
+          key={shownVideo.site.id}
+          medium="video"
+          query={query}
+          only={shownVideo.site.id}
+        />
+      )}
+      {type === 'video' && !shownVideo.site && (
+        <VideoSearch
+          query={query}
+          view={shownVideo.view}
+          onView={onVideoView}
+          pills={pills}
+          onPill={onSite}
+        />
+      )}
+      {!blank && type === 'library' && <LibraryMatches query={query} />}
+      {(type === 'manga' || type === 'novel') && (
+        <CatalogSearch key={type} medium={type} query={query} onLibrary={onLibrary} />
+      )}
+    </>
+  );
+};
+
+const SearchResults = memo(SearchResultsView);
+
 /**
  * Browse → Search: everything at once, or one kind of media with its sources' filters and tags.
  * Before anything is typed it shows the searches made lately, then what's popular: sources'
  * popular titles, top podcasts, popular and new audiobooks. The query comes from Browse's search
  * bar. Each source's answer shows as it comes (`useSearchStream`); a search is remembered when
  * something it found is opened, or when Enter is pressed in the bar.
+ *
+ * A pill answers a tap at once: what it leads to (a kind with hundreds of results) is drawn in
+ * the background, the results shown staying until it's ready (dimmed if that takes a while).
  */
 export const SearchPanel: FC<{
   query: string;
   type: SearchType;
-  onType: (type: SearchType, view?: SearchView, pill?: string) => void;
+  onType: OnType;
   /** Searches again for a kept search. */
   onSearch: (query: string, type: SearchType) => void;
   /** The pill within Music or Movies & series (M46.25). */
@@ -207,35 +298,51 @@ export const SearchPanel: FC<{
   // Video sources that bring their own pill (YouTube, PeerTube…), enabled ones only.
   const videoSources = useMangaSources('video');
   const filter = useSearchFilter();
-  const pills = (videoSources.data ?? []).filter(
-    (source) => source.searchPill && source.enabled && keepSource(filter, source),
+  const pills = useMemo(
+    () =>
+      (videoSources.data ?? []).filter(
+        (source) => source.searchPill && source.enabled && keepSource(filter, source),
+      ),
+    [videoSources.data, filter],
   );
   const pillSource = type === 'video' ? pills.find((source) => source.id === pill) : undefined;
   const blank = query.trim() === '';
   // A YouTube address is answered by its card; the sources' matches for the address's words
   // would only be noise under it.
   const youtubeLink = useYouTubeLink(query);
+  const asked = useMemo(() => ({ query, type, view, pill }), [query, type, view, pill]);
+  const shown = useDeferredValue(asked);
+  const drawing = shown !== asked;
+  // Within the kind shown, its own pills (Audio's, Videos') answer at once too.
+  const sameKind = shown.type === type && shown.query === query;
+  // The results keep the same handler, so they aren't drawn again for a new one.
+  const latestOnType = useRef(onType);
+  useLayoutEffect(() => {
+    latestOnType.current = onType;
+  }, [onType]);
+  const onKind = useCallback<OnType>(
+    (next, nextView, nextPill) => latestOnType.current(next, nextView, nextPill),
+    [],
+  );
   // What plays from here shows "Playing from" this search.
   usePlayContext(
-    blank
+    shown.query.trim() === ''
       ? null
       : {
           kind: 'search',
-          name: query.trim(),
+          name: shown.query.trim(),
           subtitle: null,
           artworkUrl: null,
           to: '/browse',
           search: {
             tab: 'search',
-            type,
-            q: query,
-            ...(view ? { view } : {}),
-            ...(pill ? { pill } : {}),
+            type: shown.type,
+            q: shown.query,
+            ...(shown.view ? { view: shown.view } : {}),
+            ...(shown.pill ? { pill: shown.pill } : {}),
           },
         },
   );
-  const musicView = viewIn<MusicView>('music', view);
-  const videoView = viewIn<VideoView>('video', view);
   const selected = useRef<HTMLButtonElement>(null);
   const typeRow = useDragScroll<HTMLDivElement>();
 
@@ -294,54 +401,22 @@ export const SearchPanel: FC<{
         {/* Opening or playing something found remembers the search. */}
         {!youtubeLink.data && (
           <div
-            className="flex flex-col gap-4"
+            aria-busy={drawing || undefined}
+            className={`flex flex-col gap-4 ${drawing ? 'opacity-60 transition-opacity delay-150 duration-300' : ''}`}
             onClickCapture={(event) => {
-              if (!blank && opensResult(event)) remember(query, type);
+              if (shown.query.trim() !== '' && opensResult(event)) {
+                remember(shown.query, shown.type);
+              }
             }}
           >
-            {type === 'all' && <AllResults query={query} onType={onType} />}
-            {type === 'music' && (
-              <MusicResults
-                query={query}
-                view={musicView}
-                onView={(next) => onType('music', next)}
-              />
-            )}
-            {type === 'video' && (
-              <VideoPillRow
-                view={videoView}
-                site={pillSource?.id ?? null}
-                sites={pills}
-                onView={(next) => onType('video', next)}
-                onSite={(id) => onType('video', undefined, id)}
-              />
-            )}
-            {type === 'video' && pillSource && (
-              <CatalogSearch
-                key={pillSource.id}
-                medium="video"
-                query={query}
-                only={pillSource.id}
-              />
-            )}
-            {type === 'video' && !pillSource && (
-              <VideoSearch
-                query={query}
-                view={videoView}
-                onView={(next) => onType('video', next)}
-                pills={pills}
-                onPill={(id) => onType('video', undefined, id)}
-              />
-            )}
-            {!blank && type === 'library' && <LibraryMatches query={query} />}
-            {(type === 'manga' || type === 'novel') && (
-              <CatalogSearch
-                key={type}
-                medium={type}
-                query={query}
-                onLibrary={() => onType('library')}
-              />
-            )}
+            <SearchResults
+              query={shown.query}
+              type={shown.type}
+              view={sameKind ? view : shown.view}
+              pill={sameKind ? pill : shown.pill}
+              pills={pills}
+              onType={onKind}
+            />
           </div>
         )}
       </SelectionScope>

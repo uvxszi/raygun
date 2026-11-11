@@ -2,7 +2,17 @@ import type { MangaCard, MangaSource, SourceSearchResult } from '@raygun/binding
 import { useQueries } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ChevronRight, LoaderCircle, SlidersHorizontal } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +23,7 @@ import { useMangaLibrary, useMangaSources } from '../manga/useManga';
 import { ROUTES } from '../manga/medium';
 import { AdultMark } from '../shell/AdultMark';
 import { matchesSearch } from '../shell/useListSearch';
+import { useDrawnCount } from '../shell/useDrawnCount';
 import { useInView } from '../shell/useInView';
 import { CustomSourcesPill, SourceSwitchPanel } from './CustomSources';
 import { useCustomSources } from './useCustomSources';
@@ -59,6 +70,12 @@ export const SourceRow: FC<{
   onMore?: () => void;
 }> = ({ result, medium, limit = 6, onMore }) => {
   const { t } = useTranslation();
+  // A row from the source's listings says so once, beside its name.
+  const fromListing = result.fromListings ? undefined : t('search.fromListing');
+  const items = useMemo(
+    () => toGridItems(result.items.slice(0, limit), fromListing),
+    [result.items, limit, fromListing],
+  );
   return (
     <section aria-label={result.source.name} className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -92,15 +109,7 @@ export const SourceRow: FC<{
       ) : result.items.length === 0 ? (
         <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
       ) : (
-        <MangaGrid
-          medium={medium}
-          landscape={Boolean(result.source.searchPill)}
-          // A row from the source's listings says so once, beside its name.
-          items={toGridItems(
-            result.items.slice(0, limit),
-            result.fromListings ? undefined : t('search.fromListing'),
-          )}
-        />
+        <MangaGrid medium={medium} landscape={Boolean(result.source.searchPill)} items={items} />
       )}
     </section>
   );
@@ -128,23 +137,25 @@ const RowPlaceholder: FC<{ count?: number }> = ({ count = 6 }) => {
 
 /**
  * A source's row that loads only when it comes near the window (M46.7), queued with the others,
- * so a search over many sources never runs them all at once.
+ * so a search over many sources never runs them all at once. `onMore` (given the source's id)
+ * leads to all of its results. Drawn again only when its own props change.
  */
-export const LazySourceRow: FC<{
+const LazySourceRowView: FC<{
   source: MangaSource;
   medium: Medium;
   query: string;
   limit?: number;
-  onMore?: () => void;
+  onMore?: (sourceId: string) => void;
 }> = ({ source, medium, query, limit, onMore }) => {
   const { t } = useTranslation();
   const [ref, seen] = useInView<HTMLDivElement>();
   const search = useSourceSearch(medium, source.id, query, seen);
   useHealthReport(source.id, search.error, search.data);
+  const more = useMemo(() => (onMore ? () => onMore(source.id) : undefined), [onMore, source.id]);
   return (
     <div ref={ref} data-testid="source-row">
       {search.data ? (
-        <SourceRow result={search.data} medium={medium} limit={limit} onMore={onMore} />
+        <SourceRow result={search.data} medium={medium} limit={limit} onMore={more} />
       ) : (
         <section aria-label={source.name} aria-busy={!search.error} className="flex flex-col gap-2">
           <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
@@ -166,21 +177,29 @@ export const LazySourceRow: FC<{
   );
 };
 
-/** Remembers which sources failed lately, so lists can put them last (M46.9). */
+export const LazySourceRow = memo(LazySourceRowView);
+
+/**
+ * Remembers which sources failed lately, so lists can put them last (M46.9). Only the reports are
+ * read from the store: a row isn't drawn again when another source's health changes.
+ */
 const useHealthReport = (
   id: string,
   error: unknown,
   data: SourceSearchResult | null | undefined,
 ) => {
-  const { failed, worked } = useSourceHealth();
+  const failed = useSourceHealth((state) => state.failed);
+  const worked = useSourceHealth((state) => state.worked);
   useEffect(() => {
     if (error || data?.error) failed(id);
     else if (data) worked(id);
   }, [id, error, data, failed, worked]);
 };
 
-/** Titles a ranked list draws at first, and how many more each "Show more" adds. */
+/** Titles a ranked list shows at first, and how many more each "Show more" adds. */
 const RANKED_PAGE = 48;
+/** Of those, the covers drawn at once; the rest follow (`useDrawnCount`). */
+const FIRST_CARDS = 24;
 
 /**
  * Every searched source's results in one list (M46.9), the best answers first, each with its
@@ -196,7 +215,8 @@ export const RankedResults: FC<{
   limit?: number;
 }> = ({ sources, medium, query, limit }) => {
   const { t } = useTranslation();
-  const { failed, worked } = useSourceHealth();
+  const failed = useSourceHealth((state) => state.failed);
+  const worked = useSourceHealth((state) => state.worked);
   const [shownCount, setShownCount] = useState(RANKED_PAGE);
   const ids = sources.map((source) => source.id).join('\n');
   // Only what the list needs from each search, worked out again only when an answer comes.
@@ -237,25 +257,25 @@ export const RankedResults: FC<{
   );
   // Titles already seen (Home, sources' pages, the library) show until every source has
   // answered (M46.47), after the answers that came.
-  const seen = useSeenTitles(medium, query);
-  const searchedIds = new Set(sources.map((source) => source.id));
-  const named = new Map(sources.map((source) => [source.id, source.name]));
-  const adultSources = new Set(sources.filter((source) => source.adult).map((source) => source.id));
-  const ranked: RankedCard[] =
-    answered < sources.length
-      ? [
-          ...answers,
-          ...seen
-            .filter(
-              (card) =>
-                searchedIds.has(card.sourceId) &&
-                !answers.some(
-                  (answer) => answer.card.sourceId === card.sourceId && answer.card.id === card.id,
-                ),
-            )
-            .map((card) => ({ card, sourceName: named.get(card.sourceId) ?? '' })),
-        ]
-      : answers;
+  const waiting = answered < sources.length;
+  const seen = useSeenTitles(medium, query, waiting);
+  const ranked: RankedCard[] = useMemo(() => {
+    if (!waiting) return answers;
+    const searchedIds = new Set(sources.map((source) => source.id));
+    const named = new Map(sources.map((source) => [source.id, source.name]));
+    return [
+      ...answers,
+      ...seen
+        .filter(
+          (card) =>
+            searchedIds.has(card.sourceId) &&
+            !answers.some(
+              (answer) => answer.card.sourceId === card.sourceId && answer.card.id === card.id,
+            ),
+        )
+        .map((card) => ({ card, sourceName: named.get(card.sourceId) ?? '' })),
+    ];
+  }, [waiting, answers, seen, sources]);
   const failures = results
     .filter((result) => result.error)
     .map((result) => ({ name: result.source.name, error: result.error ?? '' }));
@@ -268,6 +288,21 @@ export const RankedResults: FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [errorKey]);
   const cap = limit ?? shownCount;
+  // The first covers at once, the rest of the page as each part is on the screen.
+  const drawn = useDrawnCount(Math.min(ranked.length, cap), FIRST_CARDS, FIRST_CARDS, query.trim());
+  // The same cards while nothing they show changes: the grid isn't drawn again for nothing.
+  const fromListing = t('search.fromListing');
+  const items = useMemo(() => {
+    const adultSources = new Set(
+      sources.filter((source) => source.adult).map((source) => source.id),
+    );
+    return ranked.slice(0, drawn).map(({ card, sourceName }) => ({
+      ...toGridItems([card])[0]!,
+      source: sourceName,
+      ...(card.fromListing ? { subtitle: fromListing } : {}),
+      ...(card.adult || adultSources.has(card.sourceId) ? { adult: true } : {}),
+    }));
+  }, [ranked, drawn, sources, fromListing]);
   return (
     <div data-testid="ranked-results" className="flex flex-col gap-3">
       {answered < sources.length && (
@@ -281,17 +316,7 @@ export const RankedResults: FC<{
           {query.trim() ? t('search.noResults', { query }) : t('search.providerEmpty')}
         </p>
       )}
-      {ranked.length > 0 && (
-        <MangaGrid
-          medium={medium}
-          items={ranked.slice(0, cap).map(({ card, sourceName }) => ({
-            ...toGridItems([card])[0]!,
-            source: sourceName,
-            ...(card.fromListing ? { subtitle: t('search.fromListing') } : {}),
-            ...(card.adult || adultSources.has(card.sourceId) ? { adult: true } : {}),
-          }))}
-        />
-      )}
+      {ranked.length > 0 && <MangaGrid medium={medium} items={items} />}
       {limit === undefined && ranked.length > cap && (
         <button
           type="button"
@@ -350,6 +375,9 @@ const InYourLibrary: FC<{ medium: Medium; query: string; onMore: () => void }> =
 
 const NO_IDS: string[] = [];
 const NO_SOURCES: MangaSource[] = [];
+
+/** By source draws this many sources' rows at first, then as many more at a time. */
+const FIRST_SOURCE_ROWS = 4;
 
 /** The ranked list, drawn again only when what it searches changes (not as a switch shows). */
 const SearchedResults = memo(RankedResults);
@@ -477,8 +505,12 @@ export const CatalogSearch: FC<{
   };
   // Custom sources off: every source; on: the ones switched on (one alone, with its filters).
   const custom = !only && choice.custom;
-  // The pill and the panel answer a tap at once; the search follows without holding it up.
-  const choosing = useMemo(() => ({ custom, picked: choice.picked }), [custom, choice.picked]);
+  // The pills and the panel's switches answer a tap at once; the panel unfolds and the search
+  // and its arrangement follow, drawn without holding the tap up.
+  const choosing = useMemo(
+    () => ({ custom, picked: choice.picked, grouped }),
+    [custom, choice.picked, grouped],
+  );
   const asked = useDeferredValue(choosing);
   const picked = useMemo(
     () => (only ? [only] : asked.custom ? asked.picked : NO_IDS),
@@ -486,24 +518,31 @@ export const CatalogSearch: FC<{
   );
   const sourceId = picked.length === 1 ? picked[0]! : '';
   const all = sources.data ?? NO_SOURCES;
-  // Several sources: a row each, loading as they come into view (M46.7).
-  const searched = useMemo(() => {
+  // Several sources: a row each, loading as they come into view (M46.7). The same list while
+  // the same sources search (Custom sources turned on with every source on searches the same),
+  // so the results aren't drawn again for nothing.
+  const searchedIds = useMemo(() => {
     const on = new Set(picked);
     return failingLast(
       picked.length > 0 ? all.filter((source) => on.has(source.id)) : asked.custom ? [] : all,
       failures,
       failingAtEnd,
-    );
+    )
+      .map((source) => source.id)
+      .join('\n');
   }, [picked, all, asked.custom, failures, failingAtEnd]);
-  // By source, the rows that answered with titles lead, then those with none, then failures;
-  // a row still asking keeps its place.
-  const answers = useSourceAnswers(
-    medium,
-    searched.map((source) => source.id),
-    query,
-  );
-  const rows = answeredFirst(searched, (source) => answers(source.id));
-  const relevant = !only && !asked.custom && !grouped;
+  const searched = useMemo(() => {
+    if (!searchedIds) return NO_SOURCES;
+    const byId = new Map(all.map((source) => [source.id, source]));
+    return searchedIds.split('\n').flatMap((id) => byId.get(id) ?? []);
+  }, [searchedIds, all]);
+  // A row's More searches only its source; the rows keep the same handler.
+  const latestOnly = useRef(choice.only);
+  useLayoutEffect(() => {
+    latestOnly.current = choice.only;
+  });
+  const onOnly = useCallback((id: string) => latestOnly.current(id), []);
+  const relevant = !only && !asked.custom && !asked.grouped;
   // Best matches or By source, while more than one source searches.
   const arrange = sourceId === '' && searched.length > 1 && (
     <div
@@ -542,7 +581,7 @@ export const CatalogSearch: FC<{
             {arrange}
           </div>
           <SourceSwitchPanel
-            open={custom}
+            open={asked.custom}
             id={panelId}
             medium={medium}
             sources={all}
@@ -552,26 +591,93 @@ export const CatalogSearch: FC<{
           />
         </div>
       )}
-      {relevant && medium !== 'video' && onLibrary && (
-        <InYourLibrary medium={medium} query={query} onMore={onLibrary} />
-      )}
-      {asked.custom && picked.length === 0 ? (
+      <CatalogResults
+        medium={medium}
+        query={query}
+        searched={searched}
+        sourceId={sourceId}
+        // Video sites' thumbnails are 16:9 (M46.45).
+        landscape={Boolean(all.find((source) => source.id === sourceId)?.searchPill)}
+        grouped={asked.grouped}
+        noneOn={asked.custom && picked.length === 0}
+        popular={!query.trim() && all.length > 0}
+        onOnly={onOnly}
+        onLibrary={relevant && medium !== 'video' ? onLibrary : undefined}
+      />
+    </div>
+  );
+};
+
+/**
+ * What Comics, Books or Videos found, under the pills: drawn again only when what it shows
+ * changes, not as a pill or a source's switch above it answers a tap.
+ */
+const CatalogResultsView: FC<{
+  medium: Medium;
+  query: string;
+  /** The sources searched, in their order. */
+  searched: MangaSource[];
+  /** The one source searched with its filters, or `''`. */
+  sourceId: string;
+  landscape: boolean;
+  /** A row each (By source) rather than one list. */
+  grouped: boolean;
+  /** Custom sources is on with every source off. */
+  noneOn: boolean;
+  /** Nothing typed: the sources' popular titles. */
+  popular: boolean;
+  onOnly: (sourceId: string) => void;
+  /** Where "In your library" leads, when it leads the results. */
+  onLibrary?: () => void;
+}> = ({
+  medium,
+  query,
+  searched,
+  sourceId,
+  landscape,
+  grouped,
+  noneOn,
+  popular,
+  onOnly,
+  onLibrary,
+}) => {
+  const { t } = useTranslation();
+  const rowed = grouped || searched.length === 1;
+  // By source, the rows that answered with titles lead, then those with none, then failures;
+  // a row still asking keeps its place.
+  const answers = useSourceAnswers(
+    medium,
+    rowed ? searched.map((source) => source.id) : NO_IDS,
+    query,
+  );
+  const rows = rowed ? answeredFirst(searched, (source) => answers(source.id)) : NO_SOURCES;
+  // Dozens of rows of covers: the first at once, the rest as each part is on the screen.
+  const drawnRows = useDrawnCount(
+    rows.length,
+    FIRST_SOURCE_ROWS,
+    FIRST_SOURCE_ROWS,
+    `${query.trim()}\n${rowed}`,
+  );
+  return (
+    <>
+      {onLibrary && <InYourLibrary medium={medium} query={query} onMore={onLibrary} />}
+      {noneOn ? (
         <p className="text-muted text-sm">{t('search.customSources.noneOn')}</p>
       ) : sourceId === '' ? (
         <>
-          {!query.trim() && all.length > 0 && (
-            <h2 className="font-semibold">{t('search.popular')}</h2>
-          )}
-          {grouped || searched.length === 1 ? (
-            rows.map((source) => (
-              <LazySourceRow
-                key={`${source.id}:${query.trim()}`}
-                source={source}
-                medium={medium}
-                query={query}
-                onMore={() => choice.only(source.id)}
-              />
-            ))
+          {popular && <h2 className="font-semibold">{t('search.popular')}</h2>}
+          {rowed ? (
+            rows
+              .slice(0, drawnRows)
+              .map((source) => (
+                <LazySourceRow
+                  key={`${source.id}:${query.trim()}`}
+                  source={source}
+                  medium={medium}
+                  query={query}
+                  onMore={onOnly}
+                />
+              ))
           ) : (
             <SearchedResults key={query.trim()} sources={searched} medium={medium} query={query} />
           )}
@@ -582,10 +688,11 @@ export const CatalogSearch: FC<{
           medium={medium}
           sourceId={sourceId}
           query={query}
-          // Video sites' thumbnails are 16:9 (M46.45).
-          landscape={Boolean(all.find((source) => source.id === sourceId)?.searchPill)}
+          landscape={landscape}
         />
       )}
-    </div>
+    </>
   );
 };
+
+const CatalogResults = memo(CatalogResultsView);

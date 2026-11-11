@@ -11,10 +11,14 @@ import type { MenuItem } from '../shell/contextMenuStore';
 import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
 
 import { SourceIssue } from '../shell/SourceIssue';
+import { useDrawnCount } from '../shell/useDrawnCount';
 import { Asking } from './MusicFinds';
 import { NoSources } from './NoSources';
 import { usePlaylistFinds } from './useMusicFinds';
 import { SourceTag } from '../shell/SourceTag';
+
+/** Playlist tiles drawn at first, then as many more at a time (`useDrawnCount`). */
+const FIRST_TILES = 24;
 
 /** A source's playlist as a cover with its name, author, size and source. */
 export const PlaylistTile: FC<{
@@ -63,6 +67,13 @@ export const PlaylistFinds: FC<{ query: string }> = ({ query }) => {
   const [featured, setFeatured] = useState(false);
   const playlists = usePlaylistFinds(query, featured);
   const menu = useSourcePlaylistMenuItems();
+  // Hundreds of covers: the first at once, the rest as each part is on the screen.
+  const drawn = useDrawnCount(
+    playlists.list.length,
+    FIRST_TILES,
+    FIRST_TILES,
+    `${query.trim()}\n${featured}`,
+  );
   const chip = (on: boolean) =>
     `shrink-0 rounded-full px-3 py-1 text-sm ${on ? 'bg-primary/20 text-primary font-semibold' : 'bg-surface'}`;
   return (
@@ -95,7 +106,7 @@ export const PlaylistFinds: FC<{ query: string }> = ({ query }) => {
             data-testid="playlist-finds"
             className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3"
           >
-            {playlists.list.map((playlist) => (
+            {playlists.list.slice(0, drawn).map((playlist) => (
               <li key={`${playlist.provider.id}:${playlist.id}`}>
                 <PlaylistTile playlist={playlist} menu={() => menu(playlist)} />
               </li>

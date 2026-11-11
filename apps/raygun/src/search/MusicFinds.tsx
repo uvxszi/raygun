@@ -1,48 +1,69 @@
-import type { MusicAlbum, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
+import type { MusicAlbum, MusicArtist, OnlineTrack, ProviderSearchResult } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { LoaderCircle, UserRound } from 'lucide-react';
+import { useCallback, useMemo } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Artwork } from '../library/Artwork';
 import { useAlbumMenuItems, useArtistMenuItems } from '../music/cardMenus';
+import { songReveal, useRevealIndex } from '../music/reveal';
 import { CardMenu } from '../shell/CardMenu';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { CARD_MENU_BESIDE } from '../manga/CardPlayButton';
 import { MenuButton } from '../shell/MenuButton';
+import { useDrawnCount } from '../shell/useDrawnCount';
+import { VirtualRows } from '../shell/VirtualRows';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { playResults } from './useOnlineSearch';
 import type { SearchProgressCount } from './useOnlineSearch';
 import { rankSongs, useAlbumFinds, useArtistFinds } from './useMusicFinds';
+import type { RankedSong } from './useMusicFinds';
 import { SourceIssue } from '../shell/SourceIssue';
 import { albumCover, artistCover } from '../library/coverTargets';
 import { SourceTag } from '../shell/SourceTag';
 
+/** Album tiles drawn at first, then as many more at a time (`useDrawnCount`). */
+const FIRST_TILES = 24;
+
+const songName = (entry: RankedSong) => songReveal(entry.track.title, entry.track.artist);
+const songRowKey = (entry: RankedSong) => `${entry.track.artist ?? ''}\n${entry.track.title}`;
+
 /**
  * Every source's songs in one list (M46.9): the songs several sources agree on first, then the
- * best answers to the query, each once, with the source it came from.
+ * best answers to the query, each once, with the source it came from. A long list draws only the
+ * rows near the screen (`VirtualRows`), the playing song's ("Playing from") brought onto it.
  */
 export const BestSongs: FC<{
   query: string;
   top: OnlineTrack[];
   results: ProviderSearchResult[];
 }> = ({ query, top, results }) => {
-  const entries = rankSongs(query, top, results);
-  const tracks = entries.map((entry) => entry.track);
+  const entries = useMemo(() => rankSongs(query, top, results), [query, top, results]);
+  const tracks = useMemo(() => entries.map((entry) => entry.track), [entries]);
+  const play = useCallback((tapped: OnlineTrack) => void playResults(tracks, tapped), [tracks]);
+  const revealAt = useRevealIndex(entries, songName);
   return (
-    <ul data-testid="best-songs" className="flex flex-col">
-      {entries.map((entry, index) => (
-        <li key={`${entry.track.title}-${index}`}>
+    <VirtualRows
+      data-testid="best-songs"
+      className="flex flex-col"
+      items={entries}
+      keyOf={songRowKey}
+      // A row naming its source: two lines and the source's tag.
+      rowRem={4.5}
+      showIndex={revealAt}
+      renderRow={(entry, _index, row) => (
+        <li {...row}>
           <OnlineTrackRow
             track={entry.track}
             source={entry.source}
             sourceAdult={entry.sourceAdult}
             sourceListed={entry.fromListings}
-            onPlay={(tapped) => void playResults(tracks, tapped)}
+            onPlay={play}
           />
         </li>
-      ))}
-    </ul>
+      )}
+    />
   );
 };
 
@@ -58,6 +79,8 @@ export const Asking: FC<{ progress?: SearchProgressCount }> = ({ progress }) => 
     </p>
   );
 };
+
+const artistKey = (artist: MusicArtist) => `${artist.provider.id}:${artist.id}`;
 
 /** Artists named like the query, from sources that search artists (M46.9). */
 export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
@@ -77,9 +100,15 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
   }
   return (
     <div className="flex flex-col gap-2">
-      <ul data-testid="artist-finds" className="flex flex-col">
-        {list.map((artist) => (
-          <li key={`${artist.provider.id}:${artist.id}`} className="flex items-center">
+      {/* A long list draws only the rows near the screen. */}
+      <VirtualRows
+        data-testid="artist-finds"
+        className="flex flex-col"
+        items={list}
+        keyOf={artistKey}
+        rowRem={4}
+        renderRow={(artist, _index, row) => (
+          <li {...row} className="flex items-center">
             <Link
               to="/artist"
               search={{ name: artist.name }}
@@ -110,8 +139,8 @@ export const ArtistFinds: FC<{ query: string }> = ({ query }) => {
               items={() => menu({ name: artist.name, imageUrl: artist.imageUrl })}
             />
           </li>
-        ))}
-      </ul>
+        )}
+      />
       {artists.progress && <Asking progress={artists.progress} />}
     </div>
   );
@@ -123,6 +152,8 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
   const albums = useAlbumFinds(query);
   const menu = useAlbumMenuItems();
   const list = albums.list;
+  // Hundreds of covers: the first at once, the rest as each part is on the screen.
+  const drawn = useDrawnCount(list.length, FIRST_TILES, FIRST_TILES, query.trim());
   if (albums.error) {
     return <SourceIssue>{albums.error.message}</SourceIssue>;
   }
@@ -139,7 +170,7 @@ export const AlbumFinds: FC<{ query: string }> = ({ query }) => {
         data-testid="album-finds"
         className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3"
       >
-        {list.map((album) => (
+        {list.slice(0, drawn).map((album) => (
           <li key={`${album.provider.id}:${album.id}`}>
             <AlbumTile album={album} menu={() => menu(album)} />
           </li>
