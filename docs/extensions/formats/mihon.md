@@ -123,7 +123,21 @@ What else the converter reads as Kotlin does:
   `MangaResponse.Props.Chapter`), through import aliases, bare enum entries, `X::class.java`;
 - sequences that may not end (`generateSequence(seed) { … }.drop(1).iterator()`), worked out as
   they're read;
-- `++`/`--` on properties and indexes, lambdas as `when` branches.
+- `++`/`--` on properties and indexes, lambdas as `when` branches;
+- numbers: `and`/`or`/`xor`/`shl`/`shr`/`ushr`/`inv` on 32 bits for values that fit an Int and on
+  64 for Longs (`(1664525L * state + 1013904223L) and 0xFFFFFFFFL`), a Long's `toInt()` keeping
+  its low 32 bits; Kotlin's `Duration` (`5.minutes.inWholeMilliseconds`, arithmetic,
+  `toString()`), `TimeMark`s, Java's `TimeUnit` conversions and `java.util.Random(seed)` with
+  Java's own generator;
+- parents and entries: named arguments to a parent's constructor (`: UriSortFilter(name = …)`,
+  `Filter.Select(name = …, values = …)`), enum entries with named arguments and defaults, a parent
+  written `Filter.Group` staying Mihon's when the source has a DTO named `Group`, a nested class
+  never taking a top-level one's short name; each class's own `@SerialName`s (another class's for a
+  property of the same name don't apply);
+- implicit receivers: the source's extension properties on the receiver of their type (never an
+  extension function of the same name), JSON values' properties (`contentOrNull`, `jsonArray`),
+  the source's functions on a value that's the source (`source.toImage(url)`), constants imported
+  by name (`import kotlin.text.RegexOption.IGNORE_CASE`).
 
 Only what Raygun calls has to convert: the functions above and whatever they reach by name.
 Unreached code that can't be converted becomes a stub that fails with its reason if it's ever
@@ -294,28 +308,37 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 128 | 134 |
-| No theme | 793 | 858 |
-| All | 1506 (95.5%) | 1577 |
+| No theme | 798 | 858 |
+| All | 1511 (95.8%) | 1577 |
 
-The 71 refusals left are one or two extensions each, most of them on what has no stand-in:
+The 66 refusals left are one or two extensions each, most of them on what has no stand-in:
 Android's text layout and PDF rendering (`StaticLayout`, `PdfRenderer`), Java's key pairs
 (`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
 `zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
-own callbacks (`WebResourceResponse`, `CountDownLatch` around one), BLAKE2b and zstd.
+own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
+and zstd; a few on Kotlin the converter doesn't read yet (`sequence { yieldAll(…) }`, labelled
+`run label@{ … }`, `typealias`, java.time's `YearMonth`/`LocalTime`/`WeekFields`).
 
-`mihon_popular_live` with a sample of 200 converted sources (2026-11-10) follows each listing
-through a title's details, its chapters and a chapter's pages: 141 of the 200 list their
-popular titles, and of those 94% give details, 93% chapters and 79% pages (106 pictures load).
-Of the 59 that don't list, 21 meet a browser check, 9 refuse access (Japanese stores outside
-Japan, mostly), 9 are slow past 30 s, 8 are down or gone (5xx, DNS, refused connections), 4 list
-nothing and 2 want a sign-in; a handful stop on the runtime. Past the listing, pages fail on
-purchases and sign-ins and sites that changed. Two gaps found there are closed since: Raygun's
-image fetcher judges an answer not declared as a picture by its bytes (Keyoapp's CDN sends pages
-as `text/plain`), and MangaHub's key refresh runs (GraphQL errors beside data fail
-`parseGraphQLAs`; `followRedirects(false)` is honoured). Sampled alone afterwards, 23 of the 25
-Keyoapp and MangaHub sources sampled list (the sample leaves out Keyoapp's 2 adult ones; 2 others
-meet a browser check), and all 23 give details, chapters, pages and a first picture (two Keyoapp
-sites send AVIF, which webviews show and the live check's decoder doesn't read).
+`mihon_popular_live` with a sample of 300 converted sources (2026-11-11) follows each listing
+through a title's details, its chapters and a chapter's pages: 234 of the 300 list their
+popular titles, and of those 95% give details, 92% chapters and 86% pages (191 first pictures
+load). Of the 66 that don't list, 25 meet a browser check, 13 refuse access (Japanese and Korean
+stores outside their countries, mostly), 7 are slow past 30 s, 7 are down or gone (5xx, DNS,
+refused connections), 6 list nothing, 5 want a sign-in or a setting, and 3 stop on the source
+itself. Past the listing, pages fail on purchases and sign-ins (locked chapters, `div.lock-card`,
+"must be purchased"), sites that changed (ZeistManga blogs that now load or encrypt a chapter
+by script, a PostgREST schema that answers 300), titles a language's source has no chapters for,
+novels on sites that also have comics, and the host's 8 MB answer limit (a 3800-chapter title).
+
+Gaps the live samples showed and that are closed since: pictures sent as `text/plain` (Keyoapp's
+CDN), MangaHub's key refresh (GraphQL errors beside data, `followRedirects(false)`), Kotlin's
+durations (`5.minutes.inWholeMilliseconds` read null, so MangaDex asked for a new at-home server
+per page until rate-limited) and `intl.collator`, 64-bit bit operations (Jump Toon's LCG), named
+parent constructor arguments (Asura Scans' filters), a DTO named like a Mihon filter (Kagane), each
+class's own `@SerialName`s (Comick), nested classes beside top-level ones (ReiManga), compressed
+answers a source asked for (Questionable Content), `Int::toString` (K Manga), MangaThemesia's JSON
+image lists (`destructured.toList()`), and extension functions read as properties (the natsuid
+theme).
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture
