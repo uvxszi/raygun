@@ -16,6 +16,8 @@ import {
   ListOrdered,
   LoaderCircle,
   Minus,
+  Pause,
+  Play,
   Plus,
   RotateCcw,
   SkipBack,
@@ -136,10 +138,39 @@ const Parts: FC<{ parts: TextPart[] }> = ({ parts }) => (
   </>
 );
 
+/** A language's name in the app's language (`de` → German), or nothing. */
+const languageName = (tag: string | null, locale: string) => {
+  if (!tag) return '';
+  try {
+    return new Intl.DisplayNames([locale], { type: 'language' }).of(tag) ?? tag;
+  } catch {
+    return tag;
+  }
+};
+
+/** The sentence being read aloud: UTF-16 offsets into its paragraph's text. */
+type SpokenRange = { start: number; end: number };
+
+/** A plain paragraph's text with the sentence being read aloud marked. */
+const SpokenText: FC<{ text: string; sentence?: SpokenRange }> = ({ text, sentence }) => {
+  if (!sentence || sentence.end <= sentence.start || sentence.end > text.length) return text;
+  return (
+    <>
+      {text.slice(0, sentence.start)}
+      <mark data-testid="spoken-sentence" className="bg-primary/25 rounded-sm text-current">
+        {text.slice(sentence.start, sentence.end)}
+      </mark>
+      {text.slice(sentence.end)}
+    </>
+  );
+};
+
 const Block: FC<{
   block: TextBlock;
   index: number;
   active: boolean;
+  /** The sentence of the active paragraph being read aloud. */
+  sentence?: SpokenRange;
   /** How far paragraphs start their first line in (M46.10), in tenths of an em; 0 = none. */
   indent: number;
   /** Lines run to both edges, words hyphenated. */
@@ -147,7 +178,7 @@ const Block: FC<{
   register: (index: number, element: HTMLElement | null) => void;
   /** The block's text as the AI layers translated it. */
   translated?: string;
-}> = ({ block, index, active, indent, justify, register, translated }) => {
+}> = ({ block, index, active, sentence, indent, justify, register, translated }) => {
   const ref = (element: HTMLElement | null) => register(index, element);
   // The paragraph being read aloud.
   const highlight = active ? 'bg-primary/15 -mx-1 rounded px-1' : '';
@@ -160,7 +191,7 @@ const Block: FC<{
           aria-current={active || undefined}
           className={`mt-[1.2em] mb-[0.8em] text-[1.3em] font-bold ${highlight}`}
         >
-          {translated ?? block.text}
+          {translated ?? <SpokenText text={block.text} sentence={active ? sentence : undefined} />}
         </h2>
       );
     case 'separator':
@@ -199,7 +230,12 @@ const Block: FC<{
           }}
           className={`mb-[0.9em] ${highlight}`}
         >
-          {translated ?? (block.parts ? <Parts parts={block.parts} /> : block.text)}
+          {translated ??
+            (block.parts ? (
+              <Parts parts={block.parts} />
+            ) : (
+              <SpokenText text={block.text} sentence={active ? sentence : undefined} />
+            ))}
         </p>
       );
   }
@@ -366,6 +402,8 @@ const ChapterView: FC<{
   onBlock: (index: number) => void;
   /** The block being read aloud. */
   speaking: number | null;
+  /** The sentence of that block being read aloud. */
+  sentence?: SpokenRange;
   /** Reads aloud from a block (a long press, or a tap while reading). */
   onSpeakFrom?: (index: number) => void;
   /** Blocks' texts as the AI layers translated them, by index. */
@@ -385,6 +423,7 @@ const ChapterView: FC<{
   onProgress,
   onBlock,
   speaking,
+  sentence,
   onSpeakFrom,
   translated,
   pageStarts,
@@ -927,6 +966,7 @@ const ChapterView: FC<{
       block={block}
       index={index}
       active={index === speaking}
+      sentence={index === speaking ? sentence : undefined}
       indent={prefs.indent ?? 0}
       justify={prefs.justify ?? false}
       register={register}
@@ -990,7 +1030,7 @@ const ChapterView: FC<{
 
 /** The novel reader: one chapter's text, scrolled or paged, with typography the reader sets. */
 export const NovelReaderPage: FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { title, chapter, page: askedPage } = useSearch({ from: '/novel/read' });
   const navigate = useNavigate({ from: '/novel/read' });
   const router = useRouter();
@@ -1065,7 +1105,10 @@ export const NovelReaderPage: FC = () => {
     staleTime: Infinity,
   });
   const [reading, setReading] = useState(false);
+  /** Reading aloud paused on a sentence; Resume goes on from it. */
+  const [paused, setPaused] = useState(false);
   const [speaking, setSpeaking] = useState<number | null>(null);
+  const [sentence, setSentence] = useState<SpokenRange | undefined>(undefined);
   const position = useRef(0);
   // The AI layers' translation, from where the chapter was left.
   const resumeBlock = useMemo(
@@ -1082,31 +1125,55 @@ export const NovelReaderPage: FC = () => {
   const rateRef = useRef(rate);
   /** Set when a chapter ended aloud: the next one starts reading once it loads. */
   const continueAloud = useRef(false);
+  /** Why another voice reads than the one set, said once per start. */
+  const noticeShown = useRef(false);
   useEffect(() => {
     dataRef.current = data;
     rateRef.current = rate;
   });
 
-  const speakFrom = useCallback((chapter: NovelChapter, first: number) => {
-    const paragraphs = speechParagraphs(chapter.blocks, first);
-    if (paragraphs.length === 0) return;
-    void unwrapResult(commands.ttsSpeak(paragraphs, rateRef.current / 10)).catch(
-      (error: unknown) => {
-        readingRef.current = false;
-        setReading(false);
-        setSpeaking(null);
-        setSpeechNotice(error instanceof Error ? error.message : String(error));
-      },
-    );
+  /**
+   * Reads `chapter` aloud from block `first`. With `resume`, where the chapter was left aloud
+   * goes first when it's around there (Rust keeps it, to the sentence and word).
+   */
+  const speakFrom = useCallback((chapter: NovelChapter, first: number, resume: boolean) => {
+    const paragraphs = speechParagraphs(chapter.blocks, 0);
+    if (!paragraphs.some((paragraph) => paragraph.id >= first)) return;
+    noticeShown.current = false;
+    setPaused(false);
+    void unwrapResult(
+      commands.ttsSpeak({
+        chapterId: chapter.chapter.id,
+        title: chapter.title,
+        chapter: chapter.chapter.name,
+        paragraphs,
+        from: first,
+        resume,
+        rate: rateRef.current / 10,
+      }),
+    ).catch((error: unknown) => {
+      readingRef.current = false;
+      setReading(false);
+      setSpeaking(null);
+      setSentence(undefined);
+      setSpeechNotice(error instanceof Error ? error.message : String(error));
+    });
   }, []);
 
-  const stopReading = useCallback(() => {
+  /** Reading aloud's state on screen goes; Rust's session is left as it is. */
+  const readingEnded = useCallback(() => {
     readingRef.current = false;
     continueAloud.current = false;
     setReading(false);
+    setPaused(false);
     setSpeaking(null);
-    void commands.ttsStop();
+    setSentence(undefined);
   }, []);
+
+  const stopReading = useCallback(() => {
+    readingEnded();
+    void commands.ttsStop();
+  }, [readingEnded]);
 
   const toggleReading = () => {
     if (!data) return;
@@ -1116,10 +1183,16 @@ export const NovelReaderPage: FC = () => {
     }
     readingRef.current = true;
     setReading(true);
-    speakFrom(data, position.current);
+    speakFrom(data, position.current, true);
   };
 
-  /** Reads aloud from a block: a chosen paragraph, or a step back or forward. */
+  /** Pauses on the sentence being read, or goes on from it. */
+  const togglePause = () => {
+    setPaused(!paused);
+    void (paused ? commands.ttsResume() : commands.ttsPause());
+  };
+
+  /** Reads aloud from a chosen block. */
   const readFrom = useCallback(
     (index: number) => {
       const chapter = dataRef.current;
@@ -1128,68 +1201,88 @@ export const NovelReaderPage: FC = () => {
       continueAloud.current = false;
       setReading(true);
       setSpeaking(index);
+      setSentence(undefined);
       position.current = index;
-      speakFrom(chapter, index);
+      speakFrom(chapter, index, false);
     },
     [speakFrom],
   );
 
-  /** The paragraph `step` places from the one being read (or the one on screen). */
+  /** Reads from the paragraph `step` places from the one being read (0: its start again). */
   const stepTo = (step: number) => {
-    if (!data) return;
-    const ids = speechParagraphs(data.blocks, 0).map((paragraph) => paragraph.id);
-    const current = speaking ?? position.current;
-    const at = Math.max(
-      ids.findIndex((id) => id >= current),
-      0,
-    );
-    const target = ids[Math.min(Math.max(at + step, 0), ids.length - 1)];
-    if (target !== undefined) readFrom(target);
+    setPaused(false);
+    void commands.ttsStep(step);
   };
 
   useEffect(() => {
     const unlisten = events.ttsEvent.listen(({ payload }) => {
       // Late reports of the chapter left while the next one loads are about nothing on screen.
       if (!readingRef.current || continueAloud.current) return;
-      if (payload.state === 'speaking') {
-        setSpeaking(payload.paragraph);
-        position.current = payload.paragraph;
-      } else if (payload.state === 'ended') {
-        const next = dataRef.current?.nextChapterId;
-        if (next) {
-          continueAloud.current = true;
-          setSpeaking(null);
-          void navigate({ search: { title, chapter: next }, replace: true });
-        } else {
-          stopReading();
+      if (payload.chapterId !== dataRef.current?.chapter.id) return;
+      const notice = payload.notice;
+      if (notice && !noticeShown.current && notice.kind !== 'engineFailed') {
+        noticeShown.current = true;
+        setSpeechNotice(
+          notice.kind !== 'noVoice'
+            ? t('novel.voiceFailed')
+            : notice.language
+              ? t('novel.noDownloadedVoice', {
+                  language: languageName(notice.language, i18n.language),
+                })
+              : t('novel.noVoiceDownloaded'),
+        );
+      }
+      switch (payload.state) {
+        case 'speaking':
+        case 'paused':
+          setPaused(payload.state === 'paused');
+          setSpeaking(payload.paragraph);
+          setSentence({ start: payload.start, end: payload.end });
+          position.current = payload.paragraph;
+          break;
+        case 'ended': {
+          const next = dataRef.current?.nextChapterId;
+          if (next) {
+            continueAloud.current = true;
+            setSpeaking(null);
+            setSentence(undefined);
+            void navigate({ search: { title, chapter: next }, replace: true });
+          } else {
+            readingEnded();
+          }
+          break;
         }
-      } else {
-        // The voice engine gave up (no voice for the language, or it was taken away).
-        stopReading();
-        setSpeechNotice(t('novel.readAloudStopped'));
+        case 'stopped':
+          // The notification or a headset stopped it.
+          readingEnded();
+          break;
+        default:
+          // The voice engine gave up (no voice for the language, or it was taken away).
+          readingEnded();
+          setSpeechNotice(t('novel.readAloudStopped'));
       }
     });
     return () => {
       void unlisten.then((stop) => stop());
     };
-  }, [navigate, stopReading, title, t]);
+  }, [navigate, readingEnded, title, t, i18n.language]);
 
   // The next chapter keeps reading aloud from its start.
   useEffect(() => {
     if (data && continueAloud.current && readingRef.current) {
       continueAloud.current = false;
       position.current = 0;
-      speakFrom(data, 0);
+      speakFrom(data, 0, false);
     }
   }, [data, speakFrom]);
 
-  // A new speed applies from the paragraph being read.
+  // A new speed applies from the sentence being read.
   useEffect(() => {
     const chapter = dataRef.current;
-    if (readingRef.current && chapter) speakFrom(chapter, position.current);
+    if (readingRef.current && chapter) speakFrom(chapter, position.current, true);
   }, [rate, speakFrom]);
 
-  // Leaving the reader stops speech.
+  // Leaving the reader stops speech (the place is kept for next time).
   useEffect(
     () => () => {
       if (readingRef.current) void commands.ttsStop();
@@ -1212,6 +1305,8 @@ export const NovelReaderPage: FC = () => {
     if (readingRef.current && chapterId !== dataRef.current?.chapter.id) {
       continueAloud.current = true;
       setSpeaking(null);
+      setSentence(undefined);
+      setPaused(false);
       void commands.ttsStop();
     }
     void navigate({ search: { title, chapter: chapterId }, replace: true });
@@ -1349,6 +1444,7 @@ export const NovelReaderPage: FC = () => {
           onProgress={onProgress}
           onBlock={onBlock}
           speaking={speaking}
+          sentence={sentence}
           onSpeakFrom={speechAvailable.data ? readFrom : undefined}
           translated={novelAi.texts}
         />
@@ -1378,11 +1474,12 @@ export const NovelReaderPage: FC = () => {
               </button>
               <button
                 type="button"
-                aria-label={t('novel.replayParagraph')}
-                onClick={() => stepTo(0)}
-                className="grid size-10 place-items-center rounded-full"
+                aria-label={t(paused ? 'novel.resumeReading' : 'novel.pauseReading')}
+                aria-pressed={paused}
+                onClick={togglePause}
+                className="bg-primary text-background grid size-11 place-items-center rounded-full"
               >
-                <RotateCcw aria-hidden size={18} />
+                {paused ? <Play aria-hidden size={18} /> : <Pause aria-hidden size={18} />}
               </button>
               <button
                 type="button"
@@ -1391,6 +1488,14 @@ export const NovelReaderPage: FC = () => {
                 className="grid size-10 place-items-center rounded-full"
               >
                 <SkipForward aria-hidden size={18} />
+              </button>
+              <button
+                type="button"
+                aria-label={t('novel.replayParagraph')}
+                onClick={() => stepTo(0)}
+                className="grid size-10 place-items-center rounded-full"
+              >
+                <RotateCcw aria-hidden size={18} />
               </button>
               <button
                 type="button"
@@ -1405,17 +1510,9 @@ export const NovelReaderPage: FC = () => {
               >
                 {(rate / 10).toFixed(1)}×
               </button>
-              <button
-                type="button"
-                aria-label={t('novel.stopReading')}
-                onClick={stopReading}
-                className="bg-primary text-background grid size-10 place-items-center rounded-full"
-              >
-                <Square aria-hidden size={16} />
-              </button>
             </div>
           )}
-          {speechNotice && !reading && (
+          {speechNotice && (
             <p
               role="status"
               className="bg-surface/95 text-foreground pointer-events-auto w-fit max-w-[90vw] rounded-full px-4 py-2 text-sm shadow-lg"

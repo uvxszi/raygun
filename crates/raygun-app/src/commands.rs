@@ -3877,16 +3877,62 @@ pub async fn tts_available(app: tauri::AppHandle) -> Result<bool, String> {
     Ok(crate::tts::available(&app).await)
 }
 
-/// Reads the paragraphs aloud in order, replacing anything being read; `rate` 1 is normal.
-/// Progress arrives as `TtsEvent`s.
+/// Reads a chapter aloud sentence by sentence, replacing anything being read. Progress arrives
+/// as `TtsEvent`s.
 #[tauri::command]
 #[specta::specta]
 pub async fn tts_speak(
     app: tauri::AppHandle,
-    paragraphs: Vec<raygun_model::TtsParagraph>,
-    rate: f64,
+    request: raygun_model::TtsRequest,
 ) -> Result<(), String> {
-    crate::tts::speak(&app, paragraphs, rate).await
+    crate::tts::speak(&app, request).await
+}
+
+/// Pauses reading aloud on the sentence (and word) being read.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_pause(app: tauri::AppHandle) -> Result<(), String> {
+    crate::tts::pause(&app).await
+}
+
+/// Goes on reading from where it paused.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_resume(app: tauri::AppHandle) -> Result<(), String> {
+    crate::tts::resume(&app).await
+}
+
+/// Reads from the paragraph `step` places from the one being read (0: its start again).
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_step(app: tauri::AppHandle, step: i32) -> Result<(), String> {
+    crate::tts::step(&app, step).await
+}
+
+/// Where reading aloud is now, when it is.
+#[tauri::command]
+#[specta::specta]
+pub fn tts_now(app: tauri::AppHandle) -> Option<raygun_model::TtsUpdate> {
+    crate::tts::now(&app)
+}
+
+/// The voices this device can download to read aloud with.
+#[tauri::command]
+#[specta::specta]
+pub fn tts_voices() -> raygun_model::TtsVoices {
+    crate::tts::voice_list()
+}
+
+/// Reads a sample sentence with a downloaded voice (`key`, `<model>/<voice>`) or, without one,
+/// the device's own voice in `language`, at the reading speed and pitch.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_preview(
+    app: tauri::AppHandle,
+    key: Option<String>,
+    language: Option<String>,
+) -> Result<(), String> {
+    crate::tts::preview(&app, key, language).await
 }
 
 /// A report from the webview's speech engine (desktop, M46.6), in the Android engine's JSON.

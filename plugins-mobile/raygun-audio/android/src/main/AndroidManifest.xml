@@ -89,6 +89,12 @@
             android:name="app.raygun.audio.RaygunDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- Reading a book aloud: its notification and media controls, kept running with the
+             screen off. -->
+        <service
+            android:name="app.raygun.audio.ReadAloudService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
         <!-- Play on TV: Raygun keeps serving the stream while a TV plays it. -->
         <service
             android:name="app.raygun.audio.CastKeepAliveService"

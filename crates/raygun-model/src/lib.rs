@@ -226,6 +226,8 @@ pub struct Settings {
     pub discovery: DiscoveryPrefs,
     /// Captions for podcasts and audiobooks heard by AI (M46.32).
     pub transcription: TranscriptionPrefs,
+    /// How books are read aloud: the device's voices or downloaded ones, and their pitch.
+    pub read_aloud: ReadAloudPrefs,
     /// What's remembered of listening (M46.41).
     pub privacy: PrivacyPrefs,
     /// Which news posts a notification (releases, library updates, Raygun's own update).
@@ -3080,6 +3082,7 @@ impl Default for Settings {
             fonts: FontPrefs::default(),
             discovery: DiscoveryPrefs::default(),
             transcription: TranscriptionPrefs::default(),
+            read_aloud: ReadAloudPrefs::default(),
             privacy: PrivacyPrefs::default(),
             notifications: NotificationPrefs::default(),
             hidden: HiddenPrefs::default(),
@@ -3189,6 +3192,7 @@ impl Settings {
                     ..prefs
                 }
             }
+            SettingChange::ReadAloud(prefs) => self.read_aloud = prefs,
             SettingChange::Transcription(prefs) => {
                 self.transcription = TranscriptionPrefs {
                     online_model: prefs.online_model.trim().to_owned(),
@@ -3278,6 +3282,7 @@ pub enum SettingChange {
     Network(NetworkPrefs),
     Rail(RailPrefs),
     Transcription(TranscriptionPrefs),
+    ReadAloud(ReadAloudPrefs),
     Privacy(PrivacyPrefs),
     Notifications(NotificationPrefs),
     Hidden(HiddenPrefs),
@@ -3353,6 +3358,7 @@ impl SettingChange {
             Self::Network(_) => "network",
             Self::Rail(_) => "rail",
             Self::Transcription(_) => "transcription",
+            Self::ReadAloud(_) => "readAloud",
             Self::Privacy(_) => "privacy",
             Self::Notifications(_) => "notifications",
             Self::Hidden(_) => "hidden",
@@ -3423,6 +3429,7 @@ impl SettingChange {
             Self::SearchListings(prefs) => prefs.validate(),
             Self::ContentOverrides(overrides) => overrides.validate(),
             Self::Rail(prefs) => prefs.validate(),
+            Self::ReadAloud(prefs) => prefs.validate(),
             Self::Transcription(prefs) => {
                 if prefs.online_model.trim().len() > 200 {
                     Err("a model name is at most 200 characters".to_owned())
@@ -7811,24 +7818,65 @@ pub struct TtsParagraph {
     pub text: String,
 }
 
+/// What reading aloud is asked to read (`tts_speak`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsRequest {
+    /// The chapter read: reports name it, and where reading stopped is kept for it.
+    pub chapter_id: String,
+    /// The book's and the chapter's names, for the notification.
+    pub title: String,
+    pub chapter: String,
+    /// The chapter's paragraphs, as speech gets them.
+    pub paragraphs: Vec<TtsParagraph>,
+    /// The paragraph reading starts from.
+    pub from: u32,
+    /// Started by the Read aloud button: where this chapter was left aloud, when it's around
+    /// `from`, goes on from its sentence (and word) instead.
+    pub resume: bool,
+    /// Speed, 1 = normal.
+    pub rate: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum TtsState {
-    /// Reading the paragraph.
+    /// Reading the sentence.
     Speaking,
-    /// Finished everything that was queued.
+    /// Paused on the sentence; Resume goes on from it.
+    Paused,
+    /// Finished the chapter.
     Ended,
+    /// Stopped (from the reader, the notification or a headset).
+    Stopped,
     Error,
+}
+
+/// Why reading aloud uses another voice than the one set, or stopped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TtsNotice {
+    /// No downloaded voice speaks the book's language: the device's own voice reads it.
+    NoVoice { language: Option<String> },
+    /// The downloaded voice couldn't be used: the device's own voice reads it.
+    VoiceFailed,
+    /// The voice engine stopped (no voice for the language, or it was taken away).
+    EngineFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TtsUpdate {
     pub state: TtsState,
+    pub chapter_id: String,
     pub paragraph: u32,
+    /// The sentence being read, as UTF-16 offsets into the paragraph's text.
+    pub start: u32,
+    pub end: u32,
+    pub notice: Option<TtsNotice>,
 }
 
-/// One piece for a speech engine: `id` is the paragraph's, with `:end` on the very last piece.
+/// One piece for a speech engine: `id` names it in reports (`:end` on the very last one).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct SpeechLine {
     pub id: String,
@@ -7839,12 +7887,114 @@ pub struct SpeechLine {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SpeechCommand {
-    /// Speaks `items` in order at `rate` (1 is normal), after stopping anything playing.
+    /// Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal),
+    /// in `language` when it has a voice for it, after stopping anything playing.
     Speak {
         items: Vec<SpeechLine>,
         rate: f64,
+        pitch: f64,
+        language: Option<String>,
     },
+    /// Plays speech a downloaded voice made after the clips before it: 16-bit mono PCM as
+    /// base64. `id` comes back in reports as it starts.
+    Clip {
+        id: String,
+        #[serde(rename = "sampleRate")]
+        sample_rate: u32,
+        pcm: String,
+        last: bool,
+    },
+    /// Holds the clips where they are, and goes on.
+    Pause,
+    Resume,
     Stop,
+}
+
+/// What reads books aloud (Settings → AI → Reading aloud).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ReadAloudEngine {
+    /// The device's own text-to-speech voices.
+    #[default]
+    System,
+    /// Piper's voices, downloaded to this device.
+    Piper,
+    /// Kokoro's voices, downloaded to this device.
+    Kokoro,
+}
+
+impl ReadAloudEngine {
+    /// The catalogue's engine name of its voice models.
+    pub fn model_engine(self) -> Option<&'static str> {
+        match self {
+            Self::System => None,
+            Self::Piper => Some("piper"),
+            Self::Kokoro => Some("kokoro"),
+        }
+    }
+}
+
+/// How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReadAloudPrefs {
+    pub engine: ReadAloudEngine,
+    /// The voice each language is read with (`<model id>/<voice id>`), by primary language
+    /// tag (`en`, `de`).
+    pub voices: std::collections::BTreeMap<String, String>,
+    /// Pitch in tenths, 5–20 (0.5–2).
+    pub pitch: u32,
+}
+
+impl Default for ReadAloudPrefs {
+    fn default() -> Self {
+        Self {
+            engine: ReadAloudEngine::System,
+            voices: std::collections::BTreeMap::new(),
+            pitch: 10,
+        }
+    }
+}
+
+impl ReadAloudPrefs {
+    pub fn validate(&self) -> Result<(), String> {
+        if !(5..=20).contains(&self.pitch) {
+            return Err("pitch is between 5 and 20 tenths".to_owned());
+        }
+        if self.voices.len() > 200
+            || self
+                .voices
+                .iter()
+                .any(|(language, voice)| language.len() > 16 || voice.len() > 200)
+        {
+            return Err("too many or too long voice choices".to_owned());
+        }
+        Ok(())
+    }
+}
+
+/// A downloaded-voice model's voice, as Settings lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsVoice {
+    /// `<model id>/<voice id>`.
+    pub key: String,
+    pub model_id: String,
+    pub engine: ReadAloudEngine,
+    pub name: String,
+    /// BCP 47 (`en-US`, `de`).
+    pub language: String,
+    pub gender: Option<String>,
+}
+
+/// The voices this device can download and use.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsVoices {
+    /// The voice engine's model for this device (downloaded with the first voice); none where
+    /// downloaded voices don't run.
+    pub runtime_id: Option<String>,
+    pub voices: Vec<TtsVoice>,
 }
 
 // ---- AI: translators and models (M34) ----

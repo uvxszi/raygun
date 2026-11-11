@@ -1,7 +1,8 @@
 import type { AiModel } from '@raygun/bindings';
 
 /** What an on-device model is for: the part of Settings → AI it serves. */
-export type ModelUse = 'translation' | 'transcription' | 'textReading' | 'comicReader' | 'unused';
+export type ModelUse =
+  'translation' | 'transcription' | 'textReading' | 'readAloud' | 'comicReader' | 'unused';
 
 export const modelUse = (model: AiModel): ModelUse => {
   switch (model.kind) {
@@ -11,6 +12,10 @@ export const modelUse = (model: AiModel): ModelUse => {
       return 'transcription';
     case 'ocr':
       return 'textReading';
+    // Voices, and the engine that runs them (M46.x: reading aloud).
+    case 'tts':
+    case 'runtime':
+      return 'readAloud';
     case 'upscale':
     case 'restore':
       // The comic reader runs Anime4K's on the graphics card; ncnn's have no runner yet.
@@ -22,13 +27,20 @@ export const modelUse = (model: AiModel): ModelUse => {
 
 /** On-device models' pills: every model, those for one use, or the downloaded ones. */
 export type ModelFilter =
-  'all' | 'translation' | 'transcription' | 'textReading' | 'upscaling' | 'downloaded';
+  | 'all'
+  | 'translation'
+  | 'transcription'
+  | 'textReading'
+  | 'readAloud'
+  | 'upscaling'
+  | 'downloaded';
 
 export const MODEL_FILTERS: ModelFilter[] = [
   'all',
   'translation',
   'transcription',
   'textReading',
+  'readAloud',
   'upscaling',
   'downloaded',
 ];

@@ -280,6 +280,7 @@ export const DEFAULT_SETTINGS: Settings = {
     onlineModel: 'whisper-1',
     onlineConfirmed: false,
   },
+  readAloud: { engine: 'system', voices: {}, pitch: 10 },
   sound: {
     eqEnabled: false,
     eqPreset: 'flat',
@@ -668,6 +669,12 @@ export const bindingsMock = {
     dictionaryOpenPage: vi.fn(),
     ttsAvailable: vi.fn(),
     ttsSpeak: vi.fn(),
+    ttsPause: vi.fn(),
+    ttsResume: vi.fn(),
+    ttsStep: vi.fn(),
+    ttsNow: vi.fn(),
+    ttsVoices: vi.fn(),
+    ttsPreview: vi.fn(),
     ttsStop: vi.fn(),
     aiProviders: vi.fn(),
     aiProviderSave: vi.fn(),
@@ -1533,6 +1540,12 @@ export const seedBindings = () => {
   commands.novelImportEpub.mockResolvedValue(ok({ sourceId: 'local.epub', novelId: 'abc' }));
   commands.ttsAvailable.mockResolvedValue(ok(false));
   commands.ttsSpeak.mockResolvedValue(ok(null));
+  commands.ttsPause.mockResolvedValue(ok(null));
+  commands.ttsResume.mockResolvedValue(ok(null));
+  commands.ttsStep.mockResolvedValue(ok(null));
+  commands.ttsNow.mockResolvedValue(null);
+  commands.ttsVoices.mockResolvedValue({ runtimeId: null, voices: [] });
+  commands.ttsPreview.mockResolvedValue(ok(null));
   commands.ttsStop.mockResolvedValue(ok(null));
   commands.aiProviders.mockResolvedValue(ok([]));
   commands.aiProviderSave.mockResolvedValue(ok(null));

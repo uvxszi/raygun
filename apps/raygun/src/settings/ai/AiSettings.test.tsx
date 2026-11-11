@@ -62,6 +62,66 @@ const CUGAN = model('realcugan-up2x-conservative', 'Real-CUGAN 2×', 'upscale', 
   engine: 'ncnn',
 });
 
+const RUNTIME = model(
+  'sherpa-onnx-windows-x64',
+  'Voice engine (sherpa-onnx)',
+  'runtime',
+  15_284_969,
+  {
+    engine: 'sherpa-onnx',
+  },
+);
+const KRISTIN = model(
+  'piper-en-us-kristin-medium',
+  'Piper: Kristin (US English)',
+  'tts',
+  20_882_061,
+  {
+    engine: 'piper',
+    installed: true,
+  },
+);
+const ALBA = model('piper-en-gb-alba-medium', 'Piper: Alba (British English)', 'tts', 21_104_326, {
+  engine: 'piper',
+  installed: true,
+});
+const THORSTEN = model(
+  'piper-de-de-thorsten-medium',
+  'Piper: Thorsten (German)',
+  'tts',
+  20_949_833,
+  {
+    engine: 'piper',
+  },
+);
+const KOKORO = model(
+  'kokoro-multi-lang-int8',
+  'Kokoro (49 voices, 8 languages)',
+  'tts',
+  150_727_420,
+  {
+    engine: 'kokoro',
+  },
+);
+
+const voice = (
+  modelId: string,
+  id: string,
+  name: string,
+  language: string,
+  engine: 'piper' | 'kokoro' = 'piper',
+) => ({ key: `${modelId}/${id}`, modelId, engine, name, language, gender: null });
+
+const VOICES = {
+  runtimeId: RUNTIME.id,
+  voices: [
+    voice(KRISTIN.id, 'kristin', 'Kristin', 'en-US'),
+    voice(ALBA.id, 'alba', 'Alba', 'en-GB'),
+    voice(THORSTEN.id, 'thorsten', 'Thorsten', 'de-DE'),
+    voice(KOKORO.id, 'af_heart', 'Heart', 'en-US', 'kokoro'),
+  ],
+};
+
 /** Settings kept as Rust keeps them: changes answer with the whole new set. */
 const withSettings = (settings: Settings) => {
   let current = settings;
@@ -94,6 +154,11 @@ const SECTIONS = [
     'text-reading',
     'Text reading',
     'Reads words on pictures: song lists in screenshots and comic pages',
+  ],
+  [
+    'read-aloud',
+    'Reading aloud',
+    "Reads books aloud: with the device's own voices, or voices downloaded here",
   ],
   [
     'providers',
@@ -314,6 +379,77 @@ describe('Settings → AI', () => {
     expect(commands.aiModelDownload).toHaveBeenCalledWith('ocrs-latin');
   });
 
+  it('reads aloud with downloaded voices: picks the engine, a voice per language, downloads', async () => {
+    const user = userEvent.setup();
+    const saved = withSettings(DEFAULT_SETTINGS);
+    commands.ttsVoices.mockResolvedValue(VOICES);
+    commands.aiModels.mockResolvedValue([RUNTIME, KRISTIN, ALBA, THORSTEN, KOKORO]);
+    commands.aiModelDownload.mockReturnValue(new Promise(() => {}));
+    await AppShellWrapper.mount('/settings/ai#read-aloud');
+    const group = await region('Reading aloud');
+
+    await user.click(await within(group).findByRole('button', { name: /^Voices/ }));
+    await user.click(await screen.findByRole('radio', { name: /^Piper/ }));
+    await waitFor(() => expect(saved().readAloud.engine).toBe('piper'));
+    // The engine that runs voices comes with the first one.
+    expect(
+      await within(group).findByText('Downloaded with the first voice (15 MB)'),
+    ).toBeInTheDocument();
+
+    // The app's language first: its voices, the first downloaded one reading it.
+    const english = await within(group).findByRole('list', { name: 'English voices' });
+    const kristin = within(english).getByRole('radio', { name: 'Read English with Kristin' });
+    expect(kristin).toBeChecked();
+    await user.click(within(english).getByRole('radio', { name: 'Read English with Alba' }));
+    await waitFor(() =>
+      expect(saved().readAloud.voices).toEqual({ en: 'piper-en-gb-alba-medium/alba' }),
+    );
+    await user.click(within(english).getByRole('button', { name: 'Hear Kristin' }));
+    expect(commands.ttsPreview).toHaveBeenCalledWith('piper-en-us-kristin-medium/kristin', 'en-US');
+
+    // Another language: its voices download in place, and can't be picked before.
+    await user.click(within(group).getByRole('button', { name: /^Language/ }));
+    await user.click(await screen.findByRole('radio', { name: 'German' }));
+    const german = await within(group).findByRole('list', { name: 'German voices' });
+    expect(within(german).getByRole('radio', { name: 'Read German with Thorsten' })).toBeDisabled();
+    await user.click(within(german).getByRole('button', { name: `Download ${THORSTEN.name}` }));
+    expect(commands.aiModelDownload).toHaveBeenCalledWith(THORSTEN.id);
+
+    // Kokoro's voices are one download.
+    await user.click(within(group).getByRole('button', { name: /^Voices/ }));
+    await user.click(await screen.findByRole('radio', { name: /^Kokoro/ }));
+    await waitFor(() => expect(saved().readAloud.engine).toBe('kokoro'));
+    expect(
+      await within(group).findByRole('button', { name: `Download ${KOKORO.name}` }),
+    ).toBeInTheDocument();
+    expect(
+      within(group).queryByRole('button', { name: `Download ${THORSTEN.name}` }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('reads aloud with the device’s voices at a pitch, with a preview', async () => {
+    const user = userEvent.setup();
+    withSettings({ ...DEFAULT_SETTINGS, readAloud: { engine: 'system', voices: {}, pitch: 12 } });
+    commands.ttsVoices.mockResolvedValue({ runtimeId: null, voices: [] });
+    await AppShellWrapper.mount('/settings/ai#read-aloud');
+    const group = await region('Reading aloud');
+
+    expect(
+      await within(group).findByText("Downloaded voices don't run on this device yet"),
+    ).toBeInTheDocument();
+    expect(within(group).getByRole('slider', { name: 'Pitch' })).toHaveAttribute(
+      'aria-valuetext',
+      '1.2×',
+    );
+    expect(within(group).getByRole('slider', { name: 'Reading-aloud speed' })).toBeInTheDocument();
+    await user.click(within(group).getByRole('button', { name: /^Preview/ }));
+    expect(commands.ttsPreview).toHaveBeenCalledWith(null, 'en');
+    // Only the device's voices are offered here.
+    await user.click(within(group).getByRole('button', { name: /^Voices/ }));
+    expect(await screen.findByRole('radio', { name: /^Device voices/ })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /^Piper/ })).not.toBeInTheDocument();
+  });
+
   it('lists providers with their key hints and tests one', async () => {
     const user = userEvent.setup();
     commands.aiProviders.mockResolvedValue(ok([CLAUDE]));
@@ -448,7 +584,15 @@ describe('Settings → AI', () => {
       within(pills)
         .getAllByRole('button')
         .map((pill) => pill.textContent),
-    ).toEqual(['All', 'Translation', 'Transcription', 'Text reading', 'Upscaling', 'Downloaded']);
+    ).toEqual([
+      'All',
+      'Translation',
+      'Transcription',
+      'Text reading',
+      'Reading aloud',
+      'Upscaling',
+      'Downloaded',
+    ]);
     expect(within(pills).getByRole('button', { name: 'All' })).toHaveAttribute(
       'aria-pressed',
       'true',

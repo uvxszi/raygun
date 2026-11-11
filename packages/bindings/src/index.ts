@@ -1066,10 +1066,33 @@ export const commands = {
 	/**  Whether the device can read text aloud. */
 	ttsAvailable: () => typedError<boolean, string>(__TAURI_INVOKE("tts_available")),
 	/**
-	 *  Reads the paragraphs aloud in order, replacing anything being read; `rate` 1 is normal.
-	 *  Progress arrives as `TtsEvent`s.
+	 *  Reads a chapter aloud sentence by sentence, replacing anything being read. Progress arrives
+	 *  as `TtsEvent`s.
 	 */
-	ttsSpeak: (paragraphs: TtsParagraph[], rate: number | null) => typedError<null, string>(__TAURI_INVOKE("tts_speak", { paragraphs, rate })),
+	ttsSpeak: (request: TtsRequest) => typedError<null, string>(__TAURI_INVOKE("tts_speak", { request })),
+	/**  Pauses reading aloud on the sentence (and word) being read. */
+	ttsPause: () => typedError<null, string>(__TAURI_INVOKE("tts_pause")),
+	/**  Goes on reading from where it paused. */
+	ttsResume: () => typedError<null, string>(__TAURI_INVOKE("tts_resume")),
+	/**  Reads from the paragraph `step` places from the one being read (0: its start again). */
+	ttsStep: (step: number) => typedError<null, string>(__TAURI_INVOKE("tts_step", { step })),
+	/**  Where reading aloud is now, when it is. */
+	ttsNow: () => __TAURI_INVOKE<{
+	state: TtsState,
+	chapterId: string,
+	paragraph: number,
+	/**  The sentence being read, as UTF-16 offsets into the paragraph's text. */
+	start: number,
+	end: number,
+	notice: TtsNotice | null,
+} | null>("tts_now"),
+	/**  The voices this device can download to read aloud with. */
+	ttsVoices: () => __TAURI_INVOKE<TtsVoices>("tts_voices"),
+	/**
+	 *  Reads a sample sentence with a downloaded voice (`key`, `<model>/<voice>`) or, without one,
+	 *  the device's own voice in `language`, at the reading speed and pitch.
+	 */
+	ttsPreview: (key: string | null, language: string | null) => typedError<null, string>(__TAURI_INVOKE("tts_preview", { key, language })),
 	/**  Stops reading aloud. */
 	ttsStop: () => typedError<null, string>(__TAURI_INVOKE("tts_stop")),
 	/**  Configured translators (keys are shown only as a hint). */
@@ -1361,6 +1384,8 @@ export const commands = {
 	discovery: DiscoveryPrefs,
 	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
 	transcription: TranscriptionPrefs,
+	/**  How books are read aloud: the device's voices or downloaded ones, and their pitch. */
+	readAloud: ReadAloudPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
 	/**  Which news posts a notification (releases, library updates, Raygun's own update). */
@@ -5670,6 +5695,27 @@ export type RailPrefs = {
 	version?: number,
 };
 
+/**  What reads books aloud (Settings → AI → Reading aloud). */
+export type ReadAloudEngine = 
+/**  The device's own text-to-speech voices. */
+"system" | 
+/**  Piper's voices, downloaded to this device. */
+"piper" | 
+/**  Kokoro's voices, downloaded to this device. */
+"kokoro";
+
+/**  How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). */
+export type ReadAloudPrefs = {
+	engine?: ReadAloudEngine,
+	/**
+	 *  The voice each language is read with (`<model id>/<voice id>`), by primary language
+	 *  tag (`en`, `de`).
+	 */
+	voices?: { [key in string]: string },
+	/**  Pitch in tenths, 5–20 (0.5–2). */
+	pitch?: number,
+};
+
 /**  What an AI layer in a reader does. */
 export type ReaderAiKind = 
 /**  A comic's pages made bigger and sharper by an upscaling model. */
@@ -6090,7 +6136,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "youtube"; value: YouTubePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "youtube"; value: YouTubePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -6202,6 +6248,8 @@ export type Settings = {
 	discovery: DiscoveryPrefs,
 	/**  Captions for podcasts and audiobooks heard by AI (M46.32). */
 	transcription: TranscriptionPrefs,
+	/**  How books are read aloud: the device's voices or downloaded ones, and their pitch. */
+	readAloud: ReadAloudPrefs,
 	/**  What's remembered of listening (M46.41). */
 	privacy: PrivacyPrefs,
 	/**  Which news posts a notification (releases, library updates, Raygun's own update). */
@@ -6732,13 +6780,23 @@ export type SourcesSetupEvent = SourceSetup[];
 
 /**  What the webview's speech engine does on desktop (M46.6). */
 export type SpeechCommand = 
-/**  Speaks `items` in order at `rate` (1 is normal), after stopping anything playing. */
-{ type: "speak"; items: SpeechLine[]; rate: number | null } | { type: "stop" };
+/**
+ *  Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal),
+ *  in `language` when it has a voice for it, after stopping anything playing.
+ */
+{ type: "speak"; items: SpeechLine[]; rate: number | null; pitch: number | null; language: string | null } | 
+/**
+ *  Plays speech a downloaded voice made after the clips before it: 16-bit mono PCM as
+ *  base64. `id` comes back in reports as it starts.
+ */
+{ type: "clip"; id: string; sampleRate: number; pcm: string; last: boolean } | 
+/**  Holds the clips where they are, and goes on. */
+{ type: "pause" } | { type: "resume" } | { type: "stop" };
 
 /**  What the webview's speech engine should do (read-aloud on desktop, M46.6). */
 export type SpeechCommandEvent = SpeechCommand;
 
-/**  One piece for a speech engine: `id` is the paragraph's, with `:end` on the very last piece. */
+/**  One piece for a speech engine: `id` names it in reports (`:end` on the very last one). */
 export type SpeechLine = {
 	id: string,
 	text: string,
@@ -7550,21 +7608,81 @@ export type TranscriptionPrefs = {
 /**  Progress reading a chapter aloud (M33). */
 export type TtsEvent = TtsUpdate;
 
+/**  Why reading aloud uses another voice than the one set, or stopped. */
+export type TtsNotice = 
+/**  No downloaded voice speaks the book's language: the device's own voice reads it. */
+{ kind: "noVoice"; language: string | null } | 
+/**  The downloaded voice couldn't be used: the device's own voice reads it. */
+{ kind: "voiceFailed" } | 
+/**  The voice engine stopped (no voice for the language, or it was taken away). */
+{ kind: "engineFailed" };
+
 /**  One paragraph to read aloud; `id` is the block's index in the chapter. */
 export type TtsParagraph = {
 	id: number,
 	text: string,
 };
 
+/**  What reading aloud is asked to read (`tts_speak`). */
+export type TtsRequest = {
+	/**  The chapter read: reports name it, and where reading stopped is kept for it. */
+	chapterId: string,
+	/**  The book's and the chapter's names, for the notification. */
+	title: string,
+	chapter: string,
+	/**  The chapter's paragraphs, as speech gets them. */
+	paragraphs: TtsParagraph[],
+	/**  The paragraph reading starts from. */
+	from: number,
+	/**
+	 *  Started by the Read aloud button: where this chapter was left aloud, when it's around
+	 *  `from`, goes on from its sentence (and word) instead.
+	 */
+	resume: boolean,
+	/**  Speed, 1 = normal. */
+	rate: number | null,
+};
+
 export type TtsState = 
-/**  Reading the paragraph. */
+/**  Reading the sentence. */
 "speaking" | 
-/**  Finished everything that was queued. */
-"ended" | "error";
+/**  Paused on the sentence; Resume goes on from it. */
+"paused" | 
+/**  Finished the chapter. */
+"ended" | 
+/**  Stopped (from the reader, the notification or a headset). */
+"stopped" | "error";
 
 export type TtsUpdate = {
 	state: TtsState,
+	chapterId: string,
 	paragraph: number,
+	/**  The sentence being read, as UTF-16 offsets into the paragraph's text. */
+	start: number,
+	end: number,
+	notice: TtsNotice | null,
+};
+
+/**  A downloaded-voice model's voice, as Settings lists it. */
+export type TtsVoice = {
+	/**  `<model id>/<voice id>`. */
+	key: string,
+	modelId: string,
+	engine: ReadAloudEngine,
+	name: string,
+	/**  BCP 47 (`en-US`, `de`). */
+	language: string,
+	gender: string | null,
+};
+
+/**  The voices this device can download and use. */
+export type TtsVoices = {
+	/**
+	 *  The voice engine's model for this device (downloaded with the first voice); none where
+	 *  downloaded voices don't run.
+	 */
+	runtimeId: string | null,
+	voices: TtsVoice[],
 };
 
 /**

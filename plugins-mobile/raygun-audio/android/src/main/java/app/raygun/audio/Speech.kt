@@ -6,11 +6,14 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import org.json.JSONObject
+import java.util.Locale
 
 /**
- * Reading aloud for the novel reader (M33) with the phone's text-to-speech engine. Each
- * utterance id is `<paragraph>` or `<paragraph>:end` for the last one queued; progress goes to
- * Rust through [NativeBridge.tts] as `{"state": "speaking"|"ended"|"error", "paragraph": n}`.
+ * Reading aloud with the phone's own text-to-speech engine (M33). Rust sends a chapter's
+ * sentences; each utterance id is `<run>:<sentence>`, with `:end` on the chapter's last. Progress
+ * goes to Rust through [NativeBridge.tts]: `{"state": "speaking"|"ended"|"error", "id"}` as
+ * utterances start and the last one ends, and `{"state": "range", "id", "start", "end"}` as each
+ * word starts (Android 8 and later), so a pause can go on from the word it stopped at.
  */
 class Speech(private val context: Context) {
     private val main = Handler(Looper.getMainLooper())
@@ -48,25 +51,49 @@ class Speech(private val context: Context) {
             override fun onError(id: String) = send("error", id)
 
             override fun onError(id: String, errorCode: Int) = send("error", id)
+
+            override fun onRangeStart(id: String, start: Int, end: Int, frame: Int) {
+                NativeBridge.tts(
+                    JSONObject().put("state", "range").put("id", id).put("start", start).put("end", end).toString(),
+                )
+            }
         })
         waiting.toList().forEach { it(ready == true) }
         waiting.clear()
     }
 
     private fun send(state: String, id: String) {
-        val paragraph = id.substringBefore(':').toIntOrNull() ?: return
-        NativeBridge.tts(JSONObject().put("state", state).put("paragraph", paragraph).toString())
+        NativeBridge.tts(JSONObject().put("state", state).put("id", id).toString())
     }
 
-    /** Replaces what is being read with [items] (id and text pairs), at [rate] (1 = normal). */
-    fun speak(items: List<Pair<String, String>>, rate: Float): Boolean {
+    /**
+     * Replaces what is being read with [items] (id and text pairs), at [rate] and [pitch] (1 =
+     * normal), in [language] (a BCP 47 tag) when the engine has it, else in its own language.
+     */
+    fun speak(items: List<Pair<String, String>>, rate: Float, pitch: Float, language: String?): Boolean {
         val tts = engine?.takeIf { ready == true } ?: return false
         tts.setSpeechRate(rate)
+        tts.setPitch(pitch)
+        useLanguage(tts, language)
         items.forEachIndexed { index, (id, text) ->
             val mode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
             tts.speak(text, mode, null, id)
         }
         return true
+    }
+
+    /** The book's language when the engine speaks it; otherwise the engine's own voice. */
+    private fun useLanguage(tts: TextToSpeech, language: String?) {
+        val locale = language?.takeIf { it.isNotBlank() }?.let { Locale.forLanguageTag(it) }
+        try {
+            if (locale != null && tts.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE) {
+                tts.language = locale
+            } else {
+                tts.defaultVoice?.let { tts.voice = it }
+            }
+        } catch (_: Exception) {
+            // Some engines throw for languages they half know: their own voice reads then.
+        }
     }
 
     fun stop() {

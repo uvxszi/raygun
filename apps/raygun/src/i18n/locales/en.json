@@ -1860,7 +1860,12 @@
     "previousParagraph": "Read from the previous paragraph",
     "replayParagraph": "Read this paragraph again",
     "nextParagraph": "Skip to the next paragraph",
+    "pauseReading": "Pause reading aloud",
+    "resumeReading": "Resume reading aloud",
     "readAloudStopped": "Reading aloud stopped.",
+    "noDownloadedVoice": "No downloaded voice reads {{language}}: the device's voice reads it.",
+    "noVoiceDownloaded": "No voice is downloaded for reading aloud: the device's voice reads it.",
+    "voiceFailed": "The downloaded voice couldn't be used: the device's voice reads on.",
     "emptyTitle": "No books yet"
   },
   "pdf": {
@@ -2073,6 +2078,37 @@
       "comics": "Comic translation",
       "comicsSummary": "Reads the words on pages to translate them"
     },
+    "readAloud": {
+      "title": "Reading aloud",
+      "about": "Reads books aloud: with the device's own voices, or voices downloaded here",
+      "engine": "Voices",
+      "engines": {
+        "system": "Device voices",
+        "piper": "Piper",
+        "kokoro": "Kokoro"
+      },
+      "engineHints": {
+        "system": "The text-to-speech voices this device has",
+        "piper": "Light voices in about 30 languages, downloaded here",
+        "kokoro": "Natural voices in 8 languages, downloaded here (larger)"
+      },
+      "runtime": "Voice engine",
+      "runtimeSummary": "Downloaded with the first voice ({{size}})",
+      "notHere": "Downloaded voices don't run on this device yet",
+      "language": "Language",
+      "noLanguages": "No voices",
+      "voicesOf": "{{language}} voices",
+      "useVoice": "Read {{language}} with {{name}}",
+      "inUse": "Reads {{language}}",
+      "downloadFirst": "Download it to use it",
+      "previewVoice": "Hear {{name}}",
+      "preview": "Preview",
+      "previewSummary": "A sentence at this speed and pitch",
+      "previewFailed": "Couldn't read the preview",
+      "pitch": "Pitch",
+      "female": "Female",
+      "male": "Male"
+    },
     "providers": {
       "title": "Online providers",
       "about": "Claude, OpenAI-compatible services and DeepL; keys stay encrypted on this device",
@@ -2097,6 +2133,7 @@
         "translation": "Translation",
         "transcription": "Transcription",
         "textReading": "Text reading",
+        "readAloud": "Reading aloud",
         "upscaling": "Upscaling",
         "downloaded": "Downloaded"
       },
@@ -2112,6 +2149,7 @@
         "translation": "Translation",
         "transcription": "Transcription",
         "textReading": "Text reading",
+        "readAloud": "Reading aloud",
         "comicReader": "Comic reader",
         "unused": "Not used in this version"
       }

@@ -127,11 +127,14 @@ describe('Formulas and PDFs in the book reader', () => {
 
     await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
     expect(commands.ttsSpeak).toHaveBeenCalledWith(
-      [
-        { id: 0, text: 'Let x squared grow, with H2O.' },
-        { id: 1, text: 'y equals 1' },
-      ],
-      1,
+      expect.objectContaining({
+        paragraphs: [
+          { id: 0, text: 'Let x squared grow, with H2O.' },
+          { id: 1, text: 'y equals 1' },
+        ],
+        from: 0,
+        resume: true,
+      }),
     );
   });
 

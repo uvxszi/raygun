@@ -338,6 +338,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'ai.translation.title',
     'ai.transcription.title',
     'ai.textReading.title',
+    'ai.readAloud.title',
     'ai.providers.title',
     'ai.onDevice.title',
     'mcp.title',
@@ -350,6 +351,11 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
   ),
   ...on('ai', 'ai.transcription.title')('ai.transcription.engine'),
   ...on('ai', 'ai.textReading.title')('ai.textReading.reader', 'ai.textReading.import'),
+  ...on('ai', 'ai.readAloud.title')(
+    'ai.readAloud.engine',
+    'ai.readAloud.pitch',
+    'ai.readAloud.preview',
+  ),
   ...on('ai', 'ai.onDevice.title')('ai.onDevice.storage'),
   ...on('about')('updater.check', 'updater.autoCheck', 'settings.license'),
 ];

@@ -202,11 +202,15 @@ describe('Word lookups in the book reader', () => {
     let lookup = await screen.findByTestId('word-lookup', {}, { timeout: 2000 });
     await user.click(within(lookup).getByRole('button', { name: 'Read aloud from here' }));
     expect(commands.ttsSpeak).toHaveBeenCalledWith(
-      [
-        { id: 1, text: 'It was a dreary night of November.' },
-        { id: 2, text: 'Rain fell on the panes.' },
-      ],
-      1,
+      expect.objectContaining({
+        paragraphs: expect.arrayContaining([
+          { id: 1, text: 'It was a dreary night of November.' },
+          { id: 2, text: 'Rain fell on the panes.' },
+        ]),
+        from: 1,
+        resume: false,
+        rate: 1,
+      }),
     );
     expect(screen.queryByTestId('word-lookup')).not.toBeInTheDocument();
 
