@@ -2434,7 +2434,10 @@ async fn nps_offers_public_domain_videos_with_their_captions_and_versions() {
         .await
         .unwrap_err();
     assert_eq!(crate::needs_setup_in(&spent), None, "{spent}");
-    assert!(spent.contains("1,000 requests"), "{spent}");
+    assert!(
+        spent.contains("all the requests the National Park Service's API allows for now"),
+        "{spent}"
+    );
 }
 
 // ---- ESA/Hubble and ESA/Webb ----

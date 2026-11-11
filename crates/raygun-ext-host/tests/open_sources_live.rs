@@ -1396,8 +1396,8 @@ async fn open_sources_live_europeana() {
 const NPS_VIDEOS: &str = "dev.raygun.nps/videos";
 
 /// National Park Service videos with the API key in `NPS_API_KEY` (each person's own, free from
-/// nps.gov/subjects/developer/get-started.htm; the API's `DEMO_KEY` works for trying it, a few
-/// requests an hour): two API requests, the library's list and a park's search, then a video from
+/// nps.gov/subjects/developer/get-started.htm; the API's `DEMO_KEY` works for trying it, ten
+/// requests a day): two API requests, the library's list and a park's search, then a video from
 /// the list opened, played and captioned without another. Without a key it checks the source
 /// waits for one, asked nothing.
 #[tokio::test]

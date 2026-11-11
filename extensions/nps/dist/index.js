@@ -774,7 +774,7 @@
     }
     if (response.status === 429 || code === "OVER_RATE_LIMIT") {
       throw new Error(
-        "This API key has made the 1,000 requests the National Park Service's API allows in an hour; try again later"
+        "This API key has made all the requests the National Park Service's API allows for now (a personal key makes 1,000 an hour); try again later"
       );
     }
     if (!response.ok) {
