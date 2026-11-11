@@ -49,6 +49,8 @@ mod nuclear_survey;
 #[cfg(test)]
 mod nuclear_tests;
 #[cfg(test)]
+mod open_sources_more_tests;
+#[cfg(test)]
 mod open_sources_tests;
 #[cfg(test)]
 mod repo_tests;

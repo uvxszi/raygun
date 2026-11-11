@@ -3,6 +3,28 @@
   "name": "Raygun Extensions",
   "extensions": [
     {
+      "id": "dev.raygun.archive-books",
+      "name": "Internet Archive books",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public-domain books the Internet Archive scanned with libraries: books published more than 95 years ago that the Archive marks as not in copyright, read as its PDFs (the page scans with their text). Books it only lends are left out.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "archive.org",
+          "*.archive.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.archive-books-1.0.0.zip",
+      "sha256": "b0641676bc411cc5d0f54382ba6428eecef800fd07dbcb35795c49acdc9a036f",
+      "size": 4870
+    },
+    {
       "id": "dev.raygun.archive-comics",
       "name": "Internet Archive comics",
       "version": "1.2.0",
@@ -516,6 +538,28 @@
       "size": 19142
     },
     {
+      "id": "dev.raygun.open-webcomics",
+      "name": "Open webcomics",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Webcomics their authors publish under Creative Commons licences, every strip a chapter: Sandra and Woo by Oliver Knörzer and Powree (CC BY-NC-ND 3.0) and turnoff.us by Daniel Stori (CC BY-NC-SA 4.0).",
+      "author": "Raygun",
+      "provides": [
+        "manga.source"
+      ],
+      "permissions": {
+        "net": [
+          "www.sandraandwoo.com",
+          "turnoff.us"
+        ],
+        "webview": false
+      },
+      "contentRating": "suggestive",
+      "package": "packages/dev.raygun.open-webcomics-1.0.0.zip",
+      "sha256": "11945078e80550f95645f32d6946c2d3bbfe852edb95855b91e9aa1b3a8674ae",
+      "size": 4646
+    },
+    {
       "id": "dev.raygun.openstax",
       "name": "OpenStax",
       "version": "1.0.0",
@@ -535,6 +579,27 @@
       "package": "packages/dev.raygun.openstax-1.0.0.zip",
       "sha256": "595392dd9595fc0eabff4464159296ec459597c733a556576b87fabeb905a570",
       "size": 6551
+    },
+    {
+      "id": "dev.raygun.peertube",
+      "name": "PeerTube",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Videos from PeerTube, the federated video platform, found through Sepia Search (Framasoft's index of the instances listed on joinpeertube.org) and played from the instance that hosts each one. Only videos their uploaders publish under a Creative Commons licence or dedicate to the public domain; no live streams. It reaches any public host, since videos live on many instances.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "*"
+        ],
+        "webview": false
+      },
+      "contentRating": "suggestive",
+      "package": "packages/dev.raygun.peertube-1.0.0.zip",
+      "sha256": "c6ec6e368020b0408ac5a062b4efd935469d9388093c1cfab128065847d4891b",
+      "size": 6487
     },
     {
       "id": "dev.raygun.peppercarrot",

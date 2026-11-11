@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.archive-books",
+  "name": "Internet Archive books",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public-domain books the Internet Archive scanned with libraries: books published more than 95 years ago that the Archive marks as not in copyright, read as its PDFs (the page scans with their text). Books it only lends are left out.",
+  "author": "Raygun",
+  "website": "https://archive.org/details/texts",
+  "provides": ["novel.source"],
+  "permissions": {
+    "net": ["archive.org", "*.archive.org"]
+  },
+  "contentRating": "safe"
+}
