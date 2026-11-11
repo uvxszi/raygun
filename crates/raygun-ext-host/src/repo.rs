@@ -77,6 +77,10 @@ pub struct RepoEntry {
     pub size: u64,
     #[serde(default)]
     pub format: PackageFormat,
+    /// Where a site-scripts extension's scripts run: its match patterns (`crate::site`), checked
+    /// against its package at install, so what people are told before installing is what runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sites: Vec<String>,
 }
 
 /// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
@@ -265,6 +269,7 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
                 sha256,
                 size: 0,
                 format: PackageFormat::Shosetsu,
+                sites: Vec::new(),
             })
         })
         .collect();
@@ -443,6 +448,7 @@ fn from_nuclear(registry: NuclearRegistry) -> RepoIndex {
                     .to_ascii_lowercase(),
                 size: 0,
                 format: PackageFormat::Nuclear,
+                sites: Vec::new(),
             })
         })
         .collect();

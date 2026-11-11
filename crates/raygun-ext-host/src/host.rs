@@ -504,7 +504,7 @@ fn setup_need(extension: &Extension, settings: &[ExtensionSetting]) -> Option<Se
 /// in script; Shosetsu scripts and servers run their work elsewhere.
 fn lane_weight(item: &LoadItem) -> usize {
     match item.manifest.runtime {
-        Runtime::Shosetsu | Runtime::Server => 0,
+        Runtime::Shosetsu | Runtime::Server | Runtime::Site => 0,
         _ if crate::js::is_converted(&item.manifest) => 3,
         _ => 1,
     }
@@ -564,6 +564,8 @@ struct Directory {
     /// Each extension's version, settings and sign-in as loaded, hashed: a source that said its
     /// key was refused is asked again once this changes.
     fingerprints: HashMap<String, u64>,
+    /// Site-scripts extensions (`crate::site`), with where their files are.
+    sites: HashMap<String, (ExtensionSource, Manifest)>,
 }
 
 /// A fan-out's own limit outlasts its calls' by this much: a call someone waits on hands its
@@ -713,7 +715,11 @@ impl ExtensionHost {
         let mut batches: Vec<Vec<LoadItem>> = (0..count).map(|_| Vec::new()).collect();
         let mut fresh = Vec::new();
         let mut fingerprints = HashMap::new();
+        let mut sites = HashMap::new();
         for (id, (source, manifest)) in chosen {
+            if manifest.runtime == Runtime::Site {
+                sites.insert(id.clone(), (source.clone(), manifest.clone()));
+            }
             let item = LoadItem {
                 settings: settings.remove(&id).unwrap_or_default(),
                 secret: secrets.remove(&id),
@@ -802,6 +808,7 @@ impl ExtensionHost {
                 miru,
                 setup,
                 fingerprints,
+                sites,
             },
         );
         self.shared
@@ -821,6 +828,46 @@ impl ExtensionHost {
         self.rate(&mut infos);
         self.with_setup(&mut infos);
         infos
+    }
+
+    /// Site-scripts extensions that loaded and are on, with the values of their settings.
+    pub fn site_extensions(&self) -> Vec<crate::site::SiteExtension> {
+        let directory = self.directory();
+        let mut found: Vec<crate::site::SiteExtension> = directory
+            .infos
+            .iter()
+            .filter(|info| info.status == ExtensionStatus::Loaded)
+            .filter(|info| {
+                !self
+                    .shared
+                    .content
+                    .is_disabled(&crate::site::provider_id(&info.id))
+            })
+            .filter_map(|info| {
+                let (source, manifest) = directory.sites.get(&info.id)?;
+                let scripts = manifest.site.clone()?;
+                let settings = info
+                    .settings
+                    .iter()
+                    .map(|setting| {
+                        let value = setting
+                            .value
+                            .as_ref()
+                            .and_then(|value| serde_json::to_value(value).ok())
+                            .unwrap_or(serde_json::Value::Null);
+                        (setting.key.clone(), value)
+                    })
+                    .collect();
+                Some(crate::site::SiteExtension::new(
+                    manifest,
+                    scripts,
+                    settings,
+                    source.clone(),
+                ))
+            })
+            .collect();
+        found.sort_by_key(|site| site.name.to_lowercase());
+        found
     }
 
     fn refused(&self) -> std::sync::MutexGuard<'_, HashMap<String, (u64, String)>> {
@@ -2210,11 +2257,13 @@ fn choose(
     (chosen, infos)
 }
 
-/// A loaded extension: JavaScript, a Shosetsu script (M32), or a connected server.
+/// A loaded extension: JavaScript, a Shosetsu script (M32), a connected server, or scripts for
+/// websites (`crate::site`).
 enum Extension {
     Js(JsExtension),
     Shosetsu(Box<ShosetsuExtension>),
     Server(Box<ServerExtension>),
+    Site(Box<crate::site::LoadedSite>),
 }
 
 impl Extension {
@@ -2223,6 +2272,7 @@ impl Extension {
             Self::Js(extension) => extension.manifest(),
             Self::Shosetsu(extension) => extension.manifest(),
             Self::Server(extension) => extension.manifest(),
+            Self::Site(extension) => &extension.manifest,
         }
     }
 
@@ -2231,6 +2281,7 @@ impl Extension {
             Self::Js(extension) => extension.user_settings(),
             Self::Shosetsu(extension) => extension.user_settings(),
             Self::Server(extension) => extension.user_settings(),
+            Self::Site(extension) => &extension.user_settings,
         }
     }
 
@@ -2240,6 +2291,7 @@ impl Extension {
             Self::Js(extension) => extension.settings(),
             Self::Shosetsu(extension) => extension.manifest().settings.clone(),
             Self::Server(extension) => extension.manifest().settings.clone(),
+            Self::Site(extension) => extension.manifest.settings.clone(),
         }
     }
 
@@ -2248,6 +2300,7 @@ impl Extension {
             Self::Js(extension) => extension.providers(),
             Self::Shosetsu(extension) => extension.providers(),
             Self::Server(extension) => extension.providers(),
+            Self::Site(extension) => extension.providers(),
         }
     }
 
@@ -2255,7 +2308,7 @@ impl Extension {
     fn website(&self) -> Option<String> {
         let declared = self.manifest().website.clone();
         match self {
-            Self::Js(_) | Self::Server(_) => declared,
+            Self::Js(_) | Self::Server(_) | Self::Site(_) => declared,
             Self::Shosetsu(extension) => {
                 declared.or_else(|| extension.website().map(str::to_owned))
             }
@@ -2272,6 +2325,9 @@ impl Extension {
             Self::Js(extension) => extension.call(local_id, method, args).await,
             Self::Shosetsu(extension) => extension.call_reporting(local_id, method, args).await,
             Self::Server(extension) => extension.call(local_id, method, args).await,
+            Self::Site(_) => Err(Failure::said(
+                "site scripts run in Raygun's websites browser and answer no calls",
+            )),
         }
     }
 }
@@ -2463,6 +2519,17 @@ impl LaneState {
                 .await
                 .map(|extension| Extension::Server(Box::new(extension)));
         }
+        if let Some(scripts) = manifest.site.as_ref() {
+            // Nothing runs here: its files only need to be there for the browser.
+            for path in scripts.files() {
+                source.read(path)?;
+            }
+            user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
+            return Ok(Extension::Site(Box::new(crate::site::LoadedSite {
+                manifest,
+                user_settings,
+            })));
+        }
         let data_dir = self
             .config
             .storage_dir
@@ -2521,7 +2588,9 @@ impl LaneState {
             .ok_or_else(unknown)?;
         // Shosetsu scripts block on each request and may page through long chapter lists.
         let timeout = match extension.as_ref() {
-            Extension::Js(_) | Extension::Server(_) => self.config.call_timeout,
+            Extension::Js(_) | Extension::Server(_) | Extension::Site(_) => {
+                self.config.call_timeout
+            }
             Extension::Shosetsu(_) => self
                 .config
                 .call_timeout
@@ -2630,6 +2699,11 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
         repository: None,
         website: extension.website(),
         settings,
+        sites: manifest
+            .site
+            .as_ref()
+            .map(crate::site::SiteScripts::patterns)
+            .unwrap_or_default(),
     }
 }
 
@@ -2692,6 +2766,7 @@ fn failed_info(
         repository: None,
         website: None,
         needs_setup: None,
+        sites: Vec::new(),
     }
 }
 

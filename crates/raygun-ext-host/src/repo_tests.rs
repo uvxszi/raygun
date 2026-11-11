@@ -48,6 +48,7 @@ fn entry_for(bytes: &[u8]) -> RepoEntry {
         sha256: package::sha256_hex(bytes),
         size: bytes.len() as u64,
         format: Default::default(),
+        sites: Vec::new(),
     }
 }
 
@@ -685,4 +686,154 @@ fn an_index_lists_stremio_addons_apart() {
     })
     .to_string();
     assert!(repo::parse_index(&json).unwrap().extensions.is_empty());
+}
+
+const SITE_MANIFEST: &str = r#"{"id":"dev.example.site","name":"Site","version":"1.0.0","apiVersion":1,
+    "runtime":"site","entry":"dist/page.js","provides":["site.scripts"],
+    "site":{"scripts":[{"matches":["https://*.example.com/*"],"js":["dist/page.js"],
+        "css":["page.css"],"runAt":"document-start"}]},
+    "settings":[{"key":"hideThings","type":"boolean","default":true}]}"#;
+
+fn site_entry(bytes: &[u8], sites: &[&str]) -> RepoEntry {
+    RepoEntry {
+        id: "dev.example.site".into(),
+        version: "1.0.0".into(),
+        provides: vec!["site.scripts".into()],
+        permissions: RepoPermissions::default(),
+        package: "packages/dev.example.site-1.0.0.zip".into(),
+        sites: sites.iter().map(|site| (*site).to_owned()).collect(),
+        ..entry_for(bytes)
+    }
+}
+
+#[test]
+fn site_scripts_packages_say_where_they_run() {
+    let good = zip(&[
+        ("raygun-extension.json", SITE_MANIFEST.as_bytes()),
+        ("dist/page.js", b"document.title"),
+        ("page.css", b"body {}"),
+    ]);
+    let verified =
+        package::verify(&good, &site_entry(&good, &["https://*.example.com/*"])).unwrap();
+    assert_eq!(
+        verified.manifest.site.as_ref().unwrap().patterns(),
+        ["https://*.example.com/*"]
+    );
+    // A repository that doesn't say where the scripts run, or says elsewhere, isn't believed.
+    assert!(matches!(
+        package::verify(&good, &site_entry(&good, &[])),
+        Err(PackageError::Mismatch(_))
+    ));
+    assert!(matches!(
+        package::verify(&good, &site_entry(&good, &["https://*.example.org/*"])),
+        Err(PackageError::Mismatch(_))
+    ));
+    // Every file the scripts use is in the package.
+    let missing = zip(&[
+        ("raygun-extension.json", SITE_MANIFEST.as_bytes()),
+        ("dist/page.js", b"x"),
+    ]);
+    assert_eq!(
+        package::verify(
+            &missing,
+            &site_entry(&missing, &["https://*.example.com/*"])
+        )
+        .unwrap_err(),
+        PackageError::MissingFile("page.css".into())
+    );
+    // A package added on its own lists its sites from its manifest.
+    let listed = package::entry_of(&good, "https://example.org/site.zip").unwrap();
+    assert_eq!(listed.sites, ["https://*.example.com/*"]);
+    assert!(package::verify(&good, &listed).is_ok());
+}
+
+#[tokio::test]
+async fn site_scripts_load_without_running() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let folder = dir.path().join("dev.example.site");
+    std::fs::create_dir_all(folder.join("dist")).unwrap();
+    std::fs::write(folder.join("raygun-extension.json"), SITE_MANIFEST).unwrap();
+    std::fs::write(
+        folder.join("dist/page.js"),
+        "document.title = raygunPage.settings.hideThings;",
+    )
+    .unwrap();
+    std::fs::write(folder.join("page.css"), "body { margin: 0 }").unwrap();
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let mut settings = UserSettings::new();
+    settings.insert(
+        "dev.example.site".into(),
+        [("hideThings".to_owned(), json!(false))].into(),
+    );
+    let infos = host
+        .load_with_settings(discover_installed(dir.path()), settings)
+        .await;
+    let info = &infos[0];
+    assert_eq!(
+        info.status,
+        raygun_model::ExtensionStatus::Loaded,
+        "{:?}",
+        info.error
+    );
+    assert_eq!(info.providers[0].kind, "site.scripts");
+    assert_eq!(info.sites, ["https://*.example.com/*"]);
+    // It answers no calls: its scripts run in the browser's pages.
+    assert!(
+        host.call("dev.example.site/scripts", "run", json!({}))
+            .await
+            .is_err()
+    );
+    let sites = host.site_extensions();
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sites[0].settings["hideThings"], json!(false));
+    let code = sites[0].compose(crate::site::Platform::Android).unwrap();
+    assert!(code.contains("document.title = raygunPage.settings.hideThings;"));
+    assert!(code.contains("body { margin: 0 }"));
+    // Turned off, the browser gets nothing of it.
+    host.content()
+        .set_disabled(&["dev.example.site".to_owned()]);
+    assert!(host.site_extensions().is_empty());
+    host.content().set_disabled(&[]);
+    // A file its scripts use that's gone fails the load.
+    std::fs::remove_file(folder.join("page.css")).unwrap();
+    let infos = host.load(discover_installed(dir.path())).await;
+    assert_eq!(infos[0].status, raygun_model::ExtensionStatus::Failed);
+    assert!(host.site_extensions().is_empty());
+}
+
+#[test]
+fn site_scripts_manifests_are_checked() {
+    let manifest = |patch: serde_json::Value| {
+        let mut value: serde_json::Value = serde_json::from_str(SITE_MANIFEST).unwrap();
+        for (key, field) in patch.as_object().unwrap() {
+            if field.is_null() {
+                value.as_object_mut().unwrap().remove(key);
+            } else {
+                value[key] = field.clone();
+            }
+        }
+        crate::Manifest::parse(&value.to_string())
+    };
+    let good = manifest(json!({})).unwrap();
+    assert_eq!(good.runtime, crate::manifest::Runtime::Site);
+    assert_eq!(good.site.unwrap().files(), ["dist/page.js", "page.css"]);
+    for patch in [
+        json!({ "provides": ["site.scripts", "lyrics"] }),
+        json!({ "permissions": { "net": ["api.example.com"] } }),
+        json!({ "entry": "dist/other.js" }),
+        json!({ "site": null }),
+        json!({ "runtime": "js" }),
+        json!({ "site": { "scripts": [{ "matches": ["https://*/x"], "js": ["../page.js"] }] } }),
+    ] {
+        assert!(
+            matches!(manifest(patch.clone()), Err(crate::ManifestError::Site(_))),
+            "{patch}"
+        );
+    }
+    // A JavaScript source can't claim to be site scripts.
+    let script = crate::Manifest::parse(
+        r#"{"id":"dev.example.js","name":"Js","version":"1.0.0","apiVersion":1,"runtime":"js",
+            "entry":"dist/index.js","provides":["site.scripts"]}"#,
+    );
+    assert!(matches!(script, Err(crate::ManifestError::Site(_))));
 }

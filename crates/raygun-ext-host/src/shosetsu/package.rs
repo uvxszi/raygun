@@ -183,6 +183,7 @@ pub fn entry_of(bytes: &[u8], url: &Url) -> Option<RepoEntry> {
         sha256: sha256_hex(bytes),
         size: bytes.len() as u64,
         format: crate::repo::PackageFormat::Shosetsu,
+        sites: Vec::new(),
     })
 }
 

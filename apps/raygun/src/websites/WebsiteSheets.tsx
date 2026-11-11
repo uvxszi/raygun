@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
+import { showToast } from '../shell/toastStore';
 import { useAddWebsite, useEditWebsite, useRemoveWebsite } from './useWebsites';
 
 /** Add a site, or change one: its address and an optional name. */
@@ -20,9 +21,22 @@ export const WebsiteSheet: FC<{ site?: Website; onClose: () => void }> = ({ site
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const done = { onSuccess: onClose };
-    if (site) edit.mutate({ id: site.id, name: name.trim(), url: url.trim() }, done);
-    else add.mutate({ name: name.trim() || null, url: url.trim() }, done);
+    if (site) {
+      edit.mutate({ id: site.id, name: name.trim(), url: url.trim() }, { onSuccess: onClose });
+      return;
+    }
+    add.mutate(
+      { name: name.trim() || null, url: url.trim() },
+      {
+        onSuccess: (added) => {
+          // Installed site scripts that run on the new site say so.
+          if (added.scripts?.length) {
+            showToast(t('websites.scriptsAdded', { names: added.scripts.join(', ') }));
+          }
+          onClose();
+        },
+      },
+    );
   };
 
   return (

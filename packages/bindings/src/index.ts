@@ -1504,6 +1504,16 @@ export const commands = {
 	websiteBlocklistUpdate: () => typedError<BlocklistStatus, string>(__TAURI_INVOKE("website_blocklist_update")),
 	/**  Clears the built-in browser's cookies, storage and cache. */
 	websiteClearData: () => typedError<null, string>(__TAURI_INVOKE("website_clear_data")),
+	/**
+	 *  The installed site scripts and the user's websites they run on (Settings → Browse →
+	 *  Websites).
+	 */
+	websiteSiteScripts: () => typedError<SiteScriptsInfo[], string>(__TAURI_INVOKE("website_site_scripts")),
+	/**
+	 *  Turns an extension's site scripts on or off for one of the user's websites; it applies the
+	 *  next time the site opens.
+	 */
+	websiteSetSiteScripts: (siteId: string, extensionId: string, on: boolean) => typedError<null, string>(__TAURI_INVOKE("website_set_site_scripts", { siteId, extensionId, on })),
 	/**  Files saved from websites, newest first. */
 	websiteDownloads: () => __TAURI_INVOKE<WebsiteDownload[]>("website_downloads"),
 	/**  Stops a file download. */
@@ -2522,6 +2532,11 @@ export type CatalogEntry = {
 	 *  Python add-ons); `None` when it can.
 	 */
 	unsupported?: string | null,
+	/**
+	 *  Where a site-scripts extension's scripts would run in the websites browser: its match
+	 *  patterns, as its repository lists them (checked against the package at install).
+	 */
+	sites?: string[],
 };
 
 export type CatalogState = "available" | "installed" | "updateAvailable" | 
@@ -3204,6 +3219,11 @@ export type ExtensionInfo_Deserialize = {
 	repository: string | null,
 	/**  What it needs before it's asked anything (a key, an account, a sign-in); none when ready. */
 	needsSetup?: SetupNeed | null,
+	/**
+	 *  Where a site-scripts extension's scripts run in the websites browser: its match patterns
+	 *  (`https://*.youtube.com/*`).
+	 */
+	sites?: string[],
 };
 
 export type ExtensionInfo_Serialize = {
@@ -3243,6 +3263,11 @@ export type ExtensionInfo_Serialize = {
 	repository: string | null,
 	/**  What it needs before it's asked anything (a key, an account, a sign-in); none when ready. */
 	needsSetup?: SetupNeed | null,
+	/**
+	 *  Where a site-scripts extension's scripts run in the websites browser: its match patterns
+	 *  (`https://*.youtube.com/*`).
+	 */
+	sites?: string[],
 };
 
 /**  One install in the queue. */
@@ -5883,6 +5908,23 @@ export type SetupReason =
 /**  A connected server without its sign-in: sign in again from Sources. */
 "signIn";
 
+/**  An installed site-scripts extension, as Settings → Browse → Websites lists it. */
+export type SiteScriptsInfo = {
+	extensionId: string,
+	name: string,
+	/**  The sites its scripts name, for people (`youtube.com`; `*` for every site). */
+	sites: string[],
+	/**  The user's websites its scripts run on, each with its switch. */
+	websites: SiteScriptsWebsite[],
+};
+
+/**  One of the user's websites a site-scripts extension runs on. */
+export type SiteScriptsWebsite = {
+	id: string,
+	name: string,
+	on: boolean,
+};
+
 /**  Titles of one Mihon source that Raygun has no source for. */
 export type SkippedSource = {
 	name: string,
@@ -7362,6 +7404,8 @@ export type Website = {
 	/**  Where it was left, when it opens there rather than at `url`. */
 	lastUrl: string | null,
 	blockAds: boolean,
+	/**  The site-scripts extensions that run on its address, by name (turned off ones left out). */
+	scripts?: string[],
 };
 
 /**  A file saved from a site in Raygun's browser, as Downloads → Files lists it. */
@@ -7405,6 +7449,13 @@ export type WebsitePrefs = {
 	customListUrl?: string | null,
 	/**  Sites open in desktop mode. */
 	desktop?: boolean,
+	/**
+	 *  A page that plays keeps playing while the browser is off screen (Android: a media
+	 *  notification with its controls; desktop: a minimized window).
+	 */
+	backgroundPlay?: boolean,
+	/**  Site scripts turned off on a site: extension ids by the site's id. */
+	scriptsOff?: { [key in string]: string[] },
 };
 
 /**

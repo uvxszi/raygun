@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
 import { RepoContents } from '../extensions/RepoContents';
+import { siteLabels } from '../extensions/siteLabels';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
 import { ServerSheet, ServerSignIn } from '../servers/ServerSheet';
 import { AdultMark } from '../shell/AdultMark';
@@ -51,6 +52,12 @@ const ExtensionDetails: FC<{ entry: CatalogEntry }> = ({ entry }) => {
       </dd>
       <dt>{t('extensions.permissionsTitle')}</dt>
       <dd className="wrap-anywhere">{reach || t('extensions.noNetwork')}</dd>
+      {entry.sites && entry.sites.length > 0 && (
+        <>
+          <dt>{t('extensions.runsOnTitle')}</dt>
+          <dd className="wrap-anywhere">{siteLabels(entry.sites, t).join(', ')}</dd>
+        </>
+      )}
     </dl>
   );
 };

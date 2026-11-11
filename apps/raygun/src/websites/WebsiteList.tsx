@@ -65,7 +65,12 @@ export const WebsiteList: FC<{ sites: Website[]; large?: boolean }> = ({ sites, 
               <span className="flex min-w-0 flex-col">
                 <span className="truncate font-medium">{site.name}</span>
                 <span className="text-muted truncate text-xs">
-                  {[site.host, site.blockAds ? null : t('websites.adsAllowed')]
+                  {[
+                    site.host,
+                    site.blockAds ? null : t('websites.adsAllowed'),
+                    // Site scripts that run here (`site.scripts` extensions).
+                    site.scripts?.length ? site.scripts.join(', ') : null,
+                  ]
                     .filter(Boolean)
                     .join(' · ')}
                 </span>

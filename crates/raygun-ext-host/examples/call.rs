@@ -7,6 +7,10 @@
 //!     [--set <key>=<value>]... [--nsfw] [--data <folder>]
 //! ```
 //!
+//! A site-scripts extension (runtime `site`) is tried on a page's address instead of a provider:
+//! which of its groups run there, and with `--bundle <file>` the script Raygun's browser would
+//! inject (for a desktop browser's console).
+//!
 //! Without a provider it lists what the extension registered. The answer goes to stdout as JSON;
 //! everything else goes to stderr: the extension's log, what Raygun keeps of the answer (the
 //! app's own parsers read it) and how long the call took against the time the app gives it.
@@ -27,7 +31,9 @@ use raygun_model::ExtensionStatus;
 use serde_json::{Value, json};
 
 const USAGE: &str = "usage: call <extension folder> [<provider> <method> [<arguments as JSON>]] \
-                     [--set <key>=<value>]... [--nsfw] [--data <folder>]";
+                     [--set <key>=<value>]... [--nsfw] [--data <folder>]\n       \
+                     call <site-scripts folder> <page address> [--set <key>=<value>]... \
+                     [--bundle <file>]";
 
 /// Longer than any limit the app sets, so a slow call still answers and says how slow it was.
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -41,6 +47,13 @@ struct Options {
     settings: BTreeMap<String, Value>,
     nsfw: bool,
     data: Option<PathBuf>,
+    /// Where a site-scripts extension's composed script is written.
+    bundle: Option<PathBuf>,
+}
+
+/// A page's address, which site scripts are tried on.
+fn is_address(text: &str) -> bool {
+    text.starts_with("https://") || text.starts_with("http://")
 }
 
 fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
@@ -52,6 +65,9 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
             "--nsfw" => options.nsfw = true,
             "--data" => {
                 options.data = Some(args.next().ok_or("--data needs a folder")?.into());
+            }
+            "--bundle" => {
+                options.bundle = Some(args.next().ok_or("--bundle needs a file")?.into());
             }
             "--set" => {
                 let pair = args.next().ok_or("--set needs <key>=<value>")?;
@@ -74,7 +90,12 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
     options.provider = positional.next();
     options.method = positional.next();
     options.args = positional.next();
-    if options.provider.is_some() && options.method.is_none() {
+    if options.method.is_none()
+        && options
+            .provider
+            .as_deref()
+            .is_some_and(|word| !is_address(word))
+    {
         return Err(format!("a provider needs a method to call\n{USAGE}"));
     }
     if let Some(extra) = positional.next() {
@@ -175,6 +196,9 @@ async fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
             .map_or_else(|| "null".to_owned(), |value| value.to_json().to_string());
         eprintln!("  setting {} = {value}", setting.key);
     }
+    if let Some(scripts) = &manifest.site {
+        return try_site(&host, &info.id, scripts, &options);
+    }
 
     let (Some(provider), Some(method)) = (options.provider, options.method) else {
         return Ok(());
@@ -234,6 +258,63 @@ async fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
             "took {} ms (Raygun waits up to {} s)",
             elapsed.as_millis(),
             limit.as_secs()
+        );
+    }
+    Ok(())
+}
+
+/// What a site-scripts extension does on a page: which groups run there and with what, and the
+/// script the browser injects when `--bundle` asks for it.
+fn try_site(
+    host: &ExtensionHost,
+    id: &str,
+    scripts: &raygun_ext_host::site::SiteScripts,
+    options: &Options,
+) -> Result<(), String> {
+    eprintln!(
+        "  runs on {} (origins {})",
+        scripts.patterns().join(", "),
+        scripts.origin_rules().join(", ")
+    );
+    if let Some(address) = options.provider.as_deref() {
+        let page = url::Url::parse(address).map_err(|error| format!("{address}: {error}"))?;
+        for (index, group) in scripts.groups.iter().enumerate() {
+            let files = group
+                .js
+                .iter()
+                .chain(&group.css)
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let frames = if group.all_frames {
+                "every frame"
+            } else {
+                "the top page"
+            };
+            let verdict = if group.runs_on(&page) {
+                format!("runs at {} in {frames}", group.run_at.as_str())
+            } else {
+                "doesn't run".to_owned()
+            };
+            eprintln!("  group {index} ({files}): {verdict}");
+        }
+        if !scripts.matches(&page) {
+            eprintln!("nothing runs on {address}");
+        }
+    }
+    if let Some(path) = &options.bundle {
+        let site = host
+            .site_extensions()
+            .into_iter()
+            .find(|site| site.id == id)
+            .ok_or("the extension is turned off")?;
+        let code = site.compose(raygun_ext_host::site::Platform::Desktop)?;
+        std::fs::write(path, &code)
+            .map_err(|error| format!("can't write {}: {error}", path.display()))?;
+        eprintln!(
+            "wrote the script Raygun injects ({} bytes) to {}",
+            code.len(),
+            path.display()
         );
     }
     Ok(())

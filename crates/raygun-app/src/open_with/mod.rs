@@ -147,6 +147,31 @@ pub fn ready(app: &AppHandle) {
     }
 }
 
+/// An address handed over from inside Raygun (an offer of a page in the websites browser): a
+/// stream or file goes to its player, anything else where shared text goes (Search, Import).
+pub fn hand_over(app: &AppHandle, url: &str, title: Option<&str>) {
+    let Some(service) = app.try_state::<Arc<OpenWith>>() else {
+        return;
+    };
+    let playable = !matches!(route::kind_of(url, None, None), Kind::Other);
+    service.receive(if playable {
+        Handover {
+            items: vec![Handed {
+                uri: url.to_owned(),
+                name: title.map(str::to_owned),
+                ..Handed::default()
+            }],
+            ..Handover::default()
+        }
+    } else {
+        Handover {
+            items: Vec::new(),
+            text: Some(url.to_owned()),
+            subject: title.map(str::to_owned),
+        }
+    });
+}
+
 /// Files and addresses the desktop app was started with; the first argument is the program.
 #[cfg_attr(target_os = "android", allow(dead_code))]
 pub fn from_args(app: &AppHandle, args: &[String], cwd: &Path) {

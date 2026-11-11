@@ -134,6 +134,7 @@ pub fn entry_of(bytes: &[u8], url: &url::Url) -> Option<RepoEntry> {
         sha256: crate::package::sha256_hex(bytes),
         size: bytes.len() as u64,
         format: crate::repo::PackageFormat::Miru,
+        sites: Vec::new(),
     })
 }
 

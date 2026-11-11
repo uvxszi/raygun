@@ -1449,7 +1449,8 @@
       "novel.source": "Novel source",
       "video.source": "Movies and series source",
       "podcast.directory": "Podcast directory",
-      "audiobook.directory": "Audiobook directory"
+      "audiobook.directory": "Audiobook directory",
+      "site.scripts": "Site scripts"
     },
     "installing": "Installing",
     "queued": "Waiting",
@@ -1484,7 +1485,10 @@
       "failed_other": "{{count}} failed",
       "retry": "Retry",
       "dismiss": "Dismiss"
-    }
+    },
+    "runsOnTitle": "Runs on websites",
+    "runsOnHint": "Its scripts run in these sites’ pages in Raygun’s browser, with the pages’ own access",
+    "everySite": "Every site"
   },
   "collectionLength": {
     "about": "about {{length}}",
@@ -3288,7 +3292,19 @@
     "clearData": "Clear website data",
     "cleared": "Cookies, logins and saved data of websites were cleared.",
     "desktop": "Open sites in desktop mode",
-    "desktopHint": "Asks sites for their computer version; each site can switch"
+    "desktopHint": "Asks sites for their computer version; each site can switch",
+    "backgroundPlay": "Keep playing in the background",
+    "backgroundPlayHint": "A site that plays keeps playing with the screen off or Raygun in the background, with its controls in a notification",
+    "backgroundPlayHintDesktop": "A site that plays keeps playing while its window is minimized",
+    "scriptsTitle": "Site scripts",
+    "scriptsHint": "Extensions that improve websites in Raygun’s browser. Switches apply the next time a site opens.",
+    "scriptsNone": "No site scripts installed",
+    "scriptsNoWebsites": "None of your websites",
+    "scriptsRunsOn": "Runs on {{sites}}",
+    "scriptsOnSite": "Runs {{name}} here",
+    "scriptsFind": "Find site scripts in Sources",
+    "scriptsLoadFailed": "Site scripts couldn’t be read",
+    "scriptsAdded": "{{names}} runs on this site"
   },
   "desktopPlayer": {
     "player": "Video player",

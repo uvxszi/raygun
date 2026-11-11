@@ -92,11 +92,11 @@ describe('SDK types', () => {
 
   it('list every call of every kind as the CLI does', () => {
     assertTrue<Complete>();
+    // Site scripts register no providers: they run in the pages of Raygun's browser.
     const table = Object.fromEntries(
-      Object.entries(kinds).map(([kind, info]) => [
-        kind,
-        { required: info.required, optional: info.optional },
-      ]),
+      Object.entries(kinds)
+        .filter(([kind]) => kind !== 'site.scripts')
+        .map(([kind, info]) => [kind, { required: info.required, optional: info.optional }]),
     );
     expect(table).toEqual(CALLS);
     // Every call has the arguments `raygun-ext test` fills in.

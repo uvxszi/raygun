@@ -31,6 +31,8 @@ pub enum PackageError {
     Mismatch(String),
     #[error("package is missing its entry file {0}")]
     NoEntry(String),
+    #[error("package is missing {0}, which its site scripts use")]
+    MissingFile(String),
     #[error("could not install: {0}")]
     Io(String),
 }
@@ -135,7 +137,42 @@ pub fn verify(bytes: &[u8], entry: &RepoEntry) -> Result<VerifiedPackage, Packag
     if !files.iter().any(|(name, _)| name == &manifest.entry) {
         return Err(PackageError::NoEntry(manifest.entry.clone()));
     }
+    check_site(&manifest, entry, &files)?;
     Ok(VerifiedPackage { manifest, files })
+}
+
+/// A site-scripts extension's package: every file its scripts use is in it, and the sites they
+/// run on are the ones its repository lists (and people saw before installing).
+fn check_site(
+    manifest: &Manifest,
+    entry: &RepoEntry,
+    files: &[(String, Vec<u8>)],
+) -> Result<(), PackageError> {
+    let listed: BTreeSet<&str> = entry.sites.iter().map(String::as_str).collect();
+    let Some(site) = &manifest.site else {
+        return if listed.is_empty() {
+            Ok(())
+        } else {
+            Err(PackageError::Mismatch(
+                "the repository lists sites for scripts it doesn't have".to_owned(),
+            ))
+        };
+    };
+    if let Some(missing) = site
+        .files()
+        .into_iter()
+        .find(|path| !files.iter().any(|(name, _)| name == path))
+    {
+        return Err(PackageError::MissingFile(missing.to_owned()));
+    }
+    let patterns = site.patterns();
+    let actual: BTreeSet<&str> = patterns.iter().map(String::as_str).collect();
+    if listed != actual {
+        return Err(PackageError::Mismatch(
+            "the sites its scripts run on differ from the ones the repository lists".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// The entry a repository would list for a package found on its own, at `package` (an address
@@ -187,6 +224,11 @@ pub fn entry_of(bytes: &[u8], package: &str) -> Result<RepoEntry, PackageError> 
         sha256: sha256_hex(bytes),
         size: bytes.len() as u64,
         format: crate::repo::PackageFormat::Raygun,
+        sites: manifest
+            .site
+            .as_ref()
+            .map(crate::site::SiteScripts::patterns)
+            .unwrap_or_default(),
     })
 }
 

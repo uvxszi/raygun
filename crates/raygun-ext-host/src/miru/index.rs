@@ -167,6 +167,7 @@ pub fn parse(json: &str) -> Option<RepoIndex> {
                 sha256: String::new(),
                 size: 0,
                 format: PackageFormat::Miru,
+                sites: Vec::new(),
                 id,
             })
         })();

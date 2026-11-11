@@ -1,0 +1,30 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "site",
+  "entry": "dist/index.js",
+  "description": "Wikipedia articles with a reading time and wider text.",
+  "website": "https://en.wikipedia.org",
+  "provides": ["site.scripts"],
+  "site": {
+    "scripts": [
+      {
+        "matches": ["https://en.wikipedia.org/wiki/*", "https://en.m.wikipedia.org/wiki/*"],
+        "js": ["dist/index.js"],
+        "css": ["styles/index.css"],
+        "runAt": "document-end"
+      }
+    ]
+  },
+  "settings": [
+    { "key": "readingTime", "type": "boolean", "label": "Show a reading time", "default": true },
+    {
+      "key": "wordsPerMinute",
+      "type": "number",
+      "label": "Words read in a minute",
+      "default": 230
+    }
+  ]
+}

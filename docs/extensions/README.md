@@ -34,6 +34,7 @@ a legal site. `raygun-ext init --kind <kind>` creates that example as a new exte
 | [`video.source`](video-source.md)               | Films and series: lists, search, episodes, videos               | Internet Archive         |
 | [`podcast.directory`](podcast-directory.md)     | Podcasts to find and follow                                     | NASA, LibriVox           |
 | [`audiobook.directory`](audiobook-directory.md) | Audiobooks to find, with their chapters                         | LibriVox                 |
+| [`site.scripts`](site-scripts.md)               | Scripts and styles for websites opened in Raygun's browser      | Wikipedia                |
 
 One extension may provide several kinds; it lists them all in its manifest's `provides`.
 MusicBrainz's genres, for example, are a `music.tags` provider with the id `genres`.
@@ -50,12 +51,15 @@ npm. From the checkout's root it runs as `pnpm raygun-ext`; inside an extension'
 | `build [dir]`                              | Bundles `src/index.ts` into the manifest's `entry`.                                                 |
 | `validate [dir]`                           | Checks the manifest, the types, the providers and their calls, and the hosts the code fetches from. |
 | `test [dir] <provider> <method> [args]`    | Runs one call in Raygun's own extension host and says what Raygun keeps of the answer.              |
+| `test [dir] <page address> [--bundle f]`   | Site scripts: which of them run on a page, and the script Raygun injects there.                     |
 | `dev [dir] --into <folder>` / `--android`  | Rebuilds on every save and installs into an app on this computer or a phone.                        |
 | `pack [dir] --repo <folder>`               | Adds a package to a repository folder and rewrites its `index.json`.                                |
 | `pack-all <folder> --repo <folder>`        | Packs every extension in a folder.                                                                  |
 
 ## How extensions run
 
+- **Site scripts** are the exception: they run in the pages of Raygun's websites browser, not in
+  Raygun ([Site scripts](site-scripts.md)).
 - **Sandbox.** Each extension runs in its own QuickJS runtime (ES2022) inside Raygun, on Android
   and desktop alike. There is no `fetch`, `URL`, `setTimeout`, DOM, Node API or file access: only
   the [`raygun` global](host-api.md). The bundle is one plain script, without a module loader.

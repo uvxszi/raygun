@@ -674,7 +674,14 @@ mod tests {
         )))
         .unwrap();
         let kinds = kinds.as_object().unwrap();
-        assert_eq!(kinds.len(), 12);
+        // Twelve kinds of providers, and site scripts (`crate::site`), which have no calls.
+        assert_eq!(kinds.len(), 13);
+        assert!(
+            kinds["site.scripts"]["required"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
         for (kind, info) in kinds {
             for list in ["required", "optional"] {
                 for method in info[list].as_array().unwrap() {

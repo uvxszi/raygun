@@ -932,13 +932,14 @@ export type Manifest = {
   /** Semver; a new version for every published change. */
   version: string;
   apiVersion: 1;
-  runtime: 'js';
-  /** The bundle `raygun-ext build` writes, normally `dist/index.js`. */
+  /** `site` for site scripts, which run in the pages of Raygun's websites browser. */
+  runtime: 'js' | 'site';
+  /** The bundle `raygun-ext build` writes, normally `dist/index.js`; one of a site's scripts. */
   entry: string;
   description?: string;
   author?: string;
-  /** Every provider kind the extension registers. */
-  provides: ProviderKind[];
+  /** Every provider kind the extension registers; `site.scripts` alone for site scripts. */
+  provides: (ProviderKind | 'site.scripts')[];
   permissions?: {
     /**
      * Hosts `raygun.http.fetch` may reach: `api.example.org` (that host only), `*.example.org`
@@ -958,4 +959,21 @@ export type Manifest = {
   settings?: SettingDef[];
   /** The site the sources read (http or https); a source's menu opens it in Raygun's browser. */
   website?: string;
+  /** Site scripts' groups (runtime `site`): docs/extensions/site-scripts.md. */
+  site?: { scripts: SiteScriptGroup[] };
+};
+
+/** Scripts and styles for the pages some match patterns name (runtime `site`). */
+export type SiteScriptGroup = {
+  /** Match patterns like https://*.example.com/path, where a star in the path matches anything. */
+  matches: string[];
+  excludeMatches?: string[];
+  /** Scripts, run in order; `dist/<name>.js` is built from `src/<name>.ts` when there. */
+  js?: string[];
+  /** Style sheets, added at the start of the page. */
+  css?: string[];
+  /** `document-idle` when left out. */
+  runAt?: 'document-start' | 'document-end' | 'document-idle';
+  /** Frames too; the top page only when left out. */
+  allFrames?: boolean;
 };

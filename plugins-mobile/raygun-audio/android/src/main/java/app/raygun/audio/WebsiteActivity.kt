@@ -12,12 +12,15 @@ import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
+import android.os.SystemClock
+import android.util.Log
 import android.util.TypedValue
 import android.view.ContextMenu
 import android.view.Gravity
@@ -49,6 +52,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.os.BundleCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.util.UUID
@@ -81,6 +89,17 @@ internal object WebProcess {
  * picked folder) and go to Raygun's downloads in the same broadcast, with the page's cookies,
  * User-Agent and Referer; Raygun's word on them comes back to the download bar under the page
  * ([DownloadBar]). Links to apps are held. Only "Open in another browser" hands a page over.
+ *
+ * Site scripts: extensions may add scripts to pages of the sites they name. Raygun composes each
+ * one's into a bundle and names the files in the request; every tab registers Raygun's page bridge
+ * (`raygunBridge`, every frame) and then each bundle that's on, for its origins. Through the bridge
+ * pages say hello, report what plays and offer videos, songs and playlists to Raygun (the bar's
+ * "In Raygun" sheet); the browser tells them when it leaves the screen and passes on controls. The
+ * menu switches each extension's scripts and offers to install suggested ones.
+ *
+ * Background play (`backgroundPlay`, on unless the request says otherwise): a page that plays goes
+ * on when the browser leaves the screen ([PageWebView]), shown in a media notification
+ * ([WebMediaService]) whose controls go to the frame that plays.
  */
 class WebsiteActivity : AppCompatActivity() {
     companion object {
@@ -88,7 +107,20 @@ class WebsiteActivity : AppCompatActivity() {
         const val ACTION_REPORT = "app.raygun.audio.WEBSITE_REPORT"
         /** Raygun's word on the downloads this browser started, to the browser's process. */
         const val ACTION_DOWNLOADS = "app.raygun.audio.WEBSITE_DOWNLOADS"
+        /** Raygun's word on the site scripts (the list after an install, or a failed one), to the browser's process. */
+        const val ACTION_SCRIPTS = "app.raygun.audio.WEBSITE_SCRIPTS"
         const val EXTRA_REPORT = "json"
+        /** How often pages hear how things stand while the browser is off screen, ms. */
+        private const val STATE_EVERY_MS = 3_000L
+        /** Off screen, how long nothing may play before the notification goes and pages rest, ms. */
+        private const val QUIET_REST_MS = 15_000L
+        /** A main frame's hello this soon before its page start is that page's own, ms. */
+        private const val HELLO_RACE_MS = 500L
+        /** Offers the sheet lists, at most (the newest). */
+        private const val SHEET_OFFERS = 5
+        /** The menu's items for site scripts and for suggested ones start at these ids. */
+        private const val SCRIPT_ITEMS = 100
+        private const val SUGGESTION_ITEMS = 200
         private const val DESKTOP_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
         private val EMPTY = ByteArray(0)
@@ -113,8 +145,10 @@ class WebsiteActivity : AppCompatActivity() {
     private lateinit var shieldView: TextView
     private lateinit var tabsButton: View
     private lateinit var tabsCount: TextView
+    /** "In Raygun": shown while the tab shown offers something. */
+    private lateinit var offersButton: View
     private lateinit var progress: ProgressBar
-    private lateinit var fullScreen: FrameLayout
+    private lateinit var fullScreen: KeptVisibleFrame
     private lateinit var notice: TextView
     private lateinit var downloads: DownloadBar
     private var tabList: TabListPopup? = null
@@ -150,6 +184,13 @@ class WebsiteActivity : AppCompatActivity() {
         }
     }
 
+    /** Raygun's word on the site scripts, from its process. */
+    private val scriptReports = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            intent.getStringExtra(EXTRA_REPORT)?.let { scriptsReport(it) }
+        }
+    }
+
     private var siteId = ""
     private var home = ""
     private var blockAds = true
@@ -160,10 +201,36 @@ class WebsiteActivity : AppCompatActivity() {
     @Volatile private var blockedRequests = 0
     private var blockedPopups = 0
 
+    /** Pages that play go on off screen. */
+    private var backgroundPlay = true
+    /** Raygun's page bridge; null without one. */
+    private var bridgeCode: String? = null
+    private var siteScripts: MutableList<SiteScript> = mutableListOf()
+    private var suggestions: List<SiteSuggestion> = emptyList()
+    /** Suggestions said in a notice while the browser is open (once each), and ones being installed. */
+    private val suggested = mutableSetOf<String>()
+    private val installing = mutableSetOf<String>()
+    /** Raygun's word on site scripts read so far: only the newest is used. */
+    private var scriptsHeard = 0
+    /** Between onStart and onStop. */
+    private var onScreen = false
+    /** The tab whose media the notification shows. */
+    private var mediaTab: BrowserTab? = null
+    /** Whether pages hear how things stand every few seconds (off screen). */
+    private var ticking = false
+    /** The views are made (not when the browser closed at once, with no request). */
+    private var built = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         WebProcess.init()
         super.onCreate(savedInstanceState)
-        val request = runCatching { JSONObject(intent.getStringExtra(EXTRA_REQUEST) ?: "{}") }.getOrDefault(JSONObject())
+        val asked = intent.getStringExtra(EXTRA_REQUEST)
+        if (asked == null && savedInstanceState == null) {
+            // Only the playing notification opens the browser without a request: for one that's gone.
+            finish()
+            return
+        }
+        val request = runCatching { JSONObject(asked ?: "{}") }.getOrDefault(JSONObject())
         siteId = request.optString("id")
         home = request.optString("home")
         blockAds = request.optBoolean("blockAds", true)
@@ -171,14 +238,28 @@ class WebsiteActivity : AppCompatActivity() {
         desktop = request.optBoolean("desktop", false)
         val listPath = request.optString("blocklist").ifBlank { null }
         thread(name = "raygun-blocklist") { blocklist = Blocklist.load(listPath) }
+        backgroundPlay = request.optBoolean("backgroundPlay", true)
+        bridgeCode = readScript(request.text("bridge"))
+        // The switches as they were when the browser is made again (Raygun keeps them too).
+        val keptScripts = savedInstanceState?.getString("siteScripts")?.let { runCatching { JSONArray(it) }.getOrNull() }
+        siteScripts = parseSiteScripts(keptScripts ?: request.optJSONArray("siteScripts"))
+        suggestions = parseSuggestions(request.optJSONArray("suggestions"))
+        savedInstanceState?.getStringArrayList("suggested")?.let { suggested.addAll(it) }
 
         mobileAgent = runCatching { WebSettings.getDefaultUserAgent(this) }.getOrDefault("")
         CookieManager.getInstance().setAcceptCookie(true)
         buildViews()
+        built = true
         ContextCompat.registerReceiver(
             this,
             downloadReports,
             IntentFilter(ACTION_DOWNLOADS),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        ContextCompat.registerReceiver(
+            this,
+            scriptReports,
+            IntentFilter(ACTION_SCRIPTS),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -190,6 +271,14 @@ class WebsiteActivity : AppCompatActivity() {
             downloads.restore(savedInstanceState)
         }
         if (!restored) openTab(request.optString("url").ifBlank { home }, opener = null)
+    }
+
+    /**
+     * The playing notification brings the browser back as it was: nothing new to open, and the
+     * first request stays the one read when the browser is made again.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
     }
 
     private fun back() {
@@ -238,6 +327,8 @@ class WebsiteActivity : AppCompatActivity() {
             setOnClickListener { showBlocked() }
         }
         bar.addView(shieldView)
+        offersButton = iconButton(R.drawable.raygun_ic_play, "In Raygun") { showOffers() }.apply { visibility = View.GONE }
+        bar.addView(offersButton)
         bar.addView(iconButton(R.drawable.raygun_ic_reload, "Reload") { tab.webView.reload() })
         val (button, count) = tabCountButton { showTabs() }
         tabsButton = button.apply { visibility = View.GONE }
@@ -286,7 +377,8 @@ class WebsiteActivity : AppCompatActivity() {
         // A camera cutout too (at a side in landscape), and the keyboard below.
         SafeInsets.pad(root, keyboard = true)
         root.addView(column)
-        fullScreen = FrameLayout(this).apply {
+        // A page's video full screen: shown to the page while the browser is away and it plays.
+        fullScreen = KeptVisibleFrame(this) { ::tab.isInitialized && tab.pageView.keepVisible }.apply {
             setBackgroundColor(Color.BLACK)
             visibility = View.GONE
         }
@@ -314,7 +406,7 @@ class WebsiteActivity : AppCompatActivity() {
             showNotice("Close a tab to open another")
             return null
         }
-        val view = WebView(this)
+        val view = PageWebView(this)
         val made = BrowserTab(nextTabId++, view, opener?.id)
         setUp(made)
         view.visibility = View.GONE
@@ -352,6 +444,7 @@ class WebsiteActivity : AppCompatActivity() {
         }
         // A long press on a link: Open in new tab, Copy link.
         registerForContextMenu(view)
+        addPageScripts(owner)
     }
 
     private fun switchTo(next: BrowserTab) {
@@ -365,6 +458,7 @@ class WebsiteActivity : AppCompatActivity() {
         progress.progress = next.progress
         progress.visibility = if (next.progress < 100) View.VISIBLE else View.GONE
         onTabsChanged()
+        updateOffersButton()
         next.heldJump?.let { held ->
             next.heldJump = null
             showHeldJump(next, held)
@@ -385,6 +479,7 @@ class WebsiteActivity : AppCompatActivity() {
         if (closing === tab) {
             switchTo(tabs.firstOrNull { it.id == closing.opener } ?: tabs[minOf(index, tabs.size - 1)])
         }
+        forgetPage(closing)
         pages.removeView(closing.webView)
         closing.webView.stopLoading()
         closing.webView.destroy()
@@ -557,8 +652,29 @@ class WebsiteActivity : AppCompatActivity() {
             isCheckable = true
             isChecked = blockAds
         }
+        // Site scripts: each extension's switch, then the ones this page could use.
+        val scripts = siteScripts.toList()
+        scripts.forEachIndexed { index, script ->
+            menu.menu.add(0, SCRIPT_ITEMS + index, 10 + index, script.name).apply {
+                isCheckable = true
+                isChecked = script.on
+            }
+        }
+        val installable = suggestionsFor(Uri.parse(view.url ?: tab.address))
+        installable.forEachIndexed { index, suggestion ->
+            val busy = suggestion.id in installing
+            menu.menu.add(
+                0,
+                SUGGESTION_ITEMS + index,
+                80 + index,
+                if (busy) "Installing ${suggestion.name}…" else "Install ${suggestion.name}…",
+            ).isEnabled = !busy
+        }
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
+                in SCRIPT_ITEMS until SCRIPT_ITEMS + scripts.size -> toggleScript(scripts[item.itemId - SCRIPT_ITEMS])
+                in SUGGESTION_ITEMS until SUGGESTION_ITEMS + installable.size ->
+                    install(installable[item.itemId - SUGGESTION_ITEMS])
                 1 -> view.goForward()
                 2 -> view.loadUrl(home)
                 3 -> {
@@ -623,13 +739,6 @@ class WebsiteActivity : AppCompatActivity() {
     }
 
     private fun showSheet(download: JSONObject, name: String, type: String?, length: Long, from: String?) {
-        closeSheet()
-        val root = window.decorView.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as? FrameLayout ?: return
-        val scrim = FrameLayout(this).apply {
-            setBackgroundColor(SCRIM)
-            isClickable = true
-            setOnClickListener { closeSheet() }
-        }
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(PANEL, dp(20).toFloat())
@@ -677,6 +786,18 @@ class WebsiteActivity : AppCompatActivity() {
             }
         })
         panel.addView(choice(getString(android.R.string.cancel), false) { closeSheet() })
+        hostSheet(panel)
+    }
+
+    /** `panel` at the window's foot over the dimmed page; a tap outside or Back closes it. */
+    private fun hostSheet(panel: View) {
+        closeSheet()
+        val root = window.decorView.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as? FrameLayout ?: return
+        val scrim = FrameLayout(this).apply {
+            setBackgroundColor(SCRIM)
+            isClickable = true
+            setOnClickListener { closeSheet() }
+        }
         scrim.addView(
             panel,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -787,6 +908,7 @@ class WebsiteActivity : AppCompatActivity() {
                 hostView.text = Uri.parse(url).host ?: url
                 progress.visibility = View.VISIBLE
             }
+            pageStarted(owner, url)
         }
 
         override fun onPageFinished(view: WebView, url: String) {
@@ -794,6 +916,7 @@ class WebsiteActivity : AppCompatActivity() {
             if (owner === tab) {
                 progress.visibility = View.GONE
                 report()
+                suggestFor(owner, url)
             }
             tabList?.refresh()
         }
@@ -898,6 +1021,438 @@ class WebsiteActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
+    // ---- Site scripts and the page bridge ----
+
+    private val BrowserTab.pageView: PageWebView get() = webView as PageWebView
+
+    private val BrowserTab.page: TabPage get() = pageView.page
+
+    /**
+     * What every page the tab loads gets: the bridge's listener and script (every frame), then
+     * each extension's bundle that's on, for its origins. Without document-start scripts they run
+     * as each page starts instead ([runScriptsLate]); without web message listeners pages have no
+     * bridge (scripts still run).
+     */
+    private fun addPageScripts(owner: BrowserTab) {
+        val view = owner.webView
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            runCatching { WebViewCompat.addWebMessageListener(view, BRIDGE_NAME, setOf("*"), Bridge(owner)) }
+                .onFailure { Log.w("RaygunAudio", "pages have no bridge", it) }
+        }
+        val code = bridgeCode
+        if (code != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            owner.page.bridge = runCatching { WebViewCompat.addDocumentStartJavaScript(view, code, setOf("*")) }
+                .onFailure { Log.w("RaygunAudio", "the page bridge couldn't be added", it) }
+                .getOrNull()
+        }
+        siteScripts.filter { it.on }.forEach { addScript(owner, it) }
+    }
+
+    private fun addScript(owner: BrowserTab, script: SiteScript) {
+        val code = script.code ?: return
+        if (script.origins.isEmpty()) return
+        removeScript(owner, script.id)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            runCatching { WebViewCompat.addDocumentStartJavaScript(owner.webView, code, script.origins.toSet()) }
+                .onSuccess { owner.page.scripts[script.id] = Registered(it, code) }
+                .onFailure { Log.w("RaygunAudio", "${script.id}'s site scripts couldn't be added", it) }
+        }
+    }
+
+    private fun removeScript(owner: BrowserTab, id: String) {
+        val registered = owner.page.scripts.remove(id) ?: return
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            runCatching { registered.handler.remove() }
+        }
+    }
+
+    /** The tab's scripts as the list has them now: gone, switched off or changed ones go, new ones come. */
+    private fun syncScripts(owner: BrowserTab) {
+        val registered = owner.page.scripts
+        for (id in registered.keys.toList()) {
+            val script = siteScripts.firstOrNull { it.id == id }
+            if (script == null || !script.on || script.code != registered[id]?.code) removeScript(owner, id)
+        }
+        siteScripts.filter { it.on && it.id !in registered }.forEach { addScript(owner, it) }
+    }
+
+    /** Without document-start scripts: the bridge and the bundles for the page's origin, as it starts. */
+    private fun runScriptsLate(owner: BrowserTab, url: String) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
+        val view = owner.webView
+        bridgeCode?.let { view.evaluateJavascript(it, null) }
+        val origin = Uri.parse(url)
+        siteScripts.filter { it.on && it.runsOn(origin) }.forEach { script ->
+            script.code?.let { view.evaluateJavascript(it, null) }
+        }
+    }
+
+    /** A page started in the tab's main frame: what the one before said through the bridge goes. */
+    private fun pageStarted(owner: BrowserTab, url: String) {
+        // The new page's hello may arrive first: a main-frame hello just now was that page's own.
+        if (SystemClock.uptimeMillis() - owner.page.mainHelloAt > HELLO_RACE_MS) newPage(owner)
+        runScriptsLate(owner, url)
+    }
+
+    private fun newPage(owner: BrowserTab) {
+        val page = owner.page
+        val hadMedia = page.media != null
+        page.clear()
+        if (owner === tab) updateOffersButton()
+        if (hadMedia) mediaChanged(owner) else keepFor(owner)
+    }
+
+    /** A tab closed: its media and offers go with it. */
+    private fun forgetPage(closing: BrowserTab) {
+        closing.page.clear()
+        if (mediaTab === closing) {
+            mediaTab = tabs.firstOrNull { it.page.media?.playing == true } ?: tabs.firstOrNull { it.page.media != null }
+            showMedia()
+        }
+    }
+
+    /** Messages from a tab's pages (`raygunBridge.postMessage`), on the main thread. */
+    private inner class Bridge(private val owner: BrowserTab) : WebViewCompat.WebMessageListener {
+        override fun onPostMessage(
+            view: WebView,
+            message: WebMessageCompat,
+            sourceOrigin: Uri,
+            isMainFrame: Boolean,
+            replyProxy: JavaScriptReplyProxy,
+        ) {
+            if (owner !in tabs || message.type != WebMessageCompat.TYPE_STRING) return
+            val data = runCatching { message.data }.getOrNull() ?: return
+            if (data.length > MAX_PAGE_MESSAGE) return
+            val json = runCatching { JSONObject(data) }.getOrNull() ?: return
+            when (json.optString("type")) {
+                "hello" -> hello(owner, replyProxy, isMainFrame)
+                "media" -> mediaReport(owner, json, replyProxy)
+                "offer" -> parseOffer(json, sourceOrigin, siteScripts)?.let { offer ->
+                    owner.page.addOffer(offer)
+                    if (owner === tab) updateOffersButton()
+                }
+                "withdraw" -> if (withdrawOffers(owner.page, json, sourceOrigin) && owner === tab) updateOffersButton()
+            }
+        }
+    }
+
+    /** A frame's bridge started: the frame is answered from now on; a main frame's starts a new page. */
+    private fun hello(owner: BrowserTab, frame: JavaScriptReplyProxy, isMainFrame: Boolean) {
+        val page = owner.page
+        if (isMainFrame) {
+            // What older pages said goes (their page start may come after this).
+            if (page.frames.isNotEmpty() || page.offers.isNotEmpty() || page.media != null) newPage(owner)
+            page.mainHelloAt = SystemClock.uptimeMillis()
+        }
+        page.addFrame(frame)
+        // A page that starts while the browser is away (the next one, playing on) hears so at once.
+        if (!onScreen) frame.tell(pageState())
+    }
+
+    /** What plays in a frame: `playing`, `paused`, or `none` (said by the frame that played). */
+    private fun mediaReport(owner: BrowserTab, json: JSONObject, frame: JavaScriptReplyProxy) {
+        val page = owner.page
+        page.addFrame(frame)
+        val media = parseMedia(json, frame)
+        if (media == null) {
+            if (json.optString("state") != "none") return
+            val was = page.media ?: return
+            if (was.frame !== frame) return
+            page.media = null
+        } else {
+            page.media = media
+        }
+        mediaChanged(owner)
+    }
+
+    /** A `control` message to the frame that plays. */
+    private fun postControl(frame: JavaScriptReplyProxy, action: String, seekTime: Double? = null) {
+        val json = JSONObject().put("type", "control").put("action", action)
+        if (seekTime != null && seekTime.isFinite()) json.put("seekTime", seekTime)
+        frame.tell(json.toString())
+    }
+
+    /** How things stand, for pages: off screen or not, a call, other sound playing. */
+    private fun pageState(): String {
+        val audio = getSystemService(AudioManager::class.java)
+        return JSONObject()
+            .put("type", "state")
+            .put("background", !onScreen)
+            .put("call", audio != null && audio.mode != AudioManager.MODE_NORMAL)
+            .put("audioActive", audio?.isMusicActive == true)
+            .toString()
+    }
+
+    /** To every frame that said hello, in every tab. */
+    private fun sendState() {
+        val state = pageState()
+        tabs.forEach { owner -> owner.page.frames.forEach { frame -> frame.tell(state) } }
+    }
+
+    /** Off screen while something plays or is paused: pages hear how things stand every 3 s. */
+    private val stateTicks = object : Runnable {
+        override fun run() {
+            ticking = false
+            if (onScreen || tabs.none { it.page.media != null }) return
+            sendState()
+            ticking = true
+            main.postDelayed(this, STATE_EVERY_MS)
+        }
+    }
+
+    private fun startStateTicks() {
+        if (!backgroundPlay || ticking || onScreen) return
+        ticking = true
+        main.postDelayed(stateTicks, STATE_EVERY_MS)
+    }
+
+    private fun stopStateTicks() {
+        main.removeCallbacks(stateTicks)
+        ticking = false
+    }
+
+    // ---- What pages offer ----
+
+    private fun updateOffersButton() {
+        if (!::tab.isInitialized) return
+        offersButton.visibility = if (tab.page.offers.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun showOffers() {
+        val owner = tab
+        val offers = owner.page.offers.take(SHEET_OFFERS)
+        if (offers.isEmpty()) return
+        hostSheet(offersPanel(offers) { offer, action -> pageAction(owner, offer, action) })
+    }
+
+    /**
+     * An offer taken up: Raygun plays, queues, saves or downloads it. Playing pauses the page; a
+     * video or a playlist plays in Raygun's own window, so the browser closes for it.
+     */
+    private fun pageAction(owner: BrowserTab, offer: PageOffer, action: String) {
+        closeSheet()
+        if (owner !in tabs) return
+        send(
+            JSONObject().put(
+                "pageAction",
+                JSONObject()
+                    .put("site", siteId)
+                    .put("page", owner.webView.url ?: offer.page)
+                    .put("extension", offer.extension)
+                    .put("action", action)
+                    .put("offer", offer.json()),
+            ),
+        )
+        showNotice(
+            when (action) {
+                "play" -> "Playing in Raygun"
+                "queue" -> "Added to Raygun's queue"
+                "save" -> "Saved to your library"
+                else -> "Downloading in Raygun"
+            },
+        )
+        if (action != "play") return
+        owner.page.media?.frame?.let { postControl(it, "pause") }
+        if (offer.kind == "video" || offer.kind == "playlist") {
+            report()
+            finish()
+        }
+    }
+
+    // ---- The menu's site scripts ----
+
+    /** Suggested extensions, not installed, whose scripts run on pages of `origin`. */
+    private fun suggestionsFor(origin: Uri): List<SiteSuggestion> = suggestions.filter { suggestion ->
+        siteScripts.none { it.id == suggestion.id } && suggestion.origins.any { originMatches(it, origin) }
+    }
+
+    /** An extension's scripts switched on or off for this site: Raygun keeps it; the page loads again. */
+    private fun toggleScript(script: SiteScript) {
+        if (siteScripts.none { it === script }) return
+        script.on = !script.on
+        send(JSONObject().put("siteScripts", JSONObject().put("site", siteId).put("extension", script.id).put("on", script.on)))
+        tabs.forEach { owner ->
+            if (script.on) {
+                addScript(owner, script)
+            } else {
+                removeScript(owner, script.id)
+                owner.page.offers.removeAll { it.extension == script.id }
+            }
+        }
+        updateOffersButton()
+        tab.webView.reload()
+    }
+
+    private fun install(suggestion: SiteSuggestion) {
+        installing.add(suggestion.id)
+        send(
+            JSONObject().put(
+                "installSiteScripts",
+                JSONObject().put("site", siteId).put("extension", suggestion.id).put("repository", suggestion.repository),
+            ),
+        )
+        showNotice("Installing ${suggestion.name}…")
+    }
+
+    /** A page finished in the tab shown: a suggestion for it, once while the browser is open. */
+    private fun suggestFor(owner: BrowserTab, url: String) {
+        // Another notice says something now: next time.
+        if (owner !== tab || notice.visibility == View.VISIBLE) return
+        val suggestion = suggestionsFor(Uri.parse(url)).firstOrNull { it.id !in suggested && it.id !in installing } ?: return
+        suggested.add(suggestion.id)
+        showNotice("${suggestion.name} can improve this site", "Install") { install(suggestion) }
+    }
+
+    /** Raygun's word on site scripts: the list after an install (its bundles read off the main thread), or a failure. */
+    private fun scriptsReport(json: String) {
+        val message = runCatching { JSONObject(json) }.getOrNull() ?: return
+        if (message.optString("site") != siteId) return
+        val error = message.text("error")
+        if (error != null) {
+            message.text("extension")?.let { installing.remove(it) }
+            showNotice("Couldn't install: ${firstLine(error)}")
+            return
+        }
+        val list = message.optJSONArray("siteScripts") ?: return
+        val installed = message.text("installed")
+        val heard = ++scriptsHeard
+        thread(name = "raygun-site-scripts") {
+            val read = parseSiteScripts(list)
+            main.post { if (heard == scriptsHeard && !isDestroyed) useScripts(read, installed) }
+        }
+    }
+
+    private fun useScripts(read: MutableList<SiteScript>, installed: String?) {
+        siteScripts = read
+        tabs.forEach { owner ->
+            syncScripts(owner)
+            owner.page.offers.removeAll { offer -> read.none { it.id == offer.extension && it.on } }
+        }
+        updateOffersButton()
+        if (installed == null) return
+        installing.remove(installed)
+        val name = read.firstOrNull { it.id == installed }?.name
+            ?: suggestions.firstOrNull { it.id == installed }?.name
+            ?: "Site scripts"
+        showNotice("$name installed")
+        tab.webView.reload()
+    }
+
+    /** An error's first line, about 80 characters at most. */
+    private fun firstLine(error: String): String {
+        val line = error.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+        return if (line.length > 80) line.take(79).trimEnd() + "…" else line
+    }
+
+    // ---- Playing off screen ----
+
+    /** The notification's and the media session's controls, for the frame that plays. */
+    private val mediaOwner = object : WebMediaOwner {
+        override fun control(action: String, seekTime: Double?) {
+            val frame = mediaTab?.takeIf { it in tabs }?.page?.media?.frame ?: return
+            postControl(frame, action, seekTime)
+        }
+
+        override fun released() {
+            restPages(paused = true)
+        }
+    }
+
+    /** A tab's media changed: whether its page keeps playing off screen, and what the notification shows. */
+    private fun mediaChanged(owner: BrowserTab) {
+        val media = owner.page.media
+        val current = mediaTab?.takeIf { it in tabs && it.page.media != null }
+        mediaTab = when {
+            media?.playing == true -> owner
+            media != null && current == null -> owner
+            current != null -> current
+            else -> tabs.firstOrNull { it.page.media?.playing == true } ?: tabs.firstOrNull { it.page.media != null }
+        }
+        keepFor(owner)
+        showMedia()
+    }
+
+    /**
+     * Whether a tab's page hears it's shown when the browser leaves the screen: while it plays
+     * (with background play). Paused off screen it stays so, as the notification may play it
+     * again; on screen it goes, and off screen [restPages] lets it go.
+     */
+    private fun keepFor(owner: BrowserTab) {
+        val keep = when {
+            !backgroundPlay -> false
+            owner.page.media?.playing == true -> true
+            onScreen -> false
+            else -> owner.pageView.keepVisible
+        }
+        setKeep(owner, keep)
+    }
+
+    private fun setKeep(owner: BrowserTab, keep: Boolean) {
+        val view = owner.pageView
+        if (view.keepVisible == keep) return
+        view.keepVisible = keep
+        // Off screen the page hears it now; on screen the window shows (or is about to) anyway.
+        if (onScreen) return
+        view.tellWindow()
+        if (owner === tab) fullScreen.recheck()
+    }
+
+    /**
+     * Off screen: pages that kept playing rest like the others once nothing plays in them (paused
+     * ones too once the notification went), their WebViews paused as [onPause] would have.
+     */
+    private fun restPages(paused: Boolean) {
+        if (onScreen) return
+        tabs.forEach { owner ->
+            val media = owner.page.media
+            if (media?.playing == true || (media != null && !paused) || !owner.pageView.keepVisible) return@forEach
+            setKeep(owner, false)
+            owner.webView.onPause()
+        }
+    }
+
+    /** Off screen, nothing played for a while: the notification goes and pages rest. */
+    private val quiet = Runnable {
+        if (tabs.none { it.page.media != null }) WebMedia.clear(mediaOwner)
+        restPages(paused = false)
+    }
+
+    /**
+     * The notification shows [mediaTab]'s media. Once no tab has any it goes at once on screen;
+     * off screen after a while, as the page may go on to the next video (a service stopped there
+     * can't start again until the browser is back).
+     */
+    private fun showMedia() {
+        if (!backgroundPlay) return
+        val owner = mediaTab?.takeIf { it in tabs }
+        val media = owner?.page?.media
+        main.removeCallbacks(quiet)
+        if (owner == null || media == null) {
+            if (onScreen) WebMedia.clear(mediaOwner) else main.postDelayed(quiet, QUIET_REST_MS)
+            return
+        }
+        WebMedia.show(this, mediaOwner, mediaInfo(owner, media), offScreen = !onScreen)
+        startStateTicks()
+    }
+
+    private fun mediaInfo(owner: BrowserTab, media: PageMedia): WebMediaInfo {
+        val host = Uri.parse(owner.shownAddress).host
+        val title = firstText(media.title, owner.title, host) ?: "A website"
+        return WebMediaInfo(
+            title = title,
+            artist = media.artist ?: host?.takeIf { it != title },
+            album = media.album,
+            artworkUrl = media.artwork,
+            durationMs = media.duration?.let { (it * 1000).toLong() },
+            positionMs = media.position?.let { (it * 1000).toLong() },
+            rate = media.rate.toFloat(),
+            playing = media.playing,
+            actions = media.actions,
+            at = media.at,
+            userAgent = owner.webView.settings.userAgentString,
+        )
+    }
+
     /** Where the site is (the tab shown) and whether its blocker is on, for Raygun to remember. */
     private fun report() {
         if (siteId.isEmpty() || !::tab.isInitialized) return
@@ -933,6 +1488,8 @@ class WebsiteActivity : AppCompatActivity() {
         // A download waiting for the folder picker survives the activity being remade.
         offered?.let { outState.putString("offered", it.toString()) }
         downloads.save(outState)
+        outState.putString("siteScripts", JSONArray().apply { siteScripts.forEach { put(it.json()) } }.toString())
+        outState.putStringArrayList("suggested", ArrayList(suggested))
     }
 
     /** The tabs as they were before the activity was made again; false when none were kept. */
@@ -956,18 +1513,34 @@ class WebsiteActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        onScreen = true
         // Raygun tells the download bar how its downloads go while the browser is on screen.
         downloads.watch()
+        stopStateTicks()
+        // Back on screen: paused pages no longer need to look shown.
+        tabs.forEach { keepFor(it) }
+        sendState()
+        if (backgroundPlay) {
+            WebMedia.screen(mediaOwner, offScreen = false)
+            showMedia()
+        }
     }
 
     override fun onStop() {
+        onScreen = false
         downloads.unwatch()
+        sendState()
+        if (backgroundPlay) {
+            WebMedia.screen(mediaOwner, offScreen = true)
+            if (tabs.any { it.page.media != null }) startStateTicks()
+        }
         super.onStop()
     }
 
     override fun onPause() {
         report()
-        tabs.forEach { it.webView.onPause() }
+        // A page that plays goes on off screen (background play): its WebView isn't paused.
+        tabs.forEach { if (!it.pageView.keepVisible) it.webView.onPause() }
         super.onPause()
     }
 
@@ -977,10 +1550,16 @@ class WebsiteActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        if (!built) {
+            super.onDestroy()
+            return
+        }
         main.removeCallbacksAndMessages(null)
+        WebMedia.clear(mediaOwner)
         downloads.clear()
         tabList?.dismiss()
         runCatching { unregisterReceiver(downloadReports) }
+        runCatching { unregisterReceiver(scriptReports) }
         tabs.forEach { closing ->
             (closing.webView.parent as? ViewGroup)?.removeView(closing.webView)
             closing.webView.destroy()

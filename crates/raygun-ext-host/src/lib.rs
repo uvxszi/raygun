@@ -28,6 +28,7 @@ pub mod repo;
 pub mod review;
 pub mod servers;
 pub mod shosetsu;
+pub mod site;
 mod storage;
 pub mod video;
 pub mod youtube;

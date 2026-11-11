@@ -5,10 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 import { createHash } from 'node:crypto';
 
+import { unzipSync } from 'fflate';
+
 import {
   KINDS,
   MANIFEST_FILE,
   RAYGUN_ROOT,
+  SITE_KIND,
   build,
   bundle,
   callArgs,
@@ -23,7 +26,12 @@ import {
   testCommand,
   validate,
 } from '../lib/cli.mjs';
-import { allowsHost, parseHostPattern } from '../lib/manifest.mjs';
+import {
+  allowsHost,
+  matchesPattern,
+  parseHostPattern,
+  parseMatchPattern,
+} from '../lib/manifest.mjs';
 import { fetchedHosts } from '../lib/check.mjs';
 
 const SDK_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -71,9 +79,12 @@ describe('first-party extensions', () => {
     const dirs = await firstParty();
     expect(dirs.length).toBeGreaterThan(0);
     for (const dir of dirs) {
-      const { manifest, code } = await bundle(dir);
-      const committed = await readFile(join(dir, manifest.entry), 'utf8');
-      expect(committed.replaceAll('\r\n', '\n'), `${dir} bundle is stale`).toBe(code);
+      // Every script it builds: a site-scripts extension may have several.
+      const { files } = await bundle(dir);
+      for (const [path, code] of Object.entries(files)) {
+        const committed = await readFile(join(dir, path), 'utf8');
+        expect(committed.replaceAll('\r\n', '\n'), `${dir} ${path} is stale`).toBe(code);
+      }
     }
   });
 
@@ -211,9 +222,15 @@ describe('templates', () => {
     expect(code).not.toMatch(/^\s*(import|export)\s/m);
     expect(code).not.toContain('__NAME__');
     expect(code).not.toContain('__ID__');
-    const { errors, warnings, providers } = await validate(dir);
+    const { errors, warnings, providers, sites } = await validate(dir);
     expect(errors).toEqual([]);
     expect(warnings).toEqual([]);
+    if (kind === SITE_KIND) {
+      // Site scripts register nothing: they run in pages, where their patterns say.
+      expect(providers).toEqual([]);
+      expect(sites?.length).toBeGreaterThan(0);
+      return;
+    }
     expect(providers).toHaveLength(1);
     const [provider] = providers;
     expect(provider?.kind).toBe(kind);
@@ -593,5 +610,115 @@ describe('repositories', () => {
 
   it('refuses a folder without extensions', async () => {
     await expect(packAll(work, join(work, 'repo'))).rejects.toThrow('has no extensions');
+  });
+});
+
+describe('site scripts', () => {
+  const site = {
+    id: 'dev.example.site',
+    name: 'Site',
+    version: '1.0.0',
+    apiVersion: 1,
+    runtime: 'site',
+    entry: 'dist/page.js',
+    provides: ['site.scripts'],
+    site: {
+      scripts: [
+        {
+          matches: ['https://*.example.com/*'],
+          excludeMatches: ['https://www.example.com/embed/*'],
+          js: ['dist/page.js'],
+          css: ['styles/page.css'],
+          runAt: 'document-start',
+          allFrames: true,
+        },
+      ],
+    },
+  };
+
+  it('accepts a site-scripts manifest and checks its site section like the host', () => {
+    expect(checkManifest(site)).toEqual({ errors: [], warnings: [] });
+    const group = site.site.scripts[0];
+    for (const [patch, field] of [
+      [{ provides: ['site.scripts', 'lyrics'] }, 'provides'],
+      [{ permissions: { net: ['api.example.com'] } }, 'permissions'],
+      [{ entry: 'dist/other.js' }, 'entry'],
+      [{ site: undefined }, 'site'],
+      [{ runtime: 'js' }, 'site'],
+      [{ site: { scripts: [] } }, 'site.scripts'],
+      [{ site: { scripts: [{ ...group, matches: ['nope'] }] } }, 'matches'],
+      [{ site: { scripts: [{ ...group, js: ['../page.js'] }] } }, 'js'],
+      [{ site: { scripts: [{ ...group, css: ['page.scss'] }] } }, 'css'],
+      [{ site: { scripts: [{ ...group, runAt: 'later' }] } }, 'runAt'],
+      [{ site: { scripts: [{ ...group, world: 'main' }] } }, 'world'],
+    ] as const) {
+      const { errors } = checkManifest({ ...site, ...patch });
+      expect(errors.join('\n'), field).toContain(field);
+    }
+  });
+
+  it('reads match patterns as Raygun does', () => {
+    expect(parseMatchPattern('https://*.youtube.com/*')).toMatchObject({ subdomains: true });
+    for (const bad of [
+      '<all_urls>',
+      'https://example.com',
+      'https://Example.com/*',
+      'ftp://a.b/*',
+    ]) {
+      expect(parseMatchPattern(bad), bad).toBeNull();
+    }
+    const cases: [string, string, boolean][] = [
+      ['https://*.youtube.com/*', 'https://youtube.com/', true],
+      ['https://*.youtube.com/*', 'https://m.youtube.com/watch?v=abc', true],
+      ['https://*.youtube.com/*', 'http://m.youtube.com/', false],
+      ['https://*.youtube.com/*', 'https://youtube.com.evil.example/', false],
+      ['*://www.example.com/watch?v=*', 'https://www.example.com:8443/watch?v=1#t', true],
+      ['*://www.example.com/watch?v=*', 'https://www.example.com/watch', false],
+      ['https://a.example/x/*/y', 'https://a.example/x/1/2/y', true],
+      ['*://*/*', 'https://a.b/', true],
+    ];
+    for (const [pattern, address, expected] of cases) {
+      expect(matchesPattern(pattern, address), `${pattern} ${address}`).toBe(expected);
+    }
+  });
+
+  it('creates, builds, packs and indexes site scripts with the sites they run on', async () => {
+    const dir = await createExtension('wiki', 'dev.example.wiki', 'site-scripts');
+    const manifest = JSON.parse(await readFile(join(dir, MANIFEST_FILE), 'utf8'));
+    expect(manifest.runtime).toBe('site');
+    const { bytes } = await build(dir);
+    expect(bytes).toBeGreaterThan(0);
+    // A page script: no module syntax, and `raygunPage` left for Raygun's wrapper.
+    const code = await readFile(join(dir, 'dist/index.js'), 'utf8');
+    expect(code).not.toMatch(/^\s*(import|export)\s/m);
+    expect(code).toContain('raygunPage.settings');
+    const repo = join(work, 'repo');
+    const packed = await pack(dir, repo);
+    const listed = packed.index.extensions.find((entry) => entry.id === 'dev.example.wiki');
+    expect(listed?.sites).toEqual([
+      'https://en.m.wikipedia.org/wiki/*',
+      'https://en.wikipedia.org/wiki/*',
+    ]);
+    const archive = unzipSync(await readFile(join(repo, packed.package)));
+    expect(Object.keys(archive).sort()).toEqual([
+      'dist/index.js',
+      MANIFEST_FILE,
+      'styles/index.css',
+    ]);
+  });
+
+  it('tries site scripts on a page address in Raygun’s host', () => {
+    const { args } = testCommand('ext', {
+      address: 'https://en.wikipedia.org/wiki/Ada_Lovelace',
+      bundle: 'out.js',
+      settings: ['readingTime=false'],
+    });
+    expect(args.slice(args.indexOf('--') + 2)).toEqual([
+      'https://en.wikipedia.org/wiki/Ada_Lovelace',
+      '--bundle',
+      expect.stringMatching(/out\.js$/),
+      '--set',
+      'readingTime=false',
+    ]);
   });
 });

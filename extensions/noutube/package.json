@@ -1,0 +1,18 @@
+{
+  "name": "dev.raygun.noutube",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "build": "raygun-ext build",
+    "lint": "eslint src",
+    "type-check": "tsc",
+    "test": "vitest --run",
+    "pack:repo": "raygun-ext pack --repo ../../repo"
+  },
+  "devDependencies": {
+    "@raygun/sdk": "workspace:*",
+    "vitest": "^5.0.5"
+  }
+}

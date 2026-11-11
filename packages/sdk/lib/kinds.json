@@ -130,6 +130,12 @@
       "top": { "limit": 30 }
     }
   },
+  "site.scripts": {
+    "label": "Scripts and styles for websites in Raygun's browser",
+    "required": [],
+    "optional": [],
+    "args": {}
+  },
   "audiobook.directory": {
     "label": "Audiobooks to find, with their chapters",
     "required": ["search", "popular"],

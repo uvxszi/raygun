@@ -39,7 +39,7 @@ every rule.
 | `name`          | yes      | What Raygun shows: 1–80 characters.                                                            |
 | `version`       | yes      | Semver (`1.4.0`, `2.0.0-beta.1`). Every published change needs a new version.                  |
 | `apiVersion`    | yes      | `1`.                                                                                           |
-| `runtime`       | yes      | `"js"`.                                                                                        |
+| `runtime`       | yes      | `"js"`, or `"site"` for [site scripts](site-scripts.md).                                       |
 | `entry`         | yes      | The bundle, relative to the folder: `dist/index.js`. A `.js` path without `..` or `\`.         |
 | `provides`      | yes      | Every provider kind the extension registers.                                                   |
 | `description`   | no       | One or two sentences, shown in the extension lists and before installing.                      |
@@ -48,6 +48,7 @@ every rule.
 | `permissions`   | no       | `{ "net": [...] }`: the hosts the extension may reach.                                         |
 | `contentRating` | no       | `safe` (when left out), `suggestive` or `nsfw`.                                                |
 | `settings`      | no       | Settings people can change on the extension's page.                                            |
+| `site`          | for `site` | Where and how [site scripts](site-scripts.md) run: their match patterns, files and timing.  |
 
 ### `id`
 
