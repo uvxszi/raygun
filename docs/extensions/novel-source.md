@@ -46,6 +46,52 @@ No source HTML reaches the reader. Raygun keeps paragraphs, headings, horizontal
 layout. Send the chapter's own part of the page, not the whole page with its menus. A passage is
 at most 2 MB of text; an empty one fails ("has no text for this chapter").
 
+### Formulas
+
+Formulas in the HTML are kept and drawn as MathML, at the reader's text size, and read aloud in
+words ("x squared plus 1"):
+
+- MathML (`<math>`, as EPUB 3, MediaWiki and LaTeXML write it). Only MathML elements and their
+  plain attributes are kept; `mfenced` becomes the row it stands for.
+- TeX between `$$…$$` or `\[…\]` (a formula on its own line) and `\(…\)` or `$…$` (in the line).
+  A single `$` counts only when it opens before a non-space, closes after one and isn't followed
+  by a digit, so prices stay words. TeX inside `<code>` and `<pre>` stays as written.
+- MathJax's `<script type="math/tex">` (and `; mode=display`), `math/mml` scripts, and
+  `<span class="math">` holding bare TeX.
+- KaTeX's and MathJax's rendered boxes (`.katex`, `mjx-container`, `.MathJax`) and MediaWiki's
+  `.mwe-math-element`: the MathML inside is used, not the drawing or the fallback picture.
+
+`<sup>` and `<sub>` stay raised and lowered (`x²`, `H₂O`). Pictures of formulas stay pictures,
+except those whose `alt` is their TeX (MediaWiki's fallback pictures, `class="latex"`), which are
+drawn from it.
+
+### PDF chapters
+
+A chapter can be a PDF document, or some of its pages, instead of text:
+
+```ts
+import type { Passage } from '@raygun/sdk';
+
+const wholeDocument: Passage = { pdf: 'https://openstax.org/books/example/chapter-1.pdf' };
+
+const pagesOfOne: Passage = {
+  pdf: {
+    url: 'https://www.example.org/textbook.pdf',
+    headers: { Referer: 'https://www.example.org/' },
+    // Counted from 1, both included; the whole document when left out.
+    firstPage: 12,
+    lastPage: 40,
+  },
+};
+
+export const pdfExamples = [wholeDocument, pagesOfOne];
+```
+
+Raygun fetches the document once (chapters that are pages of the same file share it), draws its
+pages on the device and reads them like a comic's (zoom, page turns, the reader's AI layers),
+with its text a tap away for reading aloud, its bookmarks as contents and a search through it. A
+download keeps the document itself. `pdf` wins over `html` and `text` in the same answer.
+
 ## Example: Project Gutenberg
 
 Lists and details from Gutenberg's OPDS catalogue; each book's HTML edition split into chapters

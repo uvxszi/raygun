@@ -1810,9 +1810,9 @@
     "scroll": "Scroll",
     "paged": "Pages",
     "backToBook": "Back to the book",
-    "importEpub": "Import EPUB",
+    "importEpub": "Import EPUB or PDF",
     "importing": "Importing…",
-    "epubFile": "EPUB book file",
+    "epubFile": "EPUB or PDF book file",
     "readAloud": "Read aloud",
     "stopReading": "Stop reading aloud",
     "speed": "Reading speed",
@@ -1822,6 +1822,20 @@
     "nextParagraph": "Skip to the next paragraph",
     "readAloudStopped": "Reading aloud stopped.",
     "emptyTitle": "No books yet"
+  },
+  "pdf": {
+    "search": "Search in the PDF",
+    "searchLabel": "Words to find",
+    "searchPlaceholder": "Find in the document",
+    "searching": "Searching…",
+    "noHits": "Not found in the document.",
+    "hits_one": "{{count}} place found",
+    "hits_other": "{{count}} places found",
+    "page": "Page {{page}}",
+    "contents": "Contents",
+    "textView": "Read as text",
+    "pageView": "Read as pages",
+    "noText": "This PDF has no text to show: its pages are pictures."
   },
   "ai": {
     "title": "AI",

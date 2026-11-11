@@ -10,6 +10,7 @@ pub mod local_network;
 pub mod manifest;
 pub mod network_mode;
 pub mod page_cache;
+pub mod pdf;
 mod proxy;
 pub mod server_auth;
 pub mod subtitles;
@@ -19,6 +20,7 @@ use std::sync::{Arc, RwLock};
 pub use cover_cache::CoverCache;
 pub use issue::{Issue, IssueKind};
 pub use page_cache::PageCache;
+pub use pdf::PdfStore;
 pub use proxy::lan::{LanLinks, LanRoute, SubtitleFormat};
 pub use proxy::{
     FontLinks, ImageLinks, MediaLinks, ProxyStorage, StaticFiles, StreamProxy, artwork_url,

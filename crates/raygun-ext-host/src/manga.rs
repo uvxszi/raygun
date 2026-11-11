@@ -384,7 +384,38 @@ pub(crate) fn parse_units(value: &Value, key: &str, noun: &str) -> Vec<MangaChap
         .unwrap_or_default()
 }
 
+/// A chapter answered as a PDF document: `{ pdf: "https://…" }` or `{ pdf: { url, headers,
+/// firstPage, lastPage } }` (pages counted from 1, both included).
+pub(crate) fn parse_pdf(value: &Value) -> Option<raygun_net::pdf::PdfRef> {
+    let pdf = value.get("pdf")?;
+    let (url, headers, given) = match pdf {
+        Value::String(_) => (url(Some(pdf))?, BTreeMap::new(), None),
+        _ => (url(pdf.get("url"))?, headers(pdf.get("headers")), Some(pdf)),
+    };
+    let page = |key: &str| {
+        given
+            .and_then(|given| given.get(key))
+            .and_then(Value::as_u64)
+            .filter(|page| (1..=u64::from(u32::MAX)).contains(page))
+            .map(|page| page as u32)
+    };
+    Some(raygun_net::pdf::PdfRef {
+        url,
+        headers,
+        first_page: page("firstPage"),
+        last_page: page("lastPage"),
+    })
+}
+
+/// A chapter's pages; a PDF chapter is one page carrying the document's marked address
+/// (`raygun_net::pdf::PDF_MARK`), which the app opens into its pages.
 pub(crate) fn parse_pages(value: &Value) -> Vec<PageImage> {
+    if let Some(pdf) = parse_pdf(value) {
+        return vec![PageImage {
+            url: pdf.marked(),
+            headers: pdf.headers,
+        }];
+    }
     value
         .get("pages")
         .and_then(Value::as_array)

@@ -1,8 +1,10 @@
 import { commands } from '@raygun/bindings';
 import type { NovelReaderPrefs, TextBlock } from '@raygun/bindings';
 import { useQuery } from '@tanstack/react-query';
+import { useCallback, useState } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
+import { spokenText } from './mathml';
 
 export const NOVEL = 'novel';
 
@@ -45,7 +47,9 @@ export const saveNovelProgress = (chapterId: string, offset: number, total: numb
 
 /** Characters a block adds to the chapter's text (what progress offsets count). */
 const blockLength = (block: TextBlock) =>
-  block.kind === 'paragraph' || block.kind === 'heading' ? block.text.length : 0;
+  block.kind === 'paragraph' || block.kind === 'heading' || block.kind === 'math'
+    ? block.text.length
+    : 0;
 
 /** Where each block starts in the chapter's text, and the text's length. */
 export const textOffsets = (blocks: TextBlock[]) => {
@@ -67,10 +71,52 @@ export const blockAt = (starts: number[], offset: number) => {
   return index;
 };
 
-/** The paragraphs of a chapter from `first` on, as speech gets them (block index and text). */
+/**
+ * The paragraphs of a chapter from `first` on, as speech gets them (block index and text):
+ * formulas in words.
+ */
 export const speechParagraphs = (blocks: TextBlock[], first: number) =>
-  blocks.flatMap((block, index) =>
-    index >= first && (block.kind === 'paragraph' || block.kind === 'heading')
-      ? [{ id: index, text: block.text }]
-      : [],
+  blocks.flatMap((block, index) => {
+    const text = index >= first ? spokenText(block) : null;
+    return text ? [{ id: index, text }] : [];
+  });
+
+/** A PDF chapter's text, read from its pages (with where each page starts). */
+export const pdfTextQuery = (titleId: string, chapterId: string) => ({
+  queryKey: [NOVEL, 'pdfText', titleId, chapterId],
+  queryFn: () => unwrapResult(commands.novelPdfText(titleId, chapterId)),
+  staleTime: 30 * 60_000,
+});
+
+export const usePdfText = (titleId: string, chapterId: string, enabled: boolean) =>
+  useQuery({
+    ...pdfTextQuery(titleId, chapterId),
+    enabled: enabled && Boolean(titleId && chapterId),
+  });
+
+/** How a PDF book is read: its pages, or its text. */
+export type PdfView = 'pages' | 'text';
+
+/** The view a PDF book was last read in, kept on this device per title. */
+export const usePdfView = (titleId: string) => {
+  const key = `raygun.pdfView.${titleId}`;
+  const [view, setView] = useState<PdfView>(() => {
+    try {
+      return localStorage.getItem(key) === 'text' ? 'text' : 'pages';
+    } catch {
+      return 'pages';
+    }
+  });
+  const choose = useCallback(
+    (next: PdfView) => {
+      setView(next);
+      try {
+        localStorage.setItem(key, next);
+      } catch {
+        // Not kept: the view still changes now.
+      }
+    },
+    [key],
   );
+  return [view, choose] as const;
+};

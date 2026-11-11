@@ -27,6 +27,13 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # The cover cache stores covers as JPEG XL: JPEGs recompressed losslessly, others re-encoded
 # (`cover_format`). Pure Rust, so it builds for every Android target.
 jxl-encoder = { version = "0.3.4", default-features = false, features = ["std", "jpeg-reencoding"] }
+# PDF books and chapters (`pdf`): pages drawn, text and outline read, in pure Rust. The standard
+# fonts and CMaps are built in, so documents that don't embed them still show their text.
+hayro = { version = "0.9", default-features = false, features = ["embed-fonts", "embed-cmaps"] }
+# Large documents are mapped rather than read into memory.
+memmap2 = "0.9"
+serde.workspace = true
+serde_json.workspace = true
 
 # Desktop checks certificates with the system (it fetches missing intermediates, as browsers do);
 # Android keeps the bundled roots (its verifier needs a Java component). This section comes last:

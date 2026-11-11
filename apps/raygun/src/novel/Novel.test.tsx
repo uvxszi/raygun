@@ -121,7 +121,7 @@ describe('Novels', () => {
     await user.click(within(library).getByRole('button', { name: 'More options' }));
     const menu = within(library).getByRole('menu');
     expect(within(menu).getByRole('menuitem', { name: 'Downloads' })).toBeInTheDocument();
-    expect(within(menu).getByRole('menuitem', { name: 'Import EPUB' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Import EPUB or PDF' })).toBeInTheDocument();
     expect(within(menu).getByRole('menuitem', { name: 'Updates' })).toBeInTheDocument();
     await user.click(within(menu).getByRole('menuitem', { name: 'Update library' }));
     expect(commands.mangaUpdateLibrary).toHaveBeenCalled();
@@ -202,8 +202,10 @@ describe('Novels', () => {
 
     // The book goes over in slices, not as one message.
     const book = new File([new Uint8Array([0x50, 0x4b, 3, 4])], 'book.epub');
-    await user.upload(within(library).getByLabelText('EPUB book file'), book);
-    await vi.waitFor(() => expect(commands.novelImportEpubUpload).toHaveBeenCalledWith('u1'));
+    await user.upload(within(library).getByLabelText('EPUB or PDF book file'), book);
+    await vi.waitFor(() =>
+      expect(commands.novelImportEpubUpload).toHaveBeenCalledWith('u1', 'book.epub'),
+    );
     expect(commands.uploadAppend).toHaveBeenCalledWith('u1', 'UEsDBA==');
     await vi.waitFor(() =>
       expect(commands.novelTitle).toHaveBeenCalledWith('local.epub', 'abc', false),

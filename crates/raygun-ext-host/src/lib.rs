@@ -17,6 +17,7 @@ pub mod listing_search;
 pub mod lnreader;
 pub mod manga;
 pub mod manifest;
+pub mod math;
 pub mod mihon;
 pub mod miru;
 pub mod novel;

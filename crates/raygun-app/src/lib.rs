@@ -407,6 +407,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::novel_set_read,
             commands::novel_import_epub,
             commands::novel_import_epub_upload,
+            commands::novel_pdf_text,
+            commands::novel_pdf_search,
             commands::tts_available,
             commands::tts_speak,
             commands::tts_stop,

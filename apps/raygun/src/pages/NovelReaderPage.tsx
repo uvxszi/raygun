@@ -1,11 +1,18 @@
 import { commands, events } from '@raygun/bindings';
-import type { NovelChapter, NovelReaderPrefs, NovelTheme, TextBlock } from '@raygun/bindings';
+import type {
+  NovelChapter,
+  NovelReaderPrefs,
+  NovelTheme,
+  TextBlock,
+  TextPart,
+} from '@raygun/bindings';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  FileImage,
   ListOrdered,
   LoaderCircle,
   Minus,
@@ -18,6 +25,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import {
+  Fragment,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -37,6 +45,8 @@ import { useSystemBars } from '../manga/reader/useSystemBars';
 import { useWakeLock } from '../manga/reader/useWakeLock';
 import { useReaderDisplay } from '../manga/readerDisplay';
 import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
+import { MathFormula } from '../novel/MathFormula';
+import { PdfPagesView } from '../novel/PdfPagesView';
 import { ReaderAiButton } from '../readerAi/ReaderAi';
 import { useNovelAi } from '../readerAi/useReaderAi';
 import {
@@ -52,6 +62,8 @@ import {
   speechParagraphs,
   textOffsets,
   useNovelChapter,
+  usePdfText,
+  usePdfView,
 } from '../novel/useNovel';
 import { SizeField } from '../settings/prefs';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
@@ -98,6 +110,26 @@ const ownKeys = (event: globalThis.KeyboardEvent) => {
 /** A chapter not loaded yet has no blocks to translate. */
 const NO_BLOCKS: TextBlock[] = [];
 
+/** A paragraph's parts: text, raised and lowered text, formulas in the line. */
+const Parts: FC<{ parts: TextPart[] }> = ({ parts }) => (
+  <>
+    {parts.map((part, index) => {
+      switch (part.kind) {
+        case 'sup':
+          return <sup key={index}>{part.text}</sup>;
+        case 'sub':
+          return <sub key={index}>{part.text}</sub>;
+        case 'math':
+          return (
+            <MathFormula key={index} mathml={part.mathml} text={part.text} speech={part.speech} />
+          );
+        default:
+          return <Fragment key={index}>{part.text}</Fragment>;
+      }
+    })}
+  </>
+);
+
 const Block: FC<{
   block: TextBlock;
   index: number;
@@ -138,6 +170,17 @@ const Block: FC<{
           className="mx-auto my-[1em] max-h-[80vh] max-w-full break-inside-avoid"
         />
       );
+    case 'math':
+      return (
+        <div
+          ref={ref}
+          data-block={index}
+          aria-current={active || undefined}
+          className={`my-[0.8em] break-inside-avoid ${highlight}`}
+        >
+          <MathFormula mathml={block.mathml} text={block.text} speech={block.speech} display />
+        </div>
+      );
     default:
       return (
         <p
@@ -150,7 +193,7 @@ const Block: FC<{
           }}
           className={`mb-[0.9em] ${highlight}`}
         >
-          {translated ?? block.text}
+          {translated ?? (block.parts ? <Parts parts={block.parts} /> : block.text)}
         </p>
       );
   }
@@ -321,6 +364,11 @@ const ChapterView: FC<{
   onSpeakFrom?: (index: number) => void;
   /** Blocks' texts as the AI layers translated them, by index. */
   translated: Map<number, string>;
+  /**
+   * A PDF's text: the block each page starts at. Progress is then the page reached, as in its
+   * page view.
+   */
+  pageStarts?: number[];
 }> = ({
   data,
   prefs,
@@ -333,10 +381,16 @@ const ChapterView: FC<{
   speaking,
   onSpeakFrom,
   translated,
+  pageStarts,
 }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { starts, total } = useMemo(() => textOffsets(data.blocks), [data.blocks]);
+  // Where each block is as progress counts it: a character offset, or a PDF's page.
+  const { starts, total } = useMemo(() => {
+    if (!pageStarts) return textOffsets(data.blocks);
+    const pageOf = data.blocks.map((_, index) => blockAt(pageStarts, index));
+    return { starts: pageOf, total: Math.max(pageStarts.length, 1) };
+  }, [data.blocks, pageStarts]);
   const refs = useRef<(HTMLElement | null)[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
@@ -433,8 +487,13 @@ const ChapterView: FC<{
     [remember],
   );
 
-  // Where reading stood: the block holding the saved offset.
-  const resumeAt = data.chapter.read ? 0 : blockAt(starts, data.chapter.lastPage ?? 0);
+  // Where reading stood: the block holding the saved offset (a PDF's: its page's first block).
+  const saved = data.chapter.lastPage ?? 0;
+  const resumeAt = data.chapter.read
+    ? 0
+    : pageStarts
+      ? (pageStarts[Math.min(saved, pageStarts.length - 1)] ?? 0)
+      : blockAt(starts, saved);
 
   // ---- Scroll mode ----
   useEffect(() => {
@@ -600,7 +659,10 @@ const ChapterView: FC<{
     const element = (target as HTMLElement | null)?.closest?.('[data-block]');
     const index = element ? Number((element as HTMLElement).dataset.block) : NaN;
     const block = data.blocks[index];
-    return block && (block.kind === 'paragraph' || block.kind === 'heading') ? index : null;
+    return block &&
+      (block.kind === 'paragraph' || block.kind === 'heading' || block.kind === 'math')
+      ? index
+      : null;
   };
 
   const cancelPress = () => {
@@ -797,10 +859,19 @@ const ChapterView: FC<{
 /** The novel reader: one chapter's text, scrolled or paged, with typography the reader sets. */
 export const NovelReaderPage: FC = () => {
   const { t } = useTranslation();
-  const { title, chapter } = useSearch({ from: '/novel/read' });
+  const { title, chapter, page: askedPage } = useSearch({ from: '/novel/read' });
   const navigate = useNavigate({ from: '/novel/read' });
   const router = useRouter();
   const loaded = useNovelChapter(title, chapter);
+  // A PDF chapter reads as its pages, or as the text read from them.
+  const pdf = loaded.data?.pdf ?? null;
+  const [pdfView, setPdfView] = usePdfView(title);
+  const pdfText = usePdfText(title, chapter, pdf !== null && pdfView === 'text');
+  const textChapter = useMemo(
+    () =>
+      loaded.data && pdfText.data ? { ...loaded.data, blocks: pdfText.data.blocks } : undefined,
+    [loaded.data, pdfText.data],
+  );
   const settings = useSettings();
   const updateSetting = useUpdateSetting();
   const prefs = settings.data?.novelReader ?? DEFAULT_PREFS;
@@ -842,7 +913,8 @@ export const NovelReaderPage: FC = () => {
   const [chapterList, setChapterList] = useState<HTMLElement | null>(null);
   const [progress, setProgress] = useState({ fraction: 0, label: '' });
   const [speechNotice, setSpeechNotice] = useState<string | null>(null);
-  const data = loaded.data;
+  const data = pdf ? textChapter : loaded.data;
+  const error = loaded.error ?? (pdf ? pdfText.error : null);
   const theme = THEMES[prefs.theme ?? 'app'];
   useWakeLock((prefs.keepScreenOn ?? true) && data !== undefined);
   // The comics reader's Full screen setting holds for books too.
@@ -1017,6 +1089,25 @@ export const NovelReaderPage: FC = () => {
     [],
   );
 
+  if (pdf && pdfView === 'pages' && loaded.data) {
+    return (
+      <PdfPagesView
+        key={loaded.data.chapter.id}
+        data={loaded.data}
+        pdf={pdf}
+        onRetry={() => void loaded.refetch()}
+        onGo={(chapterId, page) =>
+          void navigate({
+            search: { title, chapter: chapterId, ...(page === undefined ? {} : { page }) },
+            replace: true,
+          })
+        }
+        onTextView={() => setPdfView('text')}
+        goTo={askedPage === undefined ? null : { page: askedPage, nonce: 1 }}
+      />
+    );
+  }
+
   return (
     <section
       data-testid="novel-reader"
@@ -1040,6 +1131,19 @@ export const NovelReaderPage: FC = () => {
             <span className="truncate text-base font-semibold">{data?.title}</span>
             <span className="text-muted truncate text-sm">{data?.chapter.name}</span>
           </span>
+          {pdf && (
+            <button
+              type="button"
+              aria-label={t('pdf.pageView')}
+              onClick={() => {
+                stopReading();
+                setPdfView('pages');
+              }}
+              className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
+            >
+              <FileImage aria-hidden size={21} />
+            </button>
+          )}
           {data && (
             <button
               type="button"
@@ -1072,19 +1176,34 @@ export const NovelReaderPage: FC = () => {
           onChange={(next) => updateSetting.mutate({ key: 'novelReader', value: next })}
         />
       )}
-      {loaded.error && (
+      {error && (
         <div className="px-4 pt-24">
-          <SourceIssue onRetry={() => void loaded.refetch()}>{loaded.error.message}</SourceIssue>
+          <SourceIssue onRetry={() => void (loaded.error ? loaded.refetch() : pdfText.refetch())}>
+            {error.message}
+          </SourceIssue>
         </div>
       )}
-      {!data && !loaded.error && (
+      {!data && !error && (
         <LoaderCircle
           aria-label={t('manga.loading')}
           className="text-muted m-auto mt-32 animate-spin"
         />
       )}
-      {data && (
+      {data && pdf && data.blocks.length === 0 && (
+        <div className="flex flex-col items-center gap-4 px-6 pt-32 text-center">
+          <p className="text-muted text-sm">{t('pdf.noText')}</p>
+          <button
+            type="button"
+            onClick={() => setPdfView('pages')}
+            className="bg-primary text-background rounded-full px-5 py-2.5 font-semibold"
+          >
+            {t('pdf.pageView')}
+          </button>
+        </div>
+      )}
+      {data && !(pdf && data.blocks.length === 0) && (
         <ChapterView
+          pageStarts={pdf ? pdfText.data?.pageStarts : undefined}
           key={`${data.chapter.id}:${prefs.paged}`}
           data={data}
           prefs={prefs}

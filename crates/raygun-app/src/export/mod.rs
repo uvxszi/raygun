@@ -868,9 +868,15 @@ impl ExportService {
                 return Err("Cancelled".into());
             }
             let chapter = novels.chapter(&chosen.title.id, &unit.id).await?;
+            // A PDF chapter's text, read from its pages.
+            let blocks = if chapter.pdf.is_some() {
+                novels.pdf_text(&chosen.title.id, &unit.id).await?.blocks
+            } else {
+                chapter.blocks
+            };
             chapters.push(book::BookChapter {
                 title: unit.fields.name.clone(),
-                blocks: chapter.blocks,
+                blocks,
             });
             self.update(id, |job| job.written += 1);
         }
@@ -1034,6 +1040,33 @@ impl ExportService {
             units: vec![unit],
         };
         let never = AtomicBool::new(false);
+        let pdf = self
+            .app
+            .state::<AppPaths>()
+            .0
+            .downloads()
+            .join(crate::manga_downloads::novel_pdf_path(title_id, unit_id));
+        if chosen.title.fields.kind == "novel" && pdf.is_file() {
+            // A PDF chapter is saved as the document it is.
+            let unit = &chosen.units[0];
+            let name = names::file_name(
+                &names::chapter_stem(unit.fields.number, &unit.fields.name),
+                "pdf",
+            );
+            let folder = vec![
+                medium_folder("novel").to_owned(),
+                names::safe_name(&chosen.title.fields.title),
+            ];
+            let outputs = self.outputs.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                write_one(&outputs, &place, &folder, &name, PDF_MIME, |file| {
+                    std::io::copy(&mut std::fs::File::open(&pdf)?, file).map(|_| 0)
+                })
+            })
+            .await
+            .map_err(to_message)??;
+            return Ok(());
+        }
         if chosen.title.fields.kind == "novel" {
             // One text file per chapter, in a folder per title.
             let book = self.book("", &chosen, false, &never).await?;

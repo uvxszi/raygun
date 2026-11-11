@@ -1,0 +1,90 @@
+%PDF-1.7
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Outlines 10 0 R /Names << /Dests 15 0 R >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> /Contents 8 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> /Contents 9 0 R >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << /Font << /F1 6 0 R /F2 7 0 R >> >> /Contents 13 0 R >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+8 0 obj
+<< /Length 294 >>
+stream
+BT /F2 20 Tf 30 350 Td (Chapter One) Tj ET
+BT /F1 11 Tf 30 318 Td 14 TL (It was a bright cold day in April, and) Tj T* (the clocks were striking thir-) Tj T* (teen. Winston hurried home.) Tj ET
+BT /F1 11 Tf 30 250 Td 14 TL (A second paragraph begins here.) Tj ET
+BT /F1 9 Tf 146 30 Td (1) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Length 184 >>
+stream
+BT /F2 20 Tf 30 350 Td (Chapter Two) Tj ET
+BT /F1 11 Tf 30 318 Td 14 TL (The keeper climbed the stairs of) Tj T* (the old lighthouse every night.) Tj ET
+BT /F1 9 Tf 146 30 Td (2) Tj ET
+endstream
+endobj
+10 0 obj
+<< /Type /Outlines /First 11 0 R /Last 12 0 R /Count 3 >>
+endobj
+11 0 obj
+<< /Title (Chapter One) /Parent 10 0 R /Next 12 0 R /Dest [3 0 R /XYZ 0 400 0] >>
+endobj
+12 0 obj
+<< /Title (Chapter Two) /Parent 10 0 R /Prev 11 0 R /First 14 0 R /Last 14 0 R /Count 1 /A << /S /GoTo /D [4 0 R /Fit] >> >>
+endobj
+13 0 obj
+<< /Length 167 >>
+stream
+BT /F2 14 Tf 30 350 Td (Section 2.1) Tj ET
+BT /F1 11 Tf 30 322 Td (Its lamp turned until dawn.) Tj ET
+0.2 0.4 0.8 rg 30 100 240 60 re f
+BT /F1 9 Tf 146 30 Td (3) Tj ET
+endstream
+endobj
+14 0 obj
+<< /Title <FEFF00530065006300740069006F006E00200032002E0031> /Parent 12 0 R /Dest (sec21) >>
+endobj
+15 0 obj
+<< /Names [(sec21) [5 0 R /XYZ 0 400 0]] >>
+endobj
+16 0 obj
+<< /Title (Sample Book) /Author (Raygun Tests) /Subject (A fixture for the PDF reader) >>
+endobj
+xref
+0 17
+0000000000 65535 f 
+0000000009 00000 n 
+0000000102 00000 n 
+0000000171 00000 n 
+0000000307 00000 n 
+0000000443 00000 n 
+0000000580 00000 n 
+0000000677 00000 n 
+0000000779 00000 n 
+0000001124 00000 n 
+0000001359 00000 n 
+0000001433 00000 n 
+0000001531 00000 n 
+0000001672 00000 n 
+0000001891 00000 n 
+0000002000 00000 n 
+0000002060 00000 n 
+trailer
+<< /Size 17 /Root 1 0 R /Info 16 0 R >>
+startxref
+2166
+%%EOF

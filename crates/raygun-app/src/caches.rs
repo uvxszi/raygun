@@ -27,6 +27,9 @@ const CONVERSION_REST: Duration = Duration::from_secs(10);
 pub struct Caches {
     pub pages: PageCache,
     pub covers: CoverCache,
+    /// PDF documents from the web, kept once fetched (inside the page cache's folder, so they're
+    /// cleared with it).
+    pub pdfs: PathBuf,
     share: PathBuf,
     music_art: PathBuf,
     downloads: PathBuf,
@@ -59,6 +62,7 @@ impl Caches {
             .boxed()
         });
         Self {
+            pdfs: pages_dir.join("pdf"),
             pages: PageCache::new(pages_dir, u64::from(prefs.page_cache_mb) * MB),
             covers,
             share: paths.cache(CacheKind::Share),
@@ -91,22 +95,27 @@ impl Caches {
             original_bytes: saving.original_bytes as f64,
             bytes: saving.bytes as f64,
         };
-        let (share, music, downloads) = {
-            let (share, music, downloads) = (
+        let (share, music, downloads, pdfs) = {
+            let (share, music, downloads, pdfs) = (
                 self.share.clone(),
                 self.music_art.clone(),
                 self.downloads.clone(),
+                self.pdfs.clone(),
             );
             tauri::async_runtime::spawn_blocking(move || {
                 (
                     tree_usage(&share),
                     tree_usage(&music),
                     tree_usage(&downloads),
+                    tree_usage(&pdfs),
                 )
             })
             .await
             .unwrap_or_default()
         };
+        let mut pages = self.pages.usage().await;
+        pages.bytes += pdfs.bytes;
+        pages.files += pdfs.files;
         vec![
             StorageUsage {
                 converted: Some(converted),
@@ -119,7 +128,7 @@ impl Caches {
             },
             entry(
                 StorageArea::Pages,
-                self.pages.usage().await,
+                pages,
                 Some(u64::from(prefs.page_cache_mb) * MB),
                 true,
             ),

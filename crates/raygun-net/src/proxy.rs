@@ -14,6 +14,7 @@
 //! `/subtitle/<token>`, and streams for the desktop video player (M46.4) at
 //! `/media/<token>/<scheme>/<host>/<path>`, with their playlists rewritten to lead back to it.
 //! Font files the app links (the device's own fonts on Android) are served at `/font/<token>`.
+//! Pages of PDF books and chapters are drawn at `/pdf/<token>/<page>?w=<pixels>` ([`crate::pdf`]).
 //! While a video plays on a TV, a second listener serves it on the local network ([`lan`]).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -35,6 +36,7 @@ use crate::cover_cache::{CoverCache, Served};
 use crate::images::{ImageError, fetch_image};
 use crate::manifest::{self, Manifest};
 use crate::page_cache::{PageCache, sniff_content_type};
+use crate::pdf::PdfStore;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
@@ -103,6 +105,7 @@ struct ProxyState {
     pages: Option<PageCache>,
     covers: Option<CoverCache>,
     local: Option<PathBuf>,
+    pdfs: PdfStore,
 }
 
 /// What the proxy serves from disk besides streams.
@@ -119,6 +122,8 @@ pub struct ProxyStorage {
     /// Where the port is remembered (M46.47): the next start binds the same one when it's free,
     /// so links the UI kept from last time (its saved query cache) still work.
     pub port_file: Option<PathBuf>,
+    /// Where PDF documents from the web are kept once fetched (`/pdf/`).
+    pub pdf_dir: Option<PathBuf>,
 }
 
 /// Binds the remembered port when it's free, else any, and remembers the one bound.
@@ -158,6 +163,7 @@ pub struct StreamProxy {
     images: ImageLinks,
     media: MediaLinks,
     fonts: FontLinks,
+    pdfs: PdfStore,
     /// What the routes share, for the local network's listener (Play on TV).
     state: ProxyState,
 }
@@ -330,7 +336,7 @@ impl ImageLinks {
         let Some((port, path)) = rest.split_once('/') else {
             return url.to_owned();
         };
-        let ours = ["cover/", "image/", "art/", "local/"]
+        let ours = ["cover/", "image/", "art/", "local/", "pdf/"]
             .iter()
             .any(|route| path.starts_with(route));
         if !ours || port.parse::<u16>().is_err() {
@@ -391,6 +397,7 @@ impl ImageLinks {
                 rest.starts_with("image/")
                     || rest.starts_with("cover/")
                     || rest.starts_with("local/")
+                    || rest.starts_with("pdf/")
             })
     }
 }
@@ -422,6 +429,7 @@ impl StreamProxy {
             covers,
             local,
             port_file,
+            pdf_dir,
         } = storage;
         // Bound first: the `/media/` route links back to its own address.
         let listener = bind_remembered(port_file.as_deref()).await?;
@@ -430,6 +438,13 @@ impl StreamProxy {
         let images = Arc::new(Mutex::new(ImageRegistry::default()));
         let media = Arc::new(Mutex::new(MediaRegistry::default()));
         let fonts = Arc::new(Mutex::new(HashMap::new()));
+        let pdfs = PdfStore::new(
+            address,
+            client.clone(),
+            local.clone(),
+            pdf_dir,
+            pages.clone(),
+        );
         let state = ProxyState {
             address,
             registry: registry.clone(),
@@ -441,6 +456,7 @@ impl StreamProxy {
             pages,
             covers: covers.clone(),
             local,
+            pdfs: pdfs.clone(),
         };
         let shared = state.clone();
         let router = Router::new()
@@ -451,6 +467,7 @@ impl StreamProxy {
             .route("/art/{name}", get(serve_artwork))
             .route("/local/{*path}", get(serve_local))
             .route("/font/{token}", get(serve_font))
+            .route("/pdf/{token}/{page}", get(serve_pdf_page))
             .route(
                 "/media/{token}/{*rest}",
                 get(serve_media).options(preflight),
@@ -479,6 +496,7 @@ impl StreamProxy {
                 address,
                 files: fonts,
             },
+            pdfs,
             state: shared,
         })
     }
@@ -503,6 +521,11 @@ impl StreamProxy {
     /// The handle that links font files at `/font/`.
     pub fn fonts(&self) -> FontLinks {
         self.fonts.clone()
+    }
+
+    /// The PDF documents whose pages `/pdf/` draws.
+    pub fn pdfs(&self) -> PdfStore {
+        self.pdfs.clone()
     }
 
     pub fn address(&self) -> SocketAddr {
@@ -590,7 +613,7 @@ async fn serve_artwork(
 }
 
 /// A path under the local folder: plain segments only, nothing hidden, nothing going up.
-fn local_path(root: &std::path::Path, relative: &str) -> Option<PathBuf> {
+pub(crate) fn local_path(root: &std::path::Path, relative: &str) -> Option<PathBuf> {
     let mut path = root.to_path_buf();
     for segment in relative.split('/') {
         let plain = !segment.is_empty()
@@ -618,6 +641,32 @@ async fn serve_local(
     let response = match path {
         Some(path) => serve_file(&path.to_string_lossy(), request).await,
         None => StatusCode::NOT_FOUND.into_response(),
+    };
+    with_cors(response)
+}
+
+/// A PDF page drawn as a picture, as wide as `?w=` asks (rounded up to one of a few widths).
+async fn serve_pdf_page(
+    State(state): State<ProxyState>,
+    Path((token, page)): Path<(String, String)>,
+    request: Request,
+) -> Response {
+    let Ok(index) = page.parse::<usize>() else {
+        return with_cors(StatusCode::NOT_FOUND.into_response());
+    };
+    let width = request.uri().query().and_then(|query| {
+        query
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("w=")?.parse::<u32>().ok())
+    });
+    let response = match state.pdfs.page_png(&token, index, width).await {
+        Ok(bytes) => image_response(bytes),
+        Err(crate::pdf::PdfError::Offline) => offline_response(),
+        Err(crate::pdf::PdfError::Missing) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::debug!(%error, "pdf page not drawn");
+            (StatusCode::BAD_GATEWAY, error.to_string()).into_response()
+        }
     };
     with_cors(response)
 }
