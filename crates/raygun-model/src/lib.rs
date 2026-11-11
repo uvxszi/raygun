@@ -1358,6 +1358,11 @@ pub struct Captions {
     /// How long the recording being heard is, when known: with `covered`, how far it got.
     #[serde(default)]
     pub duration_ms: Option<u32>,
+    /// A live stream being transcribed: how far behind its live edge the picture must play for
+    /// the subtitles to be ready in time (the window, the measured time to hear one, a segment).
+    #[serde(default)]
+    #[specta(optional)]
+    pub live_delay_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -7634,6 +7639,11 @@ pub struct VideoRequest {
     pub chapters: Vec<VideoChapter>,
     #[serde(default)]
     pub anime: Option<AnimeEpisode>,
+    /// A live stream (a channel, a broadcast) as its source marks it: it plays from its live
+    /// edge and keeps no place to resume. The players also tell one by its playlist.
+    #[serde(default)]
+    #[specta(optional)]
+    pub live: bool,
 }
 
 /// Whether a message for the webview's video player (M46.4) opens it or changes what it plays.
@@ -8385,6 +8395,10 @@ pub struct VideoLinkView {
     /// Openings, endings and other chapters the source marks (M45).
     #[serde(default)]
     pub chapters: Vec<VideoChapter>,
+    /// The source marks it a live stream (`live: true`).
+    #[serde(default)]
+    #[specta(optional)]
+    pub live: bool,
 }
 
 /// Plays a link of a stored episode.

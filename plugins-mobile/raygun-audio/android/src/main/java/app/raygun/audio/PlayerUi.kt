@@ -180,7 +180,7 @@ private fun TextView.fillRow(text: String, detail: String?, selected: Boolean, e
  * A bottom sheet in the player's dark style: a title, then rows, chips and buttons. One shows at
  * a time; back or a tap outside closes it.
  */
-internal class PlayerSheet(private val host: VideoPlayerActivity, val title: String) {
+internal class PlayerSheet(private val host: VideoPlayerActivity, val title: String, private val wide: Boolean = false) {
     private val context: Context = host
     private val maxHeight: Int get() = (context.resources.displayMetrics.heightPixels * 0.72f).toInt()
     private val body = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -225,7 +225,8 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
         setBackgroundColor(SCRIM)
         isClickable = true
         setOnClickListener { dismiss() }
-        val width = minOf(context.resources.displayMetrics.widthPixels, context.dp(560))
+        // Two panes side by side (Sources) take a wider panel.
+        val width = minOf(context.resources.displayMetrics.widthPixels, context.dp(if (wide) 880 else 560))
         addView(panel, FrameLayout.LayoutParams(width, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
         elevation = context.dp(16).toFloat()
     }
@@ -320,6 +321,11 @@ internal class PlayerSheet(private val host: VideoPlayerActivity, val title: Str
 
     fun custom(view: View, height: Int = ViewGroup.LayoutParams.WRAP_CONTENT) {
         body.addView(view, LinearLayout.LayoutParams(-1, height))
+    }
+
+    /** A view `height` tall under the rows, scrolling on its own (Sources' two panes). */
+    fun fixed(view: View, height: Int) {
+        panel.addView(view, LinearLayout.LayoutParams(-1, height))
     }
 
     fun show() = host.showSheet(this)

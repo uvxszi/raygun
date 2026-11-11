@@ -62,82 +62,11 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         sheet.show()
     }
 
-    /** The video's qualities (HLS and DASH variants): automatic, or one held. */
-    fun quality() {
-        val tracks = host.tracks.qualities()
-        val sheet = PlayerSheet(host, label("quality", "Quality"))
-        val auto = host.tracks.qualityAuto()
-        // Every variant of an automatic choice counts as selected; this is the one playing.
-        val playing = host.player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }
-        sheet.row(label("qualityAuto", "Automatic"), playing?.takeIf { auto }, auto) {
-            host.tracks.selectQuality(null)
-            sheet.dismiss()
-        }
-        tracks.forEach { track ->
-            sheet.row(host.tracks.qualityName(track), selected = !auto && track.selected) {
-                host.tracks.selectQuality(track)
-                sheet.dismiss()
-            }
-        }
-        sheet.show()
-    }
+    /** The Quality sheet: resolutions from this stream or other sources ([PlayerQuality]). */
+    fun quality() = host.quality.open()
 
-    fun sources() {
-        val groups = host.sources
-        val sheet = PlayerSheet(host, label("sources", "Sources"))
-        var shown = 0
-        host.playingFrom?.let { sheet.row(label("playingFrom", "Playing from {n}", it), null, onClick = null) }
-        for (group in 0 until groups.length()) {
-            val server = groups.optJSONObject(group) ?: continue
-            val links = server.optJSONArray("links") ?: JSONArray()
-            val state = server.optString("state")
-            if (links.length() == 0) {
-                val hidden = (state == "failed" && !host.prefs.showFailedSources) ||
-                    (state == "empty" && !host.prefs.showEmptySources)
-                if (hidden) continue
-                val detail = when (state) {
-                    "resolving" -> label("resolving", "finding links…")
-                    // Why, in the source's own words, kept short.
-                    "failed" -> label("failed", "failed") +
-                        (server.text("error")?.let { ": ${it.take(120)}" } ?: "")
-                    else -> label("empty", "no videos")
-                }
-                sheet.row(server.optString("name"), detail, onClick = null)
-                shown += 1
-                continue
-            }
-            // Failed lately and tried last (M46.17).
-            val unreliable = when {
-                server.optBoolean("unreliable") -> " · " + label("unreliable", "didn't work lately")
-                server.optBoolean("worked") -> " · " + label("workedLastTime", "worked last time")
-                else -> ""
-            }
-            sheet.header(server.optString("name") + unreliable)
-            for (link in 0 until links.length()) {
-                val entry = links.optJSONObject(link) ?: continue
-                val current = entry.optBoolean("current")
-                val failed = entry.optBoolean("failed")
-                val note = when {
-                    failed -> label("failed", "failed")
-                    entry.optBoolean("worked") -> label("workedLastTime", "worked last time")
-                    else -> null
-                }
-                val row = sheet.row(entry.optString("label"), note, current) {
-                    sheet.dismiss()
-                    if (!current) host.chooseSource(group, link)
-                }
-                // The list opens at the source playing, wherever it is.
-                if (current) sheet.reveal(row)
-                shown += 1
-            }
-        }
-        if (shown == 0) {
-            host.showHint(label("findingSource", "Finding a source…"))
-            host.request("ready")
-            return
-        }
-        sheet.show()
-    }
+    /** Sources: clean names with their options, or the raw list ([PlayerSourcesSheet]). */
+    fun sources() = host.sourcesSheet.open()
 
     fun audio() {
         val tracks = host.tracks.list(C.TRACK_TYPE_AUDIO)
@@ -278,7 +207,8 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val status = track.status
         status.error?.let { return it.lineSequence().firstOrNull() }
         status.downloading?.let { return label("translateDownloading", "Downloading the models… {n}%", it.toString()) }
-        val ahead = status.aheadOf(host.player.currentPosition)
+        // A live stream's tracks are timed by its own clock.
+        val ahead = status.aheadOf(host.liveStream.clockMs())
         if (track.kind == "ai") {
             return when {
                 status.preparing -> label("aiPreparing", "Getting the sound…")
@@ -682,13 +612,13 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
 
     fun more() {
         val sheet = PlayerSheet(host, label("more", "More"))
-        if (host.tracks.qualities().size > 1) {
-            val quality = if (host.tracks.qualityAuto()) {
-                label("qualityAuto", "Automatic")
-            } else {
-                host.player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }
-            }
-            sheet.row(label("quality", "Quality"), quality) { quality() }
+        // Quality has its own button now; a live stream's delay behind the edge is here.
+        if (host.liveStream.isLive) {
+            val held = host.liveStream.heldMs
+            sheet.row(
+                label("liveDelayTitle", "Live delay"),
+                if (held > 0) label("seconds", "{n} s", (held / 1000).toString()) else label("liveAtEdge", "At the live edge"),
+            ) { host.liveStream.delaySheet() }
         }
         sheet.row(label("playOnTv", "Play on TV")) {
             sheet.dismiss()

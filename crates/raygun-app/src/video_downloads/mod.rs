@@ -606,6 +606,7 @@ impl VideoDownloadService {
             group: None,
             chapters: Vec::new(),
             anime: None,
+            live: false,
         };
         crate::video::play(&self.app, request).await
     }

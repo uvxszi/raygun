@@ -46,11 +46,13 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -134,6 +136,12 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal lateinit var second: SecondSubtitles
     /** AI subtitles and translations made as the video plays. */
     internal lateinit var liveTracks: LiveSubtitles
+    /** Live streams: their clock, the LIVE badge, holding the picture behind for AI subtitles. */
+    internal lateinit var liveStream: PlayerLive
+    /** The Quality button's sheet. */
+    internal lateinit var quality: PlayerQuality
+    /** Sources: clean names with their options, or the raw list. */
+    internal lateinit var sourcesSheet: PlayerSourcesSheet
     /** Subtitles over the part of the picture on screen (crop makes the picture larger). */
     internal lateinit var subtitleView: SubtitleView
     private lateinit var secondView: SubtitleView
@@ -231,8 +239,12 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal var looping = false
     internal var episodes = JSONArray()
     internal var sources = JSONArray()
+    /** The order Sources lists them in by clean name (Rust's `order`). */
+    internal var sourceOrder: JSONArray? = null
     /** The source playing, once it has played a while. */
     internal var playingFrom: String? = null
+    /** The media source reads through [VideoCache]; a live stream must not (its playlists change). */
+    private var cachedSource = false
     internal val several: Boolean get() = episodes.length() > 1
     internal val statsShown: Boolean get() = statsHelper != null
 
@@ -382,6 +394,9 @@ class VideoPlayerActivity : AppCompatActivity() {
         liveTracks = LiveSubtitles(this)
         tools = PlayerTools(this)
         problem = PlayerProblem(this)
+        liveStream = PlayerLive(this)
+        quality = PlayerQuality(this)
+        sourcesSheet = PlayerSourcesSheet(this)
         controls = PlayerControls(this)
         gestures = PlayerGestures(this)
         cast = PlayerCast(this)
@@ -418,6 +433,12 @@ class VideoPlayerActivity : AppCompatActivity() {
                 topMargin = dp(20)
             })
             addView(nextPrompt, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
+                marginEnd = dp(24)
+                bottomMargin = dp(32)
+            })
+            // The offer to hold a live stream behind its edge for AI subtitles, where the
+            // next-episode prompt would be.
+            addView(liveStream.prompt, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
                 marginEnd = dp(24)
                 bottomMargin = dp(32)
             })
@@ -495,6 +516,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             when (playbackState) {
                 Player.STATE_READY -> {
                     rebuffering = false
+                    // A stream that turned out live starts at its live edge, not at a place asked for.
+                    liveStream.onReady()
                     onReady()
                 }
                 // Running dry while playing, not starting or seeking: Media3 wants more first.
@@ -543,6 +566,18 @@ class VideoPlayerActivity : AppCompatActivity() {
             updateWaiting()
         }
 
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            // A live stream read through the cache would get its first playlist again and
+            // again: it's loaded anew without it, from its live edge.
+            if (cachedSource && player.isCurrentMediaItemLive && current.optString("url").isNotBlank()) {
+                cachedSource = false
+                Log.i("RaygunVideo", "live stream: reloading without the cache")
+                player.setMediaSource(buildSource(current, cached = false))
+                player.prepare()
+            }
+            if (::controls.isInitialized) controls.update()
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             // A live stream fell behind its window: back to its live edge.
             if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
@@ -577,6 +612,9 @@ class VideoPlayerActivity : AppCompatActivity() {
                 choices.pick(state, prefs, languages)
             }
             controls.setAudioChoice(choices.list(C.TRACK_TYPE_AUDIO).size > 1)
+            // The stream's own sizes go into the Quality menu.
+            controls.setQualityChoice(quality.offered)
+            quality.reportVariants()
             // A subtitle file just added from the device plays at once.
             pendingSubtitle?.let { name ->
                 val track = choices.list(C.TRACK_TYPE_TEXT).firstOrNull { it.format.label == name }
@@ -599,6 +637,8 @@ class VideoPlayerActivity : AppCompatActivity() {
         override fun onVideoSizeChanged(videoSize: VideoSize) {
             // The frame is measured again for the new size; the chosen aspect must hold for it.
             if (videoSize.width > 0) playerView.post { applyAspect(aspect) }
+            // Another variant plays: the Quality menu marks it.
+            quality.reportVariants()
             if (prefs.orientation == "video" && !manualRotation && videoSize.width > 0 && videoSize.height > 0) {
                 requestedOrientation = if (videoSize.width >= videoSize.height) {
                     ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -669,7 +709,9 @@ class VideoPlayerActivity : AppCompatActivity() {
             }
             "sources" -> {
                 sources = update.optJSONArray("groups") ?: JSONArray()
+                sourceOrder = update.optJSONArray("order")
                 playingFrom = update.text("playingFrom")
+                sourcesSheet.refresh()
                 // What the wait is for, as the sources answer (a failure's reason stays meanwhile).
                 if (loading.finding) {
                     sourcesChecked()?.let { loading.setNote(it) }
@@ -678,7 +720,13 @@ class VideoPlayerActivity : AppCompatActivity() {
                 }
             }
             "castDevices", "cast", "castError" -> cast.onUpdate(update)
-            "subtitleTools", "subtitleTrack", "subtitleAsk", "subtitleNotice" -> liveTracks.onUpdate(update)
+            // The Quality menu's steps (`video_quality::rows`).
+            "qualities" -> quality.onUpdate(update)
+            "subtitleTools", "subtitleTrack", "subtitleAsk", "subtitleNotice" -> {
+                // A live stream's AI subtitles say how far behind live the picture must play.
+                if (update.optString("id") == videoId) liveStream.onSubtitleUpdate(update)
+                liveTracks.onUpdate(update)
+            }
             "prefs" -> settingsChanged(update)
             "chapters" -> if (update.optString("id") == videoId) {
                 // AniSkip's, beside any the source gave.
@@ -752,6 +800,9 @@ class VideoPlayerActivity : AppCompatActivity() {
         if (secondTrack != null) loadSecond(secondTrack) else second.clear()
 
         val startMs = request.optDouble("startMs", 0.0).toLong().coerceAtLeast(0)
+        liveStream.onLoad(request, startMs)
+        quality.onLoad()
+        controls.setQualityChoice(session)
         if (request.optBoolean("external")) {
             launchExternal(request, startMs, only = true)
             return
@@ -763,7 +814,9 @@ class VideoPlayerActivity : AppCompatActivity() {
             return
         }
         tracks.reset(languages, prefs.maxHeight)
-        player.setMediaSource(buildSource(request), startMs)
+        // A live stream (or a start at 0) begins where Media3 begins it: a live stream's live edge.
+        val source = buildSource(request, cached = !request.optBoolean("live"))
+        if (liveStream.keepsStart(startMs)) player.setMediaSource(source, startMs) else player.setMediaSource(source)
         player.prepare()
         player.playWhenReady = true
         applySpeed(state.speed ?: prefs.defaultSpeed)
@@ -778,8 +831,11 @@ class VideoPlayerActivity : AppCompatActivity() {
         updatePip()
     }
 
-    /** The media source for `request`, with its subtitle files and the ones added here. */
-    private fun buildSource(request: JSONObject): MediaSource {
+    /**
+     * The media source for `request`, with its subtitle files and the ones added here; `cached`
+     * reads it through [VideoCache] (never a live stream, whose playlists change as it goes on).
+     */
+    private fun buildSource(request: JSONObject, cached: Boolean = cachedSource): MediaSource {
         val headers = mutableMapOf<String, String>()
         request.optJSONObject("headers")?.let { json ->
             json.keys().forEach { key -> headers[key] = json.optString(key) }
@@ -808,7 +864,9 @@ class VideoPlayerActivity : AppCompatActivity() {
                     .build(),
             )
             .build()
-        val data = VideoCache.wrap(this, Uri.parse(request.optString("url")), DefaultDataSource.Factory(this, http))
+        val upstream = DefaultDataSource.Factory(this, http)
+        val data = if (cached) VideoCache.wrap(this, Uri.parse(request.optString("url")), upstream) else upstream
+        cachedSource = cached
         return DefaultMediaSourceFactory(data).createMediaSource(item)
     }
 
@@ -818,7 +876,12 @@ class VideoPlayerActivity : AppCompatActivity() {
         problem.hide()
         tracksPicked = false
         started = false
-        player.setMediaSource(buildSource(current), positionMs)
+        // A live stream comes back at its live edge (or as far behind it as it was held).
+        if (liveStream.isLive) {
+            player.setMediaSource(buildSource(current, cached = false))
+        } else {
+            player.setMediaSource(buildSource(current), positionMs)
+        }
         player.prepare()
         player.play()
         updateWaiting()
@@ -1643,12 +1706,43 @@ class VideoPlayerActivity : AppCompatActivity() {
         request("source", JSONObject().put("group", group).put("link", link))
     }
 
+    /** A step picked in Quality that another link plays: the ring names its source and size. */
+    internal fun pickedQuality(source: String?, step: String, again: Boolean) {
+        pickedSource = true
+        val name = listOfNotNull(source?.takeIf { it.isNotBlank() }, step).joinToString(" · ")
+        showLoading(
+            if (again) label("qualityNextSource", "Trying another source with {n}…", step)
+            else label("loadingSource", "Loading {n}…", name),
+        )
+    }
+
+    /** A step asked for in Quality that nothing else plays: the ring goes, the video plays on. */
+    internal fun pickedNothing() {
+        if (!pickedSource) return
+        pickedSource = false
+        loading.hide()
+        controls.setBusy(false)
+        updateWaiting()
+    }
+
+    /** The name of the source playing, for the Quality sheet. */
+    internal fun playingSourceName(): String? {
+        for (group in 0 until sources.length()) {
+            val server = sources.optJSONObject(group) ?: continue
+            val links = server.optJSONArray("links") ?: continue
+            if ((0 until links.length()).any { links.optJSONObject(it)?.optBoolean("current") == true }) {
+                return server.optString("name").ifBlank { null }
+            }
+        }
+        return null
+    }
+
     /**
      * Near the end of an episode with a next one: a "Next episode" button, counting down with
      * autoplay. Over credits (an ending chapter that runs to the end) it shows from their start.
      */
     private fun updateNextPrompt() {
-        if (!session || !hasNext || nextCancelled || nextRequested || looping || isInPip()) {
+        if (!session || !hasNext || nextCancelled || nextRequested || looping || isInPip() || liveStream.isLive) {
             nextPrompt.visibility = View.GONE
             return
         }
@@ -1675,11 +1769,15 @@ class VideoPlayerActivity : AppCompatActivity() {
     /** The next-episode prompt sits where the skip button does. */
     internal fun placeNextPrompt() {
         if (!::nextPrompt.isInitialized || !::controls.isInitialized) return
-        val params = nextPrompt.layoutParams as? FrameLayout.LayoutParams ?: return
         val bottom = controls.bottomOffset()
-        if (params.bottomMargin != bottom) {
-            params.bottomMargin = bottom
-            nextPrompt.layoutParams = params
+        // The live delay offer sits there too.
+        val prompts = if (::liveStream.isInitialized) listOf(nextPrompt, liveStream.prompt) else listOf(nextPrompt)
+        prompts.forEach { prompt ->
+            val params = prompt.layoutParams as? FrameLayout.LayoutParams ?: return@forEach
+            if (params.bottomMargin != bottom) {
+                params.bottomMargin = bottom
+                prompt.layoutParams = params
+            }
         }
     }
 
@@ -1698,7 +1796,9 @@ class VideoPlayerActivity : AppCompatActivity() {
         updateSkip()
         updateSleep()
         updateWaiting()
-        if (second.active) second.update(player.currentPosition, state.subtitleDelayMs)
+        liveStream.tick()
+        // A live stream's AI subtitles are timed by its own clock.
+        if (second.active) second.update(liveStream.clockMs(), state.subtitleDelayMs)
     }
 
     // ---- Waiting and problems ----
@@ -1929,23 +2029,40 @@ class VideoPlayerActivity : AppCompatActivity() {
             .put("id", videoId)
             .put("state", "request")
             .put("action", action)
-            .put("positionMs", player.currentPosition.coerceAtLeast(0))
+        putPlace(json)
         extra.keys().forEach { key -> json.put(key, extra.get(key)) }
         NativeBridge.video(json.toString())
+    }
+
+    /**
+     * Where the video is, for Rust: its position, or a live stream's place on its own clock with
+     * where the segment playing starts on it (AI subtitles place the stream's sound by it).
+     */
+    private fun putPlace(json: JSONObject) {
+        if (!::liveStream.isInitialized || !liveStream.isLive) {
+            json.put("positionMs", player.currentPosition.coerceAtLeast(0))
+            return
+        }
+        json.put("positionMs", liveStream.clockMs()).put("live", true)
+        liveStream.anchor()?.let { json.put("liveAnchor", it) }
     }
 
     private fun report(state: String, error: String? = null) {
         if (videoId.isEmpty() && state != "closed") return
         // A TV plays it: its position is the one saved, not the stopped copy's here.
         if (::cast.isInitialized && cast.active && state != "closed") return
-        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 }
+        val live = ::liveStream.isInitialized && liveStream.isLive
+        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 && !live }
         val json = JSONObject()
             .put("id", videoId)
             .put("state", state)
-            .put("positionMs", player.currentPosition.coerceAtLeast(0))
             .put("durationMs", duration ?: JSONObject.NULL)
             .put("error", error ?: JSONObject.NULL)
             .put("looping", looping)
+        putPlace(json)
+        // The connection's speed while this source plays, for Sources.
+        val bandwidth = DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate / 1000
+        if (bandwidth > 0) json.put("bandwidthKbps", bandwidth)
         NativeBridge.video(json.toString())
     }
 

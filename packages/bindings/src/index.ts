@@ -2394,6 +2394,11 @@ export type Captions = {
 	queued?: number | null,
 	/**  How long the recording being heard is, when known: with `covered`, how far it got. */
 	durationMs?: number | null,
+	/**
+	 *  A live stream being transcribed: how far behind its live edge the picture must play for
+	 *  the subtitles to be ready in time (the window, the measured time to hear one, a segment).
+	 */
+	liveDelayMs?: number | null,
 };
 
 /**
@@ -6962,6 +6967,8 @@ export type VideoLinkView = {
 	preferred: boolean,
 	/**  Openings, endings and other chapters the source marks (M45). */
 	chapters?: VideoChapter[],
+	/**  The source marks it a live stream (`live: true`). */
+	live?: boolean,
 };
 
 /**  A message for the video player in the webview (desktop, M46.4). */
@@ -7082,6 +7089,11 @@ export type VideoRequest = {
 	group?: string | null,
 	chapters?: VideoChapter[],
 	anime?: AnimeEpisode | null,
+	/**
+	 *  A live stream (a channel, a broadcast) as its source marks it: it plays from its live
+	 *  edge and keeps no place to resume. The players also tell one by its playlist.
+	 */
+	live?: boolean,
 };
 
 /**

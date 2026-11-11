@@ -254,10 +254,19 @@ impl VideoSubtitles {
                 }
             }
         }
-        if let Some(position) = position
-            && let Some(captions) = self.app.try_state::<Arc<CaptionService>>()
-        {
+        let Some(captions) = self.app.try_state::<Arc<CaptionService>>() else {
+            return;
+        };
+        if let Some(position) = position {
             captions.follow(key, u64::from(position));
+        }
+        // A live stream's players say where its segments sit on their clock.
+        if let Some(anchor) = raw
+            .get("liveAnchor")
+            .cloned()
+            .and_then(|anchor| serde_json::from_value(anchor).ok())
+        {
+            captions.note_live_anchor(key, anchor);
         }
     }
 
@@ -799,6 +808,8 @@ impl VideoSubtitles {
                     "readyUntilMs": anchor.saturating_add(ahead),
                     "complete": heard.complete,
                     "error": heard.error,
+                    // A live stream: how far behind live the picture must play to keep up.
+                    "liveDelayMs": heard.live_delay_ms,
                 },
             }),
         );

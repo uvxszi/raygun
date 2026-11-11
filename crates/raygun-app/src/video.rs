@@ -141,6 +141,9 @@ struct PlayerReport {
     /// The video loops: passing the watched point on each round doesn't finish it.
     #[serde(default)]
     looping: bool,
+    /// A live stream: its position is the stream's own clock, not a place to resume.
+    #[serde(default)]
+    live: bool,
 }
 
 /// Plays `request` in the video player, resuming where it was left (from the start once watched).
@@ -225,7 +228,12 @@ pub async fn prepare(
             })
         })
         .map_or(0, |progress| progress.position_ms);
-    let start_ms = start_at.unwrap_or(resumed);
+    // A live stream starts at its live edge: no place in it is kept or carried over.
+    let start_ms = if request.live {
+        0
+    } else {
+        start_at.unwrap_or(resumed)
+    };
     let entry = VideoEntry {
         key: request.key.clone(),
         title: request.title.clone(),
@@ -262,9 +270,11 @@ pub async fn prepare(
                 proxied_subtitles(app, &request.subtitles),
             ),
         };
-    // AI subtitles made for this video (M46.33) play like any other track.
+    // AI subtitles made for this video (M46.33) play like any other track; a live stream's
+    // are timed by a clock of that playing only (`captions::video_audio`).
     let mut subtitles = subtitles;
-    if let Some(captions) = app.try_state::<std::sync::Arc<crate::captions::CaptionService>>()
+    if !request.live
+        && let Some(captions) = app.try_state::<std::sync::Arc<crate::captions::CaptionService>>()
         && let Some(track) = captions.video_track(&request.key).await
     {
         subtitles.push(track);
@@ -300,6 +310,7 @@ pub async fn prepare(
         "format": format,
         "subtitles": subtitles,
         "startMs": start_ms,
+        "live": request.live,
         // Anime are taken as spoken in Japanese when the stream doesn't say, so subtitles in
         // the viewer's languages turn on.
         "spokenLanguage": request.anime.as_ref().map(|_| "ja"),
@@ -777,18 +788,24 @@ fn finishes(report: &PlayerReport, duration: Option<f64>, watched_share: f64) ->
             && duration.is_some_and(|duration| report.position_ms >= duration * watched_share))
 }
 
+/// Whether a report's place is kept. A failed load reports 0, which mustn't wipe saved progress;
+/// a live stream keeps no place to resume and is never finished, so Continue watching doesn't
+/// take it for a film (its row from `started` has no position and stays out).
+fn keeps_place(report: &PlayerReport) -> bool {
+    !report.live && !(report.state == "error" && report.position_ms <= 0.0)
+}
+
 async fn record(app: &AppHandle, report: PlayerReport) {
     if let Some(error) = &report.error {
         tracing::warn!(key = %report.id, %error, "video playback failed");
+    }
+    if !keeps_place(&report) {
+        return;
     }
     let duration = report.duration_ms.filter(|duration| *duration > 0.0);
     let db = app.state::<AppDb>().0.clone();
     let watched_share = player_prefs(&db).await.watched_share;
     let watched = finishes(&report, duration, watched_share);
-    // A failed load reports position 0; don't let it wipe saved progress.
-    if report.state == "error" && report.position_ms <= 0.0 {
-        return;
-    }
     // Incognito (M47): no progress is saved, and a series doesn't move on to its next episode.
     if crate::privacy::incognito(app) {
         return;
@@ -1122,6 +1139,7 @@ pub fn link_request(url: &str, title: Option<&str>, subtitle_url: Option<&str>) 
             .into_iter()
             .collect(),
         url,
+        live: false,
     }
 }
 
@@ -1147,6 +1165,23 @@ mod tests {
         )
         .unwrap();
         assert!(finishes(&old, Some(100.0), 0.9));
+    }
+
+    #[test]
+    fn live_streams_keep_no_place_to_resume() {
+        let report = |json: Value| serde_json::from_value::<PlayerReport>(json).unwrap();
+        assert!(keeps_place(&report(json!({
+            "id": "v", "state": "progress", "positionMs": 5_000.0, "durationMs": 100_000.0
+        }))));
+        // At its live edge a stream sits near the end of its window: it isn't watched, and its
+        // clock isn't a place to come back to.
+        assert!(!keeps_place(&report(json!({
+            "id": "v", "state": "progress", "positionMs": 3_600_000.0, "durationMs": null,
+            "live": true
+        }))));
+        assert!(!keeps_place(&report(json!({
+            "id": "v", "state": "error", "positionMs": 0.0, "durationMs": null
+        }))));
     }
 
     #[test]

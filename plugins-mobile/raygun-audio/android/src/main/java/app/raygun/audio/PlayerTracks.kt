@@ -708,7 +708,8 @@ internal class LiveSubtitles(private val host: VideoPlayerActivity) {
             if (track == null) host.mainCues.set(null)
             return
         }
-        val now = track.at(host.player.currentPosition - host.state.subtitleDelayMs)
+        // A live stream's cues are timed by its own clock (`PlayerLive.clockMs`).
+        val now = track.at(host.liveStream.clockMs() - host.state.subtitleDelayMs)
         if (now == shown) return
         shown = now
         host.mainCues.set(now.map { Cue.Builder().setText(it.text).build() })

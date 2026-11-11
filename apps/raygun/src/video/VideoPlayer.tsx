@@ -41,9 +41,20 @@ import { useTranslation } from 'react-i18next';
 import { formatTime } from '../player/formatTime';
 import { useCaptions } from '../player/spoken';
 import { CastPanel, CastStage } from './Cast';
-import { attachMedia, embeddedCueLines, engineKind } from './mediaEngine';
+import { LiveBadge, LiveDelayPrompt } from './LiveControls';
+import { DVR_MIN_MS, HOLD_STEP_MS, readLive, useLiveStream } from './liveStream';
+import type { LiveView } from './liveStream';
+import {
+  attachMedia,
+  embeddedCueLines,
+  engineKind,
+  ladderStep,
+  pictureHeight,
+} from './mediaEngine';
 import type { MediaEngine, StreamProblem } from './mediaEngine';
 import { PanelHeading, PanelOption, PlayerPanel } from './PlayerPanel';
+import { QualityPanel } from './QualityPanel';
+import { SourcesPanel } from './SourcesPanel';
 import { sendReport, sendRequest } from './protocol';
 import type { PlayerRequest, Position, TitleState } from './protocol';
 import { SubtitleLines } from './SubtitleLines';
@@ -77,7 +88,7 @@ import {
 import type { LanguageInput } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
 import { VideoSettingsPanel } from './VideoSettingsPanel';
-import { sourceName, sourceNote, sourcesChecked } from './waiting';
+import { sourceNote, sourcesChecked } from './waiting';
 import type { WaitingNote } from './waiting';
 import { useBackLayer } from '../shell/backLayers';
 import { useAppActive } from '../shell/deviceState';
@@ -136,11 +147,22 @@ const readVolume = () => {
   }
 };
 
-const positionOf = (video: HTMLVideoElement | null): Position => ({
-  positionMs: (video?.currentTime ?? 0) * 1000,
-  durationMs: video && Number.isFinite(video.duration) ? video.duration * 1000 : null,
-  looping: useVideoPlayerStore.getState().looping,
-});
+const positionOf = (video: HTMLVideoElement | null): Position => {
+  const state = useVideoPlayerStore.getState();
+  const engine = state.engine;
+  const positionMs = (video?.currentTime ?? 0) * 1000;
+  // A live stream's position is its own clock, with where the segment playing starts on it.
+  const live =
+    Boolean(state.request?.live) || Boolean(engine?.isLive()) || video?.duration === Infinity;
+  return {
+    positionMs,
+    durationMs: video && Number.isFinite(video.duration) ? video.duration * 1000 : null,
+    looping: state.looping,
+    live,
+    liveAnchor: live ? (engine?.liveAnchor(positionMs) ?? null) : null,
+    bandwidthKbps: engine?.bandwidthKbps() ?? null,
+  };
+};
 
 /** The window's own full screen (Tauri), else the page's. */
 const setWindowFullscreen = async (on: boolean) => {
@@ -391,7 +413,10 @@ const VideoStage: FC<StageProps> = ({
     aniskip: false,
     next: false,
     elsewhere: false,
+    liveReported: false,
   });
+  /** The variants last told to Rust, for the Quality menu. */
+  const reportedVariants = useRef('');
   const skipped = useRef(new Set<number>());
   /** The time at the last tick, to see a loop go round. */
   const lastTimeMs = useRef(0);
@@ -426,6 +451,8 @@ const VideoStage: FC<StageProps> = ({
   const [hint, setHint] = useState<string | null>(null);
   /** The video has played: the source it comes from no longer shows under the ring. */
   const [begun, setBegun] = useState(false);
+  /** A live stream as the tick last read it; null for anything else. */
+  const [liveView, setLiveView] = useState<LiveView | null>(null);
   const sources = useVideoPlayerStore((state) => state.sources);
   const pickedSource = useVideoPlayerStore((state) => state.pickedSource);
 
@@ -461,6 +488,13 @@ const VideoStage: FC<StageProps> = ({
           },
         ]
       : [];
+  // ---- A live stream: its edge, and the picture held behind it for AI subtitles ----
+  const liveStream = useLiveStream(
+    liveView,
+    timeMs,
+    ai.data?.running ? (ai.data.liveDelayMs ?? null) : null,
+    videoRef,
+  );
   // ---- Translated subtitles: a track each, lines showing as they're translated ----
   const translated = useVideoTranslations(id).data;
   const translations = useMemo(() => translated ?? [], [translated]);
@@ -651,10 +685,38 @@ const VideoStage: FC<StageProps> = ({
   };
 
   // ---- The stream ----
+  /** The stream's own sizes and the one playing go to Rust, for the Quality menu. */
+  const reportVariants = () => {
+    const video = videoRef.current;
+    const items = (engineRef.current?.variants() ?? []).map(({ height, range, codec }) => ({
+      height,
+      range,
+      codec,
+    }));
+    const height = video ? pictureHeight(video.videoWidth, video.videoHeight) : 0;
+    const playing =
+      height > 0
+        ? {
+            height,
+            range:
+              items.find((item) => ladderStep(item.height) === ladderStep(height))?.range ?? 'sdr',
+          }
+        : null;
+    const json = JSON.stringify({ items, playing });
+    if (json === reportedVariants.current) return;
+    reportedVariants.current = json;
+    sendRequest(id, 'variants', positionOf(video).positionMs, { items, playing });
+  };
   const onTracks = useEffectEvent(() => {
     setTracksVersion((version) => version + 1);
     // HLS and DASH know their tracks before the video's metadata: picking now spares a switch.
     if (engineRef.current?.tracksKnown()) pickTracks();
+    reportVariants();
+    // A live stream says so at once: AI subtitles need where its segments sit.
+    if (!flags.current.liveReported && engineRef.current?.isLive()) {
+      flags.current.liveReported = true;
+      sendReport(id, 'progress', positionOf(videoRef.current));
+    }
   });
   const onFatal = useEffectEvent((message: string, problem: StreamProblem) => {
     const video = videoRef.current;
@@ -708,6 +770,8 @@ const VideoStage: FC<StageProps> = ({
           attached = engineAttached;
           engineRef.current = engineAttached;
           setEngine(engineAttached);
+          // Reports read a live stream's clock and the connection's speed from it.
+          useVideoPlayerStore.setState({ engine: engineAttached });
           onTracks();
         })
         .catch((error: unknown) => {
@@ -723,6 +787,7 @@ const VideoStage: FC<StageProps> = ({
       if (state.open && state.request?.id !== request.id) {
         sendReport(request.id, 'switched', positionOf(video));
       }
+      if (attached && state.engine === attached) useVideoPlayerStore.setState({ engine: null });
       attached?.destroy();
       engineRef.current = null;
     };
@@ -741,6 +806,8 @@ const VideoStage: FC<StageProps> = ({
     }
     lastTimeMs.current = now;
     setTimeMs(now);
+    setLiveView(readLive(video, engineRef.current, Boolean(request.live)));
+    liveStream.keepUp();
     if (subtitleKey?.startsWith('embedded:')) setEmbeddedLines(embeddedCueLines(video));
     const chapter = skippableAt(chapters, now, durationMs);
     if (prefs.autoSkip && chapter && !skipped.current.has(chapter.startMs)) {
@@ -796,6 +863,10 @@ const VideoStage: FC<StageProps> = ({
       case 'durationchange':
         setDurationMs(Number.isFinite(video.duration) ? video.duration * 1000 : 0);
         break;
+      case 'resize':
+        // Another variant plays: the Quality menu marks it.
+        reportVariants();
+        break;
       case 'progress':
         if (video.buffered.length > 0)
           setBufferedMs(video.buffered.end(video.buffered.length - 1) * 1000);
@@ -816,7 +887,11 @@ const VideoStage: FC<StageProps> = ({
         if (!flags.current.started) {
           flags.current.started = true;
           const startMs = request.startMs ?? 0;
-          if (startMs > 0) video.currentTime = startMs / 1000;
+          // A live stream starts where its engine starts it: at its live edge.
+          const live = Boolean(request.live) || Boolean(engineRef.current?.isLive());
+          if (startMs > 0 && !live && video.duration !== Infinity) {
+            video.currentTime = startMs / 1000;
+          }
           video.playbackRate = speed / 100;
           video.preservesPitch = prefs.pitchCorrection;
           if (!request.external) void video.play().catch(() => {});
@@ -848,6 +923,7 @@ const VideoStage: FC<StageProps> = ({
       'timeupdate',
       'seeked',
       'durationchange',
+      'resize',
       'progress',
       'ended',
       'loadedmetadata',
@@ -885,6 +961,18 @@ const VideoStage: FC<StageProps> = ({
   useEffect(() => {
     if (loadingText !== null) videoRef.current?.pause();
   }, [loadingText, videoRef]);
+
+  // A step tapped in Quality that no other source has: Rust says so.
+  const onQualityNotice = useEffectEvent((text: string) => showHint(text));
+  useEffect(
+    () =>
+      useVideoPlayerStore.subscribe((state, previous) => {
+        if (state.qualityNotice && state.qualityNotice !== previous.qualityNotice) {
+          onQualityNotice(state.qualityNotice.text);
+        }
+      }),
+    [],
+  );
 
   // Volume, past 100 % through a gain node when boosting.
   useEffect(() => {
@@ -1254,6 +1342,15 @@ const VideoStage: FC<StageProps> = ({
         </div>
       )}
 
+      {/* AI subtitles on a live stream: hold the picture behind its edge so they keep up. */}
+      {liveStream.offer && liveStream.neededMs !== null && (
+        <LiveDelayPrompt
+          neededMs={liveStream.neededMs}
+          onDelay={() => liveStream.hold(liveStream.neededMs ?? 0)}
+          onDecline={liveStream.decline}
+        />
+      )}
+
       <div
         className={`transition-opacity duration-200 ${controlsVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
         onMouseEnter={() => setOverControls(true)}
@@ -1267,14 +1364,30 @@ const VideoStage: FC<StageProps> = ({
           fullscreen={fullscreen}
         />
         <div className="absolute inset-x-0 bottom-0 px-5 pt-12 pb-3">
-          <TimeBar
-            timeMs={timeMs}
-            durationMs={durationMs}
-            bufferedMs={bufferedMs}
-            chapters={chapters}
-            seekStepMs={seekStepMs}
-            onSeek={seekTo}
-          />
+          {liveStream.live ? (
+            // A live stream's DVR window, hidden when there's too little to seek in.
+            liveStream.dvr && liveStream.dvr.edgeMs - liveStream.dvr.startMs >= DVR_MIN_MS ? (
+              <TimeBar
+                timeMs={timeMs - liveStream.dvr.startMs}
+                durationMs={liveStream.dvr.edgeMs - liveStream.dvr.startMs}
+                bufferedMs={bufferedMs - liveStream.dvr.startMs}
+                chapters={[]}
+                seekStepMs={seekStepMs}
+                onSeek={(ms) => seekTo(ms + (liveStream.dvr?.startMs ?? 0))}
+              />
+            ) : (
+              <div className="h-5" />
+            )
+          ) : (
+            <TimeBar
+              timeMs={timeMs}
+              durationMs={durationMs}
+              bufferedMs={bufferedMs}
+              chapters={chapters}
+              seekStepMs={seekStepMs}
+              onSeek={seekTo}
+            />
+          )}
           <div className="mt-1 flex items-center gap-1">
             <IconButton
               label={playing ? t('videoPlayer.pause') : t('videoPlayer.play')}
@@ -1334,17 +1447,25 @@ const VideoStage: FC<StageProps> = ({
                 className="accent-primary w-0 opacity-0 transition-all group-hover/volume:w-24 group-hover/volume:opacity-100 focus:w-24 focus:opacity-100"
               />
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setShowRemaining(!showRemaining);
-                savePrefs({ showRemaining: !showRemaining });
-              }}
-              className="ml-2 rounded px-1 text-sm tabular-nums text-white/90 hover:text-white"
-            >
-              {showRemaining ? `−${formatTime(remainingMs)}` : formatTime(timeMs)} /{' '}
-              {formatTime(durationMs)}
-            </button>
+            {liveStream.live ? (
+              <LiveBadge
+                atLive={liveStream.atLive}
+                behindMs={liveStream.behindMs}
+                onGoLive={liveStream.goLive}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRemaining(!showRemaining);
+                  savePrefs({ showRemaining: !showRemaining });
+                }}
+                className="ml-2 rounded px-1 text-sm tabular-nums text-white/90 hover:text-white"
+              >
+                {showRemaining ? `−${formatTime(remainingMs)}` : formatTime(timeMs)} /{' '}
+                {formatTime(durationMs)}
+              </button>
+            )}
             {chapterNow?.name && (
               <span className="ml-3 truncate text-sm text-white/70">{chapterNow.name}</span>
             )}
@@ -1357,13 +1478,6 @@ const VideoStage: FC<StageProps> = ({
             >
               {speed / 100}×
             </button>
-            <IconButton
-              label={t('videoPlayer.subtitles')}
-              pressed={subtitleKey !== null}
-              onClick={() => setPanel(panel === 'subtitles' ? null : 'subtitles')}
-            >
-              <Captions aria-hidden size={20} />
-            </IconButton>
             {audioTracks.length > 1 && (
               <IconButton
                 label={t('videoPlayer.audio')}
@@ -1372,7 +1486,8 @@ const VideoStage: FC<StageProps> = ({
                 <AudioLines aria-hidden size={20} />
               </IconButton>
             )}
-            {qualities.length > 1 && (
+            {/* Quality, then subtitles, beside the picture's aspect. */}
+            {(session || qualities.length > 1) && (
               <IconButton
                 label={t('desktopPlayer.quality')}
                 onClick={() => setPanel(panel === 'quality' ? null : 'quality')}
@@ -1380,6 +1495,13 @@ const VideoStage: FC<StageProps> = ({
                 <Layers aria-hidden size={20} />
               </IconButton>
             )}
+            <IconButton
+              label={t('videoPlayer.subtitles')}
+              pressed={subtitleKey !== null}
+              onClick={() => setPanel(panel === 'subtitles' ? null : 'subtitles')}
+            >
+              <Captions aria-hidden size={20} />
+            </IconButton>
             <IconButton
               label={t('videoPlayer.aspect')}
               onClick={() => setPanel(panel === 'aspect' ? null : 'aspect')}
@@ -1518,30 +1640,64 @@ const VideoStage: FC<StageProps> = ({
         </PlayerPanel>
       )}
       {panel === 'quality' && (
-        <PlayerPanel title={t('desktopPlayer.quality')} onClose={() => setPanel(null)}>
-          <PanelOption
-            label={t('desktopPlayer.auto')}
-            selected={engine?.quality() === -1}
-            onSelect={() => {
-              engineRef.current?.setQuality(-1);
-              setTracksVersion((version) => version + 1);
-            }}
-          />
-          {[...qualities].reverse().map((quality) => (
-            <PanelOption
-              key={quality.id}
-              label={quality.label}
-              selected={engine?.quality() === quality.id}
-              onSelect={() => {
-                engineRef.current?.setQuality(quality.id);
-                setTracksVersion((version) => version + 1);
-              }}
-            />
-          ))}
-        </PlayerPanel>
+        <QualityPanel
+          videoKey={id}
+          positionMs={timeMs}
+          engine={engine}
+          onClose={() => {
+            setPanel(null);
+            setTracksVersion((version) => version + 1);
+          }}
+          onAsked={showHint}
+        />
       )}
       {panel === 'more' && (
         <PlayerPanel title={t('videoPlayer.more')} onClose={() => setPanel(null)}>
+          {liveStream.live && (
+            <>
+              {/* How far behind live the picture plays (for AI subtitles, or by choice). */}
+              <PanelHeading>{t('videoPlayer.liveDelayTitle')}</PanelHeading>
+              <div className="flex items-center gap-2 px-3 py-1 text-sm">
+                <button
+                  type="button"
+                  onClick={() =>
+                    liveStream.hold((liveStream.heldMs || liveStream.behindMs) - HOLD_STEP_MS)
+                  }
+                  className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-white/20"
+                >
+                  −5 s
+                </button>
+                <span className="flex-1 text-center tabular-nums">
+                  {liveStream.heldMs > 0
+                    ? t('videoPlayer.seconds', { n: Math.round(liveStream.heldMs / 1000) })
+                    : t('videoPlayer.liveAtEdge')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    liveStream.hold((liveStream.heldMs || liveStream.behindMs) + HOLD_STEP_MS)
+                  }
+                  className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-white/20"
+                >
+                  +5 s
+                </button>
+              </div>
+              {liveStream.neededMs !== null && (
+                <PanelOption
+                  label={t('videoPlayer.liveMatchAi', {
+                    n: t('videoPlayer.seconds', { n: Math.round(liveStream.neededMs / 1000) }),
+                  })}
+                  selected={liveStream.heldMs >= liveStream.neededMs - 3_000}
+                  onSelect={() => liveStream.hold(liveStream.neededMs ?? 0)}
+                />
+              )}
+              <PanelOption
+                label={t('videoPlayer.goLive')}
+                selected={liveStream.atLive}
+                onSelect={liveStream.goLive}
+              />
+            </>
+          )}
           <PanelOption label={t('videoPlayer.playOnTv')} onSelect={() => setPanel('cast')} />
           <PanelOption
             label={t('videoPlayer.loop')}
@@ -1822,100 +1978,50 @@ const FindSubtitles: FC<{
 
 type SessionPanelProps = { kind: 'episodes' | 'sources'; positionMs: number; onClose: () => void };
 
-/** A session's episodes or sources; picking one asks Rust for it. */
-const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) => {
+/** A session's episodes or sources ([`SourcesPanel`]); picking one asks Rust for it. */
+const SessionPanel: FC<SessionPanelProps> = ({ kind, positionMs, onClose }) =>
+  kind === 'sources' ? (
+    <SourcesPanel positionMs={positionMs} onClose={onClose} />
+  ) : (
+    <EpisodesPanel positionMs={positionMs} onClose={onClose} />
+  );
+
+const EpisodesPanel: FC<{ positionMs: number; onClose: () => void }> = ({
+  positionMs,
+  onClose,
+}) => {
   const { t } = useTranslation();
   const id = useVideoPlayerStore((state) => state.request?.id ?? '');
   const episodes = useVideoPlayerStore((state) => state.episodes);
-  const sources = useVideoPlayerStore((state) => state.sources);
-  const playingFrom = useVideoPlayerStore((state) => state.playingFrom);
   const autoplay = useVideoPlayerStore((state) => state.autoplay);
-  const prefs = useVideoPlayerStore((state) => state.prefs);
-  if (kind === 'episodes') {
-    return (
-      <PlayerPanel title={t('videoPlayer.episodes')} onClose={onClose} at="top">
+  return (
+    <PlayerPanel title={t('videoPlayer.episodes')} onClose={onClose} at="top">
+      <PanelOption
+        label={autoplay ? t('videoPlayer.autoplayOn') : t('videoPlayer.autoplayOff')}
+        selected={autoplay}
+        toggle
+        onSelect={() => {
+          useVideoPlayerStore.setState({ autoplay: !autoplay });
+          sendRequest(id, 'autoplay', positionMs, { on: !autoplay });
+        }}
+      />
+      <PanelHeading>{t('videoPlayer.episodes')}</PanelHeading>
+      {episodes.map((episode, index) => (
         <PanelOption
-          label={autoplay ? t('videoPlayer.autoplayOn') : t('videoPlayer.autoplayOff')}
-          selected={autoplay}
-          toggle
+          key={`${index}-${episode.label}`}
+          label={episode.label}
+          hint={
+            episode.downloaded
+              ? t('videoPlayer.downloaded')
+              : episode.watched
+                ? t('desktopPlayer.watched')
+                : null
+          }
+          selected={episode.current}
           onSelect={() => {
-            useVideoPlayerStore.setState({ autoplay: !autoplay });
-            sendRequest(id, 'autoplay', positionMs, { on: !autoplay });
+            if (!episode.current) sendRequest(id, 'episode', positionMs, { index });
           }}
         />
-        <PanelHeading>{t('videoPlayer.episodes')}</PanelHeading>
-        {episodes.map((episode, index) => (
-          <PanelOption
-            key={`${index}-${episode.label}`}
-            label={episode.label}
-            hint={
-              episode.downloaded
-                ? t('videoPlayer.downloaded')
-                : episode.watched
-                  ? t('desktopPlayer.watched')
-                  : null
-            }
-            selected={episode.current}
-            onSelect={() => {
-              if (!episode.current) sendRequest(id, 'episode', positionMs, { index });
-            }}
-          />
-        ))}
-      </PlayerPanel>
-    );
-  }
-  const shown = sources
-    .map((group, index) => ({ group, index }))
-    .filter(
-      ({ group }) =>
-        (group.state !== 'failed' || prefs.showFailedSources) &&
-        (group.state !== 'empty' || prefs.showEmptySources),
-    );
-  return (
-    <PlayerPanel title={t('videoPlayer.sources')} onClose={onClose} at="top">
-      {playingFrom && (
-        <p className="text-muted px-4 py-2 text-sm">
-          {t('videoPlayer.playingFrom', { n: playingFrom })}
-        </p>
-      )}
-      {shown.map(({ group, index }) => (
-        <div key={`${index}-${group.name}`} className="flex flex-col">
-          <PanelHeading>
-            {group.name}
-            {group.state === 'resolving' && ` · ${t('videoPlayer.resolving')}`}
-            {group.state === 'failed' && ` · ${t('videoPlayer.failed')}`}
-            {group.state === 'empty' && ` · ${t('videoPlayer.empty')}`}
-            {group.unreliable && ` · ${t('videoPlayer.unreliable')}`}
-            {group.worked && !group.unreliable && ` · ${t('videoPlayer.workedLastTime')}`}
-          </PanelHeading>
-          {group.links.map((link, linkIndex) => (
-            <PanelOption
-              key={`${linkIndex}-${link.label}`}
-              label={link.label}
-              hint={
-                link.failed
-                  ? t('videoPlayer.failed')
-                  : link.worked
-                    ? t('videoPlayer.workedLastTime')
-                    : null
-              }
-              selected={link.current}
-              onSelect={() => {
-                if (link.current) return;
-                // Loads from where the video is; the ring names the source while it does.
-                useVideoPlayerStore.setState({
-                  pickedSource: true,
-                  notice: null,
-                  loadingText: t('videoPlayer.loadingSource', {
-                    n: sourceName(group, linkIndex) ?? group.name,
-                  }),
-                });
-                sendRequest(id, 'source', positionMs, { group: index, link: linkIndex });
-                onClose();
-              }}
-            />
-          ))}
-        </div>
       ))}
     </PlayerPanel>
   );

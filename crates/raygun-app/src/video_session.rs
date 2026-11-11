@@ -5,6 +5,7 @@
 //! episode or another source, and gets the episode and source lists to show; finishing an episode
 //! moves Continue watching on to the next one.
 
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,6 +27,7 @@ use crate::events::WatchChangedEvent;
 use crate::startup::AppDb;
 use crate::stremio::{StremioPlayTarget, StremioService};
 use crate::video_library;
+use crate::video_quality::{self, LinkFacts, Offer, QualityKey, Variant};
 use crate::video_sources::{self, VideoSourceService};
 
 /// What a session plays from.
@@ -153,7 +155,16 @@ pub struct Link {
     pub mismatch: bool,
     /// Its picture height, when its source or name says (`video_quality`).
     pub height: Option<u32>,
+    /// The file's size in bytes, when its source says (Stremio's `videoSize`).
+    pub size: Option<u64>,
     pub request: VideoRequest,
+}
+
+impl Link {
+    /// What its names say: range, codec, sound, size, release (the Sources sheet, the Quality menu).
+    pub fn facts(&self) -> LinkFacts {
+        video_quality::link_facts(&[Some(&self.label)], self.size, self.height)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,12 +223,18 @@ const HEALTH_KEY: &str = "video.sourceHealth";
 /// another one that has.
 const PATIENCE_MS: i64 = 8_000;
 
+/// How often a source's measured speed is saved while it plays.
+const SPEED_SAVE_MS: i64 = 60_000;
+
 /// The link loaded last, until it has played long enough to count as working.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Watching {
     at: (usize, usize),
     /// Where it started playing.
     from: i64,
+    /// A live stream's place in its first report: live positions follow the stream's own clock,
+    /// not the start asked for.
+    live_from: Option<i64>,
     /// It played [`WORKED_AFTER_MS`].
     confirmed: bool,
 }
@@ -252,6 +269,21 @@ struct Session {
     resolving_since: i64,
     /// Resolving finished; with nothing playing, the session has run out of links.
     settled: bool,
+    /// The step asked for in the Quality menu: links with it are tried first, also when the one
+    /// playing fails.
+    wanted: Option<QualityKey>,
+    /// Links already tried for `wanted`: tapping it again plays the next one.
+    quality_tried: HashSet<(usize, usize)>,
+    /// The playing stream's own variants and the one playing, as the player reports them.
+    variants: Vec<Variant>,
+    playing_variant: Option<QualityKey>,
+    /// The episode's length, as the player reports it (for links' bit rates).
+    duration_ms: Option<i64>,
+    /// Connection speeds measured while sources played (kb/s), by source and by address.
+    speeds: HashMap<String, u64>,
+    link_speeds: HashMap<String, u64>,
+    /// When a measured speed was last saved, Unix ms.
+    speed_saved_at: i64,
 }
 
 impl Session {
@@ -276,10 +308,20 @@ impl Session {
 
     /// The best untried link: what played last time, the same release, sources that worked,
     /// untried ones, then those that failed lately; links whose names say they're another episode
-    /// after every other one, and ties in list order. While a source that could hold a better one
-    /// is still resolving, nothing (for a few seconds: [`PATIENCE_MS`]).
+    /// after every other one, and ties in list order. The step asked for in the Quality menu
+    /// comes before all of those. While a source that could hold a better one is still
+    /// resolving, nothing (for a few seconds: [`PATIENCE_MS`]).
     fn next_candidate(&self, now: i64) -> Option<(usize, usize)> {
         let ranking = self.ranking(now);
+        let unwanted = |link: &Link| {
+            self.wanted.is_some_and(|wanted| {
+                let facts = link.facts();
+                facts
+                    .height
+                    .map(|height| QualityKey::of(height, facts.range))
+                    != Some(wanted)
+            })
+        };
         let best = self
             .groups
             .iter()
@@ -299,6 +341,7 @@ impl Session {
             })
             .min_by_key(|(group_index, link_index, group, link)| {
                 (
+                    unwanted(link),
                     ranking.link_key(&group.name, link),
                     *group_index,
                     *link_index,
@@ -313,6 +356,251 @@ impl Session {
         });
         (!(patient && better_pending)).then_some((best.0, best.1))
     }
+
+    /// The links the Quality menu can play, with their steps and their place in the order the
+    /// session tries them: not failed, not another episode's, with a known height.
+    fn offers(&self, now: i64) -> Vec<Offer> {
+        let ranking = self.ranking(now);
+        let mut found: Vec<(
+            memory::RankKey,
+            usize,
+            usize,
+            QualityKey,
+            Option<&'static str>,
+        )> = Vec::new();
+        for (group_index, group) in self.groups.iter().enumerate() {
+            if group.state != GroupState::Ready {
+                continue;
+            }
+            for (link_index, link) in group.links.iter().enumerate() {
+                let usable = link.failed.is_none()
+                    && !link.mismatch
+                    && !self.dead_urls.contains(&link.request.url);
+                let facts = link.facts();
+                let Some(height) = facts.height.filter(|_| usable) else {
+                    continue;
+                };
+                found.push((
+                    ranking.link_key(&group.name, link),
+                    group_index,
+                    link_index,
+                    QualityKey::of(height, facts.range),
+                    facts.codec,
+                ));
+            }
+        }
+        found.sort_by_key(|(key, group, link, _, _)| (*key, *group, *link));
+        found
+            .into_iter()
+            .enumerate()
+            .map(|(rank, (_, group, link, key, codec))| Offer {
+                group,
+                link,
+                key,
+                codec,
+                rank,
+            })
+            .collect()
+    }
+
+    /// The Quality menu as the player shows it (`qualities`), with `notice` when a step tapped
+    /// can't play.
+    fn quality_update(&self, now: i64, notice: Option<String>) -> Value {
+        let offers = self.offers(now);
+        let names: Vec<String> = self.groups.iter().map(|group| group.name.clone()).collect();
+        let rows = video_quality::rows(&video_quality::Menu {
+            offers: &offers,
+            names: &names,
+            current: self.current,
+            variants: &self.variants,
+            playing: self.playing_variant,
+        });
+        json!({
+            "type": "qualities",
+            "items": rows,
+            "wanted": self.wanted.map(|key| key.text()),
+            "notice": notice,
+        })
+    }
+
+    /// The measured connection speed of a source: this session's, else what was kept.
+    fn speed_of(&self, name: &str) -> Option<u64> {
+        self.speeds
+            .get(name)
+            .copied()
+            .or_else(|| self.health.speed(name))
+    }
+}
+
+/// What the player reports with progress (live streams, lengths, connection speed).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Heard {
+    live: bool,
+    duration_ms: Option<i64>,
+    bandwidth_kbps: Option<u64>,
+}
+
+impl Heard {
+    fn of(report: &Value) -> Self {
+        Self {
+            live: report.get("live").and_then(Value::as_bool) == Some(true),
+            duration_ms: report
+                .get("durationMs")
+                .and_then(Value::as_f64)
+                .filter(|ms| *ms > 0.0)
+                .map(|ms| ms as i64),
+            bandwidth_kbps: report
+                .get("bandwidthKbps")
+                .and_then(Value::as_f64)
+                .filter(|kbps| *kbps > 0.0)
+                .map(|kbps| kbps as u64),
+        }
+    }
+}
+
+/// The Quality menu of a video played without a session: its own variants alone.
+fn variants_update(variants: &[Variant], playing: Option<QualityKey>) -> Value {
+    let rows = video_quality::rows(&video_quality::Menu {
+        offers: &[],
+        names: &[],
+        current: None,
+        variants,
+        playing,
+    });
+    json!({ "type": "qualities", "items": rows, "wanted": Value::Null, "notice": Value::Null })
+}
+
+/// "1080p", "2160p HDR": a step's name in a notice.
+fn quality_name(key: QualityKey) -> String {
+    match key.range {
+        video_quality::Range::Sdr => format!("{}p", key.height),
+        video_quality::Range::Hdr => format!("{}p HDR", key.height),
+        video_quality::Range::Dv => format!("{}p Dolby Vision", key.height),
+    }
+}
+
+/// The player's `sources` update: every source with its links as listed (Raw details), what
+/// each link's names say and how fast its source was (the clean list), and the order the clean
+/// list shows the sources in ([`source_order`]).
+fn sources_update(session: &Session, now: i64) -> Value {
+    let ranking = session.ranking(now);
+    // "Playing from <source>" once the current link has played a while.
+    let playing_from = session
+        .watching
+        .filter(|watching| watching.confirmed && session.current == Some(watching.at))
+        .and_then(|watching| session.groups.get(watching.at.0))
+        .map(|group| group.name.clone());
+    let groups: Vec<Value> = session
+        .groups
+        .iter()
+        .enumerate()
+        .map(|(group_index, group)| {
+            let (state, error) = match &group.state {
+                GroupState::Resolving => ("resolving", None),
+                GroupState::Ready => ("ready", None),
+                GroupState::Empty => ("empty", None),
+                GroupState::Failed(error) => ("failed", Some(error.clone())),
+            };
+            let facts: Vec<LinkFacts> = group.links.iter().map(Link::facts).collect();
+            let usable = |link: &Link| {
+                link.failed.is_none() && !session.dead_urls.contains(&link.request.url)
+            };
+            let best = group
+                .links
+                .iter()
+                .zip(&facts)
+                .filter(|(link, _)| usable(link))
+                .filter_map(|(_, facts)| facts.height)
+                .max();
+            let links: Vec<Value> = group
+                .links
+                .iter()
+                .zip(&facts)
+                .enumerate()
+                .map(|(link_index, (link, facts))| {
+                    json!({
+                        "label": link.label,
+                        "current": session.current == Some((group_index, link_index)),
+                        "failed": !usable(link),
+                        "worked": ranking.played_last(&group.name)
+                            && session.memory.label.as_deref() == Some(link.label.as_str()),
+                        "facts": facts,
+                        "bitrateKbps": video_quality::bitrate_kbps(facts.size_bytes, session.duration_ms),
+                        "speedKbps": session.link_speeds.get(&link.request.url),
+                    })
+                })
+                .collect();
+            json!({
+                "name": group.name,
+                "state": state,
+                "error": error,
+                "unreliable": ranking.is_failing(&group.name),
+                "worked": ranking.played_last(&group.name),
+                "best": best,
+                "options": group.links.iter().filter(|link| usable(link)).count(),
+                "speedKbps": session.speed_of(&group.name),
+                "links": links,
+            })
+        })
+        .collect();
+    json!({
+        "type": "sources",
+        "playingFrom": playing_from,
+        "groups": groups,
+        "order": source_order(session, &ranking),
+    })
+}
+
+/// The order the Sources sheet's clean list shows sources in: those with links that can play
+/// first, then those still finding links, then empty and failed ones; within each, by how they
+/// did (the session's [`Ranking`]: what played last time first, failing ones last), then by
+/// the best picture they have, then by their measured speed.
+fn source_order(session: &Session, ranking: &Ranking) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..session.groups.len()).collect();
+    order.sort_by_cached_key(|&index| {
+        let group = &session.groups[index];
+        let playable: Vec<&Link> = group
+            .links
+            .iter()
+            .filter(|link| link.failed.is_none() && !session.dead_urls.contains(&link.request.url))
+            .collect();
+        let state = match &group.state {
+            GroupState::Ready if !playable.is_empty() => 0,
+            GroupState::Resolving => 1,
+            GroupState::Ready | GroupState::Empty => 2,
+            GroupState::Failed(_) => 3,
+        };
+        let best = playable
+            .iter()
+            .filter_map(|link| link.facts().height)
+            .max()
+            .unwrap_or(0);
+        let speed = session.speed_of(&group.name).unwrap_or(0);
+        (
+            state,
+            ranking.best_key(group).1,
+            Reverse(best),
+            Reverse(speed),
+            index,
+        )
+    });
+    order
+}
+
+/// The variants a `variants` request reports, and the one playing.
+fn reported_variants(report: &Value) -> (Vec<Variant>, Option<QualityKey>) {
+    let variants: Vec<Variant> = report
+        .get("items")
+        .cloned()
+        .and_then(|items| serde_json::from_value(items).ok())
+        .unwrap_or_default();
+    let playing = report
+        .get("playing")
+        .cloned()
+        .and_then(|playing| serde_json::from_value::<Variant>(playing).ok())
+        .filter(|variant| variant.height > 0)
+        .map(|variant| QualityKey::of(variant.height, variant.range));
+    (variants, playing)
 }
 
 /// The next episode that is out, after `index`; from a regular episode, never a special.
@@ -487,6 +775,14 @@ impl VideoSessions {
             watching: None,
             resolving_since: now,
             settled: false,
+            wanted: None,
+            quality_tried: HashSet::new(),
+            variants: Vec::new(),
+            playing_variant: None,
+            duration_ms: None,
+            speeds: HashMap::new(),
+            link_speeds: HashMap::new(),
+            speed_saved_at: 0,
         });
         let label = if video_match::adds_to_title(&title, &label) {
             label
@@ -538,14 +834,61 @@ impl VideoSessions {
                     self.end();
                 }
             }
-            "progress" | "ended" => self.on_progress(key, position, state == "ended").await,
+            "progress" | "ended" => {
+                self.on_progress(key, position, state == "ended", Heard::of(report))
+                    .await
+            }
             _ => {}
+        }
+    }
+
+    /// What a progress report says beside the position: the episode's length, and the connection
+    /// speed while the current link plays (kept for its source, saved now and then).
+    async fn note_heard(&self, key: &str, heard: Heard) {
+        let save = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard.as_mut() else {
+                return;
+            };
+            if session.episode().key != key {
+                return;
+            }
+            if !heard.live && heard.duration_ms.is_some() {
+                session.duration_ms = heard.duration_ms;
+            }
+            let (Some(kbps), Some((group, link))) = (heard.bandwidth_kbps, session.current) else {
+                return;
+            };
+            let Some(entry) = session
+                .groups
+                .get(group)
+                .filter(|entry| entry.id != "download")
+            else {
+                return;
+            };
+            let name = entry.name.clone();
+            if let Some(url) = entry.links.get(link).map(|link| link.request.url.clone()) {
+                session.link_speeds.insert(url, kbps);
+            }
+            session.speeds.insert(name.clone(), kbps);
+            let now = now_ms();
+            let due = now - session.speed_saved_at >= SPEED_SAVE_MS;
+            if due {
+                session.speed_saved_at = now;
+                session.health.measured(&name, kbps, now);
+            }
+            due.then_some((name, kbps, now))
+        };
+        if let Some((name, kbps, now)) = save {
+            self.note_health(|health| health.measured(&name, kbps, now))
+                .await;
         }
     }
 
     /// The link loaded last has played [`WORKED_AFTER_MS`] (or to its end): it's the one this
     /// title starts from next time, and its source counts as working.
-    async fn on_progress(&self, key: &str, position: i64, ended: bool) {
+    async fn on_progress(&self, key: &str, position: i64, ended: bool, heard: Heard) {
+        self.note_heard(key, heard).await;
         let worked = {
             let mut guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_mut() else {
@@ -557,7 +900,13 @@ impl VideoSessions {
             let Some(watching) = session.watching.as_mut() else {
                 return;
             };
-            let played = position - watching.from >= WORKED_AFTER_MS;
+            // A live stream's positions are its own clock: it counts from its first report.
+            let from = if heard.live {
+                *watching.live_from.get_or_insert(position)
+            } else {
+                watching.from
+            };
+            let played = position - from >= WORKED_AFTER_MS;
             if watching.confirmed || session.current != Some(watching.at) || !(played || ended) {
                 return;
             }
@@ -601,6 +950,38 @@ impl VideoSessions {
             .and_then(Value::as_str)
             .unwrap_or_default();
         let now = now_ms();
+        match action {
+            // The stream's own variants: the Quality menu, with or without a session.
+            "variants" => {
+                let (variants, playing) = reported_variants(report);
+                let update = {
+                    let mut guard = self.session.lock().expect("session poisoned");
+                    match guard.as_mut() {
+                        Some(session) => {
+                            session.variants = variants;
+                            session.playing_variant = playing;
+                            session.quality_update(now, None)
+                        }
+                        None => variants_update(&variants, playing),
+                    }
+                };
+                let _ = crate::video::update_player(&self.app, &update);
+                return;
+            }
+            "quality" => {
+                match report
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .and_then(QualityKey::parse)
+                {
+                    Some(key) => self.choose_quality(key, position).await,
+                    // Automatic: the session picks by itself again.
+                    None => self.forget_quality().await,
+                }
+                return;
+            }
+            _ => {}
+        }
         let target = {
             let guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_ref() else {
@@ -668,6 +1049,11 @@ impl VideoSessions {
             session.watching = None;
             session.resolving_since = now_ms();
             session.settled = false;
+            session.quality_tried.clear();
+            session.variants.clear();
+            session.playing_variant = None;
+            session.duration_ms = None;
+            session.link_speeds.clear();
             title_and_label(&session.title, &session.episode().label)
         };
         let _ = crate::video::update_player(
@@ -696,9 +1082,77 @@ impl VideoSessions {
             session.current = Some((group, link));
             session.watching = None;
             session.start_at = (position > 0).then_some(position);
+            // A link picked by hand: no step of the Quality menu is asked for anymore.
+            session.wanted = None;
+            session.quality_tried.clear();
             session.generation
         };
         self.play(generation, group, link).await;
+    }
+
+    /// A step tapped in the Quality menu: the source playing's link with it, else another
+    /// source's (the first a session would try), from where the video is. Tapped again while one
+    /// plays, the next source with it; links with the step stay first when one fails.
+    async fn choose_quality(&self, key: QualityKey, position: i64) {
+        let picked = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard.as_mut() else {
+                return;
+            };
+            let now = now_ms();
+            let offers = session.offers(now);
+            let playing_key = session.current.and_then(|current| {
+                offers
+                    .iter()
+                    .find(|offer| (offer.group, offer.link) == current)
+                    .map(|offer| offer.key)
+            });
+            let again = session.wanted == Some(key) && playing_key == Some(key);
+            if !again {
+                session.quality_tried.clear();
+            }
+            if let Some(current) = session.current.filter(|_| again) {
+                session.quality_tried.insert(current);
+            }
+            session.wanted = Some(key);
+            match video_quality::pick(&offers, key, session.current, &session.quality_tried) {
+                Some((group, link)) => {
+                    session.quality_tried.insert((group, link));
+                    session.tried.insert((group, link));
+                    session.current = Some((group, link));
+                    session.watching = None;
+                    session.start_at = (position > 0).then_some(position);
+                    Ok((session.generation, group, link))
+                }
+                None => Err(session.quality_update(
+                    now,
+                    Some(
+                        self.label("qualityNoOther", "No other source has {n}")
+                            .replace("{n}", &quality_name(key)),
+                    ),
+                )),
+            }
+        };
+        match picked {
+            Ok((generation, group, link)) => self.play(generation, group, link).await,
+            Err(update) => {
+                let _ = crate::video::update_player(&self.app, &update);
+            }
+        }
+    }
+
+    /// Automatic quality: no step is asked for anymore.
+    async fn forget_quality(&self) {
+        let update = {
+            let mut guard = self.session.lock().expect("session poisoned");
+            let Some(session) = guard.as_mut() else {
+                return;
+            };
+            session.wanted = None;
+            session.quality_tried.clear();
+            session.quality_update(now_ms(), None)
+        };
+        let _ = crate::video::update_player(&self.app, &update);
     }
 
     /// The playing link failed: the next best one plays from the same spot at once. Its address
@@ -910,6 +1364,7 @@ impl VideoSessions {
                 group: None,
                 chapters: Vec::new(),
                 anime: None,
+                live: false,
             };
             let link = Link {
                 label: self.label("onDevice", "On this device"),
@@ -917,6 +1372,7 @@ impl VideoSessions {
                 failed: None,
                 mismatch: false,
                 height: None,
+                size: None,
                 request,
             };
             let group = Group::finished(
@@ -1014,6 +1470,7 @@ impl VideoSessions {
                     tag: None,
                     mismatch: false,
                     height: link.quality,
+                    size: None,
                     // Torrents (Miru) need a torrent app: listed, never played.
                     failed: (link.format.as_deref() == Some(raygun_ext_host::video::TORRENT))
                         .then(|| self.label("needsTorrentApp", "Needs a torrent app")),
@@ -1218,6 +1675,11 @@ impl VideoSessions {
                 if !self.is_current(generation) {
                     return;
                 }
+                // The new stream reports its own variants once it loads.
+                if let Some(session) = self.session.lock().expect("session poisoned").as_mut() {
+                    session.variants.clear();
+                    session.playing_variant = None;
+                }
                 let _ = crate::video::update_player(
                     &self.app,
                     &json!({ "type": "load", "request": payload }),
@@ -1237,6 +1699,7 @@ impl VideoSessions {
                     session.watching = Some(Watching {
                         at: (group, link),
                         from,
+                        live_from: None,
                         confirmed: false,
                     });
                 }
@@ -1383,48 +1846,23 @@ impl VideoSessions {
         let _ = crate::video::update_player(&self.app, &update);
     }
 
+    /// The sources and their links for the player's Sources sheet (raw labels for Raw details,
+    /// what their names say for the clean list, in the order the list shows them), then the
+    /// Quality menu that follows from them.
     async fn push_sources(&self) {
-        let update = {
+        let (update, qualities) = {
             let guard = self.session.lock().expect("session poisoned");
             let Some(session) = guard.as_ref() else {
                 return;
             };
-            let ranking = session.ranking(now_ms());
-            // "Playing from <source>" once the current link has played a while.
-            let playing_from = session
-                .watching
-                .filter(|watching| watching.confirmed && session.current == Some(watching.at))
-                .and_then(|watching| session.groups.get(watching.at.0))
-                .map(|group| group.name.clone());
-            json!({
-                "type": "sources",
-                "playingFrom": playing_from,
-                "groups": session.groups.iter().enumerate().map(|(group_index, group)| {
-                    let (state, error) = match &group.state {
-                        GroupState::Resolving => ("resolving", None),
-                        GroupState::Ready => ("ready", None),
-                        GroupState::Empty => ("empty", None),
-                        GroupState::Failed(error) => ("failed", Some(error.clone())),
-                    };
-                    json!({
-                        "name": group.name,
-                        "state": state,
-                        "error": error,
-                        "unreliable": ranking.is_failing(&group.name),
-                        "worked": ranking.played_last(&group.name),
-                        "links": group.links.iter().enumerate().map(|(link_index, link)| json!({
-                            "label": link.label,
-                            "current": session.current == Some((group_index, link_index)),
-                            "failed": link.failed.is_some()
-                                || session.dead_urls.contains(&link.request.url),
-                            "worked": ranking.played_last(&group.name)
-                                && session.memory.label.as_deref() == Some(link.label.as_str()),
-                        })).collect::<Vec<_>>(),
-                    })
-                }).collect::<Vec<_>>(),
-            })
+            let now = now_ms();
+            (
+                sources_update(session, now),
+                session.quality_update(now, None),
+            )
         };
         let _ = crate::video::update_player(&self.app, &update);
+        let _ = crate::video::update_player(&self.app, &qualities);
     }
 
     fn snapshot(&self, generation: u64) -> Option<(Origin, Episode, String, Option<String>)> {
@@ -1696,6 +2134,7 @@ mod tests {
             failed: None,
             mismatch: false,
             height: crate::video_quality::label_height(label),
+            size: None,
             request: VideoRequest {
                 key: "k".into(),
                 title: "T".into(),
@@ -1708,6 +2147,7 @@ mod tests {
                 group: None,
                 chapters: Vec::new(),
                 anime: None,
+                live: false,
             },
         }
     }
@@ -1759,6 +2199,14 @@ mod tests {
             watching: None,
             resolving_since: 0,
             settled: false,
+            wanted: None,
+            quality_tried: HashSet::new(),
+            variants: Vec::new(),
+            playing_variant: None,
+            duration_ms: None,
+            speeds: HashMap::new(),
+            link_speeds: HashMap::new(),
+            speed_saved_at: 0,
         }
     }
 
@@ -2440,5 +2888,181 @@ mod tests {
             serde_json::from_str::<EpisodeRef>(&text).unwrap(),
             reference
         );
+    }
+
+    /// Three sources: Alpha (1080p, 720p), Beta (2160p HDR, 720p), Gamma failed.
+    fn quality_session() -> Session {
+        let mut state = session(
+            vec![
+                Group::finished(
+                    "a".into(),
+                    "Alpha".into(),
+                    vec![link("a 1080p", None), link("a 720p", None)],
+                    None,
+                ),
+                Group::finished(
+                    "b".into(),
+                    "Beta".into(),
+                    vec![link("b 2160p HDR HEVC", None), link("b 720p", None)],
+                    None,
+                ),
+                Group::finished("c".into(), "Gamma".into(), Vec::new(), Some("down".into())),
+            ],
+            vec![episode("e1", None)],
+        );
+        state.current = Some((0, 0));
+        state.tried.insert((0, 0));
+        state
+    }
+
+    #[test]
+    fn the_quality_asked_for_plays_first_and_after_a_failure() {
+        let mut state = quality_session();
+        state.wanted = Some(QualityKey::of(720, video_quality::Range::Sdr));
+        state.current = None;
+        assert_eq!(
+            state.next_candidate(NOW),
+            Some((0, 1)),
+            "720p before the 1080p link the order would try"
+        );
+        state.tried.insert((0, 1));
+        state.groups[0].links[1].failed = Some("gone".into());
+        assert_eq!(
+            state.next_candidate(NOW),
+            Some((1, 1)),
+            "another source's 720p when the first one fails"
+        );
+        state.tried.insert((1, 1));
+        assert_eq!(state.next_candidate(NOW), Some((1, 0)), "then the rest");
+    }
+
+    #[test]
+    fn the_quality_menu_follows_the_sessions_links() {
+        let mut state = quality_session();
+        let offers = state.offers(NOW);
+        assert_eq!(offers.len(), 4);
+        assert_eq!(offers[0].rank, 0);
+        let update = state.quality_update(NOW, None);
+        let items = update["items"].as_array().unwrap();
+        let row = |key: &str| {
+            items
+                .iter()
+                .find(|item| item["key"] == key)
+                .cloned()
+                .unwrap_or_else(|| panic!("no row {key}"))
+        };
+        assert_eq!(row("1080:sdr")["state"], "playing");
+        assert_eq!(row("720:sdr")["state"], "thisSource");
+        assert_eq!(row("720:sdr")["link"], 1);
+        assert_eq!(row("2160:hdr")["state"], "otherSource");
+        assert_eq!(row("2160:hdr")["source"], "Beta");
+        assert_eq!(row("2160:hdr")["codec"], "HEVC");
+        assert_eq!(row("480:sdr")["state"], "missing");
+        // The stream's own variants come first.
+        state.variants = vec![Variant {
+            height: 720,
+            range: video_quality::Range::Sdr,
+            codec: None,
+        }];
+        state.playing_variant = Some(QualityKey::of(1080, video_quality::Range::Sdr));
+        let update = state.quality_update(NOW, Some("note".into()));
+        let items = update["items"].as_array().unwrap();
+        let shown = items.iter().find(|item| item["key"] == "720:sdr").unwrap();
+        assert_eq!(shown["state"], "variant");
+        assert_eq!(update["notice"], "note");
+    }
+
+    #[test]
+    fn variants_reported_without_a_session_make_a_menu_of_their_own() {
+        let (variants, playing) = reported_variants(&json!({
+            "items": [
+                { "height": 1080, "range": "hdr", "codec": "HEVC" },
+                { "height": 720 },
+                { "height": 0 }
+            ],
+            "playing": { "height": 1076 }
+        }));
+        assert_eq!(variants.len(), 3);
+        assert_eq!(
+            playing,
+            Some(QualityKey::of(1080, video_quality::Range::Sdr))
+        );
+        let update = variants_update(&variants, playing);
+        let items = update["items"].as_array().unwrap();
+        let state = |key: &str| {
+            items
+                .iter()
+                .find(|item| item["key"] == key)
+                .map(|item| item["state"].clone())
+        };
+        assert_eq!(state("1080:hdr"), Some(json!("variant")));
+        assert_eq!(state("1080:sdr"), Some(json!("playing")));
+        assert_eq!(state("720:sdr"), Some(json!("variant")));
+        assert_eq!(state("2160:sdr"), Some(json!("missing")));
+    }
+
+    #[test]
+    fn the_sources_sheet_lists_sources_by_what_works_quality_and_speed() {
+        let mut state = quality_session();
+        state
+            .groups
+            .push(Group::resolving("d".into(), "Delta".into()));
+        state.groups.push(Group::finished(
+            "e".into(),
+            "Epsilon".into(),
+            vec![link("e 1080p", None)],
+            None,
+        ));
+        state.speeds.insert("Epsilon".into(), 40_000);
+        state.speeds.insert("Alpha".into(), 9_000);
+        state.duration_ms = Some(5_400_000);
+        state.groups[1].links[0].size = Some(13_500_000_000);
+        let update = sources_update(&state, NOW);
+        // Beta has 2160p; Epsilon and Alpha both 1080p, Epsilon faster; Delta is still looking,
+        // Gamma failed.
+        assert_eq!(update["order"], json!([1, 4, 0, 3, 2]));
+        let beta = &update["groups"][1];
+        assert_eq!(beta["best"], 2160);
+        assert_eq!(beta["options"], 2);
+        let top = &beta["links"][0];
+        assert_eq!(top["facts"]["range"], "hdr");
+        assert_eq!(top["facts"]["codec"], "HEVC");
+        assert_eq!(top["facts"]["sizeBytes"], 13_500_000_000_u64);
+        assert_eq!(top["bitrateKbps"], 20_000);
+        assert_eq!(update["groups"][0]["speedKbps"], 9_000);
+        assert_eq!(update["groups"][0]["links"][0]["current"], true);
+        assert_eq!(update["groups"][2]["state"], "failed");
+    }
+
+    #[test]
+    fn measured_speeds_are_smoothed_kept_and_forgotten_with_their_source() {
+        let mut health = SourceHealth::default();
+        health.measured("Alpha", 9_000, NOW);
+        assert_eq!(health.speed("Alpha"), Some(9_000));
+        health.measured("Alpha", 3_000, NOW + 1);
+        assert_eq!(health.speed("Alpha"), Some(7_000));
+        assert_eq!(health.speed("Beta"), None);
+        let text = serde_json::to_string(&health).unwrap();
+        let back: SourceHealth = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.speed("Alpha"), Some(7_000));
+        // A speed alone keeps a source for as long as a success would.
+        health.worked("Beta", NOW + 61 * 24 * 60 * 60 * 1000);
+        assert_eq!(health.speed("Alpha"), None);
+    }
+
+    #[test]
+    fn progress_reports_say_live_length_and_speed() {
+        let heard = Heard::of(&json!({
+            "live": true, "durationMs": null, "bandwidthKbps": 4_200.0
+        }));
+        assert_eq!(
+            heard,
+            Heard {
+                live: true,
+                duration_ms: None,
+                bandwidth_kbps: Some(4_200),
+            }
+        );
+        assert_eq!(Heard::of(&json!({ "durationMs": 0 })), Heard::default());
     }
 }
