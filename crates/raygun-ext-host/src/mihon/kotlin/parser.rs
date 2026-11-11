@@ -1875,11 +1875,23 @@ impl Parser {
     /// A branch of `if` or `when`: a block, or one statement.
     fn branch(&mut self) -> Result<Block, String> {
         self.skip_newlines();
-        if self.is_op("{") {
+        if self.is_op("{") && !self.braces_hold_a_lambda() {
             self.block()
         } else {
             Ok(vec![self.statement()?])
         }
+    }
+
+    /// Braces where a block could go that start with a lambda's parameters and its arrow
+    /// (`SINGLE -> { _ -> "SINGLE" }`) are a lambda, as Kotlin reads them.
+    fn braces_hold_a_lambda(&mut self) -> bool {
+        let save = self.at;
+        let found = self.expect_op("{").is_ok()
+            && self
+                .with_nesting(false, |parser| Ok(parser.lambda_params().is_some()))
+                .unwrap_or(false);
+        self.at = save;
+        found
     }
 
     fn if_expr(&mut self) -> Result<Expr, String> {

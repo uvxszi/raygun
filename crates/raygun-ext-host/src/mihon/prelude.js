@@ -1189,6 +1189,64 @@
       const after = dom('siblings', { nodes: [this.h], forward: true, all: true });
       return Elements.of([...before, ...after], this.doc);
     }
+    /** Jsoup's `previousElementSiblings()`: the nearest first. */
+    previousElementSiblings() {
+      return Elements.of(dom('siblings', { nodes: [this.h], forward: false, all: true }), this.doc);
+    }
+    getElementsByTag(name) {
+      return this.select(K.str(name).replace(/[^A-Za-z0-9_-]/g, '') || '*');
+    }
+    getElementsByClass(name) {
+      return this.select(`.${K.str(name).replace(/([^A-Za-z0-9_-])/g, '\\$1')}`);
+    }
+    getElementById(id) {
+      return this.selectFirst(`[id="${K.str(id).replace(/"/g, '\\"')}"]`);
+    }
+    /** Jsoup's `wholeOwnText()`: the element's own text children, as written. */
+    wholeOwnText() {
+      return this.textNodes()
+        .map((node) => node.wholeText)
+        .join('');
+    }
+    /** Jsoup's `childNodes()`: elements and text, in order (comments left out). */
+    childNodes() {
+      const handles = dom('children', { nodes: [this.h], all: true });
+      const infos = handles.length ? dom('info', { nodes: handles }) : [];
+      const elementAfter = (index, step) => {
+        for (let at = index + step; at >= 0 && at < handles.length; at += step)
+          if (['tag', 'script', 'style'].includes(infos[at].type)) return handles[at];
+        return null;
+      };
+      const out = [];
+      handles.forEach((handle, index) => {
+        const info = infos[index];
+        if (info.type === 'text')
+          out.push(
+            textNode(
+              {
+                text: info.data,
+                next: elementAfter(index, 1),
+                previous: elementAfter(index, -1),
+              },
+              this.doc,
+            ),
+          );
+        else if (['tag', 'script', 'style'].includes(info.type))
+          out.push(new Element(handle, this.doc));
+      });
+      return out;
+    }
+    childNodeSize() {
+      return this.childNodes().length;
+    }
+    /** Jsoup's `val()`: a form field's value. */
+    val() {
+      return this.tagName() === 'textarea' ? this.text() : this.attr('value');
+    }
+    /** Jsoup's `setBaseUri(uri)`: the address relative links are read against. */
+    setBaseUri(uri) {
+      if (this.doc) this.doc.loc = K.str(uri);
+    }
     remove() {
       dom('remove', { nodes: [this.h] });
     }

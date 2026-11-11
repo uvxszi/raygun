@@ -203,6 +203,28 @@ pub const METHODS: &[&str] = &[
     "order", "getShort", "getInt", "getFloat", "getDouble", "putShort", "putInt", "putLong",
     "array", "arrayOffset", "position", "limit", "capacity", "remaining", "hasRemaining",
     "rewind", "flip", "nativeOrder",
+    // Comparators, lists' ends and what they keep, sequences and iterators
+    "compare", "removeLast", "removeFirst", "removeLastOrNull", "removeFirstOrNull", "retainAll",
+    "takeLastWhile", "dropLastWhile", "onEachIndexed", "mapIndexedTo", "flatMapIndexed",
+    "flatMapTo", "filterNotNullTo", "groupingBy", "eachCount", "iterator", "hasNext", "next",
+    "constrainOnce", "setStrength", "setDecomposition", "getCollationKey",
+    // Strings, characters and numbers
+    "prependIndent", "replaceRange", "replaceAfter", "replaceAfterLast", "replaceBefore",
+    "replaceBeforeLast", "uppercaseChar", "lowercaseChar", "titlecaseChar", "codePointAt",
+    "encodeUtf8", "decodeHexToByteString", "toBigDecimal", "toBigInteger", "toULong", "toUByte",
+    "toUShort", "mod", "multipliedBy", "separator",
+    // Bytes: Keiyoushi's readers, RC4, okio's `ByteString` and `rangeEquals`
+    "readUShortLittleEndian", "readUShortBigEndian", "readUIntLittleEndian",
+    "readLongLittleEndian", "rc4", "toByteString", "rangeEquals",
+    // Jsoup
+    "previousElementSiblings", "getElementsByTag", "getElementsByClass", "getElementById",
+    "wholeOwnText", "childNodes", "childNodeSize", "val", "setBaseUri",
+    // OkHttp's tags and client settings Raygun's own client has
+    "tag", "cache", "dns", "protocols", "hostnameVerifier", "sslSocketFactory", "connectionPool",
+    "networkInterceptors",
+    // Deferred values, caches, addresses
+    "complete", "completeExceptionally", "evictAll", "snapshot", "getQueryParameter",
+    "getQueryParameterNames", "buildUpon", "toURL", "toURI", "toExternalForm",
 ];
 
 fn quote(text: &str) -> String {
@@ -328,6 +350,25 @@ const LIBRARY_PACKAGES: [&str; 11] = [
     "android.",
     "rx.",
     "uy.kohesive.",
+];
+
+/// The first segments of names written with their package (`java.net.URI(…)`,
+/// `eu.kanade.tachiyomi.source.model.Filter.Header(…)`), which the converter reads without it.
+const PACKAGE_ROOTS: [&str; 14] = [
+    "java",
+    "javax",
+    "kotlin",
+    "kotlinx",
+    "eu",
+    "org",
+    "okhttp3",
+    "okio",
+    "android",
+    "androidx",
+    "keiyoushi",
+    "uy",
+    "rx",
+    "com",
 ];
 
 /// A loop being written: how deep in lambdas it is, its label, and an id jumps name it by.
@@ -466,6 +507,120 @@ impl<'a> Gen<'a> {
     /// the source declares.
     fn known(&self, name: &str) -> bool {
         METHODS.contains(&name) || self.cx.class_members.contains(name)
+    }
+
+    /// `java.net.URI`, `eu.kanade.tachiyomi.source.model.Filter.Header`: a name written with its
+    /// package, read without it (`URI`, `Filter.Header`).
+    fn without_package(&self, expr: &Expr) -> Option<Expr> {
+        let mut segments = Vec::new();
+        let mut at = expr;
+        loop {
+            match at {
+                Expr::Member {
+                    target,
+                    name,
+                    safe: false,
+                } => {
+                    segments.push(name.as_str());
+                    at = target;
+                }
+                Expr::Name(root) => {
+                    segments.push(root.as_str());
+                    break;
+                }
+                _ => return None,
+            }
+        }
+        segments.reverse();
+        let root = segments[0];
+        if !PACKAGE_ROOTS.contains(&root)
+            || self.is_local(root)
+            || self.cx.properties.contains(root)
+            || self.cx.constants.contains(root)
+        {
+            return None;
+        }
+        let first_type = segments
+            .iter()
+            .position(|segment| segment.chars().next().is_some_and(char::is_uppercase))?;
+        let mut out = Expr::Name(segments[first_type].to_owned());
+        for segment in &segments[first_type + 1..] {
+            out = Expr::Member {
+                target: Box::new(out),
+                name: (*segment).to_owned(),
+                safe: false,
+            };
+        }
+        Some(out)
+    }
+
+    /// `Filter.Sort`: classes of the runtime's nested in one another, not a value of the source's.
+    fn is_type_path(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(name) => {
+                name.chars().next().is_some_and(char::is_uppercase)
+                    && !self.is_local(name)
+                    && !self.cx.properties.contains(name)
+                    && !self.cx.constants.contains(name)
+                    && !self.cx.classes.contains(name)
+            }
+            Expr::Member {
+                target,
+                name,
+                safe: false,
+            } => name.chars().next().is_some_and(char::is_uppercase) && self.is_type_path(target),
+            _ => false,
+        }
+    }
+
+    /// `i++`, `++count`, `this.page--`, `counts[key]++` as a value: the variable moves on, and the
+    /// value is the one before it did (postfix) or after (prefix).
+    fn increment(&mut self, op: &str, target: &Expr, postfix: bool) -> Result<String, String> {
+        if let Expr::Name(name) = target
+            && let Some(js) = self.resolve(name)
+        {
+            return Ok(if postfix {
+                format!("({js}{op})")
+            } else {
+                format!("({op}{js})")
+            });
+        }
+        let step = if op == "++" { "+ 1" } else { "- 1" };
+        let (old, new) = (self.temp(), self.temp());
+        let (setup, read, write) = match target {
+            Expr::Name(name) => {
+                let receivers = self.receiver_list();
+                (
+                    String::new(),
+                    format!("await KT.rget({receivers}, {})", quote(name)),
+                    format!("await KT.rset({receivers}, {}, {new})", quote(name)),
+                )
+            }
+            Expr::Member { target, name, .. } => {
+                let object = self.expr(target)?;
+                let holder = self.temp();
+                (
+                    format!("const {holder} = {object}; "),
+                    format!("await KT.p({holder}, {})", quote(name)),
+                    format!("await KT.setp({holder}, {}, {new})", quote(name)),
+                )
+            }
+            Expr::Index { target, index } if index.len() == 1 => {
+                let object = self.expr(target)?;
+                let key = self.expr(&index[0])?;
+                let (holder, key_temp) = (self.temp(), self.temp());
+                (
+                    format!("const {holder} = {object}; const {key_temp} = {key}; "),
+                    format!("await KT.m({holder}, \"get\", [{key_temp}])"),
+                    format!("await KT.m({holder}, \"set\", [{key_temp}, {new}])"),
+                )
+            }
+            _ => return Err(unsupported(format!("{op} on that"))),
+        };
+        let result = if postfix { &old } else { &new };
+        Ok(format!(
+            "(await (async () => {{ {setup}const {old} = {read}; const {new} = {old} {step}; {write}; return {result}; }})())"
+        ))
     }
 
     /// Declares a local and gives its JavaScript name. Kotlin lets a local shadow a parameter or
@@ -854,7 +1009,7 @@ impl<'a> Gen<'a> {
                     let head = match vars {
                         LambdaParam::Name(name) => {
                             let js = writer.declare(name);
-                            format!("const {js} of KT.iter({iterable})")
+                            format!("const {js} of (await KT.each({iterable}))")
                         }
                         LambdaParam::Destructured(names) => {
                             let temp = writer.temp();
@@ -870,7 +1025,7 @@ impl<'a> Gen<'a> {
                             let inner = writer.block(body, Tail::Discard)?;
                             let inner = writer.loop_body(id, inner);
                             return Ok(format!(
-                                "{}for (const {temp} of KT.iter({iterable})) {{ {} {inner} }}",
+                                "{}for (const {temp} of (await KT.each({iterable}))) {{ {} {inner} }}",
                                 label
                                     .as_ref()
                                     .map(|label| format!("{}: ", local(label)))
@@ -1170,6 +1325,11 @@ impl<'a> Gen<'a> {
     }
 
     pub fn expr(&mut self, expr: &Expr) -> Result<String, String> {
+        if matches!(expr, Expr::Member { .. })
+            && let Some(stripped) = self.without_package(expr)
+        {
+            return self.expr(&stripped);
+        }
         Ok(match expr {
             Expr::Int(value) => value.to_string(),
             Expr::Float(value) => {
@@ -1219,25 +1379,19 @@ impl<'a> Gen<'a> {
                 format!("(await KT.m({object}, \"get\", [{}]))", keys.join(", "))
             }
             Expr::NotNull(inner) => format!("KT.nn({})", self.expr(inner)?),
+            Expr::Unary { op, expr } if matches!(*op, "++" | "--") => {
+                self.increment(op, expr, false)?
+            }
             Expr::Unary { op, expr } => {
                 let value = self.expr(expr)?;
                 match *op {
                     "!" => format!("(!KT.truthy({value}))"),
                     "-" => format!("(-{value})"),
-                    "+" => value,
-                    _ => return Err(unsupported("++ and -- inside expressions")),
+                    _ => value,
                 }
             }
-            Expr::Postfix { op, expr } => {
-                // `i++` as a value: the value before, then the variable moves on.
-                let Expr::Name(name) = expr.as_ref() else {
-                    return Err(unsupported("++ on that"));
-                };
-                let Some(name) = self.resolve(name) else {
-                    return Err(unsupported("++ on a property"));
-                };
-                format!("({name}{op})")
-            }
+            // `i++` as a value: the value before, then the variable moves on.
+            Expr::Postfix { op, expr } => self.increment(op, expr, true)?,
             Expr::Binary { op, left, right } => self.binary(op, left, right)?,
             Expr::Is { expr, ty, negated } => {
                 let test = format!("KT.is({}, {})", self.expr(expr)?, quote(&ty.name));
@@ -1435,6 +1589,12 @@ impl<'a> Gen<'a> {
         if let Expr::Super = target {
             return Ok(format!("(await self.base.get({}))", quote(name)));
         }
+        // `Page::class.java`: the class, as `Page::class` names it.
+        if matches!(name, "java" | "javaObjectType" | "kotlin")
+            && matches!(target, Expr::Reference { name, .. } if name == "class")
+        {
+            return self.expr(target);
+        }
         // `this.baseUrl` in the source: its own property.
         if matches!(target, Expr::This(None))
             && self.receivers.is_empty()
@@ -1588,6 +1748,9 @@ impl<'a> Gen<'a> {
         args: &[Arg],
         lambda: Option<&Lambda>,
     ) -> Result<String, String> {
+        if let Some(stripped) = self.without_package(callee) {
+            return self.call(&stripped, type_args, args, lambda);
+        }
         let expected = self.expected.take();
         let type_arg = type_args
             .first()
@@ -1621,6 +1784,9 @@ impl<'a> Gen<'a> {
                     {
                         return self.receiver_call_returning(lambda, "[]", name);
                     }
+                    ("buildMap", Some(lambda)) => {
+                        return self.receiver_call_returning(lambda, "new Map()", name);
+                    }
                     ("buildString", Some(lambda)) => {
                         let built =
                             self.receiver_call_returning(lambda, "KT.stringBuilder()", name)?;
@@ -1639,6 +1805,20 @@ impl<'a> Gen<'a> {
                     ("runCatching", Some(lambda)) => {
                         let call = self.lambda_call(lambda, name)?;
                         return Ok(format!("(await KT.runCatching(async () => {call}))"));
+                    }
+                    // `getPreferencesLazy { … }`: the preferences, after a block that reads them
+                    // as its receiver (moving an old setting to a new one).
+                    ("getPreferences" | "getPreferencesLazy", Some(lambda)) if args.is_empty() => {
+                        let preferences = self.receiver_call_returning(
+                            lambda,
+                            "(await KT.call(\"getPreferences\", []))",
+                            name,
+                        )?;
+                        return Ok(if name == "getPreferences" {
+                            preferences
+                        } else {
+                            format!("KT.deferred(async () => {preferences})")
+                        });
                     }
                     ("repeat", Some(lambda)) if args.len() == 1 => {
                         let times = self.expr(&args[0].value)?;
@@ -1839,6 +2019,15 @@ impl<'a> Gen<'a> {
                         quote(name),
                         args.join(", ")
                     ));
+                }
+                // `Filter.Sort.Selection(…)`: a class of the runtime's, written inside the ones
+                // it's nested in.
+                if GLOBALS.contains(&name.as_str())
+                    && matches!(target.as_ref(), Expr::Member { .. })
+                    && self.is_type_path(target)
+                {
+                    let lambda = lambda.map(|lambda| self.lambda(lambda, name)).transpose()?;
+                    return self.global_call(name, args, lambda, &type_arg);
                 }
                 // `Foo.create()`, `Jsoup.parse(…)`: an object's member (not a constant's, such as
                 // a class's companion's `NUMBER_REGEX.findAll(…)`).
@@ -2294,6 +2483,10 @@ pub const GLOBALS: &[&str] = &[
     "GCMParameterSpec", "PBEKeySpec", "TextNode", "XorInterceptor", "Canvas", "Rect", "RectF",
     "Matrix", "Paint", "TextPaint", "Buffer", "ByteArrayOutputStream", "ByteArrayInputStream",
     "TextInterceptor",
+    "GeneralSecurityException", "SecurityException", "UnknownHostException", "ProtocolException",
+    "SocketTimeoutException", "InterruptedException", "NumberFormatException", "TimeoutException",
+    "CancellationException", "generateSequence", "DecimalFormat", "SecureRandom", "Any",
+    "LruCache", "CompletableDeferred", "URI", "URL", "SupervisorJob", "Job", "delay", "assert",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2308,5 +2501,6 @@ pub const OBJECTS: &[&str] = &[
     "VERSION", "Normalizer", "Entities", "StandardCharsets", "Charset", "MarkdownDescription",
     "Cipher", "MessageDigest", "Mac", "SecretKeyFactory", "UpdateStrategy", "MultipartBody",
     "QuickJs", "JSON_MEDIA_TYPE", "Bitmap", "BitmapFactory", "Color", "Paint", "Typeface",
-    "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper",
+    "ByteBuffer", "ByteOrder", "ImageDecoder", "TextInterceptorHelper", "Collator", "Dispatchers",
+    "Evaluator", "HttpUrl", "Uri", "Float", "Double", "Thread",
 ];

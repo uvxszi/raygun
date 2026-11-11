@@ -1602,6 +1602,117 @@ class Entry(val name: String) : Named(name) {
     assert!(listing.has_next_page);
 }
 
+/// Sequences that don't end, `init` blocks, `++` on properties, names written with their
+/// package, comparators and formats, as converted code uses them.
+#[tokio::test]
+async fn converted_code_reads_sequences_inits_and_qualified_names() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private val preferences by getPreferencesLazy {
+        if (getString("old", "x") == "x") {
+            edit().putString("server", "second").apply()
+        }
+    }
+
+    private var served = 0
+
+    private fun pick(kind: Int): (String) -> String = when (kind) {
+        0 -> { _ -> "none" }
+        else -> { text -> text.uppercase() }
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        var seed = 7
+        val random = generateSequence(seed) { x -> (x * 3) % 1000 }.drop(1).iterator()
+        val firsts = List(3) { random.next() }
+        val counted = generateSequence(1) { it + 1 }.map { it * 2 }.takeWhile { it < 9 }.toList()
+        val box = Box("a-b")
+        box.count++
+        ++box.count
+        served++
+        val order = Filter.Sort.Selection(2, true)
+        val host = java.net.URI("https://other.example/x/y").host
+        val sorted = listOf("b", "C", "a").sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
+        val left = mutableListOf(1, 2, 3).apply { removeLast() }
+        val price = DecimalFormat("#,###.##").format(12345.678)
+        val names = listOf(
+            firsts.joinToString(","),
+            counted.joinToString(","),
+            "${box.parts.size}:${box.count}:$served",
+            "${order.index}:${order.ascending}",
+            host,
+            sorted.joinToString(""),
+            left.joinToString(""),
+            price,
+            pick(0)("x") + pick(1)("y"),
+            preferences.getString("server", "first")!!,
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        ) + r#"
+class Box(text: String) {
+    lateinit var parts: List<String>
+    var count = 0
+
+    init {
+        parts = text.split("-")
+        count = parts.size
+    }
+}
+"#;
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let converted = convert::convert(
+        &extension,
+        &sources(
+            STANDALONE_BUILD,
+            &[(
+                "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+                &source,
+            )],
+        ),
+    )
+    .unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "21,63,189",
+            "2,4,6,8",
+            "2:4:1",
+            "2:true",
+            "other.example",
+            "abC",
+            "12",
+            "12,345.68",
+            "noneY",
+            "second",
+        ]
+    );
+}
+
 const JUMPS_SOURCE: &str = r##"package eu.kanade.tachiyomi.extension.en.fixturejumps
 
 import eu.kanade.tachiyomi.source.model.FilterList

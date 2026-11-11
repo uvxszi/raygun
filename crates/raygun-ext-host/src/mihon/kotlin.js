@@ -268,6 +268,8 @@
   KT.getter = (function_) => ({ isGetter: true, function_ });
   /// A class's `var` with a value: a field set when an instance is made.
   KT.field = (function_) => ({ isField: true, function_ });
+  /// A class's `init { … }`: run when an instance is made, in order with its fields.
+  KT.init = (function_) => ({ isInit: true, function_ });
 
   // ---- What a value is ----
 
@@ -534,7 +536,62 @@
     if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(trimmed)) return null;
     return parseFloat(trimmed);
   };
+  /// RC4 (Keiyoushi's `rc4(key, skip)`): the keystream XORed in, after `skip` of its bytes.
+  const rc4 = (data, key, skip = 0) => {
+    const state = Uint8Array.from({ length: 256 }, (_, index) => index);
+    let j = 0;
+    for (let i = 0; i < 256; i++) {
+      j = (j + state[i] + key[i % key.length]) & 255;
+      [state[i], state[j]] = [state[j], state[i]];
+    }
+    let a = 0;
+    let b = 0;
+    const next = () => {
+      a = (a + 1) & 255;
+      b = (b + state[a]) & 255;
+      [state[a], state[b]] = [state[b], state[a]];
+      return state[(state[a] + state[b]) & 255];
+    };
+    for (let count = 0; count < skip; count++) next();
+    const out = new Uint8Array(data.length);
+    for (let index = 0; index < data.length; index++) out[index] = data[index] ^ next();
+    return out;
+  };
   const STRING = {
+    prependIndent: (s, [indent = '    ']) =>
+      s
+        .split('\n')
+        .map((line) => (line.trim() === '' && line.length < indent.length ? indent : indent + line))
+        .join('\n'),
+    replaceRange: (s, [from, to, replacement]) =>
+      from && from.isRange
+        ? s.slice(0, from.first) + KT.str(to) + s.slice(from.last + 1)
+        : s.slice(0, from) + KT.str(replacement) + s.slice(to),
+    replaceAfter: (s, [delimiter, replacement, missing = s]) => {
+      const at = s.indexOf(KT.str(delimiter));
+      return at < 0 ? missing : s.slice(0, at + KT.str(delimiter).length) + KT.str(replacement);
+    },
+    replaceAfterLast: (s, [delimiter, replacement, missing = s]) => {
+      const at = s.lastIndexOf(KT.str(delimiter));
+      return at < 0 ? missing : s.slice(0, at + KT.str(delimiter).length) + KT.str(replacement);
+    },
+    replaceBefore: (s, [delimiter, replacement, missing = s]) => {
+      const at = s.indexOf(KT.str(delimiter));
+      return at < 0 ? missing : KT.str(replacement) + s.slice(at);
+    },
+    replaceBeforeLast: (s, [delimiter, replacement, missing = s]) => {
+      const at = s.lastIndexOf(KT.str(delimiter));
+      return at < 0 ? missing : KT.str(replacement) + s.slice(at);
+    },
+    uppercaseChar: (s) => s.toUpperCase(),
+    lowercaseChar: (s) => s.toLowerCase(),
+    titlecaseChar: (s) => s.toUpperCase(),
+    codePointAt: (s, [index]) => s.codePointAt(index),
+    encodeUtf8: (s) => byteString(K.bin.utf8(s)),
+    decodeHexToByteString: (s) => byteString(u8Of(fromHex(s))),
+    toBigDecimal: (s) => Number(s),
+    toBigInteger: (s) => Number(s),
+    toULong: (s) => Number(s),
     substringAfter: (s, [delimiter, missing = s]) =>
       K.substringAfter(s, KT.str(delimiter), missing),
     substringBefore: (s, [delimiter, missing = s]) =>
@@ -839,20 +896,43 @@
     throw new KotlinError(what, 'NoSuchElementException');
   };
   /// A comparator (`compareBy { … }.thenByDescending { … }`): keys to sort by, in order.
-  const comparator = (keys) => ({
-    isComparator: true,
-    keys,
-    thenBy: (select) => comparator([...keys, { select, descending: false }]),
-    thenByDescending: (select) => comparator([...keys, { select, descending: true }]),
-    reversed: () => comparator(keys.map((key) => ({ ...key, descending: !key.descending }))),
-  });
+  /// A key's order: its own comparator's (a collator, `compareBy(collator) { … }`), else natural.
+  const keyOrder = (key, left, right) =>
+    key.order && typeof key.order.compare === 'function'
+      ? key.order.compare(left, right)
+      : KT.cmp(left, right);
+  const comparator = (keys) => {
+    const made = {
+      isComparator: true,
+      __class: 'Comparator',
+      __classes: ['Comparator'],
+      keys,
+      thenBy: (select) => comparator([...keys, { select, descending: false }]),
+      thenByDescending: (select) => comparator([...keys, { select, descending: true }]),
+      reversed: () => comparator(keys.map((key) => ({ ...key, descending: !key.descending }))),
+      compare: async (left, right) => {
+        for (const key of keys) {
+          const a = key.select ? await key.select(left) : left;
+          const b = key.select ? await key.select(right) : right;
+          const result = keyOrder(key, a, b);
+          if (result) return key.descending ? -result : result;
+        }
+        return 0;
+      },
+    };
+    return made;
+  };
   /// Items in the order a comparator, or a `Comparator { a, b -> … }`, gives.
   const sortWith = async (items, order) => {
-    if (typeof order === 'function') {
+    if (
+      typeof order === 'function' ||
+      (order && !order.keys && typeof order.compare === 'function')
+    ) {
+      const compare = typeof order === 'function' ? order : order.compare;
       const out = [];
       for (const item of items) {
         let at = out.length;
-        while (at > 0 && (await order(out[at - 1], item)) > 0) at--;
+        while (at > 0 && (await compare(out[at - 1], item)) > 0) at--;
         out.splice(at, 0, item);
       }
       return out;
@@ -865,7 +945,7 @@
     }
     keyed.sort((a, b) => {
       for (let index = 0; index < order.keys.length; index++) {
-        const result = KT.cmp(a[0][index], b[0][index]);
+        const result = keyOrder(order.keys[index], a[0][index], b[0][index]);
         if (result) return order.keys[index].descending ? -result : result;
       }
       return 0;
@@ -899,6 +979,92 @@
   };
   const LIST = {
     size: (l) => l.length,
+    // Removals from either end, and what a list keeps or drops while a test holds.
+    removeLast: (l) => (l.length ? l.pop() : noSuch('the list is empty')),
+    removeFirst: (l) => (l.length ? l.shift() : noSuch('the list is empty')),
+    removeLastOrNull: (l) => (l.length ? l.pop() : null),
+    removeFirstOrNull: (l) => (l.length ? l.shift() : null),
+    retainAll: async (l, args, lambda) => {
+      const keep = lambda
+        ? await mapAll(l, lambda)
+        : l.map((item) => KT.iter(args[0]).some((other) => KT.eq(item, other)));
+      let changed = false;
+      for (let index = l.length - 1; index >= 0; index--)
+        if (!KT.truthy(keep[index])) {
+          l.splice(index, 1);
+          changed = true;
+        }
+      return changed;
+    },
+    takeLastWhile: async (l, _args, lambda) => {
+      let at = l.length;
+      while (at > 0 && KT.truthy(await lambda(l[at - 1]))) at--;
+      return l.slice(at);
+    },
+    dropLastWhile: async (l, _args, lambda) => {
+      let at = l.length;
+      while (at > 0 && KT.truthy(await lambda(l[at - 1]))) at--;
+      return l.slice(0, at);
+    },
+    onEachIndexed: async (l, _args, lambda) => {
+      for (let index = 0; index < l.length; index++) await lambda(index, l[index]);
+      return l;
+    },
+    mapIndexedTo: async (l, [destination], lambda) => {
+      for (let index = 0; index < l.length; index++)
+        destination.push(await lambda(index, l[index]));
+      return destination;
+    },
+    flatMapIndexed: async (l, _args, lambda) =>
+      (await mapAll(l, lambda, true)).flatMap((value) => KT.iter(value)),
+    flatMapTo: async (l, [destination], lambda) => {
+      for (const item of l) destination.push(...KT.iter(await lambda(item)));
+      return destination;
+    },
+    filterNotNullTo: (l, [destination]) => {
+      for (const item of l) if (item !== null && item !== undefined) destination.push(item);
+      return destination;
+    },
+    // `groupingBy { … }.eachCount()`.
+    groupingBy: async (l, _args, lambda) => {
+      const keys = await mapAll(l, lambda);
+      return {
+        __class: 'Grouping',
+        __classes: ['Grouping'],
+        eachCount: () => {
+          const counts = new Map();
+          for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+          return counts;
+        },
+        keyOf: (item) => keys[l.indexOf(item)],
+      };
+    },
+    iterator: (l) => {
+      let at = 0;
+      return {
+        __class: 'Iterator',
+        __classes: ['Iterator'],
+        hasNext: () => at < l.length,
+        next: () => (at < l.length ? l[at++] : noSuch('the list has no more items')),
+        remove: () => {
+          at -= 1;
+          l.splice(at, 1);
+        },
+      };
+    },
+    // Keiyoushi's byte readers (`keiyoushi.utils.Binary`) and RC4, okio's `ByteString`.
+    readUShortLittleEndian: (l, [offset]) => (l[offset] & 255) | ((l[offset + 1] & 255) << 8),
+    readUShortBigEndian: (l, [offset]) => ((l[offset] & 255) << 8) | (l[offset + 1] & 255),
+    readUIntLittleEndian: (l, [offset]) =>
+      ((l[offset] & 255) | ((l[offset + 1] & 255) << 8) | ((l[offset + 2] & 255) << 16)) +
+      (l[offset + 3] & 255) * 16777216,
+    readLongLittleEndian: (l, [offset]) => {
+      let value = 0;
+      for (let index = 7; index >= 0; index--) value = value * 256 + (l[offset + index] & 255);
+      return value;
+    },
+    rc4: (l, [key, skip = 0]) => listOfBytes(rc4(u8Of(l), u8Of(key), skip)),
+    toByteString: (l) => byteString(u8Of(l)),
     // A JSON array's `parseAs<List<T>>()`.
     parseAs: (l, _args, _lambda, _named, type) => decode(l, type),
     containsAll: (l, [other]) => KT.iter(other).every((item) => l.some((own) => KT.eq(own, item))),
@@ -1425,6 +1591,13 @@
   };
 
   const NUMBER = {
+    mod: (n, [other]) => ((n % other) + other) % other,
+    toBigDecimal: (n) => n,
+    toBigInteger: (n) => n,
+    toULong: (n) => (n < 0 ? n + 18446744073709551616 : n),
+    toUByte: (n) => n & 255,
+    toUShort: (n) => n & 65535,
+    multipliedBy: (n, [other]) => n * Number(other),
     toString: (n, [radix]) => (radix ? n.toString(radix) : K.str(n)),
     toInt: (n) => Math.trunc(n),
     toLong: (n) => Math.trunc(n),
@@ -1452,6 +1625,8 @@
   };
 
   const ANY = {
+    // A comparator's `compare(a, b)`: a `Comparator { a, b -> … }`, a collator, `compareBy`.
+    compare: async (value, [left, right]) => compareWith(value, left, right),
     // Keiyoushi's protobuf writers, on an instance of a class the source declares.
     toRequestBodyProto: (value, [type = 'application/protobuf']) => ({
       isBody: true,
@@ -1698,6 +1873,7 @@
       if (NULLABLE[name]) return NULLABLE[name](receiver, args, lambda, named, type);
       throw new KotlinError(`${name}() was called on null`, 'NullPointerException');
     }
+    if (receiver.isLazySequence) return sequenceCall(receiver, name, args, lambda, named, type);
     if (hasNextJs(receiver, name)) return NEXT_JS[name](receiver, args, lambda, type);
     // Protobuf answers read as the type asked (`parseAsProto<T>()`), after a `transform` if any.
     if (type && PROTO_DECODERS.has(name)) {
@@ -2171,6 +2347,12 @@
     header(name) {
       return this.headers.get(name);
     }
+    /// What `tag(type, value)` put on it (`request.tag(Page::class.java)`).
+    tag(type) {
+      const tags = this.tags ?? {};
+      const key = type === undefined ? 'Object' : KT.str(type).split('.').pop();
+      return tags[key] ?? null;
+    }
     newBuilder() {
       const builder = new RequestBuilder();
       builder.url_ = this.url;
@@ -2178,6 +2360,7 @@
       builder.headers_ = this.headers.newBuilder();
       builder.body_ = this.body;
       builder.kind_ = this.kind;
+      builder.tags_ = { ...(this.tags ?? {}) };
       return builder;
     }
   }
@@ -2240,7 +2423,12 @@
     cacheControl() {
       return this;
     }
-    tag() {
+    /// OkHttp's `tag(type, value)` (or `tag(value)`): something carried with the request for
+    /// its interceptors.
+    tag(type, value) {
+      this.tags_ = { ...(this.tags_ ?? {}) };
+      if (value === undefined) this.tags_.Object = type ?? null;
+      else this.tags_[KT.str(type).split('.').pop()] = value;
       return this;
     }
     fetch(fetch) {
@@ -2248,13 +2436,15 @@
       return this;
     }
     build() {
-      return new Request({
+      const request = new Request({
         url: this.url_,
         method: this.method_,
         headers: this.headers_.build(),
         body: this.body_,
         kind: this.kind_,
       });
+      request.tags = this.tags_ ?? {};
+      return request;
     }
   }
   const formBody = () => {
@@ -3023,6 +3213,14 @@
       followRedirects: () => builder,
       followSslRedirects: () => builder,
       retryOnConnectionFailure: () => builder,
+      // Raygun's own client resolves names, picks protocols, checks certificates and caches.
+      cache: () => builder,
+      dns: () => builder,
+      protocols: () => builder,
+      hostnameVerifier: () => builder,
+      sslSocketFactory: () => builder,
+      connectionPool: () => builder,
+      networkInterceptors: () => client.interceptors,
       // Interceptors over requests and answers (headers, tokens, retries, cookies); one decoding
       // images can't convert, as the runtime has no pictures.
       addInterceptor: (interceptor) => {
@@ -3253,6 +3451,15 @@
       __class: 'Buffer',
       __classes: ['Buffer', 'BufferedSource', 'BufferedSink', 'Source', 'Sink'],
       u8Now: () => data.slice(head, tail),
+      /// okio's `rangeEquals(offset, bytes)`: whether the bytes at `offset` are those.
+      rangeEquals: (offset, other, otherOffset = 0, count = undefined) => {
+        const wanted = u8Of(other);
+        const length = count ?? wanted.length - otherOffset;
+        if (offset < 0 || head + offset + length > tail) return false;
+        for (let index = 0; index < length; index++)
+          if (data[head + offset + index] !== wanted[otherOffset + index]) return false;
+        return true;
+      },
       get size() {
         return tail - head;
       },
@@ -4582,6 +4789,433 @@
       `http://${TEXT_HOST}/${encodeURIComponent(KT.str(title))}/${encodeURIComponent(KT.str(text))}`,
   };
 
+  // ---- Sequences, formats and the rest of Kotlin's and Java's library ----
+
+  /// Kotlin's sequences that may not end (`generateSequence(seed) { next(it) }`): items worked
+  /// out as they're read; anything else reads the first `SEQUENCE_CAP` as a list.
+  const SEQUENCE_CAP = 100000;
+  const lazySequence = (generate) => ({
+    isLazySequence: true,
+    __class: 'Sequence',
+    __classes: ['Sequence'],
+    generate,
+  });
+  const collectSequence = async (sequence, limit = SEQUENCE_CAP) => {
+    const out = [];
+    if (limit <= 0) return out;
+    for await (const item of sequence.generate()) {
+      out.push(item);
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+  const SEQUENCE = {
+    iterator: (s) => {
+      const source = s.generate();
+      let peeked = null;
+      const fill = async () => (peeked ??= await source.next());
+      return {
+        __class: 'Iterator',
+        __classes: ['Iterator'],
+        hasNext: async () => !(await fill()).done,
+        next: async () => {
+          const found = await fill();
+          peeked = null;
+          return found.done ? noSuch('the sequence has no more items') : found.value;
+        },
+      };
+    },
+    drop: (s, [count]) =>
+      lazySequence(async function* () {
+        let skipped = 0;
+        for await (const item of s.generate()) if (skipped++ >= count) yield item;
+      }),
+    take: (s, [count]) =>
+      lazySequence(async function* () {
+        if (count <= 0) return;
+        let taken = 0;
+        for await (const item of s.generate()) {
+          yield item;
+          if (++taken >= count) return;
+        }
+      }),
+    takeWhile: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) {
+          if (!KT.truthy(await lambda(item))) return;
+          yield item;
+        }
+      }),
+    dropWhile: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        let dropping = true;
+        for await (const item of s.generate()) {
+          if (dropping && KT.truthy(await lambda(item))) continue;
+          dropping = false;
+          yield item;
+        }
+      }),
+    map: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) yield await lambda(item);
+      }),
+    mapIndexed: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        let index = 0;
+        for await (const item of s.generate()) yield await lambda(index++, item);
+      }),
+    mapNotNull: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) {
+          const value = await lambda(item);
+          if (value !== null && value !== undefined) yield value;
+        }
+      }),
+    filter: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) if (KT.truthy(await lambda(item))) yield item;
+      }),
+    filterNot: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) if (!KT.truthy(await lambda(item))) yield item;
+      }),
+    filterNotNull: (s) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) if (item !== null && item !== undefined) yield item;
+      }),
+    filterIsInstance: (s, _args, _lambda, _named, type) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) if (KT.is(item, type)) yield item;
+      }),
+    onEach: (s, _args, lambda) =>
+      lazySequence(async function* () {
+        for await (const item of s.generate()) {
+          await lambda(item);
+          yield item;
+        }
+      }),
+    constrainOnce: (s) => s,
+    asSequence: (s) => s,
+    firstOrNull: async (s, _args, lambda) => {
+      for await (const item of s.generate())
+        if (!lambda || KT.truthy(await lambda(item))) return item;
+      return null;
+    },
+    first: async (s, args, lambda) => {
+      for await (const item of s.generate())
+        if (!lambda || KT.truthy(await lambda(item))) return item;
+      return noSuch('the sequence is empty');
+    },
+    find: async (s, _args, lambda) => SEQUENCE.firstOrNull(s, [], lambda),
+    any: async (s, _args, lambda) =>
+      (await SEQUENCE.firstOrNull(s, [], lambda ?? (() => true))) !== null,
+    none: async (s, _args, lambda) => !(await SEQUENCE.any(s, [], lambda)),
+    all: async (s, _args, lambda) => {
+      for await (const item of s.generate()) if (!KT.truthy(await lambda(item))) return false;
+      return true;
+    },
+    elementAtOrNull: async (s, [index]) => {
+      let at = 0;
+      for await (const item of s.generate()) if (at++ === index) return item;
+      return null;
+    },
+    elementAt: async (s, [index]) =>
+      (await SEQUENCE.elementAtOrNull(s, [index])) ?? noSuch(`no item at ${index}`),
+    forEach: async (s, _args, lambda) => {
+      for await (const item of s.generate()) await lambda(item);
+    },
+  };
+  const sequenceCall = async (s, name, args, lambda, named, type) => {
+    if (SEQUENCE[name]) return SEQUENCE[name](s, args, lambda, named, type);
+    const items = await collectSequence(s);
+    if (LIST[name]) return LIST[name](items, args, lambda, named, type);
+    if (ANY[name]) return ANY[name](s, args, lambda, named, type);
+    throw new KotlinError(`Raygun's runtime has no ${name}() for a sequence`);
+  };
+  /// What a `for` loop goes through: a sequence's items (up to the cap), else as `KT.iter`.
+  KT.each = async (value) =>
+    value && value.isLazySequence ? collectSequence(value) : KT.iter(value);
+  /// `generateSequence(seed) { next }`, `generateSequence { next }`, `generateSequence(first, next)`:
+  /// items until one is null.
+  const generateSequence = (args, lambda) => {
+    const [first, step] =
+      args.length >= 2
+        ? [args[0], args[1]]
+        : lambda && args.length === 0
+          ? [lambda, lambda]
+          : [args[0], lambda ?? args[1]];
+    return lazySequence(async function* () {
+      let value = typeof first === 'function' && args.length !== 1 ? await first() : first;
+      while (value !== null && value !== undefined) {
+        yield value;
+        value = args.length === 0 ? await step() : await step(value);
+      }
+    });
+  };
+
+  /// Java's `DecimalFormat`: `#`, `0`, grouping and decimals as the pattern says.
+  const decimalFormat = (pattern) => {
+    const text = KT.str(pattern ?? '#.##');
+    const [whole, fraction = ''] = text.split(';')[0].split('.');
+    const grouping = whole.includes(',') ? whole.length - whole.lastIndexOf(',') - 1 : 0;
+    const minWhole = (whole.match(/0/g) ?? []).length;
+    const minFraction = (fraction.match(/0/g) ?? []).length;
+    const maxFraction = (fraction.match(/[0#]/g) ?? []).length;
+    const format = {
+      __class: 'DecimalFormat',
+      __classes: ['DecimalFormat', 'NumberFormat'],
+      groupingSize: grouping,
+      format: (number) => {
+        const value = Number(number);
+        if (!Number.isFinite(value)) return String(value);
+        const fixed = Math.abs(value).toFixed(maxFraction);
+        let [integer, decimals = ''] = fixed.split('.');
+        decimals = decimals.replace(/0+$/, '');
+        while (decimals.length < minFraction) decimals += '0';
+        integer = integer.replace(/^0+(?=\d)/, '');
+        if (integer === '0' && minWhole === 0 && decimals) integer = '';
+        while (integer.length < minWhole) integer = `0${integer}`;
+        if (format.groupingSize > 0)
+          integer = integer.replace(
+            new RegExp(`\\B(?=(\\d{${format.groupingSize}})+(?!\\d))`, 'g'),
+            ',',
+          );
+        const sign = value < 0 && (Number(integer) || Number(decimals)) ? '-' : '';
+        return `${sign}${integer}${decimals ? `.${decimals}` : ''}`;
+      },
+      parse: (text) => Number(KT.str(text).replace(/,/g, '')),
+      setRoundingMode: () => KT.unit,
+      setMaximumFractionDigits: () => KT.unit,
+      setMinimumFractionDigits: () => KT.unit,
+      setGroupingUsed: (used) => {
+        format.groupingSize = used ? grouping || 3 : 0;
+      },
+    };
+    return format;
+  };
+
+  /// Java's `Collator`: text compared as a language orders it.
+  const collator = (locale) => {
+    const tag = locale && locale.language ? KT.str(locale.language) : undefined;
+    const made = {
+      __class: 'Collator',
+      __classes: ['Collator', 'RuleBasedCollator', 'Comparator'],
+      strength: 2,
+      decomposition: 0,
+      compare: (left, right) => {
+        const options =
+          made.strength === 0
+            ? { sensitivity: 'base' }
+            : made.strength === 1
+              ? { sensitivity: 'accent' }
+              : {};
+        try {
+          return KT.str(left).localeCompare(KT.str(right), tag, options);
+        } catch {
+          return KT.cmp(KT.str(left), KT.str(right));
+        }
+      },
+      setStrength: (value) => {
+        made.strength = value;
+      },
+      setDecomposition: (value) => {
+        made.decomposition = value;
+      },
+      getCollationKey: (text) => ({
+        sourceString: KT.str(text),
+        compareTo: (other) => made.compare(text, other.sourceString),
+      }),
+    };
+    return made;
+  };
+  /// `String.CASE_INSENSITIVE_ORDER`.
+  const caseInsensitiveOrder = {
+    __class: 'Comparator',
+    __classes: ['Comparator'],
+    compare: (left, right) => KT.cmp(KT.str(left).toLowerCase(), KT.str(right).toLowerCase()),
+  };
+  /// A comparator's verdict on two values: a `Comparator { a, b -> … }`, a collator, or one made
+  /// by `compareBy`.
+  const compareWith = async (order, left, right) => {
+    if (typeof order === 'function') return order(left, right);
+    if (order && order.keys) return order.compare(left, right);
+    if (order && typeof order.compare === 'function') return order.compare(left, right);
+    return KT.cmp(left, right);
+  };
+
+  /// Android's `LruCache` and the like: a map that keeps its newest `size` entries.
+  const lruCache = (size) => {
+    const store = new Map();
+    const cache = {
+      __class: 'LruCache',
+      __classes: ['LruCache'],
+      get: (key) => {
+        if (!store.has(key)) return null;
+        const value = store.get(key);
+        store.delete(key);
+        store.set(key, value);
+        return value;
+      },
+      put: (key, value) => {
+        const before = store.has(key) ? store.get(key) : null;
+        store.delete(key);
+        store.set(key, value);
+        while (store.size > Math.max(1, Number(size) || 1)) store.delete(store.keys().next().value);
+        return before;
+      },
+      remove: (key) => {
+        const before = store.has(key) ? store.get(key) : null;
+        store.delete(key);
+        return before;
+      },
+      evictAll: () => store.clear(),
+      size: () => store.size,
+      snapshot: () => new Map(store),
+    };
+    return cache;
+  };
+
+  /// kotlinx.coroutines' `CompletableDeferred`: a value given later.
+  const completableDeferred = (initial) => {
+    let settle;
+    let fail;
+    let done = initial !== undefined;
+    const promise =
+      initial !== undefined
+        ? Promise.resolve(initial)
+        : new Promise((resolve, reject) => {
+            settle = resolve;
+            fail = reject;
+          });
+    promise.catch(() => {});
+    return {
+      __class: 'CompletableDeferred',
+      __classes: ['CompletableDeferred', 'Deferred', 'Job'],
+      isDeferred: true,
+      await: () => promise,
+      complete: (value) => {
+        if (done) return false;
+        done = true;
+        settle(value);
+        return true;
+      },
+      completeExceptionally: (error) => {
+        if (done) return false;
+        done = true;
+        fail(KT.error(error));
+        return true;
+      },
+      get isCompleted() {
+        return done;
+      },
+      isActive: true,
+      cancel: () => KT.unit,
+      join: () =>
+        promise.then(
+          () => KT.unit,
+          () => KT.unit,
+        ),
+    };
+  };
+
+  /// Java's `URI` and `URL`, and Android's `Uri`: an address's parts.
+  const javaUri = (text, spec) => {
+    let href = KT.str(text);
+    if (spec !== undefined && spec !== null) href = K.resolve(KT.str(spec), href);
+    let parts = null;
+    try {
+      parts = K.url(href);
+    } catch {
+      parts = null;
+    }
+    const pathOf = () => (parts ? parts.path : href.split(/[?#]/)[0]);
+    const uri = {
+      __class: 'URI',
+      __classes: ['URI', 'URL', 'Uri'],
+      scheme: parts?.scheme ?? null,
+      protocol: parts?.scheme ?? null,
+      host: parts?.host ?? null,
+      authority: parts?.host ?? null,
+      port: parts?.port ?? -1,
+      path: pathOf(),
+      rawPath: pathOf(),
+      encodedPath: pathOf(),
+      query: parts?.query == null ? null : decodeURIComponent(parts.query.replace(/\+/g, ' ')),
+      rawQuery: parts?.query ?? null,
+      encodedQuery: parts?.query ?? null,
+      fragment: parts?.fragment ?? null,
+      file: parts ? `${parts.path}${parts.query == null ? '' : `?${parts.query}`}` : href,
+      get pathSegments() {
+        return pathOf()
+          .split('/')
+          .filter((part) => part !== '')
+          .map((part) => decodeURIComponent(part));
+      },
+      get lastPathSegment() {
+        const segments = uri.pathSegments;
+        return segments.length ? segments[segments.length - 1] : null;
+      },
+      getQueryParameter: (name) => (parts ? HttpUrl.parse(href).queryParameter(name) : null),
+      getQueryParameterNames: () => (parts ? HttpUrl.parse(href).queryParameterNames : []),
+      resolve: (other) => javaUri(K.resolve(KT.str(other), href)),
+      toURL: () => uri,
+      toURI: () => uri,
+      toHttpUrl: () => HttpUrl.parse(href),
+      toExternalForm: () => href,
+      buildUpon: () => HttpUrl.parse(href).newBuilder(),
+      toString: () => href,
+      equals: (other) => KT.str(other) === href,
+    };
+    return uri;
+  };
+  /// Android's `Uri.encode`: everything but letters, digits and `_-!.~'()*` (and `allow`).
+  const uriEncode = (text, allow = '') =>
+    [...KT.str(text)]
+      .map((char) =>
+        /[A-Za-z0-9_\-!.~'()*]/.test(char) || KT.str(allow ?? '').includes(char)
+          ? char
+          : encodeURIComponent(char),
+      )
+      .join('');
+
+  /// Jsoup's evaluators, as the selectors they match.
+  const cssName = (name) => KT.str(name).replace(/([^A-Za-z0-9_-])/g, '\\$1');
+  const evaluator = {
+    Tag: (name) => cssName(name),
+    Class: (name) => `.${cssName(name)}`,
+    Id: (name) => `#${cssName(name)}`,
+    Attribute: (name) => `[${cssName(name)}]`,
+    AttributeWithValue: (name, value) =>
+      `[${cssName(name)}="${KT.str(value).replace(/"/g, '\\"')}"]`,
+    AttributeWithValueContaining: (name, value) =>
+      `[${cssName(name)}*="${KT.str(value).replace(/"/g, '\\"')}"]`,
+    AttributeStarting: (prefix) => `[^${cssName(prefix)}]`,
+    AllElements: () => '*',
+  };
+
+  /// kotlinx.coroutines' dispatchers and jobs: Raygun runs a source's code on one thread.
+  const coroutineContext = (name) => ({
+    __class: name,
+    __classes: [name, 'CoroutineContext'],
+    plus: () => coroutineContext(name),
+    limitedParallelism: () => coroutineContext(name),
+    cancel: () => KT.unit,
+    cancelChildren: () => KT.unit,
+    isActive: true,
+  });
+  const dispatchers = {
+    IO: coroutineContext('Dispatchers.IO'),
+    Default: coroutineContext('Dispatchers.Default'),
+    Main: coroutineContext('Dispatchers.Main'),
+    Unconfined: coroutineContext('Dispatchers.Unconfined'),
+  };
+  /// A pause (`delay(ms)`, `Thread.sleep(ms)`), at most ten seconds.
+  const pause = async (ms) => {
+    const wait = Math.max(0, Math.min(10000, Number(ms && ms.isDuration ? ms.ms : ms) || 0));
+    if (wait > 0) await raygun.time.sleep(wait);
+    return KT.unit;
+  };
+
   const GLOBALS = {
     listOf: (args) => [...args],
     // Android's graphics, okio's `Buffer` and Java's byte streams (above).
@@ -4640,6 +5274,29 @@
     IntRange: ([from, to]) => KT.range(from, to),
     IOException: ([message]) => new KotlinError(message, 'IOException'),
     Error: ([message]) => new KotlinError(message, 'Error'),
+    GeneralSecurityException: ([message]) => new KotlinError(message, 'GeneralSecurityException'),
+    SecurityException: ([message]) => new KotlinError(message, 'SecurityException'),
+    UnknownHostException: ([message]) => new KotlinError(message, 'UnknownHostException'),
+    ProtocolException: ([message]) => new KotlinError(message, 'ProtocolException'),
+    SocketTimeoutException: ([message]) => new KotlinError(message, 'SocketTimeoutException'),
+    InterruptedException: ([message]) => new KotlinError(message, 'InterruptedException'),
+    NumberFormatException: ([message]) => new KotlinError(message, 'NumberFormatException'),
+    TimeoutException: ([message]) => new KotlinError(message, 'TimeoutException'),
+    CancellationException: ([message]) => new KotlinError(message, 'CancellationException'),
+    // Sequences, formats, caches and coroutines (above).
+    generateSequence: (args, _named, lambda) => generateSequence(args, lambda),
+    DecimalFormat: ([pattern]) => decimalFormat(pattern),
+    SecureRandom: () => random,
+    Any: () => ({ __class: 'Any', __classes: ['Any'] }),
+    LruCache: ([size]) => lruCache(size),
+    CompletableDeferred: ([value]) => completableDeferred(value),
+    URI: ([text]) => javaUri(text),
+    URL: ([first, second]) => (second === undefined ? javaUri(first) : javaUri(second, first)),
+    SupervisorJob: () => coroutineContext('SupervisorJob'),
+    Job: () => coroutineContext('Job'),
+    delay: ([ms]) => pause(ms),
+    // Kotlin's `assert`: off, as the JVM runs without assertions.
+    assert: () => KT.unit,
     HttpException: ([code]) => new KotlinError(`HTTP error ${code}`, 'HttpException'),
     GET: ([url, headers]) =>
       new Request({ url, headers: headers instanceof Headers ? headers : undefined }),
@@ -4730,14 +5387,19 @@
     // `Interceptor { chain -> … }`: the function itself.
     Interceptor: (args, _named, lambda) => lambda ?? args[0],
     Comparator: (args, _named, lambda) => lambda ?? args[0],
+    // `compareBy(collator) { it.title }`: the key in the comparator's order.
     compareBy: (args, _named, lambda) =>
-      comparator(
-        (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: false })),
-      ),
+      args.length === 1 && lambda && args[0] && typeof args[0] === 'object'
+        ? comparator([{ select: lambda, descending: false, order: args[0] }])
+        : comparator(
+            (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: false })),
+          ),
     compareByDescending: (args, _named, lambda) =>
-      comparator(
-        (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: true })),
-      ),
+      args.length === 1 && lambda && args[0] && typeof args[0] === 'object'
+        ? comparator([{ select: lambda, descending: true, order: args[0] }])
+        : comparator(
+            (lambda ? [...args, lambda] : args).map((select) => ({ select, descending: true })),
+          ),
     naturalOrder: () => comparator([{ select: null, descending: false }]),
     reverseOrder: () => comparator([{ select: null, descending: true }]),
     List: ([size, init], _named, lambda) => listOfSize(size, lambda ?? init),
@@ -5511,6 +6173,11 @@
         );
         return builder;
       },
+      // A line between sections, as plain text.
+      separator: () => {
+        add('---');
+        return builder;
+      },
       build: () => (sections.length ? sections.join('\n\n') : null),
     };
     return builder;
@@ -5584,6 +6251,50 @@
   };
 
   const OBJECTS = {
+    // Java's `Collator`, kotlinx.coroutines' dispatchers, Jsoup's evaluators, OkHttp's `HttpUrl`,
+    // Android's `Uri`, numbers' limits and `Thread.sleep` (above).
+    Collator: {
+      getInstance: (locale) => collator(locale),
+      PRIMARY: 0,
+      SECONDARY: 1,
+      TERTIARY: 2,
+      IDENTICAL: 3,
+      NO_DECOMPOSITION: 0,
+      CANONICAL_DECOMPOSITION: 1,
+      FULL_DECOMPOSITION: 2,
+    },
+    Dispatchers: dispatchers,
+    Evaluator: evaluator,
+    HttpUrl: {
+      Builder: () => new HttpUrlBuilder(null),
+      parse: (text) => HttpUrl.parse(text),
+      get: (text) => HttpUrl.parse(text),
+      Companion: {
+        parse: (text) => HttpUrl.parse(text),
+        get: (text) => HttpUrl.parse(text),
+      },
+    },
+    Uri: {
+      parse: (text) => javaUri(text),
+      encode: (text, allow) => uriEncode(text, allow),
+      decode: (text) => decodeURIComponent(KT.str(text)),
+      EMPTY: javaUri(''),
+    },
+    Float: {
+      MAX_VALUE: 3.4028234663852886e38,
+      MIN_VALUE: 1.401298464324817e-45,
+      POSITIVE_INFINITY: Infinity,
+      NEGATIVE_INFINITY: -Infinity,
+      NaN,
+    },
+    Double: {
+      MAX_VALUE: Number.MAX_VALUE,
+      MIN_VALUE: Number.MIN_VALUE,
+      POSITIVE_INFINITY: Infinity,
+      NEGATIVE_INFINITY: -Infinity,
+      NaN,
+    },
+    Thread: { sleep: (ms) => pause(ms) },
     // Android's graphics and Java's `ByteBuffer` (above); `lib:imagedecoder`'s `ImageDecoder`
     // and `lib:textinterceptor`'s helper.
     Bitmap: bitmapStatics,
@@ -5729,6 +6440,7 @@
         return K.format(pattern, ...rest);
       },
       valueOf: (value) => KT.str(value),
+      CASE_INSENSITIVE_ORDER: caseInsensitiveOrder,
     },
     Character: {
       isDigit: (char) => /^\p{Nd}$/u.test(char),
@@ -6107,7 +6819,7 @@
       }
       const fieldsToSet = [];
       for (const [name, member] of Object.entries(definition.members)) {
-        if (member && member.isField) fieldsToSet.push([name, member]);
+        if (member && (member.isField || member.isInit)) fieldsToSet.push([name, member]);
         else if (member && member.isGetter)
           Object.defineProperty(object, name, {
             get: () => member.function_(object),
@@ -6118,8 +6830,13 @@
           object[name].arity = Math.max(0, member.length - 1);
         }
       }
-      // Fields in the order they're declared, once the instance has its functions.
+      // Fields in the order they're declared, once the instance has its functions, and its
+      // `init` blocks among them.
       for (const [name, member] of fieldsToSet) {
+        if (member.isInit) {
+          await member.function_(object);
+          continue;
+        }
         Object.defineProperty(object, name, {
           value: await member.function_(object),
           writable: true,
@@ -6391,6 +7108,7 @@
       id: async () => t.id,
       versionId: async () => 1,
       supportsLatest: async () => true,
+      imageFetch: async () => Fetch.IMAGE,
       client: async () => client,
       network: async () => ({ client, cloudflareClient: client }),
       headers: async () => (headers ??= (await defaultHeaders()).build()),
@@ -6409,6 +7127,9 @@
       getImageRequest: async (page) =>
         new Request({ url: page.imageUrl, headers: await self.get('headers') }),
       imageRequest: async (page) => self.call('getImageRequest', [page]),
+      // KeiSource's `getSearchManga`: a search (an address typed in isn't looked up).
+      getSearchManga: async (page, query, filters) =>
+        self.call('getSearchMangaList', [page, query, filters]),
       // Filters aren't shown yet: code asking for them gets none.
       getFilterList: async () => [],
     };

@@ -17,7 +17,7 @@ use super::kotlin::ast::{
 use super::kotlin::emit::{Context, Gen};
 
 /// What `KeiSource` (and `HttpSource` under it) gives a source, read through `self`.
-const BASE_PROPERTIES: [&str; 11] = [
+const BASE_PROPERTIES: [&str; 12] = [
     "baseUrl",
     "lang",
     "name",
@@ -29,14 +29,16 @@ const BASE_PROPERTIES: [&str; 11] = [
     "network",
     "versionId",
     "preferences",
+    "imageFetch",
 ];
-const BASE_FUNCTIONS: [(&str, &[&str]); 6] = [
+const BASE_FUNCTIONS: [(&str, &[&str]); 7] = [
     ("headersBuilder", &[]),
     ("getMangaUrl", &["manga"]),
     ("getChapterUrl", &["chapter"]),
     ("getImageRequest", &["page"]),
     ("imageRequest", &["page"]),
     ("getFilterList", &[]),
+    ("getSearchManga", &["page", "query", "filters"]),
 ];
 
 /// Overrides that change nothing Raygun asks of a source: filters read from the site first,
@@ -926,6 +928,7 @@ fn class_definition(
     // Extensions the class declares for its own code (`private fun Float.formatNumber()`): the
     // source's, as they read nothing of the instance but their receiver.
     let mut extensions = Vec::new();
+    let mut inits = 0;
     for member in &class.members {
         match member {
             Member::Fun(fun) if fun.body.is_some() && fun.receiver.is_some() => {
@@ -990,7 +993,31 @@ fn class_definition(
                             .function(&getter)
                             .map_err(|reason| format!("{}.{}: {reason}", class.name, prop.name))?
                     ));
+                } else if prop.mutable && !prop.modifiers.iter().any(|m| m == "abstract") {
+                    // `lateinit var`: a field set later (by an `init` block, or a function).
+                    methods.push(format!("{}: KT.field(async () => null)", quote(&prop.name)));
                 }
+            }
+            // `init { … }`: run when an instance is made, in order with the fields it may set.
+            Member::Init(block) if class.kind != ClassKind::Object => {
+                let init = super::kotlin::ast::FunDecl {
+                    name: "init".to_owned(),
+                    modifiers: Vec::new(),
+                    annotations: Vec::new(),
+                    receiver: Some(super::kotlin::ast::Type {
+                        name: class.name.clone(),
+                        ..Default::default()
+                    }),
+                    params: Vec::new(),
+                    ret: None,
+                    body: Some(Body::Block(block.clone())),
+                    line: class.line,
+                };
+                let code = writer
+                    .function(&init)
+                    .map_err(|reason| format!("{}.init: {reason}", class.name))?;
+                methods.push(format!("\"$init{inits}\": KT.init({code})"));
+                inits += 1;
             }
             Member::Init(_) => return Err(format!("{} runs code when it's made", class.name)),
             _ => {}
