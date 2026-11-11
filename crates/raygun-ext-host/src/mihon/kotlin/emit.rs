@@ -226,7 +226,7 @@ pub const METHODS: &[&str] = &[
     "initialize", "generateKeyPair", "genKeyPair", "generatePublic", "generatePrivate",
     "doPhase", "initSign", "initVerify", "sign", "verify", "getParameterSpec", "getPublic",
     "getPrivate", "getAlgorithm", "getFormat", "getW", "getS", "getAffineX", "getAffineY",
-    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet",
+    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet", "graphQLGet", "getNextEntry", "closeEntry",
     "unescapeEntities", "getProperty", "getValue",
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
     "toDuration", "isNegative", "isPositive", "isInfinite", "isFinite", "toNanos", "toMicros",
@@ -1437,6 +1437,12 @@ impl<'a> Gen<'a> {
                             "{{ const {temp} = {object}; const {key_temp} = {key}; await KT.m({temp}, \"set\", [{key_temp}, {}]); }}",
                             combined(current)
                         )
+                    }
+                    // `map.getOrPut(key) { mutableListOf() } += item`: what the call gives, added
+                    // to in place.
+                    Expr::Call { .. } if matches!(*op, "+=" | "-=") => {
+                        let current = self.expr(target)?;
+                        format!("{};", combined(current))
                     }
                     _ => return Err(unsupported("an assignment to that")),
                 };
@@ -3308,7 +3314,8 @@ pub const GLOBALS: &[&str] = &[
     "PropertyDelegateProvider", "JSONObject", "JSONArray", "GZIPOutputStream",
     "DeflaterOutputStream", "BigInteger", "X509EncodedKeySpec", "PKCS8EncodedKeySpec",
     "ECPublicKeySpec", "RSAPublicKeySpec", "ECGenParameterSpec", "ECPoint", "OAEPParameterSpec",
-    "KeyPair", "SequenceInputStream",
+    "KeyPair", "SequenceInputStream", "ZipException", "EOFException", "CRC32",
+    "readEntry", "ZipInputStream",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.

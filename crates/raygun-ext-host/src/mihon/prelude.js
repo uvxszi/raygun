@@ -918,6 +918,8 @@
   K.crypto = (args) => unwrap(native.crypto(JSON.stringify(args)));
   /** Java's public keys (`mihon/keys.rs`): P-256 and RSA, keys as their DER encodings. */
   K.keys = (args) => JSON.parse(unwrap(native.keys(JSON.stringify(args))));
+  /** A ZIP archive's entries (`[{name, data}]`, data in base64), read in Rust. */
+  K.unzip = (base64) => JSON.parse(unwrap(native.unzip(base64)));
   /** A site's script run in a JavaScript engine of its own (`QuickJs.create().evaluate`). */
   K.evaluate = (code) => unwrap(native.evaluate(K.str(code)));
   /** Bytes as `Uint8Array`s, converted in Rust: base64 both ways, UTF-8 both ways. */

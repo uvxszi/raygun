@@ -2070,6 +2070,142 @@ async fn converted_code_reads_formats_xml_and_java_helpers() {
     );
 }
 
+/// A ZIP archive of stored entries (`name`, `data`), as tools write them.
+fn stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    for (name, data) in entries {
+        let offset = out.len() as u32;
+        let crc = {
+            let mut crc = 0xffff_ffffu32;
+            for byte in *data {
+                crc ^= u32::from(*byte);
+                for _ in 0..8 {
+                    crc = if crc & 1 == 1 {
+                        0xedb8_8320 ^ (crc >> 1)
+                    } else {
+                        crc >> 1
+                    };
+                }
+            }
+            !crc
+        };
+        let size = data.len() as u32;
+        let header = |signature: u32, central_record: bool| {
+            let mut record = signature.to_le_bytes().to_vec();
+            if central_record {
+                record.extend(20u16.to_le_bytes());
+            }
+            record.extend(20u16.to_le_bytes());
+            record.extend([0u8; 4]); // flags, method (stored)
+            record.extend([0u8; 4]); // time, date
+            record.extend(crc.to_le_bytes());
+            record.extend(size.to_le_bytes());
+            record.extend(size.to_le_bytes());
+            record.extend((name.len() as u16).to_le_bytes());
+            record.extend(0u16.to_le_bytes());
+            if central_record {
+                record.extend([0u8; 6]); // comment, disk, internal attributes
+                record.extend(0u32.to_le_bytes());
+                record.extend(offset.to_le_bytes());
+            }
+            record.extend(name.as_bytes());
+            record
+        };
+        out.extend(header(0x0403_4b50, false));
+        out.extend(*data);
+        central.extend(header(0x0201_4b50, true));
+    }
+    let central_offset = out.len() as u32;
+    out.extend(&central);
+    out.extend(0x0605_4b50u32.to_le_bytes());
+    out.extend([0u8; 4]);
+    out.extend((entries.len() as u16).to_le_bytes());
+    out.extend((entries.len() as u16).to_le_bytes());
+    out.extend((central.len() as u32).to_le_bytes());
+    out.extend(central_offset.to_le_bytes());
+    out.extend(0u16.to_le_bytes());
+    out
+}
+
+/// Java's `ZipInputStream`, `keiyoushi.zip`'s `readEntry` (the runtime's) and Keiyoushi's
+/// `graphQLGet`.
+#[tokio::test]
+async fn converted_code_reads_zips_and_graphql_over_get() {
+    let archive = stored_zip(&[("1.txt", b"one"), ("2.txt", b"two")]);
+    let app = Router::new()
+        .route(
+            "/archive.zip",
+            get(move || {
+                let archive = archive.clone();
+                async move { archive }
+            }),
+        )
+        .route(
+            "/graphql",
+            get(|uri: Uri| async move { uri.query().unwrap_or_default().to_owned() }),
+        );
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport java.util.zip.ZipInputStream\nimport okio.buffer\nimport okio.source",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val bytes = client.get("$baseUrl/archive.zip", Fetch.XHR).body.bytes()
+        val names = mutableListOf<String>()
+        ZipInputStream(bytes.inputStream()).use { zis ->
+            generateSequence { zis.nextEntry }.forEach { entry -> names += entry.name + "=" + String(zis.readBytes()) }
+        }
+        names += String(readEntry(bytes.inputStream().source().buffer(), 3L, 0).buffer().readByteArray())
+        names += client.graphQLGet("$baseUrl/graphql", query = "{ a }", operationName = "A", fetch = Fetch.XHR).body.string()
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "1.txt=one",
+            "2.txt=two",
+            "one",
+            "operationName=A&query=%7B%20a%20%7D"
+        ]
+    );
+}
+
 /// Java's key pairs: P-256 generated, agreed (ECDH), rebuilt from its point and signed with, and
 /// RSA's OAEP and PKCS #1 ciphers over a generated pair and a key read back from its encoding.
 #[tokio::test]

@@ -65,6 +65,17 @@ impl SourceFolder {
     }
 }
 
+/// Where a library's code is in the store's repository: Keiyoushi's libraries (`lib:unpacker` is
+/// `lib/unpacker`), and the parts of its `core` the runtime doesn't have itself, which an
+/// extension's code imports (`core:zip` is `core/src/main/kotlin/keiyoushi/zip`).
+pub fn library_path(library: &str) -> Option<String> {
+    if let Some(module) = library.strip_prefix("core:") {
+        return is_part(module).then(|| format!("core/src/main/kotlin/keiyoushi/{module}"));
+    }
+    let name = library.trim_start_matches("lib:");
+    is_part(name).then(|| format!("lib/{name}"))
+}
+
 fn is_part(text: &str) -> bool {
     !text.is_empty()
         && text
@@ -175,7 +186,8 @@ struct TreeEntry {
 /// (`assets/i18n/messages_en.properties`).
 fn wanted(path: &str) -> bool {
     matches!(path, "build.gradle" | "build.gradle.kts")
-        || (path.ends_with(".kt") && path.starts_with("src/"))
+        // A part of `core` (`core:zip`) keeps its files at the top of its folder.
+        || (path.ends_with(".kt") && (path.starts_with("src/") || !path.contains('/')))
         || (path.starts_with("assets/i18n/messages_")
             && path.ends_with(".properties")
             && !path["assets/i18n/".len()..].contains('/'))
@@ -329,11 +341,11 @@ impl Sources {
     /// (`lib/unpacker/src/…`).
     pub fn library_kotlin(&self) -> impl Iterator<Item = (String, &String)> {
         self.library_files.iter().flat_map(|(library, files)| {
-            let folder = library.trim_start_matches("lib:").to_owned();
+            let folder = library_path(library).unwrap_or_else(|| library.clone());
             files
                 .iter()
                 .filter(|(path, _)| path.ends_with(".kt"))
-                .map(move |(path, text)| (format!("lib/{folder}/{path}"), text))
+                .map(move |(path, text)| (format!("{folder}/{path}"), text))
         })
     }
 
@@ -632,12 +644,11 @@ where
     F: Fn(Url) -> Fut,
     Fut: Future<Output = Result<Vec<u8>, String>>,
 {
-    let name = library.trim_start_matches("lib:");
-    if !is_part(name) {
+    let Some(path) = library_path(library) else {
         return Err(format!("the library's name is odd: {library}"));
-    }
+    };
     let library_folder = SourceFolder {
-        path: format!("lib/{name}"),
+        path,
         ..folder.clone()
     };
     let url = library_folder

@@ -4104,6 +4104,43 @@
     delete(url, ...rest) {
       return this.request('DELETE', url, rest);
     }
+    /// Keiyoushi's `client.graphQLGet(url, headers, query, operationName, variables, extensions,
+    /// …, fetch)`: a GET with the GraphQL parameters in the address's query.
+    async graphQLGet(url, ...rest) {
+      const options = named(rest);
+      const texts = [];
+      const values = [];
+      let headers = options.headers ?? null;
+      let fetch = options.fetch ?? null;
+      let ensureSuccess = options.ensureSuccess ?? true;
+      for (const arg of rest) {
+        if (arg instanceof Headers) headers = arg;
+        else if (arg && arg.isFetch) fetch = arg;
+        else if (arg && arg.isCacheControl) continue;
+        else if (typeof arg === 'boolean') ensureSuccess = arg;
+        else if (typeof arg === 'string' || arg === null) texts.push(arg);
+        else if (arg !== undefined && !(arg && arg.isJsonCodec)) values.push(arg);
+      }
+      const query = options.query ?? texts[0] ?? null;
+      const operationName = options.operationName ?? texts[1] ?? null;
+      const variables = options.variables ?? values[0] ?? null;
+      const extensions = options.extensions ?? values[1] ?? null;
+      const params = [];
+      const add = (key, value) => params.push(`${key}=${encodeURIComponent(value)}`);
+      if (operationName !== null) add('operationName', KT.str(operationName));
+      if (query !== null) add('query', KT.str(query));
+      if (variables !== null) add('variables', JSON.stringify(plain(variables)));
+      if (extensions !== null) add('extensions', JSON.stringify(plain(extensions)));
+      const address = KT.str(url);
+      const full = params.length
+        ? `${address}${address.includes('?') ? '&' : '?'}${params.join('&')}`
+        : address;
+      if (!headers) headers = this.defaultHeaders ? await this.defaultHeaders() : new Headers();
+      return this.send(
+        new Request({ url: full, method: 'GET', headers, body: null, kind: fetch }),
+        ensureSuccess,
+      );
+    }
     async request(method, url, rest) {
       // Every argument named (`client.post(url = …, body = …)`).
       if (url && url[NAMED]) {
@@ -6775,7 +6812,33 @@
       },
     };
   };
-  /// Bytes deflated in Rust (`runtime.rs`): `zlib`, `raw` or `gzip`.
+  const CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+  const crc32Checksum = () => {
+    let crc = 0xffffffff;
+    const sum = {
+      __class: 'CRC32',
+      __classes: ['CRC32', 'Checksum'],
+      update: (value, offset = 0, count = undefined) => {
+        const bytes = typeof value === 'number' ? [value & 255] : u8Of(value);
+        const end = count === undefined ? bytes.length : offset + count;
+        for (let at = offset; at < end; at++)
+          crc = CRC_TABLE[(crc ^ bytes[at]) & 255] ^ (crc >>> 8);
+        return KT.unit;
+      },
+      reset: () => ((crc = 0xffffffff), KT.unit),
+      getValue: () => (crc ^ 0xffffffff) >>> 0,
+    };
+    Object.defineProperty(sum, 'value', { get: sum.getValue, enumerable: false });
+    return sum;
+  }; /// Bytes deflated in Rust (`runtime.rs`): `zlib`, `raw` or `gzip`.
   const deflateBytes = (bytes, format) =>
     u8Of(fromBase64(crypto({ op: 'deflate', data: K.bin.toBase64(u8Of(bytes)), format })));
   const compressingStream = (target, format) => {
@@ -7252,6 +7315,33 @@
     IndexOutOfBoundsException: ([message]) => new KotlinError(message, 'IndexOutOfBoundsException'),
     IntRange: ([from, to]) => KT.range(from, to),
     IOException: ([message]) => new KotlinError(message, 'IOException'),
+    ZipException: ([message]) => new KotlinError(message, 'ZipException'),
+    // `keiyoushi.zip.readEntry(source, compressedSize, method, decode)`: an entry's bytes after its
+    // local header, through `decode`, inflated when they're deflated.
+    readEntry: async ([source, compressedSize, method, decode = null], _named, lambda) => {
+      const all = u8Of(await streamBytes(source));
+      const word = (at) => all[at] | (all[at + 1] << 8);
+      if (Number(method) !== 0 && Number(method) !== 8)
+        throw new KotlinError(`Unsupported ZIP method: ${method}`, 'ZipException');
+      if (all.length < 30 || (word(0) | (word(2) << 16)) >>> 0 !== 0x04034b50)
+        throw new KotlinError('Not a local file header', 'ZipException');
+      if (word(6) & 1)
+        throw new KotlinError("Encrypted ZIP entries aren't supported", 'ZipException');
+      const start = 30 + word(26) + word(28);
+      const size = Number(compressedSize);
+      if (all.length < start + size)
+        throw new KotlinError(
+          `Source ended ${start + size - all.length} byte(s) early`,
+          'EOFException',
+        );
+      let payload = okioBuffer(all.slice(start, start + size));
+      const transform = lambda ?? decode;
+      if (typeof transform === 'function') payload = await transform(payload);
+      const bytes = u8Of(await streamBytes(payload));
+      return okioBuffer(Number(method) === 8 ? inflateBytes(bytes, 'raw') : bytes);
+    }, // Java's `CRC32`: `update(bytes)` as often as it's called, then `value`.
+    CRC32: () => crc32Checksum(),
+    EOFException: ([message]) => new KotlinError(message, 'EOFException'),
     Error: ([message]) => new KotlinError(message, 'Error'),
     GeneralSecurityException: ([message]) => new KotlinError(message, 'GeneralSecurityException'),
     SecurityException: ([message]) => new KotlinError(message, 'SecurityException'),
@@ -7334,7 +7424,51 @@
     askPassword: dialogClosed(null),
     askSelect: dialogClosed(null),
     askSelectOption: dialogClosed(null),
-    // `SequenceInputStream(first, second)`: one stream's bytes, then the other's.
+    // Java's `ZipInputStream`: an archive's entries one by one (`nextEntry`), each read whole.
+    ZipInputStream: async ([stream]) => {
+      const entries = K.unzip(K.bin.toBase64(u8Of(await streamBytes(stream))));
+      let at = -1;
+      let current = null;
+      const zip = {
+        __class: 'ZipInputStream',
+        __classes: ['ZipInputStream', 'InputStream'],
+        getNextEntry: () => {
+          at += 1;
+          if (at >= entries.length) return (current = null);
+          const { name } = entries[at];
+          current = { bytes: fromBase64(entries[at].data), read: 0 };
+          return {
+            __class: 'ZipEntry',
+            __classes: ['ZipEntry'],
+            name,
+            size: current.bytes.length,
+            isDirectory: name.endsWith('/'),
+            getName: () => name,
+            getSize: () => current.bytes.length,
+          };
+        },
+        readBytes: () => {
+          if (!current) return [];
+          const rest = current.bytes.slice(current.read);
+          current.read = current.bytes.length;
+          return rest;
+        },
+        readAllBytes: () => zip.readBytes(),
+        read: (target = null, offset = 0, count = undefined) => {
+          if (!current || current.read >= current.bytes.length) return -1;
+          if (target === null) return current.bytes[current.read++];
+          const length = Math.min(count ?? target.length, current.bytes.length - current.read);
+          for (let index = 0; index < length; index++)
+            target[offset + index] = current.bytes[current.read++];
+          return length;
+        },
+        closeEntry: () => KT.unit,
+        available: () => (current && current.read < current.bytes.length ? 1 : 0),
+        close: () => KT.unit,
+      };
+      Object.defineProperty(zip, 'nextEntry', { get: zip.getNextEntry, enumerable: false });
+      return zip;
+    }, // `SequenceInputStream(first, second)`: one stream's bytes, then the other's.
     SequenceInputStream: async ([first, second]) => {
       const [head, tail] = [u8Of(await streamBytes(first)), u8Of(await streamBytes(second))];
       const joined = new Uint8Array(head.length + tail.length);
@@ -8996,6 +9130,16 @@
       isLetter: (char) => /^\p{L}$/u.test(char),
       isLetterOrDigit: (char) => /^[\p{L}\p{Nd}]$/u.test(char),
       isWhitespace: (char) => /^\s$/.test(char),
+      isUpperCase: (char) => /^\p{Lu}$/u.test(char),
+      isLowerCase: (char) => /^\p{Ll}$/u.test(char),
+      isSpaceChar: (char) => /^\p{Zs}$/u.test(char),
+      toUpperCase: (char) => KT.str(char).toUpperCase(),
+      toLowerCase: (char) => KT.str(char).toLowerCase(),
+      // A digit's value (`7`, `a` is 10 … `z` 35), else -1.
+      getNumericValue: (char) => {
+        const value = parseInt(KT.str(char), 36);
+        return Number.isNaN(value) || KT.str(char).length !== 1 ? -1 : value;
+      },
     },
     Unit: undefined,
     // The Mihon release a source may name in its User-Agent.

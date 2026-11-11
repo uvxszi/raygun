@@ -179,6 +179,9 @@ extensions):
   for `Intl`;
 - `lib:textinterceptor` and `lib:imagedecoder` are the runtime's own: text drawn as a page (a web
   comic's notes, in the system's sans-serif face) and pictures decoded;
+- the parts of Keiyoushi's `core` the runtime doesn't have itself, which an extension imports,
+  convert with its code too: `keiyoushi.zip` (`core:zip`, ZIP archives read by HTTP range requests:
+  `zipDirectory`, `readZipEntry`, `Entry.dataRange`), its `readEntry` the runtime's;
 - any other library (`lib:unpacker`, `lib:speedbinb`, `lib:publus`, `lib:clipstudioreader`…) is
   read when installing (`source::fetch_library`, after `convert::libraries_to_read`) and its code
   converts with the extension's, as it's compiled into it.
@@ -314,12 +317,11 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 132 | 136 |
-| No theme | 826 | 862 |
-| All | 1547 (97.5%) | 1587 |
+| No theme | 832 | 862 |
+| All | 1553 (97.9%) | 1587 |
 
-The 40 refusals left are one or two extensions each, most of them on what has no stand-in:
-Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Keiyoushi's remote ZIP reading (`dataRange()`,
-`zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
+The 34 refusals left are one or two extensions each, most of them on what has no stand-in:
+Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
 own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
 and zstd; one on Kotlin the converter doesn't read yet (a class declared in a function). Android's
 `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) is the runtime's text

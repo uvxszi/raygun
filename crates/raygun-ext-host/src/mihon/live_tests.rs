@@ -110,7 +110,8 @@ async fn all_sources(
                     // Keiyoushi's libraries it builds on, and theirs.
                     for _ in 0..3 {
                         for library in convert::libraries_to_read(&sources) {
-                            let folder = dir.join("lib").join(library.trim_start_matches("lib:"));
+                            let folder =
+                                dir.join(source::library_path(&library).unwrap_or_default());
                             if sources.add_library_dir(&library, &folder).is_err() {
                                 sources.library_files.insert(library, BTreeMap::new());
                             }
@@ -146,12 +147,14 @@ async fn all_sources(
             || path.ends_with("/build.gradle")
             || (path.ends_with(".kt") && path.contains("/src/"))
             || (path.contains("/assets/i18n/messages_") && path.ends_with(".properties"));
-        // Extensions' folders (`src/<lang>/<name>`), themes' (`lib-multisrc/<theme>`) and
-        // libraries' (`lib/<name>`).
+        // Extensions' folders (`src/<lang>/<name>`), themes' (`lib-multisrc/<theme>`),
+        // libraries' (`lib/<name>`) and the converted parts of `core`.
         let depth = if path.starts_with("src/") {
             3
         } else if path.starts_with("lib-multisrc/") || path.starts_with("lib/") {
             2
+        } else if path.starts_with("core/src/main/kotlin/keiyoushi/") {
+            6
         } else {
             continue;
         };
@@ -219,7 +222,7 @@ async fn all_sources(
             for library in convert::libraries_to_read(sources) {
                 if !libraries.contains_key(&library) {
                     let folder = source::SourceFolder {
-                        path: format!("lib/{}", library.trim_start_matches("lib:")),
+                        path: source::library_path(&library).unwrap_or_default(),
                         ..first.clone()
                     };
                     let mut files = BTreeMap::new();

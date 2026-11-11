@@ -112,6 +112,10 @@ fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
         Function::new(ctx.clone(), |args: String| envelope(crypto(&args)))?,
     )?;
     native.set(
+        "unzip",
+        Function::new(ctx.clone(), |data: String| envelope(unzip(&data)))?,
+    )?;
+    native.set(
         "keys",
         Function::new(ctx.clone(), |args: String| {
             envelope(super::keys::run(&args))
@@ -318,6 +322,42 @@ fn inflate(format: &str, data: &[u8]) -> Result<Vec<u8>, String> {
     };
     read.map_err(|error| format!("the data didn't inflate: {error}"))?;
     Ok(out)
+}
+
+/// The most an archive's entries give together (`ZipInputStream`): a chapter's pictures are far
+/// less.
+const UNZIPPED_LIMIT: u64 = 256 * 1024 * 1024;
+
+/// A ZIP archive's entries in order, as `[{name, data}]` with the data in base64 (Java's
+/// `ZipInputStream` over an answer's bytes).
+fn unzip(data: &str) -> Result<String, String> {
+    use std::io::Read as _;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let bytes = engine
+        .decode(data)
+        .map_err(|error| format!("not base64: {error}"))?;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|error| format!("not a ZIP archive: {error}"))?;
+    let mut entries = Vec::new();
+    let mut total = 0u64;
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("a ZIP entry didn't read: {error}"))?;
+        let name = entry
+            .name()
+            .map(|name| name.to_string())
+            .map_err(|error| format!("a ZIP entry's name didn't read: {error}"))?;
+        let mut out = Vec::new();
+        entry
+            .by_ref()
+            .take(UNZIPPED_LIMIT.saturating_sub(total))
+            .read_to_end(&mut out)
+            .map_err(|error| format!("a ZIP entry didn't read: {error}"))?;
+        total += out.len() as u64;
+        entries.push(serde_json::json!({ "name": name, "data": engine.encode(&out) }));
+    }
+    Ok(serde_json::Value::Array(entries).to_string())
 }
 
 fn deflate(format: &str, data: &[u8]) -> Result<Vec<u8>, String> {
