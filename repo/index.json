@@ -25,6 +25,27 @@
       "size": 4092
     },
     {
+      "id": "dev.raygun.bccampus",
+      "name": "BCcampus Open Textbooks",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Creative Commons (CC BY, BY-SA, BY-NC, BY-NC-SA) or public domain, as each book states: open textbooks from BCcampus' collection for colleges, universities and the trades, read chapter by chapter.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "opentextbc.ca"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.bccampus-1.0.0.zip",
+      "sha256": "d2225387b383cd17fc09b20f8a2ed91c3317355ce48b7ee388220a5ddcbe0ca2",
+      "size": 5917
+    },
+    {
       "id": "dev.raygun.blender-movies",
       "name": "Blender open movies",
       "version": "1.0.0",
@@ -46,6 +67,50 @@
       "size": 3836
     },
     {
+      "id": "dev.raygun.esa-hubble",
+      "name": "ESA/Hubble and ESA/Webb",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Creative Commons Attribution 4.0: the European Space Agency's Hubble and Webb videos (Hubblecasts, zooms and pans, animations, Space Sparks), credited as ESA/Hubble and ESA/Webb give them; videos whose page names another licence are left out.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "esahubble.org",
+          "esawebb.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.esa-hubble-1.0.0.zip",
+      "sha256": "ced65fb82b904b7b0643b3348f01af54e4e8f4307c63611970f13e8a201efa89",
+      "size": 6714
+    },
+    {
+      "id": "dev.raygun.europeana",
+      "name": "Europeana",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain and open licences only (Public Domain Mark, CC0, CC BY, CC BY-SA): films and recordings from Europe's archives, libraries and museums through Europeana, each credited to the institution that holds it. Needs your own free API key from your europeana.eu account, entered in this source's settings.",
+      "author": "Raygun",
+      "provides": [
+        "video.source",
+        "music.metadata"
+      ],
+      "permissions": {
+        "net": [
+          "api.europeana.eu"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.europeana-1.0.0.zip",
+      "sha256": "a0704d36ae068ae4c6f277069a492aed8207949b59c0ec014ccedb904ed68ca2",
+      "size": 6163
+    },
+    {
       "id": "dev.raygun.fyyd",
       "name": "fyyd podcasts",
       "version": "1.0.0",
@@ -65,6 +130,50 @@
       "package": "packages/dev.raygun.fyyd-1.0.0.zip",
       "sha256": "6e8e1f9dd4137411f11f7fdc552f6050fa6ac75f792f9029ecb2d50ab6360cfa",
       "size": 2513
+    },
+    {
+      "id": "dev.raygun.gnu-manuals",
+      "name": "GNU Manuals",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "GNU Free Documentation License (and other free licences, as each manual states): the GNU Project's manuals for Bash, Coreutils, Emacs, Gawk, Make, Tar and more, read node by node from www.gnu.org.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "www.gnu.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.gnu-manuals-1.0.0.zip",
+      "sha256": "1ad4a2561a90e91cdf278a4eef6ea60e94a6584b20d55eb279410954bca4ad70",
+      "size": 10900
+    },
+    {
+      "id": "dev.raygun.green-tea-press",
+      "name": "Green Tea Press",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "CC BY-NC-SA 4.0, CC BY-NC-SA 3.0, CC BY-NC 3.0 or CC BY 4.0, as each book states: Allen B. Downey's free textbooks on programming, statistics, data science and systems (Think Python, Think Stats, Think Bayes and more), read chapter by chapter with their code.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "allendowney.github.io",
+          "greenteapress.com",
+          "chrismayfield.github.io"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.green-tea-press-1.0.0.zip",
+      "sha256": "8dbd89259a845bd50b0f887ec3adb516fe503694d35936bfc829b8c39110fbb0",
+      "size": 7104
     },
     {
       "id": "dev.raygun.gutenberg",
@@ -136,9 +245,9 @@
     {
       "id": "dev.raygun.internet-archive",
       "name": "Internet Archive",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "apiVersion": 1,
-      "description": "Public domain and Creative Commons: netlabel and Musopen recordings, and films in the public domain by age or by a mark that holds up, from the Internet Archive.",
+      "description": "Public domain and Creative Commons: netlabel, Musopen and Free Music Archive recordings under a Creative Commons licence or public-domain mark, films in the public domain by age or by a mark that holds up, and MIT OpenCourseWare's lectures as MIT uploaded them (Creative Commons, mostly BY-NC-SA), from the Internet Archive.",
       "author": "Raygun",
       "provides": [
         "music.metadata",
@@ -153,9 +262,33 @@
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.internet-archive-1.5.0.zip",
-      "sha256": "f39d8382b096c5d2afd5eb526b597c4a3d5ab1fd170d12d6a3e1639e9496f8ad",
-      "size": 6030
+      "package": "packages/dev.raygun.internet-archive-1.6.0.zip",
+      "sha256": "716589257faf7f8ba8da810041ea5d78249df05166086adc52d0f598121afecc",
+      "size": 7575
+    },
+    {
+      "id": "dev.raygun.lastfm",
+      "name": "Last.fm",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Music data from Last.fm, credited to Last.fm and linked to its pages, under its API terms (non-commercial use; Last.fm's images and audio aren't used): the songs most played on Last.fm worldwide and in your country, genre charts and genre and mood songs, genres for songs, artists like an artist, an artist's most played songs, song radios and artist biographies. Needs your own free API key, created at last.fm/api/account/create and entered in this source's settings.",
+      "author": "Raygun",
+      "provides": [
+        "music.charts",
+        "music.tags",
+        "music.recommend",
+        "music.info"
+      ],
+      "permissions": {
+        "net": [
+          "ws.audioscrobbler.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.lastfm-1.0.0.zip",
+      "sha256": "dcacd71d5939d05d33840008067633e82444b422dd696468302bb24bfdde11bc",
+      "size": 7085
     },
     {
       "id": "dev.raygun.librivox",
@@ -181,24 +314,27 @@
     },
     {
       "id": "dev.raygun.listenbrainz",
-      "name": "ListenBrainz charts",
-      "version": "1.0.0",
+      "name": "ListenBrainz",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "Charts under CC0: the songs most listened to on ListenBrainz, the open listening-history project of the MetaBrainz Foundation, this week, this month, this year and of all time. Cover art from the Cover Art Archive.",
+      "description": "Charts and recommendations under CC0 from ListenBrainz, the open listening-history project of the MetaBrainz Foundation: the songs most listened to this week, month, year and of all time, genre radios, artists like an artist, an artist's best-known songs and fresh releases, and radios of similar songs. No account needed. Cover art from the Cover Art Archive.",
       "author": "Raygun",
       "provides": [
-        "music.charts"
+        "music.charts",
+        "music.recommend"
       ],
       "permissions": {
         "net": [
-          "api.listenbrainz.org"
+          "api.listenbrainz.org",
+          "labs.api.listenbrainz.org",
+          "musicbrainz.org"
         ],
         "webview": false
       },
       "contentRating": "safe",
-      "package": "packages/dev.raygun.listenbrainz-1.0.0.zip",
-      "sha256": "3b06ee5f81e1819b1aab4c12f3e46f3d1a21633d91cb3bb20b8b89a035db8f32",
-      "size": 1512
+      "package": "packages/dev.raygun.listenbrainz-1.1.0.zip",
+      "sha256": "fe18efa9bfeca52386f09d2e91c8132bf4d565f9b5751616119cde961e629440",
+      "size": 5095
     },
     {
       "id": "dev.raygun.live-music-archive",
@@ -221,6 +357,28 @@
       "package": "packages/dev.raygun.live-music-archive-1.0.0.zip",
       "sha256": "867e539d02272481c562c23eba4834b457497c220778c118406f1aab16e3fa57",
       "size": 3603
+    },
+    {
+      "id": "dev.raygun.loc",
+      "name": "Library of Congress",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain in the United States only: films published more than 95 years ago and sound recordings published more than 100 years ago, from the Library of Congress's online collections (Edison's films and records, the Spanish-American War, early animation, the Westinghouse Works, early San Francisco and New York, the National Screening Room); items whose rights statement names a restriction are left out.",
+      "author": "Raygun",
+      "provides": [
+        "video.source",
+        "music.metadata"
+      ],
+      "permissions": {
+        "net": [
+          "www.loc.gov"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.loc-1.0.0.zip",
+      "sha256": "2a501ca4bfaf987bc7331e30c04df10cb5b62d646d16200e4c33c8d3c8d40876",
+      "size": 8959
     },
     {
       "id": "dev.raygun.loyalbooks",
@@ -270,6 +428,27 @@
       "size": 5035
     },
     {
+      "id": "dev.raygun.nara",
+      "name": "National Archives",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Unrestricted US government records: films from the National Archives Catalog, only those the National Archives marks free of use and access restrictions. Needs your own API key, which the National Archives gives on request by email to Catalog_API@nara.gov; enter it in this source's settings.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "catalog.archives.gov"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.nara-1.0.0.zip",
+      "sha256": "62f1e90eaacf629aed6243ad6a6f0077c3793ed1413c360f422bbe7cd0a56873",
+      "size": 5422
+    },
+    {
       "id": "dev.raygun.nasa",
       "name": "NASA Image and Video Library",
       "version": "1.0.0",
@@ -316,6 +495,48 @@
       "size": 28153
     },
     {
+      "id": "dev.raygun.nps",
+      "name": "National Park Service",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain (US government works): videos from the National Park Service's multimedia library, with captions and audio-described versions, only those credited to the Park Service, a park or another federal agency (or not credited at all) that name no one else's rights. Needs your own free API key from nps.gov/subjects/developer/get-started.htm, entered in this source's settings.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "developer.nps.gov"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.nps-1.0.0.zip",
+      "sha256": "3a4426235e05316474e266b4327e51f08fd0aae9bc1e00f4b63c223aeffe2f0a",
+      "size": 19142
+    },
+    {
+      "id": "dev.raygun.openstax",
+      "name": "OpenStax",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "CC BY 4.0 or CC BY-NC-SA 4.0, as each book states: free, peer-reviewed college textbooks from OpenStax at Rice University, in English and Spanish, on mathematics, science, social sciences, humanities, business, computer science and nursing, read section by section with their figures and formulas.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "openstax.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.openstax-1.0.0.zip",
+      "sha256": "595392dd9595fc0eabff4464159296ec459597c733a556576b87fabeb905a570",
+      "size": 6551
+    },
+    {
       "id": "dev.raygun.peppercarrot",
       "name": "Pepper&Carrot",
       "version": "1.0.0",
@@ -339,7 +560,7 @@
     {
       "id": "dev.raygun.podcast-index",
       "name": "Podcast Index",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
       "description": "A podcast directory: searches the Podcast Index, the open index of millions of public podcast feeds, and lists what's trending. Needs your own free API key and secret from api.podcastindex.org, entered in this source's settings. Raygun reads each podcast's own feed.",
       "author": "Raygun",
@@ -353,9 +574,30 @@
         "webview": false
       },
       "contentRating": "suggestive",
-      "package": "packages/dev.raygun.podcast-index-1.0.0.zip",
-      "sha256": "4717934731b77eb42c9e1ea408a52fdf59c6f87decf07732d9e4b5ed373be91a",
-      "size": 3277
+      "package": "packages/dev.raygun.podcast-index-1.1.0.zip",
+      "sha256": "17ceba6f39573977601964965b490fa9c7fe7ff8c1cdeef0d145df7b6d457405",
+      "size": 3349
+    },
+    {
+      "id": "dev.raygun.saylor",
+      "name": "Saylor Academy Open Textbooks",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "CC BY-NC-SA 3.0: Saylor Academy's open textbooks on business, economics, law, psychology, sociology, chemistry, writing and more, read chapter by chapter.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "saylordotorg.github.io"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.saylor-1.0.0.zip",
+      "sha256": "03a4e7ce15300fb1ff85e565cfb883721ae8ac84e6259db63d03f057b5aa2e2a",
+      "size": 6796
     },
     {
       "id": "dev.raygun.standard-ebooks",
@@ -377,6 +619,28 @@
       "package": "packages/dev.raygun.standard-ebooks-1.2.0.zip",
       "sha256": "6f68c755643751cfdb4373d17c51967388290412d19ddffa3b5dca89d568fbe9",
       "size": 4223
+    },
+    {
+      "id": "dev.raygun.wikibooks",
+      "name": "Wikibooks",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "CC BY-SA 4.0: open textbooks and manuals written by Wikibooks' volunteers, on programming, science, mathematics, languages and more, read chapter by chapter.",
+      "author": "Raygun",
+      "provides": [
+        "novel.source"
+      ],
+      "permissions": {
+        "net": [
+          "en.wikibooks.org",
+          "wikimedia.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.wikibooks-1.0.0.zip",
+      "sha256": "6175b690a4cdcb614b6ac5b47f7d10f71cf2b10025f186ab712bc95ca5664cc4",
+      "size": 6856
     },
     {
       "id": "dev.raygun.wikimedia-commons",
