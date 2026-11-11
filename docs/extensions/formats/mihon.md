@@ -321,16 +321,22 @@ conversion as installing does (one that doesn't load counts as refused):
 | Iken, InitManga, FoolSlide, GalleryAdults | 37 | 37 |
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
-| Other themes | 132 | 136 |
-| No theme | 838 | 862 |
-| All | 1559 (98.2%) | 1587 |
+| Other themes | 133 | 136 |
+| No theme | 848 | 862 |
+| All | 1570 (98.9%) | 1587 |
 
-The 28 refusals left are one or two extensions each, most of them on what has no stand-in:
-Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
-own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three);
-one on Kotlin the converter doesn't read yet (a class declared in a function). Android's
-`StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) is the runtime's text
-layout, so captions and speech bubbles drawn on pictures convert.
+The 17 refusals left are one or two extensions each, most of them on what has no stand-in:
+Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`: four), web views and their
+windows (`WebResourceResponse`, `CountDownLatch` around one in the pam theme's three, an
+`Intent` opening a challenge page, `ViewGroup.LayoutParams`, a `Presentation`'s `dismiss()`),
+Cronet's own transport, the kim image-metadata library, Pepper&Carrot's protobuf-encoded
+preferences, and one on Kotlin the converter doesn't read yet (a class declared in a function).
+Android's `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) and
+`canvas.drawText(…)` are the runtime's text layout, so captions and speech bubbles drawn on
+pictures convert; a paint's `ColorMatrixColorFilter` changes the pictures it draws. The classes
+extensions use of commons-text (`StringSubstitutor`), java-string-similarity (`Levenshtein`,
+`JaroWinkler`) and java-nat-sort (its natural comparators) are the runtime's own, so Komga,
+Mango and Madokami convert.
 
 `mihon_popular_live` with a sample of 300 converted sources (2026-11-11) follows each listing
 through a title's details, its chapters and a chapter's pages: 234 of the 300 list their

@@ -63,6 +63,13 @@
       name === 'IllegalArgumentException'
     );
   };
+  /// A number read from text, else Java's `NumberFormatException` (which `catch` blocks for it
+  /// take, as for a bad `"x".toInt()`).
+  const numberOf = (value, text) => {
+    if (value === null || value === undefined)
+      throw new KotlinError(`For input string: "${K.str(text)}"`, 'NumberFormatException');
+    return value;
+  };
   KT.nn = (value) => {
     if (value === null || value === undefined)
       throw new KotlinError(
@@ -1105,13 +1112,16 @@
     ifEmpty: async (s, args, lambda) => (s.length === 0 ? (lambda ? lambda() : args[0]) : s),
     orEmpty: (s) => s,
     // `toInt(16)` too.
-    toInt: (s, [radix]) => KT.nn(toInt(s, radix)),
+    toInt: (s, [radix]) => numberOf(toInt(s, radix), s),
     toIntOrNull: (s, [radix]) => toInt(s, radix),
-    toLong: (s, [radix]) => KT.nn(toInt(s, radix)),
+    toLong: (s, [radix]) => numberOf(toInt(s, radix), s),
     toLongOrNull: (s, [radix]) => toInt(s, radix),
-    toFloat: (s) => KT.nn(toFloat(s)),
+    // `"12".toShort()`, `"7".toByte()`: whole numbers kept to their sizes.
+    toShort: (s, [radix]) => (numberOf(toInt(s, radix), s) << 16) >> 16,
+    toByte: (s, [radix]) => (numberOf(toInt(s, radix), s) << 24) >> 24,
+    toFloat: (s) => numberOf(toFloat(s), s),
     toFloatOrNull: (s) => toFloat(s),
-    toDouble: (s) => KT.nn(toFloat(s)),
+    toDouble: (s) => numberOf(toFloat(s), s),
     toDoubleOrNull: (s) => toFloat(s),
     toBoolean: (s) => s.toLowerCase() === 'true',
     substring: (s, [start, end]) => (end === undefined ? s.slice(start) : s.slice(start, end)),
@@ -2100,6 +2110,8 @@
       return m.get(key);
     },
     containsKey: (m, [key]) => m.has(key),
+    // OkHttp's `map.toHeaders()`: a header for each entry.
+    toHeaders: (m) => new Headers([...m].map(([name, value]) => [KT.str(name), KT.str(value)])),
     // `map.orEmpty()`, `map.ifEmpty { … }`: the map itself (not its entries, as the lists' would
     // give).
     orEmpty: (m) => m,
@@ -2358,6 +2370,10 @@
     hashCode: (b) => Number(BigInt.asIntN(32, b)),
   };
   const NUMBER = {
+    // Kotlin's `a.floorDiv(b)` and `a.mod(b)` (Java's `Math.floorMod`): rounded toward minus
+    // infinity, the remainder taking the divisor's sign.
+    floorDiv: (n, [d]) => Math.floor(Number(n) / Number(d)),
+    floorMod: (n, [d]) => ((Number(n) % Number(d)) + Number(d)) % Number(d),
     // `BigDecimal`s are numbers here.
     stripTrailingZeros: (n) => n,
     setScale: (n, [scale = 0, mode = 'HALF_UP']) => {
@@ -4158,7 +4174,17 @@
           ? interceptor(chain)
           : KT.m(interceptor, 'intercept', [chain]);
       };
-      const response = await run(0, request);
+      let response = await run(0, request);
+      // OkHttp's `authenticator { route, response -> … }`: a request it gives for a 401 is sent
+      // in its place (a few times at most), until it gives none.
+      for (let tries = 0; this.authenticator && response.code === 401 && tries < 3; tries++) {
+        const next =
+          typeof this.authenticator === 'function'
+            ? await this.authenticator(null, response)
+            : await KT.m(this.authenticator, 'authenticate', [null, response]);
+        if (!next) break;
+        response = await run(0, next);
+      }
       if (ensureSuccess && !response.isSuccessful)
         throw new HttpError(response.code, response.request.url.toString());
       return response;
@@ -4274,6 +4300,7 @@
       const copy = new Client(this.owner);
       copy.interceptors = [...this.interceptors];
       copy.followsRedirects = this.followsRedirects;
+      copy.authenticator = this.authenticator;
       copy.defaultHeaders = () => (this.defaultHeaders ? this.defaultHeaders() : new Headers());
       return clientBuilder(copy);
     }
@@ -4303,6 +4330,11 @@
       cache: () => builder,
       dispatcher: () => builder,
       dns: () => builder,
+      authenticator: (authenticator) => {
+        client.authenticator = authenticator;
+        return builder;
+      },
+      proxyAuthenticator: () => builder,
       protocols: () => builder,
       hostnameVerifier: () => builder,
       sslSocketFactory: () => builder,
@@ -5839,6 +5871,9 @@
       color: from && typeof from === 'object' ? from.color : -16777216,
       alpha: 255,
       style: 'FILL',
+      strokeWidth: from && typeof from === 'object' ? (from.strokeWidth ?? 0) : 0,
+      textAlign: from && typeof from === 'object' ? (from.textAlign ?? 'LEFT') : 'LEFT',
+      textScaleX: from && typeof from === 'object' ? (from.textScaleX ?? 1) : 1,
       textSize: from && typeof from === 'object' ? from.textSize : 12,
       typeface: from && typeof from === 'object' ? from.typeface : null,
       isAntiAlias: false,
@@ -5847,6 +5882,22 @@
       setColor: (color) => ((paint.color = color), KT.unit),
       setAlpha: (alpha) => ((paint.alpha = alpha), KT.unit),
       setStyle: (style) => ((paint.style = style), KT.unit),
+      setStrokeWidth: (width) => ((paint.strokeWidth = width), KT.unit),
+      setTextAlign: (align) => ((paint.textAlign = align), KT.unit),
+      setTextScaleX: (scale) => ((paint.textScaleX = scale), KT.unit),
+      // The text's width on one line at this paint's size (and `textScaleX`).
+      measureText: (text, start = null, end = null) => {
+        const all = KT.str(text ?? '');
+        const content = start !== null && end !== null ? all.slice(start, end) : all;
+        if (!content) return 0;
+        const measured = K.bitmap.run('measureText', {
+          text: content,
+          size: Number(paint.textSize ?? 12),
+          width: 0,
+          bold: Boolean(paint.typeface?.bold || paint.isFakeBoldText),
+        });
+        return measured.width * Number(paint.textScaleX ?? 1);
+      },
       setTextSize: (size) => ((paint.textSize = size), KT.unit),
       setTypeface: (typeface) => ((paint.typeface = typeface), typeface),
       setAntiAlias: (on) => ((paint.isAntiAlias = on), KT.unit),
@@ -6019,7 +6070,19 @@
       return this.clip[0] < this.clip[2] && this.clip[1] < this.clip[3];
     }
     /// `drawBitmap(bitmap, left, top, paint)`, `(bitmap, src, dst, paint)`, `(bitmap, matrix, paint)`.
-    drawBitmap(bitmap, second, third) {
+    drawBitmap(bitmap, second, third, ...rest) {
+      // A paint whose `ColorMatrixColorFilter` changes the colours: drawn from a changed copy.
+      const paint = [third, ...rest].find((value) => value && value.__class === 'Paint');
+      const colors = paint && paint.colorFilter && paint.colorFilter.colorMatrix;
+      if (colors) {
+        const copy = bitmap.copy();
+        try {
+          K.bitmap.run('colors', { id: copy.id, matrix: colors });
+          return this.drawBitmap(copy, second, third === paint ? null : third);
+        } finally {
+          copy.recycle();
+        }
+      }
       let part = [0, 0, bitmap.width, bitmap.height];
       let local;
       if (typeof second === 'number') local = translation(second, third);
@@ -6063,13 +6126,66 @@
       const paint = args.pop();
       const rect = rectFrom(args);
       if (!rect) return KT.unit;
-      K.bitmap.run('fill', {
+      const color = argbOf(paint ? paint.color : colorStatics.BLACK);
+      const fill = (left, top, right, bottom) =>
+        K.bitmap.run('fill', {
+          id: this.target(),
+          rect: [left, top, right, bottom],
+          matrix: this.matrix,
+          color,
+        });
+      // A stroke: its four sides, `strokeWidth` wide (centred on the edge, as Android draws).
+      if (paint && paint.style === 'STROKE') {
+        const half = Math.max(Number(paint.strokeWidth) || 1, 1) / 2;
+        const { left, top, right, bottom } = rect;
+        fill(left - half, top - half, right + half, top + half);
+        fill(left - half, bottom - half, right + half, bottom + half);
+        fill(left - half, top + half, left + half, bottom - half);
+        fill(right - half, top + half, right + half, bottom - half);
+        return KT.unit;
+      }
+      fill(rect.left, rect.top, rect.right, rect.bottom);
+      return KT.unit;
+    }
+    /// `drawText(text, x, y, paint)` (also a part: `(text, start, end, x, y, paint)`, or a char
+    /// array's `(chars, index, count, x, y, paint)`): one line on its baseline at `y`, placed by
+    /// the paint's alignment and stretched by its `textScaleX`.
+    drawText(text, ...rest) {
+      const paint = rest.pop();
+      const chars = Array.isArray(text);
+      let content = chars ? text.join('') : KT.str(text ?? '');
+      let [x, y] = rest;
+      if (rest.length >= 4) {
+        const [first, second] = rest;
+        content = chars ? text.slice(first, first + second).join('') : content.slice(first, second);
+        [x, y] = rest.slice(2);
+      }
+      if (!content) return KT.unit;
+      let left = Number(x);
+      const align = KT.str(paint?.textAlign ?? 'LEFT');
+      if (paint && align !== 'LEFT') {
+        const width = paint.measureText(content);
+        left -= align === 'CENTER' ? width / 2 : width;
+      }
+      K.bitmap.run('drawText', {
         id: this.target(),
-        rect: [rect.left, rect.top, rect.right, rect.bottom],
-        matrix: this.matrix,
+        text: content,
+        size: Number(paint?.textSize ?? 12),
+        width: 0,
+        bold: Boolean(paint?.typeface?.bold || paint?.isFakeBoldText),
+        x: 0,
+        y: 0,
+        baseline: true,
+        matrix: mul(this.matrix, [Number(paint?.textScaleX ?? 1), 0, 0, 1, left, Number(y)]),
         color: argbOf(paint ? paint.color : colorStatics.BLACK),
       });
       return KT.unit;
+    }
+    /// `drawRoundRect(rect, rx, ry, paint)`: a rectangle (its corners left square).
+    drawRoundRect(...args) {
+      const paint = args.pop();
+      const rect = rectFrom(args.length >= 4 ? args.slice(0, -2) : args.slice(0, 1));
+      return rect ? this.drawRect(rect, paint) : KT.unit;
     }
   }
 
@@ -6639,6 +6755,203 @@
   };
   /// A comparator's verdict on two values: a `Comparator { a, b -> … }`, a collator, or one made
   /// by `compareBy`.
+  /// commons-text's `StringSubstitutor`: `prefix + name + suffix` replaced by the name's value
+  /// (`name:-fallback` gives a fallback), one escaped (`$` before the prefix) kept as written
+  /// without its escape.
+  const stringSubstitutor = (values, prefix, suffix, escape) => {
+    const valueOf = (name) => {
+      if (values instanceof Map) return values.get(name);
+      if (
+        values &&
+        typeof values === 'object' &&
+        Object.prototype.hasOwnProperty.call(values, name)
+      )
+        return values[name];
+      return undefined;
+    };
+    const substitutor = {
+      __class: 'StringSubstitutor',
+      __classes: ['StringSubstitutor'],
+      isEnableUndefinedVariableException: false,
+      replace: (template) => {
+        if (template === null || template === undefined) return null;
+        const text = KT.str(template);
+        let out = '';
+        let at = 0;
+        while (at < text.length) {
+          const start = text.indexOf(prefix, at);
+          if (start < 0) break;
+          if (escape && start >= escape.length && text.startsWith(escape, start - escape.length)) {
+            out += text.slice(at, start - escape.length) + prefix;
+            at = start + prefix.length;
+            continue;
+          }
+          const end = text.indexOf(suffix, start + prefix.length);
+          if (end < 0) break;
+          const inside = text.slice(start + prefix.length, end);
+          const split = inside.indexOf(':-');
+          const name = split < 0 ? inside : inside.slice(0, split);
+          const value = valueOf(name);
+          out += text.slice(at, start);
+          if (value !== undefined && value !== null) out += KT.str(value);
+          else if (split >= 0) out += inside.slice(split + 2);
+          else if (substitutor.isEnableUndefinedVariableException)
+            throw new KotlinError(`Cannot resolve variable '${name}'`, 'IllegalArgumentException');
+          else out += text.slice(start, end + suffix.length);
+          at = end + suffix.length;
+        }
+        return out + text.slice(at);
+      },
+    };
+    return substitutor;
+  };
+  /// The Levenshtein distance between two texts (their UTF-16 units, as Java's).
+  const levenshtein = (left, right) => {
+    if (left === right) return 0;
+    let previous = Array.from({ length: right.length + 1 }, (_, at) => at);
+    for (let row = 0; row < left.length; row++) {
+      const current = [row + 1];
+      for (let column = 0; column < right.length; column++) {
+        const cost = left[row] === right[column] ? 0 : 1;
+        current.push(
+          Math.min(current[column] + 1, previous[column + 1] + 1, previous[column] + cost),
+        );
+      }
+      previous = current;
+    }
+    return previous[right.length];
+  };
+  const normalizedLevenshtein = (left, right) => {
+    const longest = Math.max(left.length, right.length);
+    return longest === 0 ? 0 : levenshtein(left, right) / longest;
+  };
+  /// Jaro–Winkler similarity (java-string-similarity's: the prefix boost above `threshold`).
+  const jaroWinkler = (first, second, threshold) => {
+    if (first === second) return 1;
+    const [max, min] = first.length > second.length ? [first, second] : [second, first];
+    const range = Math.max(Math.floor(max.length / 2) - 1, 0);
+    const matchedAt = new Array(min.length).fill(-1);
+    const taken = new Array(max.length).fill(false);
+    let matches = 0;
+    for (let at = 0; at < min.length; at++) {
+      const end = Math.min(at + range + 1, max.length);
+      for (let other = Math.max(at - range, 0); other < end; other++) {
+        if (!taken[other] && min[at] === max[other]) {
+          matchedAt[at] = other;
+          taken[other] = true;
+          matches++;
+          break;
+        }
+      }
+    }
+    if (!matches) return 0;
+    const fromMin = [...min].filter((_, at) => matchedAt[at] !== -1);
+    const fromMax = [...max].filter((_, at) => taken[at]);
+    let transpositions = 0;
+    for (let at = 0; at < fromMin.length; at++) if (fromMin[at] !== fromMax[at]) transpositions++;
+    let prefix = 0;
+    while (prefix < min.length && first[prefix] === second[prefix]) prefix++;
+    const half = Math.floor(transpositions / 2);
+    const jaro =
+      (matches / first.length + matches / second.length + (matches - half) / matches) / 3;
+    return jaro > threshold ? jaro + Math.min(0.1, 1 / max.length) * prefix * (1 - jaro) : jaro;
+  };
+  /// java-nat-sort's simple natural order: runs of digits by their number, the rest by character.
+  const naturalCompare = (left, right, ignoreCase) => {
+    const first = KT.str(left);
+    const second = KT.str(right);
+    const isDigit = (char) => char >= '0' && char <= '9';
+    let at = 0;
+    let other = 0;
+    while (at < first.length && other < second.length) {
+      if (isDigit(first[at]) && isDigit(second[other])) {
+        let end = at;
+        while (end < first.length && isDigit(first[end])) end++;
+        let otherEnd = other;
+        while (otherEnd < second.length && isDigit(second[otherEnd])) otherEnd++;
+        const number = first.slice(at, end).replace(/^0+(?=\d)/, '');
+        const otherNumber = second.slice(other, otherEnd).replace(/^0+(?=\d)/, '');
+        if (number.length !== otherNumber.length) return number.length - otherNumber.length;
+        if (number !== otherNumber) return number < otherNumber ? -1 : 1;
+        at = end;
+        other = otherEnd;
+        continue;
+      }
+      const char = ignoreCase ? first[at].toLowerCase() : first[at];
+      const otherChar = ignoreCase ? second[other].toLowerCase() : second[other];
+      if (char !== otherChar) return char < otherChar ? -1 : 1;
+      at++;
+      other++;
+    }
+    return first.length - at - (second.length - other);
+  };
+  const naturalComparator = (ignoreCase) => ({
+    __class: 'Comparator',
+    __classes: ['Comparator'],
+    compare: (left, right) => naturalCompare(left, right, ignoreCase),
+  });
+  /// Android's `ColorMatrix`: 20 numbers, the identity unless given.
+  const colorMatrix = (values) => {
+    const identity = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+    const matrix = {
+      __class: 'ColorMatrix',
+      __classes: ['ColorMatrix'],
+      isColorMatrix: true,
+      values:
+        values && values.isColorMatrix
+          ? [...values.values]
+          : values
+            ? Array.from(values, Number)
+            : identity,
+      getArray: () => [...matrix.values],
+      set: (other) => {
+        matrix.values =
+          other && other.isColorMatrix ? [...other.values] : Array.from(other, Number);
+        return KT.unit;
+      },
+      reset: () => ((matrix.values = [...identity]), KT.unit),
+      // `setSaturation(0f)`: greys, by the luminance Android weighs.
+      setSaturation: (saturation) => {
+        const s = Number(saturation);
+        const [r, g, b] = [0.213 * (1 - s), 0.715 * (1 - s), 0.072 * (1 - s)];
+        matrix.values = [r + s, g, b, 0, 0, r, g + s, b, 0, 0, r, g, b + s, 0, 0, 0, 0, 0, 1, 0];
+        return KT.unit;
+      },
+    };
+    return matrix;
+  };
+  const STARTED_AT = Date.now();
+  const mainLooper = { __class: 'Looper', __classes: ['Looper'] };
+  /// Android's `Handler`: work posted runs on the runtime's one thread, at once or after a delay.
+  const handler = () => ({
+    __class: 'Handler',
+    __classes: ['Handler'],
+    post: async (work) => {
+      await work();
+      return true;
+    },
+    postDelayed: (work, millis) => {
+      (async () => {
+        try {
+          await GLOBALS.delay([millis]);
+          await work();
+        } catch (error) {
+          console.log(`posted work failed: ${KT.str(error && error.message)}`);
+        }
+      })();
+      return true;
+    },
+    removeCallbacksAndMessages: () => {},
+  });
+  const inetAddress = (host) => ({
+    __class: 'InetAddress',
+    __classes: ['InetAddress'],
+    hostName: KT.str(host),
+    hostAddress: KT.str(host),
+    getHostName: () => KT.str(host),
+    getHostAddress: () => KT.str(host),
+    toString: () => `/${KT.str(host)}`,
+  });
   const compareWith = async (order, left, right) => {
     if (typeof order === 'function') return order(left, right);
     if (order && order.keys) return order.compare(left, right);
@@ -6804,6 +7117,7 @@
     limitedParallelism: () => coroutineContext(name),
     cancel: () => KT.unit,
     cancelChildren: () => KT.unit,
+    ensureActive: () => KT.unit,
     isActive: true,
   });
   const dispatchers = {
@@ -7351,6 +7665,25 @@
     filesDir: javaFile('/files'),
     getCacheDir: () => javaFile('/cache'),
     getFilesDir: () => javaFile('/files'),
+    // `getSystemService(ActivityManager::class.java)`: what reports the device's memory.
+    getSystemService: () => activityManager,
+  };
+  /// Android's `ActivityManager.MemoryInfo`, filled by `getMemoryInfo(info)` with a phone's
+  /// typical figures (4 GB).
+  const memoryInfo = () => ({
+    __class: 'MemoryInfo',
+    __classes: ['MemoryInfo'],
+    totalMem: 4 * 1073741824,
+    availMem: 2 * 1073741824,
+    threshold: 256 * 1048576,
+    lowMemory: false,
+  });
+  const activityManager = {
+    __class: 'ActivityManager',
+    __classes: ['ActivityManager'],
+    getMemoryInfo: (info) => Object.assign(info, memoryInfo(), { __class: info.__class }),
+    isLowRamDevice: () => false,
+    getMemoryClass: () => 256,
   };
   /// `AtomicInteger`, `AtomicLong`, `AtomicBoolean`, `AtomicReference`: a value, set and read
   /// on one thread here.
@@ -7497,6 +7830,39 @@
     BLAKE2b: ([bits = 512]) => blake2b(Number(bits)),
     // Java's `CRC32`: `update(bytes)` as often as it's called, then `value`.
     CRC32: () => crc32Checksum(),
+    // Android's `ColorMatrix` (4 rows of 5) and the filter a paint draws pictures through.
+    ColorMatrix: ([values = null]) => colorMatrix(values),
+    ColorMatrixColorFilter: ([matrix]) => ({
+      __class: 'ColorMatrixColorFilter',
+      __classes: ['ColorMatrixColorFilter', 'ColorFilter'],
+      colorMatrix: matrix && matrix.isColorMatrix ? [...matrix.values] : Array.from(matrix ?? []),
+    }),
+    // kotlinx.coroutines' `currentCoroutineContext()`: never cancelled here.
+    currentCoroutineContext: () => coroutineContext('CoroutineContext'),
+    // Android's `Handler(looper)`: `post { … }` and `postDelayed({ … }, ms)`.
+    Handler: () => handler(),
+    // commons-text's `StringSubstitutor(values, "{", "}")`: `replace(template)`.
+    StringSubstitutor: ([values, prefix = '${', suffix = '}', escape = '$']) =>
+      stringSubstitutor(values, KT.str(prefix), KT.str(suffix), KT.str(escape)),
+    // java-string-similarity's measures: `distance(a, b)` (and `similarity` for the normalized).
+    Levenshtein: () => ({
+      __class: 'Levenshtein',
+      __classes: ['Levenshtein'],
+      distance: (left, right, limit = Infinity) =>
+        Math.min(levenshtein(KT.str(left), KT.str(right)), Number(limit)),
+    }),
+    NormalizedLevenshtein: () => ({
+      __class: 'NormalizedLevenshtein',
+      __classes: ['NormalizedLevenshtein'],
+      distance: (left, right) => normalizedLevenshtein(KT.str(left), KT.str(right)),
+      similarity: (left, right) => 1 - normalizedLevenshtein(KT.str(left), KT.str(right)),
+    }),
+    JaroWinkler: ([threshold = 0.7]) => ({
+      __class: 'JaroWinkler',
+      __classes: ['JaroWinkler'],
+      similarity: (left, right) => jaroWinkler(KT.str(left), KT.str(right), Number(threshold)),
+      distance: (left, right) => 1 - jaroWinkler(KT.str(left), KT.str(right), Number(threshold)),
+    }),
     EOFException: ([message]) => new KotlinError(message, 'EOFException'),
     Error: ([message]) => new KotlinError(message, 'Error'),
     GeneralSecurityException: ([message]) => new KotlinError(message, 'GeneralSecurityException'),
@@ -8710,9 +9076,9 @@
     MIN_VALUE: -2147483648,
     SIZE: 32,
     BYTES: 4,
-    parseInt: (text, radix = 10) => KT.nn(toInt(text, radixOf(radix))),
+    parseInt: (text, radix = 10) => numberOf(toInt(text, radixOf(radix)), text),
     valueOf: (value, radix = 10) =>
-      typeof value === 'number' ? value : KT.nn(toInt(value, radixOf(radix))),
+      typeof value === 'number' ? value : numberOf(toInt(value, radixOf(radix)), value),
     parseUnsignedInt: (text, radix = 10) => parseInt(KT.str(text), radixOf(radix)) | 0,
     toString: (value, radix = 10) => (value | 0).toString(radixOf(radix)),
     toHexString: (value) => (value >>> 0).toString(16),
@@ -9084,6 +9450,14 @@
     },
     OffsetDateTime: {
       parse: (text) => moment(wallClock(text, null, 'ZonedDateTime'), 'ZonedDateTime'),
+      now: () => moment(Date.now(), 'ZonedDateTime'),
+      // `OffsetDateTime.of(year, month, day, hour, minute, second, nanos, offset)`: that instant.
+      of: (year, month, day, hour = 0, minute = 0, second = 0, nanos = 0, offset = null) =>
+        moment(
+          Date.UTC(year, month - 1, day, hour, minute, second, Math.floor(Number(nanos) / 1e6)) -
+            Number(offset && offset.isZone ? offset.offset : 0) * 60000,
+          'ZonedDateTime',
+        ),
     },
     // Android's graphics and Java's `ByteBuffer` (above); `lib:imagedecoder`'s `ImageDecoder`
     // and `lib:textinterceptor`'s helper.
@@ -9117,6 +9491,19 @@
           __classes: ['QuickJs'],
           evaluate: (code) => {
             const script = KT.str(code);
+            const value = K.evaluate([...ran, script].join(';\n'));
+            ran.push(script);
+            return value;
+          },
+          // `compile(code, name)` gives "bytecode" that `execute` runs in an engine: here the
+          // script itself, run as `evaluate` would.
+          compile: (code) => ({
+            __class: 'CompiledScript',
+            __classes: ['CompiledScript'],
+            script: KT.str(code),
+          }),
+          execute: (bytecode) => {
+            const script = bytecode && bytecode.script !== undefined ? bytecode.script : '';
             const value = K.evaluate([...ran, script].join(';\n'));
             ran.push(script);
             return value;
@@ -9487,6 +9874,8 @@
       max: Math.max,
       min: Math.min,
       abs: Math.abs,
+      floorDiv: (a, b) => Math.floor(Number(a) / Number(b)),
+      floorMod: (a, b) => ((Number(a) % Number(b)) + Number(b)) % Number(b),
       floor: Math.floor,
       ceil: Math.ceil,
       round: Math.round,
@@ -9561,6 +9950,50 @@
     KeyPairGenerator: { getInstance: (name) => keyPairGenerator(name) },
     KeyFactory: { getInstance: (name) => keyFactory(name) },
     KeyAgreement: { getInstance: () => keyAgreement() },
+    // java-nat-sort's comparators (`CaseInsensitiveSimpleNaturalComparator.getInstance()`).
+    CaseInsensitiveSimpleNaturalComparator: { getInstance: () => naturalComparator(true) },
+    CaseSensitiveSimpleNaturalComparator: { getInstance: () => naturalComparator(false) },
+    // `ActivityManager.MemoryInfo()`, filled by the context's `ActivityManager`.
+    ActivityManager: { MemoryInfo: () => memoryInfo() },
+    // Jsoup's selectors parsed ahead (`QueryParser.parse(query)`) and run (`Collector`).
+    QueryParser: {
+      parse: (query) => ({
+        __class: 'Evaluator',
+        __classes: ['Evaluator'],
+        query: KT.str(query),
+        toString: () => KT.str(query),
+      }),
+    },
+    Collector: {
+      findFirst: (evaluator, root) => KT.m(root, 'selectFirst', [evaluator.query]),
+      collect: (evaluator, root) => KT.m(root, 'select', [evaluator.query]),
+    },
+    // Android's clocks since the runtime started (`SystemClock.elapsedRealtime()`).
+    SystemClock: {
+      elapsedRealtime: () => Date.now() - STARTED_AT,
+      uptimeMillis: () => Date.now() - STARTED_AT,
+      elapsedRealtimeNanos: () => (Date.now() - STARTED_AT) * 1e6,
+      currentThreadTimeMillis: () => Date.now() - STARTED_AT,
+    },
+    // Android's main thread (`Handler(Looper.getMainLooper()).post { … }`): the runtime's one.
+    Looper: { getMainLooper: () => mainLooper, myLooper: () => mainLooper },
+    // Android's toasts: nothing to show them on, so their text goes to the log.
+    Toast: {
+      LENGTH_SHORT: 0,
+      LENGTH_LONG: 1,
+      makeText: (_context, text) => ({
+        __class: 'Toast',
+        __classes: ['Toast'],
+        show: () => console.log(`toast: ${KT.str(text)}`),
+        cancel: () => {},
+      }),
+    },
+    // Java's `InetAddress.getByName(host)`: the host as an address (the runtime resolves names
+    // itself, so a source's own `Dns` only names them).
+    InetAddress: {
+      getByName: (host) => inetAddress(host),
+      getAllByName: (host) => [inetAddress(host)],
+    },
     Signature: { getInstance: (name) => javaSignature(name) },
     AlgorithmParameters: {
       getInstance: () => ({
@@ -10733,7 +11166,9 @@
         });
         if (chapterFacts.size > 4000) chapterFacts.delete(chapterFacts.keys().next().value);
       };
-      const titleOf = (id) => manga({ url: id, memo: memos.get(id) });
+      // A title as Mihon's library hands it over: with the name it was listed under, which some
+      // sources' details read (GlobalComix's slug of the title).
+      const titleOf = (id) => manga({ url: id, memo: memos.get(id), title: memos.title(id) ?? '' });
       const update = async (id, details) => {
         await ready();
         const answer = await self.call('fetchMangaUpdate', [titleOf(id), [], details, !details]);

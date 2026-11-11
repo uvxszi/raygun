@@ -3538,3 +3538,87 @@ class Wrapper(val data: Results)
         ["A/1", "B/0", "Cfalse", "true", "one,two", "manga T", "id 7"]
     );
 }
+
+/// The runtime's stand-ins for commons-text, java-string-similarity and java-nat-sort (whose
+/// dependencies then convert), and for Android's handlers and clocks.
+#[tokio::test]
+async fn converted_code_uses_library_stand_ins() {
+    let build = format!(
+        "{STANDALONE_BUILD}dependencies {{\n    implementation(\"org.apache.commons:commons-text:1.11.0\")\n    implementation(\"info.debatty:java-string-similarity:2.0.0\")\n    implementation(\"com.github.gpanther:java-nat-sort:natural-comparator-1.1\")\n}}\n"
+    );
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport org.apache.commons.text.StringSubstitutor\nimport info.debatty.java.stringsimilarity.Levenshtein\nimport info.debatty.java.stringsimilarity.JaroWinkler\nimport net.greypanther.natsort.CaseInsensitiveSimpleNaturalComparator\nimport okhttp3.Headers.Companion.toHeaders\nimport android.os.Handler\nimport android.os.Looper\nimport android.os.SystemClock\nimport kotlin.math.roundToInt",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val sub = StringSubstitutor(mapOf("title" to "Vol", "number" to "2"), "{", "}")
+        val strict = StringSubstitutor(mapOf("a" to "1"), "{", "}").apply {
+            isEnableUndefinedVariableException = true
+        }
+        val failed = runCatching { strict.replace("{a}{b}") }.isFailure
+        val distance = Levenshtein().distance("kitten", "sitting")
+        val similarity = JaroWinkler().similarity("MARTHA", "MARHTA")
+        val sorted = listOf("a10", "A2", "a1").sortedWith { left, right ->
+            CaseInsensitiveSimpleNaturalComparator.getInstance<String>().compare(left, right)
+        }
+        val headers = mapOf("X-One" to "1").toHeaders()
+        var posted = ""
+        Handler(Looper.getMainLooper()).post { posted = "posted" }
+        val names = listOf(
+            sub.replace("{title} {number} {missing}") + "|" + failed,
+            distance.toInt().toString(),
+            (similarity * 1000).roundToInt().toString(),
+            sorted.joinToString(","),
+            headers["X-One"] + (-7).floorDiv(2) + Math.floorMod(-7, 2),
+            posted + (SystemClock.elapsedRealtime() >= 0),
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        &build,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Vol 2 {missing}|true",
+            "3",
+            "961",
+            "a1,A2,a10",
+            "1-41",
+            "postedtrue"
+        ]
+    );
+}

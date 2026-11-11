@@ -736,7 +736,8 @@ fn members(
                     annotations: Vec::new(),
                     receiver: prop.receiver.clone(),
                     params: Vec::new(),
-                    ret: None,
+                    // `val list: List<MangaDto> get() = body.parseAs()` decodes as declared.
+                    ret: prop.ty.clone(),
                     body: Some(body),
                     line: prop.line,
                 };
@@ -990,7 +991,7 @@ fn own_class_code(
                 annotations: Vec::new(),
                 receiver: None,
                 params: Vec::new(),
-                ret: None,
+                ret: prop.ty.clone(),
                 body: Some(body),
                 line: prop.line,
             };
@@ -1268,7 +1269,7 @@ fn class_definition(
                             ..Default::default()
                         }),
                         params: Vec::new(),
-                        ret: None,
+                        ret: prop.ty.clone(),
                         body: Some(body),
                         line: prop.line,
                     };

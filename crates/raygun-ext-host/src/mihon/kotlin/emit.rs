@@ -229,7 +229,15 @@ pub const METHODS: &[&str] = &[
     "initialize", "generateKeyPair", "genKeyPair", "generatePublic", "generatePrivate",
     "doPhase", "initSign", "initVerify", "sign", "verify", "getParameterSpec", "getPublic",
     "getPrivate", "getAlgorithm", "getFormat", "getW", "getS", "getAffineX", "getAffineY",
-    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet", "graphQLGet", "intersect", "union", "subtract", "getNextEntry", "closeEntry", "zstdCompress", "zstdDecompress", "sink",
+    "getModulus", "getPublicExponent", "size", "fill", "toSortedSet", "graphQLGet", "intersect",
+    "union", "subtract", "distance", "similarity", "show", "postDelayed", "getMainLooper",
+    "myLooper", "makeText", "getByName", "getAllByName", "elapsedRealtime", "elapsedRealtimeNanos",
+    "uptimeMillis", "currentThreadTimeMillis", "removeCallbacksAndMessages", "getHostAddress",
+    "getHostName", "lookup", "compile", "drawRoundRect", "setStrokeWidth", "setSaturation",
+    "authenticator", "proxyAuthenticator", "floorDiv", "floorMod", "toHeaders", "measureText",
+    "getSystemService", "getMemoryInfo", "drawText", "ensureActive", "setTextAlign",
+    "setTextScaleX",
+    "getNextEntry", "closeEntry", "zstdCompress", "zstdDecompress", "sink",
     "unescapeEntities", "getProperty", "getValue",
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
     "toDuration", "isNegative", "isPositive", "isInfinite", "isFinite", "toNanos", "toMicros",
@@ -1369,6 +1377,12 @@ impl<'a> Gen<'a> {
                     None => value_kind,
                 };
                 let wraps = kind == Some(Num::Int) && value.is_some() && value_kind != kind;
+                // `val list: List<MangaDto> = response.parseAs()`: decoded as declared.
+                if let Some(ty) = ty
+                    && value.as_ref().is_some_and(untyped_decoder)
+                {
+                    self.expected = Some(ty.clone());
+                }
                 let value = self.local_value(value.as_ref(), delegate.as_ref())?;
                 let value = if wraps {
                     format!("KT.i32({value})")
@@ -3458,7 +3472,9 @@ pub const GLOBALS: &[&str] = &[
     "DeflaterOutputStream", "BigInteger", "X509EncodedKeySpec", "PKCS8EncodedKeySpec",
     "ECPublicKeySpec", "RSAPublicKeySpec", "ECGenParameterSpec", "ECPoint", "OAEPParameterSpec",
     "KeyPair", "SequenceInputStream", "ZipException", "EOFException", "CRC32",
-    "readEntry", "ZipInputStream", "BLAKE2b",
+    "readEntry", "ZipInputStream", "BLAKE2b", "StringSubstitutor", "Levenshtein",
+    "NormalizedLevenshtein", "JaroWinkler", "Handler", "ColorMatrix", "ColorMatrixColorFilter",
+    "currentCoroutineContext",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -3486,5 +3502,7 @@ pub const OBJECTS: &[&str] = &[
     "applicationContext", "PreferenceManager", "BuildConfig", "File", "Dns",
     "DEFAULT_BUFFER_SIZE", "InputType", "SignStyle", "FormatStyle", "YearMonth", "LocalTime",
     "WeekFields", "BigInteger", "KeyPairGenerator", "KeyFactory", "KeyAgreement", "Signature",
-    "AlgorithmParameters", "MGF1ParameterSpec", "PSource",
+    "AlgorithmParameters", "MGF1ParameterSpec", "PSource", "CaseInsensitiveSimpleNaturalComparator",
+    "CaseSensitiveSimpleNaturalComparator", "SystemClock", "Looper", "Toast", "InetAddress",
+    "QueryParser", "Collector", "ActivityManager",
 ];
