@@ -2722,6 +2722,11 @@
       // A `Char`'s code (a one-letter string here).
       if (kind === 'string' && name === 'code') return value.length ? value.charCodeAt(0) : 0;
       if (kind === 'string' && name === 'category') return charCategory(value);
+      // A media type, held as its text (`body.contentType()?.subtype`).
+      if (kind === 'string' && (name === 'type' || name === 'subtype') && value.includes('/')) {
+        const [type, subtype = ''] = value.split(';')[0].trim().toLowerCase().split('/');
+        return name === 'type' ? type : subtype;
+      }
       if (kind === 'string' && name === 'indices') return KT.range(0, value.length - 1);
       throw new KotlinError(`a value has no ${name}`);
     }
@@ -7723,6 +7728,64 @@
   /// Java's `File`, over a memory of the runtime's own: what a source writes it reads back while
   /// it runs (its caches), and nothing reaches the device's storage.
   const memoryFiles = new Map();
+  /// Android's `ParcelFileDescriptor.open(file, mode)`: the file, for `PdfRenderer`.
+  const parcelFile = (file) => ({
+    __class: 'ParcelFileDescriptor',
+    __classes: ['ParcelFileDescriptor', 'Closeable'],
+    file,
+    close: () => KT.unit,
+  });
+  /// Android's `PdfRenderer` over a file the source saved: its pages drawn by Rust
+  /// (`mihon/pdf.rs`, pure Rust) into the pictures the source makes, scaled to fill them.
+  const pdfRenderer = (descriptor) => {
+    const file = descriptor && descriptor.file;
+    const bytes = file && file.isFile ? memoryFiles.get(file.path) : null;
+    if (!bytes)
+      throw new KotlinError(
+        `${file && file.path ? file.path : 'the file'} (No such file or directory)`,
+        'IOException',
+      );
+    const { id, pages } = K.pdf.open(bytes);
+    let closed = false;
+    return {
+      __class: 'PdfRenderer',
+      __classes: ['PdfRenderer', 'AutoCloseable'],
+      pageCount: pages.length,
+      getPageCount: () => pages.length,
+      openPage: (index) => {
+        const at = Number(index);
+        if (!(at >= 0 && at < pages.length))
+          throw new KotlinError(`Invalid page index ${index}`, 'IllegalArgumentException');
+        // Points (1/72 in), as whole numbers.
+        const [width, height] = pages[at].map((value) => Math.round(value));
+        return {
+          __class: 'PdfPage',
+          __classes: ['PdfPage', 'AutoCloseable'],
+          index: at,
+          width,
+          height,
+          getIndex: () => at,
+          getWidth: () => width,
+          getHeight: () => height,
+          render: (bitmap) => {
+            K.pdf.render(id, at, bitmap.id);
+            return KT.unit;
+          },
+          close: () => KT.unit,
+        };
+      },
+      close: () => {
+        if (!closed) {
+          closed = true;
+          K.pdf.close(id);
+        }
+        return KT.unit;
+      },
+    };
+  };
+  const pdfRendererStatics = Object.assign((descriptor) => pdfRenderer(descriptor), {
+    Page: { RENDER_MODE_FOR_DISPLAY: 1, RENDER_MODE_FOR_PRINT: 2 },
+  });
   const javaFile = (first, second = undefined) => {
     const parent =
       second === undefined ? null : first && first.isFile ? first.path : KT.str(first ?? '');
@@ -7816,6 +7879,22 @@
           }
         };
         return buffer;
+      },
+      // Kotlin's `file.outputStream()` (Java's `FileOutputStream`): what's written kept when it
+      // closes (or flushes).
+      outputStream: (append = false) => {
+        const sink = file.sink(append);
+        const stream = outputStreamTo(sink);
+        stream.flush = sink.flush;
+        stream.close = sink.close;
+        stream.use = async (lambda) => {
+          try {
+            return await lambda(stream);
+          } finally {
+            sink.close();
+          }
+        };
+        return stream;
       },
       listFiles: () =>
         [
@@ -8027,6 +8106,7 @@
     SetSerializer: ([item]) => ({ isSerializer: true, name: 'Set', item }),
     MapSerializer: ([key, value]) => ({ isSerializer: true, name: 'Map', key, value }),
     serializer: () => ({ isSerializer: true, name: 'Any' }),
+    PdfRenderer: ([descriptor]) => pdfRenderer(descriptor),
     // Android's `Handler(looper)`: `post { … }` and `postDelayed({ … }, ms)`.
     Handler: () => handler(),
     // commons-text's `StringSubstitutor(values, "{", "}")`: `replace(template)`.
@@ -10159,6 +10239,14 @@
     CaseSensitiveSimpleNaturalComparator: { getInstance: () => naturalComparator(false) },
     // `ActivityManager.MemoryInfo()`, filled by the context's `ActivityManager`.
     ActivityManager: { MemoryInfo: () => memoryInfo() },
+    // Android's PDF pages (`PdfRenderer(ParcelFileDescriptor.open(file, MODE_READ_ONLY))`).
+    PdfRenderer: pdfRendererStatics,
+    ParcelFileDescriptor: {
+      open: (file) => parcelFile(file),
+      MODE_READ_ONLY: 268435456,
+      MODE_WRITE_ONLY: 536870912,
+      MODE_READ_WRITE: 805306368,
+    },
     // Jsoup's selectors parsed ahead (`QueryParser.parse(query)`) and run (`Collector`).
     QueryParser: {
       parse: (query) => ({

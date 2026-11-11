@@ -1255,10 +1255,10 @@ fn code_the_runtime_lacks_is_refused_by_name() {
     // An interceptor reading pictures through an API the runtime doesn't have.
     let interceptor = STANDALONE_SOURCE.replace(
         "rateLimit(4)",
-        "addInterceptor { chain -> val image = PdfRenderer(chain.proceed(chain.request()).body.byteStream())\n chain.proceed(chain.request()) }",
+        "addInterceptor { chain -> val image = MediaMetadataRetriever(chain.proceed(chain.request()).body.byteStream())\n chain.proceed(chain.request()) }",
     );
     assert!(
-        reason(&interceptor).contains("PdfRenderer"),
+        reason(&interceptor).contains("MediaMetadataRetriever"),
         "{}",
         reason(&interceptor)
     );
@@ -3846,4 +3846,102 @@ async fn converted_loop_speed() {
         Ok(listing) => println!("decoded {}", listing.items[0].title),
         Err(error) => println!("failed: {error}"),
     }
+}
+
+/// A one-page PDF, 200 by 100 points, whose left half is red.
+fn half_red_pdf() -> Vec<u8> {
+    let content = "1 0 0 rg 0 0 100 100 re f\n";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R >>".to_owned(),
+        format!(
+            "<< /Length {} >>\nstream\n{content}endstream",
+            content.len()
+        ),
+    ];
+    let mut out = String::from("%PDF-1.4\n");
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.push_str(&format!("{} 0 obj\n{object}\nendobj\n", index + 1));
+    }
+    let xref = out.len();
+    out.push_str(&format!(
+        "xref\n0 {}\n0000000000 65535 f \n",
+        objects.len() + 1
+    ));
+    for offset in offsets {
+        out.push_str(&format!("{offset:010} 00000 n \n"));
+    }
+    out.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+        objects.len() + 1
+    ));
+    out.into_bytes()
+}
+
+/// Android's `PdfRenderer` over a file the source saved: its page count, sizes in points and a
+/// page drawn into a picture (by `mihon/pdf.rs`).
+#[tokio::test]
+async fn converted_code_draws_pdf_pages() {
+    let app = Router::new().route("/doc.pdf", get(|| async { half_red_pdf() }));
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport android.graphics.Bitmap\nimport android.graphics.Color\nimport android.graphics.pdf.PdfRenderer\nimport android.os.ParcelFileDescriptor\nimport java.io.File\nimport keiyoushi.utils.applicationContext",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val file = File(applicationContext.cacheDir, "doc.pdf")
+        client.get("$baseUrl/doc.pdf").use { response ->
+            file.outputStream().use { response.body.byteStream().copyTo(it) }
+        }
+        val result = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            PdfRenderer(descriptor).use { renderer ->
+                renderer.openPage(0).use { pdfPage ->
+                    val bitmap = Bitmap.createBitmap(pdfPage.width * 2, pdfPage.height * 2, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(Color.WHITE)
+                    pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    listOf(
+                        renderer.pageCount.toString(),
+                        "${pdfPage.width}x${pdfPage.height}",
+                        Integer.toHexString(bitmap.getPixel(50, 100)),
+                        Integer.toHexString(bitmap.getPixel(300, 100)),
+                    ).joinToString(" ")
+                }
+            }
+        }
+        return MangasPage(listOf(SManga.create().apply { title = result; url = "/x" }), false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(app)).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    assert_eq!(listing.items[0].title, "1 200x100 ffff0000 ffffffff");
 }

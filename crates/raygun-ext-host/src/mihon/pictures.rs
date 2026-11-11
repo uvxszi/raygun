@@ -311,6 +311,38 @@ fn envelope(result: Result<serde_json::Value, String>) -> String {
 /// Installs the picture natives on `native` (`__rgMihon`).
 pub(crate) fn install<'js>(ctx: &Ctx<'js>, native: &Object<'js>) -> rquickjs::Result<()> {
     let bitmaps = Rc::new(RefCell::new(Bitmaps::default()));
+    // PDF pages drawn into those pictures (`PdfRenderer`): open a document, draw a page, close.
+    let pdfs = Rc::new(RefCell::new(super::pdf::Pdfs::default()));
+    let held = pdfs.clone();
+    native.set(
+        "pdfOpen",
+        Function::new(ctx.clone(), move |bytes: TypedArray<'js, u8>| {
+            // SAFETY: the bytes are copied before any script runs again.
+            let data = unsafe { bytes.as_bytes() }.map(<[u8]>::to_vec);
+            envelope(
+                data.ok_or_else(|| "the bytes were let go".to_owned())
+                    .and_then(|data| held.borrow_mut().open(data)),
+            )
+        })?,
+    )?;
+    let (held, held_bitmaps) = (pdfs.clone(), bitmaps.clone());
+    native.set(
+        "pdfRender",
+        Function::new(ctx.clone(), move |id: u32, page: u32, bitmap: u32| {
+            envelope(
+                held.borrow()
+                    .render(id, page as usize, &mut held_bitmaps.borrow_mut(), bitmap)
+                    .map(|()| json!(null)),
+            )
+        })?,
+    )?;
+    let held = pdfs;
+    native.set(
+        "pdfClose",
+        Function::new(ctx.clone(), move |id: u32| {
+            held.borrow_mut().close(id);
+        })?,
+    )?;
     let held = bitmaps.clone();
     native.set(
         "bitmap",

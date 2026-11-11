@@ -322,17 +322,19 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 133 | 136 |
-| No theme | 848 | 862 |
-| All | 1570 (98.9%) | 1587 |
+| No theme | 852 | 862 |
+| All | 1574 (99.2%) | 1587 |
 
-The 17 refusals left are one or two extensions each, most of them on what has no stand-in:
-Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`: four), web views and their
-windows (`WebResourceResponse`, `CountDownLatch` around one in the pam theme's three, an
-`Intent` opening a challenge page, `ViewGroup.LayoutParams`, a `Presentation`'s `dismiss()`),
-Cronet's own transport, the kim image-metadata library, Pepper&Carrot's protobuf-encoded
-preferences, and one on Kotlin the converter doesn't read yet (an anonymous object subclassing a
-declared generic class with extensions of its own). Classes declared in a function's body are
-defined where the code reaches them.
+The 13 refusals left are one or two extensions each, most of them on what has no stand-in:
+web views and their windows, which nine use for their pages or listings
+(`WebResourceResponse`, `CountDownLatch` around one in the pam theme's three, an `Intent`
+opening a challenge page, `ViewGroup.LayoutParams`, a `Presentation`'s `dismiss()`), Cronet's
+own transport, the kim image-metadata library, Pepper&Carrot's protobuf-encoded preferences,
+and one on Kotlin the converter doesn't read yet (an anonymous object subclassing a declared
+generic class with extensions of its own). Classes declared in a function's body are defined
+where the code reaches them. Android's `PdfRenderer` (over `ParcelFileDescriptor.open(file)`)
+is `mihon/pdf.rs`: pages rasterized by `hayro` (pure Rust, no embedded fonts) into the
+source's picture, so sources whose chapters are PDF files convert.
 Android's `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) and
 `canvas.drawText(…)` are the runtime's text layout, so captions and speech bubbles drawn on
 pictures convert; a paint's `ColorMatrixColorFilter` changes the pictures it draws. The classes
