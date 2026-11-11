@@ -1,6 +1,6 @@
 [package]
 name = "raygun-ai"
-description = "Raygun AI subsystem: secrets store, model manager and translation providers"
+description = "Raygun AI subsystem: secrets store, model manager, translation providers and speech"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,7 +14,14 @@ thiserror.workspace = true
 tracing.workspace = true
 # Offline Mode stops model downloads (raygun_net::network_mode).
 raygun-net.workspace = true
-tokio = { version = "1", features = ["fs", "io-util", "macros", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt", "time"] }
+# Voices and the speech runtime arrive as `.tar.bz2` archives (sherpa-onnx's releases); bzip2's
+# default backend is pure Rust, so it builds for Android like the rest.
+tar = { version = "0.4", default-features = false }
+bzip2 = "0.6"
+# The speech runtime (sherpa-onnx's C API and ONNX Runtime) is downloaded on demand and loaded at
+# run time, never linked into the app.
+libloading = "0.9"
 # Model downloads stop when cancelled, wherever they are.
 tokio-util = { version = "0.7", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

@@ -727,5 +727,2230 @@
         "size": 312062580
       }
     ]
+  },
+  {
+    "id": "sherpa-onnx-android-arm64",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "android-aarch64",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-android.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-android.tar.bz2",
+        "sha256": "2ff63469a71cb6009aa2e3ed5f4a670f8abdcbe4bb9ffd23776afc792a6b4f44",
+        "size": 46093321,
+        "unpack": {
+          "files": {
+            "jniLibs/arm64-v8a/libsherpa-onnx-c-api.so": "libsherpa-onnx-c-api.so",
+            "jniLibs/arm64-v8a/libonnxruntime.so": "libonnxruntime.so"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-android-x86-64",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "android-x86_64",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-android.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-android.tar.bz2",
+        "sha256": "2ff63469a71cb6009aa2e3ed5f4a670f8abdcbe4bb9ffd23776afc792a6b4f44",
+        "size": 46093321,
+        "unpack": {
+          "files": {
+            "jniLibs/x86_64/libsherpa-onnx-c-api.so": "libsherpa-onnx-c-api.so",
+            "jniLibs/x86_64/libonnxruntime.so": "libonnxruntime.so"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-android-arm",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "android-arm",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-android.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-android.tar.bz2",
+        "sha256": "2ff63469a71cb6009aa2e3ed5f4a670f8abdcbe4bb9ffd23776afc792a6b4f44",
+        "size": 46093321,
+        "unpack": {
+          "files": {
+            "jniLibs/armeabi-v7a/libsherpa-onnx-c-api.so": "libsherpa-onnx-c-api.so",
+            "jniLibs/armeabi-v7a/libonnxruntime.so": "libonnxruntime.so"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-android-x86",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "android-x86",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-android.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-android.tar.bz2",
+        "sha256": "2ff63469a71cb6009aa2e3ed5f4a670f8abdcbe4bb9ffd23776afc792a6b4f44",
+        "size": 46093321,
+        "unpack": {
+          "files": {
+            "jniLibs/x86/libsherpa-onnx-c-api.so": "libsherpa-onnx-c-api.so",
+            "jniLibs/x86/libonnxruntime.so": "libonnxruntime.so"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "sherpa-onnx-windows-x64",
+    "name": "Voice engine (sherpa-onnx)",
+    "kind": "runtime",
+    "engine": "sherpa-onnx",
+    "description": "Runs downloaded voices on this device: sherpa-onnx 1.13.8 with ONNX Runtime and espeak-ng. Downloaded once, with the first voice.",
+    "license": "Apache-2.0 (sherpa-onnx), MIT (ONNX Runtime), GPL-3.0 (espeak-ng)",
+    "licenseUrl": "https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/LICENSE",
+    "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx",
+    "target": "windows-x86_64",
+    "files": [
+      {
+        "name": "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2",
+        "sha256": "b8eedf41bd6d3779218887b48367bb7a3ece5aaa7667f01f69ee823a12b0a9e7",
+        "size": 8032957,
+        "unpack": {
+          "files": {
+            "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib/sherpa-onnx-c-api.dll": "sherpa-onnx-c-api.dll",
+            "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib/onnxruntime.dll": "onnxruntime.dll",
+            "sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib/lib/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll"
+          }
+        }
+      },
+      {
+        "name": "espeak-ng-data.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/espeak-ng-data.tar.bz2",
+        "sha256": "4135ccf82e1f40613491c0874d4945ae9e9c7840933d8e25a6f9e003d9ebf533",
+        "size": 7252012,
+        "unpack": {
+          "folders": {
+            "espeak-ng-data": "espeak-ng-data"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-us-ljspeech-medium",
+    "name": "Piper: LJ Speech (US English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear US English voice, light enough to read aloud on any phone.",
+    "license": "Public domain (LJ Speech)",
+    "licenseUrl": "https://keithito.com/LJ-Speech-Dataset/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "ljspeech",
+          "name": "LJ Speech",
+          "language": "en-US",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_US-ljspeech-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-ljspeech-medium-int8.tar.bz2",
+        "sha256": "24dc3bd77dd48c291e52c297878d3437c9492f245d823d7f6a06c4bbb67f4b6b",
+        "size": 21090429,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-us-kristin-medium",
+    "name": "Piper: Kristin (US English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear US English voice, light enough to read aloud on any phone.",
+    "license": "Public domain (LibriVox recordings)",
+    "licenseUrl": "https://brycebeattie.com/files/tts/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "kristin",
+          "name": "Kristin",
+          "language": "en-US",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_US-kristin-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-kristin-medium-int8.tar.bz2",
+        "sha256": "16289d7ee8e6b2311a0a0af6531a55f498f82499644a1bb6fddb991fe6fa950c",
+        "size": 20882061,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-us-norman-medium",
+    "name": "Piper: Norman (US English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear US English voice, light enough to read aloud on any phone.",
+    "license": "Public domain (LibriVox recordings)",
+    "licenseUrl": "https://brycebeattie.com/files/tts/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "norman",
+          "name": "Norman",
+          "language": "en-US",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_US-norman-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-norman-medium-int8.tar.bz2",
+        "sha256": "cb481a514bc213ccf3899391c0f27fdcc4e4b814ec30496f28089a027b5aa01b",
+        "size": 20987233,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-us-john-medium",
+    "name": "Piper: John (US English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear US English voice, light enough to read aloud on any phone.",
+    "license": "Public domain (LibriVox recordings)",
+    "licenseUrl": "https://brycebeattie.com/files/tts/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "john",
+          "name": "John",
+          "language": "en-US",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_US-john-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-john-medium-int8.tar.bz2",
+        "sha256": "2ea2f6cf88bba033be71c941d00cd4d2af35d23655b5d68b7fe8239d519f17b4",
+        "size": 20800096,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-us-joe-medium",
+    "name": "Piper: Joe (US English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear US English voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "joe",
+          "name": "Joe",
+          "language": "en-US",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_US-joe-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-joe-medium-int8.tar.bz2",
+        "sha256": "644527f29eca0ada5595d7b6e4daf6388f5ac0c4870b4d42996a6687fcefeb37",
+        "size": 21230019,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-gb-alba-medium",
+    "name": "Piper: Alba (British English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear British English voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://datashare.ed.ac.uk/handle/10283/3270",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "alba",
+          "name": "Alba",
+          "language": "en-GB",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_GB-alba-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-alba-medium-int8.tar.bz2",
+        "sha256": "f7581d123ae977f64f3032bb247d4deeac8440e881d918d36fdd36d8f1030fb7",
+        "size": 21104326,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-gb-cori-medium",
+    "name": "Piper: Cori (British English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear British English voice, light enough to read aloud on any phone.",
+    "license": "Public domain (LibriVox recordings)",
+    "licenseUrl": "https://brycebeattie.com/files/tts/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "cori",
+          "name": "Cori",
+          "language": "en-GB",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_GB-cori-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-cori-medium-int8.tar.bz2",
+        "sha256": "169ca8aff3adb271f009a4924c99928a811dbf2b52eaca2dbb460e8c34478c93",
+        "size": 20768736,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-gb-northern-english-male-medium",
+    "name": "Piper: Northern English (British English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear British English voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-SA-4.0",
+    "licenseUrl": "https://www.openslr.org/83/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "northern-english-male",
+          "name": "Northern English",
+          "language": "en-GB",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_GB-northern_english_male-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-northern_english_male-medium-int8.tar.bz2",
+        "sha256": "9b2afdc8f35426f6b2739f255e67841679a52b56d19ece874a1eae208cb88ad1",
+        "size": 21100291,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-en-gb-southern-english-female-low",
+    "name": "Piper: Southern English (British English)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Light British English voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-SA-4.0",
+    "licenseUrl": "https://www.openslr.org/83/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "southern-english-female",
+          "name": "Southern English",
+          "language": "en-GB",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-en_GB-southern_english_female-low-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-southern_english_female-low-int8.tar.bz2",
+        "sha256": "4f0fba9578f6aeeba7b0d0e642ea161a3754fce53079551c1b72f3de641d0e12",
+        "size": 21207615,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-de-de-thorsten-medium",
+    "name": "Piper: Thorsten (German)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear German voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/thorstenMueller/Thorsten-Voice",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "thorsten",
+          "name": "Thorsten",
+          "language": "de-DE",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-de_DE-thorsten-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-de_DE-thorsten-medium-int8.tar.bz2",
+        "sha256": "07e240b7b9c1fc9211d5a69512f8cbe11b3286c2ed79c15c076ac6ed427fdf13",
+        "size": 20949833,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-de-de-kerstin-low",
+    "name": "Piper: Kerstin (German)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Light German voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/rhasspy/dataset-voice-kerstin",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "kerstin",
+          "name": "Kerstin",
+          "language": "de-DE",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-de_DE-kerstin-low-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-de_DE-kerstin-low-int8.tar.bz2",
+        "sha256": "bcd8039667940cf2efc939b844f4b33d0823096572fcc1a8caaa2faa77f3379c",
+        "size": 21174728,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-fr-fr-siwis-medium",
+    "name": "Piper: Siwis (French)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear French voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://datashare.is.ed.ac.uk/handle/10283/2353",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "siwis",
+          "name": "Siwis",
+          "language": "fr-FR",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-fr_FR-siwis-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fr_FR-siwis-medium-int8.tar.bz2",
+        "sha256": "3909cff9b3cfd4820c66aa13bf554315c82e34899c161f0b446ece372bc4b5ec",
+        "size": 20914888,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-fr-fr-gilles-low",
+    "name": "Piper: Gilles (French)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Light French voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://www.kaggle.com/datasets/bryanpark/french-single-speaker-speech-dataset",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "gilles",
+          "name": "Gilles",
+          "language": "fr-FR",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-fr_FR-gilles-low-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fr_FR-gilles-low-int8.tar.bz2",
+        "sha256": "92d2bfd9b6b32b9787557c466b15620e453aecc10ec521762660e034941b3c43",
+        "size": 21248965,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-es-es-davefx-medium",
+    "name": "Piper: Davefx (Spanish (Spain))",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Spanish (Spain) voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "davefx",
+          "name": "Davefx",
+          "language": "es-ES",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-es_ES-davefx-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-es_ES-davefx-medium-int8.tar.bz2",
+        "sha256": "8bb8ac1cefb727caec9bd9c6c3185c673c8b42c53bd29bb25d5a7715dac37125",
+        "size": 21171632,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-es-mx-ald-medium",
+    "name": "Piper: Ald (Spanish (Mexico))",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Spanish (Mexico) voice, light enough to read aloud on any phone.",
+    "license": "Unlicense",
+    "licenseUrl": "https://huggingface.co/datasets/rmcpantoja/Ald_Mexican_Spanish_speech_dataset",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "ald",
+          "name": "Ald",
+          "language": "es-MX",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-es_MX-ald-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-es_MX-ald-medium-int8.tar.bz2",
+        "sha256": "447e82d080719409db08e54a4b6eec2e4b6ba850b98dcaf09d3fc67bf30ff692",
+        "size": 21283187,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-it-it-riccardo-x-low",
+    "name": "Piper: Riccardo (Italian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Small Italian voice, light enough to read aloud on any phone.",
+    "license": "BSD-3-Clause (M-AILABS)",
+    "licenseUrl": "https://www.caito.de/2019/01/03/the-m-ailabs-speech-dataset/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "riccardo",
+          "name": "Riccardo",
+          "language": "it-IT",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-it_IT-riccardo-x_low-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-riccardo-x_low-int8.tar.bz2",
+        "sha256": "afc2ea457fd45420dbdd87db4b3927b4fc97b00511964d474bb43e03092d37c1",
+        "size": 13329285,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-pt-br-faber-medium",
+    "name": "Piper: Faber (Portuguese (Brazil))",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Portuguese (Brazil) voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "faber",
+          "name": "Faber",
+          "language": "pt-BR",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-pt_BR-faber-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-faber-medium-int8.tar.bz2",
+        "sha256": "dbc8b1d7d729fd417ea78a350ed35696c928770ac93513d3f507bd4e88eee3fd",
+        "size": 21336772,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-pt-br-cadu-medium",
+    "name": "Piper: Cadu (Portuguese (Brazil))",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Portuguese (Brazil) voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/OHF-Voice/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "cadu",
+          "name": "Cadu",
+          "language": "pt-BR",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-pt_BR-cadu-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-cadu-medium-int8.tar.bz2",
+        "sha256": "78f1caf0a74cc6cb8dedaff87affd232ee653d5b0394d4cf4d2e97ecbfa5ff3d",
+        "size": 21135464,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-pt-pt-tugao-medium",
+    "name": "Piper: Tugao (Portuguese (Portugal))",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Portuguese (Portugal) voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "tugao",
+          "name": "Tugao",
+          "language": "pt-PT",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-pt_PT-tugao-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_PT-tugao-medium-int8.tar.bz2",
+        "sha256": "8f4c5e4a5994d0d1a2c10fb3035631add0460ea5c776f5ea40d3d6051140dbc3",
+        "size": 21253211,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-nl-be-nathalie-medium",
+    "name": "Piper: Nathalie (Dutch (Belgium))",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Dutch (Belgium) voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/rhasspy/dataset-voice-nathalie",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "nathalie",
+          "name": "Nathalie",
+          "language": "nl-BE",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-nl_BE-nathalie-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-nl_BE-nathalie-medium-int8.tar.bz2",
+        "sha256": "f2cdeb555eacbdd053e5d63c4d0120464161a962f9fe3bf9aac47ecc57ac90ac",
+        "size": 21139955,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-pl-pl-gosia-medium",
+    "name": "Piper: Gosia (Polish)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Polish voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "gosia",
+          "name": "Gosia",
+          "language": "pl-PL",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-pl_PL-gosia-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pl_PL-gosia-medium-int8.tar.bz2",
+        "sha256": "72acac4c4b031725c41a61b3af0314a3d30e1ec2cd83ee410ea5f9e6d2d9d4fb",
+        "size": 21109262,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-pl-pl-darkman-medium",
+    "name": "Piper: Darkman (Polish)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Polish voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "darkman",
+          "name": "Darkman",
+          "language": "pl-PL",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-pl_PL-darkman-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pl_PL-darkman-medium-int8.tar.bz2",
+        "sha256": "0ec47b7d591e48913da887ea7e81287f4ef621d9c5aa1848700d2d736ed3f99c",
+        "size": 21078264,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-ru-ru-denis-medium",
+    "name": "Piper: Denis (Russian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Russian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "denis",
+          "name": "Denis",
+          "language": "ru-RU",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-ru_RU-denis-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ru_RU-denis-medium-int8.tar.bz2",
+        "sha256": "d710e29eb7854c42461d16d65d3cef753cc559639ca75806edc75ba71f23af66",
+        "size": 21058905,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-ru-ru-dmitri-medium",
+    "name": "Piper: Dmitri (Russian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Russian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "dmitri",
+          "name": "Dmitri",
+          "language": "ru-RU",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-ru_RU-dmitri-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ru_RU-dmitri-medium-int8.tar.bz2",
+        "sha256": "7636793307f634ce54c6e65528a91a61683114f1a6635a08caf64ba6c54e6a63",
+        "size": 21129441,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-uk-ua-ukrainian-tts-medium",
+    "name": "Piper: Ukrainian Tts (Ukrainian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Ukrainian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "lada",
+          "name": "Lada",
+          "language": "uk-UA",
+          "gender": "female",
+          "speaker": 0
+        },
+        {
+          "id": "mykyta",
+          "name": "Mykyta",
+          "language": "uk-UA",
+          "gender": "male",
+          "speaker": 1
+        },
+        {
+          "id": "tetiana",
+          "name": "Tetiana",
+          "language": "uk-UA",
+          "gender": "female",
+          "speaker": 2
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-uk_UA-ukrainian_tts-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-uk_UA-ukrainian_tts-medium-int8.tar.bz2",
+        "sha256": "9e3e20f311e3c486d989c3d481d9537741deb7beaeed1aa63c737574498b1e75",
+        "size": 22767075,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-uk-ua-lada-x-low",
+    "name": "Piper: Lada (Ukrainian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Small Ukrainian voice, light enough to read aloud on any phone.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://github.com/egorsmkv/ukrainian-tts-datasets/tree/main/lada",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "lada",
+          "name": "Lada",
+          "language": "uk-UA",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-uk_UA-lada-x_low-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-uk_UA-lada-x_low-int8.tar.bz2",
+        "sha256": "5ba331ec01c811d605951c30ad7f9f57dfe87aaaefb9295c83012867db14a91a",
+        "size": 13332976,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-sv-se-nst-medium",
+    "name": "Piper: NST (Swedish)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Swedish voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-17/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "nst",
+          "name": "NST",
+          "language": "sv-SE"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-sv_SE-nst-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-sv_SE-nst-medium-int8.tar.bz2",
+        "sha256": "ac568458aac847d44b7945ba06f9b352122ae718b50b43af924a7ded8be1a933",
+        "size": 20972387,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-da-dk-talesyntese-medium",
+    "name": "Piper: Talesyntese (Danish)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Danish voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-21/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "talesyntese",
+          "name": "Talesyntese",
+          "language": "da-DK"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-da_DK-talesyntese-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-da_DK-talesyntese-medium-int8.tar.bz2",
+        "sha256": "83c5b433e97c86109d659d7adcfc865bdf5bc570baa1e1ce8357f4fbf7346a7e",
+        "size": 21025554,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-no-no-talesyntese-medium",
+    "name": "Piper: Talesyntese (Norwegian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Norwegian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-15/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "talesyntese",
+          "name": "Talesyntese",
+          "language": "nb-NO"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-no_NO-talesyntese-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-no_NO-talesyntese-medium-int8.tar.bz2",
+        "sha256": "de0fc89178fabf0636554af8ae131b4dfe034866458bb7daa7026ee0d0d8d2f7",
+        "size": 21072816,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-fi-fi-harri-medium",
+    "name": "Piper: Harri (Finnish)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Finnish voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://www.kaggle.com/bryanpark/finnish-single-speaker-speech-dataset",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "harri",
+          "name": "Harri",
+          "language": "fi-FI",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-fi_FI-harri-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fi_FI-harri-medium-int8.tar.bz2",
+        "sha256": "b69b4c4465787dd4b9778d16b812ed7577a4051551cd87b88e0762309499c3c5",
+        "size": 20984753,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-cs-cz-jirka-medium",
+    "name": "Piper: Jirka (Czech)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Czech voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "jirka",
+          "name": "Jirka",
+          "language": "cs-CZ",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-cs_CZ-jirka-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-cs_CZ-jirka-medium-int8.tar.bz2",
+        "sha256": "45377b35ce823eaac5d76a5530b48fb5ad386a4e07db6ff36aa7c417d6bd0a6d",
+        "size": 21002417,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-sk-sk-lili-medium",
+    "name": "Piper: Lili (Slovak)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Slovak voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "lili",
+          "name": "Lili",
+          "language": "sk-SK",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-sk_SK-lili-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-sk_SK-lili-medium-int8.tar.bz2",
+        "sha256": "5adc2ac5af88630cf305da68ba9cfd656e4b72e7f8c7d2deb2f641ef1d740096",
+        "size": 21281868,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-sl-si-artur-medium",
+    "name": "Piper: Artur (Slovenian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Slovenian voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://huggingface.co/datasets/ppisljar/artur_studio_tts/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "artur",
+          "name": "Artur",
+          "language": "sl-SI",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-sl_SI-artur-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-sl_SI-artur-medium-int8.tar.bz2",
+        "sha256": "073e747f6d23db2c67b62230b2fe6fd5e72ca9f89651d5329a4bdd0b43c2bd05",
+        "size": 21404286,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-hu-hu-anna-medium",
+    "name": "Piper: Anna (Hungarian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Hungarian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "anna",
+          "name": "Anna",
+          "language": "hu-HU",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-hu_HU-anna-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-hu_HU-anna-medium-int8.tar.bz2",
+        "sha256": "23f9e9fd59ae28fe04796c84079ed1bcf474e1bd35b97c55447fcc3c4e5e42e1",
+        "size": 21113090,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-hu-hu-imre-medium",
+    "name": "Piper: Imre (Hungarian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Hungarian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "imre",
+          "name": "Imre",
+          "language": "hu-HU",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-hu_HU-imre-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-hu_HU-imre-medium-int8.tar.bz2",
+        "sha256": "33e0413cf8271162244c111c86c3482852b8cefa90a28908abe97e636be89ef7",
+        "size": 21202370,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-ro-ro-mihai-medium",
+    "name": "Piper: Mihai (Romanian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Romanian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "mihai",
+          "name": "Mihai",
+          "language": "ro-RO",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-ro_RO-mihai-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ro_RO-mihai-medium-int8.tar.bz2",
+        "sha256": "1f41b684fb4640d1b79f750f1581647f8737b24ff5daf8d7c5fd5ad6d1761499",
+        "size": 21081899,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-tr-tr-fahrettin-medium",
+    "name": "Piper: Fahrettin (Turkish)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Turkish voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://github.com/NabuCasa/voice-datasets",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "fahrettin",
+          "name": "Fahrettin",
+          "language": "tr-TR",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-tr_TR-fahrettin-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-tr_TR-fahrettin-medium-int8.tar.bz2",
+        "sha256": "9897e4da7f26be2bd03dc920d9c698634060832cbdb18b7d2908728db1465089",
+        "size": 21118817,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-el-gr-rapunzelina-low",
+    "name": "Piper: Rapunzelina (Greek)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Light Greek voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://www.kaggle.com/datasets/bryanpark/greek-single-speaker-speech-dataset",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "rapunzelina",
+          "name": "Rapunzelina",
+          "language": "el-GR",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-el_GR-rapunzelina-low-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-el_GR-rapunzelina-low-int8.tar.bz2",
+        "sha256": "1fbab58d6380dda2a392ef531de89e8d1202d2dca804db7ebcff5be2b30c823a",
+        "size": 21090546,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-ca-es-upc-ona-medium",
+    "name": "Piper: Ona (Catalan)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Catalan voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-SA-3.0",
+    "licenseUrl": "https://collectivat.cat/asr#upc-festcat-tts-corpora",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "upc-ona",
+          "name": "Ona",
+          "language": "ca-ES",
+          "gender": "female"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-ca_ES-upc_ona-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ca_ES-upc_ona-medium-int8.tar.bz2",
+        "sha256": "3df5cd549d74c9d38267dfbb68b7f919f63d4351d778733b99d4a21be5567cb4",
+        "size": 21037706,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-vi-vn-vais1000-medium",
+    "name": "Piper: VAIS-1000 (Vietnamese)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Vietnamese voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://ieee-dataport.org/documents/vais-1000-vietnamese-speech-synthesis-corpus",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "vais1000",
+          "name": "VAIS-1000",
+          "language": "vi-VN"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-vi_VN-vais1000-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-vi_VN-vais1000-medium-int8.tar.bz2",
+        "sha256": "60e8b82a27cfb9bfa527f5789f0879d02ec73a7397659973b937c823c326d5dd",
+        "size": 21574925,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-fa-ir-amir-medium",
+    "name": "Piper: Amir (Persian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Persian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://datacula.com/tts-databases",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "amir",
+          "name": "Amir",
+          "language": "fa-IR",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-fa_IR-amir-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fa_IR-amir-medium-int8.tar.bz2",
+        "sha256": "b79dbf0b6b9629a36fd541bfda83817ec12e2697557d87b918638445971eac46",
+        "size": 20666906,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-ne-np-google-medium",
+    "name": "Piper: Google (Nepali)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Nepali voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-SA-4.0",
+    "licenseUrl": "https://www.openslr.org/43/",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "google",
+          "name": "Google",
+          "language": "ne-NP"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-ne_NP-google-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ne_NP-google-medium-int8.tar.bz2",
+        "sha256": "ca1a5a1d6ec542198709b7b30b30e42a7695eea210344675bf7d99e1fc41e7b5",
+        "size": 23618640,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-lv-lv-aivars-medium",
+    "name": "Piper: Aivars (Latvian)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Clear Latvian voice, light enough to read aloud on any phone.",
+    "license": "CC0-1.0",
+    "licenseUrl": "https://huggingface.co/RaivisDejus/Piper-lv_LV-Aivars-medium",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "aivars",
+          "name": "Aivars",
+          "language": "lv-LV",
+          "gender": "male"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-lv_LV-aivars-medium-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-lv_LV-aivars-medium-int8.tar.bz2",
+        "sha256": "33d6906f054406856d6ef0f89b01fdc2648f273322129a989b10ea7a04523f42",
+        "size": 20990634,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "piper-kk-kz-issai-high",
+    "name": "Piper: Issai (Kazakh)",
+    "kind": "tts",
+    "engine": "piper",
+    "description": "Fine Kazakh voice, light enough to read aloud on any phone.",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://github.com/IS2AI/Kazakh_TTS",
+    "sourceUrl": "https://huggingface.co/rhasspy/piper-voices",
+    "tts": {
+      "model": "model.onnx",
+      "tokens": "tokens.txt",
+      "voices": [
+        {
+          "id": "issai_kazakhtts_m1_iseke",
+          "name": "Iseke",
+          "language": "kk-KZ",
+          "gender": "male",
+          "speaker": 1
+        },
+        {
+          "id": "issai_kazakhtts_f1_raya",
+          "name": "Raya",
+          "language": "kk-KZ",
+          "gender": "female",
+          "speaker": 3
+        },
+        {
+          "id": "issai_kazakhtts2_m2",
+          "name": "Male 2",
+          "language": "kk-KZ",
+          "gender": "male",
+          "speaker": 0
+        },
+        {
+          "id": "issai_kazakhtts2_f1",
+          "name": "Female 1",
+          "language": "kk-KZ",
+          "gender": "female",
+          "speaker": 4
+        },
+        {
+          "id": "issai_kazakhtts2_f2",
+          "name": "Female 2",
+          "language": "kk-KZ",
+          "gender": "female",
+          "speaker": 5
+        },
+        {
+          "id": "issai_kazakhtts2_f3",
+          "name": "Female 3",
+          "language": "kk-KZ",
+          "gender": "female",
+          "speaker": 2
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "vits-piper-kk_KZ-issai-high-int8.tar.bz2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-kk_KZ-issai-high-int8.tar.bz2",
+        "sha256": "72b80fa2077d3371f42b957287bc89a70ad4abf1201aef9e01d0650a94aaa13e",
+        "size": 35999225,
+        "unpack": {
+          "files": {
+            "*/*.onnx": "model.onnx",
+            "*/tokens.txt": "tokens.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "kokoro-multi-lang-int8",
+    "name": "Kokoro (49 voices, 8 languages)",
+    "kind": "tts",
+    "engine": "kokoro",
+    "description": "Natural voices in American and British English, Spanish, French, Hindi, Italian, Brazilian Portuguese and Mandarin. Heavier than Piper: best on recent phones.",
+    "license": "Apache-2.0",
+    "licenseUrl": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "sourceUrl": "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_0",
+    "tts": {
+      "model": "model.int8.onnx",
+      "tokens": "tokens.txt",
+      "voicesFile": "voices.bin",
+      "lexicon": ["lexicon-us-en.txt", "lexicon-zh.txt"],
+      "voices": [
+        {
+          "id": "af_heart",
+          "name": "Heart",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 3
+        },
+        {
+          "id": "af_alloy",
+          "name": "Alloy",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 0
+        },
+        {
+          "id": "af_aoede",
+          "name": "Aoede",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 1
+        },
+        {
+          "id": "af_bella",
+          "name": "Bella",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 2
+        },
+        {
+          "id": "af_jessica",
+          "name": "Jessica",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 4
+        },
+        {
+          "id": "af_kore",
+          "name": "Kore",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 5
+        },
+        {
+          "id": "af_nicole",
+          "name": "Nicole",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 6
+        },
+        {
+          "id": "af_nova",
+          "name": "Nova",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 7
+        },
+        {
+          "id": "af_river",
+          "name": "River",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 8
+        },
+        {
+          "id": "af_sarah",
+          "name": "Sarah",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 9
+        },
+        {
+          "id": "af_sky",
+          "name": "Sky",
+          "language": "en-US",
+          "gender": "female",
+          "speaker": 10
+        },
+        {
+          "id": "am_adam",
+          "name": "Adam",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 11
+        },
+        {
+          "id": "am_echo",
+          "name": "Echo",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 12
+        },
+        {
+          "id": "am_eric",
+          "name": "Eric",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 13
+        },
+        {
+          "id": "am_fenrir",
+          "name": "Fenrir",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 14
+        },
+        {
+          "id": "am_liam",
+          "name": "Liam",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 15
+        },
+        {
+          "id": "am_michael",
+          "name": "Michael",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 16
+        },
+        {
+          "id": "am_onyx",
+          "name": "Onyx",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 17
+        },
+        {
+          "id": "am_puck",
+          "name": "Puck",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 18
+        },
+        {
+          "id": "am_santa",
+          "name": "Santa",
+          "language": "en-US",
+          "gender": "male",
+          "speaker": 19
+        },
+        {
+          "id": "bf_emma",
+          "name": "Emma",
+          "language": "en-GB",
+          "gender": "female",
+          "speaker": 21,
+          "lang": "en-gb-x-rp"
+        },
+        {
+          "id": "bf_alice",
+          "name": "Alice",
+          "language": "en-GB",
+          "gender": "female",
+          "speaker": 20,
+          "lang": "en-gb-x-rp"
+        },
+        {
+          "id": "bf_isabella",
+          "name": "Isabella",
+          "language": "en-GB",
+          "gender": "female",
+          "speaker": 22,
+          "lang": "en-gb-x-rp"
+        },
+        {
+          "id": "bf_lily",
+          "name": "Lily",
+          "language": "en-GB",
+          "gender": "female",
+          "speaker": 23,
+          "lang": "en-gb-x-rp"
+        },
+        {
+          "id": "bm_daniel",
+          "name": "Daniel",
+          "language": "en-GB",
+          "gender": "male",
+          "speaker": 24,
+          "lang": "en-gb-x-rp"
+        },
+        {
+          "id": "bm_fable",
+          "name": "Fable",
+          "language": "en-GB",
+          "gender": "male",
+          "speaker": 25,
+          "lang": "en-gb-x-rp"
+        },
+        {
+          "id": "bm_george",
+          "name": "George",
+          "language": "en-GB",
+          "gender": "male",
+          "speaker": 26,
+          "lang": "en-gb-x-rp"
+        },
+        {
+          "id": "bm_lewis",
+          "name": "Lewis",
+          "language": "en-GB",
+          "gender": "male",
+          "speaker": 27,
+          "lang": "en-gb-x-rp"
+        },
+        {
+          "id": "ef_dora",
+          "name": "Dora",
+          "language": "es",
+          "gender": "female",
+          "speaker": 28,
+          "lang": "es"
+        },
+        {
+          "id": "em_alex",
+          "name": "Alex",
+          "language": "es",
+          "gender": "male",
+          "speaker": 29,
+          "lang": "es"
+        },
+        {
+          "id": "ff_siwis",
+          "name": "Siwis",
+          "language": "fr",
+          "gender": "female",
+          "speaker": 30,
+          "lang": "fr"
+        },
+        {
+          "id": "hf_alpha",
+          "name": "Alpha",
+          "language": "hi",
+          "gender": "female",
+          "speaker": 31,
+          "lang": "hi"
+        },
+        {
+          "id": "hf_beta",
+          "name": "Beta",
+          "language": "hi",
+          "gender": "female",
+          "speaker": 32,
+          "lang": "hi"
+        },
+        {
+          "id": "hm_omega",
+          "name": "Omega",
+          "language": "hi",
+          "gender": "male",
+          "speaker": 33,
+          "lang": "hi"
+        },
+        {
+          "id": "hm_psi",
+          "name": "Psi",
+          "language": "hi",
+          "gender": "male",
+          "speaker": 34,
+          "lang": "hi"
+        },
+        {
+          "id": "if_sara",
+          "name": "Sara",
+          "language": "it",
+          "gender": "female",
+          "speaker": 35,
+          "lang": "it"
+        },
+        {
+          "id": "im_nicola",
+          "name": "Nicola",
+          "language": "it",
+          "gender": "male",
+          "speaker": 36,
+          "lang": "it"
+        },
+        {
+          "id": "pf_dora",
+          "name": "Dora",
+          "language": "pt-BR",
+          "gender": "female",
+          "speaker": 42,
+          "lang": "pt-br"
+        },
+        {
+          "id": "pm_alex",
+          "name": "Alex",
+          "language": "pt-BR",
+          "gender": "male",
+          "speaker": 43,
+          "lang": "pt-br"
+        },
+        {
+          "id": "pm_santa",
+          "name": "Santa",
+          "language": "pt-BR",
+          "gender": "male",
+          "speaker": 44,
+          "lang": "pt-br"
+        },
+        {
+          "id": "zf_xiaobei",
+          "name": "Xiaobei",
+          "language": "zh-CN",
+          "gender": "female",
+          "speaker": 45
+        },
+        {
+          "id": "zf_xiaoni",
+          "name": "Xiaoni",
+          "language": "zh-CN",
+          "gender": "female",
+          "speaker": 46
+        },
+        {
+          "id": "zf_xiaoxiao",
+          "name": "Xiaoxiao",
+          "language": "zh-CN",
+          "gender": "female",
+          "speaker": 47
+        },
+        {
+          "id": "zf_xiaoyi",
+          "name": "Xiaoyi",
+          "language": "zh-CN",
+          "gender": "female",
+          "speaker": 48
+        },
+        {
+          "id": "zm_yunjian",
+          "name": "Yunjian",
+          "language": "zh-CN",
+          "gender": "male",
+          "speaker": 49
+        },
+        {
+          "id": "zm_yunxi",
+          "name": "Yunxi",
+          "language": "zh-CN",
+          "gender": "male",
+          "speaker": 50
+        },
+        {
+          "id": "zm_yunxia",
+          "name": "Yunxia",
+          "language": "zh-CN",
+          "gender": "male",
+          "speaker": 51
+        },
+        {
+          "id": "zm_yunyang",
+          "name": "Yunyang",
+          "language": "zh-CN",
+          "gender": "male",
+          "speaker": 52
+        },
+        {
+          "id": "em_santa",
+          "name": "Santa",
+          "language": "es",
+          "gender": "male",
+          "speaker": 53,
+          "lang": "es"
+        }
+      ]
+    },
+    "files": [
+      {
+        "name": "model.int8.onnx",
+        "url": "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_0/resolve/2a360693d79b88b49b88e29aec2b53577f41f206/model.int8.onnx",
+        "sha256": "4b86207ef680e394d8343bee22dfc4c512e5c707c6d9578e3f35ab09bffd6b36",
+        "size": 114203756
+      },
+      {
+        "name": "voices.bin",
+        "url": "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_0/resolve/2a360693d79b88b49b88e29aec2b53577f41f206/voices.bin",
+        "sha256": "1c5a5b983d3d50d8586d437a51f3faa2da7919ce76a013c081e65671a3447c29",
+        "size": 28200960
+      },
+      {
+        "name": "tokens.txt",
+        "url": "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_0/resolve/2a360693d79b88b49b88e29aec2b53577f41f206/tokens.txt",
+        "sha256": "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425",
+        "size": 687
+      },
+      {
+        "name": "lexicon-us-en.txt",
+        "url": "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_0/resolve/2a360693d79b88b49b88e29aec2b53577f41f206/lexicon-us-en.txt",
+        "sha256": "7daaab53a181be9885b853a8582bf1838186317e5dadacbcef9c426d6fa0da14",
+        "size": 5956885
+      },
+      {
+        "name": "lexicon-zh.txt",
+        "url": "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_0/resolve/2a360693d79b88b49b88e29aec2b53577f41f206/lexicon-zh.txt",
+        "sha256": "902bc2d20ac7c449c5ecbbbb23c89d12119c03ed5b8ed27f114f0260c9e35229",
+        "size": 2365182
+      }
+    ]
   }
 ]

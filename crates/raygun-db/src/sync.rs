@@ -40,6 +40,8 @@ pub const DEVICE_ONLY_SETTINGS: &[&str] = &[
     "checkUpdates",
     "network",
     "torrents",
+    // Voices are downloaded per device.
+    "readAloud",
 ];
 
 const STAMP: [&str; 3] = ["updated_at_hlc", "origin_device", "deleted"];

@@ -1,4 +1,4 @@
-import type { AiModel, MangaTitleView, NovelChapter } from '@raygun/bindings';
+import type { AiModel, MangaTitleView, NovelChapter, TtsState, TtsUpdate } from '@raygun/bindings';
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -81,6 +81,35 @@ const CHAPTER: NovelChapter = {
   previousChapterId: null,
   nextChapterId: 'c2',
 };
+
+/** Letter 1's paragraphs as reading aloud gets them. */
+const SPOKEN = [
+  { id: 0, text: 'Letter 1!!' },
+  { id: 1, text: 'It was a dreary night of Nov' },
+  { id: 3, text: 'ember. Rain fell on the panes.' },
+];
+
+/** What the reader asks Rust to read aloud. */
+const speech = (from: number, resume: boolean, chapter = 'c1', name = 'Letter 1') => ({
+  chapterId: chapter,
+  title: 'Frankenstein',
+  chapter: name,
+  paragraphs: chapter === 'c1' ? SPOKEN : expect.any(Array),
+  from,
+  resume,
+  rate: 1,
+});
+
+/** Where reading aloud is, as Rust reports it. */
+const update = (state: TtsState, paragraph: number, extra: Partial<TtsUpdate> = {}): TtsUpdate => ({
+  state,
+  chapterId: 'c1',
+  paragraph,
+  start: 0,
+  end: 0,
+  notice: null,
+  ...extra,
+});
 
 describe('Novels', () => {
   beforeEach(() => {
@@ -224,49 +253,85 @@ describe('Novels', () => {
     FakeObserver.instances.at(-1)!.show([within(reader).getByText('It was a dreary night of Nov')]);
 
     await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
-    expect(commands.ttsSpeak).toHaveBeenCalledWith(
-      [
-        { id: 1, text: 'It was a dreary night of Nov' },
-        { id: 3, text: 'ember. Rain fell on the panes.' },
-      ],
-      1,
-    );
-    emitEvent('ttsEvent', { state: 'speaking', paragraph: 3 });
-    expect(within(reader).getByText('ember. Rain fell on the panes.')).toHaveAttribute(
-      'aria-current',
-      'true',
+    // From the paragraph on screen, or where the chapter was left aloud (Rust knows).
+    expect(commands.ttsSpeak).toHaveBeenCalledWith(speech(1, true));
+    const paragraph = within(reader).getByText('ember. Rain fell on the panes.');
+    emitEvent('ttsEvent', update('speaking', 3, { start: 7, end: 30 }));
+    expect(paragraph).toHaveAttribute('aria-current', 'true');
+    // The sentence being read is marked in it.
+    expect(within(reader).getByTestId('spoken-sentence')).toHaveTextContent(
+      'Rain fell on the panes.',
     );
     // While reading, a tapped paragraph is read next; the toolbar steps and replays.
     commands.ttsSpeak.mockClear();
     await user.click(within(reader).getByText('It was a dreary night of Nov'));
-    expect(commands.ttsSpeak).toHaveBeenLastCalledWith(
-      [
-        { id: 1, text: 'It was a dreary night of Nov' },
-        { id: 3, text: 'ember. Rain fell on the panes.' },
-      ],
-      1,
-    );
+    expect(commands.ttsSpeak).toHaveBeenLastCalledWith(speech(1, false));
     await user.click(within(reader).getByRole('button', { name: 'Skip to the next paragraph' }));
-    expect(commands.ttsSpeak).toHaveBeenLastCalledWith(
-      [{ id: 3, text: 'ember. Rain fell on the panes.' }],
-      1,
-    );
+    expect(commands.ttsStep).toHaveBeenLastCalledWith(1);
     await user.click(within(reader).getByRole('button', { name: 'Read this paragraph again' }));
-    expect(commands.ttsSpeak).toHaveBeenLastCalledWith(
-      [{ id: 3, text: 'ember. Rain fell on the panes.' }],
-      1,
-    );
+    expect(commands.ttsStep).toHaveBeenLastCalledWith(0);
     await user.click(
       within(reader).getByRole('button', { name: 'Read from the previous paragraph' }),
     );
-    expect(commands.ttsSpeak.mock.lastCall?.[0][0]).toEqual({
-      id: 1,
-      text: 'It was a dreary night of Nov',
-    });
-    await user.click(within(reader).getAllByRole('button', { name: 'Stop reading aloud' })[0]!);
+    expect(commands.ttsStep).toHaveBeenLastCalledWith(-1);
+    await user.click(within(reader).getByRole('button', { name: 'Stop reading aloud' }));
     expect(commands.ttsStop).toHaveBeenCalled();
-    expect(within(reader).getByText('ember. Rain fell on the panes.')).not.toHaveAttribute(
-      'aria-current',
+    expect(paragraph).not.toHaveAttribute('aria-current');
+    expect(within(reader).queryByTestId('spoken-sentence')).not.toBeInTheDocument();
+  });
+
+  it('pauses reading aloud on the sentence and resumes from it', async () => {
+    const user = userEvent.setup();
+    commands.ttsAvailable.mockResolvedValue(ok(true));
+    commands.novelChapter.mockResolvedValue(
+      ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
+    emitEvent('ttsEvent', update('speaking', 1, { start: 0, end: 28 }));
+
+    const controls = within(reader).getByRole('toolbar', { name: 'Reading aloud' });
+    await user.click(within(controls).getByRole('button', { name: 'Pause reading aloud' }));
+    expect(commands.ttsPause).toHaveBeenCalled();
+    expect(commands.ttsStop).not.toHaveBeenCalled();
+    // Paused, the sentence stays marked and the button resumes.
+    expect(within(reader).getByTestId('spoken-sentence')).toHaveTextContent(
+      'It was a dreary night of Nov',
+    );
+    await user.click(within(controls).getByRole('button', { name: 'Resume reading aloud' }));
+    expect(commands.ttsResume).toHaveBeenCalled();
+    expect(commands.ttsSpeak).toHaveBeenCalledTimes(1);
+
+    // Paused from the notification or a headset: the reader follows.
+    emitEvent('ttsEvent', update('paused', 1, { start: 0, end: 28 }));
+    expect(
+      await within(controls).findByRole('button', { name: 'Resume reading aloud' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    emitEvent('ttsEvent', update('speaking', 3, { start: 0, end: 6 }));
+    expect(
+      await within(controls).findByRole('button', { name: 'Pause reading aloud' }),
+    ).toBeInTheDocument();
+    // Stopped from the notification: the controls go, nothing else is asked.
+    emitEvent('ttsEvent', update('stopped', 3));
+    await vi.waitFor(() =>
+      expect(within(reader).queryByRole('toolbar', { name: 'Reading aloud' })).toBeNull(),
+    );
+    expect(commands.ttsStop).not.toHaveBeenCalled();
+  });
+
+  it('says when another voice reads than the one set', async () => {
+    const user = userEvent.setup();
+    commands.ttsAvailable.mockResolvedValue(ok(true));
+    commands.novelChapter.mockResolvedValue(
+      ok({ ...CHAPTER, chapter: chapterInfo('c1', 'Letter 1') }),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
+    emitEvent('ttsEvent', update('speaking', 1, { notice: { kind: 'noVoice', language: 'de' } }));
+    expect(await within(reader).findByRole('status')).toHaveTextContent(
+      "No downloaded voice reads German: the device's voice reads it.",
     );
   });
 
@@ -414,8 +479,16 @@ describe('Novels', () => {
     const reader = await screen.findByTestId('novel-reader');
     await within(reader).findByText('A second letter.');
     await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
-    expect(commands.ttsSpeak).toHaveBeenCalledWith([{ id: 0, text: 'A second letter.' }], 1);
-    emitEvent('ttsEvent', { state: 'speaking', paragraph: 0 });
+    expect(commands.ttsSpeak).toHaveBeenCalledWith({
+      chapterId: 'c2',
+      title: 'Frankenstein',
+      chapter: 'Letter 2',
+      paragraphs: [{ id: 0, text: 'A second letter.' }],
+      from: 0,
+      resume: true,
+      rate: 1,
+    });
+    emitEvent('ttsEvent', update('speaking', 0, { chapterId: 'c2' }));
     commands.ttsSpeak.mockClear();
     commands.ttsStop.mockClear();
 
@@ -423,19 +496,10 @@ describe('Novels', () => {
     // The chapter left stops at once; a late report that it ended changes nothing.
     expect(commands.ttsStop).toHaveBeenCalled();
     await vi.waitFor(() => expect(release).toBeDefined());
-    emitEvent('ttsEvent', { state: 'ended', paragraph: 0 });
+    emitEvent('ttsEvent', update('ended', 0, { chapterId: 'c2' }));
     act(() => release?.());
     expect(await within(reader).findByText('It was a dreary night of Nov')).toBeInTheDocument();
-    await vi.waitFor(() =>
-      expect(commands.ttsSpeak).toHaveBeenCalledWith(
-        [
-          { id: 0, text: 'Letter 1!!' },
-          { id: 1, text: 'It was a dreary night of Nov' },
-          { id: 3, text: 'ember. Rain fell on the panes.' },
-        ],
-        1,
-      ),
-    );
+    await vi.waitFor(() => expect(commands.ttsSpeak).toHaveBeenCalledWith(speech(0, false)));
     expect(commands.ttsSpeak).toHaveBeenCalledTimes(1);
     expect(commands.novelChapter).toHaveBeenLastCalledWith('t1', 'c1');
     expect(within(reader).getByRole('toolbar', { name: 'Reading aloud' })).toBeInTheDocument();
@@ -531,10 +595,7 @@ describe('Novels', () => {
     await act(() => vi.advanceTimersByTimeAsync(600));
     fireEvent.pointerUp(paragraph);
     vi.useRealTimers();
-    expect(commands.ttsSpeak).toHaveBeenCalledWith(
-      [{ id: 3, text: 'ember. Rain fell on the panes.' }],
-      1,
-    );
+    expect(commands.ttsSpeak).toHaveBeenCalledWith(speech(3, false));
     expect(paragraph).toHaveAttribute('aria-current', 'true');
     expect(within(reader).getByRole('toolbar', { name: 'Reading aloud' })).toBeInTheDocument();
   });
@@ -718,7 +779,7 @@ describe('Novels', () => {
     await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
     const reader = await screen.findByTestId('novel-reader');
     await user.click(await within(reader).findByRole('button', { name: 'Read aloud' }));
-    emitEvent('ttsEvent', { state: 'error', paragraph: 1 });
+    emitEvent('ttsEvent', update('error', 1, { notice: { kind: 'engineFailed' } }));
     expect(await within(reader).findByRole('status')).toHaveTextContent('Reading aloud stopped.');
     expect(within(reader).getByRole('button', { name: 'Read aloud' })).toBeInTheDocument();
   });

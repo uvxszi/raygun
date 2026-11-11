@@ -436,8 +436,16 @@ impl AiService {
 
     pub fn models(&self) -> Vec<AiModel> {
         let downloads = self.downloads.lock().unwrap_or_else(|p| p.into_inner());
+        let target = models::this_target();
         models::catalog()
             .into_iter()
+            // Runtimes made for other platforms aren't this device's to download.
+            .filter(|model| {
+                model
+                    .target
+                    .as_ref()
+                    .is_none_or(|made_for| *made_for == target)
+            })
             .map(|model| AiModel {
                 installed: models::is_installed(&self.models_dir, &model),
                 downloading: downloads
@@ -463,11 +471,32 @@ impl AiService {
             .then(|| models::model_dir(&self.models_dir, &model))
     }
 
+    /// The catalogue's models of `kind` installed on this device, with their folders.
+    pub fn installed_of_kind(&self, kind: &str) -> Vec<(ModelInfo, PathBuf)> {
+        models::catalog()
+            .into_iter()
+            .filter(|model| model.kind == kind && models::is_installed(&self.models_dir, model))
+            .map(|model| {
+                let dir = models::model_dir(&self.models_dir, &model);
+                (model, dir)
+            })
+            .collect()
+    }
+
     /// Downloads a model, reporting progress as `AiModelEvent`s; returns when it is installed, or
-    /// when [`Self::cancel_model_download`] stopped it (nothing of it kept).
+    /// when [`Self::cancel_model_download`] stopped it (nothing of it kept). A voice brings the
+    /// voice engine for this device with it (as its own model) when that isn't here yet;
+    /// cancelling the voice stops both.
     pub async fn download_model(&self, id: &str) -> Result<(), ModelDownloadError> {
         let model =
             models::find(id).map_err(|error| ModelDownloadError::Failed(error.to_string()))?;
+        let runtime = (model.kind == "tts")
+            .then(|| models::runtime_for(raygun_ai::tts::RUNTIME_ENGINE))
+            .flatten()
+            .filter(|runtime| {
+                !models::is_installed(&self.models_dir, runtime)
+                    && !self.is_downloading(&runtime.id)
+            });
         let cancel = CancellationToken::new();
         {
             let mut downloads = self.downloads.lock().unwrap_or_else(|p| p.into_inner());
@@ -484,12 +513,47 @@ impl AiService {
                 },
             );
         }
+        if let Some(runtime) = runtime {
+            let fetched = self.fetch(&runtime, cancel.clone()).await;
+            if let Err(error) = fetched {
+                self.downloads
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(id);
+                let state = if error == ModelDownloadError::Cancelled {
+                    AiModelState::Cancelled
+                } else {
+                    AiModelState::Failed
+                };
+                let why = (state == AiModelState::Failed).then(|| error.to_string());
+                self.emit(&model, state, 0, why);
+                return Err(error);
+            }
+        }
+        self.fetch(&model, cancel).await
+    }
+
+    /// Downloads one model under `cancel`, registered (or already registered) as downloading.
+    async fn fetch(
+        &self,
+        model: &ModelInfo,
+        cancel: CancellationToken,
+    ) -> Result<(), ModelDownloadError> {
+        let id = model.id.as_str();
+        self.downloads
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(id.to_owned())
+            .or_insert_with(|| Running {
+                received: 0,
+                cancel: cancel.clone(),
+            });
         let total = model.size();
         let mut reported = 0u64;
         let result = models::download(
             &self.client,
             &self.models_dir,
-            &model,
+            model,
             &cancel,
             |received, _| {
                 if let Some(running) = self
@@ -502,7 +566,7 @@ impl AiService {
                 }
                 if received == 0 || received >= reported + PROGRESS_STEP {
                     reported = received;
-                    self.emit(&model, AiModelState::Downloading, received, None);
+                    self.emit(model, AiModelState::Downloading, received, None);
                 }
             },
         )
@@ -514,17 +578,17 @@ impl AiService {
         match result {
             Ok(()) => {
                 tracing::info!(model = %id, bytes = total, "model installed");
-                self.emit(&model, AiModelState::Installed, total, None);
+                self.emit(model, AiModelState::Installed, total, None);
                 Ok(())
             }
             Err(ModelError::Cancelled) => {
                 tracing::info!(model = %id, "model download cancelled");
-                self.emit(&model, AiModelState::Cancelled, 0, None);
+                self.emit(model, AiModelState::Cancelled, 0, None);
                 Err(ModelDownloadError::Cancelled)
             }
             Err(error) => {
                 tracing::warn!(model = %id, %error, "model download failed");
-                self.emit(&model, AiModelState::Failed, 0, Some(error.to_string()));
+                self.emit(model, AiModelState::Failed, 0, Some(error.to_string()));
                 Err(ModelDownloadError::Failed(error.to_string()))
             }
         }

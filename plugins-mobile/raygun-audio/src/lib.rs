@@ -177,8 +177,9 @@ fn deliver_video(json: String) {
     }
 }
 
-/// Installs the receiver for text-to-speech progress (`{"state", "paragraph"}` JSON, M33).
-/// Called on the Android main thread, like the report handler. Only the first call wins.
+/// Installs the receiver for reading aloud's reports (`{"state", "id"}` JSON, M33) and the
+/// controls of its notification (`{"control"}`). Called on the Android main thread, like the
+/// report handler. Only the first call wins.
 pub fn set_tts_handler(handler: impl Fn(String) + Send + Sync + 'static) {
     let _ = TTS_HANDLER.set(Box::new(handler));
 }
@@ -955,19 +956,56 @@ impl<R: Runtime> NativeAudio<R> {
         false
     }
 
-    /// Replaces what is being read with `items`, at `rate` (1 = normal).
+    /// Replaces what is being read with `items`, at `rate` and `pitch` (1 = normal), in
+    /// `language` (a BCP 47 tag) when the phone has a voice for it.
     #[cfg(target_os = "android")]
-    pub fn tts_speak(&self, items: &[SpeechItem], rate: f64) -> Result<(), String> {
+    pub fn tts_speak(
+        &self,
+        items: &[SpeechItem],
+        rate: f64,
+        pitch: f64,
+        language: Option<&str>,
+    ) -> Result<(), String> {
         self.run::<serde_json::Value>(
             "ttsSpeak",
-            serde_json::json!({ "items": items, "rate": rate }),
+            serde_json::json!({
+                "items": items,
+                "rate": rate,
+                "pitch": pitch,
+                "language": language.unwrap_or_default(),
+            }),
         )
         .map(|_| ())
         .map_err(|error| error.to_string())
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn tts_speak(&self, _items: &[SpeechItem], _rate: f64) -> Result<(), String> {
+    pub fn tts_speak(
+        &self,
+        _items: &[SpeechItem],
+        _rate: f64,
+        _pitch: f64,
+        _language: Option<&str>,
+    ) -> Result<(), String> {
+        Err("text-to-speech is only available on Android".into())
+    }
+
+    /// Reading aloud's other commands (`ttsClip`, `ttsClipPause`, `ttsClipResume`,
+    /// `ttsClipStop`, `ttsNotice`, `ttsNoticeEnd`): the player of downloaded voices' speech and
+    /// the notification with its controls.
+    #[cfg(target_os = "android")]
+    pub fn tts(&self, command: &str, payload: serde_json::Value) -> Result<(), String> {
+        debug_assert!(
+            command.starts_with("tts"),
+            "{command} isn't a reading-aloud command"
+        );
+        self.run::<serde_json::Value>(command, payload)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn tts(&self, _command: &str, _payload: serde_json::Value) -> Result<(), String> {
         Err("text-to-speech is only available on Android".into())
     }
 
@@ -1105,6 +1143,12 @@ mod tests {
             "deviceState",
             "ttsSpeak",
             "ttsStop",
+            "ttsClip",
+            "ttsClipPause",
+            "ttsClipResume",
+            "ttsClipStop",
+            "ttsNotice",
+            "ttsNoticeEnd",
         ];
         for command in background {
             assert!(

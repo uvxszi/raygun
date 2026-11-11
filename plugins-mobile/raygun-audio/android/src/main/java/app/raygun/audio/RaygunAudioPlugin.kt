@@ -169,6 +169,25 @@ class SpeechItem {
 class SpeakArgs {
     var items: List<SpeechItem> = emptyList()
     var rate: Double = 1.0
+    var pitch: Double = 1.0
+    /** The book's language (BCP 47), or empty. */
+    var language: String = ""
+}
+
+/** Speech a downloaded voice made: 16-bit mono PCM as base64. */
+@InvokeArg
+class SpeechClipArgs {
+    var id: String = ""
+    var sampleRate: Int = 22_050
+    var pcm: String = ""
+    var last: Boolean = false
+}
+
+@InvokeArg
+class ReadAloudNoticeArgs {
+    var title: String = ""
+    var text: String = ""
+    var playing: Boolean = true
 }
 
 @InvokeArg
@@ -324,6 +343,7 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     private var endReported = false
     private var theme = "system"
     private val speech by lazy { Speech(activity.applicationContext) }
+    private val speechClips by lazy { SpeechClips(activity.applicationContext) }
     private val storage by lazy { Storage(activity.applicationContext) }
     /** Rust's player as it last reported itself, for the media session (see MirrorPlayer). */
     private var mirrorState: MirrorState? = null
@@ -863,7 +883,8 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     fun ttsSpeak(invoke: Invoke) {
         val args = invoke.parseArgs(SpeakArgs::class.java)
         speech.whenReady { available ->
-            if (available && speech.speak(args.items.map { it.id to it.text }, args.rate.toFloat())) {
+            val items = args.items.map { it.id to it.text }
+            if (available && speech.speak(items, args.rate.toFloat(), args.pitch.toFloat(), args.language)) {
                 invoke.resolve()
             } else {
                 invoke.reject("Text-to-speech isn't available")
@@ -874,6 +895,52 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     @Command
     fun ttsStop(invoke: Invoke) {
         main.post { speech.stop() }
+        invoke.resolve()
+    }
+
+    /** Plays speech a downloaded voice made, after the clips before it ([SpeechClips]). */
+    @Command
+    fun ttsClip(invoke: Invoke) {
+        val args = invoke.parseArgs(SpeechClipArgs::class.java)
+        try {
+            speechClips.add(args.id, args.pcm, args.sampleRate, args.last)
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: "The speech couldn't be played")
+        }
+    }
+
+    @Command
+    fun ttsClipPause(invoke: Invoke) {
+        speechClips.pause()
+        invoke.resolve()
+    }
+
+    /** Goes on where the clips paused; refused when nothing is held (Rust reads the sentence again). */
+    @Command
+    fun ttsClipResume(invoke: Invoke) {
+        if (speechClips.resume()) invoke.resolve() else invoke.reject("Nothing to go on with")
+    }
+
+    @Command
+    fun ttsClipStop(invoke: Invoke) {
+        speechClips.stop()
+        invoke.resolve()
+    }
+
+    /** Shows or updates reading aloud's notification ([ReadAloudService]). */
+    @Command
+    fun ttsNotice(invoke: Invoke) {
+        val args = invoke.parseArgs(ReadAloudNoticeArgs::class.java)
+        ReadAloudService.show(activity.applicationContext, args.title, args.text, args.playing)
+        WebAwake.reading(args.playing)
+        invoke.resolve()
+    }
+
+    @Command
+    fun ttsNoticeEnd(invoke: Invoke) {
+        ReadAloudService.end(activity.applicationContext)
+        WebAwake.reading(false)
         invoke.resolve()
     }
 

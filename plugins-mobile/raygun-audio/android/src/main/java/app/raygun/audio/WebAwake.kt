@@ -37,6 +37,9 @@ object WebAwake {
     private var player = false
     private var capturing = false
 
+    /** A book read aloud: the reader goes on to the next chapter with the screen off. */
+    private var reading = false
+
     /**
      * A hidden YouTube player whose sound is captured (M46.52, `captureHoldWebview`) keeps it
      * awake too.
@@ -47,7 +50,17 @@ object WebAwake {
             return
         }
         capturing = on
-        apply(player || capturing)
+        apply(player || capturing || reading)
+    }
+
+    /** Reading aloud (`ttsNotice`) keeps the reader's page running while it reads. */
+    fun reading(on: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            main.post { reading(on) }
+            return
+        }
+        reading = on
+        apply(player || capturing || reading)
     }
 
     /** Wraps the activity's content (the webview) so its window's visibility can be held. */
@@ -81,7 +94,7 @@ object WebAwake {
             return
         }
         player = awake
-        apply(player || capturing)
+        apply(player || capturing || reading)
     }
 
     private fun apply(awake: Boolean) {

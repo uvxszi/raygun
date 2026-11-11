@@ -12,7 +12,7 @@ const ICON_BUTTON =
   'hover:bg-surface grid size-10 shrink-0 place-items-center rounded-full disabled:opacity-60';
 
 /** A download's bar, filled as the bytes arrive. */
-const DownloadBar: FC<{ model: AiModel }> = ({ model }) => {
+export const DownloadBar: FC<{ model: AiModel }> = ({ model }) => {
   const { t } = useTranslation();
   return (
     <progress
@@ -25,7 +25,7 @@ const DownloadBar: FC<{ model: AiModel }> = ({ model }) => {
 };
 
 /** Stops a model's download at once: what came so far is deleted. */
-const CancelButton: FC<{ model: AiModel; className?: string }> = ({
+export const CancelButton: FC<{ model: AiModel; className?: string }> = ({
   model,
   className = ICON_BUTTON,
 }) => {

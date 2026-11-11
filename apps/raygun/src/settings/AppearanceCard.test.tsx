@@ -86,6 +86,7 @@ const DEFAULT_SETTINGS: Settings = {
     onlineModel: 'whisper-1',
     onlineConfirmed: false,
   },
+  readAloud: { engine: 'system', voices: {}, pitch: 10 },
   sound: {
     eqEnabled: false,
     eqPreset: 'flat',
