@@ -45,10 +45,21 @@ type WindowOptions = {
   showIndex?: number;
   /** A row kept drawn wherever the list is scrolled (one being dragged). */
   keepIndex?: number | null;
+  /** Lists with more rows than this draw only those near the screen ({@link VIRTUAL_FROM}). */
+  virtualFrom?: number;
+  /** Rows drawn beyond each end of the screen ({@link OVERSCAN}). */
+  overscan?: number;
+  /**
+   * The element the rows scroll in, found from the list's own: the page's `<main>` by default,
+   * or a panel that scrolls by itself. Defined once (outside a component): changes aren't followed.
+   */
+  scrollerOf?: (list: HTMLElement) => HTMLElement | null;
+  /** The scroller's height before it's measured, in rem: the window's height by default. */
+  viewRem?: number;
 };
 
 /** The page's scroller: rows scroll with `<main>`, as every page does. */
-const scrollerOf = (element: HTMLElement | null) => element?.closest('main') ?? null;
+const pageScroller = (list: HTMLElement) => list.closest('main');
 
 /** Where `element` starts in `scroller`'s content, whatever it's scrolled to. */
 const offsetIn = (element: HTMLElement, scroller: HTMLElement) =>
@@ -70,18 +81,23 @@ export const useWindowedRows = ({
   gapRem = 0,
   showIndex = -1,
   keepIndex = null,
+  virtualFrom = VIRTUAL_FROM,
+  overscan = OVERSCAN,
+  scrollerOf = pageScroller,
+  viewRem,
 }: WindowOptions) => {
-  const windowed = count > VIRTUAL_FROM;
+  const windowed = count > virtualFrom;
   // Where the first row would start: a state's setter is the list's ref, so the page's scroller
   // is known from the drawing after the list's first.
   const [startElement, start] = useState<HTMLElement | null>(null);
   const rootPx = useRootPx();
   const estimate = Math.round(rowRem * rootPx);
+  const scrollerFor = (list: HTMLElement | null) => (list ? scrollerOf(list) : null);
   // Where the list starts in the page, looked at again when the page's size changes (what's
   // above the list may change without the list being drawn again) and when the rows do.
   const [margin, setMargin] = useState(0);
   useLayoutEffect(() => {
-    const scroller = scrollerOf(startElement);
+    const scroller = startElement ? scrollerOf(startElement) : null;
     if (!windowed || !startElement || !scroller) return;
     const update = () => setMargin(offsetIn(startElement, scroller));
     update();
@@ -90,7 +106,7 @@ export const useWindowedRows = ({
     const page = scroller.firstElementChild;
     if (page) observer.observe(page);
     return () => observer.disconnect();
-  }, [windowed, count, startElement]);
+  }, [windowed, count, startElement, scrollerOf]);
   // One stretch of rows, from the screen's to the kept one: the room around them is padding.
   const rangeExtractor = useCallback(
     (range: Range) => {
@@ -108,18 +124,27 @@ export const useWindowedRows = ({
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: windowed ? count : 0,
-    getScrollElement: () => scrollerOf(startElement),
+    getScrollElement: () => scrollerFor(startElement),
     estimateSize: () => estimate,
     getItemKey: keyOf,
     // A row not laid out (a test's page) keeps its estimate rather than counting as nothing.
     measureElement: (element, entry, instance) =>
       measureElement(element, entry, instance) || estimate,
     gap: Math.round(gapRem * rootPx),
-    overscan: OVERSCAN,
+    overscan,
     rangeExtractor,
     scrollMargin: margin,
-    // The screen's height until `<main>` is measured, so the first drawing isn't empty.
-    initialRect: { width: 0, height: typeof window === 'undefined' ? 0 : window.innerHeight },
+    // The screen's height (or the scroller's, when known) until the scroller is measured, so the
+    // first drawing isn't empty.
+    initialRect: {
+      width: 0,
+      height:
+        viewRem !== undefined
+          ? Math.round(viewRem * rootPx)
+          : typeof window === 'undefined'
+            ? 0
+            : window.innerHeight,
+    },
   });
 
   useEffect(() => {
@@ -139,6 +164,13 @@ export const useWindowedRows = ({
     after: last ? Math.max(0, virtualizer.getTotalSize() - (last.end - margin)) : 0,
     /** Takes a drawn row's element (with its `data-index`) to measure it; none for plain lists. */
     measure: windowed ? virtualizer.measureElement : undefined,
+    /**
+     * Scrolls a row not drawn onto the screen, as little as it takes (a plain list draws every
+     * row: focusing one scrolls to it).
+     */
+    scrollToRow: (index: number) => {
+      if (windowed && index >= 0 && index < count) virtualizer.scrollToIndex(index);
+    },
     /** The rows of `rows` to draw, each with its index in `rows`. */
     slice: <Item>(rows: readonly Item[]): [Item, number][] =>
       windowed

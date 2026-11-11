@@ -2,7 +2,7 @@ import type { MangaCard, MangaSource, SourceSearchResult } from '@raygun/binding
 import { useQueries } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ChevronRight, LoaderCircle, SlidersHorizontal } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -348,6 +348,12 @@ const InYourLibrary: FC<{ medium: Medium; query: string; onMore: () => void }> =
   );
 };
 
+const NO_IDS: string[] = [];
+const NO_SOURCES: MangaSource[] = [];
+
+/** The ranked list, drawn again only when what it searches changes (not as a switch shows). */
+const SearchedResults = memo(RankedResults);
+
 const groupKey = (medium: Medium) => `raygun.search.grouped.${medium}`;
 
 const readGrouped = (medium: Medium) => {
@@ -445,14 +451,17 @@ export const CatalogSearch: FC<{
   const listed = useMangaSources(medium);
   const filter = useSearchFilter();
   // A source with its own pill searches there, not among the rest (M46.35); "No 18+" leaves
-  // adult sources out.
-  const sources = {
-    ...listed,
-    data: listed.data?.filter(
-      (source) =>
-        (only ? source.id === only : withPills || !source.searchPill) && keepSource(filter, source),
-    ),
-  };
+  // adult sources out. The same list while nothing changes (Custom sources' tiles follow it).
+  const kept = useMemo(
+    () =>
+      listed.data?.filter(
+        (source) =>
+          (only ? source.id === only : withPills || !source.searchPill) &&
+          keepSource(filter, source),
+      ),
+    [listed.data, only, withPills, filter],
+  );
+  const sources = { ...listed, data: kept };
   const choice = useCustomSources(medium, sources.data);
   const panelId = useId();
   const [grouped, setGroupedState] = useState(() => readGrouped(medium));
@@ -468,15 +477,24 @@ export const CatalogSearch: FC<{
   };
   // Custom sources off: every source; on: the ones switched on (one alone, with its filters).
   const custom = !only && choice.custom;
-  const picked = only ? [only] : custom ? choice.picked : [];
-  const sourceId = picked.length === 1 ? picked[0]! : '';
-  const all = sources.data ?? [];
-  // Several sources: a row each, loading as they come into view (M46.7).
-  const searched = failingLast(
-    picked.length > 0 ? all.filter((source) => picked.includes(source.id)) : custom ? [] : all,
-    failures,
-    failingAtEnd,
+  // The pill and the panel answer a tap at once; the search follows without holding it up.
+  const choosing = useMemo(() => ({ custom, picked: choice.picked }), [custom, choice.picked]);
+  const asked = useDeferredValue(choosing);
+  const picked = useMemo(
+    () => (only ? [only] : asked.custom ? asked.picked : NO_IDS),
+    [only, asked],
   );
+  const sourceId = picked.length === 1 ? picked[0]! : '';
+  const all = sources.data ?? NO_SOURCES;
+  // Several sources: a row each, loading as they come into view (M46.7).
+  const searched = useMemo(() => {
+    const on = new Set(picked);
+    return failingLast(
+      picked.length > 0 ? all.filter((source) => on.has(source.id)) : asked.custom ? [] : all,
+      failures,
+      failingAtEnd,
+    );
+  }, [picked, all, asked.custom, failures, failingAtEnd]);
   // By source, the rows that answered with titles lead, then those with none, then failures;
   // a row still asking keeps its place.
   const answers = useSourceAnswers(
@@ -485,7 +503,7 @@ export const CatalogSearch: FC<{
     query,
   );
   const rows = answeredFirst(searched, (source) => answers(source.id));
-  const relevant = !only && !custom && !grouped;
+  const relevant = !only && !asked.custom && !grouped;
   // Best matches or By source, while more than one source searches.
   const arrange = sourceId === '' && searched.length > 1 && (
     <div
@@ -516,7 +534,7 @@ export const CatalogSearch: FC<{
           <div className="flex flex-wrap items-center gap-2">
             <CustomSourcesPill
               on={custom}
-              count={picked.length}
+              count={choice.picked.length}
               total={all.length}
               panelId={panelId}
               onChange={choice.setCustom}
@@ -526,17 +544,18 @@ export const CatalogSearch: FC<{
           <SourceSwitchPanel
             open={custom}
             id={panelId}
+            medium={medium}
             sources={all}
             picked={choice.picked}
             onChange={choice.set}
-            onAll={choice.setAll}
+            onChoose={choice.choose}
           />
         </div>
       )}
       {relevant && medium !== 'video' && onLibrary && (
         <InYourLibrary medium={medium} query={query} onMore={onLibrary} />
       )}
-      {custom && picked.length === 0 ? (
+      {asked.custom && picked.length === 0 ? (
         <p className="text-muted text-sm">{t('search.customSources.noneOn')}</p>
       ) : sourceId === '' ? (
         <>
@@ -554,7 +573,7 @@ export const CatalogSearch: FC<{
               />
             ))
           ) : (
-            <RankedResults key={query.trim()} sources={searched} medium={medium} query={query} />
+            <SearchedResults key={query.trim()} sources={searched} medium={medium} query={query} />
           )}
         </>
       ) : (

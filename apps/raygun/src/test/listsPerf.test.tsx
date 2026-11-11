@@ -32,6 +32,8 @@ const REPOS = 20;
 const PER_REPO = 250;
 const INSTALLED = 400;
 const SOURCES = 3000;
+/** Sources in Search's Custom sources panel. */
+const CUSTOM = 400;
 const SONGS = 3000;
 const RUNS = 3;
 
@@ -144,6 +146,59 @@ const time = async (step: () => unknown, done: () => void): Promise<Timing> => {
   await waitFor(done, { timeout: 120_000, interval: 5 });
   return { wall: Math.round(performance.now() - wall), cpu: Math.round(cpuMs() - cpu) };
 };
+
+/** A step's timings: when its change was on the screen, and when everything it led to was. */
+type Drawn = Timing & { seen: number; settled: number };
+
+/**
+ * When React last set an element's `aria-checked` (or another attribute named in `WATCHED`):
+ * when a switch's new state was committed, before work React was allowed to do later.
+ */
+const committedAt = new WeakMap<Element, number>();
+const WATCHED = new Set(['aria-checked']);
+
+/**
+ * How long a tap or a keystroke takes to show, and to settle: `seen` gives when its change was
+ * committed (null: when the event's handling ended), `settled` when React finished everything it
+ * led to (deferred work too: `fireEvent` returns after it); then, as {@link time}, until `done`
+ * holds.
+ */
+const drawn = async (
+  step: () => unknown,
+  done: () => void,
+  seen: () => number | null = () => null,
+): Promise<Drawn> => {
+  const wall = performance.now();
+  const cpu = cpuMs();
+  step();
+  const settled = performance.now();
+  await waitFor(done, { timeout: 120_000, interval: 5 });
+  const tenths = (ms: number) => Math.round(ms * 10) / 10;
+  return {
+    seen: tenths((seen() ?? settled) - wall),
+    settled: tenths(settled - wall),
+    wall: Math.round(performance.now() - wall),
+    cpu: Math.round(cpuMs() - cpu),
+  };
+};
+
+/** The best of `RUNS` runs of `drawn` steps. */
+const bestDrawn = async (run: (turn: number) => Promise<Drawn>): Promise<Drawn> => {
+  let found: Drawn = { wall: Infinity, cpu: Infinity, seen: Infinity, settled: Infinity };
+  for (let turn = 0; turn < RUNS; turn++) {
+    const timing = await run(turn);
+    found = {
+      wall: Math.min(found.wall, timing.wall),
+      cpu: Math.min(found.cpu, timing.cpu),
+      seen: Math.min(found.seen, timing.seen),
+      settled: Math.min(found.settled, timing.settled),
+    };
+  }
+  return found;
+};
+
+const shownDrawn = (timing: Drawn) =>
+  `shown in ${timing.seen} ms, settled in ${timing.settled} ms, ${shown(timing)} with the checks`;
 
 /** The best of `RUNS` runs of `run` (given the run's number). */
 const best = async (run: (turn: number) => Promise<Timing>): Promise<Timing> => {
@@ -261,6 +316,100 @@ describe.skipIf(!ENV.RAYGUN_PERF)('long lists', { timeout: 600_000 }, () => {
       );
     });
     await note(`Browse → Sources: one search keystroke ${shown(typed)}`);
+  });
+
+  it('opens Custom sources with hundreds of sources, finds, switches and selects them', async () => {
+    const custom = Array.from({ length: CUSTOM }, (_, index) => mangaSource(index));
+    commands.mangaSources.mockResolvedValue(ok(custom));
+    // Each source answers the search at once with a few titles, ranked together.
+    commands.catalogGlobalSearch.mockImplementation(async (_medium, _query, ids) =>
+      ok(
+        (ids as string[]).map((id) => ({
+          source: custom.find((source) => source.id === id)!,
+          items: Array.from({ length: 5 }, (_, index) => ({
+            sourceId: id,
+            id: `${id}-${index}`,
+            title: `Dark ${WORDS[index % WORDS.length]} ${index}`,
+            coverUrl: null,
+            inLibrary: false,
+          })),
+          hasNextPage: false,
+          error: null,
+        })),
+      ),
+    );
+    commands.catalogFilters.mockResolvedValue(ok([]));
+    localStorage.setItem(
+      'raygun.search.sources.manga',
+      JSON.stringify(custom.map((source) => source.id)),
+    );
+    localStorage.setItem('raygun.search.custom.manga', '0');
+    const setAttribute = Element.prototype.setAttribute;
+    vi.spyOn(Element.prototype, 'setAttribute').mockImplementation(function (
+      this: Element,
+      name: string,
+      value: string,
+    ) {
+      if (WATCHED.has(name)) committedAt.set(this, performance.now());
+      setAttribute.call(this, name, value);
+    });
+    await AppShellWrapper.mount('/browse?tab=search&type=manga&q=dark');
+    const pill = await screen.findByRole('button', { name: /Custom sources/ });
+    const tiles = () => screen.queryAllByTestId('source-tile');
+    const every = (on: boolean) => () =>
+      expect(tiles().every((tile) => tile.getAttribute('aria-checked') === String(on))).toBe(true);
+    // When the tiles on the screen were last committed.
+    const tilesCommitted = () => Math.max(...tiles().map((tile) => committedAt.get(tile) ?? 0));
+    const opened = await bestDrawn(async () => {
+      if (pill.getAttribute('aria-pressed') === 'true') {
+        fireEvent.click(pill);
+        await waitFor(() => expect(tiles()).toHaveLength(0));
+      }
+      return drawn(
+        () => fireEvent.click(pill),
+        () => expect(tiles().length).toBeGreaterThan(0),
+        tilesCommitted,
+      );
+    });
+    await note(
+      `Custom sources (${CUSTOM} sources): opened, ${shownDrawn(opened)}, ` +
+        `${tiles().length} tiles drawn`,
+    );
+
+    const field = screen.getByRole('searchbox', { name: 'Find a source' });
+    const typed = await bestDrawn((turn) => {
+      const [query, gone] = turn % 2 ? ['source 28', 'Source 29 '] : ['source 29', 'Source 28 '];
+      return drawn(
+        () => fireEvent.change(field, { target: { value: query } }),
+        () => expect(tiles().some((tile) => tile.textContent?.startsWith(gone))).toBe(false),
+        tilesCommitted,
+      );
+    });
+    await note(`Custom sources: one filter keystroke ${shownDrawn(typed)}`);
+    fireEvent.change(field, { target: { value: '' } });
+    await waitFor(() => expect(tiles().length).toBeGreaterThan(20));
+
+    // The same tile each time: the check reads its state, not the page's roles.
+    const tile = screen.getByRole('switch', { name: 'Source 1 novels' });
+    const switched = await bestDrawn((turn) =>
+      drawn(
+        () => fireEvent.click(tile),
+        () => expect(tile).toHaveAttribute('aria-checked', turn % 2 ? 'true' : 'false'),
+        () => committedAt.get(tile) ?? null,
+      ),
+    );
+    await note(`Custom sources: one switch ${shownDrawn(switched)}`);
+
+    const selected = await bestDrawn(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'None' }));
+      await waitFor(every(false));
+      return drawn(
+        () => fireEvent.click(screen.getByRole('button', { name: 'All' })),
+        every(true),
+        tilesCommitted,
+      );
+    });
+    await note(`Custom sources: Select all ${shownDrawn(selected)}`);
   });
 
   it('opens a comics library of thousands of titles', async () => {
