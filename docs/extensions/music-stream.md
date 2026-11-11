@@ -56,6 +56,11 @@ decodes (MP3 or M4A over Opus).
 `expiresAt` (Unix milliseconds) tells Raygun when a signed address stops working, so it resolves
 the candidate again rather than replay a dead link.
 
+A `url` source may be a file or an HLS playlist whose address ends in `.m3u8`: Raygun plays the
+playlist's pieces through its proxy, with the source's headers, and a download joins them into
+one file (AES-128 pieces decrypted, AAC saved as M4A, MP3 as MP3). Live streams and DRM can't be
+saved.
+
 ## Example: Internet Archive
 
 Recordings their uploaders put under a Creative Commons license or in the public domain. The

@@ -1368,20 +1368,31 @@ impl PlaybackService {
                 end_ms: tuning.end_ms,
                 fade_ms,
             },
-            source => EngineCommand::Load {
-                load_id,
-                url: self.proxy.register(source),
-                title: item.title.clone(),
-                artist: item.artist.clone(),
-                artwork_url: item.artwork_url.clone(),
-                start_ms,
-                autoplay,
-                volume,
-                gain_db: tuning.gain_db,
-                end_ms: tuning.end_ms,
-                fade_ms,
-                measure: tuning.measure,
-            },
+            source => {
+                // A stream in HLS pieces plays through the proxy's `/media/` route, which rewrites
+                // its playlists so the pieces come through the proxy too, with its headers.
+                let hls = match source {
+                    MediaSource::Url { url, headers } if raygun_net::manifest::names_hls(url) => {
+                        self.proxy.media().link(url, headers)
+                    }
+                    _ => None,
+                };
+                EngineCommand::Load {
+                    load_id,
+                    hls: hls.is_some(),
+                    url: hls.unwrap_or_else(|| self.proxy.register(source)),
+                    title: item.title.clone(),
+                    artist: item.artist.clone(),
+                    artwork_url: item.artwork_url.clone(),
+                    start_ms,
+                    autoplay,
+                    volume,
+                    gain_db: tuning.gain_db,
+                    end_ms: tuning.end_ms,
+                    fade_ms,
+                    measure: tuning.measure,
+                }
+            }
         };
         outbox.engine.push((engine, command));
         if autoplay {

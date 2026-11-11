@@ -300,6 +300,38 @@ describe('convertPlugin', () => {
     expect(providers.map((provider) => provider.kind)).toEqual(['lyrics']);
   });
 
+  it("plays a stream's HLS playlist (SoundCloud's), and refuses what isn't on the web", async () => {
+    const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['streaming'] } });
+    files['sample-1.2.3/src/index.ts'] = `
+      export default {
+        onEnable(api) {
+          api.Providers.register({ id: 'cloud', kind: 'streaming', name: 'Cloud',
+            searchForTrack: async () => [
+              { id: 'h', title: 'In pieces', failed: false, source: { provider: 'c', id: 'h' } },
+              { id: 'f', title: 'On disk', failed: false, source: { provider: 'c', id: 'f' } },
+            ],
+            getStreamUrl: async (id) => id === 'h'
+              ? { url: 'https://hls.cloud.example/x/playlist.m3u8?sig=1', protocol: 'hls', source: { provider: 'c', id } }
+              : { url: 'file:///sdcard/x.mp3', protocol: 'file', source: { provider: 'c', id } },
+          });
+        },
+      };`;
+    const { bundle } = convertPlugin(files, shim);
+    const { providers } = await runBundle(bundle);
+    const streams = providers[0] as Registered;
+    await streams.candidates({ title: 'x', artist: 'y', album: null, durationMs: null, limit: 5 });
+    expect(await streams.resolve({ id: 'h' })).toEqual({
+      source: {
+        kind: 'url',
+        url: 'https://hls.cloud.example/x/playlist.m3u8?sig=1',
+        headers: {},
+      },
+    });
+    await expect(streams.resolve({ id: 'f' })).rejects.toThrow(
+      "returned a file stream Raygun can't play",
+    );
+  });
+
   it('runs dashboards as charts and discovery as song radios (M46.23)', async () => {
     const files = pluginFiles({ ...PACKAGE, nuclear: { categories: ['dashboard', 'discovery'] } });
     files['sample-1.2.3/src/index.ts'] = `

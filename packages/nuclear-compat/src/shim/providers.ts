@@ -74,9 +74,13 @@ export const toNuclearTrack = (query: {
   source: { provider: 'raygun', id: '' },
 });
 
+/**
+ * A stream Raygun plays: a file over HTTP, or an HLS playlist (SoundCloud's), whose pieces the
+ * player reads through Raygun's proxy and downloads join into one file.
+ */
 const playable = (stream?: NuclearStream) =>
   stream &&
-  (stream.protocol === 'http' || stream.protocol === 'https') &&
+  (stream.protocol === 'http' || stream.protocol === 'https' || stream.protocol === 'hls') &&
   /^https?:\/\//.test(stream.url);
 
 /** Flattens Nuclear's sectioned lyrics into Raygun's lines or text. */

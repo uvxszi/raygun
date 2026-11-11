@@ -1202,7 +1202,7 @@ var __nuclearShim = (() => {
     durationMs: query.durationMs ?? void 0,
     source: { provider: "raygun", id: "" }
   });
-  var playable = (stream) => stream && (stream.protocol === "http" || stream.protocol === "https") && /^https?:\\/\\//.test(stream.url);
+  var playable = (stream) => stream && (stream.protocol === "http" || stream.protocol === "https" || stream.protocol === "hls") && /^https?:\\/\\//.test(stream.url);
   var toRaygunLyrics = (lyrics) => {
     if (!lyrics || lyrics.type === "instrumental") return null;
     const lineText = (line) => line.segments.map((segment) => segment.text).join("").trim();

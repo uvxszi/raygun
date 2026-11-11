@@ -49,6 +49,55 @@ const MEDIA_ERROR_MESSAGES: Record<number, string> = {
   4: 'The media format is not supported or the source is unreachable',
 };
 
+/** A stream put into a media element by a reader of its own, and how to let it go. */
+export type StreamAttachment = { destroy: () => void };
+
+/**
+ * Puts an HLS playlist into `media`; `failed` hears why it can't go on. Rust links the playlist
+ * through its proxy's `/media/` route, which brings the pieces through the proxy too.
+ */
+export type AttachHls = (
+  media: MediaElementLike,
+  url: string,
+  failed: (message: string) => void,
+) => Promise<StreamAttachment>;
+
+/** HLS through hls.js (loaded when first needed), else the webview's own HLS. */
+export const attachHls: AttachHls = async (media, url, failed) => {
+  const { default: Hls } = await import('hls.js');
+  if (!Hls.isSupported()) {
+    media.src = url;
+    return { destroy: () => undefined };
+  }
+  // A song is a few minutes of sound: no worker to start, and little kept behind.
+  const hls = new Hls({ enableWorker: false, backBufferLength: 30 });
+  let recovered = false;
+  hls.on(Hls.Events.ERROR, (_event, data) => {
+    if (!data.fatal) return;
+    // One try to get going again, as hls.js advises.
+    if (!recovered && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+      recovered = true;
+      hls.recoverMediaError();
+      return;
+    }
+    if (
+      !recovered &&
+      data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+      data.details !== Hls.ErrorDetails.MANIFEST_LOAD_ERROR
+    ) {
+      recovered = true;
+      hls.startLoad();
+      return;
+    }
+    const status = data.response?.code;
+    const words = data.error?.message || data.details;
+    failed(status ? `${words} (HTTP ${status})` : words);
+  });
+  hls.loadSource(url);
+  hls.attachMedia(media as HTMLMediaElement);
+  return { destroy: () => hls.destroy() };
+};
+
 /** One of the two players: a crossfade plays both, the old one fading out. */
 type Deck = {
   media: MediaElementLike;
@@ -70,6 +119,8 @@ type Deck = {
   finished: boolean;
   /** Its song started on a cut: it fades in over a few ms once its sound starts. */
   rampIn: boolean;
+  /** The HLS reader feeding it, while its song comes in pieces. */
+  stream: StreamAttachment | null;
 };
 
 /**
@@ -98,6 +149,7 @@ export class Html5Engine {
     private readonly report: (report: EngineReport) => void,
     private readonly now: () => number = () => Date.now(),
     private readonly backend: SoundBackend = elementSound(),
+    private readonly hls: AttachHls = attachHls,
   ) {
     this.decks = [this.makeDeck(medias[0]), this.makeDeck(medias[1])];
   }
@@ -132,6 +184,7 @@ export class Html5Engine {
       meter: new LoudnessMeter(),
       finished: false,
       rampIn: false,
+      stream: null,
     };
     const listeners: [string, () => void][] = [
       ['loadedmetadata', () => this.onLoadedMetadata(deck)],
@@ -237,8 +290,16 @@ export class Html5Engine {
     for (const deck of this.decks) {
       this.clearEnd(deck);
       if (deck.stopTimer) clearTimeout(deck.stopTimer);
+      deck.loadId = null;
+      this.detach(deck);
     }
     for (const cleanup of this.cleanups) cleanup();
+  }
+
+  /** Lets a deck's HLS reader go. */
+  private detach(deck: Deck) {
+    deck.stream?.destroy();
+    deck.stream = null;
   }
 
   private load(command: Extract<EngineCommand, { type: 'load' }>) {
@@ -266,13 +327,36 @@ export class Html5Engine {
     this.loadId = command.loadId;
     this.lastProgressAt = Number.NEGATIVE_INFINITY;
     this.backend.setVolume(command.volume ?? 1);
-    deck.media.src = command.url;
-    this.emitFrom(deck, { type: 'buffering' });
-    if (command.autoplay) {
-      this.backend.resume();
-      this.play(deck);
+    if (!command.hls) {
+      deck.media.src = command.url;
+      this.emitFrom(deck, { type: 'buffering' });
+      if (command.autoplay) this.start(deck);
+      if (fading) deck.audio.fadeTo(1, fadeMs);
+      return;
     }
+    this.emitFrom(deck, { type: 'buffering' });
     if (fading) deck.audio.fadeTo(1, fadeMs);
+    // In HLS pieces: its reader takes the element once it's loaded; a newer load meanwhile
+    // has it let go at once.
+    const loadId = command.loadId;
+    const failed = (message: string) => {
+      if (deck.loadId === loadId) this.emitFrom(deck, { type: 'error', message });
+    };
+    this.hls(deck.media, command.url, failed)
+      .then((stream) => {
+        if (deck.loadId !== loadId) {
+          stream.destroy();
+          return;
+        }
+        deck.stream = stream;
+        if (command.autoplay) this.start(deck);
+      })
+      .catch((error: unknown) => failed(String(error)));
+  }
+
+  private start(deck: Deck) {
+    this.backend.resume();
+    this.play(deck);
   }
 
   /**
@@ -288,6 +372,7 @@ export class Html5Engine {
     const stop = () => {
       deck.stopTimer = null;
       deck.media.pause();
+      this.detach(deck);
       deck.media.removeAttribute('src');
       deck.media.load();
     };
@@ -295,7 +380,7 @@ export class Html5Engine {
       const ms = fadeMs > 0 ? fadeMs : DECLICK_MS;
       deck.audio.fadeTo(0, ms);
       deck.stopTimer = setTimeout(stop, ms + 50);
-    } else if (deck.media.src) {
+    } else if (deck.media.src || deck.stream) {
       stop();
     }
   }

@@ -24,6 +24,7 @@
 
 pub mod capture;
 mod check;
+mod hls_file;
 mod known;
 pub mod transcode;
 
@@ -1618,6 +1619,9 @@ impl SongDownloadService {
                 "Only web addresses can be downloaded".into(),
             ));
         }
+        if raygun_net::manifest::names_hls(url) {
+            return self.save_hls(row, dir, url, headers, provider, stop).await;
+        }
         let partial = dir.join(PARTIAL);
         let marker = dir.join(PARTIAL_SOURCE);
         let started_from = tokio::fs::read_to_string(&marker).await.ok();
@@ -1658,8 +1662,11 @@ impl SongDownloadService {
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if content_type.contains("mpegurl") || url.to_ascii_lowercase().contains(".m3u8") {
-            return Err(StreamError::Pieces);
+        // A playlist whose address didn't say so: its pieces, joined.
+        if content_type.contains("mpegurl") {
+            drop(response);
+            let _ = tokio::fs::remove_file(&marker).await;
+            return self.save_hls(row, dir, url, headers, provider, stop).await;
         }
         let already_whole = have > 0 && status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE;
         if !already_whole {
@@ -1727,6 +1734,47 @@ impl SongDownloadService {
             .await
             .map_err(|error| StreamError::Device(error.to_string()))?;
         let _ = tokio::fs::remove_file(&marker).await;
+        self.checked(row, dir, file, provider).await
+    }
+
+    /// A stream in HLS pieces saved as one file ([`hls_file`]), checked as any download is. Its
+    /// pieces come through the proxy's `/media/` route, as the player gets them.
+    async fn save_hls(
+        &self,
+        row: &SongDownloadRow,
+        dir: &Path,
+        url: &str,
+        headers: &std::collections::BTreeMap<String, String>,
+        provider: Option<String>,
+        stop: &Notify,
+    ) -> Result<Saved, StreamError> {
+        let link = self
+            .app
+            .try_state::<raygun_net::MediaLinks>()
+            .and_then(|media| media.link(url, headers))
+            .ok_or_else(|| StreamError::Error("Only web streams can be saved".into()))?;
+        let id = row.id.clone();
+        let progress = |bytes: u64, share: Option<f64>| self.capture_progress(&id, bytes, share);
+        let file = hls_file::save(&self.client, &link, dir, &progress, stop)
+            .await
+            .map_err(|error| match error {
+                hls_file::HlsError::Stopped => StreamError::Stopped,
+                hls_file::HlsError::Device(error) => StreamError::Device(error),
+                hls_file::HlsError::Failed(why) => StreamError::Pieces(why),
+            })?;
+        self.checked(row, dir, file, provider).await
+    }
+
+    /// A saved file (`file` in `dir`) checked to be the song: sound, and more than a preview of
+    /// it. One that isn't is deleted.
+    async fn checked(
+        &self,
+        row: &SongDownloadRow,
+        dir: &Path,
+        file: String,
+        provider: Option<String>,
+    ) -> Result<Saved, StreamError> {
+        let path = dir.join(&file);
         // An error page or a video saved as a song would fail later, when it plays; a preview
         // would play 30 seconds of it offline.
         let (check, needed) = (path.clone(), self.needed_ms(row));
@@ -2964,8 +3012,8 @@ struct Message {
 struct Report {
     /// Sources whose file failed: (name, what happened).
     failed: Vec<(String, String)>,
-    /// Sources that stream it only in HLS pieces.
-    pieces: Vec<String>,
+    /// Sources streaming it in HLS pieces that didn't save as one file: (name, why).
+    pieces: Vec<(String, String)>,
     /// Streams that couldn't be captured either (M46.49): (name, what happened).
     captured: Vec<(String, String)>,
     /// Sources that only had other songs by that name: (name, what they offered).
@@ -2984,7 +3032,7 @@ impl Report {
     /// Folds in how one source's file went.
     fn note(&mut self, name: &str, error: &StreamError) {
         match error {
-            StreamError::Pieces => self.pieces.push(name.to_owned()),
+            StreamError::Pieces(why) => self.pieces.push((name.to_owned(), why.clone())),
             StreamError::Transient(message) => {
                 self.transient = true;
                 self.failed.push((name.to_owned(), message.clone()));
@@ -3002,7 +3050,7 @@ impl Report {
         let playing: Vec<&str> = unique(
             self.pieces
                 .iter()
-                .map(String::as_str)
+                .map(|(name, _)| name.as_str())
                 .chain(captured.iter().copied())
                 .chain(self.ytdlp.iter().map(|_| YOUTUBE))
                 .filter(|name| !failed.contains(name)),
@@ -3026,9 +3074,9 @@ impl Report {
             .map(|(name, error)| format!("{name}: {error}"))
             .collect();
         lines.extend(
-            unique(self.pieces.iter().map(String::as_str))
+            self.pieces
                 .iter()
-                .map(|name| format!("{name}: streams in HLS pieces")),
+                .map(|(name, why)| format!("{name}: its HLS pieces didn't save ({why})")),
         );
         lines.extend(
             self.captured
@@ -3394,7 +3442,13 @@ impl Attempts {
     /// files), then as they came (the song's own source first); at most [`CAPTURE_TRIES`].
     fn capture_order(&self) -> Vec<Candidate> {
         let mut order: Vec<&Candidate> = self.capturable.iter().collect();
-        order.sort_by_key(|candidate| !self.report.pieces.contains(&candidate.name));
+        order.sort_by_key(|candidate| {
+            !self
+                .report
+                .pieces
+                .iter()
+                .any(|(name, _)| *name == candidate.name)
+        });
         order.into_iter().take(CAPTURE_TRIES).cloned().collect()
     }
 }
@@ -4075,8 +4129,8 @@ enum Failure {
 
 /// How one stream went.
 enum StreamError {
-    /// It streams in HLS pieces: it plays, but can't be saved as one file.
-    Pieces,
+    /// It streams in HLS pieces, which didn't save as one file (why): it may play all the same.
+    Pieces(String),
     Error(String),
     /// The network or a busy server: worth another try.
     Transient(String),
@@ -4089,7 +4143,7 @@ enum StreamError {
 impl StreamError {
     fn text(&self) -> String {
         match self {
-            Self::Pieces => "It streams in HLS pieces".into(),
+            Self::Pieces(why) => format!("Its HLS pieces didn't save ({why})"),
             Self::Error(message) | Self::Transient(message) | Self::Device(message) => {
                 message.clone()
             }
@@ -4527,12 +4581,14 @@ mod tests {
             captured: vec![("Radio".into(), "3 of 40 pieces wouldn't download".into())],
             ..Report::default()
         };
-        report.note("Radio", &StreamError::Pieces);
+        report.note("Radio", &StreamError::Pieces("It's a live stream".into()));
         let message = report.message(false);
         assert_eq!(message.summary, "Couldn't download it from Radio.");
         assert_eq!(
             message.detail.as_deref(),
-            Some("Radio: streams in HLS pieces\nRadio, captured: 3 of 40 pieces wouldn't download")
+            Some(
+                "Radio: its HLS pieces didn't save (It's a live stream)\nRadio, captured: 3 of 40 pieces wouldn't download"
+            )
         );
 
         // The network: it goes back to the queue while tries are left.
@@ -4691,7 +4747,7 @@ mod tests {
         );
         attempts.file_failed(
             candidate("Radio", "https://radio.example/a.m3u8"),
-            &StreamError::Pieces,
+            &StreamError::Pieces("It's a live stream".into()),
         );
         // The same stream again, and an embed, which can't be captured: neither is kept.
         attempts.file_failed(
@@ -4718,7 +4774,10 @@ mod tests {
             .map(|each| each.name)
             .collect();
         assert_eq!(names, ["Radio", "Own", "Indie"], "at most {CAPTURE_TRIES}");
-        assert_eq!(attempts.report.pieces, ["Radio"]);
+        assert_eq!(
+            attempts.report.pieces,
+            [("Radio".to_owned(), "It's a live stream".to_owned())]
+        );
         assert_eq!(attempts.report.failed.len(), 5);
     }
 
