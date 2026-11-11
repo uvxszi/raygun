@@ -255,7 +255,7 @@ export const AppearanceCard: FC = () => {
         <PrefChoice<ScrollbarStyle>
           title={t('settings.scrollbars')}
           value={data.scrollbars ?? 'thin'}
-          options={(['thin', 'wide', 'hidden'] as const).map((value) => ({
+          options={(['thin', 'wide', 'hidden', 'whileScrolling'] as const).map((value) => ({
             value,
             label: t(`settings.scrollbarStyles.${value}`),
           }))}

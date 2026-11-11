@@ -321,7 +321,8 @@
         }
         const span = details["life-span"];
         const begin = year(span?.begin);
-        const active = begin ? `${begin}–${span?.ended ? year(span.end) : ""}` : null;
+        const end = span?.ended ? year(span.end) : null;
+        const active = begin ? end ? `${begin}–${end}` : begin : null;
         return {
           artist: {
             name: details.name,

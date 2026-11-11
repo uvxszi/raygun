@@ -658,13 +658,18 @@ impl PlaybackService {
         }
         self.control_core(control);
         if resumes {
-            // Pressing play must start something (M46.16), or the next stream gets its turn.
+            // Pressing play must start something (M46.16), or the next stream gets its turn. A
+            // file on this device says it plays at once: it's held to that the same way.
             let (load_id, loading) = {
                 let inner = self.lock();
                 let state = inner.core.state();
                 (
                     inner.core.load_id(),
-                    state.status == raygun_model::PlaybackStatus::Loading && !inner.core.held(),
+                    matches!(
+                        state.status,
+                        raygun_model::PlaybackStatus::Loading
+                            | raygun_model::PlaybackStatus::Playing
+                    ) && !inner.core.held(),
                 )
             };
             if loading {
@@ -1398,8 +1403,8 @@ impl PlaybackService {
 
     /// An engine that never starts a load must not leave the player stuck (M46.16): after
     /// [`START_TIMEOUT`] without having played (loading, or buffering: engines say they buffer
-    /// as soon as they're given a stream), it counts as the stream failing, so the next stream
-    /// or the next song plays.
+    /// as soon as they're given a stream; or a file on this device said to play at once), it
+    /// counts as the stream failing, so the next stream or the next song plays.
     fn watch_start(&self, load_id: u32) {
         let app = self.app.clone();
         tauri::async_runtime::spawn(async move {
@@ -1414,6 +1419,7 @@ impl PlaybackService {
                         state.status,
                         raygun_model::PlaybackStatus::Loading
                             | raygun_model::PlaybackStatus::Buffering
+                            | raygun_model::PlaybackStatus::Playing
                     )
                     && !inner.core.started()
                     && !inner.core.held()

@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { MotionGlobalConfig } from 'motion/react';
 
 import '../i18n';
+import { forgetPress } from '../player/playPress';
 import { resetBackLayers } from '../shell/backLayers';
 
 // Animations run instantly in tests, so exit transitions don't keep elements mounted.
@@ -17,4 +18,6 @@ afterEach(() => {
   localStorage.clear();
   // Open sheets and menus are module state (shell/backLayers): each test starts with none.
   resetBackLayers();
+  // As is a Play or Pause waiting for Rust's answer (player/playPress).
+  forgetPress();
 });

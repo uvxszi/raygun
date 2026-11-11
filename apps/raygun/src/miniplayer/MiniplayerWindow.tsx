@@ -1,4 +1,5 @@
 import { commands } from '@raygun/bindings';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   AppWindow,
   GripHorizontal,
@@ -26,6 +27,7 @@ import { useLivePosition } from '../player/useLivePosition';
 import {
   isActive,
   NEXT_REPEAT,
+  pressPlayPause,
   sendControl,
   useCurrentItem,
   usePlayerSelect,
@@ -99,6 +101,7 @@ const SeekBar: FC = () => {
  */
 export const MiniplayerWindow: FC = () => {
   const { t } = useTranslation();
+  const client = useQueryClient();
   const item = useCurrentItem();
   const playing = usePlayerSelect(isActive);
   const volume = usePlayerSelect((state) => state?.volume ?? 1);
@@ -114,7 +117,7 @@ export const MiniplayerWindow: FC = () => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === ' ') {
         event.preventDefault();
-        void sendControl({ type: 'toggle' });
+        void pressPlayPause(client, { type: 'toggle' });
       } else if (event.key === 'ArrowRight' && event.ctrlKey) {
         void sendControl({ type: 'next' });
       } else if (event.key === 'ArrowLeft' && event.ctrlKey) {
@@ -123,7 +126,7 @@ export const MiniplayerWindow: FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [client]);
 
   return (
     <div
@@ -188,7 +191,7 @@ export const MiniplayerWindow: FC = () => {
                 <button
                   type="button"
                   aria-label={playing ? t('player.pause') : t('player.play')}
-                  onClick={() => void sendControl({ type: 'toggle' })}
+                  onClick={() => void pressPlayPause(client, { type: 'toggle' })}
                   className="mx-1 grid size-11 shrink-0 place-items-center rounded-full bg-white text-black hover:scale-105"
                 >
                   {playing ? (

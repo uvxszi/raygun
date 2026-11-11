@@ -2662,6 +2662,8 @@ pub async fn music_artist_info(
                 .image_url
                 .as_deref()
                 .map(|url| images.cover(url, &Default::default())),
+            // Kept before sources' "1980–" was shown as "1980".
+            active: info.active.as_deref().map(raygun_model::year_range_label),
             ..info
         }))
 }

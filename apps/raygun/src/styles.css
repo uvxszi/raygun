@@ -124,6 +124,36 @@
 :root[data-scrollbars='hidden'] ::-webkit-scrollbar {
   display: none;
 }
+/* Show while scrolling (shell/scrollbarReveal): thin bars that stay clear until their element is
+   scrolled by hand or the mouse is on the bar (`data-scrollbar`), then fade out. The thumb's colour
+   is a registered property of its element, so it can fade; every element has its own, so a bar
+   shown never shows the bars inside its element. Off motion (below) drops the fade. */
+@property --scrollbar-thumb {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+:root[data-scrollbars='whileScrolling'] ::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+:root[data-scrollbars='whileScrolling'] ::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--color-muted) 70%, transparent);
+}
+/* In the base layer: an element's own transitions (utilities) win over the fade. */
+@layer base {
+  :where(:root[data-scrollbars='whileScrolling'] *) {
+    --scrollbar-thumb: transparent;
+  }
+  :root[data-scrollbars='whileScrolling']:is([data-scrollbar='shown']),
+  :root[data-scrollbars='whileScrolling'] [data-scrollbar='shown'] {
+    --scrollbar-thumb: color-mix(in oklab, var(--color-muted) 40%, transparent);
+    transition: --scrollbar-thumb 120ms ease-out;
+  }
+  :root[data-scrollbars='whileScrolling']:is([data-scrollbar='fading']),
+  :root[data-scrollbars='whileScrolling'] [data-scrollbar='fading'] {
+    transition: --scrollbar-thumb 400ms ease-in;
+  }
+}
 /* The comics reader on touch screens: a styled scrollbar isn't an overlay in Android's WebView, so
    the page area's would take 10 px from the reader and fit to width would end short of the
    screen's right edge. Its scrollers show none; fingers scroll them. */

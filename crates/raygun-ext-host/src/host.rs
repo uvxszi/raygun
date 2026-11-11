@@ -2461,6 +2461,13 @@ fn link_field(value: &serde_json::Value, key: &str) -> Option<String> {
     text_field(value, key, 2048).filter(|url| is_web_url(url))
 }
 
+/// An artist's years as shown: "1980" while still active (sources write "1980–"), "1980–2003";
+/// none without a year.
+fn active_years(info: &serde_json::Value) -> Option<String> {
+    let years = raygun_model::year_range_label(&text_field(info, "active", 60)?);
+    years.chars().any(char::is_numeric).then_some(years)
+}
+
 pub(crate) fn parse_artist_info(
     value: &serde_json::Value,
     provider: &str,
@@ -2474,7 +2481,7 @@ pub(crate) fn parse_artist_info(
         image_url: link_field(info, "imageUrl"),
         url: link_field(info, "url"),
         origin: text_field(info, "origin", 200),
-        active: text_field(info, "active", 60),
+        active: active_years(info),
         members: info
             .get("members")
             .and_then(serde_json::Value::as_array)

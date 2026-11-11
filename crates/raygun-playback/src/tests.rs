@@ -1172,6 +1172,85 @@ fn only_a_song_on_its_way_waits_never_a_file_on_this_device() {
 }
 
 #[test]
+fn a_file_on_this_device_pauses_and_resumes_without_loading_or_waiting() {
+    let mut core = core_with(&["a", "b"]);
+    core.play();
+    let file = core.load_id;
+    core.set_on_device(file, true);
+    report(&mut core, EngineEvent::Playing);
+
+    for _ in 0..3 {
+        // Paused at once, and played again at once: no load, no loading, no wait.
+        assert_eq!(
+            core.toggle(),
+            vec![Effect::Engine(EngineCommand::Pause), Effect::StateChanged]
+        );
+        assert_eq!(core.state().status, PlaybackStatus::Paused);
+        assert!(!core.state().waiting);
+        report(&mut core, EngineEvent::Paused);
+        assert_eq!(
+            core.toggle(),
+            vec![Effect::Engine(EngineCommand::Play), Effect::StateChanged]
+        );
+        assert_eq!(core.state().status, PlaybackStatus::Playing);
+        assert!(!core.state().waiting);
+        assert_eq!(core.load_id, file, "it resumes the load it has");
+        // The engine saying so changes nothing; an engine that buffers a moment doesn't wait.
+        assert!(report(&mut core, EngineEvent::Playing).is_empty());
+        report(&mut core, EngineEvent::Buffering);
+        assert!(!core.state().waiting);
+        report(&mut core, EngineEvent::Playing);
+    }
+
+    // The same through Pause and Play, and through a watchdog that runs meanwhile.
+    core.pause();
+    assert!(core.watchdog(0.0).is_empty());
+    core.play();
+    assert_eq!(core.state().status, PlaybackStatus::Playing);
+    assert!(!core.state().waiting);
+    assert!(core.watchdog(1_000.0).is_empty());
+
+    // A stream that played resumes the way it did: loading until the engine says, not waiting.
+    core.next();
+    report(&mut core, EngineEvent::Playing);
+    core.pause();
+    core.play();
+    assert_eq!(core.state().status, PlaybackStatus::Loading);
+    assert!(!core.state().waiting);
+}
+
+#[test]
+fn a_file_reopened_paused_plays_at_once() {
+    let mut core = PlaybackCore::new(3);
+    core.restore(
+        vec![input("a"), input("b")],
+        vec![0, 1],
+        0,
+        42_000.0,
+        false,
+        RepeatMode::Off,
+    );
+    let file = core.load_id;
+    core.set_on_device(file, true);
+    report(&mut core, EngineEvent::Paused);
+    assert_eq!(core.state().status, PlaybackStatus::Paused);
+
+    let effects = core.toggle();
+    assert_eq!(
+        effects,
+        vec![Effect::Engine(EngineCommand::Play), Effect::StateChanged]
+    );
+    assert!(
+        loaded(&effects).is_none(),
+        "the file it has isn't loaded again"
+    );
+    let state = core.state();
+    assert_eq!(state.status, PlaybackStatus::Playing);
+    assert!(!state.waiting);
+    assert_eq!(state.position_ms, 42_000.0);
+}
+
+#[test]
 fn an_end_before_the_song_ever_sounded_is_no_end() {
     let mut core = core_with(&["a", "b"]);
     core.play();

@@ -959,7 +959,8 @@
     "scrollbarStyles": {
       "thin": "Thin",
       "wide": "Wide",
-      "hidden": "Hidden"
+      "hidden": "Hidden",
+      "whileScrolling": "Show while scrolling"
     },
     "scrollbarsHiddenHint": "Scrolling still works with the wheel, touch and keys",
     "window": {

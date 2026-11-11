@@ -145,7 +145,7 @@ export const commands = {
 	url: string | null,
 	/**  Where they're from. */
 	origin: string | null,
-	/**  "1975–", "1962–1970". */
+	/**  The years they were active: "1975" while still active, "1962–1970". */
 	active: string | null,
 	/**  A group's members. */
 	members: string[],
@@ -1936,7 +1936,7 @@ export type ArtistInfo = {
 	url: string | null,
 	/**  Where they're from. */
 	origin: string | null,
-	/**  "1975–", "1962–1970". */
+	/**  The years they were active: "1975" while still active, "1962–1970". */
 	active: string | null,
 	/**  A group's members. */
 	members: string[],
@@ -5308,10 +5308,15 @@ export type SavedTrack = {
 export type ScanPhase = "discovering" | "reading" | "done" | "failed";
 
 /**
- *  Scrollbars (M46.7): thin over a clear track by default, the system's width, or none at all
- *  (scrolling still works).
+ *  Scrollbars (M46.7): thin over a clear track by default, the system's width, none at all
+ *  (scrolling still works), or thin ones shown only while scrolling.
  */
-export type ScrollbarStyle = "thin" | "wide" | "hidden";
+export type ScrollbarStyle = "thin" | "wide" | "hidden" | 
+/**
+ *  Thin, shown while scrolled by hand (wheel, touch, keys, the bar dragged) and fading out a
+ *  second after, or while the pointer is on the bar; the app's own scrolls don't show it.
+ */
+"whileScrolling";
 
 /**  What Search leaves out besides what Show NSFW and Explicit music already hide; both off. */
 export type SearchFilterPrefs = {

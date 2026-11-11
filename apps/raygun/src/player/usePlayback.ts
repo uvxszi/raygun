@@ -12,7 +12,10 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect } from 'react';
 
 import { useConnectSession, useConnectSync } from '../connect/useConnect';
+import { isActive, pressPlay, receivePlayerState } from './playPress';
 import { markReceived, positionAt } from './useLivePosition';
+
+export { isActive } from './playPress';
 
 const PLAYBACK_STATE_KEY = ['playbackState'] as const;
 const QUEUE_KEY = ['queue'] as const;
@@ -26,7 +29,10 @@ export const usePlaybackSync = () => {
   useEffect(() => {
     const unlistenState = events.playbackStateEvent.listen((event) => {
       markReceived(event.payload);
-      queryClient.setQueryData(PLAYBACK_STATE_KEY, event.payload);
+      // A Play or Pause pressed a moment ago shows until Rust's answer agrees (playPress.ts).
+      receivePlayerState('here', event.payload, () =>
+        queryClient.setQueryData(PLAYBACK_STATE_KEY, event.payload),
+      );
     });
     const unlistenQueue = events.queueEvent.listen((event) =>
       queryClient.setQueryData(QUEUE_KEY, event.payload),
@@ -186,11 +192,45 @@ export const useNowPlaying = () => {
 
 export const sendControl = (control: PlaybackControl) => commands.playbackControl(control);
 
+/** Puts what a press asks for on the shown player: this device's, or Connect's. */
+const showPressed = (client: QueryClient, connected: boolean, state: PlaybackState) => {
+  if (!connected) {
+    client.setQueryData(PLAYBACK_STATE_KEY, state);
+    return;
+  }
+  client.setQueryData<ConnectStatus>(CONNECT_KEY, (status) =>
+    status?.session ? { ...status, session: { ...status.session, state } } : status,
+  );
+};
+
+/**
+ * Play, Pause or Play/Pause pressed (the button, Space, the system's media keys): the shown player
+ * flips at once, before Rust answers (`playPress.ts`), then the control goes to Rust. A file on
+ * the device never shows a wait; a stream does once Rust says it really waits.
+ */
+export const pressPlayPause = (
+  client: QueryClient,
+  control: Extract<PlaybackControl, { type: 'toggle' | 'play' | 'pause' }>,
+) => {
+  const connected = Boolean(client.getQueryData<ConnectStatus>(CONNECT_KEY)?.session);
+  const state = shownState(client);
+  const active = control.type === 'toggle' ? !isActive(state) : control.type === 'play';
+  if (state?.currentItemId && isActive(state) !== active) {
+    const key = connected ? CONNECT_KEY : PLAYBACK_STATE_KEY;
+    pressPlay(
+      connected ? 'connected' : 'here',
+      // A pause stops the playhead where it is now, not at the last report.
+      { ...state, positionMs: positionAt(state, performance.now()) },
+      active,
+      (next) => showPressed(client, connected, next),
+      () => void client.invalidateQueries({ queryKey: key }),
+    );
+  }
+  return sendControl(control);
+};
+
 /** What Repeat turns to from each mode: off, all, one, off. */
 export const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: 'all', all: 'one', one: 'off' };
-
-export const isActive = (state: PlaybackState | undefined) =>
-  state?.status === 'playing' || state?.status === 'loading' || state?.status === 'buffering';
 
 /**
  * Whether the player really waits for its song: a stream being found or loading, or the engine
@@ -199,6 +239,13 @@ export const isActive = (state: PlaybackState | undefined) =>
  */
 export const isWaiting = (state: PlaybackState | undefined) =>
   state?.waiting ?? (state?.status === 'loading' || state?.status === 'buffering');
+
+/**
+ * Whether the resolver may be finding the song's stream: it loads, and really waits for it. A
+ * downloaded copy, or a song that only resumes, finds nothing.
+ */
+const finding = (state: PlaybackState | undefined) =>
+  state?.status === 'loading' && isWaiting(state);
 
 /**
  * Where the stream comes from: "looking" while another source is looked for (what the song had
@@ -211,7 +258,7 @@ export const sourceNote = (
 ): { kind: 'looking' } | { kind: 'finding' } | { kind: 'via'; source: string } | null => {
   if (state?.lookingForSource) return { kind: 'looking' };
   if (state?.sourceLabel) return { kind: 'via', source: state.sourceLabel };
-  if (item?.source.kind === 'lookup' && state?.status === 'loading') return { kind: 'finding' };
+  if (item?.source.kind === 'lookup' && finding(state)) return { kind: 'finding' };
   return null;
 };
 
@@ -220,7 +267,7 @@ export const useSourceNote = (item: QueueItem | undefined) => {
   const lookup = item?.source.kind === 'lookup';
   const looking = usePlayerSelect((state) => state?.lookingForSource ?? false);
   const label = usePlayerSelect((state) => state?.sourceLabel ?? null);
-  const loading = usePlayerSelect((state) => state?.status === 'loading');
+  const loading = usePlayerSelect(finding);
   if (looking) return { kind: 'looking' } as const;
   if (label) return { kind: 'via', source: label } as const;
   if (lookup && loading) return { kind: 'finding' } as const;

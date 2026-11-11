@@ -3,7 +3,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { usePlatform } from '../lib/usePlatform';
-import { isActive, sendControl, shownQueue, shownState } from '../player/usePlayback';
+import {
+  isActive,
+  pressPlayPause,
+  sendControl,
+  shownQueue,
+  shownState,
+} from '../player/usePlayback';
 
 /** What the session follows in the query cache. */
 const FOLLOWED = new Set(['playbackState', 'queue', 'connect']);
@@ -26,8 +32,8 @@ export const useMediaSession = () => {
   useEffect(() => {
     if (!enabled || !session) return;
     const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
-      ['play', () => void sendControl({ type: 'play' })],
-      ['pause', () => void sendControl({ type: 'pause' })],
+      ['play', () => void pressPlayPause(client, { type: 'play' })],
+      ['pause', () => void pressPlayPause(client, { type: 'pause' })],
       ['nexttrack', () => void sendControl({ type: 'next' })],
       ['previoustrack', () => void sendControl({ type: 'previous' })],
       [
@@ -51,7 +57,7 @@ export const useMediaSession = () => {
         }
       }
     };
-  }, [enabled, session]);
+  }, [enabled, session, client]);
 
   useEffect(() => {
     if (!enabled || !session) return;

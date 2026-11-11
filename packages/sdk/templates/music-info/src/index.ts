@@ -93,13 +93,15 @@ registerProvider(
         .flatMap((relation) => (relation.artist ? [relation.artist.name] : []));
       const span = details['life-span'];
       const begin = span?.begin?.slice(0, 4);
+      // A year alone while they're still active ("1975"), else the span ("1962–1970").
+      const end = span?.ended ? span.end?.slice(0, 4) : undefined;
       return {
         artist: {
           name: details.name,
           kind: details.type ?? null,
           url: `https://musicbrainz.org/artist/${details.id}`,
           origin: details['begin-area']?.name ?? details.area?.name ?? null,
-          active: begin ? `${begin}–${span?.ended ? (span.end?.slice(0, 4) ?? '') : ''}` : null,
+          active: begin ? (end ? `${begin}–${end}` : begin) : null,
           members: [...new Set(members)],
         },
       };

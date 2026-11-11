@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 
 import { usePlayerUiStore } from './playerUiStore';
 import { positionAt } from './useLivePosition';
-import { NEXT_REPEAT, sendControl, shownState } from './usePlayback';
+import { NEXT_REPEAT, pressPlayPause, sendControl, shownState } from './usePlayback';
 
 /** The shortcuts, for the help sheet (M46.8); keys as shown to people. */
 export const PLAYBACK_SHORTCUTS = [
@@ -42,7 +42,7 @@ export const runPlaybackAction = (action: PlaybackAction, client: QueryClient) =
   const volume = state?.volume ?? 1;
   switch (action) {
     case 'playPause':
-      return sendControl({ type: 'toggle' });
+      return pressPlayPause(client, { type: 'toggle' });
     case 'next':
       return sendControl({ type: 'next' });
     case 'previous':

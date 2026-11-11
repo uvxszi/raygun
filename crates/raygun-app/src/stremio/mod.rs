@@ -2146,19 +2146,9 @@ fn release_status(kind: &str, release_info: Option<&str>) -> &'static str {
 
 /// A release range as titles show it: a year with nothing after its dash (a show still running:
 /// "2024–", "2024-", "2024 - ") is the year alone, and anything else ("2019–2023", "1999") stays as
-/// it is. Addons write the open dash; [`release_status`] reads it before it goes.
-pub(crate) fn release_label(text: &str) -> String {
-    let text = text.trim();
-    let open = text.trim_end_matches(|character: char| {
-        character.is_whitespace() || matches!(character, '-' | '–' | '—')
-    });
-    if open.len() < text.len() && open.len() == 4 && open.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        open.to_owned()
-    } else {
-        text.to_owned()
-    }
-}
+/// it is. Addons write the open dash; [`release_status`] reads it before it goes. Artists' years
+/// are shown the same way.
+pub(crate) use raygun_model::year_range_label as release_label;
 
 /// The first four-digit year in a release range.
 fn release_year(text: &str) -> Option<i32> {
