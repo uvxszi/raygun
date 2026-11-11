@@ -1140,7 +1140,14 @@
       return new RegExp(`^(?:${pattern.source})$`, pattern.flags.replace('g', '')).test(s);
     },
     toRegex: (s, args) => K.regex(s, ...args),
-    format: (s, args) => K.format(s, ...args),
+    // `"%.2f".format(Locale.US, n)` too: the locale changes nothing here.
+    format: (s, args) =>
+      K.format(
+        s,
+        ...(args[0] && typeof args[0] === 'object' && args[0].language !== undefined
+          ? args.slice(1)
+          : args),
+      ),
     capitalize: (s) => s.charAt(0).toUpperCase() + s.slice(1),
     replaceFirstChar: async (s, _args, lambda) =>
       s ? KT.str(await lambda(s.charAt(0))) + s.slice(1) : s,
@@ -2444,6 +2451,12 @@
   };
 
   const ANY = {
+    // A data class of Mihon's (`mangasPage.copy(mangas = …)`): the same with the named fields
+    // changed.
+    copy: (value, _args, _lambda, named) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? { ...value, ...(named ?? {}) }
+        : KT.raise("Raygun's runtime has no copy() for this value"),
     // `source().zstdDecompress()`, `sink().zstdCompress()`: what the runtime's own files hold
     // (its memory, never the device's) is kept as it is.
     zstdCompress: (value) => value,
@@ -2529,6 +2542,9 @@
     orEmpty: (_value, _args, _lambda, _named, type) => (type && type.startsWith('List') ? [] : ''),
     toString: () => 'null',
     let: () => null,
+    // `filter?.state.takeUnless(String?::isNullOrBlank)`: null either way.
+    takeIf: () => null,
+    takeUnless: () => null,
     equals: (_value, [other]) => other == null,
     ifEmpty: async (_value, args, lambda) => (lambda ? lambda() : args[0]),
   };
@@ -2709,6 +2725,9 @@
         throw new KotlinError(`${value.__class} has no ${name}`);
       return null;
     }
+    // A constructor's constants (`Filter.TriState.STATE_INCLUDE`).
+    if (kind === 'function' && Object.prototype.hasOwnProperty.call(value, name))
+      return value[name];
     throw new KotlinError(`a value has no ${name}`);
   };
   /// `Owner::name` on one of the runtime's objects: its own function when it has one, else a
@@ -3125,6 +3144,13 @@
     }
     newBuilder() {
       return new HttpUrlBuilder(this);
+    }
+    /// OkHttp's `toUri()`/`toUrl()`: Java's `URI` of this address.
+    toUri() {
+      return javaUri(this.toString());
+    }
+    toUrl() {
+      return javaUri(this.toString());
     }
     resolve(link) {
       try {
@@ -7091,7 +7117,21 @@
       toURI: () => uri,
       toHttpUrl: () => HttpUrl.parse(href),
       toExternalForm: () => href,
+      toASCIIString: () => href,
       buildUpon: () => HttpUrl.parse(href).newBuilder(),
+      // Java's `base.relativize(child)`: the child's path past this one's (with its query and
+      // fragment), or the child itself when it isn't under this one.
+      relativize: (other) => {
+        const child = other && other.__class === 'URI' ? other : javaUri(KT.str(other));
+        if (!parts || child.scheme !== uri.scheme || child.authority !== uri.authority)
+          return child;
+        const base = uri.path.endsWith('/') ? uri.path : `${uri.path}/`;
+        if (child.path !== uri.path && !child.path.startsWith(base)) return child;
+        const rest = child.path === uri.path ? '' : child.path.slice(base.length);
+        const query = child.rawQuery == null ? '' : `?${child.rawQuery}`;
+        const fragment = child.fragment == null ? '' : `#${child.fragment}`;
+        return javaUri(`${rest}${query}${fragment}`);
+      },
       toString: () => href,
       equals: (other) => KT.str(other) === href,
     };
@@ -10158,6 +10198,12 @@
     Sort: (name, values, state = null) =>
       filterObject('Sort', { name, values: [...(values ?? [])], state }),
   };
+  // `Filter.TriState.STATE_INCLUDE`: the states on the constructor too.
+  Object.assign(FILTER_CONSTRUCTORS.TriState, {
+    STATE_IGNORE: 0,
+    STATE_INCLUDE: 1,
+    STATE_EXCLUDE: 2,
+  });
   OBJECTS.Filter = FILTER_CONSTRUCTORS;
   // A lookup by a Kotlin name never finds JavaScript's own (`"x".toString()` is the text, not
   // `Object.prototype.toString`'s "[object Object]").

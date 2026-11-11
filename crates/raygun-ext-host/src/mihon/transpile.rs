@@ -490,6 +490,7 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
             }
         }
     }
+    cx.local_class = Some(local_class_definition);
     for class in chain {
         cx.source_classes.insert(class.name.clone());
         add_members(&mut cx, &class.members, false);
@@ -1018,6 +1019,15 @@ fn own_class_code(
         code.push(class_definition(writer, class, outer)?);
         Ok(code.join(" "))
     })();
+    writer.class_scope = outer_scope;
+    result
+}
+
+/// A class declared in a function's body, defined there (`D.Name = …`) with its own code in its
+/// scope.
+fn local_class_definition(writer: &mut Gen<'_>, class: &ClassDecl) -> Result<String, String> {
+    let outer_scope = writer.class_scope.replace(class.name.clone());
+    let result = class_definition(writer, class, &[]);
     writer.class_scope = outer_scope;
     result
 }

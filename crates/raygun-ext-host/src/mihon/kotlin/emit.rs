@@ -9,6 +9,9 @@ use std::collections::{HashMap, HashSet};
 
 use super::ast::*;
 
+/// How a class declared in a body is written (the transpiler's class definition).
+pub type LocalClass = fn(&mut Gen<'_>, &ClassDecl) -> Result<String, String>;
+
 /// The names a source's class knows besides its locals.
 #[derive(Debug, Default)]
 pub struct Context {
@@ -57,6 +60,9 @@ pub struct Context {
     /// The source's extension functions' parameters by name, each overload's (as `functions`):
     /// named arguments and a trailing lambda past defaults find their places by them.
     pub extension_params: HashMap<String, Vec<Vec<String>>>,
+    /// Writes a class declared in a function (`data class Found(…)` in a body) where it's declared:
+    /// the transpiler's class definition, as for the files' classes.
+    pub local_class: Option<LocalClass>,
     /// The source class's private extension properties (`private val SManga.slug`), which its
     /// declared classes' code can't see: a DTO's own `slug` there is its field.
     pub source_private_extensions: HashSet<String>,
@@ -242,7 +248,7 @@ pub const METHODS: &[&str] = &[
     "getHostName", "lookup", "compile", "drawRoundRect", "setStrokeWidth", "setSaturation",
     "authenticator", "proxyAuthenticator", "floorDiv", "floorMod", "toHeaders", "measureText",
     "getSystemService", "getMemoryInfo", "drawText", "ensureActive", "setTextAlign",
-    "setTextScaleX",
+    "setTextScaleX", "toUri", "toUrl", "toASCIIString", "relativize",
     "getNextEntry", "closeEntry", "zstdCompress", "zstdDecompress", "sink",
     "unescapeEntities", "getProperty", "getValue",
     // Durations and time units (`5.minutes`, `TimeUnit.MILLISECONDS.toDays(ms)`)
@@ -431,6 +437,8 @@ pub struct Gen<'a> {
     /// Local functions with a receiver (`fun Builder.addParam(…)` in a body), by JavaScript name:
     /// their receiver is passed first.
     local_extensions: HashSet<String>,
+    /// Classes declared in the code being written (`data class Found(…)` in a body).
+    local_classes: HashSet<String>,
     /// The lambda depth of each loop being written, innermost last.
     loops: Vec<Loop>,
     /// The loops a `break` or `continue` leaves from a lambda or an expression (by id): their
@@ -570,6 +578,7 @@ impl<'a> Gen<'a> {
             tail_expected: None,
             reified_types: Vec::new(),
             local_extensions: HashSet::new(),
+            local_classes: HashSet::new(),
             loops: Vec::new(),
             jumped: HashSet::new(),
             replaced: HashMap::new(),
@@ -660,7 +669,8 @@ impl<'a> Gen<'a> {
 
     /// A class the source declares, as `name` means it here.
     fn declared_class(&self, name: &str) -> bool {
-        self.cx.classes.contains(name) && !self.imported_from_library(name)
+        (self.cx.classes.contains(name) || self.local_classes.contains(name))
+            && !self.imported_from_library(name)
     }
 
     /// The class a `typealias` names, when the source declares it
@@ -1638,6 +1648,17 @@ impl<'a> Gen<'a> {
                     }
                     let function = self.function(fun)?;
                     format!("const {js} = {function};")
+                }
+                // A class declared here: defined when the code reaches it, named from then on.
+                Member::Class(class)
+                    if class.kind == ClassKind::Class
+                        && !class.modifiers.iter().any(|modifier| modifier == "inner") =>
+                {
+                    let Some(define) = self.cx.local_class else {
+                        return Err(unsupported("a local class"));
+                    };
+                    self.local_classes.insert(class.name.clone());
+                    define(self, class)?
                 }
                 _ => return Err(unsupported("a local class")),
             },

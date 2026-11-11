@@ -3686,6 +3686,12 @@ class MangaDto(val name: String, private val slug: String) {
             payload.manga!!.toSManga().url,
             failed,
             String(listOf('a', 'b').toCharArray()),
+            buildList {
+                data class Found(val name: String, val count: Int)
+
+                listOf("b", "a", "b").groupBy { it }.forEach { (name, all) -> add(Found(name, all.size)) }
+                sortBy { it.name }
+            }.joinToString(",") { "${it.name}${it.count}" },
             "https://h.example/p#%7B%22a%22%3A1%7D".toHttpUrl().fragment!!,
         )
         return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
@@ -3723,5 +3729,8 @@ class MangaDto(val name: String, private val slug: String) {
         .iter()
         .map(|item| item.title.clone())
         .collect();
-    assert_eq!(titles, ["<X>", "<yy]", "p-1", "nfe", "ab", "{\"a\":1}"]);
+    assert_eq!(
+        titles,
+        ["<X>", "<yy]", "p-1", "nfe", "ab", "a1,b2", "{\"a\":1}"]
+    );
 }
