@@ -1,7 +1,13 @@
 // A NuclearPluginAPI built on Raygun's host API (shape from Nuclear's plugin-sdk, AGPL-3.0).
 // Http, Logger, Settings, Providers and Ytdlp (YouTube, over `raygun.youtube`) work; every other
 // domain is a stub that says so.
-import { HeadersPolyfill, ResponsePolyfill } from './polyfills';
+import {
+  BlobPolyfill,
+  HeadersPolyfill,
+  ResponsePolyfill,
+  URLSearchParamsPolyfill,
+  bytesToBase64,
+} from './polyfills';
 import type { NuclearProvider, PluginInfo } from './nuclear-types';
 import { KIND_MAP, wrapProvider } from './providers';
 import { createYtdlp } from './ytdlp';
@@ -44,15 +50,29 @@ const lenient = <T extends object>(domain: string, object: T): T => {
   });
 };
 
+/**
+ * Calls that only listen or set up (`Events.on`, `Queue.subscribeToCurrentItem`,
+ * `Playback.subscribe`): a stubbed domain takes them and never calls back, so a plugin that
+ * listens while it starts still starts (Last.fm listens for played songs to scrobble them).
+ */
+const LISTENS = /^(on|once|off|subscribe|unsubscribe|add\w*Listener|remove\w*Listener|listen)/;
+
+/**
+ * A domain Raygun doesn't offer. Nuclear's API calls are asynchronous, so a call is refused the
+ * same way: a rejected promise, which fails the provider call that awaits it and nothing else (a
+ * plugin that only asks for the playing song while it starts still starts).
+ */
 const unsupported = (domain: string) =>
   new Proxy(
     {},
     {
       get: (_target, property) => {
         if (property === Symbol.toPrimitive || property === 'then') return undefined;
-        return () => {
-          throw new Error(`${domain} isn't available to Nuclear plugins in Raygun yet`);
-        };
+        if (typeof property === 'string' && LISTENS.test(property)) {
+          return () => () => {};
+        }
+        return () =>
+          Promise.reject(new Error(`${domain} isn't available to Nuclear plugins in Raygun yet`));
       },
     },
   );
@@ -75,19 +95,68 @@ const headersRecord = (headers: unknown): Record<string, string> => {
   );
 };
 
+/**
+ * `raygun.http.fetch` with what the host also takes beyond the SDK's types (as converted Mihon
+ * sources use it): a body of bytes in base64, and an answer's bytes when they aren't text.
+ */
+type HostFetch = (
+  url: string,
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body: string | null;
+    bodyBase64?: string;
+    binary?: boolean;
+  },
+) => Promise<{
+  status: number;
+  url: string;
+  headers: Record<string, string>;
+  text(): Promise<string>;
+  bytes?: () => Promise<Uint8Array | null>;
+}>;
+
+/** A request body as `raygun.http.fetch` takes it, and the type it implies. */
+const requestBody = (body: unknown): { body?: string; bodyBase64?: string; type?: string } => {
+  if (body === null || body === undefined) return {};
+  if (typeof body === 'string') return { body };
+  if (body instanceof URLSearchParamsPolyfill) {
+    return { body: body.toString(), type: 'application/x-www-form-urlencoded;charset=UTF-8' };
+  }
+  if (body instanceof BlobPolyfill) {
+    return { bodyBase64: bytesToBase64(body.bytes), type: body.type || undefined };
+  }
+  if (body instanceof ArrayBuffer) return { bodyBase64: bytesToBase64(new Uint8Array(body)) };
+  if (ArrayBuffer.isView(body)) {
+    return {
+      bodyBase64: bytesToBase64(new Uint8Array(body.buffer, body.byteOffset, body.byteLength)),
+    };
+  }
+  return { body: String(body) };
+};
+
 /** `fetch` for plugins, over `raygun.http.fetch` (so the manifest's host permissions apply). */
 export const pluginFetch = async (input: unknown, init: FetchInit = {}) => {
-  const url = String(
+  const request =
     typeof input === 'object' && input !== null && 'url' in input
-      ? (input as { url: string }).url
-      : input,
-  );
-  const response = await raygun.http.fetch(url, {
-    method: init.method ?? 'GET',
-    headers: headersRecord(init.headers),
-    body: typeof init.body === 'string' ? init.body : null,
+      ? (input as FetchInit & { url: string })
+      : null;
+  const url = String(request ? request.url : input);
+  const headers = headersRecord(init.headers ?? request?.headers);
+  const { body, bodyBase64, type } = requestBody(init.body ?? request?.body);
+  if (type && !Object.keys(headers).some((name) => name.toLowerCase() === 'content-type')) {
+    headers['Content-Type'] = type;
+  }
+  const response = await (raygun.http.fetch as HostFetch)(url, {
+    method: init.method ?? request?.method ?? 'GET',
+    headers,
+    body: body ?? null,
+    ...(bodyBase64 === undefined ? {} : { bodyBase64 }),
+    // Bytes that aren't text (a picture, a zip) come as they are; text comes as text.
+    binary: true,
   });
-  return new ResponsePolyfill(await response.text(), {
+  const bytes = typeof response.bytes === 'function' ? await response.bytes() : null;
+  return new ResponsePolyfill(bytes ?? (await response.text()), {
     status: response.status,
     headers: response.headers,
     url: response.url,

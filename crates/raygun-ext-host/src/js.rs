@@ -25,6 +25,7 @@ use crate::browser_check::CheckedRequest;
 use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
 use crate::failure::{Failure, Trouble};
+use crate::heap::{Budget, HeapMeter, HeapPool, Metered, megabytes};
 use crate::html;
 use crate::manifest::{Manifest, Runtime, SettingDef, is_provider_id};
 use crate::permissions::{HostPattern, NetPolicy, is_public_ip};
@@ -52,23 +53,59 @@ const NET_LOG: usize = 32;
 /// How much of a failed answer is kept to tell a browser check from a plain refusal.
 const CHECK_BYTES: usize = 16 * 1024;
 
+/// After a call, a runtime holding this much more than before it is collected.
+const COLLECT_GROWTH: usize = 2 * 1024 * 1024;
+
+/// What a runtime may use. The defaults follow the device's memory (`crate::heap::Budget`).
 #[derive(Debug, Clone)]
 pub struct Limits {
+    /// Most an extension's heap may hold (one written for Raygun).
     pub memory_bytes: usize,
+    /// Most the heap of a converted plugin or script may hold (Nuclear, Miru, LNReader, Mihon):
+    /// code written for a desktop player or a browser keeps whole pages and their data as strings.
+    pub converted_memory_bytes: usize,
+    /// What all runtimes started with these limits hold together, and the most they may.
+    pub pool: HeapPool,
+    /// Most of the lane's stack a script's calls may take (the lane's own is larger).
     pub stack_bytes: usize,
-    /// Longest run of synchronous JS before it is interrupted. The budget restarts whenever a
-    /// call begins or a host request (`fetch`) completes, so time spent waiting doesn't count.
+    /// Longest run of synchronous JS before it is interrupted (regular expressions included).
+    /// The budget restarts whenever a call begins or a host request (`fetch`) completes, so time
+    /// spent waiting doesn't count.
     pub cpu_budget: Duration,
 }
 
 impl Default for Limits {
     fn default() -> Self {
+        let budget = Budget::of_device();
         Self {
-            memory_bytes: 64 * 1024 * 1024,
+            memory_bytes: budget.extension,
+            converted_memory_bytes: budget.converted,
+            pool: HeapPool::new(budget.all),
             stack_bytes: 1024 * 1024,
             cpu_budget: Duration::from_secs(5),
         }
     }
+}
+
+impl Limits {
+    /// The most `manifest`'s runtime may hold.
+    pub fn memory_for(&self, manifest: &Manifest) -> usize {
+        if is_converted(manifest) {
+            self.converted_memory_bytes.max(self.memory_bytes)
+        } else {
+            self.memory_bytes
+        }
+    }
+}
+
+/// Whether an extension runs code written for another app (a converted Nuclear plugin, a Miru
+/// script, an LNReader plugin, a converted Mihon source).
+pub(crate) fn is_converted(manifest: &Manifest) -> bool {
+    manifest.nuclear.is_some()
+        || matches!(
+            manifest.runtime,
+            Runtime::Miru | Runtime::LnReader | Runtime::Mihon
+        )
 }
 
 /// State the native functions share with the extension.
@@ -98,15 +135,24 @@ struct Shared {
 /// What one request met.
 #[derive(Debug, Clone)]
 enum NetEvent {
-    /// The site answered (2xx or 3xx).
-    Answered,
+    /// The site answered (2xx or 3xx) with a body this long.
+    Answered { host: String, bytes: usize },
     /// What went wrong, with the request as it was sent when a browser check answered it.
     Trouble(Trouble, Option<Box<CheckedRequest>>),
 }
 
-/// What a call's requests met: the worst trouble, whether one got a good answer, and the request
-/// a browser check answered when that's the trouble.
-type RequestsMet = (Option<Trouble>, bool, Option<Box<CheckedRequest>>);
+/// What a call's requests met.
+#[derive(Debug, Default)]
+struct RequestsMet {
+    /// The worst trouble.
+    trouble: Option<Trouble>,
+    /// Whether one got a good answer.
+    answered: bool,
+    /// The request a browser check answered, when that's the trouble.
+    checked: Option<Box<CheckedRequest>>,
+    /// The longest good answer: its site and size.
+    largest: Option<(String, usize)>,
+}
 
 impl Shared {
     fn restart_budget(&self) {
@@ -121,15 +167,21 @@ impl Shared {
         log.push_back((Instant::now(), event));
     }
 
-    /// The worst trouble requests met since `since` (the first of the worst), whether one got a
-    /// good answer, and the request that met a browser check when that's the trouble.
+    /// What requests met since `since`: the worst trouble (the first of the worst), whether one
+    /// got a good answer, the request that met a browser check when that's the trouble, and the
+    /// longest answer.
     fn since(&self, since: Instant) -> RequestsMet {
         let log = self.net_log.borrow();
         let mut worst: Option<(&Trouble, Option<&CheckedRequest>)> = None;
-        let mut answered = false;
+        let mut met = RequestsMet::default();
         for (_, event) in log.iter().filter(|(at, _)| *at >= since) {
             match event {
-                NetEvent::Answered => answered = true,
+                NetEvent::Answered { host, bytes } => {
+                    met.answered = true;
+                    if met.largest.as_ref().is_none_or(|(_, most)| bytes > most) {
+                        met.largest = Some((host.clone(), *bytes));
+                    }
+                }
                 NetEvent::Trouble(trouble, checked) => {
                     if worst.is_none_or(|(worst, _)| trouble.kind.weight() > worst.kind.weight()) {
                         worst = Some((trouble, checked.as_deref()));
@@ -137,10 +189,11 @@ impl Shared {
                 }
             }
         }
-        let checked = worst
+        met.checked = worst
             .and_then(|(_, checked)| checked.cloned())
             .map(Box::new);
-        (worst.map(|(trouble, _)| trouble.clone()), answered, checked)
+        met.trouble = worst.map(|(trouble, _)| trouble.clone());
+        met
     }
 
     /// Resolves once no call is running.
@@ -197,9 +250,14 @@ impl Drop for WakeDriver {
 
 pub struct JsExtension {
     shared: Rc<Shared>,
+    /// What its runtime's heap holds, and the most it may.
+    heap: Arc<HeapMeter>,
+    memory_limit: usize,
+    /// What all runtimes of its host hold together, and the most they may.
+    pool: HeapPool,
     // Field order matters: the context must drop before its runtime.
     context: AsyncContext,
-    _runtime: AsyncRuntime,
+    runtime: AsyncRuntime,
 }
 
 impl JsExtension {
@@ -228,6 +286,7 @@ impl JsExtension {
             Runtime::Mihon => Some(crate::mihon::runtime::Prepared::new(&code)?),
             _ => None,
         };
+        let memory_limit = limits.memory_for(&manifest);
         let policy = Arc::new(manifest.net.clone());
         let client =
             extension_client(policy.clone(), cookies.clone()).map_err(|error| error.to_string())?;
@@ -252,13 +311,18 @@ impl JsExtension {
         // Requests made while the script sets up belong to the load.
         let loading = Running::new(&shared);
 
-        let runtime = AsyncRuntime::new().map_err(|error| error.to_string())?;
+        let heap = Arc::new(HeapMeter::default());
+        let runtime = AsyncRuntime::new_with_alloc(Metered {
+            meter: heap.clone(),
+            pool: limits.pool.clone(),
+        })
+        .map_err(|error| error.to_string())?;
         // Drives the extension's own futures (its fetches) whatever call is waiting on them. Without
         // it they're polled by the last call into the runtime: two calls at once (a title's details
         // and episodes) left one waiting forever when the other finished first (M46.45). Ends when
         // the runtime is dropped. The host runs extensions on a `LocalSet`.
         tokio::task::spawn_local(runtime.drive());
-        runtime.set_memory_limit(limits.memory_bytes).await;
+        runtime.set_memory_limit(memory_limit).await;
         runtime.set_max_stack_size(limits.stack_bytes).await;
         runtime
             .set_interrupt_handler(Some(Box::new(move || Instant::now() > deadline.get())))
@@ -269,6 +333,7 @@ impl JsExtension {
 
         let filename = format!("{}/{}", shared.manifest.id, shared.manifest.entry);
         let natives = shared.clone();
+        let nuclear = shared.manifest.nuclear.is_some();
         shared.restart_budget();
         context
             .with(move |ctx| -> Result<(), String> {
@@ -302,7 +367,15 @@ impl JsExtension {
                         },
                         &filename,
                     ),
-                    (None, None) => eval_script(&ctx, &code, &filename, true),
+                    (None, None) => {
+                        // A converted Nuclear plugin's shim takes what the web gives it in a
+                        // webview and the `raygun` API lacks (`crate::nuclear::install_natives`).
+                        if nuclear {
+                            crate::nuclear::install_natives(&ctx)
+                                .map_err(|error| error.to_string())?;
+                        }
+                        eval_script(&ctx, &code, &filename, true)
+                    }
                 }
             })
             .await?;
@@ -329,13 +402,26 @@ impl JsExtension {
 
         Ok(Self {
             shared,
+            heap,
+            memory_limit,
+            pool: limits.pool.clone(),
             context,
-            _runtime: runtime,
+            runtime,
         })
     }
 
     pub fn manifest(&self) -> &Manifest {
         &self.shared.manifest
+    }
+
+    /// What its runtime's heap holds.
+    pub(crate) fn heap(&self) -> &Arc<HeapMeter> {
+        &self.heap
+    }
+
+    /// The most its runtime's heap may hold.
+    pub(crate) fn memory_limit(&self) -> usize {
+        self.memory_limit
     }
 
     /// The user's values for this extension's settings (defaults not included).
@@ -370,8 +456,11 @@ impl JsExtension {
         let _wake_driver = WakeDriver(self.context.clone());
         let _running = Running::new(&self.shared);
         let started = Instant::now();
+        let (held_before, peak_before) = (self.heap.now(), self.heap.peak());
+        let refused_before = self.heap.refused();
         let (provider, method, args) = (provider.to_owned(), method.to_owned(), args.to_string());
         let label = format!("{}/{provider}.{method}", self.shared.manifest.id);
+        let call_label = label.clone();
         self.shared.restart_budget();
         let answer = self
             .context
@@ -383,24 +472,101 @@ impl JsExtension {
                 let promise: Promise = call
                     .call((provider, method, args))
                     .catch(&ctx)
-                    .map_err(|error| call_error(&label, error))?;
+                    .map_err(|error| call_error(&call_label, error))?;
                 let text: String = promise
                     .into_future::<String>()
                     .await
                     .catch(&ctx)
-                    .map_err(|error| call_error(&label, error))?;
+                    .map_err(|error| call_error(&call_label, error))?;
                 serde_json::from_str(&text).map_err(|error| error.to_string())
             })
             .await;
-        answer.map_err(|message| {
-            let (trouble, answered, checked) = self.shared.since(started);
+        let peak = self.heap.peak();
+        if peak > peak_before && peak > self.memory_limit / 4 * 3 {
+            tracing::info!(
+                call = %label,
+                peak_mb = format_args!("{:.1}", megabytes(peak)),
+                limit_mb = format_args!("{:.0}", megabytes(self.memory_limit)),
+                "a call took most of its runtime's memory"
+            );
+        }
+        let answer = answer.map_err(|message| {
+            let met = self.shared.since(started);
+            let message = match crate::failure::exhaustion(&message) {
+                Some(what) => {
+                    let pooled = self.heap.refused() > refused_before;
+                    self.account(what, &message, peak, pooled, &met)
+                }
+                None => message,
+            };
             Failure {
                 message,
-                trouble,
-                answered,
-                checked,
+                trouble: met.trouble,
+                answered: met.answered,
+                checked: met.checked,
             }
-        })
+        });
+        self.collect_after(held_before).await;
+        answer
+    }
+
+    /// What the script threw when it ran out of `what`, with the runtime's account of it: what
+    /// it held (`peak`) against its limit (or all sources' together, when the pool refused it:
+    /// `pooled`), and the longest answer it was reading.
+    fn account(
+        &self,
+        what: crate::Exhaustion,
+        message: &str,
+        peak: usize,
+        pooled: bool,
+        met: &RequestsMet,
+    ) -> String {
+        let reading = met
+            .largest
+            .as_ref()
+            .filter(|(_, bytes)| *bytes >= 64 * 1024)
+            .map(|(host, bytes)| {
+                format!(", reading {host}'s answer of {:.1} MB", megabytes(*bytes))
+            })
+            .unwrap_or_default();
+        let account = match what {
+            crate::Exhaustion::Memory if pooled => format!(
+                "all sources together may hold {:.0} MB, and the others held the rest; it held \
+                 up to {:.1} MB{reading}",
+                megabytes(self.pool.limit()),
+                megabytes(peak)
+            ),
+            // QuickJS refuses an allocation before making it, so what it held is what it had
+            // when it asked for more.
+            crate::Exhaustion::Memory => format!(
+                "a source of its kind may hold {:.0} MB; it held up to {:.1} MB when it asked for \
+                 more{reading}",
+                megabytes(self.memory_limit),
+                megabytes(peak)
+            ),
+            crate::Exhaustion::Time => format!(
+                "it ran script for {} s without waiting{reading}",
+                self.shared.cpu_budget.as_secs_f64()
+            ),
+            crate::Exhaustion::Stack => "its calls nested deeper than its stack allows".to_owned(),
+        };
+        format!("{}\n{account}", message.trim())
+    }
+
+    /// Collects the runtime's garbage after a call that left it holding much more than before,
+    /// or a good part of its limit: objects that refer to each other aren't freed by reference
+    /// counting, and would otherwise wait for a collection QuickJS starts only as it grows.
+    async fn collect_after(&self, held_before: usize) {
+        let held = self.heap.now();
+        if held > held_before + COLLECT_GROWTH || held > self.memory_limit / 4 {
+            self.runtime.run_gc().await;
+            tracing::debug!(
+                extension = %self.shared.manifest.id,
+                before_mb = format_args!("{:.1}", megabytes(held)),
+                after_mb = format_args!("{:.1}", megabytes(self.heap.now())),
+                "collected after a call"
+            );
+        }
     }
 
     /// A YouTube video's audio stream from Raygun's YouTube module, asked through this
@@ -1071,7 +1237,13 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
                     let checked = checked(&trouble);
                     NetEvent::Trouble(trouble, checked)
                 }
-                None => NetEvent::Answered,
+                None => NetEvent::Answered {
+                    host: url_host(&response.url),
+                    bytes: response
+                        .bytes
+                        .as_ref()
+                        .map_or(response.body.len(), Vec::len),
+                },
             });
             Ok(response)
         }
@@ -1192,6 +1364,14 @@ async fn exchange(
         },
         trouble,
     ))
+}
+
+/// The host an address names, for messages.
+fn url_host(address: &str) -> String {
+    Url::parse(address)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .unwrap_or_else(|| address.to_owned())
 }
 
 /// Whether a `Content-Type` names text (a page, JSON, a script), which is read as such even when

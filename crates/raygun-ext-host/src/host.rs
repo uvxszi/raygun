@@ -37,7 +37,9 @@ use crate::content::ContentFilter;
 use crate::cookies::CookieJar;
 use crate::failure::{self, Failure};
 use crate::fanout::{self, Asked, Health, Plan, Turns};
+use crate::heap::{HeapMeter, HeapUse};
 use crate::js::{JsExtension, Limits};
+use crate::late::{Found, LateCalls, StopOnDrop};
 use crate::manifest::{self, MANIFEST_FILE, Manifest, Runtime};
 use crate::servers::ServerExtension;
 use crate::shosetsu::ShosetsuExtension;
@@ -67,6 +69,39 @@ const CATALOG_SEARCHES: usize = 6;
 
 /// Longest tag name kept from a provider.
 const MAX_TAG_CHARS: usize = 60;
+
+/// How long a source gets when nobody waits on the answer (charts, tags, recommendations, and
+/// anything run [`in_background`]): slow sources, such as converted plugins that scrape whole
+/// pages, get there in the end.
+pub const BACKGROUND_TIMEOUT: Duration = Duration::from_secs(30);
+
+tokio::task_local! {
+    /// Set while work nobody waits on runs ([`in_background`]).
+    static BACKGROUND: ();
+}
+
+/// Runs `work` as work nobody waits on (a download, the next song found ahead): calls it makes
+/// that give a source [`INTERACTIVE_TIMEOUT`] give it [`BACKGROUND_TIMEOUT`] instead, and they
+/// don't count as calls someone waits on ([`interactive_calls`]). Calls started on other tasks
+/// (spawned) aren't covered.
+pub async fn in_background<F: std::future::Future>(work: F) -> F::Output {
+    BACKGROUND.scope((), work).await
+}
+
+/// Whether the current task runs [`in_background`].
+pub fn is_background() -> bool {
+    BACKGROUND.try_with(|()| ()).is_ok()
+}
+
+/// How long a call someone may be waiting on gives a source: [`INTERACTIVE_TIMEOUT`], or
+/// [`BACKGROUND_TIMEOUT`] [`in_background`].
+pub fn waiting_limit() -> Duration {
+    if is_background() {
+        BACKGROUND_TIMEOUT
+    } else {
+        INTERACTIVE_TIMEOUT
+    }
+}
 
 /// Calls someone waits on running now (searches, stream lookups, lyrics…), in every host.
 static INTERACTIVE_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -245,12 +280,27 @@ pub enum CallError {
     /// No answer in the time allowed.
     #[error("{name} didn't answer in time\nno answer within {} seconds", .after.as_secs())]
     Timeout { name: String, after: Duration },
+    /// No answer yet in the time someone waits; the call goes on, and asking again gets its
+    /// answer (`crate::late`).
+    #[error(
+        "{name} is still working on it — try again in a moment\nno answer within {} seconds; it goes on in the background",
+        .waited.as_secs()
+    )]
+    StillWorking { name: String, waited: Duration },
     /// The call failed; the issue says why.
     #[error("{0}")]
     Failed(Issue),
     /// The source's own words for what went wrong.
     #[error("{}", said(.name, .message))]
     Said { name: String, message: String },
+    /// The script needed more than a source may use (`crate::heap`, `Limits`); `detail` is what
+    /// its runtime threw and what it held.
+    #[error("{}\n{detail}", .what.summary(.name))]
+    Exhausted {
+        name: String,
+        what: Exhaustion,
+        detail: String,
+    },
     /// Not asked: the source failed again and again lately and sits out a while. Its last
     /// failure stands in for the answer.
     #[error("{last}\nnot asked for a while after failing {failures} times in a row")]
@@ -262,12 +312,35 @@ pub enum CallError {
     HostStopped,
 }
 
+/// What a script ran out of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exhaustion {
+    /// Its runtime's memory limit (or its host's, for all runtimes together).
+    Memory,
+    /// Its time for script without a pause (`Limits::cpu_budget`).
+    Time,
+    /// Its stack, calls nested too deep.
+    Stack,
+}
+
+impl Exhaustion {
+    /// The sentence for `source` running out of this.
+    pub fn summary(self, source: &str) -> String {
+        match self {
+            Self::Memory => format!("{source} needed more memory than a source may use"),
+            Self::Time => format!("{source} kept the processor busy too long"),
+            Self::Stack => format!("{source}'s script went too deep"),
+        }
+    }
+}
+
 impl CallError {
     /// What kind of failure it is, when the network or the site tells.
     pub fn kind(&self) -> Option<IssueKind> {
         match self {
-            Self::Timeout { .. } => Some(IssueKind::Timeout),
+            Self::Timeout { .. } | Self::StillWorking { .. } => Some(IssueKind::Timeout),
             Self::Failed(issue) => Some(issue.kind),
+            Self::Exhausted { .. } => Some(IssueKind::ExtensionFailed),
             Self::Resting { last, .. } => last.kind(),
             _ => None,
         }
@@ -283,6 +356,7 @@ impl CallError {
         match self {
             Self::Failed(issue) => issue.detail.clone(),
             Self::Said { message, .. } => message.clone(),
+            Self::Exhausted { detail, .. } => detail.clone(),
             Self::Resting { last, .. } => last.detail(),
             other => other.to_string(),
         }
@@ -336,6 +410,20 @@ struct LoadItem {
     secret: Option<String>,
 }
 
+/// How much an extension weighs on its lane: code written for other apps parses whole pages
+/// in script; Shosetsu scripts and servers run their work elsewhere.
+fn lane_weight(item: &LoadItem) -> usize {
+    match item.manifest.runtime {
+        Runtime::Shosetsu | Runtime::Server => 0,
+        _ if crate::js::is_converted(&item.manifest) => 3,
+        _ => 1,
+    }
+}
+
+/// Each lane's own stack: QuickJS may use at most half of it ([`Limits::stack_bytes`] is held
+/// to that), the rest is for Rust's frames around the script's.
+const LANE_STACK_BYTES: usize = 8 * 1024 * 1024;
+
 /// Handle to the host; cheap to clone and usable from any thread or runtime.
 #[derive(Clone)]
 pub struct ExtensionHost {
@@ -354,7 +442,14 @@ struct HostShared {
     challenges: Arc<Challenges>,
     /// What searches read of sources' listings lately (`crate::listing_search`).
     listings: crate::listing_search::Listings,
+    /// The heaps of loaded JavaScript extensions, noted by the lanes as they load them.
+    heaps: Heaps,
+    /// Calls someone waited on that went on past their time.
+    late: LateCalls,
 }
+
+/// Each loaded JavaScript extension's heap meter and memory limit, by extension id.
+type Heaps = Arc<std::sync::Mutex<HashMap<String, (Arc<HeapMeter>, usize)>>>;
 
 /// What's loaded, as of the last load.
 #[derive(Default)]
@@ -369,33 +464,41 @@ struct Directory {
     miru: std::collections::HashSet<String>,
 }
 
-/// How long background asks (charts, tags) give one source.
-const BACKGROUND_TIMEOUT: Duration = Duration::from_secs(30);
+/// A fan-out's own limit outlasts its calls' by this much: a call someone waits on hands its
+/// source over to the background at its own limit (`crate::late`), which a fan-out's limit
+/// reached first would stop.
+const PLAN_GRACE: Duration = Duration::from_secs(2);
 
 fn plan(timeout: Duration) -> Plan {
     Plan {
         concurrency: FAN_OUT_CONCURRENCY,
-        timeout,
+        timeout: timeout + PLAN_GRACE,
         skip_resting: true,
     }
 }
 
 impl ExtensionHost {
-    pub fn start(config: HostConfig) -> std::io::Result<Self> {
+    pub fn start(mut config: HostConfig) -> std::io::Result<Self> {
         let count = if config.lanes == 0 {
             default_lanes()
         } else {
             config.lanes
         };
+        // A script's stack must end before its lane's does, or a deep one would crash the app
+        // rather than fail with "stack overflow".
+        config.limits.stack_bytes = config.limits.stack_bytes.min(LANE_STACK_BYTES / 2);
         let challenges = Arc::new(Challenges::default());
+        let heaps = Heaps::default();
         let mut lanes = Vec::with_capacity(count);
         for index in 0..count {
             let (requests, receiver) = mpsc::unbounded_channel();
             let config = config.clone();
             let challenges = challenges.clone();
+            let heaps = heaps.clone();
             std::thread::Builder::new()
                 .name(format!("raygun-ext-{index}"))
-                .spawn(move || run_lane(config, receiver, challenges))?;
+                .stack_size(LANE_STACK_BYTES)
+                .spawn(move || run_lane(config, receiver, challenges, heaps))?;
             lanes.push(requests);
         }
         Ok(Self {
@@ -408,7 +511,35 @@ impl ExtensionHost {
                 storage_dir: config.storage_dir.clone(),
                 challenges,
                 listings: crate::listing_search::Listings::default(),
+                heaps,
+                late: LateCalls::default(),
             }),
+        })
+    }
+
+    /// The lane a loaded extension runs on.
+    #[cfg(test)]
+    pub(crate) fn lane_of(&self, extension_id: &str) -> Option<usize> {
+        self.directory().lanes.get(extension_id).copied()
+    }
+
+    /// What a loaded JavaScript extension's heap holds, the most it held since its peak was
+    /// last taken (`take_peak` takes it, so the next read starts over), and its limit.
+    pub fn heap_use(&self, extension_id: &str, take_peak: bool) -> Option<HeapUse> {
+        let heaps = self
+            .shared
+            .heaps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let (meter, limit) = heaps.get(extension_id)?;
+        Some(HeapUse {
+            now: meter.now(),
+            peak: if take_peak {
+                meter.take_peak()
+            } else {
+                meter.peak()
+            },
+            limit: *limit,
         })
     }
 
@@ -482,9 +613,11 @@ impl ExtensionHost {
                 _ => fresh.push(item),
             }
         }
+        // A new extension goes to the lane with the least work: converted plugins and scripts
+        // weigh more, as they parse whole pages in script.
         for item in fresh {
             let lane = (0..count)
-                .min_by_key(|lane| batches[*lane].len())
+                .min_by_key(|lane| batches[*lane].iter().map(lane_weight).sum::<usize>())
                 .unwrap_or_default();
             batches[lane].push(item);
         }
@@ -520,11 +653,16 @@ impl ExtensionHost {
             infos.extend(loaded);
         }
         infos.sort_by_key(|info| info.name.to_lowercase());
-        let lanes = infos
+        let lanes: HashMap<String, usize> = infos
             .iter()
             .filter(|info| info.status == ExtensionStatus::Loaded)
             .filter_map(|info| Some((info.id.clone(), *placed.get(&info.id)?)))
             .collect();
+        self.shared
+            .heaps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|id, _| lanes.contains_key(id));
         let names = infos
             .iter()
             .flat_map(|info| &info.providers)
@@ -662,18 +800,109 @@ impl ExtensionHost {
     }
 
     /// Calls `method` on a provider (its full `<extension>/<provider>` id), JSON in and out.
-    /// A call someone is waiting on (M46.17): a search or a stream lookup gives up after
-    /// [`INTERACTIVE_TIMEOUT`], so one source that never answers doesn't hold up the others.
-    /// Counted while it runs ([`interactive_calls`]).
+    /// A call someone is waiting on (M46.17): a search or a stream lookup waits
+    /// [`INTERACTIVE_TIMEOUT`] for the answer, so one source that never answers doesn't hold up
+    /// the others. A source still working then goes on in the background, up to
+    /// [`BACKGROUND_TIMEOUT`], and [`CallError::StillWorking`] says so; asking the same again gets
+    /// its answer (`crate::late`). Counted while someone waits ([`interactive_calls`]).
+    /// [`in_background`], it's an ordinary call with [`BACKGROUND_TIMEOUT`].
     pub async fn call_interactive(
         &self,
         provider: &str,
         method: &str,
         args: serde_json::Value,
     ) -> Result<serde_json::Value, CallError> {
+        if is_background() {
+            return self
+                .call_within(provider, method, args, BACKGROUND_TIMEOUT)
+                .await;
+        }
         let _counted = Interactive::start();
-        self.call_within(provider, method, args, INTERACTIVE_TIMEOUT)
-            .await
+        self.call_or_go_on(
+            provider,
+            method,
+            args,
+            INTERACTIVE_TIMEOUT,
+            BACKGROUND_TIMEOUT,
+        )
+        .await
+    }
+
+    /// [`Self::call_within`] `limit`, waiting `wait` for the answer: a call still going then goes
+    /// on in the background ([`crate::late`]) and [`CallError::StillWorking`] says so; the same
+    /// ask again gets its answer, or waits `wait` again for it. Dropped before `wait`, the call
+    /// stops, as any call nobody waits for.
+    pub(crate) async fn call_or_go_on(
+        &self,
+        provider: &str,
+        method: &str,
+        args: serde_json::Value,
+        wait: Duration,
+        limit: Duration,
+    ) -> Result<serde_json::Value, CallError> {
+        let key = crate::late::key(provider, method, &args);
+        let still_working = || CallError::StillWorking {
+            name: self.provider_name(provider),
+            waited: wait,
+        };
+        match self.shared.late.find(&key) {
+            Some(Found::Answer(answer)) => return answer,
+            Some(Found::Running(mut running)) => {
+                return match tokio::time::timeout(wait, running.wait_for(Option::is_some)).await {
+                    Ok(Ok(answer)) => {
+                        let answer = answer.clone().unwrap_or(Err(CallError::HostStopped));
+                        self.shared.late.forget(&key);
+                        answer
+                    }
+                    Ok(Err(_)) => Err(CallError::HostStopped),
+                    Err(_) => Err(still_working()),
+                };
+            }
+            None => {}
+        }
+        let started = std::time::Instant::now();
+        let host = self.clone();
+        let (provider_id, method_name) = (provider.to_owned(), method.to_owned());
+        let mut task = StopOnDrop(Some(tokio::spawn(async move {
+            host.call_within(&provider_id, &method_name, args, limit)
+                .await
+        })));
+        let Some(running) = task.0.as_mut() else {
+            return Err(CallError::HostStopped);
+        };
+        if let Ok(joined) = tokio::time::timeout(wait, running).await {
+            return joined.unwrap_or(Err(CallError::HostStopped));
+        }
+        // When this one doesn't go on, it stops as `task` is dropped.
+        let answer_to = match self.shared.late.going_on(&key) {
+            Ok(answer_to) => answer_to,
+            // The same ask, started alongside, goes on already.
+            Err(crate::late::NotKept::Already) => return Err(still_working()),
+            Err(crate::late::NotKept::Full) => {
+                return Err(CallError::Timeout {
+                    name: self.provider_name(provider),
+                    after: wait,
+                });
+            }
+        };
+        let Some(running) = task.keep() else {
+            return Err(CallError::HostStopped);
+        };
+        let shared = self.shared.clone();
+        let provider_id = provider.to_owned();
+        tokio::spawn(async move {
+            let answer = running.await.unwrap_or(Err(CallError::HostStopped));
+            shared
+                .health
+                .record(&provider_id, answer.as_ref().map(|_| ()), started.elapsed());
+            if let Err(error) = &answer {
+                tracing::debug!(provider = %provider_id, %error, "a late call failed");
+            }
+            // Kept first: an ask waiting on it takes it (`forget`), so it's handed over once.
+            shared.late.answered(&key, answer.clone());
+            answer_to.send_replace(Some(answer));
+        });
+        Err(still_working())
     }
 
     /// Like [`Self::call`], giving up after `limit`; the extension stops working on it then.
@@ -908,7 +1137,7 @@ impl ExtensionHost {
         if !listings.enabled || !nothing || query.trim().is_empty() {
             return search_result(asked);
         }
-        let deadline = (started + INTERACTIVE_TIMEOUT)
+        let deadline = (started + waiting_limit())
             .max(tokio::time::Instant::now() + crate::listing_search::LEAST_TIME);
         match self
             .listing_songs(&asked.provider, query, listings, deadline)
@@ -941,7 +1170,7 @@ impl ExtensionHost {
         fanout::fan_out(
             &self.shared.health,
             providers,
-            plan(INTERACTIVE_TIMEOUT),
+            plan(waiting_limit()),
             move |provider| {
                 let args = args.clone();
                 async move {
@@ -983,7 +1212,7 @@ impl ExtensionHost {
         let asks = fanout::fan_out(
             &self.shared.health,
             providers,
-            plan(INTERACTIVE_TIMEOUT),
+            plan(waiting_limit()),
             |provider| {
                 let args = args.clone();
                 async move {
@@ -1025,7 +1254,7 @@ impl ExtensionHost {
         let asks = fanout::fan_out(
             &self.shared.health,
             providers,
-            plan(INTERACTIVE_TIMEOUT),
+            plan(waiting_limit()),
             |provider| {
                 let args = args.clone();
                 async move { self.call_interactive(&provider.id, "lyrics", args).await }
@@ -1176,7 +1405,7 @@ impl ExtensionHost {
         let asks = fanout::fan_out(
             &self.shared.health,
             providers,
-            plan(INTERACTIVE_TIMEOUT),
+            plan(waiting_limit()),
             |provider| {
                 let args = args.clone();
                 async move {
@@ -1246,7 +1475,7 @@ impl ExtensionHost {
         let mut answers = std::pin::pin!(fanout::fan_out(
             &self.shared.health,
             providers,
-            plan(INTERACTIVE_TIMEOUT),
+            plan(waiting_limit()),
             |provider| {
                 let args = args.clone();
                 async move { self.call_interactive(&provider.id, method, args).await }
@@ -1340,7 +1569,7 @@ impl ExtensionHost {
         let asks = fanout::fan_out(
             &self.shared.health,
             providers,
-            plan(INTERACTIVE_TIMEOUT),
+            plan(waiting_limit()),
             |provider| {
                 let args = args.clone();
                 async move { self.call_interactive(&provider.id, method, args).await }
@@ -1384,7 +1613,7 @@ impl ExtensionHost {
         let asks = fanout::fan_out(
             &self.shared.health,
             providers,
-            plan(INTERACTIVE_TIMEOUT),
+            plan(waiting_limit()),
             |provider| {
                 let args = args.clone();
                 async move { self.call_interactive(&provider.id, "tagSongs", args).await }
@@ -1545,7 +1774,7 @@ impl ExtensionHost {
                     &provider,
                     "artist",
                     serde_json::json!({ "name": name }),
-                    INTERACTIVE_TIMEOUT,
+                    waiting_limit(),
                 )
                 .await;
             match answer {
@@ -1572,7 +1801,7 @@ impl ExtensionHost {
         });
         for provider in self.in_turn(MUSIC_INFO).await {
             match self
-                .ask_in_turn(&provider, "credits", args.clone(), INTERACTIVE_TIMEOUT)
+                .ask_in_turn(&provider, "credits", args.clone(), waiting_limit())
                 .await
             {
                 Ok(value) => {
@@ -1587,7 +1816,7 @@ impl ExtensionHost {
     }
 
     /// Asks a provider for the stream behind one of its candidates, for `using` (M46.51). A play
-    /// or a download waits on it, so it gives up after [`INTERACTIVE_TIMEOUT`].
+    /// or a download waits on it, so it gives up after [`waiting_limit`].
     pub async fn resolve_stream(
         &self,
         provider_id: &str,
@@ -1599,7 +1828,7 @@ impl ExtensionHost {
             args["targetKbps"] = serde_json::json!(using.quality.kbps());
         }
         let value = self
-            .call_within(provider_id, "resolve", args, INTERACTIVE_TIMEOUT)
+            .call_within(provider_id, "resolve", args, waiting_limit())
             .await?;
         let source = value
             .get("source")
@@ -1809,12 +2038,15 @@ struct LaneState {
     loaded: RefCell<BTreeMap<String, Rc<Extension>>>,
     /// Where calls that fail on a browser check are noted (the host's).
     challenges: Arc<Challenges>,
+    /// Where the heaps of loaded JavaScript extensions are noted (the host's).
+    heaps: Heaps,
 }
 
 fn run_lane(
     config: HostConfig,
     mut receiver: mpsc::UnboundedReceiver<Request>,
     challenges: Arc<Challenges>,
+    heaps: Heaps,
 ) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1832,6 +2064,7 @@ fn run_lane(
             config,
             loaded: RefCell::new(BTreeMap::new()),
             challenges,
+            heaps,
         });
         while let Some(request) = receiver.recv().await {
             let state = state.clone();
@@ -1948,6 +2181,12 @@ impl LaneState {
                     let info = loaded_info(&extension, origin);
                     tracing::info!(extension = %id, providers = info.providers.len(), "extension loaded");
                     infos.push(info);
+                    if let Extension::Js(js) = &extension {
+                        self.heaps
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .insert(id.clone(), (js.heap().clone(), js.memory_limit()));
+                    }
                     self.loaded.borrow_mut().insert(id, Rc::new(extension));
                 }
                 Err(error) => {

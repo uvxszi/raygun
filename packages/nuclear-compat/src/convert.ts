@@ -99,7 +99,7 @@ const slug = (name: string) =>
  * plugins converted by an older one as updates (M46.9.1); keep `CONVERTER_VERSION` in
  * `raygun-ext-host::nuclear` equal to it.
  */
-export const CONVERTER_VERSION = 4;
+export const CONVERTER_VERSION = 5;
 
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 

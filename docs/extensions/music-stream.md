@@ -13,7 +13,9 @@ same song asks again only when that one stops working.
 | `candidates` | `{ title, artist, album, durationMs, limit, targetKbps? }` | `{ candidates: StreamCandidate[] }`     | yes      |
 | `resolve`    | `{ id, targetKbps?, decodable }`                          | `{ source: MediaSource, expiresAt? }`   | no       |
 
-Both have 12 s. `artist`, `album` and `durationMs` may be `null`.
+Both have 12 s when someone waits to play the song (a source still working on `candidates` then
+goes on in the background, and asking again gets its answer), 30 s for downloads and the songs
+found ahead. `artist`, `album` and `durationMs` may be `null`.
 
 ### Candidates
 

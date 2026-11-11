@@ -397,6 +397,94 @@ async fn the_lrclib_plugin_answers_lyrics_through_the_shim() {
     );
 }
 
+/// What a webview gives plugins and QuickJS lacks, as converted plugins get it: `DOMParser`
+/// over pages kept in Rust (Bandcamp, KHInsider, Kugou), Web Crypto (Spotify's web token,
+/// Subsonic's salts) and `fetch` itself, run in the real runtime.
+#[tokio::test]
+async fn converted_plugins_parse_pages_and_use_web_crypto() {
+    let mut files = BTreeMap::new();
+    files.insert(
+        "package.json".to_owned(),
+        json!({ "name": "nuclear-plugin-probe", "version": "1.0.0", "main": "index.ts",
+                "nuclear": { "categories": ["lyrics"] } })
+        .to_string(),
+    );
+    files.insert(
+        "index.ts".to_owned(),
+        r#"
+        const PAGE = `<html><head><title> Songs </title></head><body>
+          <table id="songs" class="list wide">
+            <tr data-track-id="7"><td class="name"><a href="/a">One &amp; Two</a></td><td>3:20</td></tr>
+            <tr><td class="name"><a href="/b">Three</a></td><td>4:00</td></tr>
+          </table>
+          <script data-tralbum='{"id":42}'></script></body></html>`;
+        const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+        export default {
+          onEnable(api) {
+            api.Providers.register({ id: 'probe', kind: 'lyrics', name: 'Probe', async getLyrics() {
+              const doc = new DOMParser().parseFromString(PAGE, 'text/html');
+              const rows = Array.from(doc.querySelectorAll('#songs tr'));
+              const encoder = new TextEncoder();
+              const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode('abc')));
+              const key = await crypto.subtle.importKey('raw', encoder.encode('key'), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+              const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode('The quick brown fox jumps over the lazy dog')));
+              const lines = [
+                rows.map((row) => row.querySelector('td.name a')?.textContent).join('|'),
+                rows[1].querySelector('a').getAttribute('href'),
+                doc.querySelector('a').closest('table')?.id + ' ' + doc.querySelector('table').classList.contains('wide'),
+                rows[0].dataset.trackId + ' ' + rows[0].children.length + ' ' + rows[0].nextElementSibling?.querySelector('td:nth-child(2)')?.textContent,
+                String(JSON.parse(doc.querySelector('script[data-tralbum]').getAttribute('data-tralbum')).id),
+                doc.title + ' ' + doc.documentElement.tagName,
+                new DOMParser().parseFromString('Tom &amp; Jerry', 'text/html').documentElement.textContent,
+                hex(digest).slice(0, 16),
+                hex(mac),
+                String(crypto.getRandomValues(new Uint8Array(32)).some((byte) => byte !== 0)),
+                ((uuid) => uuid[14] + ' ' + uuid.length)(crypto.randomUUID()),
+                String(typeof fetch),
+              ];
+              return { type: 'plain', metadata: {}, sections: [{ lines: lines.map((text) => ({ segments: [{ text }] })) }] };
+            } });
+          },
+        };"#
+        .to_owned(),
+    );
+    let converted = nuclear::convert(&files).unwrap();
+    let host = ExtensionHost::start(HostConfig::default()).unwrap();
+    let infos = host.load(vec![extension(&converted)]).await;
+    assert_eq!(
+        infos[0].status,
+        raygun_model::ExtensionStatus::Loaded,
+        "{:?}",
+        infos[0].error
+    );
+    let answer = host
+        .call(
+            "nuclear.nuclear-plugin-probe/probe",
+            "lyrics",
+            json!({ "title": "x", "artist": null, "album": null, "durationMs": null }),
+        )
+        .await
+        .unwrap();
+    let lines: Vec<&str> = answer["plain"].as_str().unwrap().lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "One & Two|Three",
+            "/b",
+            "songs true",
+            "7 2 4:00",
+            "42",
+            "Songs HTML",
+            "Tom & Jerry",
+            "ba7816bf8f01cfea",
+            "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9",
+            "true",
+            "4 36",
+            "function",
+        ]
+    );
+}
+
 #[test]
 fn ui_only_plugins_are_rejected_with_a_reason() {
     let mut files = BTreeMap::new();

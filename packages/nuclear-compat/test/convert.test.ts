@@ -216,21 +216,54 @@ describe('convertPlugin', () => {
       import { jsx } from 'react/jsx-runtime';
       import { Button } from '@nuclearplayer/ui';
       export default {
-        onEnable(api) {
+        async onEnable(api) {
           const view = jsx(Button, {});
-          try { api.Queue.addToQueue([]); } catch (error) { api.Logger.info(String(error)); }
-          api.Providers.register({ id: 'l', kind: 'lyrics', name: 'L', getLyrics: async () => ({ type: 'instrumental', metadata: {} }) });
+          // Listening while it starts is taken (and never called back); other calls refuse.
+          const stop = api.Events.on('trackFinished', () => {});
+          api.Queue.subscribeToCurrentItem(() => {});
+          stop();
+          const refused = await api.Queue.addToQueue([]).catch((error) => String(error));
+          api.Providers.register({ id: 'l', kind: 'lyrics', name: 'L', getLyrics: async () => ({ type: 'instrumental', metadata: { refused } }) });
           return view && undefined;
         },
       };`;
     const { bundle, report } = convertPlugin(files, shim);
-    expect(report.stubbedApis).toEqual(['Queue']);
+    expect(report.stubbedApis).toEqual(['Queue', 'Events']);
     expect(report.uiImports).toEqual(['@nuclearplayer/ui', 'react/jsx-runtime']);
     const { providers } = await runBundle(bundle);
     const lyrics = providers[0] as Registered;
     expect(
       await lyrics.lyrics({ title: 'x', artist: null, album: null, durationMs: null }),
     ).toBeNull();
+  });
+
+  it('finds modules beside an entry at the plugin root (Bandcamp Dashboard)', async () => {
+    const files: Record<string, string> = {
+      'package.json': JSON.stringify({
+        name: 'nuclear-plugin-rooted',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        nuclear: { categories: ['lyrics'] },
+      }),
+      'client.ts': `export const words = () => 'from the client';`,
+      'index.ts': `
+        import { words } from './client.ts';
+        export default {
+          onEnable(api) {
+            api.Providers.register({ id: 'l', kind: 'lyrics', name: 'L', getLyrics: async () => ({ type: 'plain', metadata: {}, sections: [{ lines: [{ segments: [{ text: words() }] }] }] }) });
+          },
+        };`,
+    };
+    const { bundle } = convertPlugin(files, shim);
+    const { providers } = await runBundle(bundle);
+    expect(
+      await (providers[0] as Registered).lyrics({
+        title: 'x',
+        artist: null,
+        album: null,
+        durationMs: null,
+      }),
+    ).toEqual({ plain: 'from the client' });
   });
 
   it('declares providers the code registers beyond its categories (OmniSource)', async () => {
@@ -249,7 +282,14 @@ describe('convertPlugin', () => {
         async onEnable(api) {
           const panel = document.createElement('div');
           panel.classList.add('mini');
+          panel.style.setProperty('--accent', 'red');
+          panel.animate([], { duration: 1 }).play();
           document.body.appendChild(panel);
+          document.fonts.ready;
+          window.addEventListener('resize', () => {});
+          window.requestAnimationFrame(() => { throw new Error('no frames are drawn'); });
+          new window.MutationObserver(() => {}).observe(document.body, { childList: true });
+          if (window.matchMedia('(prefers-color-scheme: dark)').matches) throw new Error('no page');
           api.Settings.registerWidget('test', () => null);
           await api.Settings.somethingNewer({ id: 'x' });
           api.Providers.register({ id: 'l', kind: 'lyrics', name: 'L', getLyrics: async () => ({ type: 'instrumental', metadata: {} }) });

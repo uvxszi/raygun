@@ -2,6 +2,8 @@
 // lifecycle (onLoad, onEnable). Mirrors how Nuclear's PluginLoader evaluates plugins.
 import { createApi } from './api';
 import type { NuclearPlugin, PluginInfo } from './nuclear-types';
+// React and Nuclear's UI kit don't run headless; any use of them is inert.
+import { inert } from './polyfills';
 
 type ModuleFunction = (
   exports: object,
@@ -13,7 +15,8 @@ type ModuleFunction = (
 
 const EXTENSIONS = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'];
 
-const dirname = (path: string) => path.replace(/\/[^/]*$/, '') || '.';
+/** The folder a module is in: '' for one at the plugin's root. */
+const dirname = (path: string) => (path.includes('/') ? path.replace(/\/[^/]*$/, '') : '');
 
 const join = (base: string, relative: string) => {
   const parts: string[] = [];
@@ -23,13 +26,6 @@ const join = (base: string, relative: string) => {
   }
   return parts.join('/');
 };
-
-/** React and Nuclear's UI kit don't run headless; any use of them is inert. */
-const inert: unknown = new Proxy(function inertStub() {}, {
-  get: (_target, property) => (property === Symbol.toPrimitive ? () => '' : inert),
-  apply: () => inert,
-  construct: () => inert as object,
-});
 
 export type Definitions = Record<string, ModuleFunction>;
 

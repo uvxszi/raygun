@@ -158,7 +158,7 @@ fn yes() -> bool {
     true
 }
 
-fn crypto(args: &str) -> Result<String, String> {
+pub(crate) fn crypto(args: &str) -> Result<String, String> {
     let args: CryptoArgs =
         serde_json::from_str(args).map_err(|error| format!("invalid arguments: {error}"))?;
     let engine = base64::engine::general_purpose::STANDARD;

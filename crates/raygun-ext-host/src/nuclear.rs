@@ -12,7 +12,7 @@ use crate::package::{MAX_PACKAGE_BYTES, PackageError};
 const CONVERTER: &str = include_str!("../assets/nuclear-converter.js");
 /// The converter's `CONVERTER_VERSION`: installed plugins converted by an older one are offered
 /// again as updates (M46.9.1). Conversions from before it was stamped count as 1.
-pub const CONVERTER_VERSION: u32 = 4;
+pub const CONVERTER_VERSION: u32 = 5;
 /// Sucrase's parser recurses deeply on large files; give it room.
 const CONVERTER_STACK_BYTES: usize = 16 * 1024 * 1024;
 const CONVERTER_MEMORY_BYTES: usize = 256 * 1024 * 1024;
@@ -122,6 +122,59 @@ pub fn convert(files: &BTreeMap<String, String>) -> Result<Converted, String> {
             report,
         }),
     }
+}
+
+/// Most random bytes one ask gives (Web Crypto's `getRandomValues` limit).
+const MAX_RANDOM_BYTES: usize = 65_536;
+
+/// What the shim gets beyond the `raygun` API, as `__rgNuclear` (taken and removed before the
+/// plugin runs): documents parsed and queried here (`DOMParser`), digests and HMACs, and random
+/// bytes (`crypto`).
+pub(crate) fn install_natives(ctx: &rquickjs::Ctx<'_>) -> rquickjs::Result<()> {
+    use rquickjs::{Function, Object};
+
+    use crate::js::{err, ok};
+
+    let envelope = |result: Result<serde_json::Value, String>| match result {
+        Ok(value) => ok(value),
+        Err(message) => err(message),
+    };
+    let natives = Object::new(ctx.clone())?;
+    let documents = std::rc::Rc::new(crate::lnreader::dom::Documents::default());
+    natives.set(
+        "dom",
+        Function::new(ctx.clone(), move |op: String, args: String| {
+            envelope(documents.run(&op, &args))
+        })?,
+    )?;
+    natives.set(
+        "crypto",
+        Function::new(ctx.clone(), move |args: String| {
+            envelope(crate::mihon::runtime::crypto(&args).map(serde_json::Value::String))
+        })?,
+    )?;
+    natives.set(
+        "random",
+        Function::new(ctx.clone(), move |count: f64| {
+            use base64::Engine as _;
+            let count = if count.is_finite() {
+                (count.max(0.0) as usize).min(MAX_RANDOM_BYTES)
+            } else {
+                0
+            };
+            let mut bytes = vec![0; count];
+            envelope(
+                getrandom::fill(&mut bytes)
+                    .map(|()| {
+                        serde_json::Value::String(
+                            base64::engine::general_purpose::STANDARD.encode(&bytes),
+                        )
+                    })
+                    .map_err(|error| format!("no random bytes: {error}")),
+            )
+        })?,
+    )?;
+    ctx.globals().set("__rgNuclear", natives)
 }
 
 fn run_converter(input: &str) -> Result<String, String> {

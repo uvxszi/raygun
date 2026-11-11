@@ -691,7 +691,17 @@ async fn interrupts_runaway_scripts() {
     let host = provider_host("if (args.spin) { for (;;) {} } return 'ok';").await;
     let error = run(&host, json!({ "spin": true })).await.unwrap_err();
     assert_eq!(error.kind(), Some(raygun_net::IssueKind::ExtensionFailed));
-    assert!(error.detail().contains("ran too long"), "{error}");
+    assert!(
+        matches!(
+            error,
+            CallError::Exhausted {
+                what: crate::Exhaustion::Time,
+                ..
+            }
+        ),
+        "{error}"
+    );
+    assert!(error.detail().contains("without waiting"), "{error}");
     // The extension keeps working afterwards.
     assert_eq!(run(&host, json!({})).await.unwrap(), json!("ok"));
 }

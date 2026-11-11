@@ -92,13 +92,24 @@ impl Health {
     }
 
     /// Notes how a call went. Calls that didn't reach the source (missing calls, stopped ones,
-    /// skipped ones) say nothing about it.
+    /// skipped ones) say nothing about it; one still going (`StillWorking`) says only that the
+    /// source is slow, as its own outcome is noted when it comes.
     pub fn record(&self, provider: &str, outcome: Result<(), &CallError>, elapsed: Duration) {
+        if let Err(CallError::StillWorking { .. }) = outcome {
+            let mut records = self.records();
+            let record = records.entry(provider.to_owned()).or_default();
+            let ms = elapsed.as_secs_f64() * 1000.0;
+            record.latency_ms = Some(record.latency_ms.map_or(ms, |old| old * 0.7 + ms * 0.3));
+            return;
+        }
         let counts = match outcome {
             Ok(()) => true,
             Err(error) => matches!(
                 error,
-                CallError::Timeout { .. } | CallError::Failed(_) | CallError::Said { .. }
+                CallError::Timeout { .. }
+                    | CallError::Failed(_)
+                    | CallError::Said { .. }
+                    | CallError::Exhausted { .. }
             ),
         };
         if !counts {
@@ -140,12 +151,14 @@ impl Health {
 }
 
 /// The kind of failure that makes a source sit out: the site's (a timeout, a refusal, a browser
-/// check, limits, server trouble). The extension's own mistakes don't (they may only concern
-/// some asks), and neither does this device being offline (every source would sit out after
-/// the connection came back).
+/// check, limits, server trouble), and a script that runs out of memory or time (each try costs
+/// this device as much again, and every search would wait for it). The extension's other
+/// mistakes don't (they may only concern some asks), and neither does this device being offline
+/// (every source would sit out after the connection came back).
 fn rest_kind(error: &CallError) -> Option<IssueKind> {
     let kind = match error {
         CallError::Timeout { .. } => IssueKind::Timeout,
+        CallError::Exhausted { .. } => return Some(IssueKind::ExtensionFailed),
         CallError::Failed(issue) => issue.kind,
         _ => return None,
     };
@@ -568,6 +581,30 @@ mod tests {
             health.record(&offline, Err(&failure(IssueKind::Offline)), Duration::ZERO);
         }
         assert!(health.resting(&offline).is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sources_that_keep_running_out_of_memory_or_time_sit_out() {
+        let health = Health::default();
+        let exhausted = |what| CallError::Exhausted {
+            name: "P".into(),
+            what,
+            detail: "InternalError: out of memory".into(),
+        };
+        for what in [crate::Exhaustion::Memory, crate::Exhaustion::Time] {
+            let id = format!("dev.test.{what:?}/p");
+            for _ in 0..REST_AFTER - 1 {
+                health.record(&id, Err(&exhausted(what)), Duration::from_secs(2));
+            }
+            assert!(health.resting(&id).is_none(), "not after one bad call");
+            health.record(&id, Err(&exhausted(what)), Duration::from_secs(2));
+            let resting = health.resting(&id).expect("sits out");
+            assert!(
+                resting.to_string().starts_with("P "),
+                "its own failure answers meanwhile: {resting}"
+            );
+            assert_eq!(resting.kind(), Some(IssueKind::ExtensionFailed));
+        }
     }
 
     #[tokio::test(start_paused = true)]
