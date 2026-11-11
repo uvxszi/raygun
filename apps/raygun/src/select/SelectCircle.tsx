@@ -51,6 +51,7 @@ export const SelectCircle: FC<{
         : 'pointer-events-none opacity-0 group-hover/pick:pointer-events-auto group-hover/pick:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100'
     } ${className ?? PLACES[place]}`}
   >
-    <Check aria-hidden size={14} strokeWidth={3} />
+    {/* Unpicked, the tick is see-through: lists of hundreds don't draw one for each. */}
+    {checked && <Check aria-hidden size={14} strokeWidth={3} />}
   </button>
 );

@@ -165,6 +165,7 @@ async fn source_groups(
                 failed: None,
                 mismatch: false,
                 height: link.quality,
+                size: None,
                 request: video_sources::link_request(&row, unit, single, link),
             })
             .collect()
@@ -211,6 +212,7 @@ mod tests {
             group: None,
             chapters: Vec::new(),
             anime: None,
+            live: false,
         }
     }
 
@@ -221,6 +223,7 @@ mod tests {
             failed: None,
             mismatch,
             height: Some(height),
+            size: None,
             request: request(url, None),
         }
     }

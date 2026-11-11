@@ -235,6 +235,8 @@ impl DurationService {
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
             loop {
+                // Offline Mode, or Data Saver's part for background lookups: queued until they end.
+                crate::network_mode::wait_for_lookups().await;
                 let next = service
                     .queue
                     .lock()

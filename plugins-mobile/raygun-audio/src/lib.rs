@@ -477,6 +477,15 @@ impl<R: Runtime> NativeAudio<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Offline Mode in the main webview: while `on`, it loads nothing from the network, only from
+    /// this device (`OfflineGate.kt`).
+    #[cfg(target_os = "android")]
+    pub fn offline_gate(&self, on: bool) -> Result<(), String> {
+        self.run::<serde_json::Value>("setOfflineGate", serde_json::json!({ "on": on }))
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     /// Lets the app hear multicast (mDNS) while held: Connect listens for devices (M46.15).
     #[cfg(target_os = "android")]
     pub fn multicast(&self, hold: bool) -> Result<(), String> {

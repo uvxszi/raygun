@@ -14,6 +14,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useLayout } from '../layout/useLayout';
+import { OfflineRow } from '../network/OfflineSwitch';
 import { IncognitoRow } from '../privacy/IncognitoSwitch';
 import { PrefLink } from '../settings/prefs';
 import { useNavTabs } from '../shell/navTabs';
@@ -84,6 +85,7 @@ export const MorePage: FC = () => {
         }
       />
       <IncognitoRow />
+      <OfflineRow />
       {tabRows.length > 0 && (
         <ul aria-label={t('more.otherTabs')} className="border-surface flex flex-col border-b pb-2">
           {tabRows.map(link)}

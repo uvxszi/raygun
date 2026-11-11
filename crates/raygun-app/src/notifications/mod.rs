@@ -698,9 +698,13 @@ fn model_download(progress: &AiModelProgress, title: String) -> Option<Download>
     })
 }
 
-/// A waiting download whose queue battery saver holds shows as held, not as about to start.
+/// A waiting download whose queue battery saver holds shows as held, not as about to start;
+/// Offline Mode holds every queue.
 fn hold(mut download: Download, held: bool) -> Download {
-    if held && download.phase == Phase::Queued && download.kind.waits_in_battery_saver() {
+    if held
+        && download.phase == Phase::Queued
+        && (download.kind.waits_in_battery_saver() || raygun_net::network_mode::offline())
+    {
         download.phase = Phase::Held;
     }
     download

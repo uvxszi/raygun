@@ -66,6 +66,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             .unwrap_or_default();
     let cache_prefs = startup_settings.cache;
     crate::device_state::set_downloads_allowed(startup_settings.downloads_in_battery_saver);
+    // Offline Mode and Data Saver, before anything can send a request.
+    crate::network_mode::start_with(&startup_settings.network);
     let caches = crate::caches::Caches::new(&paths, &cache_prefs);
     let proxy = tauri::async_runtime::block_on(raygun_net::StreamProxy::start_with(
         raygun_net::http_client()?,
@@ -383,6 +385,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     video_downloads.start();
     podcasts.start();
     crate::device_state::install(app.handle());
+    crate::network_mode::install(app.handle());
     crate::tts::install(app.handle());
     crate::video::install(app.handle());
     crate::websites::install(app.handle());

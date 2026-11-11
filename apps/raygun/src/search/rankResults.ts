@@ -11,9 +11,21 @@ const simple = (text: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 
+/** The query last scored against, made simple once for every title it's compared with. */
+let lastQuery = '';
+let lastWanted = '';
+
+const simpleQuery = (query: string) => {
+  if (query !== lastQuery) {
+    lastQuery = query;
+    lastWanted = simple(query);
+  }
+  return lastWanted;
+};
+
 /** How well `title` answers `query`: exact, then starts with it, then shares its words. */
 export const titleScore = (title: string, query: string) => {
-  const wanted = simple(query);
+  const wanted = simpleQuery(query);
   const found = simple(title);
   if (!wanted || !found) return 0;
   if (found === wanted) return 100;

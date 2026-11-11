@@ -4,8 +4,9 @@ import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PrefAction, PrefGroup } from '../settings/prefs';
+import { PrefAction, PrefGroup, PrefSwitch } from '../settings/prefs';
 import { Problem } from '../settings/Problem';
+import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { useAppUpdate, useAppUpdateActions } from './useAppUpdate';
 import { useBundledNotes } from './useReleaseNotes';
 import { WhatsNewSheet } from './WhatsNewSheet';
@@ -39,6 +40,8 @@ export const AppUpdateCard: FC = () => {
   const { t } = useTranslation();
   const update = useAppUpdate();
   const { check, install, openPage } = useAppUpdateActions();
+  const settings = useSettings().data;
+  const updateSetting = useUpdateSetting();
   const checkedWhen = useCheckedWhen();
   const bundled = useBundledNotes().data ?? [];
   const [notes, setNotes] = useState<'next' | 'bundled' | null>(null);
@@ -105,6 +108,11 @@ export const AppUpdateCard: FC = () => {
         {info.available && info.installKind === 'portable' && (
           <li className="text-muted px-1 py-2 text-sm">{t('updater.portableHint')}</li>
         )}
+        {info.available && info.skipped && (
+          <li data-testid="update-skipped" className="text-muted px-1 py-2 text-sm">
+            {t('updater.skippedNote')}
+          </li>
+        )}
         {info.available ? (
           <PrefAction
             icon={selfUpdates(info) ? Download : ExternalLink}
@@ -137,6 +145,14 @@ export const AppUpdateCard: FC = () => {
           <li className="px-1 py-2">
             <Problem title={failure.title} detail={failure.detail} />
           </li>
+        )}
+        {settings && (
+          <PrefSwitch
+            title={t('updater.autoCheck')}
+            summary={t('updater.autoCheckSummary')}
+            checked={settings.checkUpdates ?? true}
+            onChange={(on) => updateSetting.mutate({ key: 'checkUpdates', value: on })}
+          />
         )}
         <PrefAction
           icon={FolderGit2}

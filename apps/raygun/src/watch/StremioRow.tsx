@@ -4,6 +4,7 @@ import { CheckSquare, ChevronRight, Clapperboard } from 'lucide-react';
 import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { CARD_MENU_CLASS, CardPlayButton } from '../manga/CardPlayButton';
 import { usePlayTitle, useTitleCardMenu } from '../manga/titleMenu';
 import type { CardTitle } from '../manga/titleMenu';
@@ -12,6 +13,7 @@ import { Carousel } from '../shell/Carousel';
 import { MenuButton } from '../shell/MenuButton';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SourceTag } from '../shell/SourceTag';
+import { useDrawnCount } from '../shell/useDrawnCount';
 import { useInView } from '../shell/useInView';
 import { Selectable } from '../select/Selectable';
 import { useInSelectionScope } from '../select/scopeContext';
@@ -63,22 +65,41 @@ const stremioCard = (item: StremioItem): CardTitle => ({
   link: { to: '/watch/title', search: { type: item.kind, id: item.id } },
 });
 
+/** What every card of a row shares, worked out once for the row rather than for each card. */
+type CardActions = {
+  t: TFunction;
+  menu: ReturnType<typeof useTitleCardMenu>;
+  play: ReturnType<typeof usePlayTitle>;
+  /** In search a card can be picked (M46.50). */
+  pickable: boolean;
+};
+
+const useCardActions = (): CardActions => {
+  const { t } = useTranslation();
+  const menu = useTitleCardMenu();
+  const play = usePlayTitle();
+  const pickable = useInSelectionScope();
+  return { t, menu, play, pickable };
+};
+
 /**
  * A movie, series or channel: the card opens its page, the play button plays it, and ⋮, a right
  * click or a long press opens its full menu.
  */
-export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({
+export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({ item, className }) => {
+  const actions = useCardActions();
+  return <CardBody item={item} className={className} actions={actions} />;
+};
+
+const CardBody: FC<{ item: StremioItem; className?: string; actions: CardActions }> = ({
   item,
   className = '',
+  actions: { t, menu, play, pickable },
 }) => {
-  const { t } = useTranslation();
-  const menu = useTitleCardMenu();
-  const play = usePlayTitle();
   const name = item.name || item.id;
   // In search a card can be picked (M46.50): a long press, a right click or the circle on its top
   // left picks it, ⋮ on its top right opens the menu (with Select); the box around it then takes
   // the card's size.
-  const pickable = useInSelectionScope();
   const picked = {
     kind: 'title' as const,
     medium: 'video' as const,
@@ -166,18 +187,26 @@ const RowHeading: FC<{
   );
 };
 
-const Cards: FC<{ items: StremioItem[] }> = ({ items }) => (
-  <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
-    {items.slice(0, 20).map((item) => (
-      <li
-        key={item.id}
-        className={item.posterShape === 'landscape' ? 'w-48 shrink-0' : 'w-28 shrink-0'}
-      >
-        <StremioCard item={item} />
-      </li>
-    ))}
-  </Carousel>
-);
+/** Cards a row draws at once (more than a screen's width), the rest of its 20 just after. */
+const FIRST_CARDS = 6;
+
+const Cards: FC<{ items: StremioItem[] }> = ({ items }) => {
+  const actions = useCardActions();
+  const shown = items.slice(0, 20);
+  const drawn = useDrawnCount(shown.length, FIRST_CARDS, shown.length, shown[0]?.id ?? '');
+  return (
+    <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
+      {shown.slice(0, drawn).map((item) => (
+        <li
+          key={item.id}
+          className={item.posterShape === 'landscape' ? 'w-48 shrink-0' : 'w-28 shrink-0'}
+        >
+          <CardBody item={item} actions={actions} />
+        </li>
+      ))}
+    </Carousel>
+  );
+};
 
 /** Placeholder cards while a row loads, the size of the real ones. */
 const Placeholder: FC = () => (

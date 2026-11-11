@@ -78,6 +78,11 @@ class MulticastArgs {
 }
 
 @InvokeArg
+class OfflineGateArgs {
+    var on: Boolean = false
+}
+
+@InvokeArg
 class CastKeepAliveArgs {
     var on: Boolean = false
     var title: String = ""
@@ -984,6 +989,14 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         invoke.resolve()
     }
 
+    // ---- Offline Mode: the main webview loads nothing from the network while it's on ----
+
+    @Command
+    fun setOfflineGate(invoke: Invoke) {
+        OfflineGate.on = invoke.parseArgs(OfflineGateArgs::class.java).on
+        invoke.resolve()
+    }
+
     // ---- Play on TV: Raygun keeps running while a TV plays from it ----
 
     @Command
@@ -996,37 +1009,66 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
 
     // ---- Audio quality (M46.18): mobile data has its own setting ----
 
-    /** What an output is, for Devices (M46.43); outputs nobody picks (the earpiece, calls) are left out. */
-    private fun outputKind(type: Int): String? = when (type) {
-        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
-        AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired"
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "bluetooth"
-        AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> "usb"
-        AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC -> "hdmi"
-        else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            (type == AudioDeviceInfo.TYPE_BLE_HEADSET || type == AudioDeviceInfo.TYPE_BLE_SPEAKER)
-        ) "bluetooth" else null
-    }
+    private fun audioManager(): AudioManager? =
+        activity.applicationContext.getSystemService(AudioManager::class.java)
 
     private fun outputs(): List<AudioDeviceInfo> {
-        val manager = activity.applicationContext.getSystemService(AudioManager::class.java) ?: return emptyList()
-        return manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter { outputKind(it.type) != null }
+        val manager = audioManager() ?: return emptyList()
+        return manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter { outputKindOf(it.type) != null }
     }
 
-    /** The outputs sound can go to now (M46.43): speaker, wired and Bluetooth headphones, USB, HDMI. */
+    /** Where Android sends music without a pick (Android 13 and later say; null before). */
+    private fun systemOutput(): AudioDeviceInfo? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+        val music = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+        return runCatching { audioManager()?.getAudioDevicesForAttributes(music)?.firstOrNull() }.getOrNull()
+    }
+
+    /** The listed output `device` is, by id, else by kind and address, else by kind alone. */
+    private fun listedId(device: AudioDeviceInfo?, listed: List<AudioDeviceInfo>): String? {
+        if (device == null) return null
+        val match = listed.firstOrNull { sameOutput(it, device) }
+            ?: listed.firstOrNull { outputKindOf(it.type) != null && outputKindOf(it.type) == outputKindOf(device.type) }
+        return match?.id?.toString()
+    }
+
+    /**
+     * The outputs sound can go to now (M46.43): speaker, wired and Bluetooth headphones, USB,
+     * HDMI; the one picked; where the playing song's sound goes (`routed`: the native player's
+     * track as Android routes it, or Android's own choice for YouTube's player, which plays where
+     * Android sends it, `web`); Android's choice without a pick (`system`); and whether Android
+     * kept the song elsewhere than picked (`refused`).
+     */
     @Command
     fun audioOutputs(invoke: Invoke) {
+        val listed = outputs()
         val list = JSArray()
-        for (device in outputs()) {
+        for (device in listed) {
             list.put(
                 JSObject()
                     .put("id", device.id.toString())
                     .put("name", device.productName?.toString().orEmpty())
-                    .put("kind", outputKind(device.type)),
+                    .put("kind", outputKindOf(device.type)),
             )
         }
-        val chosen = RaygunSound.output?.id?.toString()
-        invoke.resolve(JSObject().put("outputs", list).put("chosen", chosen))
+        val service = RaygunPlaybackService.instance
+        val system = systemOutput()
+        val native = if (loadId != null) service?.routedOutput() else null
+        val state = mirrorState
+        val web = native == null && loadId == null && state != null && state.web && state.status == "playing"
+        val routed = native ?: if (web) system else null
+        invoke.resolve(
+            JSObject()
+                .put("outputs", list)
+                .put("chosen", RaygunSound.output?.id?.toString())
+                .put("routed", listedId(routed, listed))
+                .put("system", listedId(system, listed))
+                .put("web", web)
+                .put("refused", native != null && service?.outputRefused == true),
+        )
     }
 
     /** Plays through one output, or (no id) wherever Android sends sound. */
@@ -1034,6 +1076,10 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
     fun setAudioOutput(invoke: Invoke) {
         val args = invoke.parseArgs(AudioOutputArgs::class.java)
         val device = args.id?.let { id -> outputs().firstOrNull { it.id.toString() == id } }
+        if (args.id != null && device == null) {
+            invoke.reject("That output isn't connected any more")
+            return
+        }
         RaygunSound.output = device
         Handler(Looper.getMainLooper()).post { RaygunPlaybackService.instance?.applyOutput(device) }
         invoke.resolve()

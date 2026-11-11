@@ -1,4 +1,5 @@
 import type { OnlineTrack } from '@raygun/bindings';
+import { memo } from 'react';
 import type { FC } from 'react';
 
 import { TrackMoreButton } from '../collections/TrackMoreButton';
@@ -28,8 +29,11 @@ type OnlineTrackRowProps = {
   sourceListed?: boolean;
 };
 
-/** A search result. Tracks without a stream get one from the resolver when they play (M14). */
-export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
+/**
+ * A search result. Tracks without a stream get one from the resolver when they play (M14). Drawn
+ * again only when its own props change: lists give every row one `onPlay`.
+ */
+const OnlineTrackRowView: FC<OnlineTrackRowProps> = ({
   track,
   onPlay,
   source,
@@ -84,3 +88,5 @@ export const OnlineTrackRow: FC<OnlineTrackRowProps> = ({
     </Selectable>
   );
 };
+
+export const OnlineTrackRow = memo(OnlineTrackRowView);

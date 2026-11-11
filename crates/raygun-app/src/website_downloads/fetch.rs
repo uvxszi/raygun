@@ -249,6 +249,13 @@ pub async fn fetch(
                     let _ = file.flush().await;
                     return Err(Failure::Cancelled);
                 }
+                // Offline Mode stops it where it is.
+                () = raygun_net::network_mode::went_offline() => {
+                    let _ = file.flush().await;
+                    return Err(Failure::Transient(
+                        raygun_net::network_mode::OFFLINE_MESSAGE.to_owned(),
+                    ));
+                }
             };
             let chunk = match chunk {
                 Err(_) => {

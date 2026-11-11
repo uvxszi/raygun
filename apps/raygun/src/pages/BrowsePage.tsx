@@ -1,5 +1,5 @@
 import type { ContentOverride, ExtensionInfo, MangaSource } from '@raygun/bindings';
-import { useIsFetching } from '@tanstack/react-query';
+import { notifyManager, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Compass,
@@ -14,7 +14,15 @@ import {
   Square,
   SquareCheck,
 } from 'lucide-react';
-import { Fragment, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -36,6 +44,7 @@ import { matchesSearch } from '../shell/useListSearch';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import { Tabs } from '../shell/Tabs';
 import { BrowseAll } from '../music/BrowseAll';
+import { useOfflineItem } from '../network/useNetworkMode';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { useRememberSearch } from '../search/useRecentSearches';
 import { SearchPanel } from '../search/SearchPanel';
@@ -542,13 +551,33 @@ const SourcesList: FC = () => {
 };
 
 /**
+ * Whether anything is loading. `useIsFetching` counts every query at every event of the cache,
+ * and a list of results adds and removes query observers by the hundred as it's drawn: this looks
+ * again only when a query's own state changes.
+ */
+const useAnyFetching = () => {
+  const client = useQueryClient();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const changed = notifyManager.batchCalls(onChange);
+      return client.getQueryCache().subscribe((event) => {
+        if (event.type === 'updated' || event.type === 'removed') changed();
+      });
+    },
+    [client],
+  );
+  const fetching = useCallback(() => client.isFetching() > 0, [client]);
+  return useSyncExternalStore(subscribe, fetching, fetching);
+};
+
+/**
  * The search bar's spinner while anything loads. Kept apart from the page: following every
  * fetch in the app redrew all of Browse (an open extension catalogue too) each time one started
  * or ended.
  */
 const SearchingMark: FC = () => {
   const { t } = useTranslation();
-  const fetching = useIsFetching() > 0;
+  const fetching = useAnyFetching();
   return fetching ? (
     <LoaderCircle
       aria-label={t('search.searching')}
@@ -588,6 +617,7 @@ export const BrowsePage: FC = () => {
   const updateSetting = useUpdateSetting();
   const failingAtEnd = settings?.failingSourcesLast ?? true;
   const incognitoItem = useIncognitoItem();
+  const offlineItem = useOfflineItem();
   const { tab = firstTab, list = 'installed', q = '', type = 'all', view, pill } = current;
   const navigate = useNavigate({ from: '/browse' });
   const catalogRefresh = useCatalogRefresh(list);
@@ -674,6 +704,7 @@ export const BrowsePage: FC = () => {
         },
         { label: t('sources.title'), icon: Puzzle, to: '/sources' },
         incognitoItem,
+        offlineItem,
         {
           label: t('layout.editBrowse'),
           icon: LayoutList,

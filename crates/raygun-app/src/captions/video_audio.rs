@@ -4,11 +4,15 @@
 //! - HLS is read a segment at a time: MPEG-TS segments give up their AAC or MP3 stream through a
 //!   small demuxer, fragmented MP4 ones are decoded after their init section, AES-128 ones are
 //!   decrypted first.
+//! - live HLS (a playlist without `#EXT-X-ENDLIST`) is read again as it grows; its segments are
+//!   placed on the player's own clock from a [`LiveAnchor`] the player reports, so cues line up
+//!   with what it shows ([`LiveHls`]).
 //!
 //! Blocking: call from `spawn_blocking`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::time::{Duration, Instant};
 
 use aes::cipher::block_padding::Pkcs7;
 use aes::cipher::{BlockDecryptMut, KeyIvInit};
@@ -25,27 +29,71 @@ const CHUNK: u64 = 1 << 20;
 const SAMPLES_PER_MS: u64 = raygun_ai::speech::SAMPLE_RATE as u64 / 1000;
 /// Decoded HLS segments kept, since windows overlap.
 const KEPT_SEGMENTS: usize = 4;
+/// A live stream's segments kept placed on the clock (some hours of a DVR window).
+const MAX_LIVE_SEGMENTS: usize = 3_000;
 
 pub enum VideoAudio {
     File(AudioReader),
     Hls(Box<Hls>),
+    Live(Box<LiveHls>),
+}
+
+/// Where one segment of a live stream starts on the player's clock, as the player reports it
+/// with its live reports: its media sequence number and start (ms). Media3 counts its clock from
+/// the first playlist it loaded, hls.js by the stream's timestamps; the segments after it follow
+/// on by their durations, as they do in the players.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveAnchor {
+    pub sequence: u64,
+    pub start_ms: u64,
+}
+
+/// How far a live stream's sound is out, on the player's clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LiveEdge {
+    /// Where its newest segment ends.
+    pub until_ms: u64,
+    /// The playlist's target segment length.
+    pub target_ms: u64,
+    /// The broadcast ended (`#EXT-X-ENDLIST` came).
+    pub ended: bool,
 }
 
 impl VideoAudio {
-    /// Opens what plays at `url`; `format` is the player's (`hls`, `dash`…) when it knows.
-    pub fn open(client: reqwest::Client, url: &str, format: Option<&str>) -> Result<Self, String> {
+    /// Opens what plays at `url`; `format` is the player's (`hls`, `dash`…) when it knows. A live
+    /// HLS stream needs `anchor` to place its sound on the player's clock.
+    pub fn open(
+        client: reqwest::Client,
+        url: &str,
+        format: Option<&str>,
+        anchor: Option<LiveAnchor>,
+    ) -> Result<Self, String> {
         let hls_by_name = Url::parse(url)
             .map(|parsed| parsed.path().to_ascii_lowercase().ends_with(".m3u8"))
             .unwrap_or(false);
         if format == Some("dash") {
             return Err("AI subtitles can't read DASH streams yet".into());
         }
+        let hls = |client: reqwest::Client| -> Result<Self, String> {
+            let (text, base) = media_playlist(&client, url)?;
+            let playlist = parse_live(&text, &base)?;
+            if playlist.ended {
+                return Ok(Self::Hls(Box::new(Hls::new(client, playlist))));
+            }
+            let anchor = anchor.ok_or(
+                "This live stream's timing isn't known yet: play it a moment, then try again",
+            )?;
+            Ok(Self::Live(Box::new(LiveHls::new(
+                client, base, anchor, playlist,
+            ))))
+        };
         if format == Some("hls") || hls_by_name {
-            return Ok(Self::Hls(Box::new(Hls::open(client, url)?)));
+            return hls(client);
         }
         let source = RangeSource::open(client.clone(), url)?;
         if source.starts_with(b"#EXTM3U") {
-            return Ok(Self::Hls(Box::new(Hls::open(client, url)?)));
+            return hls(client);
         }
         let extension = extension_of(url);
         let address = url.to_owned();
@@ -60,6 +108,21 @@ impl VideoAudio {
         match self {
             Self::File(reader) => reader.duration_ms(),
             Self::Hls(hls) => (hls.total_ms > 0 && hls.ended).then_some(hls.total_ms),
+            Self::Live(_) => None,
+        }
+    }
+
+    /// Whether this is a live stream, read as it grows.
+    pub fn is_live(&self) -> bool {
+        matches!(self, Self::Live(_))
+    }
+
+    /// How far a live stream's sound is out (reading its playlist again when it's due); `None`
+    /// for anything else.
+    pub fn live_edge(&mut self) -> Result<Option<LiveEdge>, String> {
+        match self {
+            Self::Live(live) => live.edge().map(Some),
+            _ => Ok(None),
         }
     }
 
@@ -68,6 +131,7 @@ impl VideoAudio {
         match self {
             Self::File(reader) => reader.window(from_ms, len_ms),
             Self::Hls(hls) => hls.window(from_ms, len_ms),
+            Self::Live(live) => live.window(from_ms, len_ms),
         }
     }
 }
@@ -252,48 +316,57 @@ struct Segment {
     map: Option<(String, Option<(u64, u64)>)>,
 }
 
+/// The media playlist the sound is read from, and its address: `url`'s own, or for a master
+/// playlist the lightest variant's (or its audio rendition's), since the sound is the same in
+/// every variant.
+fn media_playlist(client: &reqwest::Client, url: &str) -> Result<(String, String), String> {
+    let text = String::from_utf8_lossy(&fetch(client, url, None)?).into_owned();
+    if !hls::is_master(&text) {
+        return Ok((text, url.to_owned()));
+    }
+    let master = hls::parse_master(&text, url)?;
+    let variant = master
+        .variants
+        .iter()
+        .min_by_key(|variant| variant.bandwidth.unwrap_or(u64::MAX))
+        .ok_or("The stream lists no variants")?;
+    let playlist = hls::audio_for(&master, variant)
+        .map(|audio| audio.url.clone())
+        .unwrap_or_else(|| variant.url.clone());
+    let text = String::from_utf8_lossy(&fetch(client, &playlist, None)?).into_owned();
+    Ok((text, playlist))
+}
+
+/// What's kept to decode segments: AES keys and init sections by address.
+#[derive(Default)]
+struct Decoding {
+    keys: HashMap<String, [u8; 16]>,
+    maps: HashMap<String, Vec<u8>>,
+}
+
 pub struct Hls {
     client: reqwest::Client,
     segments: Vec<Segment>,
     total_ms: u64,
     ended: bool,
-    keys: HashMap<String, [u8; 16]>,
-    maps: HashMap<String, Vec<u8>>,
+    decoding: Decoding,
     decoded: Vec<(usize, Vec<f32>)>,
 }
 
 impl Hls {
-    fn open(client: reqwest::Client, url: &str) -> Result<Self, String> {
-        let text = String::from_utf8_lossy(&fetch(&client, url, None)?).into_owned();
-        let (text, base) = if hls::is_master(&text) {
-            let master = hls::parse_master(&text, url)?;
-            // The sound is the same in every variant: the lightest one, or its audio rendition.
-            let variant = master
-                .variants
-                .iter()
-                .min_by_key(|variant| variant.bandwidth.unwrap_or(u64::MAX))
-                .ok_or("The stream lists no variants")?;
-            let playlist = hls::audio_for(&master, variant)
-                .map(|audio| audio.url.clone())
-                .unwrap_or_else(|| variant.url.clone());
-            let text = String::from_utf8_lossy(&fetch(&client, &playlist, None)?).into_owned();
-            (text, playlist)
-        } else {
-            (text, url.to_owned())
-        };
-        let (segments, ended) = parse_media(&text, &base)?;
+    fn new(client: reqwest::Client, playlist: LivePlaylist) -> Self {
+        let segments = playlist.segments;
         let total_ms = segments
             .last()
             .map_or(0, |last| last.start_ms + last.duration_ms);
-        Ok(Self {
+        Self {
             client,
             segments,
             total_ms,
-            ended,
-            keys: HashMap::new(),
-            maps: HashMap::new(),
+            ended: playlist.ended,
+            decoding: Decoding::default(),
             decoded: Vec::new(),
-        })
+        }
     }
 
     fn window(&mut self, from_ms: u64, len_ms: u64) -> Result<Vec<f32>, String> {
@@ -325,12 +398,24 @@ impl Hls {
             return Ok(samples.clone());
         }
         let segment = self.segments[index].clone();
-        let mut data = fetch(&self.client, &segment.url, segment.range)?;
+        let samples = self.decoding.samples(&self.client, &segment)?;
+        self.decoded.push((index, samples.clone()));
+        if self.decoded.len() > KEPT_SEGMENTS {
+            self.decoded.remove(0);
+        }
+        Ok(samples)
+    }
+}
+
+impl Decoding {
+    /// A segment's sound as 16 kHz mono: fetched, decrypted, taken out of its container.
+    fn samples(&mut self, client: &reqwest::Client, segment: &Segment) -> Result<Vec<f32>, String> {
+        let mut data = fetch(client, &segment.url, segment.range)?;
         if let Some((key_url, iv)) = &segment.key {
             let key = match self.keys.get(key_url) {
                 Some(key) => *key,
                 None => {
-                    let bytes = fetch(&self.client, key_url, None)?;
+                    let bytes = fetch(client, key_url, None)?;
                     let key: [u8; 16] = bytes
                         .get(..16)
                         .and_then(|bytes| bytes.try_into().ok())
@@ -351,7 +436,7 @@ impl Hls {
             let init = match self.maps.get(map_url) {
                 Some(init) => init.clone(),
                 None => {
-                    let init = fetch(&self.client, map_url, *range)?;
+                    let init = fetch(client, map_url, *range)?;
                     self.maps.insert(map_url.clone(), init.clone());
                     init
                 }
@@ -362,12 +447,190 @@ impl Hls {
         } else {
             (data, "mp4")
         };
-        let samples = decode_all(Box::new(Cursor::new(bytes)), Some(extension))?;
-        self.decoded.push((index, samples.clone()));
-        if self.decoded.len() > KEPT_SEGMENTS {
-            self.decoded.remove(0);
+        decode_all(Box::new(Cursor::new(bytes)), Some(extension))
+    }
+}
+
+// ---- Live HLS ----
+
+/// A media playlist's segments, timed from its start, with the media sequence number of its
+/// first one and its target segment length.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LivePlaylist {
+    first_sequence: u64,
+    segments: Vec<Segment>,
+    ended: bool,
+    target_ms: u64,
+}
+
+fn parse_live(text: &str, base: &str) -> Result<LivePlaylist, String> {
+    let (segments, ended) = parse_media(text, base)?;
+    let tag = |name: &str| {
+        text.lines()
+            .map(str::trim)
+            .find_map(|line| line.strip_prefix(name))
+            .map(str::trim)
+    };
+    let first_sequence = tag("#EXT-X-MEDIA-SEQUENCE:")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let target_ms = tag("#EXT-X-TARGETDURATION:")
+        .and_then(|value| value.parse::<f64>().ok())
+        .map(|seconds| (seconds * 1000.0).round() as u64)
+        .filter(|ms| *ms > 0)
+        .unwrap_or(6_000);
+    Ok(LivePlaylist {
+        first_sequence,
+        segments,
+        ended,
+        target_ms,
+    })
+}
+
+/// A live HLS stream read as it grows: its playlist is read again once a segment may have come,
+/// and each segment is placed on the player's clock (`start_ms`) by its media sequence number,
+/// from the player's [`LiveAnchor`] and then following on by durations. Segments that left the
+/// playlist stay known (with their addresses), so a viewer behind the live edge is heard too.
+pub struct LiveHls {
+    client: reqwest::Client,
+    playlist: String,
+    anchor: LiveAnchor,
+    segments: BTreeMap<u64, Segment>,
+    target_ms: u64,
+    ended: bool,
+    fetched: Instant,
+    decoding: Decoding,
+    decoded: Vec<(u64, Vec<f32>)>,
+}
+
+impl LiveHls {
+    fn new(
+        client: reqwest::Client,
+        playlist: String,
+        anchor: LiveAnchor,
+        first: LivePlaylist,
+    ) -> Self {
+        let mut live = Self {
+            client,
+            playlist,
+            anchor,
+            segments: BTreeMap::new(),
+            target_ms: first.target_ms,
+            ended: first.ended,
+            fetched: Instant::now(),
+            decoding: Decoding::default(),
+            decoded: Vec::new(),
+        };
+        live.place(first);
+        live
+    }
+
+    /// Places a playlist's segments on the clock: by a segment already placed, else the anchor,
+    /// else following on from the newest one placed (or counting target lengths from the anchor).
+    fn place(&mut self, playlist: LivePlaylist) {
+        self.target_ms = playlist.target_ms;
+        self.ended = playlist.ended;
+        let first = playlist.first_sequence;
+        let at = |index: usize| playlist.segments[index].start_ms as i64;
+        let count = playlist.segments.len();
+        let sequence_of = |index: usize| first + index as u64;
+        let from_known = (0..count).find_map(|index| {
+            self.segments
+                .get(&sequence_of(index))
+                .map(|known| known.start_ms as i64 - at(index))
+        });
+        let from_anchor = || {
+            let anchor = self.anchor;
+            (anchor.sequence >= first && anchor.sequence < first + count as u64)
+                .then(|| anchor.start_ms as i64 - at((anchor.sequence - first) as usize))
+        };
+        let following = || {
+            let (sequence, newest) = self.segments.last_key_value()?;
+            (first > *sequence).then(|| {
+                let gap = (first - sequence - 1) as i64 * self.target_ms as i64;
+                (newest.start_ms + newest.duration_ms) as i64 + gap
+            })
+        };
+        let counted = || {
+            self.anchor.start_ms as i64
+                + (first as i64 - self.anchor.sequence as i64) * self.target_ms as i64
+        };
+        let offset = from_known
+            .or_else(from_anchor)
+            .or_else(following)
+            .unwrap_or_else(counted);
+        for (index, segment) in playlist.segments.into_iter().enumerate() {
+            let start_ms = (offset + segment.start_ms as i64).max(0) as u64;
+            self.segments.entry(sequence_of(index)).or_insert(Segment {
+                start_ms,
+                ..segment
+            });
         }
-        Ok(samples)
+        while self.segments.len() > MAX_LIVE_SEGMENTS {
+            self.segments.pop_first();
+        }
+    }
+
+    /// Reads the playlist again.
+    fn refresh(&mut self) -> Result<(), String> {
+        let text =
+            String::from_utf8_lossy(&fetch(&self.client, &self.playlist, None)?).into_owned();
+        let playlist = parse_live(&text, &self.playlist)?;
+        self.fetched = Instant::now();
+        self.place(playlist);
+        Ok(())
+    }
+
+    /// How far the sound is out, reading the playlist again once half a segment has gone by.
+    pub fn edge(&mut self) -> Result<LiveEdge, String> {
+        let due = Duration::from_millis((self.target_ms / 2).max(1_000));
+        if !self.ended && self.fetched.elapsed() >= due {
+            self.refresh()?;
+        }
+        Ok(self.known_edge())
+    }
+
+    fn known_edge(&self) -> LiveEdge {
+        LiveEdge {
+            until_ms: self
+                .segments
+                .last_key_value()
+                .map_or(0, |(_, last)| last.start_ms + last.duration_ms),
+            target_ms: self.target_ms,
+            ended: self.ended,
+        }
+    }
+
+    fn window(&mut self, from_ms: u64, len_ms: u64) -> Result<Vec<f32>, String> {
+        let end_ms = from_ms + len_ms;
+        let wanted: Vec<(u64, Segment)> = self
+            .segments
+            .iter()
+            .filter(|(_, segment)| {
+                segment.start_ms < end_ms && segment.start_ms + segment.duration_ms > from_ms
+            })
+            .map(|(sequence, segment)| (*sequence, segment.clone()))
+            .collect();
+        let Some(first_start) = wanted.first().map(|(_, segment)| segment.start_ms) else {
+            return Ok(Vec::new());
+        };
+        let mut samples = Vec::new();
+        for (sequence, segment) in wanted {
+            match self.decoded.iter().find(|(kept, _)| *kept == sequence) {
+                Some((_, kept)) => samples.extend_from_slice(kept),
+                None => {
+                    let heard = self.decoding.samples(&self.client, &segment)?;
+                    samples.extend_from_slice(&heard);
+                    self.decoded.push((sequence, heard));
+                    if self.decoded.len() > KEPT_SEGMENTS * 3 {
+                        self.decoded.remove(0);
+                    }
+                }
+            }
+        }
+        let skip = (from_ms.saturating_sub(first_start) * SAMPLES_PER_MS) as usize;
+        let take = (len_ms * SAMPLES_PER_MS) as usize;
+        Ok(samples.into_iter().skip(skip).take(take).collect())
     }
 }
 
@@ -614,6 +877,99 @@ mod tests {
         assert!(segments[0].map.as_ref().unwrap().0.ends_with("/v/init.mp4"));
     }
 
+    /// A live playlist of `count` 4-second segments from media sequence `first`.
+    fn live_playlist(first: u64, count: u64, ended: bool) -> LivePlaylist {
+        let mut text = format!("#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:{first}\n");
+        for sequence in first..first + count {
+            text.push_str(&format!("#EXTINF:4.0,\nseg{sequence}.ts\n"));
+        }
+        if ended {
+            text.push_str("#EXT-X-ENDLIST\n");
+        }
+        parse_live(
+            &text,
+            "http://127.0.0.1:1/media/t/https/cdn.x/live/index.m3u8",
+        )
+        .unwrap()
+    }
+
+    fn starts(live: &LiveHls) -> Vec<(u64, u64)> {
+        live.segments
+            .iter()
+            .map(|(sequence, segment)| (*sequence, segment.start_ms))
+            .collect()
+    }
+
+    #[test]
+    fn live_segments_follow_the_players_clock_as_the_playlist_grows() {
+        let first = live_playlist(100, 3, false);
+        assert_eq!((first.first_sequence, first.target_ms), (100, 4_000));
+        assert!(!first.ended);
+        // The player says segment 101 starts at 3 600 000 ms on its clock.
+        let anchor = LiveAnchor {
+            sequence: 101,
+            start_ms: 3_600_000,
+        };
+        let client = raygun_net::http_client().unwrap();
+        let mut live = LiveHls::new(client.clone(), "http://x/index.m3u8".into(), anchor, first);
+        assert_eq!(
+            starts(&live),
+            [(100, 3_596_000), (101, 3_600_000), (102, 3_604_000)]
+        );
+        assert_eq!(live.known_edge().until_ms, 3_608_000);
+        // Two segments later the oldest left the playlist; the rest follow on from 102.
+        live.place(live_playlist(102, 3, false));
+        assert_eq!(
+            starts(&live)[2..],
+            [(102, 3_604_000), (103, 3_608_000), (104, 3_612_000)]
+        );
+        // A playlist after a gap (no segment in common) carries on by target lengths.
+        live.place(live_playlist(107, 2, true));
+        assert_eq!(live.segments[&107].start_ms, 3_624_000);
+        let edge = live.known_edge();
+        assert_eq!((edge.until_ms, edge.ended), (3_632_000, true));
+        // An anchor the playlist doesn't hold is counted from by target lengths.
+        let far = LiveAnchor {
+            sequence: 90,
+            start_ms: 1_000,
+        };
+        let counted = LiveHls::new(client, String::new(), far, live_playlist(100, 1, false));
+        assert_eq!(counted.segments[&100].start_ms, 41_000);
+    }
+
+    /// Unified Streaming's public live demo (a 720p channel with an English audio track), served
+    /// for trying players against. hls.js's test streams list another one (Mux's low-latency Big
+    /// Buck Bunny loop), which `LIVE_HLS_URL` can name instead.
+    const LIVE_TEST_STREAM: &str =
+        "https://demo.unified-streaming.com/k8s/live/stable/live.isml/.m3u8";
+
+    /// Reads a public live test stream as it grows: `LIVE_HLS_URL` (default [`LIVE_TEST_STREAM`]).
+    /// `cargo test -p raygun-app -- --ignored live_hls_grows --nocapture`.
+    #[test]
+    #[ignore = "needs the network"]
+    fn live_hls_grows() {
+        let url = std::env::var("LIVE_HLS_URL").unwrap_or_else(|_| LIVE_TEST_STREAM.to_owned());
+        let client = raygun_net::http_client().unwrap();
+        let (text, base) = media_playlist(&client, &url).unwrap();
+        let playlist = parse_live(&text, &base).unwrap();
+        assert!(!playlist.ended, "a live stream has no end tag");
+        let anchor = LiveAnchor {
+            sequence: playlist.first_sequence,
+            start_ms: 0,
+        };
+        let mut sound = VideoAudio::Live(Box::new(LiveHls::new(client, base, anchor, playlist)));
+        let edge = sound.live_edge().unwrap().unwrap();
+        println!("edge {edge:?}");
+        let from = edge.until_ms.saturating_sub(edge.target_ms * 2);
+        let samples = sound.window(from, edge.target_ms).unwrap();
+        println!("{} samples from {from}", samples.len());
+        assert!(!samples.is_empty(), "the newest segments decode");
+        std::thread::sleep(Duration::from_millis(edge.target_ms * 2));
+        let later = sound.live_edge().unwrap().unwrap();
+        println!("later {later:?}");
+        assert!(later.until_ms > edge.until_ms, "the stream went on");
+    }
+
     /// Hears a real video: `VIDEO_URL=<stream or file> WHISPER_DIR=<model> cargo test -p
     /// raygun-app --release -- --ignored video_whisper_live --nocapture` (`VIDEO_FROM_MS` to
     /// start later).
@@ -627,7 +983,7 @@ mod tests {
             .and_then(|ms| ms.parse().ok())
             .unwrap_or(0);
         let client = raygun_net::http_client().unwrap();
-        let mut sound = VideoAudio::open(client, &url, None).unwrap();
+        let mut sound = VideoAudio::open(client, &url, None, None).unwrap();
         println!("duration {:?}", sound.duration_ms());
         let mut whisper = raygun_ai::speech::Whisper::load(&dir).unwrap();
         let mut at = from;

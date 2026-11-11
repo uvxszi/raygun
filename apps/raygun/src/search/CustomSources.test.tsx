@@ -156,7 +156,8 @@ describe('Custom sources', () => {
     localStorage.setItem('raygun.search.grouped.manga', '1');
     await AppShellWrapper.mount(SEARCH);
     const view = await screen.findByTestId('manga-search');
-    const row = await within(view).findByRole('region', { name: 'Daily Strips' });
+    // The row once its source has answered (a row still asking is busy).
+    const row = await within(view).findByRole('region', { name: 'Daily Strips', busy: false });
     await user.click(await within(row).findByRole('button', { name: 'More' }));
     const panel = await within(view).findByRole('group', { name: 'Sources' });
     expect(switches(panel)).toEqual([

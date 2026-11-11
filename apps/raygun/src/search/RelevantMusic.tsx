@@ -1,6 +1,7 @@
 import type { AudiobookResult, OnlineTrack, PodcastSearchResult } from '@raygun/bindings';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Play, UserRound } from 'lucide-react';
+import { useCallback, useMemo } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -24,6 +25,7 @@ import { useOpenBook } from './useOpenBook';
 import { AlbumTile, Asking } from './MusicFinds';
 import { OnlineTrackRow } from './OnlineTrackRow';
 import { PlaylistTile } from './PlaylistFinds';
+import { useDrawnCount } from '../shell/useDrawnCount';
 import { titleScore } from './rankResults';
 import { useSeenSongs } from './seenBefore';
 import type { MusicView } from './searchTypes';
@@ -94,22 +96,27 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   const podcastMenu = usePodcastMenuItems();
 
   // Songs already seen (Home, charts, earlier searches) show until the sources answer (M46.47).
-  const seen = useSeenSongs(query);
-  const ranked = songs.data
-    ? rankSongs(
-        query,
-        songs.data.top,
-        songs.data.providers.filter((result) => !result.error),
-      )
-    : seen.map((track): RankedSong => ({
-        track,
-        source: undefined,
-        score: Math.max(
-          titleScore(track.title, query),
-          titleScore(`${track.artist ?? ''} ${track.title}`, query),
-        ),
-      }));
-  const tracks = ranked.map((entry) => entry.track);
+  const seen = useSeenSongs(query, !songs.data);
+  const ranked = useMemo(
+    () =>
+      songs.data
+        ? rankSongs(
+            query,
+            songs.data.top,
+            songs.data.providers.filter((result) => !result.error),
+          )
+        : seen.map((track): RankedSong => ({
+            track,
+            source: undefined,
+            score: Math.max(
+              titleScore(track.title, query),
+              titleScore(`${track.artist ?? ''} ${track.title}`, query),
+            ),
+          })),
+    [songs.data, seen, query],
+  );
+  const tracks = useMemo(() => ranked.map((entry) => entry.track), [ranked]);
+  const play = useCallback((tapped: OnlineTrack) => void playResults(tracks, tapped), [tracks]);
   const library = (songs.data?.library ?? []).slice(0, 3);
 
   // The top result: whichever name answers the query best; songs win a tie.
@@ -124,7 +131,10 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   // An artist named like the query wins when several of the songs found are theirs: "daft punk"
   // means the band, not a song called "Daft Punk" by someone else. The artist comes from the
   // artist search, else from those songs.
-  const theirSongs = ranked.filter((entry) => titleScore(entry.track.artist ?? '', query) >= 100);
+  const theirSongs = useMemo(
+    () => ranked.filter((entry) => titleScore(entry.track.artist ?? '', query) >= 100),
+    [ranked, query],
+  );
   const artist =
     artists.list[0] ??
     (theirSongs[0]?.track.artist
@@ -162,6 +172,8 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
   const anything =
     ranked.length + library.length + artists.list.length + albums.list.length > 0 ||
     playlists.list.length + (podcasts.data?.length ?? 0) + bookList.length > 0;
+  // The rows under the songs: the artists' with the page, the others just after.
+  const later = useDrawnCount(2, 1, 1, query.trim()) > 1;
 
   const openTop = () => {
     if (!top) return;
@@ -301,7 +313,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
                   source={entry.source}
                   sourceAdult={entry.sourceAdult}
                   sourceListed={entry.fromListings}
-                  onPlay={(tapped) => void playResults(tracks, tapped)}
+                  onPlay={play}
                 />
               </li>
             ))}
@@ -337,7 +349,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
           </Carousel>
         </Part>
       )}
-      {albums.list.length > 0 && (
+      {later && albums.list.length > 0 && (
         <Part title={t('search.music.albums')} onMore={() => onView('albums')}>
           <Carousel>
             {albums.list.slice(0, ROW).map((album) => (
@@ -352,7 +364,7 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
           </Carousel>
         </Part>
       )}
-      {playlists.list.length > 0 && (
+      {later && playlists.list.length > 0 && (
         <Part title={t('search.music.playlists')} onMore={() => onView('playlists')}>
           <Carousel>
             {/* The services' own playlists first, then the best named. */}
@@ -367,12 +379,12 @@ export const RelevantMusic: FC<{ query: string; onView: (view: MusicView) => voi
           </Carousel>
         </Part>
       )}
-      {podcasts.data && podcasts.data.length > 0 && (
+      {later && podcasts.data && podcasts.data.length > 0 && (
         <Part title={t('search.music.podcasts')} onMore={() => onView('podcasts')}>
           <PodcastResultList results={podcasts.data.slice(0, 12)} grid />
         </Part>
       )}
-      {bookList.length > 0 && (
+      {later && bookList.length > 0 && (
         <Part title={t('search.music.audiobooks')} onMore={() => onView('audiobooks')}>
           <Carousel className="gap-1">
             {bookList.slice(0, ROW).map((found) => (

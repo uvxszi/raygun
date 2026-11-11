@@ -18,6 +18,7 @@ import { unwrapResult } from '../lib/commandResult';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { PinButton } from '../shell/PinButton';
+import { bookWords } from '../manga/bookWords';
 import { MangaCover } from '../manga/MangaCover';
 import { ExportButton } from '../export/ExportButton';
 import { TitleListActions } from '../manga/TitleListActions';
@@ -61,7 +62,13 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
   const knownHero = known && (
     <TitleHero
       art={known.coverUrl}
-      cover={<MangaCover url={known.coverUrl} className="w-full rounded-xl shadow-lg" />}
+      cover={
+        <MangaCover
+          url={known.coverUrl}
+          book={bookWords(medium, known.title)}
+          className="w-full rounded-xl shadow-lg"
+        />
+      }
       title={known.title}
     />
   );
@@ -196,7 +203,13 @@ export const MangaTitlePage: FC<{ medium?: ReadingMedium }> = ({ medium = 'manga
       )}
       <TitleHero
         art={view.coverUrl}
-        cover={<MangaCover url={view.coverUrl} className="w-full rounded-xl shadow-lg" />}
+        cover={
+          <MangaCover
+            url={view.coverUrl}
+            book={bookWords(medium, view.title, view.authors)}
+            className="w-full rounded-xl shadow-lg"
+          />
+        }
         title={view.title}
         adult={view.adult}
         genres={view.genres}

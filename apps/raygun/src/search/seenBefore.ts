@@ -39,16 +39,20 @@ const songScore = (track: OnlineTrack, query: string) =>
     titleScore(`${track.title} ${track.artist ?? ''}`, query),
   );
 
+const NO_SONGS: OnlineTrack[] = [];
+const NO_CARDS: MangaCard[] = [];
+
 /**
  * Songs this device already has answers about (M46.47: Home's charts, genres, albums, earlier
- * searches) that answer `query`, best first: shown at once while the sources are asked.
+ * searches) that answer `query`, best first: shown at once while the sources are asked. Looked
+ * for only while `needed` (the sources haven't answered): the cache is read whole.
  */
-export const useSeenSongs = (query: string): OnlineTrack[] => {
+export const useSeenSongs = (query: string, needed = true): OnlineTrack[] => {
   const client = useQueryClient();
   const filter = useSearchFilter();
   const wanted = query.trim();
   return useMemo(() => {
-    if (wanted.length < 2) return [];
+    if (!needed || wanted.length < 2) return NO_SONGS;
     const key = (track: OnlineTrack) => `${simple(track.artist)}|${simple(track.title)}`;
     const tracks = new Map<string, OnlineTrack>();
     for (const root of SONG_ROOTS) {
@@ -65,7 +69,7 @@ export const useSeenSongs = (query: string): OnlineTrack[] => {
       .slice(0, SHOWN)
       .map((entry) => entry.track);
     // Read once per query: the live answers take over when they come.
-  }, [client, wanted, filter]);
+  }, [client, wanted, filter, needed]);
 };
 
 /** A cached title as a card: search results and browse pages as they are, titles by remote id. */
@@ -90,14 +94,15 @@ const asCard = (record: Record<string, unknown>): MangaCard | null => {
 
 /**
  * Comics, books or videos this device has seen (M46.47: Home's rows, sources' pages, earlier
- * searches, the library) that answer `query`, best first, each once.
+ * searches, the library) that answer `query`, best first, each once. Looked for only while
+ * `needed` (some sources haven't answered): the cache is read whole.
  */
-export const useSeenTitles = (medium: Medium, query: string): MangaCard[] => {
+export const useSeenTitles = (medium: Medium, query: string, needed = true): MangaCard[] => {
   const client = useQueryClient();
   const { noAdult } = useSearchFilter();
   const wanted = query.trim();
   return useMemo(() => {
-    if (wanted.length < 2) return [];
+    if (!needed || wanted.length < 2) return NO_CARDS;
     const cards = collectFromCache(
       client,
       [medium],
@@ -112,5 +117,5 @@ export const useSeenTitles = (medium: Medium, query: string): MangaCard[] => {
       .sort((a, b) => b.score - a.score)
       .slice(0, SHOWN)
       .map((entry) => entry.card);
-  }, [client, medium, wanted, noAdult]);
+  }, [client, medium, wanted, noAdult, needed]);
 };

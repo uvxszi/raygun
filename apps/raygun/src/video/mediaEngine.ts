@@ -6,6 +6,7 @@
 
 import type { VideoResolution } from '@raygun/bindings';
 
+import type { LiveAnchor, QualityRange, VariantInfo } from './protocol';
 import { pickVariant } from './trackPicking';
 
 export type EngineTrack = {
@@ -37,8 +38,60 @@ export type MediaEngine = {
   /** Keeps what played buffered behind the playhead (while looping, so the start is there when
    * the stream goes round). */
   keepStart: (keep: boolean) => void;
+  /** A live stream: an HLS playlist without an end, a dynamic DASH manifest, an endless file. */
+  isLive: () => boolean;
+  /** Where the HLS segment at `positionMs` starts on the video's clock, by its media sequence
+   * number: Rust places a live stream's sound for AI subtitles by it. */
+  liveAnchor: (positionMs: number) => LiveAnchor | null;
+  /** Where a live stream plays when at live (behind its edge by what the engine keeps), ms on
+   * the video's clock; null when the engine doesn't say. */
+  livePoint: () => number | null;
+  /** The connection's measured speed, kb/s. */
+  bandwidthKbps: () => number | null;
+  /** The stream's variants as the Quality menu counts them, by their `qualities()` ids. */
+  variants: () => (VariantInfo & { id: number })[];
   destroy: () => void;
 };
+
+/** The height a picture counts as: a 16:9 one's with the same long side (1920×800 is 1080p), as
+ * `video_quality::picture_height` counts it. */
+export const pictureHeight = (width: number | undefined, height: number | undefined): number => {
+  const tall = height ?? 0;
+  const wide = width ?? 0;
+  if (wide <= 0 || tall <= 0) return tall;
+  return Math.floor((Math.max(wide, tall) * 9 + 8) / 16);
+};
+
+/** "HEVC", "H.264", "AV1", "VP9" from a codecs string ("hvc1.2.4.L153"). */
+export const codecName = (codecs: string | undefined | null): string | null => {
+  const codec = (codecs ?? '')
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .find((part) => part && !part.startsWith('mp4a'));
+  if (!codec) return null;
+  if (/^(hvc1|hev1|dvh)/.test(codec)) return 'HEVC';
+  if (/^(avc|dva)/.test(codec)) return 'H.264';
+  if (/^(av01|dav1)/.test(codec)) return 'AV1';
+  if (/^vp0?9/.test(codec)) return 'VP9';
+  return null;
+};
+
+/** A variant's dynamic range from HLS's `VIDEO-RANGE` and its codecs. */
+const rangeOf = (videoRange: string | undefined, codecs: string | undefined): QualityRange => {
+  if (/(^|,)\s*(dvh|dva|dav1)/i.test(codecs ?? '')) return 'dv';
+  return videoRange === 'PQ' || videoRange === 'HLG' ? 'hdr' : 'sdr';
+};
+
+/** The steps of the resolution ladder, as `video_quality::LADDER`. */
+const LADDER = [4320, 2160, 1440, 1080, 720, 480, 360, 240, 144];
+
+/** The ladder step a height counts as: the nearest, ties going up. */
+export const ladderStep = (height: number): number =>
+  LADDER.reduce((best, step) => {
+    const distance = Math.abs(step - height);
+    const bestDistance = Math.abs(best - height);
+    return distance < bestDistance || (distance === bestDistance && step > best) ? step : best;
+  }, LADDER[0] ?? height);
 
 /** Why a stream can't play, in the viewer's terms: its format or codec, the network, or its
  * server (refusing it, not having it, failing). */
@@ -86,6 +139,10 @@ const NONE = {
   quality: () => -1,
   setQuality: () => {},
   keepStart: () => {},
+  liveAnchor: () => null,
+  livePoint: () => null,
+  bandwidthKbps: () => null,
+  variants: () => [],
 };
 
 /** Hidden, so the player draws their cues itself. */
@@ -118,6 +175,8 @@ const attachNative = (video: HTMLVideoElement, url: string, events: EngineEvents
   return {
     kind: 'native',
     ...NONE,
+    // A webview's own HLS, or an endless file: no end to its length.
+    isLive: () => video.duration === Infinity,
     destroy: () => {
       video.removeEventListener('error', onError);
       video.removeAttribute('src');
@@ -137,7 +196,13 @@ const attachHls = async (
     // A webview with HLS of its own.
     return attachNative(video, url, events);
   }
-  const hls = new Hls({ enableWorker: true, renderTextTracksNatively: true });
+  // A live stream's length is endless (`video.duration` is Infinity); its seekable range is the
+  // DVR window.
+  const hls = new Hls({
+    enableWorker: true,
+    renderTextTracksNatively: true,
+    liveDurationInfinity: true,
+  });
   let recovered = false;
   let parsed = false;
   hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -241,6 +306,40 @@ const attachHls = async (
     keepStart: (keep) => {
       hls.config.backBufferLength = keep ? Infinity : backBuffer;
     },
+    isLive: () => {
+      const level = hls.levels[Math.max(0, hls.currentLevel)] ?? hls.levels[0];
+      return Boolean(level?.details?.live);
+    },
+    liveAnchor: (positionMs) => {
+      const level = hls.levels[Math.max(0, hls.currentLevel)] ?? hls.levels[0];
+      const details = level?.details;
+      if (!details?.live) return null;
+      const seconds = positionMs / 1000;
+      const fragments = details.fragments.filter((fragment) => typeof fragment.sn === 'number');
+      const playing =
+        fragments.find(
+          (fragment) => fragment.start <= seconds && seconds < fragment.start + fragment.duration,
+        ) ?? fragments.at(-1);
+      if (!playing || typeof playing.sn !== 'number') return null;
+      return { sequence: playing.sn, startMs: Math.round(playing.start * 1000) };
+    },
+    livePoint: () => {
+      const position = hls.liveSyncPosition;
+      return position === null || !Number.isFinite(position) ? null : position * 1000;
+    },
+    bandwidthKbps: () => {
+      const estimate = hls.bandwidthEstimate;
+      return Number.isFinite(estimate) && estimate > 0 ? Math.round(estimate / 1000) : null;
+    },
+    variants: () =>
+      hls.levels
+        .map((level, index) => ({
+          id: index,
+          height: pictureHeight(level.width, level.height),
+          range: rangeOf(level.videoRange, level.videoCodec),
+          codec: codecName(level.videoCodec),
+        }))
+        .filter((variant) => variant.height > 0),
     destroy: () => {
       hls.destroy();
       video.removeAttribute('src');
@@ -275,6 +374,9 @@ type DashPlayer = {
   }) => void;
   reset: () => void;
   getRepresentationsByType?: (type: 'video') => DashRepresentation[];
+  isDynamic?: () => boolean;
+  /** kb/s. */
+  getAverageThroughput?: (type: 'video') => number;
 };
 
 /** dash.js's own back buffer, and one that keeps a whole video. */
@@ -359,6 +461,14 @@ const attachDash = async (
         streaming: { buffer: { bufferToKeep: keep ? DASH_KEEP_ALL_S : DASH_KEEP_S } },
       });
     },
+    isLive: () => initialized && Boolean(player.isDynamic?.()),
+    bandwidthKbps: () => {
+      const throughput = player.getAverageThroughput?.('video');
+      return throughput && Number.isFinite(throughput) && throughput > 0
+        ? Math.round(throughput)
+        : null;
+    },
+    // dash.js picks its representations itself here: none are offered to switch to.
     destroy: () => {
       player.reset();
     },

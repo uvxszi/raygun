@@ -469,9 +469,16 @@ struct Directory {
 /// reached first would stop.
 const PLAN_GRACE: Duration = Duration::from_secs(2);
 
+/// Sources asked at once while Data Saver asks for fewer.
+pub const SAVER_FAN_OUT_CONCURRENCY: usize = 4;
+
 fn plan(timeout: Duration) -> Plan {
     Plan {
-        concurrency: FAN_OUT_CONCURRENCY,
+        concurrency: if raygun_net::network_mode::fewer_sources() {
+            SAVER_FAN_OUT_CONCURRENCY
+        } else {
+            FAN_OUT_CONCURRENCY
+        },
         timeout: timeout + PLAN_GRACE,
         skip_resting: true,
     }

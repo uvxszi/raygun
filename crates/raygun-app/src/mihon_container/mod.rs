@@ -166,6 +166,8 @@ mod desktop {
             method: &str,
             params: Value,
         ) -> Result<Value, String> {
+            // The extension's own code goes to the network itself: not while Offline Mode is on.
+            raygun_net::network_mode::check_online()?;
             self.sidecar(extension).await?.call(method, params).await
         }
 

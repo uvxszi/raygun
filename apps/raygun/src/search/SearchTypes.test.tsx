@@ -119,9 +119,10 @@ describe('Search by type', () => {
     await AppShellWrapper.mount('/search?type=manga&q=dark');
     const view = await screen.findByTestId('manga-search');
 
-    const comics = await within(view).findByRole('region', { name: 'Comic Shelf' });
+    // Each row once its source has answered (a row still asking is busy).
+    const comics = await within(view).findByRole('region', { name: 'Comic Shelf', busy: false });
     expect(within(comics).getByText('Berserk')).toBeInTheDocument();
-    const other = within(view).getByRole('region', { name: 'Other Source' });
+    const other = await within(view).findByRole('region', { name: 'Other Source', busy: false });
     expect(within(other).getByRole('alert')).toHaveTextContent('Site is down');
 
     await user.click(within(comics).getByRole('button', { name: 'More' }));

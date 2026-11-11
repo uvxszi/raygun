@@ -12,6 +12,7 @@ import {
   useHistory,
 } from '../collections/useCollections';
 import { useHasProvider } from '../extensions/useExtensions';
+import { bookWords } from '../manga/bookWords';
 import { MangaCover } from '../manga/MangaCover';
 import { ROUTES } from '../manga/medium';
 import { useMangaLibrary } from '../manga/useManga';
@@ -22,6 +23,7 @@ import { pageKey, useHidden } from '../music/hidden';
 import { MixCard } from '../music/MixCard';
 import { pickChart, useMusicCharts } from '../music/useDiscovery';
 import { useMadeForYou } from '../music/useMadeForYou';
+import { useOfflineItem } from '../network/useNetworkMode';
 import { useIncognitoItem } from '../privacy/useIncognito';
 import { useSettings } from '../settings/useSettings';
 import { HomeCarousel, HomeSection } from '../home/HomeSection';
@@ -144,7 +146,11 @@ const ContinueReading: FC<SectionProps> = ({ id }) => {
                 }
               />
               <span className="relative">
-                <MangaCover url={entry.coverUrl} className="w-full rounded-xl" />
+                <MangaCover
+                  url={entry.coverUrl}
+                  book={bookWords(entry.medium, entry.title, entry.authors)}
+                  className="w-full rounded-xl"
+                />
                 {entry.unread > 0 && (
                   <span className="bg-primary text-background absolute top-1.5 left-1.5 rounded-md px-1.5 text-xs font-bold">
                     {entry.unread}
@@ -340,6 +346,7 @@ export const HomePage: FC = () => {
   const { t } = useTranslation();
   const desktop = useIsDesktop();
   const incognitoItem = useIncognitoItem();
+  const offlineItem = useOfflineItem();
   const layout = useLayout();
   const watching = useContinueWatching();
   const history = useHistory(HOME_HISTORY_LIMIT);
@@ -378,6 +385,7 @@ export const HomePage: FC = () => {
             <OverflowMenu
               items={[
                 incognitoItem,
+                offlineItem,
                 {
                   label: t('layout.editHome'),
                   icon: LayoutList,

@@ -172,6 +172,7 @@ pub fn start_auto_sync(app: AppHandle) {
         loop {
             // Every 8 s on screen or while playing; slower in the background or battery saver.
             crate::device_state::rest(WATCH_EVERY).await;
+            raygun_net::network_mode::wait_online().await;
             let sync = app.state::<SyncService>();
             if !sync.has_linked().await {
                 continue;

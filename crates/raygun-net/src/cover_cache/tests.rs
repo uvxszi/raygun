@@ -649,3 +649,82 @@ async fn a_cover_host_that_never_answers_gives_up() {
     assert!(times[0] < Duration::from_secs(2), "{:?}", times[0]);
     assert!(*rest < Duration::from_secs(2), "{rest:?}");
 }
+
+/// Offline Mode: stored covers are served as they are (old ones aren't checked) and nothing is
+/// fetched; a cover never stored fails with Offline Mode's message, for its placeholder.
+#[tokio::test]
+async fn offline_mode_serves_stored_covers_and_fetches_none() {
+    let _switched = crate::network_mode::tests::switched();
+    let jpeg = jpeg_of(&photo(64, 48));
+    let (origin, requests) = jpeg_origin(jpeg.clone()).await;
+    let client = crate::network_mode::tests::client_reaching("covers.example", origin);
+    let temp = tempfile::TempDir::new().unwrap();
+    // Everything counts as old: an online view would check it again.
+    let cache = CoverCache::new(
+        temp.path().join("covers"),
+        1 << 24,
+        Duration::from_millis(1),
+    );
+    let url = format!("http://covers.example:{}/cover.jpg", origin.port());
+    let headers = BTreeMap::new();
+    assert_eq!(
+        cache
+            .get(&client, "d0", &url, &headers, false)
+            .await
+            .unwrap(),
+        jpeg
+    );
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+
+    crate::network_mode::set_offline(true);
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let stored = cache
+        .get(&client, "d0", &url, &headers, false)
+        .await
+        .unwrap();
+    assert!(!stored.is_empty());
+    settle_checks(&cache).await;
+    let error = cache
+        .get(&client, "d1", &format!("{url}?other"), &headers, false)
+        .await
+        .unwrap_err();
+    assert!(crate::network_mode::mentions_offline(&error), "{error}");
+    assert_eq!(requests.load(Ordering::SeqCst), 1, "nothing was sent");
+}
+
+#[test]
+fn data_saver_asks_for_smaller_covers_where_addresses_name_a_size() {
+    assert_eq!(
+        smaller_version("https://is1-ssl.mzstatic.com/image/thumb/a/600x600bb.jpg").as_deref(),
+        Some("https://is1-ssl.mzstatic.com/image/thumb/a/300x300bb.jpg")
+    );
+    assert_eq!(
+        smaller_version(
+            "https://e-cdns-images.dzcdn.net/images/cover/ab/1000x1000-000000-80-0-0.jpg"
+        )
+        .as_deref(),
+        Some("https://e-cdns-images.dzcdn.net/images/cover/ab/300x300-000000-80-0-0.jpg")
+    );
+    assert_eq!(
+        smaller_version("https://i.ytimg.com/vi/abc/maxresdefault.jpg").as_deref(),
+        Some("https://i.ytimg.com/vi/abc/mqdefault.jpg")
+    );
+    assert_eq!(
+        smaller_version("https://image.tmdb.org/t/p/original/x.jpg").as_deref(),
+        Some("https://image.tmdb.org/t/p/w342/x.jpg")
+    );
+    assert_eq!(
+        smaller_version("https://coverartarchive.org/release/1/front").as_deref(),
+        Some("https://coverartarchive.org/release/1/front-250")
+    );
+    // Already small, or no size in the address.
+    assert_eq!(
+        smaller_version("https://is1-ssl.mzstatic.com/a/100x100bb.jpg"),
+        None
+    );
+    assert_eq!(
+        smaller_version("https://image.tmdb.org/t/p/w185/x.jpg"),
+        None
+    );
+    assert_eq!(smaller_version("https://example.com/cover.jpg"), None);
+}

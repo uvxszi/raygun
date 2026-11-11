@@ -283,6 +283,7 @@ impl VideoSourceService {
             format: None,
             subtitles: Vec::new(),
             chapters: Vec::new(),
+            live: false,
         };
         Ok(vec![VideoServerView {
             id: "local".into(),
@@ -292,7 +293,7 @@ impl VideoSourceService {
     }
 
     async fn preferred_quality(&self) -> VideoResolution {
-        crate::settings::load(&self.catalog.db())
+        crate::settings::load_in_effect(&self.catalog.db())
             .await
             .map(|settings| settings.video_player.preferred_resolution)
             .unwrap_or_default()
@@ -349,6 +350,7 @@ pub(crate) fn link_request(
         headers: link.headers,
         format: link.format,
         subtitles: link.subtitles,
+        live: link.live,
     }
 }
 
@@ -474,6 +476,7 @@ fn link_views(mut videos: Vec<VideoLink>, preferred: VideoResolution) -> Vec<Vid
             headers: video.headers,
             format: video.format,
             chapters: video.chapters,
+            live: video.live,
             subtitles: video
                 .subtitles
                 .into_iter()
@@ -517,6 +520,7 @@ mod tests {
             format: None,
             subtitles: Vec::new(),
             chapters: Vec::new(),
+            live: false,
         }
     }
 

@@ -32,7 +32,7 @@ use tauri_specta::Event;
 use tokio::io::AsyncWriteExt;
 
 use self::audio::AudioReader;
-use self::video_audio::VideoAudio;
+use self::video_audio::{LiveAnchor, VideoAudio};
 use crate::events::{CaptionsEvent, LyricsTranscribedEvent};
 use crate::startup::AppDb;
 
@@ -47,6 +47,13 @@ const READ_TIMEOUT: Duration = Duration::from_secs(30);
 pub const SONG_QUEUE_VALUE: &str = "captions.songQueue";
 /// A queue kept from the last run starts again this long after start, out of the way.
 const RESUME_AFTER: Duration = Duration::from_secs(20);
+/// How often a live stream's transcription looks for more sound.
+const LIVE_POLL: Duration = Duration::from_secs(2);
+/// What hearing a window is taken to take before one was heard: on this device, online.
+const LIVE_HEARING_LOCAL_MS: u64 = 8_000;
+const LIVE_HEARING_ONLINE_MS: u64 = 6_000;
+/// Anchors kept for live streams reported lately.
+const MAX_ANCHORS: usize = 8;
 
 pub struct CaptionService {
     app: AppHandle,
@@ -80,6 +87,39 @@ struct State {
     /// How long each recording being heard is, when known.
     durations: HashMap<String, u64>,
     songs: SongLane,
+    /// Live streams' anchors on their players' clocks, as the players last reported them.
+    anchors: HashMap<String, LiveAnchor>,
+    /// How long a live stream's windows take to be heard, by key.
+    live: HashMap<String, LiveTiming>,
+}
+
+/// How a live stream's transcription keeps up: what its windows took to be heard (smoothed) and
+/// its playlist's segment length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LiveTiming {
+    hearing_ms: u64,
+    target_ms: u64,
+}
+
+impl LiveTiming {
+    /// How far behind its live edge the picture must play for each window's subtitles to be
+    /// ready before it shows: the window itself (its sound must be out), the time to hear it,
+    /// a segment's wait for the playlist to list it and a poll, rounded up to 5 s.
+    fn delay_ms(self) -> u64 {
+        let needed = u64::from(speech::WINDOW_MS)
+            + self.hearing_ms
+            + self.target_ms
+            + LIVE_POLL.as_millis() as u64
+            + 2_000;
+        needed.div_ceil(5_000) * 5_000
+    }
+
+    fn heard(self, took_ms: u64) -> Self {
+        Self {
+            hearing_ms: (self.hearing_ms * 2 + took_ms) / 3,
+            ..self
+        }
+    }
 }
 
 /// Songs whose words are heard, one at a time.
@@ -293,6 +333,10 @@ impl CaptionService {
                 .durations
                 .get(episode_id)
                 .map(|ms| clamp_ms(*ms as i64)),
+            live_delay_ms: state
+                .live
+                .get(episode_id)
+                .map(|timing| clamp_ms(timing.delay_ms() as i64)),
         })
     }
 
@@ -317,6 +361,31 @@ impl CaptionService {
             .as_ref()
             .filter(|(id, _, _)| id == key)
             .map(|(_, _, anchor)| anchor.load(Ordering::Relaxed))
+    }
+
+    /// A live stream's player said where one of its segments starts on its clock: its sound is
+    /// placed by it when it's transcribed.
+    pub fn note_live_anchor(&self, key: &str, anchor: LiveAnchor) {
+        let mut state = self.state();
+        if !state.anchors.contains_key(key) && state.anchors.len() >= MAX_ANCHORS {
+            state.anchors.clear();
+        }
+        state.anchors.insert(key.to_owned(), anchor);
+    }
+
+    /// A live stream's playlist gives its segment length.
+    fn live_segment(&self, key: &str, target_ms: u64) {
+        if let Some(timing) = self.state().live.get_mut(key) {
+            timing.target_ms = target_ms;
+        }
+    }
+
+    /// One of a live stream's windows was heard in `took_ms`.
+    fn live_heard(&self, key: &str, took_ms: u64) {
+        let mut state = self.state();
+        if let Some(timing) = state.live.get_mut(key) {
+            *timing = timing.heard(took_ms);
+        }
     }
 
     /// Why nothing can be transcribed now (off, no model, no provider); `None` when it can.
@@ -363,6 +432,7 @@ impl CaptionService {
                     follow: Follow::Episode,
                     anchor: &anchor,
                     stop: stop.clone(),
+                    live: false,
                 };
                 let result = service.run(job, Sound::Episode(reader)).await;
                 if fetched {
@@ -395,12 +465,33 @@ impl CaptionService {
         let client = self.client.clone();
         let url = url.to_owned();
         let video_key = key.to_owned();
+        let live_anchor = self.state().anchors.get(key).copied();
+        let hearing = match engine {
+            Engine::Local { .. } => LIVE_HEARING_LOCAL_MS,
+            Engine::Online { .. } => LIVE_HEARING_ONLINE_MS,
+        };
         self.start(key, u64::from(from_ms), move |stop, anchor| async move {
             let sound = tauri::async_runtime::spawn_blocking(move || {
-                VideoAudio::open(client, &url, format.as_deref())
+                VideoAudio::open(client, &url, format.as_deref(), live_anchor)
             })
             .await
             .map_err(to_message)??;
+            let live = sound.is_live();
+            if live {
+                // A live stream's clock starts again with each playing: what an earlier one
+                // heard would show at the wrong times.
+                store::clear(&service.db(), &video_key)
+                    .await
+                    .map_err(to_message)?;
+                service.state().live.insert(
+                    video_key.clone(),
+                    LiveTiming {
+                        hearing_ms: hearing,
+                        target_ms: 6_000,
+                    },
+                );
+                service.announce(&video_key);
+            }
             let duration = sound.duration_ms();
             let job = Job {
                 key: &video_key,
@@ -409,9 +500,14 @@ impl CaptionService {
                 follow: if all { Follow::Whole } else { Follow::Viewer },
                 anchor: &anchor,
                 stop: stop.clone(),
+                live,
             };
             let result = service.run(job, Sound::Video(Box::new(sound))).await;
-            service.write_track(&video_key).await;
+            if live {
+                service.state().live.remove(&video_key);
+            } else {
+                service.write_track(&video_key).await;
+            }
             result
         })
     }
@@ -619,6 +715,7 @@ impl CaptionService {
             follow: Follow::Song,
             anchor: &anchor,
             stop: stop.clone(),
+            live: false,
         };
         if let Err(error) = self.run(job, Sound::Video(Box::new(sound))).await {
             let heard = store::progress(&self.db(), key)
@@ -790,7 +887,7 @@ impl CaptionService {
                     };
                     let client = self.client.clone();
                     tauri::async_runtime::spawn_blocking(move || {
-                        VideoAudio::open(client, &link, None)
+                        VideoAudio::open(client, &link, None, None)
                     })
                     .await
                     .map_err(to_message)?
@@ -1234,6 +1331,29 @@ impl CaptionService {
                 tokio::time::sleep(WAIT_STEP).await;
                 continue;
             }
+            if job.live {
+                // A live window's sound must be out before it's heard: wait for the stream.
+                let (back, edge) = tauri::async_runtime::spawn_blocking(move || {
+                    let edge = sound.live_edge();
+                    (sound, edge)
+                })
+                .await
+                .map_err(to_message)?;
+                sound = back;
+                let edge =
+                    edge.map_err(|error| format!("Couldn't read the live stream\n{error}"))?;
+                if let Some(edge) = edge {
+                    self.live_segment(id, edge.target_ms);
+                    if edge.ended && at >= edge.until_ms {
+                        break;
+                    }
+                    if !edge.ended && at + u64::from(speech::WINDOW_MS) > edge.until_ms {
+                        tokio::time::sleep(LIVE_POLL).await;
+                        continue;
+                    }
+                }
+            }
+            let hearing = std::time::Instant::now();
             let (back, samples) = tauri::async_runtime::spawn_blocking(move || {
                 let samples = sound.window(at, u64::from(speech::WINDOW_MS));
                 (sound, samples)
@@ -1243,6 +1363,14 @@ impl CaptionService {
             sound = back;
             let samples = samples
                 .map_err(|error| format!("Couldn't read the sound at {}\n{error}", clock(at)))?;
+            if samples.is_empty() && job.live {
+                // A stretch the stream no longer keeps: on past it.
+                let skipped = (at as i64, (at + u64::from(speech::WINDOW_MS)) as i64);
+                store::add(&db, id, engine.source(), &[], skipped, None)
+                    .await
+                    .map_err(to_message)?;
+                continue;
+            }
             if samples.is_empty() {
                 let end = duration.unwrap_or(at + 1).max(at + 1);
                 store::add(
@@ -1258,9 +1386,10 @@ impl CaptionService {
                 break;
             }
             let window_ms = (samples.len() as u64 * 1000 / u64::from(speech::SAMPLE_RATE)) as u32;
+            let quiet = is_quiet(&samples) || window_ms < MIN_WINDOW_MS;
             let (segments, consumed) = match &engine {
                 // Whisper makes words up for silence and scraps ("you"): nothing to hear there.
-                _ if is_quiet(&samples) || window_ms < MIN_WINDOW_MS => (Vec::new(), window_ms),
+                _ if quiet => (Vec::new(), window_ms),
                 Engine::Local { model, dir } => {
                     // The other lane may have let the model go between two windows.
                     self.load_whisper(model, dir).await?;
@@ -1319,6 +1448,9 @@ impl CaptionService {
             };
             if job.stop.load(Ordering::Relaxed) {
                 return Ok(());
+            }
+            if job.live && !quiet {
+                self.live_heard(id, hearing.elapsed().as_millis() as u64);
             }
             let consumed = u64::from(consumed.clamp(1000.min(window_ms), window_ms.max(1)));
             let mut rows: Vec<CaptionRow> = segments
@@ -1588,6 +1720,8 @@ struct Job<'a> {
     follow: Follow,
     anchor: &'a AtomicU64,
     stop: Arc<AtomicBool>,
+    /// A live stream: windows wait for their sound to come out, and hearing them is timed.
+    live: bool,
 }
 
 /// What's heard: an episode's file or a video's stream.
@@ -1601,6 +1735,13 @@ impl Sound {
         match self {
             Self::Episode(reader) => reader.window(from_ms, len_ms),
             Self::Video(video) => video.window(from_ms, len_ms),
+        }
+    }
+
+    fn live_edge(&mut self) -> Result<Option<video_audio::LiveEdge>, String> {
+        match self {
+            Self::Episode(_) => Ok(None),
+            Self::Video(video) => video.live_edge(),
         }
     }
 }
@@ -1715,6 +1856,23 @@ mod tests {
         });
         lane.add(vec![song("E")], true);
         assert_eq!(order(&lane), ["C", "A", "B", "D"]);
+    }
+
+    #[test]
+    fn a_live_stream_plays_behind_its_edge_by_what_hearing_it_takes() {
+        let timing = LiveTiming {
+            hearing_ms: LIVE_HEARING_LOCAL_MS,
+            target_ms: 6_000,
+        };
+        // 30 s window + 8 s hearing + a 6 s segment + a 2 s poll + 2 s to spare = 48 s → 50 s.
+        assert_eq!(timing.delay_ms(), 50_000);
+        // Windows heard faster bring it down, smoothly.
+        let quicker = timing.heard(2_000).heard(2_000);
+        assert_eq!(quicker.hearing_ms, 4_666);
+        assert_eq!(quicker.delay_ms(), 45_000);
+        // A slow phone needs more.
+        let slow = timing.heard(26_000);
+        assert_eq!(slow.delay_ms(), 55_000);
     }
 
     #[test]

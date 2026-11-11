@@ -7,6 +7,7 @@ import type { TFunction } from 'i18next';
  * lookup, a script error) into the same kinds as `raygun_net::issue`.
  */
 export type IssueKind =
+  | 'offline-mode'
   | 'offline'
   | 'dns'
   | 'timeout'
@@ -60,6 +61,8 @@ const STORAGE = /no space left|disk full|read-only file system|os error 28\b|ENO
 
 /** The kind a one-line error points at; null for a plain sentence that says it all. */
 export const issueKind = (text: string): IssueKind | null => {
+  // Offline Mode says why before anything else: nothing was sent.
+  if (/offline mode is on/i.test(text)) return 'offline-mode';
   if (CHECK.test(text)) return 'bot-check';
   const status = STATUS.exec(text);
   if (status) return statusKind(Number(status[1]));
