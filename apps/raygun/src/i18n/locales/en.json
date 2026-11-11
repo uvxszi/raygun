@@ -437,16 +437,27 @@
     },
     "fromSources": "From your sources",
     "sources": "Sources",
-    "moreSources_one": "{{count}} more",
-    "moreSources_other": "{{count}} more",
     "fewerSources": "Fewer",
     "findSource": "Find a source",
     "customSources": {
       "title": "Custom sources",
       "count": "{{count}}/{{total}}",
       "on": "{{count}} of {{total}} on",
+      "matching_one": "{{count}} match",
+      "matching_other": "{{count}} matches",
       "all": "All",
       "none": "None",
+      "invert": "Invert",
+      "groupBy": "Group sources",
+      "grouping": {
+        "none": "No groups",
+        "repository": "By repository",
+        "language": "By language"
+      },
+      "onFirst": "On first",
+      "groupSwitch": "Every source in {{name}}",
+      "addedByYou": "Added by you",
+      "unknownLanguage": "Language not listed",
       "noneOn": "Turn on a source above to search it."
     },
     "music": {

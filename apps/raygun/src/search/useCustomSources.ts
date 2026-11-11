@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { Medium } from '../manga/medium';
 
-/** A source Custom sources' panel offers. */
-export type SourceOption = { id: string; name: string; adult?: boolean };
+/** A source Custom sources' panel offers; its extension gives its tile's icon and group. */
+export type SourceOption = { id: string; name: string; adult?: boolean; extensionId?: string };
 
 const customKey = (medium: Medium) => `raygun.search.custom.${medium}`;
 const chosenKey = (medium: Medium) => `raygun.search.sources.${medium}`;
@@ -48,9 +48,14 @@ export const useCustomSources = (
 ) => {
   const [custom, setCustomState] = useState(() => readCustom(medium));
   const [chosen, setChosenState] = useState(() => readChosen(medium));
-  const ids = available?.map((source) => source.id);
-  // Until the sources are listed, the saved choice stands as it is.
-  const picked = ids ? chosen.filter((id) => ids.includes(id)) : chosen;
+  const ids = useMemo(() => available?.map((source) => source.id), [available]);
+  // Until the sources are listed, the saved choice stands as it is. The same list while nothing
+  // changes, so what follows it (the panel's tiles, the search) isn't redrawn for nothing.
+  const picked = useMemo(() => {
+    if (!ids) return chosen;
+    const listed = new Set(ids);
+    return chosen.filter((id) => listed.has(id));
+  }, [ids, chosen]);
   const setChosen = (next: string[]) => {
     setChosenState(next);
     remember(chosenKey(medium), JSON.stringify(next));
@@ -71,7 +76,8 @@ export const useCustomSources = (
       const others = picked.filter((other) => other !== id);
       setChosen(on ? [...others, id] : others);
     },
-    setAll: (on: boolean) => setChosen(on ? (ids ?? []) : []),
+    /** Exactly these sources on (the panel's All, None and Invert, a group's switch). */
+    choose: (next: readonly string[]) => setChosen([...next]),
     /** One source alone (a row's More, a source menu's "Search only this source"). */
     only: (id: string) => {
       setOn(true);

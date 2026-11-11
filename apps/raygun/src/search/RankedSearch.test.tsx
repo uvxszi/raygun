@@ -1,5 +1,5 @@
 import type { ExtensionInfo, MangaCard, MangaSource, SourceSearchResult } from '@raygun/bindings';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
@@ -256,7 +256,7 @@ describe('Ranked search across sources', () => {
     await Promise.all(held);
   });
 
-  it('finds a source by name in Custom sources when there are many, folded after a dozen', async () => {
+  it('finds a source by name in Custom sources when there are many', async () => {
     const user = userEvent.setup();
     const many = Array.from({ length: 14 }, (_, index) =>
       source(`x.s${index}/novel`, index === 12 ? 'Zeta Novels' : `Source ${index}`),
@@ -266,14 +266,16 @@ describe('Ranked search across sources', () => {
     await AppShellWrapper.mount('/browse?tab=search&type=novel');
     await user.click(await screen.findByRole('button', { name: /Custom sources/ }));
     const panel = await screen.findByRole('group', { name: 'Sources' });
-    expect(within(panel).getAllByRole('switch')).toHaveLength(12);
-    expect(within(panel).queryByRole('switch', { name: 'Zeta Novels' })).not.toBeInTheDocument();
+    // Every source's tile, in a box that scrolls by itself.
+    expect(within(panel).getAllByRole('switch')).toHaveLength(14);
     await user.type(within(panel).getByRole('searchbox', { name: 'Find a source' }), 'zeta');
+    await waitFor(() =>
+      expect(within(panel).queryByRole('switch', { name: 'Source 1' })).not.toBeInTheDocument(),
+    );
     expect(within(panel).getByRole('switch', { name: 'Zeta Novels' })).toBeInTheDocument();
-    expect(within(panel).queryByRole('switch', { name: 'Source 1' })).not.toBeInTheDocument();
+    expect(panel).toHaveTextContent('14 of 14 on · 1 match');
 
     await user.clear(within(panel).getByRole('searchbox', { name: 'Find a source' }));
-    await user.click(within(panel).getByRole('button', { name: '2 more' }));
-    expect(within(panel).getAllByRole('switch')).toHaveLength(14);
+    await waitFor(() => expect(within(panel).getAllByRole('switch')).toHaveLength(14));
   });
 });

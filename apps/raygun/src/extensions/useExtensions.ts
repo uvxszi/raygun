@@ -130,6 +130,18 @@ export const useCatalog = (enabled = true) =>
     staleTime: 60_000,
   });
 
+/**
+ * The catalogue as last read, without reading it again while there's one (Search's Custom
+ * sources groups by the languages it lists): read only when nothing is kept.
+ */
+export const useKnownCatalog = (enabled: boolean) =>
+  useQuery({
+    queryKey: CATALOG,
+    queryFn: () => unwrapResult(commands.extensionCatalog(false)),
+    enabled,
+    staleTime: Infinity,
+  });
+
 /** Re-fetches every repository index, bypassing the cache. */
 export const useRefreshCatalog = () => {
   const queryClient = useQueryClient();
