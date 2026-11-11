@@ -142,6 +142,18 @@ pub fn encode(image: &RgbaImage, format: &str, quality: u8) -> Result<Vec<u8>, S
     Ok(out.into_inner())
 }
 
+/// Whether a picture of this size may be made: allocated before anything is drawn, one larger
+/// than memory allows would end the whole app (a failed allocation aborts), not the call.
+fn fits(width: u32, height: u32) -> Result<(), String> {
+    if width > MAX_SIDE
+        || height > MAX_SIDE
+        || u64::from(width) * u64::from(height) > MAX_PIXELS / 2
+    {
+        return Err(format!("a {width}×{height} picture is too large"));
+    }
+    Ok(())
+}
+
 impl Bitmaps {
     fn keep(&mut self, image: RgbaImage) -> Result<u32, String> {
         let (width, height) = image.dimensions();
@@ -197,9 +209,7 @@ impl Bitmaps {
         if width == 0 || height == 0 {
             return Err("width and height must be > 0".into());
         }
-        if width > MAX_SIDE || height > MAX_SIDE {
-            return Err(format!("a {width}×{height} picture is too large"));
-        }
+        fits(width, height)?;
         self.keep(RgbaImage::from_pixel(width, height, argb(color)))
     }
 
@@ -238,6 +248,7 @@ impl Bitmaps {
         if width == 0 || height == 0 {
             return Err("width and height must be > 0".into());
         }
+        fits(width, height)?;
         let source = self.get(id)?;
         let kind = if filter {
             image::imageops::FilterType::Triangle

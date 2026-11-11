@@ -406,6 +406,8 @@ enum Request {
     /// Replaces the lane's extensions with these.
     Load {
         items: Vec<LoadItem>,
+        /// Every extension after the one before, Shosetsu scripts too (a safe start).
+        one_at_a_time: bool,
         reply: oneshot::Sender<Vec<ExtensionInfo>>,
     },
     Call {
@@ -542,6 +544,11 @@ struct HostShared {
     refused: std::sync::Mutex<HashMap<String, (u64, String)>>,
     /// Counts changes to which extensions need setup (a load, a source saying so).
     setup_changes: tokio::sync::watch::Sender<u64>,
+    /// Extensions not loaded, by id, with what their row says instead: the app holds back one
+    /// that was loading or running each time Raygun stopped (crashed) as it started.
+    held_back: RwLock<HashMap<String, String>>,
+    /// Loads go one extension at a time, so a crash names the one loading (a safe start).
+    one_at_a_time: std::sync::atomic::AtomicBool,
 }
 
 /// Each loaded JavaScript extension's heap meter and memory limit, by extension id.
@@ -626,8 +633,28 @@ impl ExtensionHost {
                 late: LateCalls::default(),
                 refused: std::sync::Mutex::new(HashMap::new()),
                 setup_changes: tokio::sync::watch::Sender::new(0),
+                held_back: RwLock::new(HashMap::new()),
+                one_at_a_time: std::sync::atomic::AtomicBool::new(false),
             }),
         })
+    }
+
+    /// Extensions not to load from the next load on, by id, with what their row says instead
+    /// (each replaces the ones before).
+    pub fn set_held_back(&self, held_back: HashMap<String, String>) {
+        *self
+            .shared
+            .held_back
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = held_back;
+    }
+
+    /// Whether loads go one extension at a time, lanes and Shosetsu scripts included: slower,
+    /// but a crash while loading then names the one extension that loaded (a safe start).
+    pub fn set_one_at_a_time(&self, one_at_a_time: bool) {
+        self.shared
+            .one_at_a_time
+            .store(one_at_a_time, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The lane a loaded extension runs on.
@@ -716,7 +743,23 @@ impl ExtensionHost {
         let mut fresh = Vec::new();
         let mut fingerprints = HashMap::new();
         let mut sites = HashMap::new();
+        let held_back = self
+            .shared
+            .held_back
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
         for (id, (source, manifest)) in chosen {
+            if let Some(reason) = held_back.get(&id) {
+                infos.push(failed_info(
+                    &id,
+                    &manifest.name,
+                    &manifest.version.to_string(),
+                    source.origin,
+                    reason.clone(),
+                ));
+                continue;
+            }
             if manifest.runtime == Runtime::Site {
                 sites.insert(id.clone(), (source.clone(), manifest.clone()));
             }
@@ -755,21 +798,35 @@ impl ExtensionHost {
                     .map(move |item| (item.manifest.id.clone(), lane))
             })
             .collect();
+        let one_at_a_time = self
+            .shared
+            .one_at_a_time
+            .load(std::sync::atomic::Ordering::Relaxed);
         let loads = batches
             .into_iter()
             .enumerate()
             .map(|(lane, items)| async move {
                 let (reply, answer) = oneshot::channel();
                 if self.shared.lanes[lane]
-                    .send(Request::Load { items, reply })
+                    .send(Request::Load {
+                        items,
+                        one_at_a_time,
+                        reply,
+                    })
                     .is_err()
                 {
                     return Vec::new();
                 }
                 answer.await.unwrap_or_default()
             });
-        for loaded in futures_util::future::join_all(loads).await {
-            infos.extend(loaded);
+        if one_at_a_time {
+            for load in loads {
+                infos.extend(load.await);
+            }
+        } else {
+            for loaded in futures_util::future::join_all(loads).await {
+                infos.extend(loaded);
+            }
         }
         infos.sort_by_key(|info| info.name.to_lowercase());
         let lanes: HashMap<String, usize> = infos
@@ -2377,8 +2434,12 @@ fn run_lane(
 impl LaneState {
     async fn handle(&self, request: Request) {
         match request {
-            Request::Load { items, reply } => {
-                let infos = self.load(items).await;
+            Request::Load {
+                items,
+                one_at_a_time,
+                reply,
+            } => {
+                let infos = self.load(items, one_at_a_time).await;
                 let _ = reply.send(infos);
             }
             Request::Settings { reply } => {
@@ -2434,7 +2495,7 @@ impl LaneState {
         }
     }
 
-    async fn load(&self, items: Vec<LoadItem>) -> Vec<ExtensionInfo> {
+    async fn load(&self, items: Vec<LoadItem>, one_at_a_time: bool) -> Vec<ExtensionInfo> {
         // The old ones go first, so two sets of runtimes never take memory at once.
         self.loaded.borrow_mut().clear();
         let mut scripts = Vec::new();
@@ -2465,15 +2526,25 @@ impl LaneState {
         }
         // Shosetsu scripts load on threads of their own, so they all start at once; JavaScript
         // extensions share the lane and load one after another.
-        let (mut results, rest) =
-            futures_util::future::join(futures_util::future::join_all(scripts), async {
+        let scripts = async {
+            if one_at_a_time {
                 let mut done = Vec::new();
-                for load in others {
+                for load in scripts {
                     done.push(load.await);
                 }
                 done
-            })
-            .await;
+            } else {
+                futures_util::future::join_all(scripts).await
+            }
+        };
+        let (mut results, rest) = futures_util::future::join(scripts, async {
+            let mut done = Vec::new();
+            for load in others {
+                done.push(load.await);
+            }
+            done
+        })
+        .await;
         results.extend(rest);
         let mut infos = Vec::new();
         for (id, origin, name, version, compatibility, result) in results {
@@ -2509,6 +2580,8 @@ impl LaneState {
         mut user_settings: BTreeMap<String, serde_json::Value>,
         secret: Option<String>,
     ) -> Result<Extension, String> {
+        // A crash while it loads names it (the app's crash records, the next start).
+        let _noted = crate::activity::Noted::loading(&manifest.id);
         if manifest.runtime == Runtime::Server {
             user_settings.retain(|key, value| manifest.check_setting(key, value).is_ok());
             let data_dir = self
@@ -2587,6 +2660,7 @@ impl LaneState {
             .find(|registered| registered.id == provider)
             .map(|registered| registered.name)
             .ok_or_else(unknown)?;
+        let _noted = crate::activity::Noted::calling(extension_id, &format!("{local_id}.{method}"));
         // Shosetsu scripts block on each request and may page through long chapter lists.
         let timeout = match extension.as_ref() {
             Extension::Js(_) | Extension::Server(_) | Extension::Site(_) => {

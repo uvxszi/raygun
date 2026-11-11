@@ -1,6 +1,14 @@
 import type { DehydratedState } from '@tanstack/react-query';
 
-import { canCompress, gunzipText, gzipText, packQueries, unpackQueries } from './cachePack';
+import {
+  MAX_ANSWER_CHARS,
+  MAX_SAVED_CHARS,
+  canCompress,
+  gunzipText,
+  gzipText,
+  packQueries,
+  unpackQueries,
+} from './cachePack';
 
 type Query = DehydratedState['queries'][number];
 
@@ -123,5 +131,22 @@ describe('The saved query cache packed as JSON', () => {
     expect(packed.byteLength).toBeLessThan(text.length / 5);
     expect(await gunzipText(packed)).toBe(text);
     await expect(gunzipText(new TextEncoder().encode(text))).rejects.toThrow();
+  });
+
+  it('leaves out answers too large to restore at once, and stops at a total a phone restores', () => {
+    const huge = 'x'.repeat(MAX_ANSWER_CHARS + 1);
+    const state = stateOf(
+      query('["catalogue"]', { every: huge }),
+      query('["settings"]', { theme: 'dark' }),
+    );
+    expect(roundTrip(state).queries.map((kept) => kept.queryHash)).toEqual(['["settings"]']);
+
+    const big = 'y'.repeat(MAX_ANSWER_CHARS - 100);
+    const many = Array.from({ length: Math.ceil(MAX_SAVED_CHARS / MAX_ANSWER_CHARS) + 4 }, (_, i) =>
+      query(`["search",${i}]`, { big }),
+    );
+    const { json } = packQueries(stateOf(...many));
+    expect(json.length).toBeLessThanOrEqual(MAX_SAVED_CHARS + 1024);
+    expect(unpackQueries(json, []).queries.length).toBeLessThan(many.length);
   });
 });

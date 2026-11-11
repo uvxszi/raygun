@@ -28,6 +28,7 @@ import type {
   PlaylistSummary,
   PodcastSummary,
   QueueSnapshot,
+  SafeStartInfo,
   QuickAccessItem,
   QuickAccessNames,
   SearchProgress,
@@ -316,6 +317,15 @@ export const IDLE_UPDATE: MangaUpdateStatus = {
 export const EMPTY_LIBRARY: LibraryStatus = { roots: [], trackCount: 0, scanning: false };
 
 /** The extension install queue before anything was asked. */
+/** A start after a healthy one: no safe start. */
+export const NORMAL_START: SafeStartInfo = {
+  active: false,
+  reason: null,
+  crashes: 0,
+  suspects: [],
+  heldNow: [],
+};
+
 export const NO_INSTALLS: ExtensionInstallStatus = {
   batch: 0,
   items: [],
@@ -480,6 +490,17 @@ export const bindingsMock = {
     castStatus: vi.fn(),
     ttsReport: vi.fn(),
     ttsSetAvailable: vi.fn(),
+    safeStartStatus: vi.fn(),
+    crashLogs: vi.fn(),
+    crashLog: vi.fn(),
+    crashLogWrite: vi.fn(),
+    crashLogsClear: vi.fn(),
+    crashLogSave: vi.fn(),
+    crashLogShare: vi.fn(),
+    logsSaveAll: vi.fn(),
+    logsOpenFolder: vi.fn(),
+    extensionHoldBack: vi.fn(),
+    appRestartSafe: vi.fn(),
     videoPlayerExternal: vi.fn(),
     storageInfo: vi.fn(),
     settingsGet: vi.fn(),
@@ -1027,6 +1048,20 @@ export const seedBindings = () => {
   commands.castStatus.mockResolvedValue(null);
   commands.ttsReport.mockResolvedValue(null);
   commands.ttsSetAvailable.mockResolvedValue(null);
+  commands.safeStartStatus.mockResolvedValue(NORMAL_START);
+  commands.crashLogs.mockResolvedValue({
+    status: 'ok',
+    data: { records: [], heldBack: [], folder: '/data/logs', safeStart: NORMAL_START },
+  });
+  commands.crashLog.mockResolvedValue({ status: 'ok', data: '' });
+  commands.crashLogWrite.mockResolvedValue({ status: 'ok', data: '1-ui.txt' });
+  commands.crashLogsClear.mockResolvedValue({ status: 'ok', data: null });
+  commands.crashLogSave.mockResolvedValue({ status: 'ok', data: 'Download/Raygun/logs/x.txt' });
+  commands.crashLogShare.mockResolvedValue({ status: 'ok', data: null });
+  commands.logsSaveAll.mockResolvedValue({ status: 'ok', data: 'Download/Raygun/logs/x.zip' });
+  commands.logsOpenFolder.mockResolvedValue({ status: 'ok', data: null });
+  commands.extensionHoldBack.mockResolvedValue({ status: 'ok', data: null });
+  commands.appRestartSafe.mockResolvedValue({ status: 'ok', data: null });
   commands.videoPlayerExternal.mockResolvedValue({ status: 'ok', data: 'mpv' });
   commands.storageInfo.mockResolvedValue(MOBILE_STORAGE);
   // Saved changes are kept and read back, as Rust keeps them; tests may answer otherwise.

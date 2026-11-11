@@ -44,7 +44,8 @@
     "longDescription": "Raygun plays music, podcasts, audiobooks, films and series, and reads comics and books, from your own files and the sources you add.",
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
       },
       "wix": {
         "language": "en-US"

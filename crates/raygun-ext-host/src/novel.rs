@@ -229,7 +229,34 @@ fn boxed_display(element: &scraper::node::Element, formula: &Formula) -> bool {
         || element.attr("display") == Some("true")
 }
 
+/// How deep the walk follows elements. html5ever nests unclosed tags without end, and a page that
+/// nests thousands would overflow the stack, which ends the whole app; past this, an element's text
+/// is read as plain text, without recursing.
+const MAX_WALK_DEPTH: usize = 200;
+
 fn walk(node: ego_tree::NodeRef<'_, Node>, base: Option<&url::Url>, builder: &mut Builder) {
+    if builder.depth >= MAX_WALK_DEPTH {
+        for text in node
+            .descendants()
+            .filter_map(|inner| inner.value().as_text())
+        {
+            if builder.full() {
+                return;
+            }
+            builder.push_text_with_tex(text);
+        }
+        return;
+    }
+    builder.depth += 1;
+    walk_children(node, base, builder);
+    builder.depth -= 1;
+}
+
+fn walk_children(
+    node: ego_tree::NodeRef<'_, Node>,
+    base: Option<&url::Url>,
+    builder: &mut Builder,
+) {
     for child in node.children() {
         if builder.full() {
             return;
@@ -310,7 +337,10 @@ fn walk(node: ego_tree::NodeRef<'_, Node>, base: Option<&url::Url>, builder: &mu
                     }
                     "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                         builder.flush();
-                        let mut heading = Builder::default();
+                        let mut heading = Builder {
+                            depth: builder.depth,
+                            ..Builder::default()
+                        };
                         walk(child, base, &mut heading);
                         // A heading's images stay; its text becomes one heading.
                         let mut text = Vec::new();
@@ -416,6 +446,8 @@ struct Builder {
     bytes: usize,
     /// Inside code: TeX stays as written.
     code: u32,
+    /// How many elements deep the walk is.
+    depth: usize,
 }
 
 impl Builder {

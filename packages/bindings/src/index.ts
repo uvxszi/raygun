@@ -1802,6 +1802,28 @@ export const commands = {
 	ttsReport: (report: string) => __TAURI_INVOKE<void>("tts_report", { report }),
 	/**  Whether the webview can speak (desktop, M46.6); its speech engine says so when it starts. */
 	ttsSetAvailable: (available: boolean) => __TAURI_INVOKE<void>("tts_set_available", { available }),
+	/**  How this start began: a safe start after a crash, and the sources it names. */
+	safeStartStatus: () => __TAURI_INVOKE<SafeStartInfo>("safe_start_status"),
+	/**  The crash records, the held-back sources, and this start. */
+	crashLogs: () => typedError<CrashLogs, string>(__TAURI_INVOKE("crash_logs")),
+	/**  One record's text. */
+	crashLog: (id: string) => typedError<string, string>(__TAURI_INVOKE("crash_log", { id })),
+	/**  Records an error the page couldn't get past (its error screen shows): the record's id. */
+	crashLogWrite: (summary: string, detail: string) => typedError<string, string>(__TAURI_INVOKE("crash_log_write", { summary, detail })),
+	/**  Removes every crash record. */
+	crashLogsClear: () => typedError<null, string>(__TAURI_INVOKE("crash_logs_clear")),
+	/**  Saves one record in Download/Raygun/logs: where it went. */
+	crashLogSave: (id: string) => typedError<string, string>(__TAURI_INVOKE("crash_log_save", { id })),
+	/**  Opens the share sheet for one record (desktop: shows it in the file manager). */
+	crashLogShare: (id: string) => typedError<null, string>(__TAURI_INVOKE("crash_log_share", { id })),
+	/**  Saves every log as one zip in Download/Raygun/logs: where it went. */
+	logsSaveAll: () => typedError<string, string>(__TAURI_INVOKE("logs_save_all")),
+	/**  Shows the logs folder in the file manager (desktop). */
+	logsOpenFolder: () => typedError<null, string>(__TAURI_INVOKE("logs_open_folder")),
+	/**  Holds an extension back from loading, or lets it load again; extensions reload. */
+	extensionHoldBack: (id: string, held: boolean) => typedError<null, string>(__TAURI_INVOKE("extension_hold_back", { id, held })),
+	/**  Starts Raygun again as a safe start, its caches cleared first when asked (the error page). */
+	appRestartSafe: (clearCaches: boolean) => typedError<null, string>(__TAURI_INVOKE("app_restart_safe", { clearCaches })),
 };
 
 /** Events */
@@ -2797,6 +2819,27 @@ export type CoverOption = {
 };
 
 export type CoverStyle = "compact" | "comfortable";
+
+/**  About → Crash logs. */
+export type CrashLogs = {
+	records: CrashRecord[],
+	/**  Every extension held back. */
+	heldBack: SourceRef[],
+	/**  The logs folder, as a path. */
+	folder: string,
+	safeStart: SafeStartInfo,
+};
+
+/**  One record, as the list shows it. */
+export type CrashRecord = {
+	/**  Its file name. */
+	id: string,
+	/**  `panic`, `java`, `renderer`, `native`, `anr`, `memory`, `exit` or `start`. */
+	kind: string,
+	/**  When, in milliseconds since 1970. */
+	at: number | null,
+	summary: string,
+};
 
 /**  People with one role on a song (M46.14): "Written by", "Produced by", "Guitar"... */
 export type CreditGroup = {
@@ -5758,6 +5801,25 @@ export type RepoCatalog = {
 /**  A reverb, as Android's `PresetReverb` names them (M46.12). */
 export type Reverb = "off" | "smallRoom" | "mediumRoom" | "largeRoom" | "mediumHall" | "largeHall" | "plate";
 
+/**  This start, as the UI shows it. */
+export type SafeStartInfo = {
+	active: boolean,
+	reason: SafeStartReason | null,
+	crashes: number,
+	suspects: SourceRef[],
+	/**  Held back by this start. */
+	heldNow: SourceRef[],
+};
+
+/**  Why this start is a safe one. */
+export type SafeStartReason = 
+/**  The last start stopped before it proved healthy. */
+"stopped" | 
+/**  The page's renderer went. */
+"renderer" | 
+/**  Someone asked for it on an error page. */
+"asked";
+
 /**  The picked folder as Android sees it now. */
 export type SaveFolderState = {
 	/**  Raygun may still write there. */
@@ -6603,6 +6665,12 @@ export type SourceRank = {
 	workedLink: number | null,
 	/**  Its links' places in the list given, in play order. */
 	links: number[],
+};
+
+/**  An extension named in the safe start or held back. */
+export type SourceRef = {
+	id: string,
+	name: string,
 };
 
 /**  One source's first page of results in a search across sources. */

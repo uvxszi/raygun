@@ -116,7 +116,11 @@ class VideoPlayerActivity : AppCompatActivity() {
         /** Hands an update to the open player; false when none is open. */
         fun deliver(json: String): Boolean {
             val activity = live ?: return false
-            activity.runOnUiThread { activity.applyUpdate(JSONObject(json)) }
+            activity.runOnUiThread {
+                // One bad update must not end Raygun (an exception here would, on the main thread).
+                runCatching { activity.applyUpdate(JSONObject(json)) }
+                    .onFailure { error -> android.util.Log.w("Raygun", "video update failed", error) }
+            }
             return true
         }
 
@@ -277,7 +281,9 @@ class VideoPlayerActivity : AppCompatActivity() {
     private var sinceReport = 0L
     private val ticker = object : Runnable {
         override fun run() {
-            tick()
+            // A tick that throws must not end Raygun; the next one comes as usual.
+            runCatching { tick() }
+                .onFailure { error -> android.util.Log.w("Raygun", "video tick failed", error) }
             main.postDelayed(this, TICK_MS)
         }
     }
@@ -295,6 +301,12 @@ class VideoPlayerActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Recreated by the system in a new process (after Raygun ended): nothing in Rust knows this
+        // player, so it would wait for ever; Raygun's own screen comes instead.
+        if (savedInstanceState != null && DirectCalls.plugin == null) {
+            finish()
+            return
+        }
         live = this
         // Language names for choosing tracks, ready before the first video's are known.
         thread(name = "raygun-languages") { Languages.warm() }
@@ -2059,6 +2071,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        if (!::player.isInitialized) return
         if (!isInPip() && !externalOnly) player.pause()
         report("progress")
         if (prefs.rememberBrightness && !brightness.isNaN()) {
@@ -2072,8 +2085,10 @@ class VideoPlayerActivity : AppCompatActivity() {
         runCatching { unregisterReceiver(tools.pipReceiver) }
         statsHelper?.stop()
         loudness?.release()
-        report("closed")
-        player.release()
+        if (::player.isInitialized) {
+            report("closed")
+            player.release()
+        }
         super.onDestroy()
     }
 

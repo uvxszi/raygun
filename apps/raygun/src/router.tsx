@@ -10,6 +10,8 @@ import { CategoriesPage } from './pages/CategoriesPage';
 import { PodcastPage } from './pages/PodcastPage';
 import { WatchCatalogPage } from './pages/WatchCatalogPage';
 import { AboutPage } from './pages/AboutPage';
+import { CrashLogsPage } from './pages/CrashLogsPage';
+import { RouteError } from './shell/ErrorScreen';
 import { MusicAlbumPage } from './pages/MusicAlbumPage';
 import { MusicPlaylistPage } from './pages/MusicPlaylistPage';
 import { MusicChartPage } from './pages/MusicChartPage';
@@ -54,7 +56,8 @@ import { LayoutSettingsPage, LayoutSurfacePage } from './pages/LayoutSettingsPag
 import { SettingsSectionPage } from './pages/SettingsSectionPage';
 import { AppShell } from './shell/AppShell';
 
-const rootRoute = createRootRoute({ component: AppShell });
+// A page that fails shows Raygun's error screen, never the raw error.
+const rootRoute = createRootRoute({ component: AppShell, errorComponent: RouteError });
 
 // Search values that look like numbers (a book id such as 84) arrive parsed; ids stay text.
 const text = (value: unknown) =>
@@ -440,6 +443,12 @@ const routeTree = rootRoute.addChildren([
   }),
   createRoute({ getParentRoute: () => rootRoute, path: '/more', component: MorePage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/about', component: AboutPage }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/about/crashes',
+    component: CrashLogsPage,
+    validateSearch: (search: Record<string, unknown>) => ({ id: text(search.id) }),
+  }),
   // Repositories, addons, servers and extensions in one place, with one Add (M46.52), and the
   // extension catalogue Browse → Extensions shows.
   createRoute({
@@ -562,7 +571,8 @@ const routeTree = rootRoute.addChildren([
   }),
 ]);
 
-export const createAppRouter = (history?: RouterHistory) => createRouter({ routeTree, history });
+export const createAppRouter = (history?: RouterHistory) =>
+  createRouter({ routeTree, history, defaultErrorComponent: RouteError });
 
 declare module '@tanstack/react-router' {
   interface Register {

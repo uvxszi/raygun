@@ -135,14 +135,33 @@ const EXACT_LONG_OPS: [&str; 11] = [
     "+", "-", "*", "/", "%", "and", "or", "xor", "shl", "shr", "ushr",
 ];
 
+/// How many aliases (and type arguments) [Context::unaliased] follows.
+const MAX_ALIAS_HOPS: usize = 32;
+
 impl Context {
     /// A type with its aliases replaced by what they stand for.
     pub fn unaliased(&self, ty: &Type) -> Type {
+        self.unaliased_within(ty, 0)
+    }
+
+    /// [Self::unaliased], at most [MAX_ALIAS_HOPS] deep: an alias may name a type of its own
+    /// short name (`typealias Headers = okhttp3.Headers`) or a cycle, which recursed until the
+    /// stack ran out and ended the app.
+    fn unaliased_within(&self, ty: &Type, hops: usize) -> Type {
+        if hops >= MAX_ALIAS_HOPS {
+            return ty.clone();
+        }
         let short = ty.name.rsplit('.').next().unwrap_or(&ty.name);
         match self.type_aliases.get(short) {
-            Some(target) if ty.args.is_empty() => self.unaliased(target),
+            Some(target) if ty.args.is_empty() && target.name != ty.name => {
+                self.unaliased_within(target, hops + 1)
+            }
             _ => Type {
-                args: ty.args.iter().map(|arg| self.unaliased(arg)).collect(),
+                args: ty
+                    .args
+                    .iter()
+                    .map(|arg| self.unaliased_within(arg, hops + 1))
+                    .collect(),
                 ..ty.clone()
             },
         }

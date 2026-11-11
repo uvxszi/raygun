@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
+import app.raygun.audio.CrashLog
 import app.raygun.audio.OfflineGateClient
 import app.raygun.audio.OpenWith
 import app.raygun.audio.RaygunWindow
@@ -31,6 +32,8 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    // First: crash records for uncaught exceptions, and how earlier runs ended (About → Crash logs).
+    CrashLog.install(this)
     // Recreated after Android stopped Raygun in the background: what another app opened it with
     // played then, and doesn't again.
     if (savedInstanceState != null) OpenWith.handled(intent)
@@ -86,6 +89,7 @@ class MainActivity : TauriActivity() {
   // Held only while Raygun is in front: it costs battery, and sync runs in the foreground (M21).
   override fun onResume() {
     super.onResume()
+    CrashLog.mainInFront = true
     WebAwake.resumed()
     val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     multicastLock =
@@ -96,6 +100,7 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onPause() {
+    CrashLog.mainInFront = false
     multicastLock?.release()
     multicastLock = null
     // While a song plays in the webview (YouTube's player), wry mustn't pause it at all: even a

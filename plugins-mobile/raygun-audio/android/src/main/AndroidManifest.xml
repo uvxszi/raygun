@@ -105,5 +105,14 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+        <!-- Raygun's error screen, shown when its page stopped working (the webview's renderer went,
+             or the page couldn't load). In its own process, so it stays when Raygun's ends. -->
+        <activity
+            android:name="app.raygun.audio.RaygunErrorActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:process=":crash"
+            android:taskAffinity="app.raygun.player.error"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
     </application>
 </manifest>

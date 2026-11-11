@@ -17,12 +17,21 @@ static BRIDGE: OnceLock<Bridge> = OnceLock::new();
 /// Called by `app.raygun.audio.NativeBridge.onAttach` on the Android main thread.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_app_raygun_audio_NativeBridge_onAttach(env: JNIEnv, class: JClass) {
-    if BRIDGE.get().is_some() {
-        return;
-    }
-    if let (Ok(vm), Ok(class)) = (env.get_java_vm(), env.new_global_ref(&class)) {
-        let _ = BRIDGE.set(Bridge { vm, class });
-    }
+    guarded(|| {
+        if BRIDGE.get().is_some() {
+            return;
+        }
+        if let (Ok(vm), Ok(class)) = (env.get_java_vm(), env.new_global_ref(&class)) {
+            let _ = BRIDGE.set(Bridge { vm, class });
+        }
+    });
+}
+
+/// Runs a JNI entry point's body. A panic must not unwind out of an `extern "system"` function:
+/// Rust aborts the whole process then (the music, the downloads, everything). The panic hook has
+/// logged it (and recorded a crash log) by the time it's caught here; the report it carried is lost.
+fn guarded(body: impl FnOnce()) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
 }
 
 /// Whether Kotlin handed over the bridge (it does as the plugin loads).
@@ -81,9 +90,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onControl(
     _class: JClass,
     control: JString,
 ) {
-    if let Ok(control) = env.get_string(&control) {
-        crate::deliver_control(control.into());
-    }
+    guarded(|| {
+        if let Ok(control) = env.get_string(&control) {
+            crate::deliver_control(control.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onTts` on the Android main thread.
@@ -93,9 +104,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onTts(
     _class: JClass,
     json: JString,
 ) {
-    if let Ok(json) = env.get_string(&json) {
-        crate::deliver_tts(json.into());
-    }
+    guarded(|| {
+        if let Ok(json) = env.get_string(&json) {
+            crate::deliver_tts(json.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onVideo` on the Android main thread.
@@ -105,9 +118,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onVideo(
     _class: JClass,
     json: JString,
 ) {
-    if let Ok(json) = env.get_string(&json) {
-        crate::deliver_video(json.into());
-    }
+    guarded(|| {
+        if let Ok(json) = env.get_string(&json) {
+            crate::deliver_video(json.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onWebsite` on the Android main thread (M46.3).
@@ -117,9 +132,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWebsite(
     _class: JClass,
     json: JString,
 ) {
-    if let Ok(json) = env.get_string(&json) {
-        crate::deliver_website(json.into());
-    }
+    guarded(|| {
+        if let Ok(json) = env.get_string(&json) {
+            crate::deliver_website(json.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onNotificationAction` on the Android main thread.
@@ -129,9 +146,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onNotificationAction(
     _class: JClass,
     json: JString,
 ) {
-    if let Ok(json) = env.get_string(&json) {
-        crate::deliver_notification_action(json.into());
-    }
+    guarded(|| {
+        if let Ok(json) = env.get_string(&json) {
+            crate::deliver_notification_action(json.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onOpen` on the Android main thread.
@@ -141,9 +160,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onOpen(
     _class: JClass,
     route: JString,
 ) {
-    if let Ok(route) = env.get_string(&route) {
-        crate::deliver_open(route.into());
-    }
+    guarded(|| {
+        if let Ok(route) = env.get_string(&route) {
+            crate::deliver_open(route.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onOpenWith` on a thread of the plugin's own.
@@ -153,9 +174,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onOpenWith(
     _class: JClass,
     json: JString,
 ) {
-    if let Ok(json) = env.get_string(&json) {
-        crate::deliver_open_with(json.into());
-    }
+    guarded(|| {
+        if let Ok(json) = env.get_string(&json) {
+            crate::deliver_open_with(json.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onEngineEvent` on the Android main thread.
@@ -165,9 +188,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onEngineEvent(
     _class: JClass,
     json: JString,
 ) {
-    if let Ok(json) = env.get_string(&json) {
-        crate::deliver_report(json.into());
-    }
+    guarded(|| {
+        if let Ok(json) = env.get_string(&json) {
+            crate::deliver_report(json.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onDeviceState` on the Android main thread.
@@ -177,9 +202,11 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onDeviceState(
     _class: JClass,
     json: JString,
 ) {
-    if let Ok(json) = env.get_string(&json) {
-        crate::deliver_device_state(json.into());
-    }
+    guarded(|| {
+        if let Ok(json) = env.get_string(&json) {
+            crate::deliver_device_state(json.into());
+        }
+    });
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onWindowWanted` on the Android main thread: a new
@@ -189,7 +216,7 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWindowWanted(
     _env: JNIEnv,
     _class: JClass,
 ) {
-    crate::deliver_window_wanted();
+    guarded(crate::deliver_window_wanted);
 }
 
 /// Called by `app.raygun.audio.NativeBridge.onWindowClosing` on the Android main thread, which
@@ -199,5 +226,5 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWindowClosing(
     _env: JNIEnv,
     _class: JClass,
 ) {
-    crate::deliver_window_closing();
+    guarded(crate::deliver_window_closing);
 }

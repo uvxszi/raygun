@@ -347,10 +347,21 @@ pub fn is_jxl(bytes: &[u8]) -> bool {
         ])
 }
 
+/// The largest JPEG XL picture decoded (a long webtoon page fits).
+const MAX_JXL_PIXELS: u64 = 80_000_000;
+
 /// A JPEG XL picture as PNG (M46.38), decoded by jxl-oxide.
 pub fn jxl_to_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let decoder = jxl_oxide::integration::JxlDecoder::new(std::io::Cursor::new(bytes))
         .map_err(|error| format!("couldn't read the JPEG XL picture: {error}"))?;
+    // The buffer is sized from the header before anything is decoded: a tiny file claiming a huge
+    // picture would ask for more memory than there is, which ends the whole app.
+    let (width, height) = image::ImageDecoder::dimensions(&decoder);
+    if u64::from(width) * u64::from(height) > MAX_JXL_PIXELS {
+        return Err(format!(
+            "the JPEG XL picture is too large ({width}×{height})"
+        ));
+    }
     let image = image::DynamicImage::from_decoder(decoder)
         .map_err(|error| format!("couldn't read the JPEG XL picture: {error}"))?;
     let mut png = std::io::Cursor::new(Vec::new());
