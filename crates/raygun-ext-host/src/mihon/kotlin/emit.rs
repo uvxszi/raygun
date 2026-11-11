@@ -3002,7 +3002,7 @@ pub const OBJECTS: &[&str] = &[
     "TextStyle", "Injekt", "GlobalScope", "SSLContext", "TriState", "STATE_IGNORE",
     "STATE_INCLUDE", "STATE_EXCLUDE", "RequestBody", "CookieJar", "Credentials", "Html",
     "HttpURLConnection", "Duration", "DurationUnit", "CharCategory", "StaticLayout", "Layout",
-    "Collections",
+    "LineBreaker", "Collections",
     "LazyThreadSafetyMode",
     "URLUtil", "Result",
     "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",

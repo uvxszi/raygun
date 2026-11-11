@@ -7714,6 +7714,7 @@
     CharCategory: Object.fromEntries(CHAR_CATEGORIES.map(([, name]) => [name, name])),
     StaticLayout: { Builder: { obtain: staticLayoutBuilder } },
     Layout: layoutStatics,
+    LineBreaker: layoutStatics,
     DurationUnit: {
       NANOSECONDS: timeUnit('NANOSECONDS', 1e-6),
       MICROSECONDS: timeUnit('MICROSECONDS', 1e-3),

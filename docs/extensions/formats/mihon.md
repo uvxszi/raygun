@@ -307,17 +307,19 @@ conversion as installing does (one that doesn't load counts as refused):
 | Iken, InitManga, FoolSlide, GalleryAdults | 37 | 37 |
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
-| Other themes | 128 | 134 |
-| No theme | 799 | 858 |
-| All | 1512 (95.9%) | 1577 |
+| Other themes | 130 | 134 |
+| No theme | 805 | 858 |
+| All | 1520 (96.4%) | 1577 |
 
-The 65 refusals left are one or two extensions each, most of them on what has no stand-in:
-Android's text layout and PDF rendering (`StaticLayout`, `PdfRenderer`), Java's key pairs
+The 57 refusals left are one or two extensions each, most of them on what has no stand-in:
+Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java's key pairs
 (`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
 `zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
 own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
-and zstd; a few on Kotlin the converter doesn't read yet (`sequence { yieldAll(…) }`,
-`typealias`, java.time's `YearMonth`/`LocalTime`/`WeekFields`).
+and zstd; a few on Kotlin the converter doesn't read yet (`sequence { yieldAll(…) }`, java.time's
+`YearMonth`/`LocalTime`/`WeekFields`, `DateTimeFormatterBuilder.appendValue`). Android's
+`StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) is the runtime's text
+layout, so captions and speech bubbles drawn on pictures convert.
 
 `mihon_popular_live` with a sample of 300 converted sources (2026-11-11) follows each listing
 through a title's details, its chapters and a chapter's pages: 234 of the 300 list their
