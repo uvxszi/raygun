@@ -222,6 +222,17 @@ pub fn upstream_url(rest: &str, query: Option<&str>) -> Option<Url> {
     url.host_str().is_some().then_some(url)
 }
 
+/// Whether an address names an HLS playlist: its last path segment ends in `.m3u8` (`playlist.m3u8`,
+/// `master.m3u8`, whatever the query). Players pick their HLS reader by it, so a song streamed in
+/// HLS pieces plays through the `/media/` route, which keeps the name.
+pub fn names_hls(address: &str) -> bool {
+    Url::parse(address).is_ok_and(|url| {
+        url.path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .is_some_and(|last| last.to_ascii_lowercase().ends_with(".m3u8"))
+    })
+}
+
 /// The `/media/` path (after the token) that stands for `url`.
 pub fn media_path(url: &Url) -> String {
     let mut path = format!("{}/{}", url.scheme(), url.host_str().unwrap_or_default());
@@ -242,6 +253,26 @@ mod tests {
 
     fn link(url: &Url) -> String {
         format!("http://proxy/media/t/{}", media_path(url))
+    }
+
+    #[test]
+    fn hls_playlists_are_told_by_their_name() {
+        // SoundCloud's, old and new, and a server's master playlist.
+        for hls in [
+            "https://cf-hls-media.sndcdn.com/playlist/AbC.128.mp3/playlist.m3u8?Policy=x&Signature=y",
+            "https://playback.media-streaming.soundcloud.cloud/x/aac_160k/u/playlist.m3u8?expires=1",
+            "http://127.0.0.1:8096/Audio/1/MASTER.M3U8",
+        ] {
+            assert!(names_hls(hls), "{hls}");
+        }
+        for other in [
+            "https://cdn.example/song.mp3",
+            "https://cdn.example/stream?format=m3u8",
+            "https://cdn.example/playlist.m3u8/segment.ts",
+            "not an address",
+        ] {
+            assert!(!names_hls(other), "{other}");
+        }
     }
 
     #[test]

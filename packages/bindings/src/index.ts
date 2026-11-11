@@ -2849,6 +2849,11 @@ export type EditedLyrics = {
 
 /**  An instruction for the active playback engine. */
 export type EngineCommand = { type: "load"; loadId: number; url: string; 
+/**
+ *  `url` is an HLS playlist (through the proxy's `/media/` route, which brings its
+ *  pieces through the proxy too): the engine plays it with its HLS reader.
+ */
+hls?: boolean; 
 /**  For native engines' media session (notification, lock screen). */
 title: string; artist: string | null; artworkUrl: string | null; startMs: number | null; autoplay: boolean; volume: number | null; 
 /**  This song's gain in dB: its own volume plus normalization (M46.12). */

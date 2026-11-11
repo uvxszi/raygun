@@ -342,11 +342,22 @@ fn open_file(path: &Path) -> Result<Box<dyn Demux + 'static>> {
         }
         Kind::Mp4 => Ok(Box::new(isobmff::Mp4Demux::file(path)?)),
         Kind::Matroska => Ok(Box::new(matroska::MkvDemux::open(path)?)),
+        // Bare frames (ADTS AAC, MP3: an HLS stream's sound joined) are one segment of whole
+        // frames, read at once.
+        Kind::PackedAudio if std::fs::metadata(path)?.len() <= MAX_PACKED_BYTES => {
+            let data = std::fs::read(path)?;
+            let segment: Segments<'static> =
+                Box::new(std::iter::once(Ok(Segment { init: None, data })));
+            Ok(Box::new(ts::PackedAudio::new(segment)))
+        }
         Kind::PackedAudio | Kind::Unknown => Err(Error::Unsupported(
             "This video's format can't be converted".into(),
         )),
     }
 }
+
+/// The biggest file of bare audio frames read (a few hours of sound).
+const MAX_PACKED_BYTES: u64 = 256 * 1024 * 1024;
 
 /// A file read in pieces, for the MPEG-TS reader (whole packets: 188 bytes each).
 fn chunked(mut file: impl Read + 'static) -> Segments<'static> {

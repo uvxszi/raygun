@@ -25,6 +25,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -53,6 +54,8 @@ import kotlin.concurrent.thread
 class LoadArgs {
     var loadId: Int = 0
     lateinit var url: String
+    /** `url` is an HLS playlist (through Raygun's proxy): played with Media3's HLS reader. */
+    var hls: Boolean = false
     var title: String = ""
     var artist: String? = null
     var artworkUrl: String? = null
@@ -513,6 +516,9 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
                 .setUri(args.url)
                 .setMediaId(args.loadId.toString())
                 .setMediaMetadata(metadata)
+                // A song in HLS pieces (SoundCloud's): the default media source factory then
+                // reads it as a playlist rather than as one file.
+                .apply { if (args.hls) setMimeType(MimeTypes.APPLICATION_M3U8) }
                 .build()
             val startMs = (args.startMs ?: 0.0).toLong()
             val gainDb = args.gainDb ?: 0.0

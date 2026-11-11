@@ -3293,6 +3293,10 @@ pub enum EngineCommand {
     Load {
         load_id: u32,
         url: String,
+        /// `url` is an HLS playlist (through the proxy's `/media/` route, which brings its
+        /// pieces through the proxy too): the engine plays it with its HLS reader.
+        #[serde(default)]
+        hls: bool,
         /// For native engines' media session (notification, lock screen).
         title: String,
         artist: Option<String>,

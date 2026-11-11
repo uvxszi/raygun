@@ -1,7 +1,7 @@
 import type { EngineCommand, EngineReport } from '@raygun/bindings';
 
 import { DECLICK_MS, Html5Engine } from './html5Engine';
-import type { MediaElementLike } from './html5Engine';
+import type { AttachHls, MediaElementLike, StreamAttachment } from './html5Engine';
 import { toLufs } from './loudness';
 import type { DeckAudio, SoundBackend } from './soundGraph';
 
@@ -74,7 +74,34 @@ const fakeSound = () => {
 
 type LoadCommand = Extract<EngineCommand, { type: 'load' }>;
 
-const setup = () => {
+/** An HLS reader that waits to be let in (`attach`), and records what it was given. */
+const fakeHls = () => {
+  const given: { url: string; destroyed: boolean; failed: (message: string) => void }[] = [];
+  const pending: (() => void)[] = [];
+  const attach: AttachHls = (media, url, failed) => {
+    const entry = { url, destroyed: false, failed };
+    given.push(entry);
+    return new Promise<StreamAttachment>((resolve) => {
+      pending.push(() => {
+        (media as unknown as FakeMedia).src = 'blob:hls';
+        resolve({
+          destroy: () => {
+            entry.destroyed = true;
+          },
+        });
+      });
+    });
+  };
+  /** Lets the waiting readers in. */
+  const attachAll = async () => {
+    for (const resolve of pending.splice(0)) resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  return { attach, given, attachAll };
+};
+
+const setup = (hls = fakeHls()) => {
   const medias = [new FakeMedia(), new FakeMedia()] as const;
   const { backend, decks } = fakeSound();
   const reports: EngineReport[] = [];
@@ -84,6 +111,7 @@ const setup = () => {
     (report) => reports.push(report),
     () => clock,
     backend,
+    hls.attach,
   );
   const [media, other] = medias;
   return {
@@ -93,6 +121,7 @@ const setup = () => {
     backend,
     reports,
     engine,
+    hls,
     advance: (milliseconds: number) => {
       clock += milliseconds;
     },
@@ -101,6 +130,7 @@ const setup = () => {
         type: 'load',
         loadId: 7,
         url: 'http://127.0.0.1:9000/stream/abc',
+        hls: false,
         title: 'Intro',
         artist: null,
         artworkUrl: null,
@@ -130,6 +160,47 @@ describe('Html5Engine', () => {
     expect(backend.volume).toBe(0.5);
     expect(media.play).toHaveBeenCalled();
     expect(reports).toEqual([{ loadId: 7, event: { type: 'buffering' } }]);
+  });
+
+  it('plays a song in HLS pieces through its reader, and lets the reader go with the song', async () => {
+    const { media, reports, load, hls, engine } = setup();
+    const url = 'http://127.0.0.1:9000/media/t/https/hls.example/a/playlist.m3u8?sig=1';
+
+    load({ url, hls: true });
+
+    // The reader takes the playlist, not the element itself; it plays once the reader is in.
+    expect(hls.given.map((entry) => entry.url)).toEqual([url]);
+    expect(media.src).toBe('');
+    expect(media.play).not.toHaveBeenCalled();
+    expect(reports).toEqual([{ loadId: 7, event: { type: 'buffering' } }]);
+    await hls.attachAll();
+    expect(media.play).toHaveBeenCalled();
+
+    // The reader's trouble is the song's.
+    hls.given[0]?.failed('fragLoadError (HTTP 403)');
+    expect(reports.at(-1)).toEqual({
+      loadId: 7,
+      event: { type: 'error', message: 'fragLoadError (HTTP 403)' },
+    });
+
+    // Stopped, the reader goes with the song.
+    media.paused = true;
+    engine.handle({ type: 'stop' });
+    expect(hls.given[0]?.destroyed).toBe(true);
+    expect(media.removeAttribute).toHaveBeenCalledWith('src');
+  });
+
+  it('lets a reader go at once when a newer song took its deck while it loaded', async () => {
+    const { media, other, load, hls } = setup();
+
+    load({ url: 'http://127.0.0.1:9000/media/t/https/a.example/one.m3u8', hls: true });
+    load({ loadId: 8, url: 'http://127.0.0.1:9000/stream/next' });
+    await hls.attachAll();
+
+    expect(hls.given[0]?.destroyed).toBe(true);
+    expect(media.play).not.toHaveBeenCalled();
+    expect(other.src).toBe('http://127.0.0.1:9000/stream/next');
+    expect(other.play).toHaveBeenCalled();
   });
 
   it('does not start playing without autoplay', () => {
