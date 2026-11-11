@@ -1287,6 +1287,10 @@
     childNodeSize() {
       return this.childNodes().length;
     }
+    /** Jsoup's `getElementsContainingText(text)`: elements whose text has it. */
+    getElementsContainingText(text) {
+      return this.select(`*:contains(${K.str(text).replace(/[()]/g, '\\$&')})`);
+    }
     /** Jsoup's `siblingIndex()`: its place among its parent's child nodes. */
     siblingIndex() {
       const parent = this.parent();

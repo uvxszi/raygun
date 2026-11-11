@@ -251,7 +251,11 @@ pub const METHODS: &[&str] = &[
     "decrementAndGet", "getAndDecrement", "addAndGet", "getAndAdd", "getAndSet", "compareAndSet",
     "tryLock", "readLock", "writeLock", "isHeldByCurrentThread", "setScale", "simpleName",
     "fixedLength", "cancelChildren", "availableProcessors", "maxMemory", "totalMemory",
-    "freeMemory", "addJsonObject", "addJsonArray",
+    "freeMemory", "addJsonObject", "addJsonArray", "dispatcher", "withDefault", "exists",
+    "mkdirs", "mkdir", "createNewFile", "deleteRecursively", "lastModified", "setLastModified",
+    "readBytes", "writeBytes", "writeText", "appendText", "listFiles", "renameTo",
+    "createTempFile", "isDirectory", "isEqual", "getOffset", "getRawOffset", "freeze",
+    "cloneAsThawed", "toHashSet", "asList", "getElementsContainingText",
 ];
 
 fn quote(text: &str) -> String {
@@ -2553,11 +2557,15 @@ impl<'a> Gen<'a> {
                 if matches!(owner.as_str(), "SChapter" | "SManga" | "Page") {
                     return Ok(format!("(async (value) => KT.p(value, {}))", quote(name)));
                 }
-                // `Genre::state`, `TagCheckBox::state`: a filter's or a declared class's own
-                // field or function, read on what's passed.
-                if matches!(name, "state" | "name" | "values")
-                    || (self.cx.classes.contains(owner) && self.cx.class_members.contains(name))
-                {
+                // `Genre::state`, `TagCheckBox::state`: a declared class's own field or function
+                // (or an object's: `Unpacker::unpack`), else a filter's, read on what's passed.
+                if self.cx.classes.contains(owner) && self.cx.class_members.contains(name) {
+                    return Ok(format!(
+                        "(async (...args) => KT.ref(D.{owner}, {}, args))",
+                        quote(name)
+                    ));
+                }
+                if matches!(name, "state" | "name" | "values") {
                     return Ok(format!(
                         "(async (receiver, ...args) => KT.member(receiver, {}, args))",
                         quote(name)
@@ -2890,7 +2898,7 @@ pub const GLOBALS: &[&str] = &[
     "askPassword", "askSelect", "askSelectOption", "GZIPInputStream", "InflaterInputStream",
     "SoftReference", "WeakReference", "randomUUID", "launch", "Header", "Separator",
     "injectLazy", "AtomicInteger", "AtomicLong", "AtomicBoolean", "AtomicReference",
-    "ReentrantLock", "ReentrantReadWriteLock", "sleep", "AutoCloseable",
+    "ReentrantLock", "ReentrantReadWriteLock", "sleep", "AutoCloseable", "File", "Dispatcher",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.
@@ -2912,5 +2920,5 @@ pub const OBJECTS: &[&str] = &[
     "STATE_INCLUDE", "STATE_EXCLUDE", "RequestBody", "CookieJar", "Credentials", "Html",
     "HttpURLConnection", "Duration", "Collections", "LazyThreadSafetyMode", "URLUtil", "Result",
     "FORCE_NETWORK", "FORCE_CACHE", "TimeSource", "RoundingMode", "Validate", "Runtime",
-    "applicationContext", "PreferenceManager", "BuildConfig",
+    "applicationContext", "PreferenceManager", "BuildConfig", "File",
 ];

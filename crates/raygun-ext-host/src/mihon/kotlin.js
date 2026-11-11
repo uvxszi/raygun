@@ -1561,6 +1561,8 @@
       return true;
     },
     randomOrNull: (l) => (l.length ? l[Math.floor(Math.random() * l.length)] : null),
+    toHashSet: (l) => LIST.distinct(l),
+    asList: (l) => l,
     contentToString: (l) => `[${l.map((item) => KT.str(item)).join(', ')}]`,
     minWith: async (l, [order]) => {
       if (!l.length) return noSuch('the list is empty');
@@ -1627,7 +1629,17 @@
       return m.get(key);
     },
     containsKey: (m, [key]) => m.has(key),
-    getValue: (m, [key]) => (m.has(key) ? m.get(key) : noSuch(`no key ${KT.str(key)}`)),
+    getValue: async (m, [key]) =>
+      m.has(key) ? m.get(key) : m.defaultOf ? m.defaultOf(key) : noSuch(`no key ${KT.str(key)}`),
+    // `withDefault { key -> … }`: what `getValue` answers for a key it lacks.
+    withDefault: (m, _args, lambda) => {
+      Object.defineProperty(m, 'defaultOf', {
+        value: lambda,
+        enumerable: false,
+        configurable: true,
+      });
+      return m;
+    },
     containsValue: (m, [value]) => [...m.values()].some((other) => KT.eq(other, value)),
     put: (m, [key, value]) => {
       m.set(key, value);
@@ -3537,6 +3549,7 @@
       retryOnConnectionFailure: () => builder,
       // Raygun's own client resolves names, picks protocols, checks certificates and caches.
       cache: () => builder,
+      dispatcher: () => builder,
       dns: () => builder,
       protocols: () => builder,
       hostnameVerifier: () => builder,
@@ -5348,6 +5361,8 @@
       setDecomposition: (value) => {
         made.decomposition = value;
       },
+      freeze: () => made,
+      cloneAsThawed: () => made,
       getCollationKey: (text) => ({
         sourceString: KT.str(text),
         compareTo: (other) => made.compare(text, other.sourceString),
@@ -5782,12 +5797,106 @@
     vi: 'Vietnamese',
     zh: 'Chinese',
   };
+  /// Java's `File`, over a memory of the runtime's own: what a source writes it reads back while
+  /// it runs (its caches), and nothing reaches the device's storage.
+  const memoryFiles = new Map();
+  const javaFile = (first, second = undefined) => {
+    const parent =
+      second === undefined ? null : first && first.isFile ? first.path : KT.str(first ?? '');
+    const path = (parent === null ? KT.str(first) : `${parent}/${KT.str(second)}`).replace(
+      /\/+/g,
+      '/',
+    );
+    const inside = (key) => key.startsWith(`${path}/`);
+    const missing = () => new KotlinError(`${path} (No such file or directory)`, 'IOException');
+    const file = {
+      __class: 'File',
+      __classes: ['File'],
+      isFile: true,
+      path,
+      absolutePath: path,
+      canonicalPath: path,
+      name: path.split('/').pop(),
+      get parentFile() {
+        return javaFile(path.split('/').slice(0, -1).join('/') || '/');
+      },
+      exists: () => memoryFiles.has(path) || [...memoryFiles.keys()].some(inside),
+      isDirectory: () => !memoryFiles.has(path),
+      mkdirs: () => true,
+      mkdir: () => true,
+      createNewFile: () => {
+        if (memoryFiles.has(path)) return false;
+        memoryFiles.set(path, new Uint8Array(0));
+        return true;
+      },
+      delete: () => memoryFiles.delete(path),
+      deleteRecursively: () => {
+        for (const key of [...memoryFiles.keys()])
+          if (key === path || inside(key)) memoryFiles.delete(key);
+        return true;
+      },
+      length: () => memoryFiles.get(path)?.length ?? 0,
+      lastModified: () => 0,
+      setLastModified: () => true,
+      readBytes: () => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) throw missing();
+        return listOfBytes(bytes);
+      },
+      readText: () => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) throw missing();
+        return K.bin.text(bytes);
+      },
+      writeBytes: (bytes) => {
+        memoryFiles.set(path, Uint8Array.from(u8Of(bytes)));
+      },
+      writeText: (text) => {
+        memoryFiles.set(path, K.bin.utf8(KT.str(text)));
+      },
+      appendText: (text) => {
+        const before = memoryFiles.get(path) ?? new Uint8Array(0);
+        const added = K.bin.utf8(KT.str(text));
+        const joined = new Uint8Array(before.length + added.length);
+        joined.set(before);
+        joined.set(added, before.length);
+        memoryFiles.set(path, joined);
+      },
+      inputStream: () => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) throw missing();
+        return inputStream(bytes);
+      },
+      listFiles: () =>
+        [
+          ...new Set(
+            [...memoryFiles.keys()]
+              .filter(inside)
+              .map((key) => key.slice(path.length + 1).split('/')[0]),
+          ),
+        ].map((name) => javaFile(path, name)),
+      renameTo: (other) => {
+        const bytes = memoryFiles.get(path);
+        if (!bytes) return false;
+        memoryFiles.delete(path);
+        memoryFiles.set(other.path, bytes);
+        return true;
+      },
+      toString: () => path,
+    };
+    return file;
+  };
   /// A stand-in for Android's application: its name, and folders of Raygun's own.
   const application = {
     __class: 'Application',
     __classes: ['Application', 'Context'],
     packageName: 'app.raygun.player',
     getPackageName: () => 'app.raygun.player',
+    cacheDir: javaFile('/cache'),
+    externalCacheDir: javaFile('/cache'),
+    filesDir: javaFile('/files'),
+    getCacheDir: () => javaFile('/cache'),
+    getFilesDir: () => javaFile('/files'),
   };
   /// `AtomicInteger`, `AtomicLong`, `AtomicBoolean`, `AtomicReference`: a value, set and read
   /// on one thread here.
@@ -6031,6 +6140,9 @@
       return jsonCodec;
     },
     sleep: ([ms]) => pause(ms),
+    File: ([first, second]) => javaFile(first, second),
+    // OkHttp's `Dispatcher`: Raygun's client has its own limits.
+    Dispatcher: () => ({ maxRequests: 64, maxRequestsPerHost: 5 }),
     // `AutoCloseable { … }`: what `close()` runs.
     AutoCloseable: (_args, _named, lambda) => ({
       __class: 'AutoCloseable',
@@ -6272,6 +6384,9 @@
     offset,
     isZone: true,
     getID: () => (offset ? `GMT${offset > 0 ? '+' : '-'}${Math.abs(offset / 60)}` : 'UTC'),
+    // `TimeZone.getOffset(date)`: milliseconds from UTC.
+    getOffset: () => offset * 60000,
+    getRawOffset: () => offset * 60000,
   });
   const offsetOf = (value) => (value && typeof value.offset === 'number' ? value.offset : 0);
   const msOf = (value) =>
@@ -6582,6 +6697,7 @@
       format: (formatter) => formatter.format(value),
       isBefore: (other) => ms < msOf(other.ms ?? other),
       isAfter: (other) => ms > msOf(other.ms ?? other),
+      isEqual: (other) => ms === msOf(other.ms ?? other),
       toString: () =>
         kind === 'Instant'
           ? new Date(ms).toISOString()
@@ -6740,6 +6856,8 @@
       getLong: (key, fallback) => store.get(key) ?? fallback ?? 0,
       getStringSet: (key, fallback) => store.get(key) ?? fallback ?? [],
       contains: (key) => store.has(key),
+      // `preferences.all`: every value kept, by key.
+      getAll: () => new Map(store),
       edit: () => {
         const editor = {
           putString: (key, value) => (store.set(key, value), editor),
@@ -6992,7 +7110,12 @@
     },
     Protocol: { HTTP_1_0: 'http/1.0', HTTP_1_1: 'http/1.1', HTTP_2: 'h2', QUIC: 'quic' },
     Resources: { getSystem: () => ({ displayMetrics }) },
-    DayOfWeek: Object.fromEntries(DAY_NAMES.map((name, index) => [name, dayOfWeek(index + 1)])),
+    DayOfWeek: {
+      ...Object.fromEntries(DAY_NAMES.map((name, index) => [name, dayOfWeek(index + 1)])),
+      entries: DAY_NAMES.map((_, index) => dayOfWeek(index + 1)),
+      values: () => DAY_NAMES.map((_, index) => dayOfWeek(index + 1)),
+      of: (value) => dayOfWeek(value),
+    },
     TextStyle: {
       FULL: 'FULL',
       SHORT: 'SHORT',
@@ -7076,6 +7199,14 @@
     FORCE_CACHE: { isCacheControl: true },
     // kotlin.time's `TimeSource.Monotonic.markNow().elapsedNow()`.
     // Java's `Runtime`: a phone's, for sources sizing work by it.
+    File: {
+      createTempFile: (prefix, suffix = '.tmp', directory = null) =>
+        javaFile(
+          directory ?? '/cache',
+          `${KT.str(prefix)}${Math.floor(Math.random() * 1e9)}${KT.str(suffix ?? '.tmp')}`,
+        ),
+      separator: '/',
+    },
     Runtime: {
       getRuntime: () => ({
         availableProcessors: () => 8,
@@ -7947,6 +8078,7 @@
 
   const hasMember = (receiver, name) => {
     if (receiver === null || receiver === undefined) return false;
+    if (receiver instanceof RegExp) return Boolean(REGEX[name]);
     // Decoders `KT.m` answers for answers, bodies and bytes (`fun Response.read() = parseAsProto<T>()`).
     if (
       (PROTO_DECODERS.has(name) || DECODERS.has(name)) &&
@@ -8130,6 +8262,7 @@
       getInt: (key, fallback) => preferences.store.get(key) ?? fallback ?? 0,
       getStringSet: (key, fallback) => preferences.store.get(key) ?? fallback ?? [],
       contains: (key) => preferences.store.has(key),
+      getAll: () => new Map(preferences.store),
       edit: () => {
         const editor = {
           putString: (key, value) => (preferences.store.set(key, value), editor),

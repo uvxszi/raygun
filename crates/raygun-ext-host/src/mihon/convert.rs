@@ -24,7 +24,7 @@ use crate::package::{PackageError, VerifiedPackage, from_files};
 
 /// Bumped when conversions change in a way installed sources should get: the catalogue then
 /// offers them again.
-pub const CONVERTER_VERSION: u32 = 5;
+pub const CONVERTER_VERSION: u32 = 6;
 /// The converted script in the extension folder.
 pub const ENTRY: &str = "index.js";
 

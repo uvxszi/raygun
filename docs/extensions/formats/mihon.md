@@ -108,9 +108,39 @@ the type's required fields), coroutines (`async`/`awaitAll`, `Mutex`, `Semaphore
 A local shadowing a parameter (`val page = page + 1`) gets a name of its own, and default
 arguments are worked out in the body, in order.
 
+What else the converter reads as Kotlin does:
+
+- classes: `init` blocks (the source's own run once before Raygun's first call), `lateinit`
+  fields, a parent built before the child's fields, a parent's functions reaching what a subclass
+  overrides, a class built on a collection (`class CdnSet : LinkedHashSet<String>()`), enum
+  entries with their constructor values and the class's functions, a theme's constructor
+  parameters as properties (what the class above passes, else the defaults);
+- generics: functions with reified type parameters get the types their calls pass
+  (`inline fun <reified T> Response.parseData(): T = parseAs<ApiResponse<T>>().data`);
+- decoding: a serializable class's body fields (and its parent's) take what JSON gives them,
+  enums decode from their JSON names, subclasses by the class discriminator `Json { … }` names;
+- names: written with their package (`java.net.URI(…)`), nested (`Filter.Sort.Selection`,
+  `MangaResponse.Props.Chapter`), through import aliases, bare enum entries, `X::class.java`;
+- sequences that may not end (`generateSequence(seed) { … }.drop(1).iterator()`), worked out as
+  they're read;
+- `++`/`--` on properties and indexes, lambdas as `when` branches.
+
 Only what Raygun calls has to convert: the functions above and whatever they reach by name.
 Unreached code that can't be converted becomes a stub that fails with its reason if it's ever
-called. Settings screens aren't converted: preferences read their defaults.
+called, and so does a class's settings-screen helper (`setupEditTextUuidValidator`). Settings
+screens aren't converted: preferences read their defaults, and Keiyoushi's dialogs
+(`askPassword`, `askConfirm`…) answer as if closed.
+
+An extension's resources (`assets/` of its folder, its theme's and its libraries', as an APK
+merges them, up to 1 MB each and 2 MB in all) are read with its code and kept in the conversion
+when the code reads them (`javaClass.getResource("/assets/reader.js")`).
+
+Keiyoushi's web view helpers (`runWebView`, `runWebViewBlocking`, `getTurnstileToken`) convert,
+but Raygun has no web view: a call fails naming the page it would load, as a browser check when
+the function passes one (`passGuard`, `wafInterceptor`: the person may pass it by hand, and its
+cookies then go with the source's requests), else as a page that needs a web view.
+`getLocalStorage` reads an empty store. `java.io.File` is a memory of the runtime's own: what a
+source caches it reads back while it runs, and nothing reaches the device's storage.
 
 ### Themes from their code
 
@@ -193,9 +223,10 @@ Anything else is refused with the reason, which the catalogue then shows for tha
 
 - one of Keiyoushi's libraries whose code couldn't be read;
 - a call, object or name the runtime doesn't have (`emit::METHODS`, `GLOBALS` and `OBJECTS`,
-  which a test keeps equal to `kotlin.js`'s tables), such as WebViews or `MultipartBody`;
+  which a test keeps equal to `kotlin.js`'s tables), such as Android's `WebView`,
+  `StaticLayout` or `PdfRenderer`, or Java's `KeyPairGenerator`;
 - what JavaScript can't say: a vararg before other parameters;
-- code that runs when the source starts (`init`).
+- an object's `init` block.
 
 Before the package is installed it's loaded once in a host of its own (`convert::validate`):
 its script must run and register every source. Its `net` is the sources' hosts and their
@@ -244,35 +275,40 @@ Themes so far (ported from Keiyoushi's `lib-multisrc`, Apache-2.0):
 
 ## Coverage
 
-`mihon_convert_survey` converts every extension of Keiyoushi's store (1469 as of 2026-11-06, 6
-of them newer than the checkout surveyed) and loads each conversion as installing does (one that
-doesn't load counts as refused):
+`mihon_convert_survey` converts every extension of Keiyoushi's store (1577 comic extensions as
+of 2026-11-10, read from a checkout of `keiyoushi/extensions-source` that day) and loads each
+conversion as installing does (one that doesn't load counts as refused):
 
 | | Converted | Of |
 |---|---|---|
-| Madara | 232 | 240 |
-| MangaThemesia | 104 | 113 |
-| ComiciViewer, ZeistManga, GigaViewer | 77 | 77 |
-| Keyoapp | 15 | 16 |
-| MangaCatalog, YiiManga, PizzaReader | 35 | 35 |
-| Iken, InitManga, FoolSlide, GalleryAdults | 33 | 35 |
-| Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 35 | 35 |
-| MangaHub, Grouple, MMRCMS | 5 | 23 |
-| Other themes | 71 | 118 |
-| No theme | 523 | 771 |
-| All | 1130 (76.9%) | 1469 |
+| Madara | 242 | 242 |
+| MangaThemesia | 112 | 112 |
+| ComiciViewer, ZeistManga, GigaViewer | 81 | 81 |
+| Keyoapp | 16 | 16 |
+| MangaCatalog, YiiManga, PizzaReader | 40 | 40 |
+| Iken, InitManga, FoolSlide, GalleryAdults | 37 | 37 |
+| Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
+| MangaHub, Grouple, MMRCMS | 23 | 23 |
+| Other themes | 128 | 134 |
+| No theme | 793 | 858 |
+| All | 1506 (95.5%) | 1577 |
 
-The refusals left are a long tail of a few extensions each (none above 11): calls the runtime
-doesn't have yet (`getLocalStorage()` and `poll()` need a web view; `resolve()`, `DecimalFormat()`,
-`Selection()`, `compare()`…), and filters that run code when they're made. Fixing one often shows
-the next an extension needs, so each step now gains well under 1%.
+The 71 refusals left are one or two extensions each, most of them on what has no stand-in:
+Android's text layout and PDF rendering (`StaticLayout`, `PdfRenderer`), Java's key pairs
+(`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
+`zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
+own callbacks (`WebResourceResponse`, `CountDownLatch` around one), BLAKE2b and zstd.
 
-`mihon_popular_live` with a sample of 60 converted sources (2026-11-06) follows each listing
-through a title's details, its chapters and a chapter's pages: about 40 of the 60 list their
-popular titles, and of those 95% give details and chapters and over 80% pages. The sources that
-don't list stop on what the runtime can't change: a browser check, a site that refuses access
-from outside its country (most ComiciViewer sites outside Japan), a site down, slow or rate
-limiting, or a site that changed.
+`mihon_popular_live` with a sample of 200 converted sources (2026-11-10) follows each listing
+through a title's details, its chapters and a chapter's pages: 141 of the 200 list their
+popular titles, and of those 94% give details, 93% chapters and 79% pages (106 pictures load).
+Of the 59 that don't list, 21 meet a browser check, 9 refuse access (Japanese stores outside
+Japan, mostly), 9 are slow past 30 s, 8 are down or gone (5xx, DNS, refused connections), 4 list
+nothing and 2 want a sign-in; a handful stop on the runtime. Past the listing, pages fail on
+purchases and sign-ins, sites that changed, and a few runtime gaps: OkHttp's `followRedirects
+(false)` (the host follows redirects, so MangaHub's key refresh never sees its `Set-Cookie`),
+and pictures a CDN sends as `text/plain` (Keyoapp's), which Raygun's image fetcher refuses before
+looking at the bytes.
 
 ```sh
 cargo test -p raygun-ext-host --lib -- --ignored mihon_index_live --nocapture
@@ -288,7 +324,8 @@ only those packages, and `MIHON_SURVEY_DUMP=<dir>` keeps the code of conversions
 (of all of them with `MIHON_SURVEY_DUMP_ALL=1`). `mihon_popular_live` loads a sample
 (`MIHON_SAMPLE`, 24 by default; `MIHON_SAMPLE_ONLY=<pkg>,…` picks them) of the converted sources
 and follows each from its first popular page to the first page's picture (drawn by the source
-when it draws them).
+when it draws them); `MIHON_SAMPLE_FULL=1` prints failures whole, with the script's stack, and
+the first title's id and page's address.
 
 ## Running source code in a container
 
