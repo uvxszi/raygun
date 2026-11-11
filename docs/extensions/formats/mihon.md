@@ -112,7 +112,11 @@ What else the converter reads as Kotlin does:
 
 - classes: `init` blocks (the source's own run once before Raygun's first call), `lateinit`
   fields, a parent built before the child's fields, a parent's functions reaching what a subclass
-  overrides, a class built on a collection (`class CdnSet : LinkedHashSet<String>()`), enum
+  overrides, a class built on a collection (`class CdnSet : LinkedHashSet<String>()`, or
+  delegating one: `class PixivFilters : MutableList<Filter<*>> by mutableListOf()`), properties
+  delegated to another's (`val tags by tagsFilter::state`) or to a `PropertyDelegateProvider`,
+  a declared class's function whose last parameter has a receiver
+  (`firestore.getCollection("Series") { limit = 20 }`), enum
   entries with their constructor values and the class's functions, a theme's constructor
   parameters as properties (what the class above passes, else the defaults);
 - generics: functions with reified type parameters get the types their calls pass
@@ -121,8 +125,9 @@ What else the converter reads as Kotlin does:
   enums decode from their JSON names, subclasses by the class discriminator `Json { … }` names;
 - names: written with their package (`java.net.URI(…)`), nested (`Filter.Sort.Selection`,
   `MangaResponse.Props.Chapter`), through import aliases, bare enum entries, `X::class.java`;
-- sequences that may not end (`generateSequence(seed) { … }.drop(1).iterator()`), worked out as
-  they're read;
+- sequences that may not end (`generateSequence(seed) { … }.drop(1).iterator()`, a builder's
+  `sequence { yield(…); yieldAll(start..Int.MAX_VALUE) }`, which a `for` loop reads as it goes),
+  worked out as they're read;
 - `++`/`--` on properties and indexes, lambdas as `when` branches;
 - numbers: `and`/`or`/`xor`/`shl`/`shr`/`ushr`/`inv` on 32 bits for values that fit an Int and on
   64 for Longs (`(1664525L * state + 1013904223L) and 0xFFFFFFFFL`), a Long's `toInt()` keeping
@@ -308,16 +313,16 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 130 | 134 |
-| No theme | 807 | 858 |
-| All | 1522 (96.5%) | 1577 |
+| No theme | 809 | 858 |
+| All | 1524 (96.6%) | 1577 |
 
-The 55 refusals left are one or two extensions each, most of them on what has no stand-in:
+The 53 refusals left are one or two extensions each, most of them on what has no stand-in:
 Android's PDF rendering (`PdfRenderer`, `ParcelFileDescriptor`), Java's key pairs
 (`KeyPairGenerator`, `KeyFactory`), Keiyoushi's remote ZIP reading (`dataRange()`,
 `zipDirectory()`), Java libraries outside Keiyoushi's (commons-text, java-nat-sort), a web view's
 own callbacks (`WebResourceResponse`, `CountDownLatch` around one, the pam theme's three), BLAKE2b
-and zstd; a few on Kotlin the converter doesn't read yet (`sequence { yieldAll(…) }`, java.time's
-`YearMonth`/`LocalTime`/`WeekFields`). Android's
+and zstd; a few on Kotlin the converter doesn't read yet (java.time's `YearMonth`/`LocalTime`/`WeekFields`,
+a class declared in a function). Android's
 `StaticLayout` (`StaticLayout.Builder.obtain(…)`, `layout.draw(canvas)`) is the runtime's text
 layout, so captions and speech bubbles drawn on pictures convert.
 

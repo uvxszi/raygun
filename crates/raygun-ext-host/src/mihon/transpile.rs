@@ -19,6 +19,19 @@ use super::kotlin::emit::{Context, Gen, Num, companion_key};
 /// A function's kind of whole number (`fun fnv1a(…): Long`), kept by name; overloads that
 /// disagree leave the name without one.
 fn note_function_number(cx: &mut Context, fun: &FunDecl) {
+    // One that gives a sequence (`= sequence { … }`, `: Sequence<Int>`) too.
+    let builds_one = matches!(
+        &fun.body,
+        Some(Body::Expr(Expr::Call { callee, .. }))
+            if matches!(callee.as_ref(), Expr::Name(name) if name == "sequence" || name == "generateSequence")
+    );
+    let declared_one = fun
+        .ret
+        .as_ref()
+        .is_some_and(|ret| matches!(ret.name.as_str(), "Sequence" | "kotlin.sequences.Sequence"));
+    if builds_one || declared_one {
+        cx.sequence_functions.insert(fun.name.clone());
+    }
     let kind = fun.ret.as_ref().and_then(Num::of_type);
     cx.function_numbers
         .entry(fun.name.clone())
@@ -375,6 +388,15 @@ fn property_value(prop: &PropDecl) -> Option<Body> {
                 lambda: None,
             }))
         }
+        // `by tagsFilter::state`: that property, as it is when read.
+        Some(Expr::Reference {
+            target: Some(target),
+            name,
+        }) if name != "class" => Some(Body::Expr(Expr::Member {
+            target: target.clone(),
+            name: name.clone(),
+            safe: false,
+        })),
         // `by getPreferencesLazy()`: a `Lazy`'s value.
         Some(other @ Expr::Call { callee, .. }) if matches!(callee.as_ref(), Expr::Name(name) if name.ends_with("Lazy")) => {
             Some(Body::Expr(Expr::Member {
@@ -537,6 +559,11 @@ fn context(chain: &[&ClassDecl], files: &[(String, File)]) -> Context {
                         && fun.receiver.is_none()
                     {
                         note_function_number(cx, fun);
+                        if fun.params.last().is_some_and(|param| {
+                            param.ty.name == super::kotlin::ast::RECEIVER_FUNCTION
+                        }) {
+                            cx.receiver_lambda_methods.insert(fun.name.clone());
+                        }
                     }
                     // A class's own extensions (`private fun Float.formatNumber()`) are the
                     // source's (`transpile::class_definition`).

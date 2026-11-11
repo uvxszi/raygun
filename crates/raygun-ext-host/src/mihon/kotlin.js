@@ -5860,6 +5860,108 @@
   /// What a `for` loop goes through: a sequence's items (up to the cap), else as `KT.iter`.
   KT.each = async (value) =>
     value && value.isLazySequence ? collectSequence(value) : KT.iter(value);
+  /// What a `for await` loop over a sequence that may not end reads, item by item.
+  KT.items = (value) => (value && value.isLazySequence ? value.generate() : KT.iter(value));
+  /// `sequence { yield(x); yieldAll(xs) }` (and `iterator { … }`): the block runs as the items
+  /// are read, each `yield` waiting until the next one is asked for; ranges and sequences it
+  /// yields all of are read one by one (`yieldAll(start..Int.MAX_VALUE)`).
+  const builtItems = (block) => {
+    let started = false;
+    let finished = false;
+    let reader = null; // the pending `next()`: [resolve, reject]
+    let resume = null; // the block waiting at a `yield`
+    const give = (result) => {
+      const [resolve] = reader ?? [];
+      reader = null;
+      if (resolve) resolve(result);
+    };
+    const scope = {
+      __class: 'SequenceScope',
+      __classes: ['SequenceScope'],
+      yield: (value) =>
+        new Promise((resolve) => {
+          resume = resolve;
+          give({ value, done: false });
+        }),
+      yieldAll: async (values) => {
+        if (values && values.isRange) {
+          const { first, last, step } = values;
+          for (let at = first; step > 0 ? at <= last : at >= last; at += step) {
+            if (finished) return;
+            await scope.yield(at);
+          }
+          return;
+        }
+        if (values && values.isLazySequence) {
+          for await (const item of values.generate()) await scope.yield(item);
+          return;
+        }
+        for (const item of KT.iter(values)) await scope.yield(item);
+      },
+    };
+    return {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: () =>
+        new Promise((resolve, reject) => {
+          if (finished) {
+            resolve({ value: undefined, done: true });
+            return;
+          }
+          reader = [resolve, reject];
+          if (started) {
+            const waiting = resume;
+            resume = null;
+            if (waiting) waiting();
+            return;
+          }
+          started = true;
+          Promise.resolve()
+            .then(() => block(scope))
+            .then(
+              () => {
+                finished = true;
+                give({ value: undefined, done: true });
+              },
+              (error) => {
+                finished = true;
+                const [, fail] = reader ?? [];
+                reader = null;
+                if (fail) fail(error);
+              },
+            );
+        }),
+      // A reader that stops early (`take(3)`, a `break`) leaves the block waiting for good.
+      return: async () => {
+        finished = true;
+        return { value: undefined, done: true };
+      },
+    };
+  };
+  KT.sequenceOf = (block) => lazySequence(() => builtItems(block));
+  /// `PropertyDelegateProvider { thisRef, property -> lazy { … } }` behind `val x by provider`:
+  /// the delegate it gives, made once, and its value.
+  const delegateProvider = (provide) => {
+    let delegate;
+    let made = false;
+    const value = async () => {
+      if (!made) {
+        delegate = await provide(null, { __class: 'KProperty', name: '' });
+        made = true;
+      }
+      if (delegate && delegate.isDeferred) return delegate.await();
+      if (delegate && typeof delegate.getValue === 'function') return delegate.getValue(null, {});
+      return delegate;
+    };
+    return {
+      __class: 'PropertyDelegateProvider',
+      __classes: ['PropertyDelegateProvider'],
+      isGetterHost: true,
+      getters: { value },
+      provideDelegate: async () => KT.deferred(value),
+    };
+  };
   /// `generateSequence(seed) { next }`, `generateSequence { next }`, `generateSequence(first, next)`:
   /// items until one is null.
   const generateSequence = (args, lambda) => {
@@ -6981,6 +7083,7 @@
     CoroutineScope: () => coroutineScope(),
     // Keiyoushi's `ratingStars(rating, max)`: five stars with halves.
     ratingStars: ([rating, max = 10], named_) => ratingStars(rating, named_?.max ?? max),
+    PropertyDelegateProvider: (args, _named, lambda) => delegateProvider(lambda ?? args[0]),
   };
   /// A coroutine scope: `launch` runs its block (not awaited), `async` a deferred value.
   const coroutineScope = () => ({

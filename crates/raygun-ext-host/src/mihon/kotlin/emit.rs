@@ -48,6 +48,13 @@ pub struct Context {
     /// Functions declared to give an `Int` or a `Long` (`fun fnv1a(bytes: ByteArray): Long`), by
     /// name; `None` when overloads of the name disagree.
     pub function_numbers: HashMap<String, Option<Num>>,
+    /// Functions that give a sequence (`fun countUp() = sequence { … }`, `: Sequence<T>`), which
+    /// a `for` loop reads as it goes.
+    pub sequence_functions: HashSet<String>,
+    /// Methods of the declared classes whose last parameter is a function with a receiver
+    /// (`fun getCollection(path: String, query: CollectionQuery.() -> Unit)`): a trailing lambda
+    /// for one reads that receiver implicitly.
+    pub receiver_lambda_methods: HashSet<String>,
 }
 
 /// What a whole number is in Kotlin, as far as the converter can tell from the code: an `Int`
@@ -211,8 +218,9 @@ pub const METHODS: &[&str] = &[
     "toMillis", "toSeconds", "getSeconds", "toMinutes", "toHours", "toDays", "convert",
     // Bits as functions (`x.shl(3)`, `x.inv()`)
     "shl", "shr", "ushr", "inv",
-    // `LocalDate.isEqual`, Kotlin's `TimeMark`s (`markNow() + 30.seconds`), `yieldAll`
-    "isEqual", "hasPassedNow", "hasNotPassedNow", "yieldAll",
+    // `LocalDate.isEqual`, Kotlin's `TimeMark`s (`markNow() + 30.seconds`), a sequence
+    // builder's `yield` and `yieldAll`
+    "isEqual", "hasPassedNow", "hasNotPassedNow", "yield", "yieldAll", "provideDelegate",
     // Android's `StaticLayout` (`StaticLayout.Builder.obtain(…)…build()`, `layout.draw(canvas)`)
     "obtain", "setAlignment", "setLineSpacing", "setIncludePad", "setHyphenationFrequency",
     "setMaxLines", "setEllipsize", "setBreakStrategy", "setTextDirection", "setJustificationMode",
@@ -919,6 +927,22 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// Whether this is a sequence that may not end: one a builder makes (`sequence { … }`,
+    /// `generateSequence(…)`) or one of the source's functions that give one.
+    fn gives_a_sequence(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Call { callee, .. } => match callee.as_ref() {
+                Expr::Name(name) if !self.is_local(name) => {
+                    name == "sequence"
+                        || name == "generateSequence"
+                        || self.cx.sequence_functions.contains(name)
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
     /// The kind of number a loop over this goes through: `0 until n`, `a..b`, `n downTo 0` of
     /// `Int`s (or `Long`s), a list's `indices`.
     fn range_num(&self, iterable: &Expr) -> Option<Num> {
@@ -1415,13 +1439,21 @@ impl<'a> Gen<'a> {
                 body,
             } => {
                 let kind = self.range_num(iterable);
+                // A sequence a builder makes (`for (p in countUp(1))`) is read as the loop goes,
+                // as it may not end; anything else is gone through as a list.
+                let lazy = self.gives_a_sequence(iterable);
                 let iterable = self.expr(iterable)?;
+                let (each, items) = if lazy {
+                    ("for await", format!("KT.items({iterable})"))
+                } else {
+                    ("for", format!("(await KT.each({iterable}))"))
+                };
                 let id = self.enter_loop(label.as_ref());
                 let code = self.scoped(|writer| -> Result<String, String> {
                     let head = match vars {
                         LambdaParam::Name(name) => {
                             let js = writer.declare_number(name, kind);
-                            format!("const {js} of (await KT.each({iterable}))")
+                            format!("const {js} of {items}")
                         }
                         LambdaParam::Destructured(names) => {
                             let temp = writer.temp();
@@ -1437,7 +1469,7 @@ impl<'a> Gen<'a> {
                             let inner = writer.block(body, Tail::Discard)?;
                             let inner = writer.loop_body(id, inner);
                             return Ok(format!(
-                                "{}for (const {temp} of (await KT.each({iterable}))) {{ {} {inner} }}",
+                                "{}{each} (const {temp} of {items}) {{ {} {inner} }}",
                                 label
                                     .as_ref()
                                     .map(|label| format!("{}: ", local(label)))
@@ -1449,7 +1481,7 @@ impl<'a> Gen<'a> {
                     let inner = writer.block(body, Tail::Discard)?;
                     let inner = writer.loop_body(id, inner);
                     Ok(format!(
-                        "{}for ({head}) {{ {inner} }}",
+                        "{}{each} ({head}) {{ {inner} }}",
                         label
                             .as_ref()
                             .map(|label| format!("{}: ", local(label)))
@@ -2358,6 +2390,19 @@ impl<'a> Gen<'a> {
                     ("buildMap", Some(lambda)) => {
                         return self.receiver_call_returning(lambda, "new Map()", name);
                     }
+                    // `sequence { yield(x); yieldAll(xs) }`, `iterator { … }`: a sequence whose
+                    // block runs as its items are read, with its scope as the receiver.
+                    ("sequence" | "iterator", Some(lambda))
+                        if args.is_empty() && !self.cx.functions.contains_key(name) =>
+                    {
+                        let block = self.receiver_lambda(lambda, name)?;
+                        let made = format!("KT.sequenceOf({block})");
+                        return Ok(if name == "iterator" {
+                            format!("(await KT.m({made}, \"iterator\", []))")
+                        } else {
+                            made
+                        });
+                    }
                     ("buildString", Some(lambda)) => {
                         let built =
                             self.receiver_call_returning(lambda, "KT.stringBuilder()", name)?;
@@ -3068,7 +3113,8 @@ impl<'a> Gen<'a> {
         if matches!(
             name,
             "putJsonArray" | "putJsonObject" | "addJsonArray" | "addJsonObject"
-        ) {
+        ) || (self.cx.receiver_lambda_methods.contains(name) && !METHODS.contains(&name))
+        {
             self.receiver_lambda(lambda, name)
         } else {
             self.lambda(lambda, name)
@@ -3238,6 +3284,7 @@ pub const GLOBALS: &[&str] = &[
     "SoftReference", "WeakReference", "randomUUID", "launch", "Header", "Separator",
     "injectLazy", "AtomicInteger", "AtomicLong", "AtomicBoolean", "AtomicReference",
     "ReentrantLock", "ReentrantReadWriteLock", "sleep", "AutoCloseable", "File", "Dispatcher",
+    "PropertyDelegateProvider",
 ];
 
 /// Objects the runtime has (`mihon/kotlin.js`'s `OBJECTS`): `Name.member`, or `Name` as a value.

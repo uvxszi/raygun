@@ -2070,6 +2070,90 @@ async fn converted_code_reads_formats_xml_and_java_helpers() {
     );
 }
 
+/// `sequence { yield(…); yieldAll(…) }` read as far as it's asked (Pixiv's `countUp`), and a
+/// property delegated to a `PropertyDelegateProvider` (Project Suki's).
+#[tokio::test]
+async fn converted_code_builds_sequences_and_delegates() {
+    let source = STANDALONE_SOURCE
+        .replace(
+            "import java.util.Locale",
+            "import java.util.Locale\nimport kotlin.properties.PropertyDelegateProvider",
+        )
+        .replace(
+            "override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()",
+            "",
+        )
+        .replace(
+            "override val supportsLatest = false",
+            r##"override val supportsLatest = true
+
+    private fun countUp(start: Int = 0) = sequence<Int> {
+        yieldAll(start..Int.MAX_VALUE)
+        throw RuntimeException("Overflow")
+    }
+
+    private fun letters() = sequence {
+        yield("a")
+        yieldAll(listOf("b", "c"))
+        yield("d")
+    }
+
+    private fun <R> cachedLazy(initializer: () -> R): PropertyDelegateProvider<Any?, Lazy<R>> = PropertyDelegateProvider { thisRef, property ->
+        lazy { initializer() }
+    }
+
+    private var made = 0
+
+    private val cached: String by cachedLazy {
+        made++
+        "made"
+    }
+
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        var last = 0
+        for (p in countUp(start = 1)) {
+            if (p > 3) break
+            last = p
+        }
+        val names = listOf(
+            last.toString(),
+            countUp(5).take(3).joinToString(","),
+            letters().joinToString(""),
+            letters().iterator().next(),
+            cached + cached + made,
+        )
+        return MangasPage(names.map { name -> SManga.create().apply { title = name; url = "/$name" } }, false)
+    }"##,
+        );
+    let extension = extension(
+        "eu.kanade.tachiyomi.extension.en.fixturestand",
+        "https://stand.example",
+    );
+    let code = sources(
+        STANDALONE_BUILD,
+        &[(
+            "src/eu/kanade/tachiyomi/extension/en/fixturestand/FixtureStand.kt",
+            &source,
+        )],
+    );
+    let converted = convert::convert(&extension, &code).unwrap();
+    let host = load_converted(&converted, &extension, serve(Router::new())).await;
+    let listing = host
+        .manga_list(
+            "mihon.en.fixturestand/4242",
+            crate::manga::MangaList::Latest,
+            1,
+        )
+        .await
+        .unwrap();
+    let titles: Vec<_> = listing
+        .items
+        .iter()
+        .map(|item| item.title.clone())
+        .collect();
+    assert_eq!(titles, ["3", "5,6,7", "abcd", "a", "mademade1"]);
+}
+
 /// Sequences that don't end, `init` blocks, `++` on properties, names written with their
 /// package, comparators and formats, as converted code uses them.
 #[tokio::test]
