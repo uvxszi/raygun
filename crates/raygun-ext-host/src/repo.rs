@@ -109,6 +109,9 @@ pub enum PackageFormat {
     /// A Stremio addon a repository lists (v1.3.0): `package` is its manifest's address, and
     /// installing it adds the addon.
     Stremio,
+    /// A Nuvio provider (`crate::nuvio`): a stream scraper a Nuvio repository's `manifest.json`
+    /// lists, run unchanged in Raygun's Nuvio runtime.
+    Nuvio,
 }
 
 /// Shosetsu's repository index (`index.json` with `scripts` and `libraries`). Entries are read one
@@ -589,7 +592,8 @@ pub fn parse_index(json: &str) -> Result<RepoIndex, RepoError> {
 }
 
 /// [`parse_index`], saying which app's format the index is in: Raygun's own (whatever formats
-/// its entries are), Nuclear's registry, Shosetsu's, Miru's, LNReader's, Kodi's or Mihon's.
+/// its entries are), Nuclear's registry, Shosetsu's, Miru's, LNReader's, Kodi's, Mihon's or
+/// Nuvio's.
 pub fn read_index(json: &str) -> Result<(RepoIndex, PackageFormat), RepoError> {
     // Kodi's `addons.xml` (`crate::kodi`), the one index that isn't JSON.
     if json
@@ -624,6 +628,10 @@ pub fn read_index(json: &str) -> Result<(RepoIndex, PackageFormat), RepoError> {
     }
     if list && let Some(index) = crate::mihon::parse(json) {
         return Ok((index, PackageFormat::Mihon));
+    }
+    // A Nuvio repository's `manifest.json`: its `scrapers` (an object, as Raygun's index is).
+    if !list && let Some(index) = crate::nuvio::index::parse(json) {
+        return Ok((index, PackageFormat::Nuvio));
     }
     let mut index: RepoIndex = serde_json::from_str(json).map_err(|error| {
         foreign_format(json).map_or_else(|| RepoError::Index(error.to_string()), RepoError::Foreign)

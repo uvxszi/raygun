@@ -38,6 +38,10 @@ struct RawManifest {
     /// and the converter that made it.
     #[serde(default)]
     mihon: Option<serde_json::Value>,
+    /// Written when a Nuvio provider is installed (`crate::nuvio`): the provider's id in its
+    /// repository and the content types it finds streams for.
+    #[serde(default)]
+    nuvio: Option<serde_json::Value>,
     /// The site its sources read, opened from their menus (M46.11).
     #[serde(default)]
     website: Option<String>,
@@ -146,13 +150,17 @@ pub enum Runtime {
     /// Scripts and styles for websites (`crate::site`): nothing runs in Raygun; the websites
     /// browser adds them to the pages they name. The entry is one of its scripts.
     Site,
+    /// A Nuvio provider (a stream scraper from a Nuvio repository), run unchanged in Raygun's
+    /// Nuvio runtime (`crate::nuvio`).
+    Nuvio,
 }
 
 impl Runtime {
     /// Whether the script declares its settings as it runs (Miru's `registerSetting`, LNReader's
-    /// `pluginSettings`), so they're known only once it has loaded.
+    /// `pluginSettings`, a Nuvio provider's `onSettings`), so they're known only once it has
+    /// loaded.
     pub fn declares_settings(self) -> bool {
-        matches!(self, Self::Miru | Self::LnReader)
+        matches!(self, Self::Miru | Self::LnReader | Self::Nuvio)
     }
 }
 
@@ -175,6 +183,8 @@ pub struct Manifest {
     pub nuclear: Option<serde_json::Value>,
     /// Present for converted Mihon extensions: `{ pkg, versionCode, converter, theme, source }`.
     pub mihon: Option<serde_json::Value>,
+    /// Present for Nuvio providers: `{ scraper, types }`.
+    pub nuvio: Option<serde_json::Value>,
     /// An http(s) address; others are dropped.
     pub website: Option<String>,
     /// A site-scripts extension's scripts (runtime `site`).
@@ -233,6 +243,7 @@ impl Manifest {
             "server" => Runtime::Server,
             "mihon" => Runtime::Mihon,
             "site" => Runtime::Site,
+            "nuvio" => Runtime::Nuvio,
             _ => return Err(ManifestError::Runtime(raw.runtime)),
         };
         if !is_safe_entry(&raw.entry, runtime) {
@@ -294,6 +305,7 @@ impl Manifest {
             author: raw.author,
             nuclear: raw.nuclear,
             mihon: raw.mihon,
+            nuvio: raw.nuvio,
             website: raw
                 .website
                 .filter(|url| url.starts_with("https://") || url.starts_with("http://")),
@@ -396,7 +408,12 @@ fn is_label(label: &str, extra: &[u8]) -> bool {
 
 fn is_safe_entry(entry: &str, runtime: Runtime) -> bool {
     let extension = match runtime {
-        Runtime::Js | Runtime::Miru | Runtime::LnReader | Runtime::Mihon | Runtime::Site => ".js",
+        Runtime::Js
+        | Runtime::Miru
+        | Runtime::LnReader
+        | Runtime::Mihon
+        | Runtime::Site
+        | Runtime::Nuvio => ".js",
         Runtime::Shosetsu => ".lua",
         Runtime::Server => ".json",
     };

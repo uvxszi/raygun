@@ -1443,7 +1443,8 @@
       "miru": "Miru extensions",
       "lnreader": "LNReader plugins",
       "kodi": "Kodi add-ons",
-      "mihon": "Mihon extensions"
+      "mihon": "Mihon extensions",
+      "nuvio": "Nuvio providers"
     },
     "settings": "Settings",
     "requiredSetting": "Needed",
@@ -1497,6 +1498,7 @@
       "manga.source": "Manga source",
       "novel.source": "Novel source",
       "video.source": "Movies and series source",
+      "video.streams": "Streams for movies and series found elsewhere",
       "podcast.directory": "Podcast directory",
       "audiobook.directory": "Audiobook directory",
       "site.scripts": "Site scripts"
@@ -4042,7 +4044,9 @@
         "miru": "Looks like a Miru repository: {{name}}",
         "lnreader": "Looks like an LNReader repository: {{name}}",
         "kodi": "Looks like a Kodi repository: {{name}}",
-        "mihon": "Looks like a Mihon repository: {{name}}"
+        "mihon": "Looks like a Mihon repository: {{name}}",
+        "nuvio": "Looks like a Nuvio repository: {{name}}",
+        "stremio": "Looks like a Stremio addon collection: {{name}}"
       },
       "extension": {
         "raygun": "Looks like a Raygun extension: {{name}}",
@@ -4051,7 +4055,8 @@
         "miru": "Looks like a Miru extension: {{name}}",
         "lnreader": "Looks like an LNReader plugin: {{name}}",
         "kodi": "Looks like a Kodi add-on: {{name}}",
-        "mihon": "Looks like a Mihon extension: {{name}}"
+        "mihon": "Looks like a Mihon extension: {{name}}",
+        "nuvio": "Looks like a Nuvio provider: {{name}}"
       },
       "server": {
         "jellyfin": "Looks like a Jellyfin server: {{name}}",
@@ -4068,7 +4073,9 @@
       "miru": "Miru repository",
       "lnreader": "LNReader repository",
       "kodi": "Kodi repository",
-      "mihon": "Mihon repository"
+      "mihon": "Mihon repository",
+      "nuvio": "Nuvio repository",
+      "stremio": "Stremio addon collection"
     }
   },
   "artist": {

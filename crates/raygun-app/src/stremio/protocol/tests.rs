@@ -617,9 +617,7 @@ fn addons_raygun_reads_nothing_from_are_not_for_raygun() {
     let collection = manifest_of("addons.list", json!(["addon_catalog"]), &["movie"], &[]);
     assert_eq!(
         collection.not_for_raygun(&[]).as_deref(),
-        Some(
-            "Only lists other Stremio addons, which Raygun doesn't read: add those addons themselves"
-        )
+        Some("Only lists other Stremio addons: add its address in Sources to choose from them")
     );
     let unknown = manifest_of("odd", json!(["calendar"]), &["movie"], &[]);
     assert_eq!(
@@ -812,4 +810,128 @@ fn configured_addresses_are_built_as_the_sdk_builds_them() {
     assert!(nested.starts_with("https://host.example.org/addons/films/%7B"));
     assert!(config_in_url(address).is_empty());
     assert!(config_in_url("https://host.example.org/providers=a|b/manifest.json").is_empty());
+}
+
+#[test]
+fn details_given_as_links_and_dates() {
+    // An addon written after the SDK deprecated `genres`, `cast` and `director`: links only, a
+    // release date without `releaseInfo`, and trailers as Stream objects.
+    let meta = parse_meta(
+        &json!({ "meta": {
+            "id": "tt0032138", "type": "movie", "name": "The Wizard of Oz",
+            "released": "1939-08-25T00:00:00.000Z",
+            "trailers": [{ "ytId": "PSZxmZmBfnU" }],
+            "links": [
+                { "name": "Adventure", "category": "Genres", "url": "stremio:///discover/x/movie/top?genre=Adventure" },
+                { "name": "Family", "category": "Genres", "url": "stremio:///discover/x/movie/top?genre=Family" },
+                { "name": "Judy Garland", "category": "Cast", "url": "stremio:///search?search=Judy%20Garland" },
+                { "name": "Victor Fleming", "category": "Directors", "url": "stremio:///search?search=Victor%20Fleming" },
+                { "name": "8.1", "category": "imdb", "url": "https://imdb.com/title/tt0032138/" },
+            ],
+        } }),
+        "movie",
+    )
+    .unwrap();
+    assert_eq!(meta.genres, ["Adventure", "Family"]);
+    assert_eq!(meta.cast, ["Judy Garland"]);
+    assert_eq!(meta.director, ["Victor Fleming"]);
+    assert_eq!(meta.preview.release_info.as_deref(), Some("1939"));
+    assert_eq!(meta.trailer_yt_ids, ["PSZxmZmBfnU"]);
+    assert_eq!(meta.ratings[0].value, "8.1");
+    // The deprecated fields still win when given.
+    let older = parse_meta(
+        &json!({ "meta": { "id": "tt1", "type": "movie", "name": "Old", "genres": ["Drama"],
+            "directors": ["Someone"], "links": [{ "name": "Comedy", "category": "Genres", "url": "x" }] } }),
+        "movie",
+    )
+    .unwrap();
+    assert_eq!(older.genres, ["Drama"]);
+    assert_eq!(older.director, ["Someone"]);
+}
+
+#[test]
+fn addon_collections_list_their_addons() {
+    let collection = parse_manifest(&json!({
+        "id": "org.example.collection", "name": "Collection", "version": "1.0.0",
+        "resources": ["addon_catalog"], "types": ["all"],
+        "addonCatalogs": [
+            { "type": "all", "id": "official", "name": "Official" },
+            { "type": "all", "id": "official", "name": "Twice" },
+        ],
+    }))
+    .unwrap();
+    assert!(collection.only_lists_addons());
+    assert_eq!(
+        collection.addon_catalogs.len(),
+        1,
+        "one list per type and id"
+    );
+    assert!(!parse_manifest(&cinemeta()).unwrap().only_lists_addons());
+    let listed = parse_addon_catalog(&json!({ "addons": [
+        { "transportName": "http", "transportUrl": "https://opensubtitles-v3.strem.io/manifest.json",
+          "manifest": { "id": "org.stremio.opensubtitlesv3", "name": "OpenSubtitles v3",
+            "resources": ["subtitles"], "types": ["movie", "series"] } },
+        { "transportName": "http", "transportUrl": "https://addon.example/no-manifest/manifest.json" },
+    ] }));
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].manifest.name, "OpenSubtitles v3");
+    assert_eq!(
+        resource_url(
+            "https://addon.example/manifest.json",
+            "addon_catalog",
+            "all",
+            "official",
+            &[]
+        ),
+        "https://addon.example/addon_catalog/all/official.json"
+    );
+}
+
+#[test]
+fn a_channels_program_guide_plays_the_channel() {
+    // An EPG provider's channel: its videos are the shows it airs, each with the channel's
+    // stream; the channel plays as itself, with the stream of the show on now.
+    let now = chrono::Utc::now();
+    let at = |hours: i64| (now + chrono::Duration::hours(hours)).to_rfc3339();
+    let meta = parse_meta(
+        &json!({ "meta": {
+            "id": "pure:axn", "type": "tv", "name": "AXN",
+            "behaviorHints": { "hasScheduledVideos": true },
+            "videos": [
+                { "id": "pure:axn:1", "title": "Earlier", "released": at(-3),
+                  "startTime": at(-3), "endTime": at(-1),
+                  "streams": [{ "url": "https://cdn.example/axn/earlier.m3u8" }] },
+                { "id": "pure:axn:2", "title": "Now", "released": at(-1),
+                  "startTime": at(-1), "endTime": at(1),
+                  "streams": [{ "url": "https://cdn.example/axn/master.m3u8", "name": "AXN" }] },
+                { "id": "pure:axn:3", "title": "Later", "released": at(1),
+                  "startTime": at(1), "endTime": at(2) },
+            ],
+        } }),
+        "tv",
+    )
+    .unwrap();
+    assert!(meta.videos.is_empty(), "the guide isn't episodes");
+    assert!(meta.live);
+    assert_eq!(meta.live_streams.len(), 1);
+    assert_eq!(
+        meta.live_streams[0].target,
+        "https://cdn.example/axn/master.m3u8"
+    );
+    assert_eq!(meta.own_video_id(), "pure:axn");
+}
+
+#[test]
+fn streams_for_some_countries_say_where() {
+    let streams = parse_streams(&json!({ "streams": [
+        { "url": "https://cdn.example/film.mp4", "description": "1080p",
+          "behaviorHints": { "countryWhitelist": ["usa", "gbr"] } },
+        { "url": "https://cdn.example/film-2.mp4",
+          "behaviorHints": { "countryWhitelist": ["deu"] } },
+    ] }));
+    assert_eq!(
+        streams[0].description.as_deref(),
+        Some("1080p\nOnly in USA, GBR")
+    );
+    assert_eq!(streams[1].description.as_deref(), Some("Only in DEU"));
 }

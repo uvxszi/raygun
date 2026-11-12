@@ -214,50 +214,242 @@ fn videos_of(list: &Value) -> Vec<VideoLink> {
     list.as_array()
         .into_iter()
         .flatten()
-        .filter_map(|video| {
-            let quality = video
-                .get("quality")
-                .and_then(Value::as_u64)
-                .filter(|height| (1..=10_000).contains(height))
-                .map(|height| height as u32);
-            let format = video
-                .get("format")
-                .and_then(Value::as_str)
-                .filter(|format| matches!(*format, "hls" | "dash" | TORRENT | PAGE))
-                .map(str::to_owned);
-            let link = match format.as_deref() {
-                Some(TORRENT) => torrent_link(video.get("url")),
-                // A page opens in Raygun's browser: https only.
-                Some(PAGE) => url(video.get("url")).filter(|page| page.starts_with("https://")),
-                _ => url(video.get("url")).or_else(|| youtube_link(video.get("url"))),
-            };
-            Some(VideoLink {
-                url: link?,
-                label: label(video.get("label"))
-                    .or_else(|| quality.map(|height| format!("{height}p"))),
-                quality,
-                headers: headers(video.get("headers")),
-                format,
-                subtitles: video
-                    .get("subtitles")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|track| {
-                        Some(VideoTrack {
-                            url: url(track.get("url"))?,
-                            lang: label(track.get("lang")),
-                            label: label(track.get("label")),
-                        })
-                    })
-                    .take(MAX_SUBTITLES)
-                    .collect(),
-                chapters: video.get("timestamps").map(chapters_of).unwrap_or_default(),
-                live: video.get("live").and_then(Value::as_bool) == Some(true),
-            })
-        })
+        .filter_map(video_of)
         .take(MAX_VIDEOS)
         .collect()
+}
+
+/// One video of a `videos` answer (or one stream of a `streams` answer).
+fn video_of(video: &Value) -> Option<VideoLink> {
+    let quality = video
+        .get("quality")
+        .and_then(Value::as_u64)
+        .filter(|height| (1..=10_000).contains(height))
+        .map(|height| height as u32);
+    let format = video
+        .get("format")
+        .and_then(Value::as_str)
+        .filter(|format| matches!(*format, "hls" | "dash" | TORRENT | PAGE))
+        .map(str::to_owned);
+    let link = match format.as_deref() {
+        Some(TORRENT) => torrent_link(video.get("url")),
+        // A page opens in Raygun's browser: https only.
+        Some(PAGE) => url(video.get("url")).filter(|page| page.starts_with("https://")),
+        _ => url(video.get("url")).or_else(|| youtube_link(video.get("url"))),
+    };
+    Some(VideoLink {
+        url: link?,
+        label: label(video.get("label")).or_else(|| quality.map(|height| format!("{height}p"))),
+        quality,
+        headers: headers(video.get("headers")),
+        format,
+        subtitles: video
+            .get("subtitles")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|track| {
+                Some(VideoTrack {
+                    url: url(track.get("url"))?,
+                    lang: label(track.get("lang")),
+                    label: label(track.get("label")),
+                })
+            })
+            .take(MAX_SUBTITLES)
+            .collect(),
+        chapters: video.get("timestamps").map(chapters_of).unwrap_or_default(),
+        live: video.get("live").and_then(Value::as_bool) == Some(true),
+    })
+}
+
+// ---- `video.streams`: streams for a title known by its ids ----
+
+/// Providers that find a movie's or an episode's streams by the ids the title is known by (its
+/// TMDB and IMDb ids), as Stremio's stream addons do: Nuvio's providers (`crate::nuvio`), and any
+/// extension written for it. Their streams play beside the addons' in a play session.
+pub const VIDEO_STREAMS: &str = "video.streams";
+
+/// Most streams one `video.streams` provider may give for a title.
+const MAX_PROVIDED_STREAMS: usize = 100;
+/// Longest name and description kept.
+const MAX_STREAM_TEXT: usize = 200;
+
+/// What a `video.streams` provider is asked: a movie or an episode, by the ids it's known by.
+/// Sent as `streams({ type, tmdbId, imdbId, season, episode, title, year })`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamQuery {
+    /// `movie` or `series`.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// TMDB's id (digits), when known.
+    pub tmdb_id: Option<String>,
+    /// IMDb's (`tt…`), when known.
+    pub imdb_id: Option<String>,
+    /// An episode's season and number, as TMDB and IMDb count them.
+    pub season: Option<u32>,
+    pub episode: Option<u32>,
+    /// The title's name and year, for providers that search by them.
+    pub title: Option<String>,
+    pub year: Option<u32>,
+}
+
+/// One stream a `video.streams` provider gave.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProvidedStream {
+    /// What the provider calls it (its source and quality, as a picker's first line).
+    pub name: Option<String>,
+    /// More about it: the file's name, its size, language.
+    pub description: Option<String>,
+    pub link: VideoLink,
+    /// The file's size in bytes, when the provider says.
+    pub size: Option<u64>,
+}
+
+/// A size as a number of bytes, or as written ("1.4 GB", "700 MB", "2,1 GiB").
+fn size_of(value: Option<&Value>) -> Option<u64> {
+    match value? {
+        Value::Number(number) => number
+            .as_f64()
+            .filter(|bytes| *bytes >= 1.0)
+            .map(|b| b as u64),
+        Value::String(text) => {
+            let text = text.trim().replace(',', ".");
+            let split = text
+                .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+                .unwrap_or(text.len());
+            let number: f64 = text[..split].parse().ok()?;
+            let unit = text[split..].trim().to_ascii_lowercase();
+            let scale = match unit.trim_end_matches("ib").trim_end_matches('b') {
+                "" => 1.0,
+                "k" => 1024.0,
+                "m" => 1024.0 * 1024.0,
+                "g" => 1024.0 * 1024.0 * 1024.0,
+                "t" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+                _ => return None,
+            };
+            let bytes = number * scale;
+            (bytes >= 1.0 && bytes.is_finite()).then_some(bytes as u64)
+        }
+        _ => None,
+    }
+}
+
+/// A picture height written as text ("1080p", "720", "4K"), or a number.
+fn height_of(value: Option<&Value>) -> Option<u32> {
+    let height = match value? {
+        Value::Number(number) => number.as_u64()?,
+        Value::String(text) => {
+            let text = text.trim().to_ascii_lowercase();
+            match text.as_str() {
+                "4k" | "uhd" | "2160p" => 2160,
+                "2k" | "1440p" | "qhd" => 1440,
+                "fhd" | "full hd" => 1080,
+                "hd" => 720,
+                "sd" => 480,
+                _ => text.trim_end_matches('p').parse().ok()?,
+            }
+        }
+        _ => return None,
+    };
+    (1..=10_000).contains(&height).then_some(height as u32)
+}
+
+fn stream_text(value: Option<&Value>) -> Option<String> {
+    text(value).map(|text| text.chars().take(MAX_STREAM_TEXT).collect())
+}
+
+/// A `streams` answer: `{ streams: [{ url, name, description, quality, size, format, headers,
+/// subtitles }] }`, each as a `videos` answer's video with a name, a description and a size.
+pub fn parse_provided_streams(value: &Value) -> Vec<ProvidedStream> {
+    value
+        .get("streams")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|stream| {
+            let mut link = video_of(stream)?;
+            if link.quality.is_none() {
+                link.quality = height_of(stream.get("quality"));
+            }
+            Some(ProvidedStream {
+                name: stream_text(stream.get("name")),
+                description: stream_text(stream.get("description")),
+                size: size_of(stream.get("size")),
+                link,
+            })
+        })
+        .take(MAX_PROVIDED_STREAMS)
+        .collect()
+}
+
+/// One provider's answer to [`ExtensionHost::video_streams`].
+#[derive(Debug)]
+pub struct ProviderStreams {
+    pub provider: raygun_model::ProviderInfo,
+    pub answer: Result<Vec<ProvidedStream>, crate::CallError>,
+    /// The provider failed lately (its calls did), so its answer comes last.
+    pub failing: bool,
+}
+
+impl ExtensionHost {
+    /// A movie's or an episode's streams from every `video.streams` provider that's on, in the
+    /// order [`Self::video_streams_each`] asks them.
+    pub async fn video_streams(
+        &self,
+        query: &StreamQuery,
+        limit: std::time::Duration,
+    ) -> Vec<ProviderStreams> {
+        let providers = self.providers(VIDEO_STREAMS).await;
+        let mut answers: Vec<(usize, ProviderStreams)> = Vec::new();
+        let order: Vec<String> = self
+            .health()
+            .order(providers.clone())
+            .into_iter()
+            .map(|provider| provider.id)
+            .collect();
+        let mut each = std::pin::pin!(self.video_streams_each(providers, query, limit));
+        while let Some(answer) = futures_util::StreamExt::next(&mut each).await {
+            let at = order
+                .iter()
+                .position(|id| *id == answer.provider.id)
+                .unwrap_or(usize::MAX);
+            answers.push((at, answer));
+        }
+        answers.sort_by_key(|(at, _)| *at);
+        answers.into_iter().map(|(_, answer)| answer).collect()
+    }
+
+    /// `providers`' (`video.streams`) streams for a movie or an episode, each answer as it
+    /// comes: a few at a time, the healthy first, each within `limit`. Providers that kept
+    /// failing sit out a while and answer at once with their last failure. Dropping the stream
+    /// stops the calls still running.
+    pub fn video_streams_each<'a>(
+        &'a self,
+        providers: Vec<raygun_model::ProviderInfo>,
+        query: &StreamQuery,
+        limit: std::time::Duration,
+    ) -> impl futures_util::Stream<Item = ProviderStreams> + 'a {
+        let args = serde_json::to_value(query).unwrap_or_default();
+        let plan = crate::fanout::Plan {
+            concurrency: 8,
+            timeout: limit + std::time::Duration::from_secs(1),
+            skip_resting: true,
+        };
+        let asks = crate::fanout::fan_out(self.health(), providers, plan, move |provider| {
+            let args = args.clone();
+            async move {
+                self.call_within(&provider.id, "streams", args, limit)
+                    .await
+                    .map(|value| parse_provided_streams(&value))
+            }
+        });
+        futures_util::StreamExt::map(asks, move |asked| ProviderStreams {
+            failing: self.health().standing(&asked.provider.id) == crate::fanout::Standing::Failing,
+            provider: asked.provider,
+            answer: asked.answer,
+        })
+    }
 }
 
 /// A video's `timestamps` (seconds, Aniyomi's `TimeStamp`) as chapters in order. Ones that start

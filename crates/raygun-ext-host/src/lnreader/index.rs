@@ -84,8 +84,9 @@ fn language(name: &str) -> Option<String> {
     Some(code.to_owned())
 }
 
-/// LNReader versions are semver; one that isn't is read leniently (`1.2` is `1.2.0`).
-fn semver_version(version: &str) -> String {
+/// LNReader versions are semver; one that isn't is read leniently (`1.2` is `1.2.0`). Nuvio's
+/// providers' versions are read the same way.
+pub(crate) fn semver_version(version: &str) -> String {
     if semver::Version::parse(version).is_ok() {
         return version.to_owned();
     }

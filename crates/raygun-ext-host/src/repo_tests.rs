@@ -260,6 +260,10 @@ async fn paraline_live() {
                 let script = crate::lnreader::package::verify_script(&bytes, entry).unwrap();
                 crate::lnreader::package::package(entry, script).unwrap()
             }
+            repo::PackageFormat::Nuvio => {
+                let script = crate::nuvio::package::verify_script(&bytes).unwrap();
+                crate::nuvio::package::package(entry, script).unwrap()
+            }
             repo::PackageFormat::Nuclear
             | repo::PackageFormat::Kodi
             | repo::PackageFormat::Mihon

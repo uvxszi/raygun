@@ -126,12 +126,12 @@ export const catalogFacets = (catalog: RepoCatalog[]) => {
 };
 
 /** Extensions that came from another app's format, which a repository may hold. */
-export type RepoFormat = 'nuclear' | 'shosetsu' | 'miru' | 'lnreader' | 'kodi' | 'mihon';
+export type RepoFormat = 'nuclear' | 'shosetsu' | 'miru' | 'lnreader' | 'kodi' | 'mihon' | 'nuvio';
 
-const FORMATS: RepoFormat[] = ['nuclear', 'shosetsu', 'miru', 'lnreader', 'kodi', 'mihon'];
+const FORMATS: RepoFormat[] = ['nuclear', 'shosetsu', 'miru', 'lnreader', 'kodi', 'mihon', 'nuvio'];
 
 /** The formats whose extensions' ids start with their name. */
-const PREFIXED: RepoFormat[] = ['shosetsu', 'miru', 'lnreader', 'kodi', 'mihon'];
+const PREFIXED: RepoFormat[] = ['shosetsu', 'miru', 'lnreader', 'kodi', 'mihon', 'nuvio'];
 
 const formatOf = (entry: CatalogEntry): RepoFormat | null =>
   entry.nuclear

@@ -25,6 +25,7 @@ pub mod mihon;
 pub mod miru;
 pub mod novel;
 pub mod nuclear;
+pub mod nuvio;
 pub mod package;
 pub mod permissions;
 pub mod podcast;

@@ -22,7 +22,8 @@ Two ways in:
 | Shosetsu | Lua novel sources, `index.json` repositories | Supported | Lua 5.2 sandbox with Jsoup- and OkHttp-like libraries (`raygun-ext-host::shosetsu`). |
 | Miru | JavaScript video, comic and novel sources | Supported | QuickJS with Miru's API rebuilt (`raygun-ext-host::miru`). |
 | Nuclear | TypeScript music plugins | Supported | Converted at install (`packages/nuclear-compat`). |
-| Stremio addons | HTTP addon protocol | Supported | Browse → Sources → Addons (`raygun-app/src/stremio`). |
+| Stremio addons | HTTP addon protocol | Supported | Browse → Sources → Addons (`raygun-app/src/stremio`). An addon that only lists other addons (`addon_catalog`) reads as a repository of them. |
+| [Nuvio providers](nuvio.md) | JavaScript stream scrapers listed in a `manifest.json` | Added | QuickJS with Nuvio's globals rebuilt (`fetch`, cheerio, CryptoJS, `crypto.subtle`); each provider is a `video.streams` source whose streams play beside the addons' (`raygun-ext-host::nuvio`). |
 | Podcast feeds | RSS and Atom | Supported | Followed by address or found through directories. |
 | [Jellyfin and Emby](jellyfin.md) | Media servers | Added | Server connection: films and series, music, lyrics. |
 | [Subsonic, OpenSubsonic](subsonic.md) | Music servers (Navidrome, Gonic, Airsonic, Ampache...) | Added | Server connection: music and lyrics. |

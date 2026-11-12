@@ -8,7 +8,9 @@
 //! subtitles from every addon that serves them, each asked by an id it knows
 //! (`Meta::stream_ids_for_video`). Addons that didn't answer lately are asked last.
 
+pub(crate) mod addon_catalogs;
 pub mod protocol;
+pub(crate) mod providers;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -20,6 +22,7 @@ use futures_util::stream::FuturesUnordered;
 use raygun_db::stremio::{self as store, AddonRow};
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
 use raygun_db::video::{self as progress_store, VideoEntry, VideoProgress};
+use raygun_ext_host::video::{StreamQuery, VIDEO_STREAMS};
 use raygun_model::{
     StremioAddon, StremioCatalogInfo, StremioCatalogRow, StremioExtra, StremioExtraValue,
     StremioItem, StremioMeta, StremioPlayRequest, StremioProvides, StremioStream,
@@ -61,6 +64,18 @@ const FAILING_FOR_MS: i64 = 3 * 24 * 60 * 60 * 1000;
 const HEALTH_KEY: &str = "stremio.addonHealth";
 /// How long an addon whose manifest couldn't be fetched isn't asked again (pages would wait).
 const MANIFEST_RETRY_MS: i64 = 5 * 60 * 1000;
+/// Longest a stream provider (`video.streams`) may take for a title, as long as an addon.
+const PROVIDER_TIMEOUT: Duration = REQUEST_TIMEOUT;
+/// How long the subtitle addons' tracks found for a session's addons are kept for the stream
+/// providers' links that answer after them.
+const EXTRA_SUBTITLES_MS: i64 = 2 * 60 * 1000;
+
+/// What the stream providers are asked for a movie or an episode, and which providers.
+#[derive(Debug, Clone)]
+pub struct ProviderAsk {
+    pub query: StreamQuery,
+    pub providers: Vec<raygun_model::ProviderInfo>,
+}
 
 /// Addons offered with one tap: a subtitles tool. Catalogue addons are added by their address.
 const SUGGESTED: [(&str, &str, &str); 1] = [(
@@ -160,7 +175,12 @@ pub struct StremioService {
     manifests: Mutex<HashMap<String, StoredManifest>>,
     /// Addons whose manifest couldn't be fetched lately: when, and why.
     unreachable: Mutex<HashMap<String, (i64, String)>>,
+    /// The subtitle addons' tracks a session's addons came with, by type, video and language.
+    extra_subtitles: Mutex<SubtitlesKept>,
 }
+
+/// Subtitle tracks kept by type, video id and language, with when they were found.
+type SubtitlesKept = HashMap<(String, String, String), (i64, Vec<VideoSubtitle>)>;
 
 impl StremioService {
     pub fn new(app: AppHandle, client: reqwest::Client) -> Self {
@@ -175,6 +195,7 @@ impl StremioService {
             refreshing: Mutex::new(HashSet::new()),
             manifests: Mutex::new(HashMap::new()),
             unreachable: Mutex::new(HashMap::new()),
+            extra_subtitles: Mutex::new(HashMap::new()),
         }
     }
 
@@ -858,6 +879,12 @@ impl StremioService {
             .filter(|loaded| loaded.row.enabled)
             .filter_map(Loaded::manifest)
             .collect();
+        // Stream providers find movies and series by their IMDb or TMDB ids.
+        let provided = {
+            let extensions = self.app.state::<Arc<ExtensionService>>();
+            let (_ready, host) = extensions.ready().await;
+            !host.providers(VIDEO_STREAMS).await.is_empty()
+        };
         StremioCatalogRow {
             addon_id: addon.row.id.clone(),
             addon_name: manifest.name.clone(),
@@ -873,7 +900,8 @@ impl StremioService {
                 .into_iter()
                 .map(|preview| {
                     let mut listed = self.listed(item(preview));
-                    listed.playable = plays(&streams, &listed.kind, &listed.id);
+                    listed.playable = plays(&streams, &listed.kind, &listed.id)
+                        || (provided && providers::findable(&listed.kind, &listed.id));
                     listed
                 })
                 .collect(),
@@ -1189,10 +1217,37 @@ impl StremioService {
         })
     }
 
-    /// Streams for a movie or episode of the title `meta_id`: the details' own (a channel's
-    /// videos, YouTube's) first, then every addon that serves streams, each asked by an id it
-    /// knows, a few at a time; addons that didn't answer lately come last.
+    /// Streams for a movie or episode of the title `meta_id` (a title page's sources): the
+    /// addons' ([`Self::addon_streams`]), then the stream providers' (`video.streams`), asked at
+    /// the same time.
     pub async fn streams(
+        &self,
+        kind: &str,
+        meta_id: Option<&str>,
+        video_id: &str,
+    ) -> Result<Vec<StremioStreamGroup>, String> {
+        let meta = match meta_id {
+            Some(meta_id) => self
+                .find_meta(kind, meta_id, false)
+                .await
+                .ok()
+                .map(|found| found.meta),
+            None => self.meta_of_video(kind, video_id),
+        };
+        let (groups, provided) = futures_util::future::join(
+            self.addon_streams(kind, meta_id, video_id),
+            self.provided_streams(kind, meta.as_ref(), video_id),
+        )
+        .await;
+        let mut groups = groups?;
+        groups.extend(provided);
+        Ok(groups)
+    }
+
+    /// The addons' streams for a movie or episode of the title `meta_id`: the details' own (a
+    /// channel's videos, YouTube's) first, then every addon that serves streams, each asked by
+    /// an id it knows, a few at a time; addons that didn't answer lately come last.
+    async fn addon_streams(
         &self,
         kind: &str,
         meta_id: Option<&str>,
@@ -1248,14 +1303,23 @@ impl StremioService {
             })
             .collect::<Vec<_>>();
         let mut groups = Vec::new();
-        if let Some(found) = &found
-            && let Some(video) = found.meta.video(video_id)
-            && !video.streams.is_empty()
-        {
+        // The details' own: a video's streams, or a live channel's from its program guide.
+        let own = found.as_ref().and_then(|found| {
+            let meta = &found.meta;
+            let streams = match meta.video(video_id) {
+                Some(video) => &video.streams,
+                None if video_id == meta.own_video_id() || video_id == meta.preview.id => {
+                    &meta.live_streams
+                }
+                None => return None,
+            };
+            (!streams.is_empty()).then_some((found, streams))
+        });
+        if let Some((found, streams)) = own {
             groups.push(StremioStreamGroup {
                 addon_id: found.addon_id.clone(),
                 addon_name: found.addon_name.clone(),
-                streams: video.streams.iter().cloned().map(stream_view).collect(),
+                streams: streams.iter().cloned().map(stream_view).collect(),
                 error: None,
                 failing: false,
             });
@@ -1512,7 +1576,7 @@ impl StremioService {
             None => None,
         };
         let (groups, found) = futures_util::future::join(
-            self.streams(&target.kind, target.meta_id.as_deref(), &target.video_id),
+            self.addon_streams(&target.kind, target.meta_id.as_deref(), &target.video_id),
             self.subtitles(
                 &target.kind,
                 meta.as_ref(),
@@ -1523,99 +1587,234 @@ impl StremioService {
         )
         .await;
         let extra = addon_subtitles(found);
+        // Stream providers' links that answer later get the same tracks (`provider_group`).
+        self.keep_extra_subtitles(target, language, &extra);
         // A live channel's streams play from their live edge (`behaviorHints.isLive`).
         let live = target.kind == "tv" || meta.as_ref().is_some_and(|meta| meta.live);
+        let mut playable = Vec::new();
+        for group in groups? {
+            playable.push(self.session_group(group, target, &extra, live).await);
+        }
+        Ok(playable)
+    }
+
+    /// An addon's (or a stream provider's) streams as a session's group: direct ones and
+    /// torrents for Raygun's player, YouTube's for its embed, each with the subtitle addons'
+    /// tracks (`extra`); what can't play now (torrents while they're off, an address on the home
+    /// network without access to it) is marked with why.
+    async fn session_group(
+        &self,
+        group: StremioStreamGroup,
+        target: &StremioPlayTarget,
+        extra: &[VideoSubtitle],
+        live: bool,
+    ) -> video_session::Group {
         let network = self.app.state::<LocalNetwork>();
         // Torrents are listed either way; while they can't play (turned off, mobile data) they're
         // marked with why.
         let torrents_unavailable = crate::torrents::unavailable_now(&self.app).await;
         let torrent_cache = crate::torrents::cache_bytes(&self.app).await;
-        let mut playable = Vec::new();
-        for group in groups? {
-            let mut links = Vec::new();
-            for stream in group.streams {
-                let (youtube, torrent) = match stream.kind {
-                    StremioStreamKind::Direct => (false, false),
-                    StremioStreamKind::YouTube => (true, false),
-                    StremioStreamKind::Torrent => (false, true),
-                    _ => continue,
-                };
-                let label = [stream.name.clone(), stream.description.clone()]
-                    .into_iter()
-                    .flatten()
-                    .map(|text| text.replace('\n', " "))
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                let binge_group = stream.binge_group.clone();
-                // Addons name the size in the stream's name ("Torrentio\n4k"), its description,
-                // the file's name or the binge group ("torrentio|1080p|…").
-                let height = crate::video_quality::texts_height([
-                    stream.name.as_deref(),
-                    stream.description.as_deref(),
-                    stream.filename.as_deref(),
-                    stream.binge_group.as_deref(),
-                ]);
-                let size = stream
-                    .size
-                    .filter(|size| *size > 0.0)
-                    .map(|size| size as u64);
-                let blocked = if youtube {
-                    None
-                } else if torrent {
-                    // A video known to be larger than the torrent cache can't play.
-                    torrents_unavailable.clone().or_else(|| {
-                        let named = crate::video_quality::link_facts(&[Some(&label)], size, None);
-                        crate::torrents::too_large(named.size_bytes, torrent_cache)
-                    })
-                } else {
-                    network
-                        .check(&stream.target, local_network::VIDEOS_DENIED)
-                        .await
-                        .err()
-                };
-                let mut request = direct_request(
-                    &StremioPlayRequest {
-                        kind: target.kind.clone(),
-                        video_id: target.video_id.clone(),
-                        title: target.title.clone(),
-                        subtitle: target.subtitle.clone(),
-                        poster: target.poster.clone(),
-                        stream,
-                        // The session gives every link the series' memory.
-                        meta_id: None,
-                        external: false,
-                    },
-                    &extra,
-                );
-                request.live = request.live || live;
-                if youtube {
-                    // Plays in YouTube's embed (`video::YOUTUBE_LINK`).
-                    request.url = format!("{}{}", crate::video::YOUTUBE_LINK, request.url);
-                    request.subtitles.clear();
-                    request.format = None;
-                }
-                links.push(video_session::Link {
-                    label: if label.is_empty() {
-                        group.addon_name.clone()
-                    } else {
-                        video_session::link_label(&target.title, label)
-                    },
-                    tag: binge_group,
-                    failed: blocked,
-                    mismatch: false,
-                    height,
-                    size,
-                    request,
-                });
+        let mut links = Vec::new();
+        for stream in group.streams {
+            let (youtube, torrent) = match stream.kind {
+                StremioStreamKind::Direct => (false, false),
+                StremioStreamKind::YouTube => (true, false),
+                StremioStreamKind::Torrent => (false, true),
+                _ => continue,
+            };
+            let label = [stream.name.clone(), stream.description.clone()]
+                .into_iter()
+                .flatten()
+                .map(|text| text.replace('\n', " "))
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let binge_group = stream.binge_group.clone();
+            // Addons name the size in the stream's name ("Torrentio\n4k"), its description,
+            // the file's name or the binge group ("torrentio|1080p|…").
+            let height = crate::video_quality::texts_height([
+                stream.name.as_deref(),
+                stream.description.as_deref(),
+                stream.filename.as_deref(),
+                stream.binge_group.as_deref(),
+            ]);
+            let size = stream
+                .size
+                .filter(|size| *size > 0.0)
+                .map(|size| size as u64);
+            let blocked = if youtube {
+                None
+            } else if torrent {
+                // A video known to be larger than the torrent cache can't play.
+                torrents_unavailable.clone().or_else(|| {
+                    let named = crate::video_quality::link_facts(&[Some(&label)], size, None);
+                    crate::torrents::too_large(named.size_bytes, torrent_cache)
+                })
+            } else {
+                network
+                    .check(&stream.target, local_network::VIDEOS_DENIED)
+                    .await
+                    .err()
+            };
+            let mut request = direct_request(
+                &StremioPlayRequest {
+                    kind: target.kind.clone(),
+                    video_id: target.video_id.clone(),
+                    title: target.title.clone(),
+                    subtitle: target.subtitle.clone(),
+                    poster: target.poster.clone(),
+                    stream,
+                    // The session gives every link the series' memory.
+                    meta_id: None,
+                    external: false,
+                },
+                extra,
+            );
+            request.live = request.live || live;
+            if youtube {
+                // Plays in YouTube's embed (`video::YOUTUBE_LINK`).
+                request.url = format!("{}{}", crate::video::YOUTUBE_LINK, request.url);
+                request.subtitles.clear();
+                request.format = None;
             }
-            playable.push(video_session::Group::finished(
-                group.addon_id,
-                group.addon_name,
-                links,
-                group.error,
-            ));
+            links.push(video_session::Link {
+                label: if label.is_empty() {
+                    group.addon_name.clone()
+                } else {
+                    video_session::link_label(&target.title, label)
+                },
+                tag: binge_group,
+                failed: blocked,
+                mismatch: false,
+                height,
+                size,
+                request,
+            });
         }
-        Ok(playable)
+        video_session::Group::finished(group.addon_id, group.addon_name, links, group.error)
+    }
+
+    // ---- Stream providers (`video.streams`: Nuvio's) ----
+
+    /// What the stream providers are asked for a movie or an episode, and who's asked; `None`
+    /// without providers that are on, ids they could find it by, or a connection (Offline Mode
+    /// sends nothing).
+    pub async fn provider_ask(&self, target: &StremioPlayTarget) -> Option<ProviderAsk> {
+        if raygun_net::network_mode::offline() {
+            return None;
+        }
+        let providers = {
+            let extensions = self.app.state::<Arc<ExtensionService>>();
+            let (_ready, host) = extensions.ready().await;
+            host.providers(VIDEO_STREAMS).await
+        };
+        if providers.is_empty() {
+            return None;
+        }
+        let meta = match &target.meta_id {
+            Some(meta_id) => self
+                .find_meta(&target.kind, meta_id, false)
+                .await
+                .ok()
+                .map(|found| found.meta),
+            None => self.meta_of_video(&target.kind, &target.video_id),
+        };
+        let query = providers::stream_query(&target.kind, meta.as_ref(), &target.video_id)?;
+        Some(ProviderAsk { query, providers })
+    }
+
+    /// The providers' answers to `ask`, each as it comes (`each`), as stream groups; a provider
+    /// that found nothing answers an empty group.
+    pub async fn provider_answers<F, Fut>(&self, ask: ProviderAsk, mut each: F)
+    where
+        F: FnMut(StremioStreamGroup) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let extensions = self.app.state::<Arc<ExtensionService>>().inner().clone();
+        let (_ready, host) = extensions.ready().await;
+        let mut answers =
+            std::pin::pin!(host.video_streams_each(ask.providers, &ask.query, PROVIDER_TIMEOUT));
+        while let Some(answer) = answers.next().await {
+            let (id, name) = (answer.provider.id.clone(), answer.provider.name.clone());
+            let group = providers::group_of(answer).unwrap_or(StremioStreamGroup {
+                addon_id: id,
+                addon_name: name,
+                streams: Vec::new(),
+                error: None,
+                failing: false,
+            });
+            each(group).await;
+        }
+    }
+
+    /// A provider's group as a session's, with the subtitle addons' tracks the session's addons
+    /// came with (kept a moment by [`Self::playable`]).
+    pub async fn provider_group(
+        &self,
+        group: StremioStreamGroup,
+        target: &StremioPlayTarget,
+        language: &str,
+    ) -> video_session::Group {
+        let extra = self.kept_extra_subtitles(target, language);
+        self.session_group(group, target, &extra, false).await
+    }
+
+    /// Every stream provider's streams for a movie or an episode, as stream groups (the title
+    /// page's sources); those that found nothing are left out.
+    async fn provided_streams(
+        &self,
+        kind: &str,
+        meta: Option<&protocol::Meta>,
+        video_id: &str,
+    ) -> Vec<StremioStreamGroup> {
+        if raygun_net::network_mode::offline() {
+            return Vec::new();
+        }
+        let Some(query) = providers::stream_query(kind, meta, video_id) else {
+            return Vec::new();
+        };
+        let extensions = self.app.state::<Arc<ExtensionService>>();
+        let (_ready, host) = extensions.ready().await;
+        host.video_streams(&query, PROVIDER_TIMEOUT)
+            .await
+            .into_iter()
+            .filter_map(providers::group_of)
+            .collect()
+    }
+
+    fn keep_extra_subtitles(
+        &self,
+        target: &StremioPlayTarget,
+        language: &str,
+        extra: &[VideoSubtitle],
+    ) {
+        let mut kept = self.extra_subtitles.lock().expect("subtitles poisoned");
+        kept.retain(|_, (at, _)| now_ms() - *at < EXTRA_SUBTITLES_MS);
+        kept.insert(
+            (
+                target.kind.clone(),
+                target.video_id.clone(),
+                language.to_owned(),
+            ),
+            (now_ms(), extra.to_vec()),
+        );
+    }
+
+    fn kept_extra_subtitles(
+        &self,
+        target: &StremioPlayTarget,
+        language: &str,
+    ) -> Vec<VideoSubtitle> {
+        self.extra_subtitles
+            .lock()
+            .expect("subtitles poisoned")
+            .get(&(
+                target.kind.clone(),
+                target.video_id.clone(),
+                language.to_owned(),
+            ))
+            .filter(|(at, _)| now_ms() - *at < EXTRA_SUBTITLES_MS)
+            .map(|(_, extra)| extra.clone())
+            .unwrap_or_default()
     }
 
     /// Marks a movie or episode watched or not.
@@ -2134,6 +2333,7 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
         imdb_id: None,
         tmdb_id: None,
         live: false,
+        live_streams: Vec::new(),
         videos: if movie {
             Vec::new()
         } else {
@@ -2157,6 +2357,7 @@ async fn stored_meta(db: &raygun_db::Db, row: &TitleRow) -> Result<protocol::Met
                     overview: None,
                     streams: Vec::new(),
                     imdb: None,
+                    airs: None,
                 })
                 .collect()
         },
@@ -2476,6 +2677,7 @@ mod tests {
                 overview: None,
                 streams: Vec::new(),
                 imdb: None,
+                airs: None,
             }]
         );
         let movie = stored("movie:tt2", vec![unit("tt2", None, None)]).await;

@@ -7,6 +7,7 @@ import {
   isNotForRaygun,
   kindsOf,
   repoContents,
+  repoFormat,
   updateCount,
 } from './catalogFilters';
 import type { CatalogShow } from './catalogFilters';
@@ -105,5 +106,19 @@ describe('entries not for Raygun', () => {
     ]);
     expect(contents.kinds).toEqual([{ kind: 'video', count: 1 }]);
     expect(contents.formats).toEqual([{ format: 'kodi', count: 1 }]);
+  });
+});
+
+describe('Nuvio repositories', () => {
+  it('are read as Nuvio’s, their providers as video', () => {
+    const providers = [
+      entry({ id: 'nuvio.archive', provides: ['video.streams'] }),
+      entry({ id: 'nuvio.old-tv', provides: ['video.streams'] }),
+    ];
+    expect(repoFormat(providers)).toBe('nuvio');
+    expect(repoContents(providers)).toEqual({
+      kinds: [{ kind: 'video', count: 2 }],
+      formats: [{ format: 'nuvio', count: 2 }],
+    });
   });
 });
