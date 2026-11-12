@@ -4,8 +4,9 @@
  * styles.css (github.com/carloskiki/pulldown-latex, MIT License, Copyright 2024 Charles Edward
  * Gagnon), which writes those classes. The font is Latin Modern Math (GUST e-foundry, GUST Font
  * License), as distributed with pulldown-latex; it loads only once a formula is drawn.
+ * MathML elements are matched by their names alone: an `@namespace` rule must come first in the
+ * bundled stylesheet, which a component's CSS can't promise.
  */
-@namespace m url('http://www.w3.org/1998/Math/MathML');
 
 @font-face {
   font-family: 'Latin Modern Math';
@@ -16,13 +17,13 @@
   font-display: swap;
 }
 
-.math-formula m|math {
+.math-formula math {
   font-family: 'Latin Modern Math', math;
   /* The text around it sets the size: the reader's text size, zoomed with the app. */
   font-size: 1.05em;
 }
 
-.math-formula m|mtext {
+.math-formula mtext {
   font-family: inherit;
 }
 
@@ -35,82 +36,82 @@
   text-align: center;
 }
 
-.math-display m|math {
+.math-display math {
   display: block math;
   margin: 0 auto;
 }
 
-.math-formula m|mtd {
+.math-formula mtd {
   padding-left: 0;
   padding-right: 0;
 }
 
-.math-formula m|mo.small {
+.math-formula mo.small {
   font-size: 70%;
 }
 
-.math-formula m|merror > m|mtext {
+.math-formula merror > mtext {
   font-family: monospace;
 }
 
-.math-formula m|mtable {
+.math-formula mtable {
   border-color: currentColor;
   border-spacing: 0;
   border-collapse: collapse;
 }
 
-.math-formula m|mtable.menv-alignlike > m|mtr > m|mtd:nth-child(odd),
-.math-formula m|mtable.menv-cells-right > m|mtr > m|mtd,
-.math-formula m|mtable.menv-multline > m|mtr > m|mtd:last-child,
-.math-formula m|mtd.cell-right {
+.math-formula mtable.menv-alignlike > mtr > mtd:nth-child(odd),
+.math-formula mtable.menv-cells-right > mtr > mtd,
+.math-formula mtable.menv-multline > mtr > mtd:last-child,
+.math-formula mtd.cell-right {
   text-align: right;
 }
 
-.math-formula m|mtable.menv-alignlike > m|mtr > m|mtd:nth-child(even),
-.math-formula m|mtable.menv-cells-left > m|mtr > m|mtd,
-.math-formula m|mtable.menv-multline > m|mtr > m|mtd:first-child,
-.math-formula m|mtd.cell-left {
+.math-formula mtable.menv-alignlike > mtr > mtd:nth-child(even),
+.math-formula mtable.menv-cells-left > mtr > mtd,
+.math-formula mtable.menv-multline > mtr > mtd:first-child,
+.math-formula mtd.cell-left {
   text-align: left;
 }
 
-.math-formula m|mtable.menv-align > m|mtr > m|mtd:nth-child(2n + 3) {
+.math-formula mtable.menv-align > mtr > mtd:nth-child(2n + 3) {
   padding-left: 1em;
 }
 
-.math-formula m|mtable.menv-cases > m|mtr > m|mtd:first-child {
+.math-formula mtable.menv-cases > mtr > mtd:first-child {
   padding-right: 1em;
 }
 
-.math-formula m|mtable.menv-arraylike > m|mtr > m|mtd {
+.math-formula mtable.menv-arraylike > mtr > mtd {
   padding-left: 0.4em;
   padding-right: 0.4em;
 }
 
-.math-formula m|mtd.menv-left-solid {
+.math-formula mtd.menv-left-solid {
   border-left: 0.06em solid;
 }
 
-.math-formula m|mtd.menv-right-solid {
+.math-formula mtd.menv-right-solid {
   border-right: 0.06em solid;
 }
 
-.math-formula m|mtd.menv-left-dashed {
+.math-formula mtd.menv-left-dashed {
   border-left: 0.06em dashed;
 }
 
-.math-formula m|mtd.menv-right-dashed {
+.math-formula mtd.menv-right-dashed {
   border-right: 0.06em dashed;
 }
 
-.math-formula m|mtr.menv-hline {
+.math-formula mtr.menv-hline {
   border-top: 0.06em solid;
 }
 
-.math-formula m|mtr.menv-hdashline {
+.math-formula mtr.menv-hdashline {
   border-top: 0.06em dashed;
 }
 
-.math-formula m|mtd.menv-border-only:empty {
+.math-formula mtd.menv-border-only:empty {
   width: 0.1em;
   padding: 0;
   margin: 0;
