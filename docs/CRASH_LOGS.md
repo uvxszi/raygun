@@ -24,12 +24,12 @@ Each record is a text file in `logs/crashes/` in Raygun's data folder. It starts
 | `java` | An exception on the Android side ended Raygun. | Stack trace, device memory |
 | `renderer` | The page's renderer process ended: it crashed, or Android ended it to free memory. | Device memory, whether Raygun was in front |
 | `java`, `native`, `anr`, `memory`, `exit` | How Android says one of Raygun's processes ended (Android 11 and later): a crash, a native crash, not responding, the system ending a process in use for memory, a signal. Read when a process starts, when Raygun comes to the front and when Crash logs opens. A crash Raygun recorded itself at the time (same process, same moment) isn't recorded again, and neither are processes Raygun ended itself. | A native crash keeps its tombstone beside the record (`<time>-native.tombstone.pb`; read it with AOSP's `pbtombstone`). An ANR keeps its thread dump. |
-| `start` | Raygun stopped within 20 s of starting and nothing else explained it. | The sources that were at work |
+| `start` | Raygun stopped within 20 s of starting and nothing else explained it. An update or reinstall, Force stop or swiping Raygun away isn't counted. | The sources that were at work |
 | `ui`, `page` | The page met an error it couldn't get past, or Raygun's page couldn't load. | |
 
 ### Safe start
 
-When Raygun stops within 20 s of starting, or its page stops working, the next start is a **safe start**. You can also ask for one from the error screen. In a safe start:
+When Raygun stops within 20 s of starting, or its page stops working, the next start is a **safe start**. Stopping that way by an update or reinstall, Force stop or swiping Raygun away doesn't count: Android says how the process ended, and Raygun checks whether it was updated since. You can also ask for one from the error screen. In a safe start:
 
 - The page doesn't restore the answers it saved.
 - Downloads, transcriptions and the last queue resume only after 20 s of healthy running.

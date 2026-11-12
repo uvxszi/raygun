@@ -39,6 +39,37 @@ object CrashLog {
     private const val EXITS_LOCK = ".exits-lock"
     /** Processes Raygun ended on purpose (a safe-mode restart): their exits aren't crashes. */
     private const val EXPECTED_EXITS = ".expected-exits"
+    /** Rust's marker of a start that hasn't run long enough yet (`crash_log.rs`). */
+    private const val MARKER = ".starting"
+    /** How the last start's process ended, for Rust's next start: `expected <reason>` or `crashed <reason>`. */
+    private const val PREVIOUS_END = ".previous-end"
+
+    /**
+     * Ends that are no crash: Force stop or swiped away from the recent apps (user requested), an
+     * update or reinstall, the package turned off or changed, Raygun ending itself, the user stopped.
+     */
+    internal val EXPECTED_REASONS = setOf(
+        ApplicationExitInfo.REASON_USER_REQUESTED,
+        ApplicationExitInfo.REASON_PACKAGE_UPDATED,
+        ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE,
+        ApplicationExitInfo.REASON_EXIT_SELF,
+        ApplicationExitInfo.REASON_USER_STOPPED,
+    )
+
+    /**
+     * Whether a start that never ran long enough ended as it may rather than crashed: Android says
+     * so ([reason], null when it doesn't say), or the app was updated or reinstalled after that
+     * start began ([lastUpdateTime] past [startedAt]).
+     */
+    internal fun endedAsItMay(reason: Int?, startedAt: Long, lastUpdateTime: Long): Boolean =
+        (reason != null && reason in EXPECTED_REASONS) || (startedAt > 0 && lastUpdateTime > startedAt)
+
+    /** The pid and start time in Rust's marker (`{"startedAt":…,"pid":…}`). */
+    internal fun markerFields(marker: String): Pair<Int?, Long> {
+        val pid = Regex("\"pid\":(\\d+)").find(marker)?.groupValues?.get(1)?.toIntOrNull()
+        val startedAt = Regex("\"startedAt\":(\\d+)").find(marker)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+        return pid to startedAt
+    }
 
     /** Flags Rust takes at the next start (`crash_log.rs`). */
     const val RENDERER_GONE = "renderer-gone"
@@ -79,6 +110,8 @@ object CrashLog {
         installed = true
         val app = context.applicationContext ?: context
         appContext = app
+        // Before Rust's start reads it: in the main process only, and at once.
+        if (processName() == app.packageName) runCatching { notePreviousEnd(app) }
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { failed, error ->
             runCatching { write(app, "java", summary(error), exceptionBody(failed, error)) }
@@ -90,6 +123,32 @@ object CrashLog {
             }
         }
         recordExitsLater(app)
+    }
+
+    /**
+     * Tells Rust's start how the last start's process ended, when that start never ran long enough
+     * (its marker is still there): Android's reason for that process, and whether Raygun was
+     * updated or reinstalled since. An update, Force stop or a swipe isn't a crash.
+     */
+    private fun notePreviousEnd(context: Context) {
+        val folder = dir(context)
+        val marker = runCatching { File(folder, MARKER).readText() }.getOrNull() ?: return
+        val (pid, startedAt) = markerFields(marker)
+        val reason = if (pid != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                context.getSystemService(ActivityManager::class.java)
+                    ?.getHistoricalProcessExitReasons(context.packageName, pid, 1)
+                    ?.firstOrNull()
+                    ?.reason
+            }.getOrNull()
+        } else {
+            null
+        }
+        val updated = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
+        }.getOrDefault(0L)
+        val verdict = if (endedAsItMay(reason, startedAt, updated)) "expected" else "crashed"
+        File(folder, PREVIOUS_END).writeText("$verdict ${reason ?: "unknown"}")
     }
 
     /** [recordExits] off the calling thread. */
