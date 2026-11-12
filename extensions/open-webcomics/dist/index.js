@@ -1,4 +1,4 @@
-// dev.raygun.open-webcomics 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.open-webcomics 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -53,6 +53,7 @@
   // src/index.ts
   var SANDRA_AND_WOO = "https://www.sandraandwoo.com";
   var TURNOFF = "https://turnoff.us";
+  var REVOY = "https://www.davidrevoy.com";
   var SANDRA_AND_WOO_STRIPS = 1;
   var POSTS_PER_PAGE = 100;
   var LIST_TTL_MS = 30 * 6e4;
@@ -76,6 +77,25 @@
       ).filter((url) => /^https?:\/\//.test(url))
     )
   ];
+  var MONTH_NAMES = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december"
+  ];
+  var dayOf = (text) => {
+    const parts = /(\d{1,2})\s+([a-z]+)\s+(\d{4})/i.exec(text);
+    const month = MONTH_NAMES.indexOf((parts?.[2] ?? "").toLowerCase());
+    return parts && month >= 0 ? Date.UTC(Number(parts[3]), month, Number(parts[1])) : null;
+  };
   var STRIP_TITLE = /^\[(\d+)\]\s*(.*)$/;
   var KEPT_STRIPS = "sandraAndWoo.strips";
   var NEWEST_POSTS = 20;
@@ -171,6 +191,89 @@
     if (pictures.length === 0) throw new Error("This comic has no picture to show");
     return pictures;
   };
+  var KEPT_EPISODES = "miniFantasyTheater.episodes";
+  var TAG_PAGES_MOST = 30;
+  var episodeStrips = /* @__PURE__ */ new Map();
+  var tagPage = (at) => `${REVOY}/tag/minifantasytheater${at > 1 ? `/page${at}` : ""}`;
+  var episodeCards = async (at) => {
+    const response = await raygun.http.fetch(tagPage(at));
+    if (response.status === 404) return [];
+    if (!response.ok) throw new Error(`HTTP ${response.status} from ${tagPage(at)}`);
+    const html = await response.text();
+    return [
+      ...html.matchAll(
+        /<figure class="thumbnail">\s*<a href="https:\/\/www\.davidrevoy\.com\/article(\d+)\/([a-z0-9-]+)" title="([^"]*)">\s*<img src="[^"]*?[?&]src=(https:\/\/www\.davidrevoy\.com\/data\/images\/[^"&]+)[\s\S]*?<span class="detail">([^<]*)/g
+      )
+    ].map((card) => {
+      const post = `${card[1]}/${card[2]}`;
+      return {
+        post,
+        picture: card[4],
+        strip: {
+          id: post,
+          name: decode(card[3] ?? "") || post,
+          number: 0,
+          date: dayOf(card[5] ?? "")
+        }
+      };
+    });
+  };
+  var readAllEpisodes = async () => {
+    const cards = [];
+    for (let at = 1; at <= TAG_PAGES_MOST; at += 2) {
+      const pages2 = await Promise.all([episodeCards(at), episodeCards(at + 1)]);
+      cards.push(...pages2.flat());
+      if (pages2.some((page2) => page2.length === 0)) break;
+    }
+    return cards;
+  };
+  var miniFantasyTheaterStrips = async () => {
+    const kept = raygun.storage.get(KEPT_EPISODES) ?? [];
+    let cards = kept.map(([post, name, picture, date]) => ({
+      post,
+      picture,
+      strip: { id: post, name, number: 0, date }
+    }));
+    try {
+      if (cards.length > 0) {
+        const newest = (await episodeCards(1)).filter(
+          (card) => !cards.some((each) => each.post === card.post)
+        );
+        cards = [...newest, ...cards];
+      } else {
+        cards = await readAllEpisodes();
+      }
+    } catch (error) {
+      if (cards.length === 0) throw error;
+    }
+    if (cards.length === 0) throw new Error("MiniFantasyTheater listed no episodes");
+    for (const card of cards) episodeStrips.set(card.post, card.picture);
+    try {
+      raygun.storage.set(
+        KEPT_EPISODES,
+        cards.map((card) => [card.post, card.strip.name, card.picture, card.strip.date])
+      );
+    } catch {
+    }
+    return cards.map((card, index) => ({ ...card.strip, number: cards.length - index }));
+  };
+  var miniFantasyTheaterPictures = async (strip) => {
+    if (!/^\d+\/[a-z0-9-]+$/.test(strip)) throw new Error("MiniFantasyTheater has no such episode");
+    const { html, url } = await page(`${REVOY}/article${strip}`);
+    const card = episodeStrips.get(strip) ?? (raygun.storage.get(KEPT_EPISODES) ?? []).find(([post]) => post === strip)?.[2];
+    const name = (address) => address.split("/").pop() ?? "";
+    const linked = pictureAddresses(
+      url,
+      raygun.html.select(html, "a[href]").map((link) => link.attr("href")).filter((href) => /\/data\/images\/blog\/.+\.(?:jpe?g|png|webp)$/i.test(href ?? ""))
+    );
+    const strips2 = linked.filter(
+      (address) => /minifantasytheater/i.test(address) || card && name(address) === name(card)
+    );
+    if (strips2.length > 0) return strips2;
+    if (card) return [card];
+    if (linked.length > 0) return linked;
+    throw new Error("This post has no strip to show");
+  };
   var SERIES = [
     {
       id: "sandra-and-woo",
@@ -199,6 +302,20 @@
       keywords: "turnoff turn off geek programming linux developer stori",
       readStrips: turnoffStrips,
       pictures: turnoffPictures
+    },
+    {
+      id: "mini-fantasy-theater",
+      title: "MiniFantasyTheater",
+      coverUrl: `${REVOY}/data/images/blog/2024/en_007_minifantasytheater_by-david-revoy.jpg`,
+      authors: ["David Revoy"],
+      artists: ["David Revoy"],
+      description: "Short fantasy gag strips by David Revoy, the author of Pepper&Carrot, begun in 2024.\n\nLicence: Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0); the author prohibits AI-generated derivations of his work.",
+      genres: ["Comedy", "Fantasy", "Webcomic"],
+      status: "ongoing",
+      url: `${REVOY}/tag/minifantasytheater`,
+      keywords: "mini fantasy theater theatre minifantasytheater revoy pepper carrot",
+      readStrips: miniFantasyTheaterStrips,
+      pictures: miniFantasyTheaterPictures
     }
   ];
   var lists = /* @__PURE__ */ new Map();

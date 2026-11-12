@@ -2,13 +2,16 @@
 // whose strips are its chapters. Sandra and Woo (Oliver Knörzer and Powree, CC BY-NC-ND 3.0) lists
 // its strips through its site's WordPress API, each strip a post whose page holds the picture;
 // turnoff.us (Daniel Stori, CC BY-NC-SA 4.0) lists every comic on one page, each comic's page
-// holding its pictures. Lists are read again after half an hour; Sandra and Woo's 1,300 strips
-// are read in full once and kept, then brought up to date from the newest posts.
+// holding its pictures; MiniFantasyTheater (David Revoy, CC BY-SA 4.0) is a tag of his blog,
+// twelve episodes a page, each a post with its strip. Lists are read again after half an hour;
+// Sandra and Woo's 1,300 strips and MiniFantasyTheater's pages are read in full once and kept,
+// then brought up to date from the newest posts.
 import { defineProvider, fetchJson, registerProvider, resolveUrl } from '@raygun/sdk';
 import type { MangaChapter, MangaDetails, MangaPage, MangaStatus, MangaSummary } from '@raygun/sdk';
 
 const SANDRA_AND_WOO = 'https://www.sandraandwoo.com';
 const TURNOFF = 'https://turnoff.us';
+const REVOY = 'https://www.davidrevoy.com';
 /** WordPress's category of Sandra and Woo's strips (the other is the authors' news). */
 const SANDRA_AND_WOO_STRIPS = 1;
 const POSTS_PER_PAGE = 100;
@@ -68,6 +71,28 @@ const pictureAddresses = (base: string, sources: (string | null)[]) => [
       .filter((url) => /^https?:\/\//.test(url)),
   ),
 ];
+
+const MONTH_NAMES = [
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+];
+
+/** "11 november 2026" in Unix milliseconds, or null. */
+const dayOf = (text: string): number | null => {
+  const parts = /(\d{1,2})\s+([a-z]+)\s+(\d{4})/i.exec(text);
+  const month = MONTH_NAMES.indexOf((parts?.[2] ?? '').toLowerCase());
+  return parts && month >= 0 ? Date.UTC(Number(parts[3]), month, Number(parts[1])) : null;
+};
 
 // ---- Sandra and Woo ----
 
@@ -206,6 +231,123 @@ const turnoffPictures = async (strip: string) => {
   return pictures;
 };
 
+// ---- MiniFantasyTheater ----
+
+/** An episode as kept between runs: its post (`1184/the-avian-intelligence-agent`), name, strip
+ * and date. */
+type KeptEpisode = [string, string, string, number | null];
+
+const KEPT_EPISODES = 'miniFantasyTheater.episodes';
+/** The tag's pages read at most, twelve episodes each. */
+const TAG_PAGES_MOST = 30;
+/** Each episode's strip, as its card on the tag's pages shows it, by post. */
+const episodeStrips = new Map<string, string>();
+
+const tagPage = (at: number) => `${REVOY}/tag/minifantasytheater${at > 1 ? `/page${at}` : ''}`;
+
+/**
+ * The episode cards of one of the tag's pages, newest first: the post, its title, the strip its
+ * thumbnail shrinks (the thumbnailer's `src`) and its date. A page past the last is a 404.
+ */
+const episodeCards = async (
+  at: number,
+): Promise<{ post: string; strip: Strip; picture: string }[]> => {
+  const response = await raygun.http.fetch(tagPage(at));
+  if (response.status === 404) return [];
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${tagPage(at)}`);
+  const html = await response.text();
+  return [
+    ...html.matchAll(
+      /<figure class="thumbnail">\s*<a href="https:\/\/www\.davidrevoy\.com\/article(\d+)\/([a-z0-9-]+)" title="([^"]*)">\s*<img src="[^"]*?[?&]src=(https:\/\/www\.davidrevoy\.com\/data\/images\/[^"&]+)[\s\S]*?<span class="detail">([^<]*)/g,
+    ),
+  ].map((card) => {
+    const post = `${card[1]}/${card[2]}`;
+    return {
+      post,
+      picture: card[4]!,
+      strip: {
+        id: post,
+        name: decode(card[3] ?? '') || post,
+        number: 0,
+        date: dayOf(card[5] ?? ''),
+      },
+    };
+  });
+};
+
+/** Every episode card, newest first, two pages at a time until a page has none. */
+const readAllEpisodes = async () => {
+  const cards = [];
+  for (let at = 1; at <= TAG_PAGES_MOST; at += 2) {
+    const pages = await Promise.all([episodeCards(at), episodeCards(at + 1)]);
+    cards.push(...pages.flat());
+    if (pages.some((page) => page.length === 0)) break;
+  }
+  return cards;
+};
+
+/**
+ * The episodes, newest first, numbered from the first: read in full once and kept, then brought
+ * up to date from the tag's first page; the kept list answers when the site doesn't.
+ */
+const miniFantasyTheaterStrips = async (): Promise<Strip[]> => {
+  const kept = raygun.storage.get<KeptEpisode[]>(KEPT_EPISODES) ?? [];
+  let cards = kept.map(([post, name, picture, date]) => ({
+    post,
+    picture,
+    strip: { id: post, name, number: 0, date },
+  }));
+  try {
+    if (cards.length > 0) {
+      const newest = (await episodeCards(1)).filter(
+        (card) => !cards.some((each) => each.post === card.post),
+      );
+      cards = [...newest, ...cards];
+    } else {
+      cards = await readAllEpisodes();
+    }
+  } catch (error) {
+    if (cards.length === 0) throw error;
+  }
+  if (cards.length === 0) throw new Error('MiniFantasyTheater listed no episodes');
+  for (const card of cards) episodeStrips.set(card.post, card.picture);
+  try {
+    raygun.storage.set(
+      KEPT_EPISODES,
+      cards.map((card): KeptEpisode => [card.post, card.strip.name, card.picture, card.strip.date]),
+    );
+  } catch {
+    // Too large to keep: it's read in full again next time.
+  }
+  return cards.map((card, index) => ({ ...card.strip, number: cards.length - index }));
+};
+
+/** An episode's strips: the pictures of its post that are the episode's, else its card's. */
+const miniFantasyTheaterPictures = async (strip: string) => {
+  if (!/^\d+\/[a-z0-9-]+$/.test(strip)) throw new Error('MiniFantasyTheater has no such episode');
+  const { html, url } = await page(`${REVOY}/article${strip}`);
+  const card =
+    episodeStrips.get(strip) ??
+    (raygun.storage.get<KeptEpisode[]>(KEPT_EPISODES) ?? []).find(([post]) => post === strip)?.[2];
+  const name = (address: string) => address.split('/').pop() ?? '';
+  // The post's pictures at full size: its strips (named after the series, or as its card), else
+  // every picture it links (early posts hold only their strip).
+  const linked = pictureAddresses(
+    url,
+    raygun.html
+      .select(html, 'a[href]')
+      .map((link) => link.attr('href'))
+      .filter((href) => /\/data\/images\/blog\/.+\.(?:jpe?g|png|webp)$/i.test(href ?? '')),
+  );
+  const strips = linked.filter(
+    (address) => /minifantasytheater/i.test(address) || (card && name(address) === name(card)),
+  );
+  if (strips.length > 0) return strips;
+  if (card) return [card];
+  if (linked.length > 0) return linked;
+  throw new Error('This post has no strip to show');
+};
+
 const SERIES: Series[] = [
   {
     id: 'sandra-and-woo',
@@ -239,6 +381,23 @@ const SERIES: Series[] = [
     keywords: 'turnoff turn off geek programming linux developer stori',
     readStrips: turnoffStrips,
     pictures: turnoffPictures,
+  },
+  {
+    id: 'mini-fantasy-theater',
+    title: 'MiniFantasyTheater',
+    coverUrl: `${REVOY}/data/images/blog/2024/en_007_minifantasytheater_by-david-revoy.jpg`,
+    authors: ['David Revoy'],
+    artists: ['David Revoy'],
+    description:
+      'Short fantasy gag strips by David Revoy, the author of Pepper&Carrot, begun in 2024.\n\n' +
+      'Licence: Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0); the author ' +
+      'prohibits AI-generated derivations of his work.',
+    genres: ['Comedy', 'Fantasy', 'Webcomic'],
+    status: 'ongoing',
+    url: `${REVOY}/tag/minifantasytheater`,
+    keywords: 'mini fantasy theater theatre minifantasytheater revoy pepper carrot',
+    readStrips: miniFantasyTheaterStrips,
+    pictures: miniFantasyTheaterPictures,
   },
 ];
 

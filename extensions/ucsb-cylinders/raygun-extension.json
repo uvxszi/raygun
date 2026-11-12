@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.ucsb-cylinders",
+  "name": "UCSB Cylinder Audio Archive",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain in the United States: wax and celluloid cylinder records released more than 100 years ago (1890s–1920s), from the UC Santa Barbara Library's Cylinder Audio Archive. Transfers of cylinders from before 1923 are free for any use; the library's transfers of later ones are under CC BY-NC 2.5 (credit: University of California, Santa Barbara Library). Historical recordings, some with the prejudices of their time.",
+  "author": "Raygun",
+  "website": "https://cylinders.library.ucsb.edu/",
+  "provides": ["music.metadata", "music.charts"],
+  "permissions": { "net": ["cylinders.library.ucsb.edu"] },
+  "contentRating": "safe"
+}

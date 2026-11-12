@@ -1,16 +1,16 @@
 {
   "id": "dev.raygun.open-webcomics",
   "name": "Open webcomics",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
   "runtime": "js",
   "entry": "dist/index.js",
-  "description": "Webcomics their authors publish under Creative Commons licences, every strip a chapter: Sandra and Woo by Oliver Knörzer and Powree (CC BY-NC-ND 3.0) and turnoff.us by Daniel Stori (CC BY-NC-SA 4.0).",
+  "description": "Webcomics their authors publish under Creative Commons licences, every strip a chapter: Sandra and Woo by Oliver Knörzer and Powree (CC BY-NC-ND 3.0), turnoff.us by Daniel Stori (CC BY-NC-SA 4.0) and MiniFantasyTheater by David Revoy (CC BY-SA 4.0).",
   "author": "Raygun",
   "website": "https://www.sandraandwoo.com",
   "provides": ["manga.source"],
   "permissions": {
-    "net": ["www.sandraandwoo.com", "turnoff.us"]
+    "net": ["www.sandraandwoo.com", "turnoff.us", "www.davidrevoy.com"]
   },
   "contentRating": "suggestive"
 }

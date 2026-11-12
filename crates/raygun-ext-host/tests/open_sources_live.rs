@@ -2069,7 +2069,7 @@ async fn open_sources_live_archive_books() {
 }
 
 #[tokio::test]
-#[ignore = "needs network access to www.sandraandwoo.com and turnoff.us"]
+#[ignore = "needs network access to www.sandraandwoo.com, turnoff.us and www.davidrevoy.com"]
 async fn open_sources_live_open_webcomics() {
     let host = host().await;
     let popular = host
@@ -2077,7 +2077,11 @@ async fn open_sources_live_open_webcomics() {
         .await
         .unwrap();
     assert_listing("series", &popular);
-    for (series, at_least) in [("sandra-and-woo", 1300), ("turnoff", 300)] {
+    for (series, at_least) in [
+        ("sandra-and-woo", 1300),
+        ("turnoff", 300),
+        ("mini-fantasy-theater", 78),
+    ] {
         let details = host.manga_details(WEBCOMICS, series).await.unwrap();
         assert!(
             details
@@ -2161,4 +2165,147 @@ async fn open_sources_live_peertube() {
         }
     }
     assert!(played >= 2, "only {played} videos answered");
+}
+
+// ---- Great 78 Project, UCSB cylinders, NASA SVS, ESO and NOIRLab ----
+
+const GREAT_78: &str = "dev.raygun.great-78";
+const GREAT_78_CHARTS: &str = "dev.raygun.great-78/charts";
+const CYLINDERS: &str = "dev.raygun.ucsb-cylinders";
+const CYLINDER_CHARTS: &str = "dev.raygun.ucsb-cylinders/charts";
+const SVS: &str = "dev.raygun.nasa-svs/videos";
+const ESO: &str = "dev.raygun.eso/eso";
+const NOIRLAB: &str = "dev.raygun.eso/noirlab";
+
+/// Great 78 Project sides recorded before the cutoff, found, charted and served.
+#[tokio::test]
+#[ignore = "needs network access to archive.org"]
+async fn open_sources_live_great_78() {
+    let host = host().await;
+    let tracks = songs_from(&host, GREAT_78, "caruso").await;
+    assert!(!tracks.is_empty());
+    let (url, headers) = url_of(&tracks[0]);
+    assert!(url.starts_with("https://archive.org/download/78_"), "{url}");
+    assert_served("78", url, headers).await;
+    let charts = charts_of(&host, GREAT_78).await;
+    assert!(charts.iter().any(|chart| chart.group == ChartGroup::Decade));
+    for chart in ["top", "genre:jazz", "decade:1910"] {
+        let songs = host
+            .music_chart(GREAT_78_CHARTS, chart, None, 10)
+            .await
+            .unwrap();
+        println!(
+            "{chart}: {:?}",
+            songs.iter().map(|song| &song.title).collect::<Vec<_>>()
+        );
+        assert!(songs.len() >= 5, "{chart}: {}", songs.len());
+    }
+}
+
+/// UCSB cylinders released before the cutoff: a search, a chart, and an MP3 served.
+#[tokio::test]
+#[ignore = "needs network access to cylinders.library.ucsb.edu"]
+async fn open_sources_live_ucsb_cylinders() {
+    let host = host().await;
+    let tracks = songs_from(&host, CYLINDERS, "ragtime").await;
+    assert!(tracks.len() >= 3, "{}", tracks.len());
+    let (url, headers) = url_of(&tracks[0]);
+    assert!(url.starts_with("https://cylinders.s3"), "{url}");
+    assert_served("cylinder", url, headers).await;
+    let charts = charts_of(&host, CYLINDERS).await;
+    assert!(charts.len() >= 5);
+    let opera = host
+        .music_chart(CYLINDER_CHARTS, "opera", None, 10)
+        .await
+        .unwrap();
+    assert!(opera.len() >= 5, "{}", opera.len());
+}
+
+/// NASA SVS: popular and filtered lists with pictures, a page's videos and captions.
+#[tokio::test]
+#[ignore = "needs network access to svs.gsfc.nasa.gov"]
+async fn open_sources_live_nasa_svs() {
+    let host = host().await;
+    let popular = host.manga_list(SVS, MangaList::Popular, 1).await.unwrap();
+    assert_listing("most viewed", &popular);
+    assert!(popular.has_next_page);
+    let earth = host
+        .manga_search_filtered(
+            SVS,
+            "hurricane",
+            1,
+            &BTreeMap::from([
+                ("category".to_owned(), select("Earth")),
+                ("type".to_owned(), select("visualization")),
+            ]),
+        )
+        .await
+        .unwrap();
+    assert_listing("hurricanes", &earth);
+    // The first page that opens (music refuses some) plays from the SVS.
+    let mut played = false;
+    for item in popular.items.iter().take(6) {
+        let Ok(details) = host.manga_details(SVS, &item.id).await else {
+            continue;
+        };
+        assert!(
+            details
+                .description
+                .unwrap_or_default()
+                .contains("Public domain (NASA media)")
+        );
+        let episodes = host.video_episodes(SVS, &item.id).await.unwrap();
+        let servers = host.video_servers(SVS, &episodes[0].id).await.unwrap();
+        let videos = servers[0].videos.as_ref().expect("resolved at once");
+        println!(
+            "{}: {} files, best {}",
+            item.id,
+            videos.len(),
+            videos[0].url
+        );
+        assert!(videos[0].url.starts_with("https://svs.gsfc.nasa.gov/vis/"));
+        assert_served("svs", &videos[0].url, &videos[0].headers).await;
+        played = true;
+        break;
+    }
+    assert!(played, "no popular page opened");
+}
+
+/// ESO and NOIRLab: lists, a video's CC BY details and its files.
+#[tokio::test]
+#[ignore = "needs network access to www.eso.org and noirlab.edu"]
+async fn open_sources_live_eso() {
+    let host = host().await;
+    for (provider, at_least) in [(ESO, 4), (NOIRLAB, 4)] {
+        let popular = host
+            .manga_list(provider, MangaList::Popular, 1)
+            .await
+            .unwrap();
+        assert_listing(provider, &popular);
+        assert!(popular.items.len() >= at_least);
+        let latest = host
+            .manga_list(provider, MangaList::Latest, 1)
+            .await
+            .unwrap();
+        assert_listing(provider, &latest);
+        let (_, description) = first_opening(&host, provider, &latest).await;
+        assert!(description.contains("Licence: CC BY 4.0"), "{description}");
+        // The first video with files of its own (some are on YouTube only) plays from the site.
+        let mut played = false;
+        for item in latest.items.iter().take(8) {
+            let Ok(servers) = host.video_servers(provider, &item.id).await else {
+                continue;
+            };
+            let videos = servers[0].videos.as_ref().expect("resolved at once");
+            println!(
+                "{provider} {}: {:?}",
+                item.id,
+                videos.iter().map(|video| &video.label).collect::<Vec<_>>()
+            );
+            assert_served(provider, &videos[0].url, &videos[0].headers).await;
+            played = true;
+            break;
+        }
+        assert!(played, "{provider}: none of the newest videos has a file");
+    }
 }
