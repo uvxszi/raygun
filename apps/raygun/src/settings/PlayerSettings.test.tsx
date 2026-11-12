@@ -2,7 +2,7 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
-import { DEFAULT_SETTINGS, bindingsMock, emitEvent } from '../test/bindingsMock';
+import { ANDROID_INFO, DEFAULT_SETTINGS, bindingsMock, emitEvent } from '../test/bindingsMock';
 import { PLAYER_DEFAULTS } from './playerOptions';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
@@ -18,10 +18,15 @@ const storeSettings = () => {
     stored = { ...stored, [change.key]: change.value };
     return Promise.resolve(ok(stored));
   });
+  commands.settingsUpdateMany.mockImplementation((changes: { key: string; value: unknown }[]) => {
+    for (const change of changes) stored = { ...stored, [change.key]: change.value };
+    return Promise.resolve(ok(stored));
+  });
   return {
     replace: (videoPlayer: typeof PLAYER_DEFAULTS) => {
       stored = { ...stored, videoPlayer };
     },
+    saved: () => stored,
   };
 };
 
@@ -139,6 +144,75 @@ describe('Settings → Video player', () => {
       backgroundColor: 0,
       backgroundColorChosen: true,
     });
+  });
+
+  it('picks the subtitle font among the caption families, each named in its own font', async () => {
+    const user = userEvent.setup();
+    commands.fontsList.mockClear();
+    storeSettings();
+    await AppShellWrapper.mount('/settings/video/subtitles');
+    await user.click(await screen.findByRole('button', { name: /^Font/ }));
+    const sheet = await screen.findByRole('radiogroup', { name: 'Font' });
+    expect(
+      within(sheet)
+        .getAllByRole('radio')
+        .map((radio) => radio.getAttribute('aria-label')),
+    ).toEqual([
+      'Default',
+      'Sans serif',
+      'Condensed',
+      'Monospace',
+      'Serif',
+      'Serif monospace',
+      'Casual',
+      'Cursive',
+      'Small capitals',
+    ]);
+    expect(within(sheet).getByText('Small capitals')).toHaveStyle({
+      fontVariantCaps: 'small-caps',
+    });
+    // Android's player draws the system's families: the phone's own fonts aren't offered.
+    expect(within(sheet).queryByText('On this device')).toBeNull();
+    expect(commands.fontsList).not.toHaveBeenCalled();
+
+    await user.click(within(sheet).getByRole('radio', { name: 'Casual' }));
+    expect(lastPlayer()?.subtitleStyle).toMatchObject({ font: 'casual' });
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('subtitle-preview-text').style.fontFamily).toMatch(/^casual,/),
+    );
+  });
+
+  it('offers the desktop’s fonts for subtitles, kept to the device', async () => {
+    const user = userEvent.setup();
+    commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
+    commands.fontsList.mockResolvedValue({
+      status: 'ok',
+      data: [{ family: 'Comic Sans MS', faces: [] }],
+    });
+    const { saved } = storeSettings();
+    await AppShellWrapper.mount('/settings/video/subtitles');
+    await user.click(await screen.findByRole('button', { name: /^Font/ }));
+    const sheet = await screen.findByRole('radiogroup', { name: 'Font' });
+    await user.click(await within(sheet).findByRole('radio', { name: 'Comic Sans MS' }));
+    expect(commands.settingsUpdate).toHaveBeenCalledWith({
+      key: 'fonts',
+      value: expect.objectContaining({ subtitles: 'Comic Sans MS' }),
+    });
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('subtitle-preview-text').style.fontFamily).toMatch(
+        /^"Comic Sans MS"/,
+      ),
+    );
+
+    // One of the families again puts it away, with the family saved at once.
+    await user.click(screen.getByRole('button', { name: /^Font/ }));
+    await user.click(
+      within(await screen.findByRole('radiogroup', { name: 'Font' })).getByRole('radio', {
+        name: 'Serif',
+      }),
+    );
+    await vi.waitFor(() => expect(saved().fonts?.subtitles).toBe(''));
+    expect(saved().videoPlayer.subtitleStyle?.font).toBe('serif');
   });
 
   it("keeps lines to a share of the picture's width", async () => {

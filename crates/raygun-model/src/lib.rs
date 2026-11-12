@@ -1847,6 +1847,9 @@ pub struct FontPrefs {
     pub interface: String,
     /// The book reader's text, over its Serif or Sans.
     pub reading: String,
+    /// The desktop video player's subtitles, over Settings → Video player's font
+    /// (`SubtitleFont`); Android's player draws them in the system's own families.
+    pub subtitles: String,
 }
 
 impl FontPrefs {
@@ -1854,7 +1857,7 @@ impl FontPrefs {
     pub fn validate(&self) -> Result<(), String> {
         let unsafe_char =
             |char: char| char.is_control() || matches!(char, '"' | '\\' | ';' | '{' | '}');
-        for family in [&self.interface, &self.reading] {
+        for family in [&self.interface, &self.reading, &self.subtitles] {
             if family.len() > FONT_FAMILY_MAX || family.chars().any(unsafe_char) {
                 return Err(format!(
                     "A font family name is up to {FONT_FAMILY_MAX} characters, without quotes, \
@@ -1869,6 +1872,7 @@ impl FontPrefs {
         Self {
             interface: self.interface.trim().to_owned(),
             reading: self.reading.trim().to_owned(),
+            subtitles: self.subtitles.trim().to_owned(),
         }
     }
 }
@@ -2755,6 +2759,9 @@ pub enum SubtitleEdge {
     Depressed,
 }
 
+/// The typeface subtitles are drawn in: the families Android's own caption settings offer, each
+/// drawn on desktop by the nearest font there (`settings/playerOptions.ts`). A font installed on
+/// the device goes in front of it on desktop (`FontPrefs::subtitles`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum SubtitleFont {
@@ -2763,6 +2770,16 @@ pub enum SubtitleFont {
     Sans,
     Serif,
     Mono,
+    /// Narrower letters (Android's `sans-serif-condensed`).
+    Condensed,
+    /// A typewriter's (`serif-monospace`).
+    SerifMono,
+    /// Handwritten-looking (`casual`).
+    Casual,
+    /// Joined script (`cursive`).
+    Cursive,
+    /// Capitals only, small ones for small letters (`sans-serif-smallcaps`).
+    SmallCaps,
 }
 
 /// When the video player turns subtitles on by itself, in the first subtitle language a video
@@ -8664,6 +8681,10 @@ pub struct VideoSubtitle {
     pub label: Option<String>,
     /// `srt`, `vtt`, `ass` or `ttml`; guessed from the URL when missing.
     pub format: Option<String>,
+    /// Where it comes from, shown under its name in the players' lists: the addon that found
+    /// it, or the file's own name.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 /// What a chapter of a video is, for the skip button.

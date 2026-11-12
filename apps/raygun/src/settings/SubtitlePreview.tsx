@@ -1,33 +1,18 @@
-import type { SubtitleEdge, SubtitleFont, SubtitleStyle } from '@raygun/bindings';
+import type { SubtitleStyle } from '@raygun/bindings';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { edgeShadow, subtitleFontCss } from '../video/subtitleLook';
 import { cssColor } from './playerOptions';
 
-const FAMILIES: Record<SubtitleFont, string> = {
-  default: 'inherit',
-  sans: 'sans-serif',
-  serif: 'serif',
-  mono: 'monospace',
-};
-
-const edgeShadow = (edge: SubtitleEdge, color: string) => {
-  switch (edge) {
-    case 'outline':
-      return `-1px -1px 0 ${color}, 1px -1px 0 ${color}, -1px 1px 0 ${color}, 1px 1px 0 ${color}`;
-    case 'shadow':
-      return `2px 2px 3px ${color}`;
-    case 'raised':
-      return `-1px -1px 0 ${color}`;
-    case 'depressed':
-      return `1px 1px 0 ${color}`;
-    default:
-      return 'none';
-  }
-};
-
-/** A line of subtitles over a dark picture, styled as the player will draw it. */
-export const SubtitlePreview: FC<{ style: Required<SubtitleStyle> }> = ({ style }) => {
+/**
+ * A line of subtitles over a dark picture, styled as the player will draw it; `family` is a font
+ * of the device's picked for subtitles.
+ */
+export const SubtitlePreview: FC<{ style: Required<SubtitleStyle>; family?: string | null }> = ({
+  style,
+  family,
+}) => {
   const { t } = useTranslation();
   return (
     <div
@@ -48,8 +33,8 @@ export const SubtitlePreview: FC<{ style: Required<SubtitleStyle> }> = ({ style 
           style={{
             color: cssColor(style.textColor),
             backgroundColor: cssColor(style.backgroundColor),
-            textShadow: edgeShadow(style.edge, cssColor(style.edgeColor)),
-            fontFamily: FAMILIES[style.font],
+            textShadow: edgeShadow(style.edge, cssColor(style.edgeColor), 1),
+            ...subtitleFontCss(style.font, family),
             fontWeight: style.bold ? 700 : 400,
             fontStyle: style.italic ? 'italic' : 'normal',
             fontSize: `${(style.size / 100) * 1.125}rem`,

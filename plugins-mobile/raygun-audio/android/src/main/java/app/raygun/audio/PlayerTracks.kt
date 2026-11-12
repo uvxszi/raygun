@@ -115,8 +115,17 @@ internal fun isChosen(
     else -> group.isTrackSelected(index)
 }
 
-/** A subtitle file beside the video: from the source, or added from the device. */
-internal data class Sidecar(val uri: Uri, val mime: String, val language: String?, val label: String?) {
+/**
+ * A subtitle file beside the video: from the source, or added from the device. `source` is where
+ * it comes from (the addon that found it, its file's name), shown under its name.
+ */
+internal data class Sidecar(
+    val uri: Uri,
+    val mime: String,
+    val language: String?,
+    val label: String?,
+    val source: String? = null,
+) {
     fun choice(): TrackChoice = TrackChoice(language, label)
 }
 
@@ -487,6 +496,19 @@ internal class PlayerTracks(private val host: VideoPlayerActivity) {
         return trackName(format.label, format.language, languageName(format.language))
             ?: host.label("track", "Track {n}", ordinal.toString())
     }
+
+    /**
+     * What a sheet knows of `track` to name it apart from the others ([trackFacts], then
+     * [distinctTracks]): its name with what its flags add ("Forced", "SDH"), and `detail` under
+     * it; "Track n" when it has no name at all.
+     */
+    fun facts(track: TrackRef, ordinal: Int, detail: String?): TrackFacts {
+        val format = track.format
+        return trackFacts(format.label, format.language, languageName(format.language), marksOf(format), ::markWord, detail)
+            ?: TrackFacts(host.label("track", "Track {n}", ordinal.toString()), detail = detail)
+    }
+
+    private fun markWord(mark: TrackMark): String = host.label(mark.key, mark.fallback)
 
     /** Extra facts about an audio track: channels and codec. */
     fun audioDetail(track: TrackRef): String? {

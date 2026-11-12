@@ -3,7 +3,7 @@ import type { SystemFont } from '@raygun/bindings';
 import { useQueryClient } from '@tanstack/react-query';
 import { LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { FC } from 'react';
+import type { CSSProperties, FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { unwrapResult } from '../lib/commandResult';
@@ -21,6 +21,8 @@ type PickerProps = {
   /** What a device font falls back to, in its preview as where it's used. */
   fallback: string;
   onPick: (value: FontValue) => void;
+  /** The device's fonts are offered after Raygun's own (not where nothing could draw them). */
+  deviceFonts?: boolean;
 };
 
 /** Device fonts beyond this many get a search field. */
@@ -30,10 +32,11 @@ const SEARCH_FROM = 8;
  * A name in its own font, once it comes near the screen: a font loads when its name shows, so a
  * long list doesn't load every font at once.
  */
-const FontName: FC<{ label: string; stack: string; font?: SystemFont }> = ({
+const FontName: FC<{ label: string; stack: string; font?: SystemFont; css?: CSSProperties }> = ({
   label,
   stack,
   font,
+  css,
 }) => {
   const ref = useRef<HTMLSpanElement>(null);
   const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
@@ -53,7 +56,11 @@ const FontName: FC<{ label: string; stack: string; font?: SystemFont }> = ({
     if (seen && font) registerFaces(font);
   }, [seen, font]);
   return (
-    <span ref={ref} className="truncate text-lg" style={seen ? { fontFamily: stack } : undefined}>
+    <span
+      ref={ref}
+      className="truncate text-lg"
+      style={seen ? { ...css, fontFamily: stack } : undefined}
+    >
       {label}
     </span>
   );
@@ -65,8 +72,9 @@ const Choice: FC<{
   label: string;
   stack: string;
   font?: SystemFont;
+  css?: CSSProperties;
   hint?: string;
-}> = ({ selected, onSelect, label, stack, font, hint }) => (
+}> = ({ selected, onSelect, label, stack, font, css, hint }) => (
   <button
     type="button"
     role="radio"
@@ -82,7 +90,7 @@ const Choice: FC<{
       {selected && <span className="bg-primary size-2.5 rounded-full" />}
     </span>
     <span className="flex min-w-0 flex-col">
-      <FontName label={label} stack={stack} font={font} />
+      <FontName label={label} stack={stack} font={font} css={css} />
       {hint && <span className="text-muted text-xs">{hint}</span>}
     </span>
   </button>
@@ -94,10 +102,10 @@ const Choice: FC<{
  */
 export const FontPickerSheet: FC<
   PickerProps & { anchor?: HTMLElement | null; onClose: () => void }
-> = ({ title, own, value, fallback, onPick, anchor, onClose }) => {
+> = ({ title, own, value, fallback, onPick, deviceFonts = true, anchor, onClose }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const fonts = useSystemFonts();
+  const fonts = useSystemFonts(deviceFonts);
   const { query, setQuery, filtered } = useListSearch(fonts.data, (font) => [font.family]);
   const [refreshing, setRefreshing] = useState(false);
   const pick = (next: FontValue) => {
@@ -120,7 +128,7 @@ export const FontPickerSheet: FC<
 
   return (
     <Sheet title={title} anchor={anchor} onClose={onClose} popoverWidth={340}>
-      {(fonts.data?.length ?? 0) > SEARCH_FROM && (
+      {deviceFonts && (fonts.data?.length ?? 0) > SEARCH_FROM && (
         <TextField
           type="search"
           value={query}
@@ -141,47 +149,52 @@ export const FontPickerSheet: FC<
             onSelect={() => pick({ kind: 'own', id: option.id })}
             label={option.label}
             stack={option.stack}
+            css={option.css}
           />
         ))}
-        <h3 className="text-muted px-3 pt-3 pb-1 text-xs font-semibold">
-          {t('settings.fonts.onDevice')}
-        </h3>
-        {missing && (
-          <Choice
-            selected
-            onSelect={onClose}
-            label={chosenFamily}
-            stack={fallback}
-            hint={t('settings.fonts.missing', { name: chosenFamily })}
-          />
+        {deviceFonts && (
+          <>
+            <h3 className="text-muted px-3 pt-3 pb-1 text-xs font-semibold">
+              {t('settings.fonts.onDevice')}
+            </h3>
+            {missing && (
+              <Choice
+                selected
+                onSelect={onClose}
+                label={chosenFamily}
+                stack={fallback}
+                hint={t('settings.fonts.missing', { name: chosenFamily })}
+              />
+            )}
+            {fonts.isPending && (
+              <p className="text-muted flex items-center gap-2 px-3 py-3 text-sm">
+                <LoaderCircle aria-hidden size={16} className="animate-spin" />
+                {t('settings.fonts.loading')}
+              </p>
+            )}
+            {fonts.isError && (
+              <p className="text-muted px-3 py-3 text-sm">{t('settings.fonts.failed')}</p>
+            )}
+            {fonts.data?.length === 0 && (
+              <p className="text-muted px-3 py-3 text-sm">{t('settings.fonts.none')}</p>
+            )}
+            {fonts.data && fonts.data.length > 0 && filtered.length === 0 && (
+              <p className="text-muted px-3 py-3 text-sm">{t('settings.fonts.noMatch')}</p>
+            )}
+            {filtered.map((font) => (
+              <Choice
+                key={font.family}
+                selected={chosenFamily === font.family}
+                onSelect={() => pick({ kind: 'family', family: font.family })}
+                label={font.family}
+                stack={`${quoteFamily(font.family)}, ${fallback}`}
+                font={font}
+              />
+            ))}
+          </>
         )}
-        {fonts.isPending && (
-          <p className="text-muted flex items-center gap-2 px-3 py-3 text-sm">
-            <LoaderCircle aria-hidden size={16} className="animate-spin" />
-            {t('settings.fonts.loading')}
-          </p>
-        )}
-        {fonts.isError && (
-          <p className="text-muted px-3 py-3 text-sm">{t('settings.fonts.failed')}</p>
-        )}
-        {fonts.data?.length === 0 && (
-          <p className="text-muted px-3 py-3 text-sm">{t('settings.fonts.none')}</p>
-        )}
-        {fonts.data && fonts.data.length > 0 && filtered.length === 0 && (
-          <p className="text-muted px-3 py-3 text-sm">{t('settings.fonts.noMatch')}</p>
-        )}
-        {filtered.map((font) => (
-          <Choice
-            key={font.family}
-            selected={chosenFamily === font.family}
-            onSelect={() => pick({ kind: 'family', family: font.family })}
-            label={font.family}
-            stack={`${quoteFamily(font.family)}, ${fallback}`}
-            font={font}
-          />
-        ))}
       </div>
-      {fonts.data && (
+      {deviceFonts && fonts.data && (
         <button
           type="button"
           onClick={refresh}
@@ -200,7 +213,7 @@ export const FontPickerSheet: FC<
 export const PrefFont: FC<PickerProps> = (props) => {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const open = anchor !== null;
-  const { label, stack } = useFontLabel(props.own, props.value, props.fallback);
+  const { label, stack, css } = useFontLabel(props.own, props.value, props.fallback);
   return (
     <li data-pref={props.title}>
       <button
@@ -212,7 +225,10 @@ export const PrefFont: FC<PickerProps> = (props) => {
       >
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="font-medium">{props.title}</span>
-          <span className="text-foreground/80 truncate text-sm" style={{ fontFamily: stack }}>
+          <span
+            className="text-foreground/80 truncate text-sm"
+            style={{ ...css, fontFamily: stack }}
+          >
             {label}
           </span>
         </span>

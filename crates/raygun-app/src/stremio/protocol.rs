@@ -1085,6 +1085,8 @@ pub struct Subtitle {
     pub lang: Option<String>,
     /// A name some addons give ("English Signs"); the player shows the language otherwise.
     pub label: Option<String>,
+    /// The addon that found it, named under it in the player's list.
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1273,6 +1275,7 @@ pub fn parse_subtitles(value: &Value) -> Vec<Subtitle> {
                 url: http(subtitle.get("url"))?,
                 lang: text(subtitle.get("lang")).or_else(|| text(subtitle.get("language"))),
                 label: text(subtitle.get("label")),
+                source: None,
             })
         })
         .filter(|subtitle| seen.insert(subtitle.url.clone()))
