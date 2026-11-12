@@ -6287,7 +6287,7 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "raygun"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "raygun-app",
  "tauri",
@@ -6298,7 +6298,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-ai"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "axum",
  "bzip2",
@@ -6325,7 +6325,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-app"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "aes",
  "arboard",
@@ -6405,7 +6405,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-db"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -6420,7 +6420,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-ext-host"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "ab_glyph",
  "aes",
@@ -6473,7 +6473,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-library"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "blake3",
  "lofty",
@@ -6484,7 +6484,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-mcp"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "axum",
  "serde",
@@ -6497,7 +6497,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-model"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -6506,7 +6506,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-net"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -6534,7 +6534,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-paths"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "dirs",
  "tempfile",
@@ -6542,7 +6542,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-playback"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "raygun-model",
  "uuid",
@@ -6550,7 +6550,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-remote"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -6565,7 +6565,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-resolver"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "raygun-model",
  "regex",
@@ -6574,7 +6574,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-sync"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "mdns-sd",
  "raygun-db",
@@ -6591,7 +6591,7 @@ dependencies = [
 
 [[package]]
 name = "raygun-torrent"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "futures-util",
  "librqbit",
@@ -8683,7 +8683,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-raygun-audio"
-version = "1.9.0"
+version = "1.9.1"
 dependencies = [
  "jni 0.21.1",
  "raygun-model",
