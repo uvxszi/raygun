@@ -38,6 +38,9 @@ const MARKER: &str = ".starting";
 const RUNNING: &str = ".running";
 /// When the last start began (milliseconds): what went wrong since is that run's.
 const LAST_START: &str = ".last-start";
+/// Android's account of how the last start's process ended, written by `CrashLog.kt` before this
+/// start began: `expected <reason>` (an update, Force stop, swiped away) or `crashed <reason>`.
+const PREVIOUS_END: &str = ".previous-end";
 /// Left by the Kotlin side when the webview's renderer went.
 const RENDERER_GONE: &str = "renderer-gone";
 /// Left by "Start in safe mode" (the error pages).
@@ -106,6 +109,8 @@ struct Marker {
     version: String,
     crashes: u32,
     suspects: Vec<String>,
+    /// The process that wrote it: Android's account of how it ended is looked up by it.
+    pid: u32,
 }
 
 struct Crashes {
@@ -168,6 +173,7 @@ pub fn begin(logs: &Path) -> SafeStart {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         crashes: start.crashes,
         suspects: start.suspects.clone(),
+        pid: std::process::id(),
     };
     if let Ok(json) = serde_json::to_vec(&marker) {
         let _ = fs::write(dir.join(MARKER), json);
@@ -201,7 +207,16 @@ fn decide(dir: &Path, previous: Option<Marker>) -> SafeStart {
     let clear_caches = take(dir, CLEAR_CACHES);
     let running = fs::read_to_string(dir.join(RUNNING)).unwrap_or_default();
     let _ = fs::remove_file(dir.join(RUNNING));
-    let stopped = previous.is_some();
+    // The last start didn't settle, but it ended as it may: an update or reinstall, Force stop,
+    // swiped away (Android's account, "PREVIOUS_END" from `CrashLog.kt`), or another version
+    // started since. Not a crash: no record, no safe start.
+    let ended_as_it_may = fs::read_to_string(dir.join(PREVIOUS_END))
+        .is_ok_and(|verdict| verdict.trim_start().starts_with("expected"))
+        || previous.as_ref().is_some_and(|marker| {
+            !marker.version.is_empty() && marker.version != env!("CARGO_PKG_VERSION")
+        });
+    let _ = fs::remove_file(dir.join(PREVIOUS_END));
+    let stopped = previous.is_some() && !ended_as_it_may;
     let mut suspects: Vec<String> = running
         .lines()
         .map(|line| extension_of(line).to_owned())
@@ -234,7 +249,7 @@ fn decide(dir: &Path, previous: Option<Marker>) -> SafeStart {
     } else {
         None
     };
-    if let Some(marker) = &previous {
+    if let Some(marker) = previous.as_ref().filter(|_| stopped) {
         note_stopped_start(dir, marker, &running);
     }
     SafeStart {
@@ -1021,6 +1036,42 @@ mod tests {
     }
 
     #[test]
+    fn a_start_ended_by_an_update_force_stop_or_swipe_is_no_crash() {
+        let logs = folder();
+        let dir = dir_in(logs.path());
+        fs::create_dir_all(&dir).unwrap();
+        begin_without_hook(logs.path());
+        // It never settled, but Android says it ended as it may (`CrashLog.kt`).
+        fs::write(dir.join(RUNNING), "dev.a").unwrap();
+        fs::write(dir.join(PREVIOUS_END), "expected 10 (user requested)").unwrap();
+        let next = begin_without_hook(logs.path());
+        assert_eq!((next.reason, next.crashes), (None, 0));
+        assert!(next.suspects.is_empty());
+        assert!(
+            records(&dir).is_empty(),
+            "no record of a stop that wasn't a crash"
+        );
+        assert!(!dir.join(PREVIOUS_END).exists());
+        // Android saying it crashed is a stopped start as before.
+        fs::write(dir.join(PREVIOUS_END), "crashed 4 (crash)").unwrap();
+        assert_eq!(
+            begin_without_hook(logs.path()).reason,
+            Some(SafeStartReason::Stopped)
+        );
+        // Another version wrote the marker: an update ended it.
+        let marker = Marker {
+            started_at: now_ms(),
+            version: "0.0.1".into(),
+            ..Marker::default()
+        };
+        fs::write(dir.join(MARKER), serde_json::to_vec(&marker).unwrap()).unwrap();
+        let previous: Option<Marker> = fs::read(dir.join(MARKER))
+            .ok()
+            .map(|bytes| serde_json::from_slice(&bytes).unwrap_or_default());
+        assert_eq!(decide(&dir, previous).reason, None);
+    }
+
+    #[test]
     fn flags_from_the_error_pages_make_a_safe_start_once() {
         let logs = folder();
         let dir = dir_in(logs.path());
@@ -1091,9 +1142,10 @@ mod tests {
         fs::write(dir.join(LAST_START), start.started_at.to_string()).unwrap();
         let marker = Marker {
             started_at: now_ms(),
-            version: "test".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             crashes: start.crashes,
             suspects: start.suspects.clone(),
+            pid: 1,
         };
         fs::write(dir.join(MARKER), serde_json::to_vec(&marker).unwrap()).unwrap();
         start
