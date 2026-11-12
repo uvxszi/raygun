@@ -279,11 +279,15 @@ pub fn pick_request(
 
 /// The site a failure's details name as answering with a browser check, as `https://<host>/`.
 /// Reads the forms JavaScript and Shosetsu sources' failures take: "<host> answered HTTP 403
-/// with a browser check", "HTTP 403 from <host>: a bot check page", "... Try again later
-/// (<host>: ...)".
+/// with a browser check", "<host> answered with a browser check" (a converted source's web
+/// view, AWS WAF), "HTTP 403 from <host>: a bot check page", "... Try again later (<host>:
+/// ...)".
 pub fn challenged_site(detail: &str) -> Option<String> {
     detail.lines().find_map(|line| {
-        let host = if let Some(start) = line.find(" answered HTTP ")
+        let answered = line
+            .find(" answered HTTP ")
+            .or_else(|| line.find(" answered with a browser check"));
+        let host = if let Some(start) = answered
             && line.contains("browser check")
         {
             line[..start].rsplit(' ').next()
@@ -619,6 +623,11 @@ mod tests {
             )
             .as_deref(),
             Some("https://www.royalroad.com/")
+        );
+        assert_eq!(
+            challenged_site("Error: comics.example answered with a browser check in a web view")
+                .as_deref(),
+            Some("https://comics.example/")
         );
         assert_eq!(challenged_site("site.example answered HTTP 404"), None);
         assert_eq!(challenged_site("no host here"), None);

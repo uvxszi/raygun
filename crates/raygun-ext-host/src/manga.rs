@@ -242,6 +242,21 @@ impl ExtensionHost {
             if page.url.ends_with(bare_mark) {
                 page.url.push('=');
                 page.url.push_str(provider);
+                continue;
+            }
+            // Pictures on a site whose browser check was passed by hand go with the pass.
+            for (name, value) in self.passed_check_headers(provider, &page.url) {
+                let own_cookie = name == "Cookie"
+                    && page
+                        .headers
+                        .keys()
+                        .any(|known| known.eq_ignore_ascii_case("cookie"));
+                if own_cookie {
+                    continue;
+                }
+                page.headers
+                    .retain(|known, _| !known.eq_ignore_ascii_case(&name));
+                page.headers.insert(name, value);
             }
         }
         Ok(pages)

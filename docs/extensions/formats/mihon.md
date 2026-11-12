@@ -305,7 +305,13 @@ separator, as its path alone may not tell it from another title's; a title's by 
 extension's storage (the newest 400 KB), with the name it was listed under, which details
 without a name keep, as Mihon does. Pages that are sub pages (`Page(i, url)`) get their
 pictures from the source's `getImageUrl`, four at a time. A site's browser check fails the call the usual way,
-so the experimental "check by hand" flow works for converted sources too. Raygun sends no view
+so the experimental "check by hand" flow works for converted sources too: a source that says a
+check stands in its way itself ("Open in WebView to bypass site protection", "Turnstile challenge
+not passed") fails as one, and the window opens the request it read, with its User-Agent. The
+source's headers carry the User-Agent its requests go with (as Mihon's `headersBuilder()` does: the
+one a check on the site was passed with, else the one sources send), so its requests, its web
+views and a check opened by hand use one; pages on a site whose check was passed go with the
+pass (its cookies and User-Agent, `ExtensionHost::passed_check_headers`). Raygun sends no view
 counts.
 
 Themes so far (ported from Keiyoushi's `lib-multisrc`, Apache-2.0):
@@ -355,19 +361,18 @@ extensions use of commons-text (`StringSubstitutor`), java-string-similarity (`L
 `JaroWinkler`) and java-nat-sort (its natural comparators) are the runtime's own, so Komga,
 Mango and Madokami convert.
 
-`mihon_popular_live` with a sample of 300 converted sources (2026-11-11) follows each listing
-through a title's details, its chapters and a chapter's pages: 226 of the 300 list their
-popular titles, and of those 96% give details, 94% chapters and 88% pages (188 first pictures
-load). Of the 74 that don't list, 35 meet a browser check (36 since AWS WAF's empty 202 fails
-as one: FireCross), 12 refuse access (Japanese and Korean stores outside their countries,
-mostly), 9 are down or gone (DNS, refused connections, 5xx), 7 list nothing (sites whose markup
-changed: Comic Verse's and Ulas Comic's ZeistManga blogs, Hades Scans under maintenance), 5
-answer that the site changed or the page is gone, 4 want a sign-in or a setting, and 2 are slow
-past 30 s. Past the listing, pages fail on browser checks, purchases and sign-ins (locked
-chapters, "must be purchased"), stores outside their countries, sites that changed (picture
-addresses that now answer the home page or 404, Peach BL's absolute addresses prefixed again by
-its own code, Taiyō's chapter data moved to another flight chunk) and sources that read their
-pages in a web view (Dilar).
+`mihon_popular_live` with a sample of 300 converted sources (2026-11-11, second run of the day,
+after the web views) follows each listing through a title's details, its chapters and a
+chapter's pages: 225 of the 300 list their popular titles, and of those 96% give details, 94%
+chapters and 87% pages (185 first pictures load; the run before: 226, 217, 212, 198 and 188, on
+a sample shifted by the new conversions). Of the 75 that don't list, 35 meet a browser check,
+16 refuse access (Japanese and Korean stores outside their countries, mostly), 7 are down or
+gone (DNS, refused connections, 5xx), 6 answer that the site changed or the page is gone, 4 are
+slow past 30 s, 3 want a sign-in or a setting, and the rest list nothing. Past the listing,
+pages fail on browser checks, purchases and sign-ins (locked chapters, "must be purchased"),
+stores outside their countries, sites that changed (picture addresses that now answer 404,
+Peach BL's absolute addresses prefixed again by its own code) and, in the test (which has no
+web views), sources that read their pages in one (Emperor Scan).
 
 Gaps the live samples showed and that are closed since: pictures sent as `text/plain` (Keyoapp's
 CDN), MangaHub's key refresh (GraphQL errors beside data, `followRedirects(false)`), Kotlin's

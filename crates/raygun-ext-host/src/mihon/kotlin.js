@@ -12073,8 +12073,13 @@
     };
     const D = {};
     const client = new Client(t);
+    // Mihon's `headersBuilder()`: the User-Agent (the one a check on the site was passed with,
+    // else the one sources send: one User-Agent for the source's requests, its web views and a
+    // check opened by hand) and the Referer.
     const defaultHeaders = async () => {
-      const builder = new HeadersBuilder().set('Referer', `${t.baseUrl}/`);
+      const builder = new HeadersBuilder()
+        .set('User-Agent', K.userAgent(t.baseUrl))
+        .set('Referer', `${t.baseUrl}/`);
       if (extensions.has('configureHeaders')) await extensions.get('configureHeaders')(builder);
       return builder;
     };

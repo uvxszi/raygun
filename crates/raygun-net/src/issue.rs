@@ -412,6 +412,31 @@ pub fn answer_detail(host: &str, status: u16, kind: IssueKind) -> String {
     }
 }
 
+/// Whether a source's own words (lower case) ask for its site's check to be passed, as Mihon's
+/// sources put it: "Turnstile challenge not passed", "Open in WebView to bypass site protection",
+/// "Open WebView to get past the site's check". Sign-ins asked in a web view ("Log in via
+/// WebView") aren't checks.
+fn asks_for_a_check(lower: &str) -> bool {
+    const ALWAYS: [&str; 4] = [
+        "turnstile",
+        "bot protection",
+        "anti-bot",
+        "human verification",
+    ];
+    const IN_A_WEB_VIEW: [&str; 7] = [
+        "verification",
+        "protection",
+        "challenge",
+        "bypass",
+        "site's check",
+        "get past",
+        "bot ",
+    ];
+    ALWAYS.iter().any(|mark| lower.contains(mark))
+        || ((lower.contains("webview") || lower.contains("web view"))
+            && IN_A_WEB_VIEW.iter().any(|mark| lower.contains(mark)))
+}
+
 /// The kind an error's text points at, for errors that only come as text (an extension's thrown
 /// message, another service's error): a status it names, a timeout, a lookup, a refused
 /// connection, a script error. `None` when the text is a plain sentence that says it all.
@@ -424,6 +449,7 @@ pub fn text_kind(text: &str) -> Option<IssueKind> {
         || lower.contains("cloudflare")
         || lower.contains("captcha")
         || lower.contains("browser check")
+        || asks_for_a_check(&lower)
     {
         return Some(IssueKind::BotCheck);
     }
@@ -649,6 +675,27 @@ mod tests {
             IssueKind::Storage
         );
         assert_eq!(io_kind(&Error::from_raw_os_error(11001)), IssueKind::Dns);
+    }
+
+    #[test]
+    fn sources_asking_for_their_check_in_a_web_view_mean_a_check() {
+        for said in [
+            "Open in WebView to bypass site protection",
+            "Open in WebView to pass the site's verification",
+            "Turnstile challenge not passed, open the chapter in WebView and try again",
+            "Open WebView to get past the site's check, then retry",
+            "Too many requests: open the WebView and complete the site's verification",
+            "comics.example answered with a browser check in a web view",
+        ] {
+            assert_eq!(text_kind(said), Some(IssueKind::BotCheck), "{said}");
+        }
+        for said in [
+            "Log in via WebView and purchase this chapter to read.",
+            "No pages found, open the chapter in WebView",
+            "The source reads comics.example in a web view, which Raygun doesn't have here",
+        ] {
+            assert_ne!(text_kind(said), Some(IssueKind::BotCheck), "{said}");
+        }
     }
 
     #[test]

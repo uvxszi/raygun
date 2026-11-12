@@ -147,6 +147,9 @@ struct Shared {
     content: ContentFilter,
     /// What requests met lately, newest last.
     net_log: RefCell<VecDeque<(Instant, NetEvent)>>,
+    /// The last request sent, as sent: a call that fails saying it met a check (its script read
+    /// the answer as one) opens it for the person.
+    last_sent: RefCell<Option<(Instant, CheckedRequest)>>,
     /// Calls (and the load) running now; requests stop once none is left to wait for them.
     calls: Cell<usize>,
     idle: Notify,
@@ -327,6 +330,7 @@ impl JsExtension {
             cpu_budget,
             content,
             net_log: RefCell::new(VecDeque::new()),
+            last_sent: RefCell::new(None),
             calls: Cell::new(0),
             idle: Notify::new(),
         });
@@ -535,11 +539,20 @@ impl JsExtension {
                 }
                 None => message,
             };
+            // A script that read an answer as a check ("Open in WebView to bypass site
+            // protection") without one marked as such: the request it read is the check's.
+            let checked = met.checked.or_else(|| {
+                (issue::text_kind(&message) == Some(IssueKind::BotCheck))
+                    .then(|| self.shared.last_sent.borrow().clone())
+                    .flatten()
+                    .filter(|(at, _)| *at >= started)
+                    .map(|(_, request)| Box::new(request))
+            });
             Failure {
                 message,
                 trouble: met.trouble,
                 answered: met.answered,
-                checked: met.checked,
+                checked,
             }
         });
         self.collect_after(held_before).await;
@@ -1273,6 +1286,19 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     } else if let Some(body) = options.body.clone() {
         request = request.body(body);
     }
+    *shared.last_sent.borrow_mut() = Some((
+        Instant::now(),
+        CheckedRequest::new(
+            &address,
+            method.as_str(),
+            options
+                .headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+            options.body.as_deref(),
+            &agent,
+        ),
+    ));
     // The request as sent, kept when a browser check answers it: the check window opens it.
     let checked = |trouble: &Trouble| {
         (trouble.kind == IssueKind::BotCheck).then(|| {
