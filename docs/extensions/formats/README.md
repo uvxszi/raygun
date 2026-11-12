@@ -29,7 +29,7 @@ Two ways in:
 | [Audiobookshelf](audiobookshelf.md) | Audiobook server | Added | Server connection: audiobooks. |
 | [OPDS 1.x](opds.md) | Book and comic catalogues (Komga, Kavita, Calibre, Calibre-Web, Project Gutenberg...) | Added | Server connection: comics streamed page by page (OPDS-PSE), EPUB books chapter by chapter. |
 | Komga and Kavita APIs | Their own REST APIs | Through OPDS | Both serve OPDS, which covers browsing and reading. Their APIs would add read progress kept on the server. |
-| [Kodi add-ons](kodi.md) | Python plugins in `addons.xml` repositories | Listed, not installable | Add-ons are Python programs written against Kodi's own modules. See the Kodi page for what running them would take. |
+| [Kodi add-ons](kodi.md) | Python plugins in `addons.xml` repositories | Supported | Video and music plugins run unchanged in RustPython with Kodi's modules rebuilt over Raygun (`raygun-ext-host::kodi`); the libraries they import install with them. |
 | [LNReader plugins](lnreader.md) | JavaScript novel sources (CommonJS) | Added | QuickJS with what LNReader hands its plugins rebuilt: cheerio, htmlparser2, dayjs, urlencode and its `@libs` (`raygun-ext-host::lnreader`). |
 | Paperback (0.8, 0.9) | JavaScript comic sources (browserify bundles) | Feasible, not yet | Sources bundle their own cheerio; the app supplies `App.create*` constructors, a request manager and its own type system. The sources listed in public repositories are mostly aggregators of other sites. |
 | Sora / Sulfur (now Luna) | JavaScript video modules with a JSON manifest | Feasible, not yet | A small API (`fetchv2` and four functions returning JSON) that maps onto `video.source`. The project is archived in favour of Luna. |
@@ -61,4 +61,5 @@ their own public repositories:
 cargo test -p raygun-ext-host -- --ignored servers::tests --nocapture
 cargo test -p raygun-ext-host -- --ignored lnreader_live --nocapture
 cargo test -p raygun-ext-host -- --ignored kodi_official_live --nocapture
+cargo test -p raygun-ext-host -- --ignored kodi_media_ccc_live --nocapture
 ```

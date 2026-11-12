@@ -157,6 +157,7 @@ mod tests {
             authors: Vec::new(),
             live: None,
             subtitle: None,
+            folder: false,
         }
     }
 

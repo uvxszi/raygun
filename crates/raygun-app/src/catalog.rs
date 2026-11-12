@@ -895,6 +895,7 @@ fn listing_cards(
                 authors,
                 live: item.live,
                 subtitle: item.subtitle,
+                folder: item.folder,
             }
         })
         .collect()
@@ -1441,6 +1442,7 @@ mod tests {
                         nsfw: false,
                         live: None,
                         subtitle: None,
+                        folder: false,
                     })
                     .collect(),
                 has_next_page: false,
@@ -1478,6 +1480,7 @@ mod tests {
             nsfw: id == "adult",
             live: None,
             subtitle: None,
+            folder: false,
         };
         let stored = |in_library: bool, authors: &[&str]| titles::ListedTitle {
             in_library,

@@ -74,6 +74,27 @@ hayro = { version = "0.9", default-features = false }
 # `lib:textinterceptor` draws on them in the system's own faces.
 image = { version = "0.25", default-features = false }
 ab_glyph = "0.2"
+# Kodi add-ons (`kodi`): Python 3 run by RustPython (MIT), a pure-Rust interpreter. Its `host_env`
+# feature stays off: the interpreter has no files, sockets, processes or environment of its own,
+# only what `kodi::python` hands it. 0.6.0 was released against the 0.16.5 parser crates (later
+# 0.16 patches changed the syntax tree it compiles) and malachite 0.12 (kept in Cargo.lock: its
+# `pymath` asks for any 0.x).
+rustpython-vm = { version = "=0.6.0", default-features = false, features = ["compiler", "gc", "importlib", "threading"] }
+rustpython-stdlib = { version = "=0.6.0", default-features = false, features = ["compiler", "threading"] }
+rustpython-ruff_python_ast = "=0.16.5"
+rustpython-ruff_python_parser = "=0.16.5"
+rustpython-ruff_python_trivia = "=0.16.5"
+rustpython-ruff_source_file = "=0.16.5"
+rustpython-ruff_text_size = "=0.16.5"
+# Add-ons' `sqlite3` (caches, mostly), on the SQLite the app already links (sqlx's version, built
+# from its bundled source as sqlx builds it).
+libsqlite3-sys = { version = "0.37", features = ["bundled"] }
+
+[build-dependencies]
+# The standard library's Python half (CPython's `Lib`, as RustPython ships it): the modules
+# add-ons use are packed into the binary at build time (`build.rs`).
+rustpython-pylib = "=0.6.0"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 tempfile = "3"

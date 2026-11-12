@@ -5805,6 +5805,10 @@ pub struct MangaCard {
     #[serde(default)]
     #[specta(optional)]
     pub subtitle: Option<String>,
+    /// A folder of the source (a Kodi add-on's), opened as a list of its own rather than a title.
+    #[serde(default)]
+    #[specta(optional)]
+    pub folder: bool,
 }
 
 /// A live stream as a source's listing describes it.

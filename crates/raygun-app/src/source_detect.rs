@@ -1046,7 +1046,6 @@ impl SourceDetector {
                 let extensions = self.extensions();
                 let listing = extensions.listing_of(url, index).await;
                 let note = match format {
-                    PackageFormat::Kodi => Some(kodi::UNSUPPORTED.to_owned()),
                     PackageFormat::Mihon if !mihon::runtime_present() => {
                         Some(mihon::UNSUPPORTED.to_owned())
                     }

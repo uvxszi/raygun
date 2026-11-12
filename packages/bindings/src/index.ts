@@ -4664,6 +4664,8 @@ export type MangaCard = {
 	live?: LiveNow | null,
 	/**  A short line under the title, as the listing gives it (a live stream's channel and game). */
 	subtitle?: string | null,
+	/**  A folder of the source (a Kodi add-on's), opened as a list of its own rather than a title. */
+	folder?: boolean,
 };
 
 export type MangaChapterInfo = {

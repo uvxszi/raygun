@@ -534,10 +534,13 @@ const routeTree = rootRoute.addChildren([
     component: VideoSourcePage,
     validateSearch: (
       search: Record<string, unknown>,
-    ): { id: string; mode?: MangaBrowseMode; q?: string } => ({
+    ): { id: string; mode?: MangaBrowseMode; q?: string; folder?: string; name?: string } => ({
       id: text(search.id),
       ...(isMangaMode(search.mode) ? { mode: search.mode } : {}),
       ...(text(search.q) ? { q: text(search.q) } : {}),
+      // One of the source's folders (a Kodi add-on's), listed on its own.
+      ...(text(search.folder) ? { folder: text(search.folder) } : {}),
+      ...(text(search.name) ? { name: text(search.name) } : {}),
     }),
   }),
   createRoute({

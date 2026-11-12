@@ -40,6 +40,7 @@ use crate::failure::{self, Failure};
 use crate::fanout::{self, Asked, Health, Plan, Turns};
 use crate::heap::{HeapMeter, HeapUse};
 use crate::js::{JsExtension, Limits};
+use crate::kodi::KodiExtension;
 use crate::late::{Found, LateCalls, StopOnDrop};
 use crate::manifest::{self, MANIFEST_FILE, Manifest, Runtime};
 use crate::servers::ServerExtension;
@@ -513,7 +514,7 @@ fn setup_need(extension: &Extension, settings: &[ExtensionSetting]) -> Option<Se
 /// in script; Shosetsu scripts and servers run their work elsewhere.
 fn lane_weight(item: &LoadItem) -> usize {
     match item.manifest.runtime {
-        Runtime::Shosetsu | Runtime::Server | Runtime::Site => 0,
+        Runtime::Shosetsu | Runtime::Server | Runtime::Site | Runtime::Kodi => 0,
         _ if crate::js::is_converted(&item.manifest) => 3,
         _ => 1,
     }
@@ -2385,11 +2386,12 @@ fn choose(
     (chosen, infos)
 }
 
-/// A loaded extension: JavaScript, a Shosetsu script (M32), a connected server, or scripts for
-/// websites (`crate::site`).
+/// A loaded extension: JavaScript, a Shosetsu script (M32), a Kodi add-on (`crate::kodi`), a
+/// connected server, or scripts for websites (`crate::site`).
 enum Extension {
     Js(JsExtension),
     Shosetsu(Box<ShosetsuExtension>),
+    Kodi(Box<KodiExtension>),
     Server(Box<ServerExtension>),
     Site(Box<crate::site::LoadedSite>),
 }
@@ -2399,6 +2401,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.manifest(),
             Self::Shosetsu(extension) => extension.manifest(),
+            Self::Kodi(extension) => extension.manifest(),
             Self::Server(extension) => extension.manifest(),
             Self::Site(extension) => &extension.manifest,
         }
@@ -2408,6 +2411,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.user_settings(),
             Self::Shosetsu(extension) => extension.user_settings(),
+            Self::Kodi(extension) => extension.user_settings(),
             Self::Server(extension) => extension.user_settings(),
             Self::Site(extension) => &extension.user_settings,
         }
@@ -2418,6 +2422,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.settings(),
             Self::Shosetsu(extension) => extension.manifest().settings.clone(),
+            Self::Kodi(extension) => extension.manifest().settings.clone(),
             Self::Server(extension) => extension.manifest().settings.clone(),
             Self::Site(extension) => extension.manifest.settings.clone(),
         }
@@ -2427,6 +2432,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.providers(),
             Self::Shosetsu(extension) => extension.providers(),
+            Self::Kodi(extension) => extension.providers(),
             Self::Server(extension) => extension.providers(),
             Self::Site(extension) => extension.providers(),
         }
@@ -2436,7 +2442,7 @@ impl Extension {
     fn website(&self) -> Option<String> {
         let declared = self.manifest().website.clone();
         match self {
-            Self::Js(_) | Self::Server(_) | Self::Site(_) => declared,
+            Self::Js(_) | Self::Kodi(_) | Self::Server(_) | Self::Site(_) => declared,
             Self::Shosetsu(extension) => {
                 declared.or_else(|| extension.website().map(str::to_owned))
             }
@@ -2452,6 +2458,7 @@ impl Extension {
         match self {
             Self::Js(extension) => extension.call(local_id, method, args).await,
             Self::Shosetsu(extension) => extension.call_reporting(local_id, method, args).await,
+            Self::Kodi(extension) => extension.call(local_id, method, args).await,
             Self::Server(extension) => extension.call(local_id, method, args).await,
             Self::Site(_) => Err(Failure::said(
                 "site scripts run in Raygun's websites browser and answer no calls",
@@ -2603,7 +2610,8 @@ impl LaneState {
             // A conversion that fails still says which converter made it, so a newer one is
             // offered (M46.9.1).
             let compatibility = manifest.nuclear.as_ref().and_then(compat_report);
-            let shosetsu = manifest.runtime == Runtime::Shosetsu;
+            // Shosetsu scripts and Kodi add-ons run on threads of their own.
+            let shosetsu = matches!(manifest.runtime, Runtime::Shosetsu | Runtime::Kodi);
             let load = async move {
                 let result = self.load_one(source, manifest, settings, secret).await;
                 (id, origin, name, version, compatibility, result)
@@ -2700,6 +2708,17 @@ impl LaneState {
             .as_ref()
             .map(|dir| dir.join(&manifest.id));
         let cookies = CookieJar::open(data_dir.as_ref().map(|dir| dir.join("cookies.json")));
+        if manifest.runtime == Runtime::Kodi {
+            // An add-on's settings are its manifest's, checked there; its files are its folder.
+            let data_dir = self
+                .config
+                .storage_dir
+                .as_ref()
+                .map(|dir| dir.join(&manifest.id));
+            return KodiExtension::load(manifest, &source, data_dir, user_settings)
+                .await
+                .map(|extension| Extension::Kodi(Box::new(extension)));
+        }
         if manifest.runtime == Runtime::Shosetsu {
             // A script's settings come from the script itself, so they're checked there.
             let load = ShosetsuExtension::load(manifest, source, cookies, user_settings);
@@ -2760,6 +2779,11 @@ impl LaneState {
                 .config
                 .call_timeout
                 .max(crate::shosetsu::runtime::CALL_BUDGET + Duration::from_secs(5)),
+            // Kodi add-ons run once per folder opened, a search or a stream maybe several times.
+            Extension::Kodi(_) => self
+                .config
+                .call_timeout
+                .max(crate::kodi::runtime::CALL_BUDGET + Duration::from_secs(5)),
         };
         match tokio::time::timeout(timeout, extension.call(local_id, method, args)).await {
             Ok(Ok(value)) => Ok(value),

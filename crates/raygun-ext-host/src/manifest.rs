@@ -146,6 +146,8 @@ pub enum Runtime {
     /// Scripts and styles for websites (`crate::site`): nothing runs in Raygun; the websites
     /// browser adds them to the pages they name. The entry is one of its scripts.
     Site,
+    /// A Kodi plugin, run unchanged in Raygun's Python (`crate::kodi`). The entry is its script.
+    Kodi,
 }
 
 impl Runtime {
@@ -233,6 +235,7 @@ impl Manifest {
             "server" => Runtime::Server,
             "mihon" => Runtime::Mihon,
             "site" => Runtime::Site,
+            "kodi" => Runtime::Kodi,
             _ => return Err(ManifestError::Runtime(raw.runtime)),
         };
         if !is_safe_entry(&raw.entry, runtime) {
@@ -399,6 +402,7 @@ fn is_safe_entry(entry: &str, runtime: Runtime) -> bool {
         Runtime::Js | Runtime::Miru | Runtime::LnReader | Runtime::Mihon | Runtime::Site => ".js",
         Runtime::Shosetsu => ".lua",
         Runtime::Server => ".json",
+        Runtime::Kodi => ".py",
     };
     entry.ends_with(extension)
         && !entry.contains('\\')

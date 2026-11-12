@@ -1742,9 +1742,6 @@ impl ExtensionService {
         if let Some(reason) = &entry.not_for_raygun {
             return Err(raygun_ext_host::purpose::message(reason));
         }
-        if entry.format == PackageFormat::Kodi {
-            return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned());
-        }
         // A Stremio addon a repository lists: installing it adds the addon by its address.
         if entry.format == PackageFormat::Stremio {
             let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
@@ -1766,10 +1763,16 @@ impl ExtensionService {
         let index_url: reqwest::Url = repo.url.parse().map_err(|_| "invalid repository URL")?;
         let package_url =
             repo::package_url(&index_url, entry).map_err(|error| error.to_string())?;
-        let limit = if entry.size == 0 {
-            MAX_PACKAGE_BYTES
+        // A Kodi add-on's zip often carries its pictures; what it runs is checked as it's read.
+        let most = if entry.format == PackageFormat::Kodi {
+            raygun_ext_host::kodi::package::MAX_ADDON_BYTES
         } else {
-            entry.size.min(MAX_PACKAGE_BYTES)
+            MAX_PACKAGE_BYTES
+        };
+        let limit = if entry.size == 0 {
+            most
+        } else {
+            entry.size.min(most)
         };
         let bytes = self.download_patiently(package_url.as_str(), limit).await?;
 
@@ -1851,7 +1854,17 @@ impl ExtensionService {
                 raygun_ext_host::lnreader::package::package(entry, script)
                     .map_err(|error| error.to_string())?
             }
-            PackageFormat::Kodi => return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
+            PackageFormat::Kodi => {
+                // The libraries it imports come from its repository, else Kodi's.
+                let sources = raygun_ext_host::kodi::package::library_sources(&index_url);
+                raygun_ext_host::kodi::package::assemble(
+                    entry,
+                    &bytes,
+                    &sources,
+                    |url, limit| async move { self.download_patiently(url.as_str(), limit).await },
+                )
+                .await?
+            }
             PackageFormat::Mihon => unreachable!("converted before downloading"),
             PackageFormat::Stremio => unreachable!("added before downloading"),
         };
@@ -2518,7 +2531,6 @@ fn refusal(entry: &RepoEntry) -> Option<(UnsupportedKind, String)> {
         return Some((UnsupportedKind::NotForRaygun, reason.clone()));
     }
     let cant_run = match entry.format {
-        PackageFormat::Kodi => raygun_ext_host::kodi::UNSUPPORTED,
         PackageFormat::Mihon if !raygun_ext_host::mihon::runtime_present() => {
             raygun_ext_host::mihon::UNSUPPORTED
         }
@@ -3175,19 +3187,13 @@ mod tests {
                 Some("Adds a mini player to Nuclear; Raygun has its own".into())
             )
         );
+        // A Kodi plugin installs (its Python runs in Raygun); a skin isn't for Raygun.
         let plugin = RepoEntry {
             format: PackageFormat::Kodi,
             provides: vec!["video.source".into()],
             ..entry("1.0.0")
         };
-        assert_eq!(
-            shown(&plugin),
-            (
-                Some(UnsupportedKind::CantRun),
-                Some(raygun_ext_host::kodi::UNSUPPORTED.into())
-            )
-        );
-        // A Kodi skin isn't for Raygun at all, rather than waiting for Python.
+        assert_eq!(shown(&plugin), (None, None));
         let skin = RepoEntry {
             not_for_raygun: Some("A skin for Kodi's own screens; Raygun has its own look".into()),
             ..plugin

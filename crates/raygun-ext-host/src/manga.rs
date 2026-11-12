@@ -43,6 +43,8 @@ pub struct MangaSummary {
     pub live: Option<LiveNow>,
     /// A short line under the title, such as a live stream's channel and what it streams.
     pub subtitle: Option<String>,
+    /// A folder of the source (a Kodi add-on's), listed rather than opened as a title.
+    pub folder: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -318,6 +320,7 @@ pub(crate) fn parse_listing(value: &Value) -> MangaListing {
                         live: live_now(item),
                         subtitle: text(item.get("subtitle"))
                             .map(|line| line.chars().take(MAX_SUBTITLE).collect()),
+                        folder: item.get("folder").and_then(Value::as_bool).unwrap_or(false),
                     })
                 })
                 .collect()

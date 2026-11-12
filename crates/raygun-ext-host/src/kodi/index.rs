@@ -4,14 +4,11 @@
 //! `repository.*` zip, or its `addon.xml`), whose `xbmc.addon.repository` extension names the
 //! index.
 //!
-//! Kodi's add-ons are Python programs run against Kodi's own modules (`xbmc`, `xbmcgui`,
-//! `xbmcplugin`, `xbmcaddon`, `xbmcvfs`) and the `script.module.*` libraries they import, which
-//! Raygun doesn't have. So a repository is read and its plugins (video, music and picture
-//! sources) are listed with what they offer, marked as not installable
-//! ([`UNSUPPORTED`]). Skins, services, programs, screensavers and the like are listed as not for
-//! Raygun, saying what they do in Kodi ([`PURPOSES`]); libraries, resources (languages, images,
-//! sounds), repositories and the player's own parts are left out, as what other add-ons need
-//! rather than add-ons people pick.
+//! Plugins (video and music sources) are listed with what they offer, and install through
+//! [`super::package`]: Raygun runs their Python ([`super::runtime`]). Skins, services, programs,
+//! screensavers and the like are listed as not for Raygun, saying what they do in Kodi
+//! ([`PURPOSES`]); libraries, resources (languages, images, sounds), repositories and the
+//! player's own parts are left out, as what other add-ons need rather than add-ons people pick.
 
 use std::io::{Cursor, Read};
 
@@ -22,8 +19,12 @@ use reqwest::Url;
 use crate::manifest::{API_VERSION, is_extension_id};
 use crate::repo::{INDEX_FORMAT, PackageFormat, RepoEntry, RepoIndex, RepoPermissions};
 
-/// Why a Kodi add-on can't be installed, as the catalogue says it.
-pub const UNSUPPORTED: &str = "Kodi add-ons are Python programs, which Raygun can't run yet";
+/// Why a Kodi plugin shared on its own (its zip, not its repository) isn't installed: what it
+/// needs comes from its repository.
+pub const UNSUPPORTED: &str =
+    "Add the Kodi repository this add-on comes from, then install it from there";
+/// What a picture plugin is, as the catalogue says why it's not for Raygun.
+const PICTURES: &str = "Pictures for Kodi's picture viewer";
 /// Largest index read once unpacked (Kodi's own repository is about 12 MB).
 const MAX_INDEX_BYTES: u64 = 32 * 1024 * 1024;
 
@@ -68,23 +69,50 @@ const PROGRAM: &str = "A program that runs inside Kodi";
 /// An add-on on its own that other add-ons use (a library, a language, pictures).
 const PART: &str = "A part other Kodi add-ons use, not an add-on of its own";
 
+/// An add-on another needs (`<requires><import addon=… version=… optional=…/>`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Requirement {
+    pub id: String,
+    pub version: Option<String>,
+    pub optional: bool,
+}
+
 /// One `<addon>`, as far as Raygun reads it.
 #[derive(Debug, Default)]
-struct Addon {
-    id: String,
-    name: String,
-    version: String,
-    provider: Option<String>,
+pub(crate) struct Addon {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub provider: Option<String>,
     /// Its extension points, in order (`xbmc.python.pluginsource`, `xbmc.gui.skin`...).
-    points: Vec<String>,
+    pub points: Vec<String>,
     /// The `xbmc.python.pluginsource` extension's `<provides>`: `video`, `audio`, `image`...
-    plugin: Option<String>,
+    pub plugin: Option<String>,
+    /// The `xbmc.python.pluginsource` extension's script (`library`), relative to the add-on.
+    pub library: Option<String>,
+    /// The `xbmc.python.module` extension's folder (`library`), which goes on `sys.path`.
+    pub module_library: Option<String>,
     /// The `xbmc.addon.repository` extension's index (`<info>`), for repository add-ons.
-    repository_info: Option<String>,
-    summary: Option<(bool, String)>,
-    description: Option<(bool, String)>,
-    language: Option<String>,
-    icon: Option<String>,
+    pub repository_info: Option<String>,
+    pub requires: Vec<Requirement>,
+    pub summary: Option<(bool, String)>,
+    pub description: Option<(bool, String)>,
+    pub language: Option<String>,
+    pub icon: Option<String>,
+    pub fanart: Option<String>,
+    pub website: Option<String>,
+    /// `<platform>`: `all`, or the systems it's built for (`android-armv8 windx64`...).
+    pub platform: Option<String>,
+}
+
+impl Addon {
+    /// Its summary, else its description (English first).
+    pub fn blurb(&self) -> Option<String> {
+        self.summary
+            .as_ref()
+            .or(self.description.as_ref())
+            .map(|(_, text)| text.clone())
+    }
 }
 
 /// Text that is a Kodi document: its root is `<addons>` (an index) or `<addon>` (one add-on).
@@ -118,7 +146,7 @@ fn attribute(element: &BytesStart<'_>, key: &str) -> Option<String> {
 }
 
 /// Every `<addon>` of a document.
-fn addons(text: &str) -> Vec<Addon> {
+pub(crate) fn addons(text: &str) -> Vec<Addon> {
     let mut reader = Reader::from_str(text);
     let mut buffer = Vec::new();
     let mut found = Vec::new();
@@ -148,6 +176,28 @@ fn addons(text: &str) -> Vec<Addon> {
                             && !point.is_empty()
                         {
                             addon.points.push(point.clone());
+                            let library = attribute(&element, "library");
+                            match point.as_str() {
+                                "xbmc.python.pluginsource" if addon.library.is_none() => {
+                                    addon.library = library;
+                                }
+                                "xbmc.python.module" if addon.module_library.is_none() => {
+                                    addon.module_library = library;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    "import" if path.last().is_some_and(|parent| parent == "requires") => {
+                        if let Some(addon) = current.as_mut()
+                            && let Some(id) = attribute(&element, "addon")
+                        {
+                            addon.requires.push(Requirement {
+                                id,
+                                version: attribute(&element, "version"),
+                                optional: attribute(&element, "optional")
+                                    .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+                            });
                         }
                     }
                     "summary" | "description" => {
@@ -207,6 +257,9 @@ fn addons(text: &str) -> Vec<Addon> {
                     }
                     "language" if !value.is_empty() => addon.language = Some(value),
                     "icon" if !value.is_empty() => addon.icon = Some(value),
+                    "fanart" if !value.is_empty() => addon.fanart = Some(value),
+                    "website" if !value.is_empty() => addon.website = Some(value),
+                    "platform" if !value.is_empty() => addon.platform = Some(value),
                     "extension" => point.clear(),
                     _ => {}
                 }
@@ -240,18 +293,20 @@ fn semver_version(version: &str) -> String {
     )
 }
 
-/// The Raygun kinds a plugin would provide, by what it says it provides.
-fn kinds(provides: &str) -> Vec<String> {
+/// The Raygun kinds a plugin provides, by what it says it provides: its videos as a video
+/// source, its music (radio, podcasts, songs) as music to browse and play.
+pub(crate) fn kinds(provides: &str) -> Vec<String> {
     let mut kinds = Vec::new();
     for word in provides.split_whitespace() {
-        let kind = match word {
-            "video" => "video.source",
-            "audio" => "music.stream",
-            "image" => "manga.source",
+        let found: &[&str] = match word {
+            "video" => &[super::VIDEO_SOURCE],
+            "audio" => &[crate::MUSIC_METADATA, crate::MUSIC_STREAM],
             _ => continue,
         };
-        if !kinds.iter().any(|known| known == kind) {
-            kinds.push(kind.to_owned());
+        for kind in found {
+            if !kinds.iter().any(|known| known == kind) {
+                kinds.push((*kind).to_owned());
+            }
         }
     }
     kinds
@@ -260,13 +315,14 @@ fn kinds(provides: &str) -> Vec<String> {
 /// What an add-on that isn't a content source does in Kodi, when it's one people pick (a skin, a
 /// service, a program); `None` for a source, and for libraries, resources, repositories and the
 /// player's own parts.
-fn purpose(addon: &Addon) -> Option<&'static str> {
-    if addon
-        .plugin
-        .as_deref()
-        .is_some_and(|provides| !kinds(provides).is_empty())
-    {
-        return None;
+pub(crate) fn purpose(addon: &Addon) -> Option<&'static str> {
+    if let Some(provides) = addon.plugin.as_deref() {
+        if !kinds(provides).is_empty() {
+            return None;
+        }
+        if provides.split_whitespace().any(|word| word == "image") {
+            return Some(PICTURES);
+        }
     }
     addon.points.iter().find_map(|point| {
         if point == "xbmc.python.pluginsource" {
@@ -284,6 +340,27 @@ fn purpose(addon: &Addon) -> Option<&'static str> {
     })
 }
 
+/// The Raygun extension id of a Kodi add-on (`kodi.plugin.video.example`); `None` for an id
+/// that can't be one.
+pub(crate) fn extension_id(kodi_id: &str) -> Option<String> {
+    if kodi_id.contains(['/', '\\']) || kodi_id.is_empty() {
+        return None;
+    }
+    let label: String = kodi_id
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let id = format!("kodi.{}", label.trim_matches(['-', '.']));
+    is_extension_id(&id).then_some(id)
+}
+
 /// Reads an `addons.xml`; `None` when the text isn't one.
 pub fn parse(text: &str) -> Option<RepoIndex> {
     if root_element(text)? != "addons" {
@@ -299,30 +376,8 @@ pub fn parse(text: &str) -> Option<RepoIndex> {
             } else {
                 None
             };
-            if addon.id.contains(['/', '\\']) || addon.id.is_empty() {
-                return None;
-            }
-            let label: String = addon
-                .id
-                .to_ascii_lowercase()
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '.' {
-                        c
-                    } else {
-                        '-'
-                    }
-                })
-                .collect();
-            let id = format!("kodi.{}", label.trim_matches(['-', '.']));
-            if !is_extension_id(&id) {
-                return None;
-            }
-            let description = match (addon.summary, addon.description) {
-                (Some((_, summary)), _) => Some(summary),
-                (None, Some((_, description))) => Some(description),
-                (None, None) => None,
-            };
+            let id = extension_id(&addon.id)?;
+            let description = addon.blurb();
             let folder = addon.id.clone();
             Some(RepoEntry {
                 id,
@@ -335,8 +390,16 @@ pub fn parse(text: &str) -> Option<RepoIndex> {
                 api_version: API_VERSION,
                 description: description.map(|text| text.chars().take(500).collect()),
                 author: addon.provider,
+                // Plugins reach whatever sites they're about, as in Kodi (public hosts only).
+                permissions: RepoPermissions {
+                    net: if kinds.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec!["*".to_owned()]
+                    },
+                    webview: false,
+                },
                 provides: kinds,
-                permissions: RepoPermissions::default(),
                 content_rating: "safe".to_owned(),
                 lang: addon
                     .language
@@ -396,10 +459,10 @@ pub fn index_address(bytes: &[u8], from: &Url) -> Option<Url> {
     matches!(url.scheme(), "http" | "https").then_some(url)
 }
 
-/// Why one add-on shared on its own (its `addon.xml` or zip) can't be added: a source is a
-/// Python program Raygun can't run ([`UNSUPPORTED`]); anything else isn't for Raygun, saying
-/// what it is. `None` for a repository's own add-on (its index is read instead) and for anything
-/// that isn't a Kodi add-on.
+/// Why one add-on shared on its own (its `addon.xml` or zip) can't be added: a source installs
+/// from its repository, which has what it needs ([`UNSUPPORTED`]); anything else isn't for
+/// Raygun, saying what it is. `None` for a repository's own add-on (its index is read instead)
+/// and for anything that isn't a Kodi add-on.
 pub fn refusal(bytes: &[u8]) -> Option<String> {
     let addon = addons(&addon_text(bytes)?).into_iter().next()?;
     if addon.repository_info.is_some() {
@@ -460,7 +523,7 @@ mod tests {
 </addons>"#;
 
     #[test]
-    fn lists_plugins_as_not_installable() {
+    fn lists_plugins_with_what_they_provide() {
         let index = crate::repo::parse_index(INDEX).unwrap();
         assert!(index.name.is_empty(), "named after its address");
         let ids: Vec<(&str, Option<&str>)> = index
@@ -497,7 +560,15 @@ mod tests {
         );
         let radio = &index.extensions[1];
         assert_eq!(radio.version, "1.0.0");
-        assert_eq!(radio.provides, ["music.stream", "video.source"]);
+        assert_eq!(
+            radio.provides,
+            ["music.metadata", "music.stream", "video.source"]
+        );
+        assert_eq!(
+            radio.permissions.net,
+            ["*"],
+            "plugins reach the sites they're about"
+        );
         let skin = &index.extensions[2];
         assert!(skin.provides.is_empty());
         assert_eq!(skin.format, PackageFormat::Kodi);

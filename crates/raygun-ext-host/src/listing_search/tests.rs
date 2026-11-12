@@ -16,6 +16,7 @@ fn item(id: usize, title: &str) -> MangaSummary {
         nsfw: false,
         live: None,
         subtitle: None,
+        folder: false,
     }
 }
 

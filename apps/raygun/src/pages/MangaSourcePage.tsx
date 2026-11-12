@@ -25,7 +25,18 @@ import { PageHeader } from './PageHeader';
 
 const LISTS: MangaBrowseMode[] = ['popular', 'latest'];
 
-type SourceSearch = { id?: string; mode?: MangaBrowseMode; q?: string };
+type SourceSearch = {
+  id?: string;
+  mode?: MangaBrowseMode;
+  q?: string;
+  /** One of the source's folders (a Kodi add-on's), listed on its own. */
+  folder?: string;
+  /** The folder's name. */
+  name?: string;
+};
+
+/** The filter a source's folders are listed with (`raygun-ext-host::kodi`). */
+const FOLDER_FILTER = 'section';
 
 const filtersKey = (medium: Medium, sourceId: string) =>
   `raygun.sourceFilters.${medium}.${sourceId}`;
@@ -42,12 +53,13 @@ const readFilters = (medium: Medium, sourceId: string): FilterValues => {
 
 /**
  * One source's catalogue (Mihon's browse screen): popular, latest, search, and the source's own
- * filters when it has them.
+ * filters when it has them. A source's folder (a Kodi add-on's) is listed on its own page, its
+ * folders opening further pages.
  */
 export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) => {
   const { t } = useTranslation();
   const search: SourceSearch = useSearch({ strict: false });
-  const { id = '', mode = 'popular', q = '' } = search;
+  const { id = '', mode = 'popular', q = '', folder, name } = search;
   const navigate = useNavigate();
   const sources = useMangaSources(medium);
   const source = sources.data?.find((candidate) => candidate.id === id);
@@ -55,11 +67,16 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
   const [values, setValuesState] = useState<FilterValues>(() => readFilters(medium, id));
   const [showingFilters, setShowingFilters] = useState(false);
   const filters = useSourceFilters(medium, id);
-  const hasFilters = (filters.data?.length ?? 0) > 0;
-  const filtered = hasFilters && Object.keys(values).length > 0;
+  const hasFilters = !folder && (filters.data?.length ?? 0) > 0;
+  const filtered = Boolean(folder) || (hasFilters && Object.keys(values).length > 0);
   // Filters search the source (with the words typed, if any); otherwise the chosen list.
   const browse = useMangaBrowse(filtered ? '' : id, mode, q, medium);
-  const filteredSearch = useFilteredSearch(medium, filtered ? id : '', q, values);
+  const filteredSearch = useFilteredSearch(
+    medium,
+    filtered ? id : '',
+    folder ? '' : q,
+    folder ? { [FOLDER_FILTER]: folder } : values,
+  );
   const list = filtered ? filteredSearch : browse;
   const website = useMutation({
     mutationFn: () => unwrapResult(commands.catalogOpenPage(id, null)),
@@ -81,7 +98,15 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
     show(query ? { mode: 'search', q: query } : { mode: 'popular' });
   };
 
-  const items = list.data?.pages.flatMap((page) => page.items) ?? [];
+  // A folder opens as a list of its own.
+  const items = (list.data?.pages.flatMap((page) => page.items) ?? []).map((item) =>
+    item.folder
+      ? {
+          ...item,
+          link: { to: ROUTES[medium].source, search: { id, folder: item.id, name: item.title } },
+        }
+      : item,
+  );
   const chip = (pressed: boolean) =>
     pressed
       ? 'bg-primary/20 text-primary flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold'
@@ -92,7 +117,7 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
       <PageHeader
         back
         fallback="/browse"
-        title={source?.name ?? t('manga.source')}
+        title={(folder ? name : undefined) ?? source?.name ?? t('manga.source')}
         titleMark={source?.adult && <AdultMark />}
         actions={
           id && (
@@ -119,36 +144,38 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
           inputClassName="py-1.5"
         />
       </form>
-      <nav className="flex flex-wrap gap-2" aria-label={t('manga.lists')}>
-        {LISTS.map((item) => (
-          <button
-            key={item}
-            type="button"
-            aria-pressed={!filtered && mode === item}
-            onClick={() => {
-              setInput('');
-              setValues({});
-              show({ mode: item });
-            }}
-            className={chip(!filtered && mode === item)}
-          >
-            {t(`manga.list.${item}`)}
-          </button>
-        ))}
-        {hasFilters && (
-          <button
-            type="button"
-            aria-expanded={showingFilters}
-            onClick={() => setShowingFilters(!showingFilters)}
-            className={chip(filtered || showingFilters)}
-          >
-            <SlidersHorizontal aria-hidden size={14} />
-            {filtered
-              ? t('search.filters.active', { count: Object.keys(values).length })
-              : t('search.filters.title')}
-          </button>
-        )}
-      </nav>
+      {!folder && (
+        <nav className="flex flex-wrap gap-2" aria-label={t('manga.lists')}>
+          {LISTS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              aria-pressed={!filtered && mode === item}
+              onClick={() => {
+                setInput('');
+                setValues({});
+                show({ mode: item });
+              }}
+              className={chip(!filtered && mode === item)}
+            >
+              {t(`manga.list.${item}`)}
+            </button>
+          ))}
+          {hasFilters && (
+            <button
+              type="button"
+              aria-expanded={showingFilters}
+              onClick={() => setShowingFilters(!showingFilters)}
+              className={chip(filtered || showingFilters)}
+            >
+              <SlidersHorizontal aria-hidden size={14} />
+              {filtered
+                ? t('search.filters.active', { count: Object.keys(values).length })
+                : t('search.filters.title')}
+            </button>
+          )}
+        </nav>
+      )}
       {showingFilters && filters.data && (
         <SourceFiltersPanel filters={filters.data} values={values} onChange={setValues} />
       )}

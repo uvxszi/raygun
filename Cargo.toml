@@ -187,6 +187,49 @@ opt-level = 3
 [profile.dev.package.fend-core]
 opt-level = 3
 
+# Kodi add-ons' Python (RustPython, `raygun-ext-host::kodi`): an interpreter is many times slower
+# unoptimized, and a plugin's listing took seconds in the debug builds the emulator runs.
+[profile.dev.package.rustpython-vm]
+opt-level = 3
+
+[profile.dev.package.rustpython-stdlib]
+opt-level = 3
+
+[profile.dev.package.rustpython-common]
+opt-level = 3
+
+[profile.dev.package.rustpython-sre_engine]
+opt-level = 3
+
+[profile.dev.package.rustpython-codegen]
+opt-level = 3
+
+[profile.dev.package.rustpython-compiler-core]
+opt-level = 3
+
+[profile.dev.package.rustpython-ruff_python_parser]
+opt-level = 3
+
+[profile.dev.package.malachite-nz]
+opt-level = 3
+
+# The interpreter is among the largest code in the app; optimized for size it's markedly smaller
+# and still fast enough for add-ons, which mostly wait on the network.
+[profile.release.package.rustpython-vm]
+opt-level = "s"
+
+[profile.release.package.rustpython-stdlib]
+opt-level = "s"
+
+[profile.release.package.rustpython-codegen]
+opt-level = "s"
+
+[profile.release.package.rustpython-ruff_python_parser]
+opt-level = "s"
+
+[profile.release.package.rustpython-ruff_python_ast]
+opt-level = "s"
+
 # Panics unwind, never abort (M46.7): on Windows, Lua's errors (Shosetsu scripts, mlua) travel as
 # SEH unwinds through Rust frames, and with `panic = "abort"` any script error ended the whole app.
 # Unwinding also lets a panic stop one worker thread instead of the process.
@@ -202,3 +245,4 @@ strip = true
 rquickjs-sys = { path = "third_party/rquickjs-sys" }
 mp3lame-sys = { path = "third_party/mp3lame-sys" }
 librqbit-sha1-wrapper = { path = "third_party/librqbit-sha1-wrapper" }
+rustpython-host_env = { path = "third_party/rustpython-host_env" }

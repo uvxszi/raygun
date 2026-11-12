@@ -40,3 +40,15 @@ Upstream hashes with one of two C libraries: OpenSSL (through `crypto-hash`, whi
 | `Cargo.toml` | `ring` instead of `crypto-hash`/`aws-lc-rs`; the features `sha1-crypto-hash` and `sha1-ring` kept (empty) so librqbit's feature lists resolve; `publish = false`. |
 
 Wired in through `[patch.crates-io]` in the workspace `Cargo.toml`.
+
+## rustpython-host_env 0.6.0
+Upstream: https://github.com/RustPython/RustPython (MIT, `LICENSE`). It's the host-OS layer of RustPython, the Python interpreter Kodi add-ons run in (`raygun-ext-host::kodi`).
+
+Raygun builds RustPython without its `host_env` feature (no files, sockets or processes of the interpreter's own) and without `ctypes` (libffi). Upstream's `wmi` module, compiled on every Windows build, called three helpers of the `ctypes` module, so Windows builds failed without that feature:
+
+| File | Change |
+|---|---|
+| `src/wmi.rs` | Its own copies of `wcslen`, `sys_alloc_string_len` and `sys_free_string` instead of `crate::ctypes`'s. |
+| `Cargo.toml` | `publish = false`. |
+
+Wired in through `[patch.crates-io]` in the workspace `Cargo.toml`. Drop this copy once upstream builds on Windows without `ctypes`.
