@@ -1,12 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { clampZoom } from '../readerDisplay';
+import { anchoredScroll, contentPoint } from './zoomMath';
+import type { Point } from './zoomMath';
 
-/** A point on screen, in client pixels. */
-export type ScreenPoint = { x: number; y: number };
-
-/** Where a zoom was centred: the content point under it, in unzoomed pixels. */
-type Anchor = { contentX: number; contentY: number; clientX: number; clientY: number };
+/** Where a zoom was made: the content point under it (unzoomed pixels) and where it was. */
+type Anchor = { point: Point; at: Point };
 
 /** A pinch only counts once the fingers moved this much apart or together. */
 const PINCH_SLOP = 0.02;
@@ -19,21 +18,31 @@ const distance = (touches: TouchList) => {
   return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
 };
 
-const middle = (touches: TouchList): ScreenPoint => {
+const middle = (touches: TouchList): Point => {
   const [first, second] = [touches[0], touches[1]];
   if (!first || !second) return { x: 0, y: 0 };
   return { x: (first.clientX + second.clientX) / 2, y: (first.clientY + second.clientY) / 2 };
 };
 
-/** The element a zoomed page or strip scrolls in. */
+/** The reader's own screen a zoomed page or strip scrolls in. */
 const scrollerOf = (content: HTMLElement) =>
   content.closest<HTMLElement>('[data-reader-scroll]') ?? content.closest<HTMLElement>('main');
 
+/** The middle of the reader's screen (of the window, before it's laid out). */
+const screenMiddle = (content: HTMLElement | null): Point => {
+  const box = content ? scrollerOf(content)?.getBoundingClientRect() : undefined;
+  if (box && box.width > 0 && box.height > 0) {
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  }
+  return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+};
+
 /**
- * The reader's zoom: buttons, keys, Ctrl+wheel, double taps and two-finger pinches. A zoom keeps
- * the point it was made at under the finger (or the pointer, or the screen's middle). A pinch is
- * drawn with a transform while the fingers move, and laid out once they lift, so the page reflows
- * once rather than on every frame.
+ * The reader's zoom: buttons, keys, Ctrl+wheel, double taps and two-finger pinches. Only the page
+ * (or the strip) is zoomed, inside the reader's own fixed screen, which scrolls it. A zoom keeps
+ * the point it was made at under the finger (or the pointer, or the screen's middle), as far as
+ * the page's edges allow (`zoomMath`). A pinch is drawn with a transform while the fingers move,
+ * and laid out once they lift, so the page reflows once rather than on every frame.
  */
 export const useReaderZoom = () => {
   const [zoom, setZoomState] = useState(1);
@@ -43,26 +52,21 @@ export const useReaderZoom = () => {
   const zoomRef = useRef(zoom);
   const pinchedAt = useRef(0);
   /** A pinch under way: the fingers' first distance and middle, and the scale reached. */
-  const pinch = useRef<{ start: number; center: ScreenPoint; scale: number } | null>(null);
+  const pinch = useRef<{ start: number; center: Point; scale: number } | null>(null);
 
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
 
-  const zoomAt = (next: number, point?: ScreenPoint) => {
+  const zoomAt = (next: number, point?: Point) => {
     const from = zoomRef.current;
     const to = clampZoom(next);
     if (to === from) return;
     const content = contentRef.current;
-    const at = point ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    const at = point ?? screenMiddle(content);
     if (content) {
       const box = content.getBoundingClientRect();
-      anchor.current = {
-        contentX: (at.x - box.left) / from,
-        contentY: (at.y - box.top) / from,
-        clientX: at.x,
-        clientY: at.y,
-      };
+      anchor.current = { point: contentPoint({ x: box.left, y: box.top }, at, from), at };
     }
     zoomRef.current = to;
     setZoomState(to);
@@ -77,12 +81,23 @@ export const useReaderZoom = () => {
     const scroller = scrollerOf(content);
     if (!scroller) return;
     const box = content.getBoundingClientRect();
-    scroller.scrollLeft += box.left + pending.contentX * zoom - pending.clientX;
-    scroller.scrollTop += box.top + pending.contentY * zoom - pending.clientY;
+    const next = anchoredScroll({
+      scroll: { x: scroller.scrollLeft, y: scroller.scrollTop },
+      box: { x: box.left, y: box.top },
+      point: pending.point,
+      zoom,
+      at: pending.at,
+      max: {
+        x: scroller.scrollWidth - scroller.clientWidth,
+        y: scroller.scrollHeight - scroller.clientHeight,
+      },
+    });
+    scroller.scrollLeft = next.x;
+    scroller.scrollTop = next.y;
   }, [zoom]);
 
   /** Scales around where the pinch began (set once, before any transform moves the box). */
-  const startPreview = (center: ScreenPoint) => {
+  const startPreview = (center: Point) => {
     const content = contentRef.current;
     if (!content) return;
     const box = content.getBoundingClientRect();

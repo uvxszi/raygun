@@ -130,21 +130,13 @@ export const ReaderDisplaySettings: FC<{ title?: string }> = ({ title }) => {
           disabled={busy}
           onChange={(barChapters) => set({ barChapters })}
         />
-        {/* Phones pinch to zoom, and the top bar has the reading mode. */}
+        {/* Phones pinch to zoom. The reading mode is the top bar's, and the default's above. */}
         {desktop && (
           <PrefSwitch
             title={t('reader.display.barZoom')}
             checked={display.barZoom}
             disabled={busy}
             onChange={(barZoom) => set({ barZoom })}
-          />
-        )}
-        {desktop && (
-          <PrefSwitch
-            title={t('reader.display.barMode')}
-            checked={display.barMode}
-            disabled={busy}
-            onChange={(barMode) => set({ barMode })}
           />
         )}
         {desktop && (

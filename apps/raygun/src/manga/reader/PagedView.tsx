@@ -1,7 +1,6 @@
 import type { PagedScale } from '@raygun/bindings';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
-  CSSProperties,
   FC,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -12,38 +11,12 @@ import { useTranslation } from 'react-i18next';
 
 import { rememberShown } from '../../shell/imageMemory';
 import { pageIdentity } from './drawnPages';
+import { pageLayout } from './pageLayout';
+import type { PageShape } from './pageLayout';
 import { ReaderImage } from './ReaderImage';
 
 /** Horizontal movement that counts as a swipe. */
 const SWIPE_PX = 50;
-
-/** How a page sits in the paged modes: the chosen fit, made `zoom` times bigger (M46.7). */
-const pageLayout = (
-  scale: PagedScale,
-  zoom: number,
-): { className: string; style: CSSProperties } => {
-  switch (scale) {
-    case 'fitWidth':
-      return { className: 'h-auto max-w-none', style: { width: `${Math.round(100 * zoom)}%` } };
-    case 'fitHeight':
-      return {
-        className: 'w-auto max-w-none',
-        style: { height: `calc(${Math.round(100 * zoom)} * (100dvh - var(--app-bar, 0px)) / 100)` },
-      };
-    case 'original':
-      return { className: 'max-w-none', style: { zoom } };
-    default:
-      return zoom === 1
-        ? { className: 'max-h-full max-w-full object-contain', style: {} }
-        : {
-            className: 'max-w-none object-contain',
-            style: {
-              width: `${Math.round(100 * zoom)}%`,
-              height: `calc(${Math.round(100 * zoom)} * (100dvh - var(--app-bar, 0px)) / 100)`,
-            },
-          };
-  }
-};
 
 /** Pages loaded and decoded ahead (and the one before), kept while they may be turned to. */
 const usePreload = (pages: string[], current: number, ahead: number) => {
@@ -84,7 +57,11 @@ export type PagedViewProps = {
   endCard: ReactNode;
 };
 
-/** One page at a time with tap zones, swipes, keys and pinch zoom (double taps come as taps). */
+/**
+ * One page at a time with tap zones, swipes, keys and pinch zoom (double taps come as taps). The
+ * page fills the reader's fixed screen, which scrolls a zoomed page to its edges; the chapter's
+ * end takes the page's place, never zoomed.
+ */
 export const PagedView: FC<PagedViewProps> = ({
   pages,
   current,
@@ -106,7 +83,21 @@ export const PagedView: FC<PagedViewProps> = ({
   const box = useRef<HTMLDivElement>(null);
   const swipe = useRef<{ x: number; pointers: number } | null>(null);
   const swiped = useRef(false);
+  /** Loaded pages' shapes, by page (a page drawn wider when zoomed is the same page). */
+  const [shapes, setShapes] = useState<Record<string, PageShape>>({});
   usePreload(pages, current, preload);
+  const url = pages[current] ?? '';
+  const identity = pageIdentity(url);
+  const onShape = useCallback(
+    (_index: number, ratio: number, width: number) => {
+      setShapes((known) =>
+        known[identity]?.ratio === ratio && known[identity]?.width === width
+          ? known
+          : { ...known, [identity]: { ratio, width } },
+      );
+    },
+    [identity],
+  );
 
   const step = (delta: number) => onCurrent(Math.min(Math.max(current + delta, 0), total));
   const forward = () => step(1);
@@ -166,7 +157,13 @@ export const PagedView: FC<PagedViewProps> = ({
 
   if (current >= total) {
     return (
-      <div className="flex min-h-[80vh] flex-col justify-center">
+      <div
+        // Its own element, never the page's scroller (scrolled and zoomed) made over.
+        key="end"
+        data-testid="chapter-end"
+        // In the middle of the reader's screen, at its own size whatever the page's zoom.
+        className="flex h-full flex-col justify-center overflow-y-auto"
+      >
         {endCard}
         <button type="button" onClick={back} className="text-muted self-center py-4 text-sm">
           {t('manga.backToLastPage')}
@@ -175,9 +172,10 @@ export const PagedView: FC<PagedViewProps> = ({
     );
   }
 
-  const layout = pageLayout(scale, zoom);
+  const layout = pageLayout(scale, zoom, shapes[identity]);
   return (
     <div
+      key="page"
       ref={box}
       data-testid="paged-reader"
       data-reader-scroll
@@ -191,15 +189,17 @@ export const PagedView: FC<PagedViewProps> = ({
       // Sideways finger moves are the reader's swipes: a browser pan would cancel the pointer
       // before it lifts. A zoomed or full-size page pans both ways (and doesn't swipe).
       style={{ touchAction: zoomed || scale === 'original' ? 'pan-x pan-y' : 'pan-y' }}
-      className={`relative h-[calc(100dvh-var(--app-bar,0px))] w-full select-none [-webkit-touch-callout:none] ${fitted ? 'flex items-center justify-center overflow-hidden' : 'grid overflow-auto [place-items:safe_center]'}`}
+      // The reader's whole screen, and the size container the page is sized by.
+      className={`relative h-full w-full select-none [container-type:size] [-webkit-touch-callout:none] ${fitted ? 'flex items-center justify-center overflow-hidden' : 'grid overflow-auto [place-items:safe_center]'}`}
     >
       <ReaderImage
-        key={`${current}:${pageIdentity(pages[current] ?? '')}`}
-        url={pages[current] ?? ''}
+        key={`${current}:${identity}`}
+        url={url}
         index={current}
         imageRef={(element) => {
           contentRef.current = element;
         }}
+        onRatio={onShape}
         onMenu={onPageMenu}
         className={layout.className}
         style={layout.style}

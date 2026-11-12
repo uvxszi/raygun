@@ -131,6 +131,8 @@ export type PageReaderProps = {
   onPage?: (page: number) => void;
   /** More buttons for the top bar, before the display settings. */
   actions?: ReactNode;
+  /** The top bar's chapter list (a PDF book's contents, among `actions`, list its chapters). */
+  listsChapters?: boolean;
 };
 
 /**
@@ -149,6 +151,7 @@ export const PageReader: FC<PageReaderProps> = ({
   goTo,
   onPage,
   actions,
+  listsChapters = true,
 }) => {
   const { t } = useTranslation();
   const router = useRouter();
@@ -168,7 +171,10 @@ export const PageReader: FC<PageReaderProps> = ({
   const sectionRef = useRef<HTMLElement>(null);
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTap = useRef<{ at: number; x: number; y: number } | null>(null);
-  /** Phones pinch to zoom and have the reading mode in the top bar: no zoom or mode buttons. */
+  /**
+   * Phones pinch to zoom: no zoom buttons. The reading mode is the top bar's (and the reader
+   * settings') everywhere.
+   */
   const desktop = useIsDesktop();
   const total = data?.pages.length ?? 0;
   const own = modeChoice ? modeChoice.own : (data?.ownReaderMode ?? null);
@@ -325,7 +331,7 @@ export const PageReader: FC<PageReaderProps> = ({
     }
     const delta = action === 'forward' ? 1 : -1;
     if (mode === 'webtoon') {
-      const scroller = sectionRef.current?.closest('main');
+      const scroller = sectionRef.current?.querySelector<HTMLElement>('[data-reader-scroll]');
       scroller?.scrollBy?.({ top: delta * scroller.clientHeight * SCROLL_SHARE });
     } else {
       setCurrent((at) => Math.min(Math.max(at + delta, 0), total));
@@ -362,7 +368,7 @@ export const PageReader: FC<PageReaderProps> = ({
     }
     // The strip is taller than the screen: its zones are the screen's.
     const area = (
-      (mode === 'webtoon' ? target.closest('main') : null) ?? event.currentTarget
+      (mode === 'webtoon' ? target.closest('[data-reader-scroll]') : null) ?? event.currentTarget
     ).getBoundingClientRect();
     const x = area.width > 0 ? (event.clientX - area.left) / area.width : 0.5;
     const y = area.height > 0 ? (event.clientY - area.top) / area.height : 0.5;
@@ -397,9 +403,8 @@ export const PageReader: FC<PageReaderProps> = ({
     <section
       ref={sectionRef}
       data-testid="manga-reader"
-      // Edge to edge: the page area's side and bottom padding is the reader's too. Its scrollers
-      // draw no scrollbar on touch screens (styles.css), which would take its width from the page.
-      // In landscape the pages stay clear of the system bars and cutouts at the sides.
+      // Its scrollers draw no scrollbar on touch screens (styles.css), which would take its width
+      // from the page.
       data-edge-reader
       // A long press or right click is the page's own actions (ReaderImage), never the
       // WebView's callout.
@@ -407,7 +412,7 @@ export const PageReader: FC<PageReaderProps> = ({
         event.preventDefault();
         event.stopPropagation();
       }}
-      className="-mx-4 -mb-4 flex min-h-full flex-col bg-black pr-[var(--safe-right)] pl-[var(--safe-left)] select-none [-webkit-touch-callout:none] lg:-mx-10"
+      className="select-none [-webkit-touch-callout:none]"
     >
       {chrome && (
         <header className="bg-surface/95 fixed left-[var(--main-left,0px)] right-[var(--main-right,0px)] top-[var(--app-bar,0px)] z-30 flex min-h-16 items-center gap-1 pt-[var(--safe-top)] pr-[calc(0.25rem+var(--safe-right))] pl-[calc(0.25rem+var(--safe-left))] shadow-md backdrop-blur">
@@ -423,7 +428,7 @@ export const PageReader: FC<PageReaderProps> = ({
             <span className="truncate text-base font-semibold">{data?.title}</span>
             <span className="text-muted truncate text-sm">{data?.chapter.name}</span>
           </span>
-          {data && (
+          {data && listsChapters && (
             <button
               type="button"
               aria-label={t('reader.chapters.open')}
@@ -456,65 +461,74 @@ export const PageReader: FC<PageReaderProps> = ({
           </button>
         </header>
       )}
-      {error && (
-        <div className="px-4 pt-24">
-          <SourceIssue onRetry={onRetry}>{error.message}</SourceIssue>
-        </div>
-      )}
-      {!data && !error && (
-        <LoaderCircle
-          aria-label={t('manga.loading')}
-          className="text-muted m-auto mt-32 animate-spin"
-        />
-      )}
-      {data && total === 0 && (
-        <div className="flex min-h-[calc(100dvh-var(--app-bar,0px))] flex-col items-center justify-center gap-3 px-6 text-center text-white">
-          <ImageOff aria-hidden size={32} className="text-white/60" />
-          <p className="text-sm">{t('manga.noPages')}</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="rounded-full bg-white/15 px-4 py-2 text-sm"
-          >
-            {t('issue.retry')}
-          </button>
-          {endCard}
-        </div>
-      )}
-      {data && total > 0 && mode === 'webtoon' && (
-        <WebtoonView
-          key={data.chapter.id}
-          pages={pages}
-          current={current}
-          jump={jump}
-          zoom={zoom.zoom}
-          size={display.webtoonSize}
-          preload={display.preloadPages}
-          chrome={chrome}
-          contentRef={zoom.contentRef}
-          onCurrent={setCurrent}
-          onTap={onTap}
-          onHideChrome={hideChrome}
-          onPageMenu={setPageMenu}
-          endCard={endCard}
-        />
-      )}
-      {data && total > 0 && mode !== 'webtoon' && (
-        <PagedView
-          pages={pages}
-          current={current}
-          rtl={mode === 'pagedRtl'}
-          zoom={zoom.zoom}
-          scale={display.pagedScale}
-          preload={display.preloadPages}
-          contentRef={zoom.contentRef}
-          onCurrent={setCurrent}
-          onTap={onTap}
-          onPageMenu={setPageMenu}
-          pinching={zoom.pinching}
-          endCard={endCard}
-        />
-      )}
+      <div
+        data-testid="reader-viewport"
+        // The reader's own screen: the whole page area, black and fixed, whatever the zoom. Only
+        // the page (or the strip) inside it is zoomed and scrolled; the chapter's end and the
+        // bars keep their size. Clear of the status bar and a cutout at the top, and in
+        // landscape of the system bars and cutouts at the sides.
+        className="fixed top-[var(--app-bar,0px)] right-[var(--main-right,0px)] bottom-0 left-[var(--main-left,0px)] bg-black pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)]"
+      >
+        {error && (
+          <div className="px-4 pt-24">
+            <SourceIssue onRetry={onRetry}>{error.message}</SourceIssue>
+          </div>
+        )}
+        {!data && !error && (
+          <LoaderCircle
+            aria-label={t('manga.loading')}
+            className="text-muted mx-auto mt-32 block animate-spin"
+          />
+        )}
+        {data && total === 0 && (
+          <div className="flex h-full flex-col items-center justify-center gap-3 overflow-y-auto px-6 text-center text-white">
+            <ImageOff aria-hidden size={32} className="text-white/60" />
+            <p className="text-sm">{t('manga.noPages')}</p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded-full bg-white/15 px-4 py-2 text-sm"
+            >
+              {t('issue.retry')}
+            </button>
+            {endCard}
+          </div>
+        )}
+        {data && total > 0 && mode === 'webtoon' && (
+          <WebtoonView
+            key={data.chapter.id}
+            pages={pages}
+            current={current}
+            jump={jump}
+            zoom={zoom.zoom}
+            size={display.webtoonSize}
+            preload={display.preloadPages}
+            chrome={chrome}
+            contentRef={zoom.contentRef}
+            onCurrent={setCurrent}
+            onTap={onTap}
+            onHideChrome={hideChrome}
+            onPageMenu={setPageMenu}
+            endCard={endCard}
+          />
+        )}
+        {data && total > 0 && mode !== 'webtoon' && (
+          <PagedView
+            pages={pages}
+            current={current}
+            rtl={mode === 'pagedRtl'}
+            zoom={zoom.zoom}
+            scale={display.pagedScale}
+            preload={display.preloadPages}
+            contentRef={zoom.contentRef}
+            onCurrent={setCurrent}
+            onTap={onTap}
+            onPageMenu={setPageMenu}
+            pinching={zoom.pinching}
+            endCard={endCard}
+          />
+        )}
+      </div>
       {data &&
         (!chrome || (!desktop && !display.barProgress)) &&
         display.pageNumber &&
@@ -608,16 +622,6 @@ export const PageReader: FC<PageReaderProps> = ({
                   <ZoomIn aria-hidden size={20} />
                 </button>
               </div>
-            )}
-            {desktop && display.barMode && (
-              <button
-                type="button"
-                aria-label={t('manga.readingMode')}
-                onClick={() => setChoosingMode(true)}
-                className="bg-surface/95 grid size-12 shrink-0 place-items-center rounded-full shadow-md backdrop-blur"
-              >
-                <BookOpen aria-hidden size={20} />
-              </button>
             )}
             {desktop && display.barFullscreen && fullscreen.available && (
               <button

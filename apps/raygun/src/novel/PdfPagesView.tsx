@@ -11,6 +11,7 @@ import { PageReader } from '../manga/reader/PageReader';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
+import { hasContents } from './pdfContents';
 import { PdfContentsSheet } from './PdfContentsSheet';
 import { NOVEL, novelChapterQuery, saveNovelProgress } from './useNovel';
 
@@ -92,8 +93,9 @@ const PdfSearchSheet: FC<{
 
 /**
  * A PDF chapter read as its pages, in the page reader (zoom, page turns, the AI layers), with its
- * text a tap away, a search through the document and its contents (the same as the text view's).
- * Progress is the page reached.
+ * text a tap away, a search through the document and its contents (the same as the text view's),
+ * which list its chapters too: the one list, in place of the reader's chapter list. Progress is
+ * the page reached.
  */
 export const PdfPagesView: FC<{
   data: NovelChapter;
@@ -158,6 +160,7 @@ export const PdfPagesView: FC<{
         onLeave={onLeave}
         goTo={jump}
         onPage={setPage}
+        listsChapters={false}
         actions={
           <>
             <button
@@ -169,7 +172,7 @@ export const PdfPagesView: FC<{
             >
               <Search aria-hidden size={21} />
             </button>
-            {pdf.contents.length > 0 && (
+            {hasContents(pdf.contents, data) && (
               <button
                 type="button"
                 aria-label={t('pdf.contents')}
@@ -203,9 +206,11 @@ export const PdfPagesView: FC<{
       {contents && (
         <PdfContentsSheet
           contents={pdf.contents}
+          titleId={data.titleId}
+          chapterId={data.chapter.id}
           pageNumber={pdf.firstPage + page}
           anchor={contents}
-          onPick={(entry) => open({ chapterId: entry.chapterId, page: entry.page })}
+          onPick={(place) => open({ chapterId: place.chapterId, page: place.page })}
           onClose={() => setContents(null)}
         />
       )}

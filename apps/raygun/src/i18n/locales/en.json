@@ -3309,7 +3309,6 @@
       "barWidth": "Page bar width",
       "barChapters": "Chapter buttons in the page bar",
       "barZoom": "Zoom buttons in the page bar",
-      "barMode": "Reading mode button in the page bar",
       "barProgress": "Show progress",
       "barFullscreen": "Full screen button in the page bar",
       "preload": "Pages to load ahead",

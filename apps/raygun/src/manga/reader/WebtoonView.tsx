@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FC, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 
-import { stripWidth } from '../readerDisplay';
+import { stripLead, stripWidth } from '../readerDisplay';
 
 import { pageBeingRead } from './pageBeingRead';
 import { ReaderImage } from './ReaderImage';
@@ -77,6 +77,10 @@ export type WebtoonViewProps = {
  * The vertical strip: every page keeps its place (at its own shape once known), but only the pages
  * around the one being read hold images, so a chapter of hundreds of pages scrolls in bounded
  * memory. The browser's scroll anchoring keeps the view still as pages above load.
+ *
+ * It scrolls in its own screen (filling the reader's fixed one), both ways once zoomed. Only the
+ * strip is zoomed: the room above a short first page (which starts in the middle of the screen)
+ * and the chapter's end below the last keep their size, the end held in view sideways.
  */
 export const WebtoonView: FC<WebtoonViewProps> = ({
   pages,
@@ -94,6 +98,7 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
   endCard,
 }) => {
   const slots = useRef<(HTMLDivElement | null)[]>([]);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const jumpedAt = useRef(0);
   const [ratios, setRatios] = useState<Record<number, number>>({});
@@ -117,7 +122,7 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined') return;
     const crossing = new Set<number>();
-    const scroller = endRef.current?.closest('main') ?? null;
+    const scroller = scrollerRef.current;
     const report = () => {
       if (crossing.size === 0) return;
       const screenTop = scroller?.getBoundingClientRect().top ?? 0;
@@ -159,12 +164,14 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
   useEffect(() => {
     if (!jump) return;
     jumpedAt.current = Date.now();
-    slots.current[jump.page]?.scrollIntoView?.({ block: 'start' });
+    // The first page with the room above it: in the middle of the screen when it's short.
+    if (jump.page === 0) scrollerRef.current?.scrollTo?.({ top: 0 });
+    else slots.current[jump.page]?.scrollIntoView?.({ block: 'start' });
   }, [jump]);
 
   // Scrolling the strip by hand puts the controls away.
   useEffect(() => {
-    const scroller = endRef.current?.closest('main');
+    const scroller = scrollerRef.current;
     if (!chrome || !scroller) return;
     let start = scroller.scrollTop;
     const onScroll = () => {
@@ -185,7 +192,7 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, select, textarea, [role="dialog"]')) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      const scroller = endRef.current?.closest('main');
+      const scroller = scrollerRef.current;
       if (!scroller) return;
       const screen = scroller.clientHeight * 0.85;
       const steps: Record<string, number> = {
@@ -207,40 +214,59 @@ export const WebtoonView: FC<WebtoonViewProps> = ({
 
   return (
     <div
-      role="presentation"
-      onClick={onTap}
-      className="flex min-h-full flex-col select-none [-webkit-touch-callout:none]"
+      ref={scrollerRef}
+      data-testid="webtoon-scroller"
+      data-reader-scroll
+      // A size container: the strip, the room above it and the end are sized by this screen
+      // (`cqw`, `cqh`). A scrollbar on desktop always takes its place, so the strip's width never
+      // depends on whether the chapter scrolls.
+      className="h-full w-full overflow-auto [container-type:size] [scrollbar-gutter:stable]"
     >
       <div
-        ref={(element) => {
-          contentRef.current = element;
-        }}
-        data-testid="webtoon-strip"
-        // The column: the screen's width up to 768 px (M46.7), made bigger or smaller by the
-        // webtoon size (M46.48), then zoomed.
-        className="mx-auto flex max-w-none shrink-0 flex-col"
-        style={{ width: stripWidth(size, zoom) }}
+        role="presentation"
+        onClick={onTap}
+        // As wide as the zoomed strip (the screen's width at least): what the screen scrolls.
+        className="flex min-h-full w-max min-w-full flex-col select-none [-webkit-touch-callout:none]"
       >
-        {pages.map((url, index) => (
-          <Slot
-            // By place: a page list asked for again may carry new addresses for the same pages.
-            key={index}
-            url={url}
-            index={index}
-            loaded={index >= first && index <= last}
-            ratio={ratios[index] ?? guess}
-            register={register}
-            onRatio={onRatio}
-            onMenu={onPageMenu}
-          />
-        ))}
-      </div>
-      <div
-        ref={endRef}
-        data-index={Math.max(total - 1, 0)}
-        className="flex min-h-[70dvh] flex-col justify-center"
-      >
-        {endCard}
+        <div
+          aria-hidden
+          data-testid="webtoon-lead"
+          className="shrink-0"
+          style={{ height: stripLead(size, zoom, ratios[0] ?? guess) }}
+        />
+        <div
+          ref={(element) => {
+            contentRef.current = element;
+          }}
+          data-testid="webtoon-strip"
+          // The column: the screen's width up to 768 px (M46.7), made bigger or smaller by the
+          // webtoon size (M46.48), then zoomed. Only it is zoomed.
+          className="mx-auto flex max-w-none shrink-0 flex-col"
+          style={{ width: stripWidth(size, zoom) }}
+        >
+          {pages.map((url, index) => (
+            <Slot
+              // By place: a page list asked for again may carry new addresses for the same pages.
+              key={index}
+              url={url}
+              index={index}
+              loaded={index >= first && index <= last}
+              ratio={ratios[index] ?? guess}
+              register={register}
+              onRatio={onRatio}
+              onMenu={onPageMenu}
+            />
+          ))}
+        </div>
+        <div
+          ref={endRef}
+          data-testid="chapter-end"
+          data-index={Math.max(total - 1, 0)}
+          // The screen's width at its left edge however far a zoomed strip is scrolled sideways.
+          className="sticky left-0 flex min-h-[70cqh] w-[100cqw] shrink-0 flex-col justify-center"
+        >
+          {endCard}
+        </div>
       </div>
     </div>
   );
