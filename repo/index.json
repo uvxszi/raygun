@@ -774,6 +774,27 @@
       "size": 5203
     },
     {
+      "id": "dev.raygun.wolfram-alpha",
+      "name": "Wolfram|Alpha",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Answers from Wolfram|Alpha in Search's Answers, each linked to its page on wolframalpha.com, under Wolfram|Alpha's API terms (products.wolframalpha.com/api/termsofuse). Needs your own AppID, created free for non-commercial use at developer.wolframalpha.com and entered in this source's settings. Results and information from Wolfram|Alpha are not a certified or definitive source of information that can be relied on for legal, financial, medical, life-safety or any other critical purposes.",
+      "author": "Raygun",
+      "provides": [
+        "answers"
+      ],
+      "permissions": {
+        "net": [
+          "api.wolframalpha.com"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.wolfram-alpha-1.0.0.zip",
+      "sha256": "8a5f4f574bcb54a406da81f063b2301d4aa334614eaa34dabec6f0174b87b446",
+      "size": 2143
+    },
+    {
       "id": "dev.raygun.xkcd",
       "name": "xkcd",
       "version": "1.0.0",
