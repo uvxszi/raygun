@@ -21,6 +21,8 @@ pub enum Kind {
     Files,
     /// The extension install queue, as one download: its batch.
     Extensions,
+    /// Sources → Add several, as one download: its list.
+    Sources,
 }
 
 impl Kind {
@@ -37,6 +39,7 @@ impl Kind {
             Kind::YtDlp => "ytdlp",
             Kind::Files => "files",
             Kind::Extensions => "extensions",
+            Kind::Sources => "sources",
         }
     }
 
@@ -53,6 +56,7 @@ impl Kind {
             "ytdlp" => Kind::YtDlp,
             "files" => Kind::Files,
             "extensions" => Kind::Extensions,
+            "sources" => Kind::Sources,
             _ => return None,
         })
     }
@@ -74,6 +78,7 @@ impl Kind {
             Kind::Models => "/settings/ai#models",
             Kind::Update => "/about",
             Kind::Extensions => "/browse?tab=extensions&list=all",
+            Kind::Sources => "/sources",
         }
     }
 
@@ -90,6 +95,7 @@ impl Kind {
             Kind::YtDlp => "YouTube download",
             Kind::Files => "File",
             Kind::Extensions => "Extensions",
+            Kind::Sources => "Sources",
         }
     }
 
@@ -98,6 +104,7 @@ impl Kind {
         match self {
             Kind::Exports => "Exporting",
             Kind::Extensions => "Installing",
+            Kind::Sources => "Adding",
             _ => "Downloading",
         }
     }
@@ -107,6 +114,7 @@ impl Kind {
         let (one, many) = match self {
             // A batch of installs counts as one.
             Kind::Extensions => return "extension installs".to_owned(),
+            Kind::Sources => return "sources to add".to_owned(),
             Kind::Songs => ("song", "songs"),
             Kind::Videos => ("video", "videos"),
             Kind::Chapters => ("chapter", "chapters"),
@@ -802,65 +810,65 @@ fn smooth(before: Option<f64>, now: f64) -> f64 {
 /// The notice at a batch's end: what was saved and what wasn't. Nothing when every download of
 /// the batch was removed.
 fn finish(batch: u64, ended: &[Download]) -> Option<Finished> {
-    // Extension installs end with their own summary ("11 installed · 1 failed"), as their title
-    // and text; with other downloads, it follows theirs.
-    let (installs, ended): (Vec<&Download>, Vec<&Download>) =
-        ended.iter().partition(|d| d.kind == Kind::Extensions);
-    let installs = installs.first().filter(|d| !d.title.is_empty());
+    // Extension installs and lists of sources end with their own summary ("11 installed · 1
+    // failed"), as their title and text; with other downloads, it follows theirs.
+    let (summaries, ended): (Vec<&Download>, Vec<&Download>) = ended
+        .iter()
+        .partition(|d| matches!(d.kind, Kind::Extensions | Kind::Sources));
     let mut finished = finish_downloads(batch, &ended);
-    match (&mut finished, installs) {
-        (Some(finished), Some(installs)) => {
-            finished.text = join([
-                Some(finished.text.clone()),
-                installs
-                    .subtitle
-                    .clone()
-                    .or_else(|| Some(installs.title.clone())),
-            ]);
-            finished.failed |= installs.phase == Phase::Failed;
-            if installs.abilities.retry {
-                match finished.actions.first_mut() {
-                    Some(retry) => retry.keys.push(installs.key()),
-                    None => finished.actions.push(Action {
-                        id: "retry",
-                        label: "Retry",
-                        keys: vec![installs.key()],
-                    }),
+    for summary in summaries.into_iter().filter(|d| !d.title.is_empty()) {
+        match &mut finished {
+            Some(finished) => {
+                finished.text = join([
+                    Some(finished.text.clone()),
+                    summary
+                        .subtitle
+                        .clone()
+                        .or_else(|| Some(summary.title.clone())),
+                ]);
+                finished.failed |= summary.phase == Phase::Failed;
+                if summary.abilities.retry {
+                    match finished.actions.first_mut() {
+                        Some(retry) => retry.keys.push(summary.key()),
+                        None => finished.actions.push(Action {
+                            id: "retry",
+                            label: "Retry",
+                            keys: vec![summary.key()],
+                        }),
+                    }
                 }
             }
+            None => {
+                let failed = summary.phase == Phase::Failed;
+                finished = Some(Finished {
+                    batch,
+                    title: summary.title.clone(),
+                    text: summary
+                        .subtitle
+                        .clone()
+                        .filter(|text| !text.trim().is_empty())
+                        .unwrap_or_else(|| {
+                            if failed {
+                                format!("Try it again from {}", summary.kind.noun())
+                            } else {
+                                "Ready to use".to_owned()
+                            }
+                        }),
+                    failed,
+                    actions: if summary.abilities.retry {
+                        vec![Action {
+                            id: "retry",
+                            label: "Retry",
+                            keys: vec![summary.key()],
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                    route: summary.route.clone(),
+                    lone: None,
+                });
+            }
         }
-        (None, Some(installs)) => {
-            let failed = installs.phase == Phase::Failed;
-            finished = Some(Finished {
-                batch,
-                title: installs.title.clone(),
-                text: installs
-                    .subtitle
-                    .clone()
-                    .filter(|text| !text.trim().is_empty())
-                    .unwrap_or_else(|| {
-                        if failed {
-                            "Try it again from Extensions"
-                        } else {
-                            "Ready to use"
-                        }
-                        .to_owned()
-                    }),
-                failed,
-                actions: if installs.abilities.retry {
-                    vec![Action {
-                        id: "retry",
-                        label: "Retry",
-                        keys: vec![installs.key()],
-                    }]
-                } else {
-                    Vec::new()
-                },
-                route: installs.route.clone(),
-                lone: None,
-            });
-        }
-        _ => {}
     }
     finished
 }
@@ -1202,4 +1210,111 @@ fn installs_download(
         },
         route,
     }
+}
+
+/// A list of sources being added (Sources → Add several) as one download: "Adding sources · 3
+/// of 12" with the address looked at now, then its summary ("9 added · 1 failed"). Offline Mode
+/// holds it as waiting. Nothing before the first list, or for one cancelled before anything
+/// ended.
+pub fn source_queue(status: &raygun_model::SourceQueueStatus) -> Option<Download> {
+    use raygun_model::SourceQueueState as State;
+
+    if status.batch == 0 || status.total == 0 {
+        return None;
+    }
+    let batch: Vec<&raygun_model::SourceQueueItem> = status
+        .items
+        .iter()
+        .filter(|item| item.batch == status.batch)
+        .collect();
+    let busy = |state| matches!(state, State::Waiting | State::Checking | State::Adding);
+    let ended = batch.iter().filter(|item| !busy(item.state)).count() as u32;
+    let waiting = batch.iter().any(|item| item.state == State::Waiting);
+    let download = |phase: Phase, title: String, subtitle: Option<String>| Download {
+        kind: Kind::Sources,
+        id: format!("list-{}", status.batch),
+        title,
+        subtitle,
+        phase,
+        done: f64::from(ended),
+        total: Some(f64::from(status.total)),
+        unit: Unit::Steps,
+        bytes: None,
+        left_ms: None,
+        speed: None,
+        error: None,
+        abilities: Abilities {
+            retry: phase == Phase::Failed,
+            ..Abilities::default()
+        },
+        route: Kind::Sources.route().to_owned(),
+    };
+    if status.running {
+        let step = batch.iter().find_map(|item| match item.state {
+            State::Checking => Some("Checking"),
+            State::Adding => Some("Adding"),
+            _ => None,
+        });
+        let subtitle = match (&status.current, step) {
+            _ if status.loading => Some("Loading extensions".to_owned()),
+            (Some(current), Some(step)) => Some(format!("{current} · {step}")),
+            (Some(current), None) => Some(current.clone()),
+            (None, _) => None,
+        };
+        let mut shown = download(
+            if status.paused {
+                Phase::Queued
+            } else {
+                Phase::Running
+            },
+            format!(
+                "Adding sources · {} of {}",
+                (ended + 1).min(status.total),
+                status.total
+            ),
+            subtitle,
+        );
+        shown.abilities.cancel = waiting;
+        return Some(shown);
+    }
+    if ended <= status.cancelled {
+        return None;
+    }
+    let phase = if status.failed > 0 {
+        Phase::Failed
+    } else {
+        Phase::Done
+    };
+    if let [only] = batch.as_slice() {
+        let name = only.name.as_deref().unwrap_or(&only.address);
+        let title = match only.state {
+            State::Added => format!("{name} added"),
+            State::AlreadyAdded => format!("{name} was added already"),
+            State::NeedsSignIn => format!("Sign in to {name} to connect it"),
+            State::NeedsSetup => format!("Set up {name} on its website to add it"),
+            _ => format!("{name} wasn't added"),
+        };
+        let reason = only
+            .error
+            .as_deref()
+            .and_then(|error| error.lines().next())
+            .map(str::to_owned);
+        return Some(download(phase, title, reason));
+    }
+    let counts = join([
+        (status.added > 0).then(|| format!("{} added", status.added)),
+        (status.already_added > 0).then(|| format!("{} added already", status.already_added)),
+        (status.needs_sign_in > 0).then(|| format!("{} to sign in to", status.needs_sign_in)),
+        (status.needs_setup > 0).then(|| format!("{} to set up", status.needs_setup)),
+        (status.failed > 0).then(|| format!("{} failed", status.failed)),
+        (status.cancelled > 0).then(|| format!("{} cancelled", status.cancelled)),
+    ]);
+    let title = if status.added > 0 {
+        "Sources added"
+    } else if status.failed > 0 {
+        "Sources weren't added"
+    } else {
+        "Sources looked at"
+    };
+    Some(download(phase, title.to_owned(), Some(counts)))
 }

@@ -153,6 +153,10 @@ pub struct SourcesSetupEvent(pub Vec<raygun_model::SourceSetup>);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct ExtensionInstallsEvent(pub raygun_model::ExtensionInstallStatus);
 
+/// Sources → Add several changed: an address was queued, looked at, added or ended otherwise.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct SourceQueueEvent(pub raygun_model::SourceQueueStatus);
+
 /// One source answered a music search that's still waiting for others; one event per source.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
 pub struct SearchProgressEvent(pub raygun_model::SearchProgress);

@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { resetInstallQueue } from '../extensions/installQueue';
 import { usePlayerUiStore } from '../player/playerUiStore';
 import { createAppRouter } from '../router';
+import { resetSourceQueue } from '../sources/sourceQueue';
 import { EMPTY_QUEUE, IDLE_STATE, emitEvent, seedBindings } from '../test/bindingsMock';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { useTrailerStore } from '../video/trailerStore';
@@ -35,6 +36,7 @@ export const AppShellWrapper = {
     useVideoPlayerStore.getState().close();
     useTrailerStore.getState().close();
     resetInstallQueue();
+    resetSourceQueue();
   },
 
   async mount(path = '/') {

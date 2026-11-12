@@ -28,6 +28,7 @@ import type { BulkSelection } from '../shell/useBulkSelection';
 import { matchesSearch } from '../shell/useListSearch';
 import { useSearchMode } from '../shell/useSearchMode';
 import { AddSourceSheet } from '../sources/AddSourceSheet';
+import { SourceQueueCard } from '../sources/SourceQueueCard';
 import {
   SOURCE_MEDIA,
   SOURCE_TYPES,
@@ -281,6 +282,8 @@ export const SourcesPage: FC = () => {
           </>
         }
       />
+      {/* A list added with Add several, as it goes (and after, until cleared). */}
+      <SourceQueueCard />
       <nav
         aria-label={t('sources.page.types')}
         className="-mx-4 flex gap-2 no-scrollbar overflow-x-auto px-4 lg:mx-0 lg:px-0"

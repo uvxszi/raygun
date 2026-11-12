@@ -1,5 +1,5 @@
 import type { CatalogEntry, DetectedSource } from '@raygun/bindings';
-import { Check, LoaderCircle, Plus, Search, Settings2 } from 'lucide-react';
+import { Check, Link2, ListPlus, LoaderCircle, Plus, Search, Settings2 } from 'lucide-react';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +16,8 @@ import { SourceIssue } from '../shell/SourceIssue';
 import { SHEET_FIELD, SHEET_INPUT } from '../shell/TextField';
 import { AddonLogo, ProvidesChips } from '../watch/AddonRows';
 import { useConfigureAddon } from '../watch/useStremio';
+import { AddSeveral } from './AddSeveral';
+import { withLines } from './sourceQueue';
 import { useAddSource, useDetectSource } from './useSources';
 
 /** "Looks like a Stremio addon: Cinemeta", by what was found. */
@@ -141,17 +143,24 @@ const DetectedCard: FC<{ source: DetectedSource; address: string; onAdded: () =>
   );
 };
 
-/**
- * Sources → Add (M46.52): one field for any address. Look up asks Rust what it is (a Stremio
- * addon, a repository of any format Raygun reads, one extension, a server) and shows it before
- * it's added; a file or a folder picked beside the field is looked up at once. A server can also
- * be connected by hand (its kind picked), before or after a look up.
- */
-export const AddSourceSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
+type AddMode = 'one' | 'several';
+const MODES: AddMode[] = ['one', 'several'];
+
+/** Pasted text holding more than one address. */
+const severalIn = (text: string) =>
+  text.split(/\r?\n/).filter((line) => line.trim() && !line.trim().startsWith('#')).length > 1;
+
+/** One address: looked at, then shown with Add (or a server's sign-in). */
+const OneAddress: FC<{
+  address: string;
+  onAddressChange: (address: string) => void;
+  /** A list was pasted into the field. */
+  onList: (pasted: string) => void;
+  onByHand: () => void;
+  onClose: () => void;
+  detect: ReturnType<typeof useDetectSource>;
+}> = ({ address, onAddressChange, onList, onByHand, onClose, detect }) => {
   const { t } = useTranslation();
-  const [address, setAddress] = useState('');
-  const [byHand, setByHand] = useState(false);
-  const detect = useDetectSource();
   const gate = useLocalNetworkGate('source');
   const typed = address.trim();
   // What's shown is about what's typed: typing again asks again.
@@ -165,10 +174,8 @@ export const AddSourceSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
     if (wanted) void gate.guard(wanted, () => detect.mutate(wanted));
   };
 
-  if (byHand) return <ServerSheet onClose={onClose} />;
-
   return (
-    <Sheet title={t('sources.add.title')} onClose={onClose}>
+    <>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -185,8 +192,15 @@ export const AddSourceSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
           spellCheck={false}
           autoFocus
           value={address}
-          onChange={setAddress}
+          onChange={onAddressChange}
           onPicked={look}
+          onPaste={(event) => {
+            const pasted =
+              event.clipboardData.getData('text/plain') || event.clipboardData.getData('text');
+            if (!severalIn(pasted)) return;
+            event.preventDefault();
+            onList(pasted);
+          }}
           placeholder={t('sources.add.placeholder')}
           aria-label={t('sources.add.address')}
           className={SHEET_FIELD}
@@ -205,7 +219,7 @@ export const AddSourceSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
             {!looking && (
               <button
                 type="button"
-                onClick={() => setByHand(true)}
+                onClick={onByHand}
                 className="text-primary rounded-full px-3 py-2 text-sm font-medium"
               >
                 {t('sources.add.byHand')}
@@ -228,6 +242,61 @@ export const AddSourceSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
       </form>
       {current && <DetectedCard source={current} address={typed} onAdded={onClose} />}
       {gate.sheet}
+    </>
+  );
+};
+
+/**
+ * Sources → Add (M46.52): one field for any address. Look up asks Rust what it is (a Stremio
+ * addon, a repository of any format Raygun reads, one extension, a server) and shows it before
+ * it's added; a file or a folder picked beside the field is looked up at once. A server can also
+ * be connected by hand (its kind picked), before or after a look up. Several takes a list, one
+ * address a line, added one after another; a list pasted into the one address's field goes
+ * there.
+ */
+export const AddSourceSheet: FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { t } = useTranslation();
+  const [mode, setMode] = useState<AddMode>('one');
+  const [address, setAddress] = useState('');
+  const [list, setList] = useState('');
+  const [byHand, setByHand] = useState(false);
+  // Kept here, so what was found stays while the other mode shows.
+  const detect = useDetectSource();
+
+  if (byHand) return <ServerSheet onClose={onClose} />;
+
+  return (
+    <Sheet title={t('sources.add.title')} onClose={onClose}>
+      <div role="tablist" aria-label={t('sources.add.modes')} className="flex gap-2">
+        {MODES.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={mode === id}
+            onClick={() => setMode(id)}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm ${mode === id ? 'bg-primary text-background font-semibold' : 'bg-background'}`}
+          >
+            {id === 'one' ? <Link2 aria-hidden size={14} /> : <ListPlus aria-hidden size={14} />}
+            {t(`sources.add.mode.${id}`)}
+          </button>
+        ))}
+      </div>
+      {mode === 'several' ? (
+        <AddSeveral text={list} onTextChange={setList} />
+      ) : (
+        <OneAddress
+          address={address}
+          onAddressChange={setAddress}
+          onList={(pasted) => {
+            setList((before) => withLines(before, [pasted.replace(/\r\n?/g, '\n').trimEnd()]));
+            setMode('several');
+          }}
+          onByHand={() => setByHand(true)}
+          onClose={onClose}
+          detect={detect}
+        />
+      )}
     </Sheet>
   );
 };

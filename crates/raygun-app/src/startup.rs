@@ -248,6 +248,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         raygun_net::http_client()?,
     ));
+    // Sources → Add several: lists of addresses, added one after another.
+    app.manage(crate::source_queue::SourceQueue::start_in(app.handle()));
     app.manage(std::sync::Arc::new(crate::resolver::ResolverService::new(
         app.handle().clone(),
     )));

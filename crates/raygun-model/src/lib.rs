@@ -4561,6 +4561,89 @@ pub struct ExtensionInstallStatus {
     pub phase: Option<ExtensionInstallPhase>,
 }
 
+/// Where an address of a list added in Sources → Add is (several at once, one after another in
+/// the order pasted).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceQueueState {
+    /// Waiting its turn.
+    Waiting,
+    /// Being looked at: what it is, and whether this device has it.
+    Checking,
+    /// Being added: the repository or the addon added, the extension installed.
+    Adding,
+    Added,
+    /// This device has it: the addon, the repository, the extension at this version, the server.
+    AlreadyAdded,
+    /// A server, connected with a sign-in that waits for the person; the rest went on.
+    NeedsSignIn,
+    /// A Stremio addon to set up on its website first; the address it then gives is added.
+    NeedsSetup,
+    Failed,
+    Cancelled,
+}
+
+/// One address of the list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceQueueItem {
+    /// Tells it from the others while Raygun runs.
+    pub id: u32,
+    /// As pasted, trimmed.
+    pub address: String,
+    pub state: SourceQueueState,
+    /// What it turned out to be, once looked at.
+    pub kind: Option<DetectedKind>,
+    pub format: Option<SourceFormat>,
+    pub server: Option<ServerKind>,
+    pub name: Option<String>,
+    /// What it's added by; a server's address, for its sign-in.
+    pub url: Option<String>,
+    /// Where a Stremio addon that needs setting up is set up.
+    pub configure_url: Option<String>,
+    /// Why it wasn't added: a sentence, then the details.
+    pub error: Option<String>,
+    /// The list it came with; ones waiting for the person stay listed with later lists.
+    pub batch: u32,
+}
+
+/// Sources → Add several: the addresses queued, looked at and added one at a time.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceQueueStatus {
+    /// Counts from 1; 0 before the first list.
+    pub batch: u32,
+    /// In the order pasted.
+    pub items: Vec<SourceQueueItem>,
+    /// This list's addresses, cancelled ones included, then how many of them ended each way.
+    pub total: u32,
+    pub added: u32,
+    pub already_added: u32,
+    pub needs_sign_in: u32,
+    pub needs_setup: u32,
+    pub failed: u32,
+    pub cancelled: u32,
+    /// Something waits, is looked at or added, or the extensions installed load.
+    pub running: bool,
+    /// Offline Mode holds what waits until it ends.
+    pub paused: bool,
+    /// The extensions installed load (once, when nothing is left).
+    pub loading: bool,
+    /// What's looked at or added now: its name once known, else its address.
+    pub current: Option<String>,
+}
+
+/// A list queued: how many of its addresses joined the queue, how many were left out as already
+/// in it (or twice in the list), and how many didn't fit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceQueueAdded {
+    pub queued: u32,
+    pub duplicates: u32,
+    pub over_limit: u32,
+    pub status: SourceQueueStatus,
+}
+
 /// A track found by an online provider.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

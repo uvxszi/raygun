@@ -81,6 +81,7 @@ mod settings;
 mod song_memory;
 mod sound;
 mod source_detect;
+mod source_queue;
 mod sponsorblock;
 mod startup;
 mod stremio;
@@ -173,6 +174,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::catalog_open_page,
             commands::sources_detect,
             commands::sources_add,
+            source_queue::sources_queue_status,
+            source_queue::sources_queue_add,
+            source_queue::sources_queue_read_file,
+            source_queue::sources_queue_local_address,
+            source_queue::sources_queue_cancel,
+            source_queue::sources_queue_retry,
+            source_queue::sources_queue_dismiss,
+            source_queue::sources_queue_signed_in,
             commands::files_pick,
             commands::extension_repos,
             commands::extension_suggested_repos,
@@ -656,6 +665,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ExtensionsChangedEvent,
             events::SourcesSetupEvent,
             events::ExtensionInstallsEvent,
+            events::SourceQueueEvent,
             events::SearchProgressEvent,
             events::SyncChangedEvent,
             events::MangaUpdateEvent,
