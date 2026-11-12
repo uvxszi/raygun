@@ -356,20 +356,34 @@ impl JsExtension {
         let filename = format!("{}/{}", shared.manifest.id, shared.manifest.entry);
         let natives = shared.clone();
         let nuclear = shared.manifest.nuclear.is_some();
+        // A converted Mihon source's web views (`crate::mihon::views`): the checks they meet are
+        // noted as its requests' are, and their waits aren't the script's work.
+        let mihon_hooks = mihon.as_ref().map(|_| {
+            let noted = shared.clone();
+            let restarted = shared.clone();
+            crate::mihon::runtime::Hooks {
+                cookies: cookies.clone(),
+                extension_id: shared.manifest.id.clone(),
+                policy: shared.policy.clone(),
+                note_check: Rc::new(move |request: CheckedRequest, detail: String| {
+                    noted.note(NetEvent::Trouble(
+                        Trouble {
+                            kind: IssueKind::BotCheck,
+                            detail,
+                        },
+                        Some(Box::new(request)),
+                    ));
+                }),
+                restart: Rc::new(move || restarted.restart_budget()),
+            }
+        });
         shared.restart_budget();
         context
             .with(move |ctx| -> Result<(), String> {
                 install_natives(&ctx, natives).map_err(|error| error.to_string())?;
                 eval_script(&ctx, PRELUDE, "raygun:prelude", true)?;
-                if let Some(prepared) = &mihon {
-                    return crate::mihon::runtime::install(
-                        &ctx,
-                        prepared,
-                        crate::mihon::runtime::Hooks {
-                            cookies: cookies.clone(),
-                        },
-                        &filename,
-                    );
+                if let (Some(prepared), Some(hooks)) = (&mihon, mihon_hooks) {
+                    return crate::mihon::runtime::install(&ctx, prepared, hooks, &filename);
                 }
                 match (&miru, &lnreader) {
                     (Some(prepared), _) => crate::miru::runtime::install(

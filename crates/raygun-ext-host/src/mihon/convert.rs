@@ -151,14 +151,16 @@ pub const THEMES: [Theme; 2] = [
 
 /// Libraries the runtime has itself: `lib:i18n`'s messages come with the converted code;
 /// `lib:textinterceptor` (text drawn as a page) and `lib:imagedecoder` (pictures decoded) are the
-/// runtime's own (`mihon/kotlin.js`), as are the classes extensions use of commons-text
-/// (`StringSubstitutor`), java-string-similarity (`Levenshtein`, `NormalizedLevenshtein`,
-/// `JaroWinkler`) and java-nat-sort (its simple natural comparators); what else of those an
-/// extension uses is refused by name.
-const PROVIDED_LIBRARIES: [&str; 6] = [
+/// runtime's own (`mihon/kotlin.js`), and `lib:cronet` (Chrome's transport where the device has
+/// one, else OkHttp's) leaves requests on Raygun's own, as are the classes extensions use of
+/// commons-text (`StringSubstitutor`), java-string-similarity (`Levenshtein`,
+/// `NormalizedLevenshtein`, `JaroWinkler`) and java-nat-sort (its simple natural comparators);
+/// what else of those an extension uses is refused by name.
+const PROVIDED_LIBRARIES: [&str; 7] = [
     "lib:i18n",
     "lib:textinterceptor",
     "lib:imagedecoder",
+    "lib:cronet",
     "org.apache.commons:commons-text",
     "info.debatty:java-string-similarity",
     "com.github.gpanther:java-nat-sort",

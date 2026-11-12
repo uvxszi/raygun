@@ -9,10 +9,11 @@
 //!   values its theme takes, `transpile` turns a theme-less one into JavaScript.
 //! - `runtime` and `prelude.js` are the runtime `mihon`: Raygun's JavaScript host with a
 //!   Jsoup-compatible document model, Kotlin's helpers and the themes (`themes/*.js`);
-//!   `pictures` and `text` draw the pictures sources' interceptors put back together.
+//!   `pictures` and `text` draw the pictures sources' interceptors put back together; `views`
+//!   drives the hidden web views (`crate::webview`) Keiyoushi's `runWebView` asks for.
 //!
-//! An extension that can't be converted faithfully (a WebView, code the converter doesn't read)
-//! is refused at install with the reason, which the catalogue then shows.
+//! An extension that can't be converted faithfully (code the converter doesn't read) is refused
+//! at install with the reason, which the catalogue then shows.
 
 pub mod apk;
 pub mod convert;
@@ -27,11 +28,14 @@ pub(crate) mod runtime;
 pub mod source;
 mod text;
 pub mod transpile;
+mod views;
 
 #[cfg(test)]
 mod live_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod view_tests;
 
 pub use convert::{CONVERTER_VERSION, Converted, convert, package};
 pub use index::{

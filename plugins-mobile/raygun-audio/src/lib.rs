@@ -22,6 +22,7 @@ static CONTROL_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static TTS_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static VIDEO_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static WEBSITE_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
+static WEB_VIEW_HANDLER: OnceLock<ReportHandler> = OnceLock::new();
 static NOTIFICATION_ACTION_HANDLER: Later = Later::new();
 static OPEN_HANDLER: Later = Later::new();
 static OPEN_WITH_HANDLER: Later = Later::new();
@@ -160,6 +161,20 @@ pub fn set_website_handler(handler: impl Fn(String) + Send + Sync + 'static) {
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn deliver_website(json: String) {
     if let Some(handler) = WEBSITE_HANDLER.get() {
+        handler(json);
+    }
+}
+
+/// Installs the receiver for the hidden web views' events (`{"id", "kind", …}` JSON, see
+/// `HiddenViews.kt` and `raygun_ext_host::webview`). Called on a thread of the plugin's own. Only
+/// the first call wins.
+pub fn set_web_view_handler(handler: impl Fn(String) + Send + Sync + 'static) {
+    let _ = WEB_VIEW_HANDLER.set(Box::new(handler));
+}
+
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn deliver_web_view(json: String) {
+    if let Some(handler) = WEB_VIEW_HANDLER.get() {
         handler(json);
     }
 }
@@ -486,6 +501,15 @@ impl<R: Runtime> NativeAudio<R> {
     pub fn browser_check(&self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
         self.run::<serde_json::Value>("browserCheck", request.clone())
             .map_err(|error| error.to_string())
+    }
+
+    /// A command for the hidden web views converted sources drive (`{"op", "id", …}`, see
+    /// `raygun_ext_host::webview::Command`); their events come back through
+    /// [`set_web_view_handler`]. Works without Raygun's window.
+    #[cfg(target_os = "android")]
+    pub fn web_view(&self, command: &serde_json::Value) -> Result<(), String> {
+        self.run::<serde_json::Value>("webView", command.clone())
+            .map(|_| ())
     }
 
     /// Offline Mode in the main webview: while `on`, it loads nothing from the network, only from

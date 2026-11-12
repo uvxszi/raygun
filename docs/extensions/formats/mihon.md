@@ -332,16 +332,19 @@ conversion as installing does (one that doesn't load counts as refused):
 | Masonry, UzayManga, VineTheme, WPComics, YiiMadara | 34 | 34 |
 | MangaHub, Grouple, MMRCMS | 23 | 23 |
 | Other themes | 133 | 136 |
-| No theme | 852 | 862 |
-| All | 1574 (99.2%) | 1587 |
+| No theme | 854 | 862 |
+| All | 1576 (99.3%) | 1587 |
 
-The 13 refusals left are one or two extensions each, most of them on what has no stand-in:
-web views and their windows, which nine use for their pages or listings
-(`WebResourceResponse`, `CountDownLatch` around one in the pam theme's three, an `Intent`
-opening a challenge page, `ViewGroup.LayoutParams`, a `Presentation`'s `dismiss()`), Cronet's
-own transport, the kim image-metadata library, Pepper&Carrot's protobuf-encoded preferences,
-and one on Kotlin the converter doesn't read yet (an anonymous object subclassing a declared
-generic class with extensions of its own). Classes declared in a function's body are defined
+The 11 refusals left are one to three extensions each, on what has no stand-in: libsodium's
+secretstream (`lib:secretstream`, Java), which the pam theme's three decrypt their pages with
+beside their web views; a visible challenge or verification opened for the person (Japscan's and
+Scan Manga's `Intent`, MangaLivre's), which is the manual browser check in Raygun; a web view
+shown in a dialog for a check (ProComic's `ViewGroup.LayoutParams`) or drawn on a virtual display
+(Comix's `Presentation`); the kim image-metadata library; Pepper&Carrot's protobuf-encoded
+preferences; and one on Kotlin the converter doesn't read yet (an anonymous object subclassing a
+declared generic class with extensions of its own). Web views (below) and `lib:cronet` (Chrome's
+transport where the device has one: Raygun's requests keep their own) brought Temple Scan and one
+more in. Classes declared in a function's body are defined
 where the code reaches them. Android's `PdfRenderer` (over `ParcelFileDescriptor.open(file)`)
 is `mihon/pdf.rs`: pages rasterized by `hayro` (pure Rust, no embedded fonts) into the
 source's picture, so sources whose chapters are PDF files convert.
@@ -414,60 +417,68 @@ survey kept (`MIHON_SURVEY_DUMP` with `MIHON_SURVEY_DUMP_ALL=1`) and lists what 
 of the runtime's objects that they lack (`Integer.rotateLeft`, `Parser.xmlParser` once), which
 loading a conversion doesn't show.
 
-## Web views (design)
+## Web views
 
-Not built yet. What sources ask of a web view, and how a converted source could run that part
-through a hidden one of Raygun's, behind the same kind of window machinery as browser checks
-(`raygun_ext_host::browser_check`).
+Keiyoushi's `runWebView(timeout) { … }` (`keiyoushi/utils/WebView.kt`), which about 40 conversions
+call on some path, runs in a hidden web view of Raygun's (`raygun_ext_host::webview`), and so does
+`getLocalStorage(url, key)`.
 
-**What sources ask for.** 38 conversions call Keiyoushi's `runWebView(timeout) { … }`
-(`keiyoushi/utils/WebView.kt`) on some path, which fails today naming the site ("reads … in a web
-view, which Raygun doesn't have"); 6 of the 13 refusals drive one too (the pam theme's three, Temple
-Scan, ProComic, Comix). The DSL loads a page (`loadUrl`, `loadData`) with settings (`userAgent`,
-`blockImages`, `javaScriptEnabled`, `domStorageEnabled`) and reads what the page's scripts make:
-`evaluateJs`, `poll`, `onPageStarted`/`onPageFinished`, `injectAtDocumentStart`,
-`webMessageBridge` (the page posts messages to a named object for the given origins),
-`getLocalStorage`; the run ends with `resolve`/`reject` or its timeout. About 20 use only these;
-17 also answer the page's requests themselves (`interceptRequest`: block, replace, or hold a
-request; `proxyRequest`: send it through the source's client). Three more (Japscan, Scan Manga,
-MangaLivre) open a visible challenge or verification for the person: that is the manual
-browser check, not a hidden view.
+**Runtime.** The converter writes the block as a function of Keiyoushi's `WebViewScope`
+(`KT.webView`, `kotlin.js`'s `webViewRun`). The block sets the view up: `userAgent`,
+`blockImages`, `javaScriptEnabled`, `domStorageEnabled`; `webMessageBridge` (the page posts to a
+named object, for the origins given), `injectAtDocumentStart` and `addJavaScriptOnEvent` (at a
+document's start or end), `interceptRequest`, `onPageStarted`, `onPageFinished`,
+`onReceivedError`, `poll`; its first `loadUrl` or `loadData` opens the view with all of it. The
+view's events (a page started or finished, a title, a failed load, a bridge's message, a request
+to answer) wake the hooks in order, on the extension's lane (`mihon/views.rs`, the native
+`webView(op, args)`); `evaluateJs` answers the script's value as JSON; a request the source
+intercepts waits for its answer (a `WebResourceResponse`, or null to let the view load it), and
+`proxyRequest` sends a page's GET through the source's own client. The run ends with `resolve`,
+`reject`, a hook that throws, or its timeout (`WebViewTimeoutException`, which `catch (e:
+IOException)` doesn't take), at most 60 s; the view closes then. `getLocalStorage` reads an empty
+page's storage with `url` as its address (`url` isn't fetched); a key it doesn't find isn't asked
+again for five minutes. `withNativeWebView` and `setOriginMatchedHeader` fail as on WebViews
+without them (sources read `originMatchedHeaderSupported` first); a bridge's reply proxy posts
+back on Android, its `evaluateJs` isn't there.
 
-**Runtime.** The converter emits the `runWebView` lambda as a call on a scope object (as for
-`apply`), and `kotlin.js` implements Keiyoushi's scope over a native `webView(op, args)`: commands
-(`open` with the settings and the source's User-Agent, `load`, `loadData`, `evaluate`,
-`injectAtStart`, `bridge`, `close`) and, in order, events (page started or finished, an error, a
-bridge message, a request to answer) that wake the scope's hooks on the runtime's lane. `poll` and
-the timeout are the runtime's timers; a hook that throws rejects; any end closes the view. The
-host gets the views from the app as a trait object in `HostConfig` (as the cookie jar and browser
-checks are wired); without one the call keeps today's message.
+**Never a check.** Raygun doesn't pass browser checks. A run that passes one never opens a view
+and fails as a browser check, naming the page it would load: `runWebViewBlocking` (interceptors
+use it for that: DLE Guard, Anubis, AWS WAF tokens, a `/_c` check), a run in a function or class
+named for a check (`passCloudflare`, `ChallengeSolverInterceptor`) or a block naming one
+(`isAnubis()`, `wafToken()`, `cf_clearance`), and `getTurnstileToken`. Views never load checks'
+providers (`webview::CHALLENGE_HOSTS` and `CHALLENGE_PATHS`: Turnstile, hCaptcha, reCAPTCHA,
+DataDome, Arkose, PerimeterX, Cloudflare's challenge platform), and a page that turns out to be a
+check (`cf-mitigated: challenge`, a check's title) ends the run as one. The check is then noted
+with the page and the view's User-Agent, for the person to pass by hand (`browser_check`); the
+pass's cookies and User-Agent go with the source's requests and its later views.
 
-**Platforms.** Each view is apart from Raygun: its own browser data, no bridge to Raygun's pages
-or IPC but the message names the source asked for, limited to the origins it named.
+**Limits.** One view per extension at a time and three in all (`webview::MOST_VIEWS`); only what
+the extension's network permissions allow (`*` is any public host, never this device or the local
+network), no other schemes, popups, files or content addresses; nothing of Raygun's but the
+message objects the source named, for the origins it named. A view loads with the extension's
+cookies for its page and the User-Agent its requests carry, and hands its cookies back to the
+extension's jar when it closes (for the session), as Mihon's WebView and OkHttp share one store.
+A run nobody waits for any more (its call timed out) has its view closed at its deadline.
 
-- Android: a WebView in its own process (as `BrowserCheckActivity` in `:check`), not shown,
-  laid out off screen at a phone's size (pages that measure themselves, ProComic's
-  `layOutHidden`); bridges through androidx's `addWebMessageListener`, document-start scripts
-  through `addDocumentStartJavaScript`; commands and events through a bound service's Messenger.
-  `shouldInterceptRequest` runs on WebView's own threads, so an intercepted request waits there
-  (with the run's deadline) for the source's handler, which runs in the runtime.
-- Desktop: a hidden Tauri webview with its own profile (`web/views`, beside the websites' and
-  checks') and no capabilities; scripts by initialization scripts and `eval`; results and bridge
-  messages through a custom scheme per view, since the window has no Tauri IPC; interception
-  through WebView2's `WebResourceRequested` on Windows (as the websites' blocker), not offered
-  elsewhere (sources that need it fail as today).
+**Platforms.** The app installs the platform's views (`raygun-app/src/web_views.rs`):
 
-**Limits.** One view per extension at a time and a few per host; the source's timeout, at most
-60 s; a view that meets a browser check (Turnstile, a captcha page) rejects as one, so the manual
-flow applies, and Raygun never solves it; the view's cookies reach the extension's cookie jar only
-as the source reads them (`CookieManager`), as Mihon's do.
+- Android: `HiddenViewService` in the `raygun-audio` plugin, in a process of its own (`:views`)
+  with its own WebView data; each extension's views share a WebView profile of their own where
+  the WebView has profiles (cleared for each view otherwise). A view is never shown, laid out off
+  screen at the display's size. Commands and events go through a bound service's `Messenger`
+  (`HiddenViews.kt`), events reach Rust over JNI (`NativeBridge.onWebView`); bridges are
+  androidx's `addWebMessageListener`, start scripts `addDocumentStartJavaScript`; an intercepted
+  request waits on WebView's own thread until the run's deadline; large answers cross through a
+  file in the cache. The service is let go 30 s after its last view closes.
+- Windows: a hidden window per view (WebView2, a profile per extension under `web/views`, no
+  capabilities); bridges and start scripts are initialization scripts that check their origin,
+  messages come as objects marked with the view's token (`WebMessageReceived`), requests are
+  answered through `WebResourceRequested` with a deferral, and `loadData` answers its own
+  address's request with the page.
+- Other desktops have none: those sources say they read the site in a web view.
 
-**Order.** (1) The runtime's scope, the `webView` native and its trait, the converter's lambda,
-tested against a scripted fake view (fixture pages, canned script answers); (2) the Android host
-without interception, checked on the emulator with the sources that need none (Cubari, Jago
-Dibuja, MangaUp, NamiComi, Inkr, BookWalker, Zebrack…); (3) interception, Android first; (4) the
-desktop host. Steps 2–4 need device checks.
-
+Three sources open a visible challenge or verification for the person instead (Japscan, Scan
+Manga, MangaLivre's `Intent`): that's the manual browser check, not a hidden view.
 ## Running source code in a container
 
 A second tier for extensions that can't be converted: their own compiled code, run apart from

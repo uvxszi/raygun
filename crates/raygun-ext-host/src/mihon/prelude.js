@@ -1023,6 +1023,8 @@
   /** The User-Agent a request to `href` carries when it names none. */
   K.userAgent = (href) => native.userAgent(K.str(href));
   K.setCookies = (href, lines) => unwrap(native.setCookies(K.str(href), JSON.stringify(lines)));
+  /** The extension's hidden web views (`mihon/views.rs`): `open`, `load`, `next`… */
+  K.webView = async (op, args) => unwrap(await native.webView(op, JSON.stringify(args ?? {})));
   K.base64Decode = (text) => {
     const binary = atob(K.str(text).replace(/\s+/g, ''));
     // UTF-8 bytes to text.

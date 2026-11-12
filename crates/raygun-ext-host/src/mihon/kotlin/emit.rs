@@ -410,6 +410,13 @@ pub const METHODS: &[&str] = &[
     "readBytes", "writeBytes", "writeText", "appendText", "listFiles", "renameTo",
     "createTempFile", "isDirectory", "isEqual", "getOffset", "getRawOffset", "freeze",
     "cloneAsThawed", "toHashSet", "asList", "getElementsContainingText",
+    // Keiyoushi's `WebViewScope` (`kotlin.js`'s `webViewScope`), its replies and latches.
+    "loadUrl", "loadData", "evaluateJs", "onPageStarted", "onPageFinished", "onReceivedError",
+    "interceptRequest", "proxyRequest", "webMessageBridge", "injectAtDocumentStart",
+    "addJavaScriptOnEvent", "stopLoading", "poll", "withNativeWebView", "setOriginMatchedHeader",
+    "reject", "postMessage", "countDown", "getCount", "setStatusCodeAndReasonPhrase",
+    "setResponseHeaders", "setData", "setMimeType", "setEncoding", "toZoneId", "toTimeZone",
+    "cronet",
 ];
 
 fn quote(text: &str) -> String {
@@ -2671,17 +2678,41 @@ impl<'a> Gen<'a> {
                     {
                         return self.receiver_call_returning(lambda, "[]", name);
                     }
-                    // Keiyoushi's `runWebView { … }`: a web view the source drives, which Raygun
-                    // doesn't have. The call fails naming the page it would load: as a browser
-                    // check when the function passes one (which the person may then pass by
-                    // hand), else as a page that needs a web view.
+                    // Keiyoushi's `runWebView { … }`: a hidden web view the source drives
+                    // (`crate::webview`), the block run with the view's scope as its receiver. A
+                    // run that passes a browser check never runs: Raygun doesn't pass checks, so
+                    // it fails as one, naming the page it would load, for the person to pass by
+                    // hand. Interceptors' blocking runs (`runWebViewBlocking`) all do that.
                     ("runWebView" | "runWebViewBlocking", Some(lambda)) => {
-                        let page = loaded_page(&lambda.body)
-                            .and_then(|page| self.expr(&page).ok())
-                            .unwrap_or_else(|| "null".to_owned());
-                        let check = passes_a_check(&self.function_name);
+                        let blocking = name == "runWebViewBlocking";
+                        let check = blocking
+                            || passes_a_check(&self.function_name)
+                            || self.class_scope.as_deref().is_some_and(passes_a_check)
+                            || mentions_a_check(&lambda.body);
+                        let page = match loaded_page(&lambda.body) {
+                            Some(page) if check => self.expr(&page).map_or_else(
+                                |_| "null".to_owned(),
+                                |page| {
+                                    format!(
+                                        "(await (async () => {{ try {{ return {page}; }} catch {{ return null; }} }})())"
+                                    )
+                                },
+                            ),
+                            _ => "null".to_owned(),
+                        };
+                        let (args, named) = self.args(args, None)?;
+                        let receiver = self.temp();
+                        self.push_receiver(
+                            &receiver,
+                            [Some(name.as_str()), lambda.label.as_deref()],
+                        );
+                        let function = self.lambda(&without_it(lambda), name);
+                        self.pop_receiver();
+                        let function = function?;
                         return Ok(format!(
-                            "(($$ = KT.call(\"runWebView\", [{page}, (await self.get(\"baseUrl\")), {check}])) instanceof Promise ? await $$ : $$)"
+                            "(($$ = KT.webView(self, {{ check: {check}, blocking: {blocking}, page: {page} }}, [{}], {}, (async ({receiver}) => {function}()))) instanceof Promise ? await $$ : $$)",
+                            args.join(", "),
+                            named.unwrap_or_else(|| "null".to_owned()),
                         ));
                     }
                     // kotlinx.serialization's settings: reading always ignores unknown keys and
@@ -3683,6 +3714,31 @@ fn passes_a_check(function: &str) -> bool {
     MARKS.iter().any(|mark| lower.contains(mark))
 }
 
+/// Whether a web view's block names what passing a browser check takes (`isAnubis()`,
+/// `wafToken()`, `botCheckCookie()`, `cf_clearance`), rather than a page's data.
+fn mentions_a_check(block: &Block) -> bool {
+    const MARKS: [&str; 12] = [
+        "anubis",
+        "anibus",
+        "guard",
+        "captcha",
+        "turnstile",
+        "waf",
+        "clearance",
+        "challenge",
+        "botcheck",
+        "bot_check",
+        "cloudflare",
+        "ddos",
+    ];
+    let mut names = HashSet::new();
+    crate::mihon::transpile::block_mentions(block, &mut names);
+    names.iter().any(|name| {
+        let lower = name.to_lowercase();
+        MARKS.iter().any(|mark| lower.contains(mark))
+    })
+}
+
 /// Functions and objects the runtime has without a receiver (`mihon/kotlin.js`'s `GLOBALS`).
 #[rustfmt::skip]
 pub const GLOBALS: &[&str] = &[
@@ -3713,7 +3769,8 @@ pub const GLOBALS: &[&str] = &[
     "SocketTimeoutException", "InterruptedException", "NumberFormatException", "TimeoutException",
     "CancellationException", "generateSequence", "DecimalFormat", "SecureRandom", "Any",
     "LruCache", "CompletableDeferred", "URI", "URL", "SupervisorJob", "Job", "delay", "assert",
-    "runWebView", "getTurnstileToken", "getLocalStorage", "SwitchPreferenceCompat",
+    "runWebView", "runWebViewBlocking", "getTurnstileToken", "getLocalStorage",
+    "WebResourceResponse", "CountDownLatch", "SwitchPreferenceCompat",
     "CheckBoxPreference", "ListPreference", "EditTextPreference", "MultiSelectListPreference",
     "PreferenceCategory", "Cache", "SeedRandom", "showInfo", "askConfirm", "askInput",
     "askPassword", "askSelect", "askSelectOption", "GZIPInputStream", "InflaterInputStream",
@@ -3759,4 +3816,5 @@ pub const OBJECTS: &[&str] = &[
     "AlgorithmParameters", "MGF1ParameterSpec", "PSource", "CaseInsensitiveSimpleNaturalComparator",
     "CaseSensitiveSimpleNaturalComparator", "SystemClock", "Looper", "Toast", "InetAddress",
     "QueryParser", "Collector", "ActivityManager", "PdfRenderer", "ParcelFileDescriptor",
+    "InjectionEvent",
 ];

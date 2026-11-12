@@ -114,7 +114,7 @@ fn mentions(body: &Body, found: &mut HashSet<String>) {
     }
 }
 
-fn block_mentions(block: &[super::kotlin::ast::Stmt], found: &mut HashSet<String>) {
+pub(crate) fn block_mentions(block: &[super::kotlin::ast::Stmt], found: &mut HashSet<String>) {
     use super::kotlin::ast::Stmt;
     for statement in block {
         match statement {

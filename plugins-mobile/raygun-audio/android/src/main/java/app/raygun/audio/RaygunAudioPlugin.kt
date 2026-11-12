@@ -1051,6 +1051,15 @@ class RaygunAudioPlugin(firstActivity: Activity) : Plugin(firstActivity) {
         )
     }
 
+    // ---- Hidden web views for converted sources: see HiddenViews ----
+
+    /** A command for the hidden views (`{"op", "id", …}`); their events come back over [NativeBridge.webView]. */
+    @Command
+    fun webView(invoke: Invoke) {
+        HiddenViews.send(activity.applicationContext, invoke.getArgs().toString())
+        invoke.resolve()
+    }
+
     // ---- Connect (M46.15): hearing other devices' mDNS needs a multicast lock ----
 
     private var multicastLock: WifiManager.MulticastLock? = null

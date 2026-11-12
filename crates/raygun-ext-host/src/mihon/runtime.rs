@@ -42,9 +42,16 @@ impl Prepared {
     }
 }
 
-/// What the runtime reaches of the extension's host: its cookie jar (`client.cookieJar`).
+/// What the runtime reaches of the extension's host: its cookie jar (`client.cookieJar`), and
+/// for its web views (`crate::webview`) its id and network permissions.
 pub(crate) struct Hooks {
     pub cookies: std::sync::Arc<CookieJar>,
+    pub extension_id: String,
+    pub policy: std::sync::Arc<crate::permissions::NetPolicy>,
+    /// Notes a browser check a web view met, as the extension's requests note theirs.
+    pub note_check: super::views::NoteCheck,
+    /// Restarts the script's time budget after a wait.
+    pub restart: std::rc::Rc<dyn Fn()>,
 }
 
 /// Installs the natives, evaluates the prelude and the themes, then the extension.
@@ -95,13 +102,14 @@ fn natives(ctx: &Ctx<'_>, hooks: Hooks) -> rquickjs::Result<()> {
                 .unwrap_or_else(raygun_net::user_agent)
         })?,
     )?;
-    let jar = hooks.cookies;
+    let jar = hooks.cookies.clone();
     native.set(
         "setCookies",
         Function::new(ctx.clone(), move |url: String, lines: String| {
             envelope(set_cookies(&jar, &url, &lines))
         })?,
     )?;
+    super::views::install(ctx, &native, &hooks)?;
     let documents = std::rc::Rc::new(Documents::default());
     native.set(
         "dom",
