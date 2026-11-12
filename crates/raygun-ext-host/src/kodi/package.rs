@@ -18,7 +18,7 @@ use super::addon::{
     ADDON_DIR, Dependency, KodiSetting, LIBRARY_DIR, PACKAGE_INFO, PackageInfo, manifest_settings,
     read_po, read_settings, read_strings_xml,
 };
-use super::index::{Addon, addons, kinds};
+use super::index::{Addon, addons, kinds, one_each, python3};
 use crate::manifest::API_VERSION;
 use crate::package::VerifiedPackage;
 use crate::repo::RepoEntry;
@@ -136,14 +136,6 @@ fn unzip(bytes: &[u8], budget: &mut u64) -> Result<Unpacked, String> {
     })
 }
 
-/// Whether `required` (`3.0.1`) asks for Python 3: Kodi 19 and later.
-fn python3(version: Option<&str>) -> bool {
-    version
-        .and_then(|version| version.split('.').next())
-        .and_then(|major| major.trim().parse::<u32>().ok())
-        .is_none_or(|major| major >= 3)
-}
-
 fn gone_without(id: &str) -> bool {
     GONE_WITHOUT.iter().any(|prefix| id.starts_with(prefix))
 }
@@ -163,10 +155,11 @@ fn compiled_library(id: &str) -> bool {
     )
 }
 
-/// A repository's add-ons by id (their versions), from its index; their zips are beside it.
+/// A repository's add-ons, each once as this device would install it ([`one_each`]): where each
+/// one's zip is (relative to `base`, the index), by its id in lower case.
 struct Listing {
     base: Url,
-    versions: HashMap<String, String>,
+    packages: HashMap<String, String>,
 }
 
 /// How long a repository's listing is reused by later installs (Kodi's own is 12 MB of XML).
@@ -288,10 +281,10 @@ where
             let Some(listing) = listings[position].as_ref() else {
                 continue;
             };
-            if let Some(version) = listing.versions.get(&id) {
+            if let Some(package) = listing.packages.get(&id.to_ascii_lowercase()) {
                 let zip = listing
                     .base
-                    .join(&format!("{id}/{id}-{version}.zip"))
+                    .join(package)
                     .map_err(|error| error.to_string())?;
                 found = Some(zip);
                 break;
@@ -444,9 +437,9 @@ where
     }
     let listing = Arc::new(Listing {
         base: url.clone(),
-        versions: found
+        packages: one_each(found)
             .into_iter()
-            .map(|addon| (addon.id, addon.version))
+            .map(|addon| (addon.id.to_ascii_lowercase(), addon.package()))
             .collect(),
     });
     let mut kept = listings().lock().unwrap_or_else(PoisonError::into_inner);
@@ -467,4 +460,127 @@ pub fn library_sources(own: &Url) -> Vec<Url> {
         sources.push(official);
     }
     sources
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+
+    /// A zip holding one add-on's folder.
+    fn zipped(folder: &str, files: &[(&str, &str)]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(Cursor::new(&mut bytes));
+            for (name, text) in files {
+                zip.start_file(
+                    format!("{folder}/{name}"),
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+                zip.write_all(text.as_bytes()).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        bytes
+    }
+
+    const PLUGIN: &str = r#"<addon id="plugin.video.example.films" name="Films" version="1.0.0">
+  <requires><import addon="xbmc.python" version="3.0.0"/><import addon="script.module.example" version="1.0.0"/></requires>
+  <extension point="xbmc.python.pluginsource" library="default.py"><provides>video</provides></extension>
+</addon>"#;
+
+    /// A library listed for every system and for one other, in versions for Python 2 and 3.
+    const LIBRARY_VERSIONS: &str = r#"
+<addon id="script.module.example" name="Example library" version="1.0.0">
+  <requires><import addon="xbmc.python" version="3.0.0"/></requires>
+  <extension point="xbmc.python.module" library="lib"/>
+  <extension point="xbmc.addon.metadata"><platform>all</platform></extension>
+</addon>
+<addon id="script.module.example" name="Example library" version="1.2.0">
+  <requires><import addon="xbmc.python" version="3.0.0"/></requires>
+  <extension point="xbmc.python.module" library="lib"/>
+  <extension point="xbmc.addon.metadata">
+    <platform>all</platform>
+    <path>script.module.example+all/script.module.example-1.2.0.zip</path>
+  </extension>
+</addon>
+<addon id="script.module.example" name="Example library" version="3.0.0">
+  <requires><import addon="xbmc.python" version="2.25.0"/></requires>
+  <extension point="xbmc.python.module" library="lib"/>
+  <extension point="xbmc.addon.metadata"><platform>all</platform></extension>
+</addon>
+<addon id="script.module.example" name="Example library" version="9.0.0">
+  <requires><import addon="xbmc.python" version="3.0.0"/></requires>
+  <extension point="xbmc.python.module" library="lib"/>
+  <extension point="xbmc.addon.metadata"><platform>plan9-sparc</platform></extension>
+</addon>"#;
+
+    #[tokio::test]
+    async fn libraries_come_as_this_system_would_install_them() {
+        let repository: Url = "https://kodi.example.org/repeated-libraries/addons.xml"
+            .parse()
+            .unwrap();
+        let index = format!("<addons>{PLUGIN}{LIBRARY_VERSIONS}</addons>");
+        let library = r#"<addon id="script.module.example" name="Example library" version="1.2.0">
+  <requires><import addon="xbmc.python" version="3.0.0"/></requires>
+  <extension point="xbmc.python.module" library="lib"/>
+</addon>"#;
+        // Only the version this system installs is there to fetch.
+        let served: HashMap<String, Vec<u8>> = [
+            (repository.to_string(), index.clone().into_bytes()),
+            (
+                "https://kodi.example.org/repeated-libraries/script.module.example+all/script.module.example-1.2.0.zip".to_owned(),
+                zipped(
+                    "script.module.example",
+                    &[("addon.xml", library), ("lib/example.py", "VALUE = 12\n")],
+                ),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let listed = super::super::index::parse(&index).unwrap();
+        assert_eq!(listed.extensions.len(), 1, "the library is left out");
+        let plugin = zipped(
+            "plugin.video.example.films",
+            &[("addon.xml", PLUGIN), ("default.py", "import example\n")],
+        );
+        let verified = assemble(
+            &listed.extensions[0],
+            &plugin,
+            std::slice::from_ref(&repository),
+            |url, _| {
+                let answer = served
+                    .get(url.as_str())
+                    .cloned()
+                    .ok_or_else(|| format!("{url}: not found"));
+                async move { answer }
+            },
+        )
+        .await
+        .unwrap();
+        let file = |name: &str| {
+            verified
+                .files()
+                .iter()
+                .find(|(path, _)| path == name)
+                .map(|(_, contents)| contents.clone())
+        };
+        let info: PackageInfo = serde_json::from_slice(&file(PACKAGE_INFO).unwrap()).unwrap();
+        let versions: Vec<&str> = info
+            .dependencies
+            .iter()
+            .map(|library| library.version.as_str())
+            .collect();
+        assert_eq!(
+            versions,
+            ["1.2.0"],
+            "the highest version made for this system that Raygun's Python runs"
+        );
+        assert_eq!(
+            file("lib/script.module.example/lib/example.py").as_deref(),
+            Some(b"VALUE = 12\n".as_slice())
+        );
+    }
 }

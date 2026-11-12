@@ -24,6 +24,15 @@ listed as not for Raygun, saying what they do in Kodi; libraries (`script.module
 and repositories are left out. A plugin's zip shared on its own is refused with a pointer to its
 repository, which has what it needs.
 
+An index may list one add-on several times: once for each system a compiled add-on is built for
+(`<platform>android-aarch64</platform>`, its zip in a folder of its own named by `<path>`,
+`pvr.example+android-aarch64/…`, its pictures beside it), sometimes in several versions. Raygun
+lists each add-on once (`kodi::index::one_each`), as Kodi on this device would install it: made
+for this system (`all`, the system, or the system and processor, as Kodi names them), then one
+its Python runs (Python 3), then the highest version (Kodi's version order: `~` before a
+release, an `n:` epoch first). Libraries are chosen the same way. A source made only for other
+systems is listed as not for Raygun ("Made for Kodi on Android").
+
 ## Installing
 
 `kodi::package::assemble` reads the plugin's zip and installs, beside it, the libraries its

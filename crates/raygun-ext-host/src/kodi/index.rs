@@ -10,6 +10,8 @@
 //! ([`PURPOSES`]); libraries, resources (languages, images, sounds), repositories and the
 //! player's own parts are left out, as what other add-ons need rather than add-ons people pick.
 
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read};
 
 use quick_xml::Reader;
@@ -101,8 +103,12 @@ pub(crate) struct Addon {
     pub icon: Option<String>,
     pub fanart: Option<String>,
     pub website: Option<String>,
-    /// `<platform>`: `all`, or the systems it's built for (`android-armv8 windx64`...).
+    /// `<platform>`: `all`, or the systems it's built for (`android-aarch64 windows-x86_64`...).
     pub platform: Option<String>,
+    /// `<path>`: where its zip is in the repository, when the index says (Kodi's own repository
+    /// keeps each system's build of a compiled add-on in a folder of its own,
+    /// `pvr.example+android-aarch64/pvr.example-1.0.0.zip`).
+    pub path: Option<String>,
 }
 
 impl Addon {
@@ -113,6 +119,34 @@ impl Addon {
             .or(self.description.as_ref())
             .map(|(_, text)| text.clone())
     }
+
+    /// Where its zip is, relative to the index: the index's `<path>` when it's a plain relative
+    /// one, else `<id>/<id>-<version>.zip`, as Kodi looks for it.
+    pub fn package(&self) -> String {
+        self.path
+            .as_deref()
+            .filter(|path| plain_relative(path))
+            .map_or_else(
+                || format!("{0}/{0}-{1}.zip", self.id, self.version),
+                str::to_owned,
+            )
+    }
+
+    /// The folder its zip is in, where the repository keeps its pictures too (`icon.png`).
+    fn folder(&self) -> String {
+        let package = self.package();
+        package
+            .rsplit_once('/')
+            .map_or_else(String::new, |(folder, _)| folder.to_owned())
+    }
+}
+
+/// A path that stays below the index's folder: relative, without `..`, a scheme or a query.
+fn plain_relative(path: &str) -> bool {
+    !path.contains(['\\', ':', '?', '#'])
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
 /// Text that is a Kodi document: its root is `<addons>` (an index) or `<addon>` (one add-on).
@@ -260,6 +294,9 @@ pub(crate) fn addons(text: &str) -> Vec<Addon> {
                     "fanart" if !value.is_empty() => addon.fanart = Some(value),
                     "website" if !value.is_empty() => addon.website = Some(value),
                     "platform" if !value.is_empty() => addon.platform = Some(value),
+                    "path" if point == "xbmc.addon.metadata" && !value.is_empty() => {
+                        addon.path = Some(value);
+                    }
                     "extension" => point.clear(),
                     _ => {}
                 }
@@ -291,6 +328,208 @@ fn semver_version(version: &str) -> String {
         numbers.get(1).copied().unwrap_or_default(),
         numbers.get(2).copied().unwrap_or_default()
     )
+}
+
+/// Kodi's order of add-on versions (`CAddonVersion`): an epoch (`1:`) first, then the rest as
+/// Debian compares versions, which Kodi's follows: numbers as numbers, other characters one by
+/// one with letters first, and `~` before anything, even the end (`1.0~beta1` < `1.0`).
+pub(crate) fn version_order(a: &str, b: &str) -> Ordering {
+    let (epoch_a, rest_a) = epoch(a);
+    let (epoch_b, rest_b) = epoch(b);
+    epoch_a
+        .cmp(&epoch_b)
+        .then_with(|| debian_order(rest_a.as_bytes(), rest_b.as_bytes()))
+}
+
+fn epoch(version: &str) -> (u64, &str) {
+    match version.trim().split_once(':') {
+        Some((epoch, rest)) if !epoch.is_empty() && epoch.bytes().all(|c| c.is_ascii_digit()) => {
+            (epoch.parse().unwrap_or(u64::MAX), rest)
+        }
+        _ => (0, version.trim()),
+    }
+}
+
+/// dpkg's `verrevcmp`.
+fn debian_order(mut a: &[u8], mut b: &[u8]) -> Ordering {
+    /// Where a character sorts among those that aren't digits; the end of a version is 0.
+    fn weight(c: Option<&u8>) -> i32 {
+        match c {
+            None => 0,
+            Some(c) if c.is_ascii_digit() => 0,
+            Some(c) if c.is_ascii_alphabetic() => i32::from(*c),
+            Some(b'~') => -1,
+            Some(c) => i32::from(*c) + 256,
+        }
+    }
+    while !a.is_empty() || !b.is_empty() {
+        while a.first().is_some_and(|c| !c.is_ascii_digit())
+            || b.first().is_some_and(|c| !c.is_ascii_digit())
+        {
+            let order = weight(a.first()).cmp(&weight(b.first()));
+            if order != Ordering::Equal {
+                return order;
+            }
+            a = &a[1..];
+            b = &b[1..];
+        }
+        let digits = |text: &[u8]| text.iter().take_while(|c| c.is_ascii_digit()).count();
+        let (number_a, rest_a) = a.split_at(digits(a));
+        let (number_b, rest_b) = b.split_at(digits(b));
+        let trim = |number: &[u8]| -> usize { number.iter().take_while(|c| **c == b'0').count() };
+        let (number_a, number_b) = (&number_a[trim(number_a)..], &number_b[trim(number_b)..]);
+        let order = number_a
+            .len()
+            .cmp(&number_b.len())
+            .then_with(|| number_a.cmp(number_b));
+        if order != Ordering::Equal {
+            return order;
+        }
+        a = rest_a;
+        b = rest_b;
+    }
+    Ordering::Equal
+}
+
+/// The `<platform>` names of add-ons a build for `os` and `arch` installs, as Kodi's own builds
+/// count them (`CAddonMgr::PlatformSupportsAddon`): `all`, the system, and the system with its
+/// processor.
+fn platforms(os: &str, arch: &str) -> Vec<&'static str> {
+    let (system, builds): (&[&'static str], &[(&str, &'static str)]) = match os {
+        "android" => (
+            &["android"],
+            &[
+                ("aarch64", "android-aarch64"),
+                ("arm", "android-armv7"),
+                ("x86_64", "android-x86_64"),
+                ("x86", "android-i686"),
+            ],
+        ),
+        "windows" => (
+            &["windows", "windx"],
+            &[("x86_64", "windows-x86_64"), ("x86", "windows-i686")],
+        ),
+        "linux" => (
+            &["linux"],
+            &[
+                ("x86_64", "linux-x86_64"),
+                ("aarch64", "linux-aarch64"),
+                ("arm", "linux-armv7"),
+                ("x86", "linux-i686"),
+            ],
+        ),
+        "macos" => (
+            &["osx"],
+            &[
+                ("x86_64", "osx-x86_64"),
+                ("x86_64", "osx64"),
+                ("aarch64", "osx-arm64"),
+            ],
+        ),
+        _ => (&[], &[]),
+    };
+    let mut names = vec!["all"];
+    names.extend(system);
+    names.extend(
+        builds
+            .iter()
+            .filter(|(cpu, _)| *cpu == arch)
+            .map(|(_, name)| *name),
+    );
+    names
+}
+
+/// The platform names of the system Raygun runs on.
+fn this_platform() -> Vec<&'static str> {
+    platforms(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// Whether an add-on is made for one of `platforms`; one that names none is made for all.
+fn made_for(addon: &Addon, platforms: &[&str]) -> bool {
+    addon.platform.as_deref().is_none_or(|named| {
+        named.split_whitespace().any(|name| {
+            platforms
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(name))
+        })
+    })
+}
+
+/// Why a source made only for other systems isn't listed as one: "Made for Kodi on Android".
+fn other_systems(platform: &str) -> String {
+    let mut systems: Vec<&str> = Vec::new();
+    for name in platform.split_whitespace() {
+        let lower = name.to_ascii_lowercase();
+        let system = if lower.starts_with("android") {
+            "Android"
+        } else if lower.starts_with("win") {
+            "Windows"
+        } else if lower.starts_with("osx") {
+            "macOS"
+        } else if lower.starts_with("linux") {
+            "Linux"
+        } else if lower.starts_with("ios") || lower == "darwin_embedded" {
+            "iOS"
+        } else if lower.starts_with("tvos") {
+            "tvOS"
+        } else if lower == "freebsd" {
+            "FreeBSD"
+        } else {
+            name
+        };
+        if !systems.contains(&system) {
+            systems.push(system);
+        }
+    }
+    format!("Made for Kodi on {}", systems.join(", "))
+}
+
+/// Whether an `xbmc.python` version is Python 3's (Kodi 19 and later); none named counts as 3.
+pub(crate) fn python3(version: Option<&str>) -> bool {
+    version
+        .and_then(|version| version.split('.').next())
+        .and_then(|major| major.trim().parse::<u32>().ok())
+        .is_none_or(|major| major >= 3)
+}
+
+/// Whether Raygun's Python runs it: it doesn't need Kodi's Python 2.
+fn runs_in_raygun(addon: &Addon) -> bool {
+    addon
+        .requires
+        .iter()
+        .find(|need| need.id == "xbmc.python")
+        .is_none_or(|python| python3(python.version.as_deref()))
+}
+
+/// Each add-on once, as this device would install it. An index lists an add-on once for each
+/// system it's built for, sometimes in several versions (Kodi's own lists a compiled add-on six
+/// times); the one kept is made for this system if any is, then one Raygun's Python runs, then
+/// the highest version. Add-ons keep the place they're first listed at.
+pub(crate) fn one_each(addons: Vec<Addon>) -> Vec<Addon> {
+    one_each_for(addons, &this_platform())
+}
+
+fn one_each_for(addons: Vec<Addon>, platforms: &[&str]) -> Vec<Addon> {
+    let rank = |addon: &Addon| (made_for(addon, platforms), runs_in_raygun(addon));
+    let mut kept: Vec<Addon> = Vec::new();
+    let mut places: HashMap<String, usize> = HashMap::new();
+    for addon in addons {
+        let key = addon.id.to_ascii_lowercase();
+        let Some(&place) = places.get(&key) else {
+            places.insert(key, kept.len());
+            kept.push(addon);
+            continue;
+        };
+        let held = &kept[place];
+        let better = rank(&addon)
+            .cmp(&rank(held))
+            .then_with(|| version_order(&addon.version, &held.version))
+            == Ordering::Greater;
+        if better {
+            kept[place] = addon;
+        }
+    }
+    kept
 }
 
 /// The Raygun kinds a plugin provides, by what it says it provides: its videos as a video
@@ -361,24 +600,37 @@ pub(crate) fn extension_id(kodi_id: &str) -> Option<String> {
     is_extension_id(&id).then_some(id)
 }
 
-/// Reads an `addons.xml`; `None` when the text isn't one.
+/// Reads an `addons.xml`, each add-on once ([`one_each`]); `None` when the text isn't one.
 pub fn parse(text: &str) -> Option<RepoIndex> {
+    parse_for(text, &this_platform())
+}
+
+fn parse_for(text: &str, platforms: &[&str]) -> Option<RepoIndex> {
     if root_element(text)? != "addons" {
         return None;
     }
-    let extensions = addons(text)
+    let mut listed: HashSet<String> = HashSet::new();
+    let extensions = one_each_for(addons(text), platforms)
         .into_iter()
         .filter_map(|addon| {
             let kinds = kinds(addon.plugin.as_deref().unwrap_or_default());
-            // Not a source: listed as not for Raygun when it's an add-on people pick.
+            // Not a source: listed as not for Raygun when it's an add-on people pick. A source
+            // made only for other systems isn't one here either.
             let not_for_raygun = if kinds.is_empty() {
                 Some(purpose(&addon)?.to_owned())
+            } else if !made_for(&addon, platforms) {
+                Some(other_systems(addon.platform.as_deref().unwrap_or_default()))
             } else {
                 None
             };
             let id = extension_id(&addon.id)?;
+            // Two add-ons whose ids differ only in what an extension id can't hold.
+            if !listed.insert(id.clone()) {
+                return None;
+            }
             let description = addon.blurb();
-            let folder = addon.id.clone();
+            let package = addon.package();
+            let folder = addon.folder();
             Some(RepoEntry {
                 id,
                 name: if addon.name.is_empty() {
@@ -404,10 +656,16 @@ pub fn parse(text: &str) -> Option<RepoIndex> {
                 lang: addon
                     .language
                     .and_then(|languages| languages.split_whitespace().next().map(str::to_owned)),
-                package: format!("{folder}/{folder}-{}.zip", addon.version),
-                icon: addon
-                    .icon
-                    .map(|icon| format!("{folder}/{}", icon.trim_start_matches('/'))),
+                package,
+                // Its pictures are beside its zip.
+                icon: addon.icon.map(|icon| {
+                    let icon = icon.trim_start_matches('/');
+                    if folder.is_empty() {
+                        icon.to_owned()
+                    } else {
+                        format!("{folder}/{icon}")
+                    }
+                }),
                 sha256: String::new(),
                 size: 0,
                 format: PackageFormat::Kodi,
@@ -738,11 +996,43 @@ mod tests {
             .iter()
             .filter(|entry| entry.not_for_raygun.is_some())
             .count();
+        let ids: HashSet<&str> = index
+            .extensions
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect();
         println!(
             "{} add-ons, {videos} for video, {others} not for Raygun",
             index.extensions.len()
         );
         assert!(videos > 10);
+        assert_eq!(ids.len(), index.extensions.len(), "each add-on once");
+        // A compiled add-on's zip is the build for this system, in a folder of its own.
+        let compiled = index
+            .extensions
+            .iter()
+            .find(|entry| entry.id == "kodi.pvr.iptvsimple")
+            .unwrap();
+        println!("{}: {}", compiled.id, compiled.package);
+        assert!(compiled.package.starts_with("pvr.iptvsimple+"));
+        if cfg!(all(windows, target_arch = "x86_64")) {
+            assert!(
+                compiled
+                    .package
+                    .starts_with("pvr.iptvsimple+windows-x86_64/")
+            );
+        }
+        let base: Url = "https://mirrors.kodi.tv/addons/omega/addons.xml.gz"
+            .parse()
+            .unwrap();
+        let zip = crate::repo::package_url(&base, compiled).unwrap();
+        let answer = raygun_net::http_client()
+            .unwrap()
+            .head(zip.as_str())
+            .send()
+            .await
+            .unwrap();
+        assert!(answer.status().is_success(), "{zip}: {}", answer.status());
     }
 
     #[test]
@@ -753,5 +1043,186 @@ mod tests {
         let packed = packed.finish().unwrap();
         assert_eq!(unpack(&packed).unwrap(), INDEX);
         assert_eq!(unpack(b"<addons/>").unwrap(), "<addons/>");
+    }
+
+    /// Add-ons listed once for each system they're built for and in several versions, as Kodi's
+    /// own repository lists compiled ones (`<platform>`, `<path>`).
+    const REPEATED: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<addons>
+<addon id="pvr.example" name="Example TV" version="21.0.3">
+  <extension point="kodi.pvrclient" library_windows="pvr.example.dll"/>
+  <extension point="xbmc.addon.metadata">
+    <platform>windows-x86_64</platform>
+    <assets><icon>icon.png</icon></assets>
+    <path>pvr.example+windows-x86_64/pvr.example-21.0.3.zip</path>
+  </extension>
+</addon>
+<addon id="plugin.video.example.films" name="Films" version="1.0.0">
+  <requires><import addon="xbmc.python" version="3.0.0"/></requires>
+  <extension point="xbmc.python.pluginsource" library="default.py"><provides>video</provides></extension>
+  <extension point="xbmc.addon.metadata">
+    <platform>all</platform>
+    <path>plugin.video.example.films/plugin.video.example.films-1.0.0.zip</path>
+  </extension>
+</addon>
+<addon id="pvr.example" name="Example TV" version="21.0.2">
+  <extension point="kodi.pvrclient" library_android="libpvr.example.so"/>
+  <extension point="xbmc.addon.metadata">
+    <platform>android-aarch64</platform>
+    <assets><icon>icon.png</icon></assets>
+    <path>pvr.example+android-aarch64/pvr.example-21.0.2.zip</path>
+  </extension>
+</addon>
+<addon id="plugin.video.example.films" name="Films" version="3.0.0">
+  <requires><import addon="xbmc.python" version="2.26.0"/></requires>
+  <extension point="xbmc.python.pluginsource" library="default.py"><provides>video</provides></extension>
+  <extension point="xbmc.addon.metadata">
+    <platform>all</platform>
+    <path>plugin.video.example.films/plugin.video.example.films-3.0.0.zip</path>
+  </extension>
+</addon>
+<addon id="pvr.example" name="Example TV" version="21.0.4">
+  <extension point="kodi.pvrclient" library_osx="pvr.example.dylib"/>
+  <extension point="xbmc.addon.metadata">
+    <platform>osx-arm64</platform>
+    <assets><icon>icon.png</icon></assets>
+    <path>pvr.example+osx-arm64/pvr.example-21.0.4.zip</path>
+  </extension>
+</addon>
+<addon id="plugin.video.example.films" name="Films" version="1.2.0~beta1">
+  <requires><import addon="xbmc.python" version="3.0.1"/></requires>
+  <extension point="xbmc.python.pluginsource" library="default.py"><provides>video</provides></extension>
+  <extension point="xbmc.addon.metadata">
+    <platform>all</platform>
+    <assets><icon>resources/icon.png</icon></assets>
+    <path>plugin.video.example.films/plugin.video.example.films-1.2.0~beta1.zip</path>
+  </extension>
+</addon>
+<addon id="plugin.video.example.phone" name="Phone films" version="2.0.0">
+  <extension point="xbmc.python.pluginsource" library="default.py"><provides>video</provides></extension>
+  <extension point="xbmc.addon.metadata"><platform>android-armv7 android-aarch64</platform></extension>
+</addon>
+<addon id="plugin.video.example.away" name="Elsewhere" version="1.0.0">
+  <extension point="xbmc.python.pluginsource" library="default.py"><provides>video</provides></extension>
+  <extension point="xbmc.addon.metadata"><path>../../elsewhere.zip</path></extension>
+</addon>
+</addons>"#;
+
+    #[test]
+    fn each_addon_is_listed_once_as_this_system_installs_it() {
+        let listed = |os: &str, arch: &str| parse_for(REPEATED, &platforms(os, arch)).unwrap();
+        let phone = listed("android", "aarch64");
+        let ids: Vec<&str> = phone
+            .extensions
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "kodi.pvr.example",
+                "kodi.plugin.video.example.films",
+                "kodi.plugin.video.example.phone",
+                "kodi.plugin.video.example.away",
+            ],
+            "each once, where it's first listed"
+        );
+        let tv = &phone.extensions[0];
+        assert_eq!(tv.version, "21.0.2", "the build for this system");
+        assert_eq!(
+            tv.package,
+            "pvr.example+android-aarch64/pvr.example-21.0.2.zip"
+        );
+        assert_eq!(
+            tv.icon.as_deref(),
+            Some("pvr.example+android-aarch64/icon.png"),
+            "its pictures are beside its zip"
+        );
+        assert_eq!(
+            tv.not_for_raygun.as_deref(),
+            Some("Live TV for Kodi's TV screens")
+        );
+        let films = &phone.extensions[1];
+        assert_eq!(
+            films.package, "plugin.video.example.films/plugin.video.example.films-1.2.0~beta1.zip",
+            "the highest version Raygun runs: 3.0.0 needs Python 2"
+        );
+        assert_eq!(films.version, "1.2.0");
+        assert_eq!(
+            films.icon.as_deref(),
+            Some("plugin.video.example.films/resources/icon.png")
+        );
+        assert!(films.not_for_raygun.is_none());
+        let made_for_phones = &phone.extensions[2];
+        assert!(made_for_phones.not_for_raygun.is_none());
+        assert_eq!(
+            made_for_phones.package,
+            "plugin.video.example.phone/plugin.video.example.phone-2.0.0.zip",
+            "without a <path>, beside its id"
+        );
+        assert_eq!(
+            phone.extensions[3].package,
+            "plugin.video.example.away/plugin.video.example.away-1.0.0.zip",
+            "a <path> leaving the repository is passed over"
+        );
+
+        let desktop = listed("windows", "x86_64");
+        assert_eq!(desktop.extensions.len(), 4);
+        assert_eq!(
+            desktop.extensions[0].package,
+            "pvr.example+windows-x86_64/pvr.example-21.0.3.zip"
+        );
+        assert_eq!(
+            desktop.extensions[2].not_for_raygun.as_deref(),
+            Some("Made for Kodi on Android"),
+            "a source made only for other systems"
+        );
+        // Built for no system of this one: listed once all the same, its highest version.
+        let other = listed("linux", "x86_64");
+        assert_eq!(other.extensions[0].version, "21.0.4");
+        assert_eq!(
+            other.extensions[0].not_for_raygun.as_deref(),
+            Some("Live TV for Kodi's TV screens")
+        );
+    }
+
+    #[test]
+    fn platforms_are_named_as_kodi_names_them() {
+        assert_eq!(
+            platforms("android", "aarch64"),
+            ["all", "android", "android-aarch64"]
+        );
+        assert_eq!(
+            platforms("android", "x86_64"),
+            ["all", "android", "android-x86_64"]
+        );
+        assert_eq!(
+            platforms("windows", "x86_64"),
+            ["all", "windows", "windx", "windows-x86_64"]
+        );
+        assert_eq!(platforms("plan9", "sparc"), ["all"]);
+        assert_eq!(
+            other_systems("android-armv7 windows-x86_64 android-aarch64 webos"),
+            "Made for Kodi on Android, Windows, webos"
+        );
+    }
+
+    #[test]
+    fn versions_compare_as_kodi_compares_them() {
+        use Ordering::{Equal, Greater, Less};
+        for (a, b, order) in [
+            ("1.0.2.52", "1.0.2.51", Greater),
+            ("1.10.0", "1.9.9", Greater),
+            ("1.0~beta1", "1.0", Less),
+            ("1.0~beta1", "1.0~beta2", Less),
+            ("2.1.0+omega.1", "2.1.0", Greater),
+            ("1:0.1", "2.0", Greater),
+            ("1.0", "1.00", Equal),
+            ("21.0.3", "21.0.3", Equal),
+            ("1.0a", "1.0+", Less),
+        ] {
+            assert_eq!(version_order(a, b), order, "{a} against {b}");
+            assert_eq!(version_order(b, a), order.reverse(), "{b} against {a}");
+        }
     }
 }

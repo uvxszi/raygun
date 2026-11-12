@@ -3253,6 +3253,50 @@ mod tests {
         );
     }
 
+    /// Kodi's repositories list a compiled add-on once per system and may list a plugin in
+    /// several versions: Installed and Updates see each add-on once, at the version this device
+    /// would install.
+    #[test]
+    fn kodi_addons_listed_per_system_show_once() {
+        let index = repo::parse_index(
+            r#"<addons>
+<addon id="plugin.video.example" name="Films" version="1.0.0"><extension point="xbmc.python.pluginsource" library="a.py"><provides>video</provides></extension></addon>
+<addon id="pvr.example" name="TV" version="21.0.1"><extension point="kodi.pvrclient"/><extension point="xbmc.addon.metadata"><platform>android-aarch64</platform><path>pvr.example+android-aarch64/pvr.example-21.0.1.zip</path></extension></addon>
+<addon id="plugin.video.example" name="Films" version="1.1.0"><extension point="xbmc.python.pluginsource" library="a.py"><provides>video</provides></extension></addon>
+<addon id="pvr.example" name="TV" version="21.0.1"><extension point="kodi.pvrclient"/><extension point="xbmc.addon.metadata"><platform>windows-x86_64</platform><path>pvr.example+windows-x86_64/pvr.example-21.0.1.zip</path></extension></addon>
+</addons>"#,
+        )
+        .unwrap();
+        let installed = Installed {
+            version: "1.0.0".into(),
+            stale_conversion: false,
+        };
+        let shown: Vec<(String, String, CatalogState)> = index
+            .extensions
+            .iter()
+            .map(|entry| {
+                let local = (entry.id == "kodi.plugin.video.example").then_some(&installed);
+                let shown = catalog_entry("kodi", entry, local);
+                (shown.id, shown.version, shown.state)
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    "kodi.plugin.video.example".to_owned(),
+                    "1.1.0".to_owned(),
+                    CatalogState::UpdateAvailable
+                ),
+                (
+                    "kodi.pvr.example".to_owned(),
+                    "21.0.1".to_owned(),
+                    CatalogState::Available
+                ),
+            ]
+        );
+    }
+
     #[test]
     fn setting_values_must_fit_their_kind() {
         let setting = |kind, options: &[&str]| ExtensionSetting {
