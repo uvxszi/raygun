@@ -151,6 +151,7 @@ mod tests {
             installed_version: None,
             icon: None,
             unsupported: None,
+            unsupported_kind: None,
             sites: Vec::new(),
         }
     }

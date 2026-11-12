@@ -5581,6 +5581,19 @@ pub async fn stremio_add(
     stremio.add(&url).await
 }
 
+/// Sets up the addon at `url` with values for the settings its manifest asks for (Raygun's own
+/// form, as the Stremio addon SDK's page makes the address) and adds it, in place of the same
+/// addon added before. Optional settings may stay empty.
+#[tauri::command]
+#[specta::specta]
+pub async fn stremio_add_configured(
+    stremio: Stremio<'_>,
+    url: String,
+    values: Vec<raygun_model::StremioConfigValue>,
+) -> Result<raygun_model::StremioAddon, String> {
+    stremio.add_configured(&url, &values).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn stremio_remove(stremio: Stremio<'_>, id: String) -> Result<(), String> {

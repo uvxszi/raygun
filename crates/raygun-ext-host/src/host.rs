@@ -2833,7 +2833,7 @@ fn settings_info(extension: &Extension) -> Vec<ExtensionSetting> {
 fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo {
     let manifest = extension.manifest();
     let settings = settings_info(extension);
-    ExtensionInfo {
+    let info = ExtensionInfo {
         needs_setup: setup_need(extension, &settings),
         id: manifest.id.clone(),
         name: manifest.name.clone(),
@@ -2869,6 +2869,11 @@ fn loaded_info(extension: &Extension, origin: ExtensionOrigin) -> ExtensionInfo 
             .as_ref()
             .map(crate::site::SiteScripts::patterns)
             .unwrap_or_default(),
+        not_for_raygun: None,
+    };
+    ExtensionInfo {
+        not_for_raygun: crate::purpose::installed(&info),
+        ..info
     }
 }
 
@@ -2932,6 +2937,7 @@ fn failed_info(
         website: None,
         needs_setup: None,
         sites: Vec::new(),
+        not_for_raygun: None,
     }
 }
 

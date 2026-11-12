@@ -1384,6 +1384,10 @@
     "upToDate": "Installed",
     "newerInstalled": "Newer version installed",
     "cantInstall": "Can't install",
+    "notForRaygun": "Not for Raygun",
+    "notForRaygunWhy": "Not for Raygun: {{reason}}",
+    "remove": "Remove",
+    "removeNamed": "Remove {{name}}",
     "apk": {
       "download": "Download APK",
       "saved": "APK saved and checked against its store ({{size}} KB).",
@@ -2539,6 +2543,13 @@
     "addonFailingLately": "Didn't answer lately",
     "setUp": "Set up",
     "needsSetup": "Needs setting up on its website first",
+    "config": {
+      "title": "Set up {{name}}",
+      "form": "Settings of {{name}}",
+      "requiredTitle": "{{title}} (required)",
+      "add": "Add",
+      "save": "Save"
+    },
     "copyAddress": "Copy address",
     "lookUp": "Look up",
     "added": "Added",

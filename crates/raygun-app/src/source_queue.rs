@@ -352,6 +352,26 @@ impl Queue {
                 item.url = Some(found.url.clone()).filter(|url| !url.is_empty());
                 let setup = found.addon.as_ref().filter(|addon| addon.needs_setup);
                 item.configure_url = setup.and_then(|addon| addon.configure_url.clone());
+                // One that would do nothing here isn't added, saying why.
+                let not_for_raygun = found
+                    .addon
+                    .as_ref()
+                    .and_then(|addon| addon.not_for_raygun.clone())
+                    .or_else(|| {
+                        let entry = found.entries.first()?;
+                        (found.kind == DetectedKind::Extension
+                            && entry.unsupported_kind
+                                == Some(raygun_model::UnsupportedKind::NotForRaygun))
+                        .then(|| entry.unsupported.clone())
+                        .flatten()
+                    });
+                if !found.added
+                    && let Some(reason) = not_for_raygun
+                {
+                    item.state = SourceQueueState::Failed;
+                    item.error = Some(raygun_ext_host::purpose::message(&reason));
+                    return Step::Done;
+                }
                 item.state = if found.added {
                     SourceQueueState::AlreadyAdded
                 } else if found.kind == DetectedKind::Server {

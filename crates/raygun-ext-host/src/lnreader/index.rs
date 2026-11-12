@@ -156,6 +156,7 @@ pub fn parse(json: &str) -> Option<RepoIndex> {
                 size: 0,
                 format: PackageFormat::LnReader,
                 sites: Vec::new(),
+                not_for_raygun: None,
             })
         })
         .collect();

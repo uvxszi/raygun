@@ -200,7 +200,7 @@ pub fn entry_of(bytes: &[u8], package: &str) -> Result<RepoEntry, PackageError> 
             "a server is connected by its address, not installed".to_owned(),
         ));
     }
-    Ok(RepoEntry {
+    let mut entry = RepoEntry {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
         version: manifest.version.to_string(),
@@ -229,7 +229,11 @@ pub fn entry_of(bytes: &[u8], package: &str) -> Result<RepoEntry, PackageError> 
             .as_ref()
             .map(crate::site::SiteScripts::patterns)
             .unwrap_or_default(),
-    })
+        not_for_raygun: None,
+    };
+    // A package that would provide nothing isn't for Raygun.
+    crate::purpose::mark(&mut entry);
+    Ok(entry)
 }
 
 /// A converted Nuclear plugin (M17) as a package to install: its generated manifest and bundle.

@@ -568,6 +568,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::stremio_suggestions,
             commands::stremio_preview,
             commands::stremio_add,
+            commands::stremio_add_configured,
             commands::stremio_remove,
             commands::stremio_set_enabled,
             commands::stremio_set_order,

@@ -5,6 +5,8 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
+import { isNotForRaygun } from '../extensions/catalogFilters';
+import { NotForRaygunNote } from '../extensions/NotForRaygun';
 import { RepoContents } from '../extensions/RepoContents';
 import { siteLabels } from '../extensions/siteLabels';
 import { useLocalNetworkGate } from '../network/useLocalNetworkGate';
@@ -14,8 +16,9 @@ import { LinkOrFileField } from '../shell/LinkOrFileField';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SHEET_FIELD, SHEET_INPUT } from '../shell/TextField';
+import { AddonConfigForm, AddonConfigSheet } from '../watch/AddonConfig';
 import { AddonLogo, ProvidesChips } from '../watch/AddonRows';
-import { useConfigureAddon } from '../watch/useStremio';
+import { hasConfigForm, useConfigureAddon } from '../watch/useStremio';
 import { AddSeveral } from './AddSeveral';
 import { withLines } from './sourceQueue';
 import { useAddSource, useDetectSource } from './useSources';
@@ -73,9 +76,15 @@ const DetectedCard: FC<{ source: DetectedSource; address: string; onAdded: () =>
   const { t } = useTranslation();
   const add = useAddSource();
   const configure = useConfigureAddon();
+  const [settingUp, setSettingUp] = useState(false);
   const title = detectedTitle(t, source);
   const addon = source.addon;
   const entry = source.kind === 'extension' ? source.entries[0] : undefined;
+  // One that would do nothing here says why, and isn't offered.
+  const notForRaygun =
+    addon?.notForRaygun ?? (entry && isNotForRaygun(entry) ? entry.unsupported : null);
+  // An addon that declares its settings is set up in Raygun's own form, then added.
+  const form = addon && hasConfigForm(addon) && !notForRaygun ? addon : null;
   const error = add.error ?? configure.error;
   return (
     <section
@@ -91,7 +100,10 @@ const DetectedCard: FC<{ source: DetectedSource; address: string; onAdded: () =>
         <p className="text-muted line-clamp-3 text-xs">{source.description}</p>
       )}
       {addon && <ProvidesChips addon={addon} />}
-      {addon?.needsSetup && <p className="text-muted text-xs">{t('watch.needsSetup')}</p>}
+      {notForRaygun && <NotForRaygunNote reason={notForRaygun} />}
+      {addon?.needsSetup && !form && !notForRaygun && (
+        <p className="text-muted text-xs">{t('watch.needsSetup')}</p>
+      )}
       {source.kind === 'repository' && (
         <RepoContents
           entries={source.entries}
@@ -100,17 +112,19 @@ const DetectedCard: FC<{ source: DetectedSource; address: string; onAdded: () =>
       )}
       {entry && <ExtensionDetails entry={entry} />}
       {source.note && <p className="text-muted text-xs">{source.note}</p>}
-      {(source.kind === 'repository' || source.kind === 'extension') && !source.added && (
-        <p className="text-muted text-xs">{t('sources.add.trust')}</p>
-      )}
+      {(source.kind === 'repository' || source.kind === 'extension') &&
+        !source.added &&
+        !notForRaygun && <p className="text-muted text-xs">{t('sources.add.trust')}</p>}
       {source.kind === 'server' && source.server ? (
         <ServerSignIn kind={source.server} address={source.url} onConnected={onAdded} />
+      ) : notForRaygun ? null : form && !source.added ? (
+        <AddonConfigForm addon={form} onDone={onAdded} />
       ) : (
         <div className="flex flex-wrap justify-end gap-2">
-          {addon?.configureUrl && (
+          {addon && (form || addon.configureUrl) && (
             <button
               type="button"
-              onClick={() => configure.mutate(addon.url)}
+              onClick={() => (form ? setSettingUp(true) : configure.mutate(addon.url))}
               className="bg-surface flex items-center gap-1.5 rounded-full px-4 py-2 text-sm"
             >
               <Settings2 aria-hidden size={16} />
@@ -139,6 +153,7 @@ const DetectedCard: FC<{ source: DetectedSource; address: string; onAdded: () =>
         </div>
       )}
       {error && <SourceIssue compact>{error.message}</SourceIssue>}
+      {settingUp && addon && <AddonConfigSheet addon={addon} onClose={() => setSettingUp(false)} />}
     </section>
   );
 };

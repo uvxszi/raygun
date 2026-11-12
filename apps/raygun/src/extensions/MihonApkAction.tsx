@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useSettings } from '../settings/useSettings';
 import { SourceIssue } from '../shell/SourceIssue';
+import { isNotForRaygun } from './catalogFilters';
 import {
   useMihonApk,
   useMihonRun,
@@ -24,8 +25,11 @@ const packageOf = (id: string) => `eu.kanade.tachiyomi.extension.${id.slice('mih
  */
 export const MihonApkAction: FC<{ entry: CatalogEntry }> = ({ entry }) => {
   const allowed = useSettings().data?.runSourceCode ?? false;
-  // The panel's own hooks only for the entries it's for: a store lists thousands of others.
-  if (!allowed || !entry.unsupported || !entry.id.startsWith('mihon.')) return null;
+  // The panel's own hooks only for the entries it's for: a store lists thousands of others. One
+  // that would do nothing (no sources) has nothing to run either.
+  if (!allowed || !entry.unsupported || isNotForRaygun(entry) || !entry.id.startsWith('mihon.')) {
+    return null;
+  }
   return <MihonApkPanel entry={entry} />;
 };
 

@@ -4,6 +4,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AdultMark } from '../shell/AdultMark';
+import { isNotForRaygun } from './catalogFilters';
 import { hostLabel } from './hostLabel';
 import { RunsOn } from './RunsOn';
 
@@ -26,6 +27,11 @@ export const EntryInfo: FC<{ entry: CatalogEntry; repoName: string }> = ({ entry
         </span>
       </div>
       {entry.description && <p>{entry.description}</p>}
+      {isNotForRaygun(entry) && entry.unsupported && (
+        <p className="text-muted">
+          {t('extensions.notForRaygunWhy', { reason: entry.unsupported })}
+        </p>
+      )}
       <div className="flex flex-col gap-1.5">
         <h3 className="font-medium">{t('extensions.permissionsTitle')}</h3>
         {entry.nuclear ? (

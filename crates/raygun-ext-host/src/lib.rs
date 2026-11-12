@@ -28,6 +28,7 @@ pub mod nuclear;
 pub mod package;
 pub mod permissions;
 pub mod podcast;
+pub mod purpose;
 pub mod repo;
 pub mod review;
 pub mod servers;

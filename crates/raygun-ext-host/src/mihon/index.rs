@@ -37,6 +37,8 @@ pub const PACKAGE_PREFIX: &str = "eu.kanade.tachiyomi.extension.";
 const MAX_STORE_BYTES: u64 = 32 * 1024 * 1024;
 /// Hops from the address added to the extensions (list → repo.json → index → its list).
 const MAX_HOPS: usize = 4;
+/// Why an extension a store lists without sources isn't for Raygun (`crate::purpose`).
+pub const NO_SOURCES: &str = "Lists no sources, so there's nothing for Raygun to read";
 
 /// How a store rates an extension's content.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -456,6 +458,8 @@ pub fn to_repo_index(store: &Store) -> Result<RepoIndex, String> {
                 size: 0,
                 format: PackageFormat::Mihon,
                 sites: Vec::new(),
+                // Its sources are what Raygun calls: without any, it would add nothing.
+                not_for_raygun: extension.sources.is_empty().then(|| NO_SOURCES.to_owned()),
             })
         })
         .collect();

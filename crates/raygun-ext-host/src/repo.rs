@@ -81,6 +81,11 @@ pub struct RepoEntry {
     /// against its package at install, so what people are told before installing is what runs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sites: Vec<String>,
+    /// Why installing it would add nothing Raygun calls (`crate::purpose`): another app's plugin
+    /// that only changes that app (a Nuclear mini player, a Kodi skin), an extension with no
+    /// sources. The catalogue says "Not for Raygun" and installing it is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_for_raygun: Option<String>,
 }
 
 /// What a package is: a Raygun extension, a Nuclear plugin converted at install (M17), a
@@ -270,6 +275,7 @@ fn from_shosetsu(index: ShosetsuIndex) -> RepoIndex {
                 size: 0,
                 format: PackageFormat::Shosetsu,
                 sites: Vec::new(),
+                not_for_raygun: None,
             })
         })
         .collect();
@@ -371,6 +377,8 @@ struct NuclearRegistryEntry {
     #[serde(default)]
     categories: Option<Vec<String>>,
     #[serde(default)]
+    tags: Option<Vec<String>>,
+    #[serde(default)]
     version: Option<String>,
     #[serde(default)]
     download_url: Option<String>,
@@ -396,7 +404,7 @@ pub fn nuclear_extension_id(package: &str) -> String {
 
 /// Nuclear categories Raygun runs, as Raygun provider kinds (as `CATEGORY_KINDS` in
 /// packages/nuclear-compat maps them).
-fn nuclear_kind(category: &str) -> Option<&'static str> {
+pub(crate) fn nuclear_kind(category: &str) -> Option<&'static str> {
     match category {
         "metadata" | "playlists" => Some("music.metadata"),
         "streaming" => Some("music.stream"),
@@ -416,14 +424,24 @@ fn from_nuclear(registry: NuclearRegistry) -> RepoIndex {
                 .categories
                 .or_else(|| plugin.category.map(|category| vec![category]))
                 .unwrap_or_default();
-            let provides: Vec<String> = categories
+            let mut provides: Vec<String> = Vec::new();
+            for kind in categories
                 .iter()
-                .filter_map(|category| nuclear_kind(category).map(str::to_owned))
-                .collect();
-            // Nothing Raygun can run, or nothing to download.
-            if provides.is_empty() {
-                return None;
+                .filter_map(|category| nuclear_kind(category))
+            {
+                if !provides.iter().any(|known| known == kind) {
+                    provides.push(kind.to_owned());
+                }
             }
+            // Nothing Raygun can run: listed as not for Raygun, saying what it does in Nuclear.
+            let not_for_raygun = provides.is_empty().then(|| {
+                crate::nuclear::purpose(
+                    &plugin.name,
+                    plugin.description.as_deref(),
+                    &categories,
+                    plugin.tags.as_deref().unwrap_or_default(),
+                )
+            });
             let version = plugin
                 .version
                 .filter(|version| semver::Version::parse(version).is_ok())
@@ -449,6 +467,7 @@ fn from_nuclear(registry: NuclearRegistry) -> RepoIndex {
                 size: 0,
                 format: PackageFormat::Nuclear,
                 sites: Vec::new(),
+                not_for_raygun,
             })
         })
         .collect();
@@ -630,7 +649,7 @@ pub fn read_index(json: &str) -> Result<(RepoIndex, PackageFormat), RepoError> {
         usable
     });
     // A script installs as a novel source that may reach any public website, whatever the index
-    // says; the catalogue shows that.
+    // says; the catalogue shows that. A package that would provide nothing isn't for Raygun.
     for entry in &mut index.extensions {
         if entry.format == PackageFormat::Shosetsu {
             entry.provides = vec!["novel.source".to_owned()];
@@ -639,6 +658,7 @@ pub fn read_index(json: &str) -> Result<(RepoIndex, PackageFormat), RepoError> {
                 webview: false,
             };
         }
+        crate::purpose::mark(entry);
     }
     Ok((index, PackageFormat::Raygun))
 }

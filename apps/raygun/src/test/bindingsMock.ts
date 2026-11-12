@@ -861,6 +861,7 @@ export const bindingsMock = {
     stremioSuggestions: vi.fn(),
     stremioPreview: vi.fn(),
     stremioAdd: vi.fn(),
+    stremioAddConfigured: vi.fn(),
     stremioRemove: vi.fn(),
     stremioSetEnabled: vi.fn(),
     stremioSetOrder: vi.fn(),
@@ -1815,6 +1816,7 @@ export const seedBindings = () => {
   commands.stremioSuggestions.mockResolvedValue(ok([]));
   commands.stremioPreview.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.stremioAdd.mockResolvedValue(ok(null));
+  commands.stremioAddConfigured.mockResolvedValue(ok(null));
   commands.stremioRemove.mockResolvedValue(ok(null));
   commands.stremioSetEnabled.mockResolvedValue(ok(null));
   commands.stremioSetOrder.mockResolvedValue(ok(null));

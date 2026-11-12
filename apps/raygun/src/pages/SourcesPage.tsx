@@ -10,7 +10,13 @@ import { ExtensionCatalog } from '../extensions/ExtensionCatalog';
 import { RatingHint } from '../extensions/RatingHint';
 import { RepoRow, SuggestedRepos } from '../extensions/RepoRows';
 import { useCatalogRefresh } from '../extensions/useCatalogRefresh';
-import { useCatalog, useExtensions, useRepos } from '../extensions/useExtensions';
+import {
+  useCatalog,
+  useExtensions,
+  useRepos,
+  useUninstallExtension,
+} from '../extensions/useExtensions';
+import { NotForRaygunNote, RemoveUnused } from '../extensions/NotForRaygun';
 import { useSourceSwitches } from '../search/useSourceSwitch';
 import { ServerRow } from '../servers/ServerRow';
 import { ServerSheet } from '../servers/ServerSheet';
@@ -50,7 +56,8 @@ const chip = (on: boolean) =>
 
 /**
  * An installed extension: its page, where it came from, and its switch. Its 18+ mark comes from
- * the page, which reads the marks once for every row.
+ * the page, which reads the marks once for every row. One that does nothing in Raygun says why
+ * and offers Remove in place of its switch.
  */
 const ExtensionRow: FC<{
   extension: ExtensionInfo;
@@ -59,9 +66,12 @@ const ExtensionRow: FC<{
   busy: boolean;
   mark: ContentOverride;
   onSwitch: (on: boolean) => void;
+  removing: boolean;
+  onRemove: () => void;
   row: RowProps;
-}> = ({ extension, selection, enabled, busy, mark, onSwitch, row }) => {
+}> = ({ extension, selection, enabled, busy, mark, onSwitch, removing, onRemove, row }) => {
   const { t } = useTranslation();
+  const unused = Boolean(extension.notForRaygun) && extension.origin === 'installed';
   return (
     <li {...row} aria-label={extension.name} className="flex items-center gap-1">
       <SelectCheck selection={selection} id={`extension:${extension.id}`} name={extension.name} />
@@ -82,22 +92,30 @@ const ExtensionRow: FC<{
             {extension.adult && <AdultMark />}
             <RatingHint mark={mark} />
           </span>
-          <span className="text-muted truncate text-xs">
-            {!enabled
-              ? t('sources.disabledNote', { detail: extension.description ?? extension.version })
-              : extension.status === 'failed'
-                ? t('extensions.notLoaded')
-                : (extension.description ?? '')}
-          </span>
+          {extension.notForRaygun ? (
+            <NotForRaygunNote reason={extension.notForRaygun} className="truncate" />
+          ) : (
+            <span className="text-muted truncate text-xs">
+              {!enabled
+                ? t('sources.disabledNote', { detail: extension.description ?? extension.version })
+                : extension.status === 'failed'
+                  ? t('extensions.notLoaded')
+                  : (extension.description ?? '')}
+            </span>
+          )}
         </span>
         <ChevronRight aria-hidden size={18} className="text-muted shrink-0" />
       </Link>
-      <OnOffSwitch
-        checked={enabled}
-        label={t('sources.switch', { name: extension.name })}
-        disabled={busy}
-        onChange={onSwitch}
-      />
+      {unused ? (
+        <RemoveUnused name={extension.name} busy={removing} onRemove={onRemove} />
+      ) : (
+        <OnOffSwitch
+          checked={enabled}
+          label={t('sources.switch', { name: extension.name })}
+          disabled={busy}
+          onChange={onSwitch}
+        />
+      )}
     </li>
   );
 };
@@ -134,6 +152,7 @@ export const SourcesPage: FC = () => {
   const addons = useStremioAddons();
   const servers = useServers();
   const extensions = useExtensions();
+  const uninstall = useUninstallExtension();
   const switches = useSourceSwitches();
   const setAddon = useSetAddonEnabled();
   const setOrder = useSetAddonOrder();
@@ -462,10 +481,13 @@ export const SourcesPage: FC = () => {
                 busy={switches.busy}
                 mark={rating.markOf('extensions', extension.id)}
                 onSwitch={(on) => switches.setMany([extension.id], on)}
+                removing={uninstall.isPending && uninstall.variables === extension.id}
+                onRemove={() => uninstall.mutate(extension.id)}
                 row={row}
               />
             )}
           />
+          {uninstall.error && <SourceIssue compact>{uninstall.error.message}</SourceIssue>}
         </Section>
       )}
       {adding && <AddSourceSheet onClose={() => setAdding(false)} />}

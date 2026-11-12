@@ -48,6 +48,8 @@ fn addon(name: &str, needs_setup: bool) -> DetectedSource {
             configure_url: needs_setup.then(|| format!("{url}/configure")),
             needs_setup,
             failing: false,
+            not_for_raygun: None,
+            config: Vec::new(),
         }),
         format: None,
         ..found(DetectedKind::Addon, name)
@@ -81,6 +83,64 @@ fn a_list_is_read_line_by_line_each_address_once() {
     assert_eq!(
         address_key("music.example"),
         address_key("https://Music.example/")
+    );
+}
+
+#[test]
+fn sources_not_for_raygun_arent_added_and_say_why() {
+    let mut queue = Queue::default();
+    queue.enqueue(&read_list("lists.example\nskin.example"));
+    let (id, _) = queue.start_next().unwrap();
+    let mut lists = addon("Lists", false);
+    if let Some(addon) = lists.addon.as_mut() {
+        addon.not_for_raygun = Some("Only lists other Stremio addons".to_owned());
+    }
+    assert_eq!(queue.looked(id, Ok(lists)), Step::Done, "not added");
+    let (id, _) = queue.start_next().unwrap();
+    let entry = raygun_model::CatalogEntry {
+        repo_id: String::new(),
+        id: "kodi.skin.example".to_owned(),
+        name: "Skin".to_owned(),
+        version: "1.0.0".to_owned(),
+        description: None,
+        author: None,
+        provides: Vec::new(),
+        net: Vec::new(),
+        content_rating: "safe".to_owned(),
+        adult: false,
+        lang: None,
+        size: 0,
+        state: raygun_model::CatalogState::Available,
+        nuclear: false,
+        installed_version: None,
+        icon: None,
+        unsupported: Some("A skin for Kodi".to_owned()),
+        unsupported_kind: Some(raygun_model::UnsupportedKind::NotForRaygun),
+        sites: Vec::new(),
+    };
+    let skin = DetectedSource {
+        entries: vec![entry],
+        ..found(DetectedKind::Extension, "Skin")
+    };
+    assert_eq!(queue.looked(id, Ok(skin)), Step::Done);
+    let status = queue.status();
+    let errors: Vec<(SourceQueueState, Option<&str>)> = status
+        .items
+        .iter()
+        .map(|item| (item.state, item.error.as_deref()))
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            (
+                SourceQueueState::Failed,
+                Some("Not for Raygun: Only lists other Stremio addons")
+            ),
+            (
+                SourceQueueState::Failed,
+                Some("Not for Raygun: A skin for Kodi")
+            ),
+        ]
     );
 }
 

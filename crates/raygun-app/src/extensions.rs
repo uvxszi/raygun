@@ -25,7 +25,7 @@ use raygun_ext_host::{
 use raygun_model::{
     CatalogEntry, CatalogState, ExtensionInfo, ExtensionOrigin, ExtensionRepo, ExtensionSetting,
     Lyrics, MusicChart, OnlineTrack, ProviderInfo, ProviderSearchResult, RepoCatalog, SettingKind,
-    SettingValue, SuggestedRepo, TrackQuery,
+    SettingValue, SuggestedRepo, TrackQuery, UnsupportedKind,
 };
 use raygun_paths::Paths;
 use tauri::{AppHandle, Manager};
@@ -1219,6 +1219,9 @@ impl ExtensionService {
         entry: &RepoEntry,
         bytes: &[u8],
     ) -> Result<(), String> {
+        if let Some(reason) = &entry.not_for_raygun {
+            return Err(raygun_ext_host::purpose::message(reason));
+        }
         {
             let _changing = self.changing.lock().await;
             let verified = match entry.format {
@@ -1412,18 +1415,26 @@ impl ExtensionService {
                     entry,
                     added.as_ref().or_else(|| local.get(&entry.id)),
                 );
+                // A Mihon extension tried before and refused, until its next version.
+                let refused = base
+                    .unsupported
+                    .is_none()
+                    .then(|| {
+                        (entry.format == PackageFormat::Mihon)
+                            .then(|| verdicts.get(&entry.id)?.unsupported(entry))
+                            .flatten()
+                    })
+                    .flatten();
                 CatalogEntry {
                     icon: index_url
                         .as_ref()
                         .and_then(|base| repo::icon_url(base, entry))
                         .map(|url| images.cover(url.as_str(), &Default::default())),
                     adult,
-                    // A Mihon extension tried before and refused, until its next version.
-                    unsupported: base.unsupported.clone().or_else(|| {
-                        (entry.format == PackageFormat::Mihon)
-                            .then(|| verdicts.get(&entry.id)?.unsupported(entry))
-                            .flatten()
-                    }),
+                    unsupported_kind: base
+                        .unsupported_kind
+                        .or(refused.is_some().then_some(UnsupportedKind::CantRun)),
+                    unsupported: base.unsupported.clone().or(refused),
                     ..base
                 }
             })
@@ -1727,6 +1738,10 @@ impl ExtensionService {
             .iter()
             .find(|entry| entry.id == extension_id)
             .ok_or_else(|| format!("{} no longer lists {extension_id}", repo.name))?;
+        // One that would do nothing here isn't installed, saying why.
+        if let Some(reason) = &entry.not_for_raygun {
+            return Err(raygun_ext_host::purpose::message(reason));
+        }
         if entry.format == PackageFormat::Kodi {
             return Err(raygun_ext_host::kodi::UNSUPPORTED.to_owned());
         }
@@ -1767,6 +1782,11 @@ impl ExtensionService {
                 package::check_nuclear_download(&bytes, entry)
                     .map_err(|error| error.to_string())?;
                 let sources = nuclear::unzip_sources(&bytes).map_err(|error| error.to_string())?;
+                // Its package may say more than the repository did: a plugin that only changes
+                // Nuclear itself isn't converted.
+                if let Some(reason) = nuclear::not_for_raygun(&sources) {
+                    return Err(raygun_ext_host::purpose::message(&reason));
+                }
                 let mut converted =
                     tauri::async_runtime::spawn_blocking(move || nuclear::convert(&sources))
                         .await
@@ -2450,6 +2470,7 @@ struct Installed {
 }
 
 fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&Installed>) -> CatalogEntry {
+    let unsupported = refusal(entry);
     let state = match local {
         None => CatalogState::Available,
         Some(installed) => match repo::compare_versions(&entry.version, &installed.version) {
@@ -2483,16 +2504,27 @@ fn catalog_entry(repo_id: &str, entry: &RepoEntry, local: Option<&Installed>) ->
         state,
         installed_version: local.map(|installed| installed.version.clone()),
         icon: None,
-        // A Mihon extension says why it can't be converted once it was tried (`entries_of`).
-        unsupported: match entry.format {
-            PackageFormat::Kodi => Some(raygun_ext_host::kodi::UNSUPPORTED.to_owned()),
-            PackageFormat::Mihon if !raygun_ext_host::mihon::runtime_present() => {
-                Some(raygun_ext_host::mihon::UNSUPPORTED.to_owned())
-            }
-            _ => None,
-        },
+        unsupported_kind: unsupported.as_ref().map(|(kind, _)| *kind),
+        unsupported: unsupported.map(|(_, reason)| reason),
         sites: entry.sites.clone(),
     }
+}
+
+/// Why an entry can't be installed, and which kind of reason that is: it would do nothing in
+/// Raygun (its reader said why, `raygun_ext_host::purpose`), or it's a format Raygun can't run
+/// here. A Mihon extension also says why it can't be converted once it was tried (`entries_of`).
+fn refusal(entry: &RepoEntry) -> Option<(UnsupportedKind, String)> {
+    if let Some(reason) = &entry.not_for_raygun {
+        return Some((UnsupportedKind::NotForRaygun, reason.clone()));
+    }
+    let cant_run = match entry.format {
+        PackageFormat::Kodi => raygun_ext_host::kodi::UNSUPPORTED,
+        PackageFormat::Mihon if !raygun_ext_host::mihon::runtime_present() => {
+            raygun_ext_host::mihon::UNSUPPORTED
+        }
+        _ => return None,
+    };
+    Some((UnsupportedKind::CantRun, cant_run.to_owned()))
 }
 
 /// Whether `value` fits a setting: the right type, and one of the options for a select.
@@ -3026,6 +3058,7 @@ mod tests {
             size: 1,
             format: Default::default(),
             sites: Vec::new(),
+            not_for_raygun: None,
         }
     }
 
@@ -3115,6 +3148,51 @@ mod tests {
             serde_json::from_str(&super::with_version(manifest, "1.0.1").unwrap()).unwrap();
         assert_eq!(updated["version"], "1.0.1");
         assert_eq!(updated["provides"][0], "music.stream");
+    }
+
+    #[test]
+    fn the_catalogue_says_what_isnt_for_raygun_apart_from_what_cant_run() {
+        let shown = |entry: &RepoEntry| {
+            let shown = catalog_entry("r", entry, None);
+            (shown.unsupported_kind, shown.unsupported)
+        };
+        assert_eq!(
+            shown(&RepoEntry {
+                provides: vec!["lyrics".into()],
+                ..entry("1.0.0")
+            }),
+            (None, None)
+        );
+        let mini_player = RepoEntry {
+            format: PackageFormat::Nuclear,
+            not_for_raygun: Some("Adds a mini player to Nuclear; Raygun has its own".into()),
+            ..entry("1.0.0")
+        };
+        assert_eq!(
+            shown(&mini_player),
+            (
+                Some(UnsupportedKind::NotForRaygun),
+                Some("Adds a mini player to Nuclear; Raygun has its own".into())
+            )
+        );
+        let plugin = RepoEntry {
+            format: PackageFormat::Kodi,
+            provides: vec!["video.source".into()],
+            ..entry("1.0.0")
+        };
+        assert_eq!(
+            shown(&plugin),
+            (
+                Some(UnsupportedKind::CantRun),
+                Some(raygun_ext_host::kodi::UNSUPPORTED.into())
+            )
+        );
+        // A Kodi skin isn't for Raygun at all, rather than waiting for Python.
+        let skin = RepoEntry {
+            not_for_raygun: Some("A skin for Kodi's own screens; Raygun has its own look".into()),
+            ..plugin
+        };
+        assert_eq!(shown(&skin).0, Some(UnsupportedKind::NotForRaygun));
     }
 
     #[test]

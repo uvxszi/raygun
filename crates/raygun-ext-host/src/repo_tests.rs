@@ -49,6 +49,7 @@ fn entry_for(bytes: &[u8]) -> RepoEntry {
         size: bytes.len() as u64,
         format: Default::default(),
         sites: Vec::new(),
+        not_for_raygun: None,
     }
 }
 
@@ -548,6 +549,13 @@ fn reads_nuclears_plugin_registry_as_a_repository() {
               "downloadUrl": "https://example.org/p.zip", "addedAt": "2026-01-01T00:00:00Z" },
             { "id": "nuclear-plugin-dash", "name": "Dash", "repo": "x/y", "categories": ["dashboard"],
               "downloadUrl": "https://example.org/d.zip", "addedAt": "2026-01-01T00:00:00Z" },
+            { "id": "nuclear-plugin-miniplayer", "name": "Mini Player", "repo": "x/y",
+              "description": "A small always-on-top window", "categories": ["other"],
+              "tags": ["miniplayer", "ui"],
+              "downloadUrl": "https://example.org/m.zip", "addedAt": "2026-01-01T00:00:00Z" },
+            { "id": "nuclear-plugin-listenbrainz", "name": "ListenBrainz", "repo": "x/y",
+              "description": "Scrobbles your plays", "categories": ["scrobbling"],
+              "downloadUrl": "https://example.org/l.zip", "addedAt": "2026-01-01T00:00:00Z" },
         ],
     });
     let index = repo::parse_index(&registry.to_string()).unwrap();
@@ -555,20 +563,50 @@ fn reads_nuclears_plugin_registry_as_a_repository() {
     let ids: Vec<_> = index
         .extensions
         .iter()
-        .map(|entry| (entry.id.as_str(), entry.provides.join(",")))
+        .map(|entry| {
+            (
+                entry.id.as_str(),
+                entry.provides.join(","),
+                entry.not_for_raygun.as_deref(),
+            )
+        })
         .collect();
     assert_eq!(
         ids,
         vec![
-            ("nuclear.nuclear-plugin-lrclib", "lyrics".to_owned()),
-            ("nuclear.nuclear-plugin-bandcamp", "music.stream".to_owned()),
+            ("nuclear.nuclear-plugin-lrclib", "lyrics".to_owned(), None),
+            (
+                "nuclear.nuclear-plugin-bandcamp",
+                "music.stream".to_owned(),
+                None
+            ),
+            (
+                "nuclear.nuclear-plugin-queue",
+                String::new(),
+                Some("Changes Nuclear's own player or screens; nothing Raygun can call")
+            ),
             (
                 "nuclear.nuclear-plugin-youtube-playlists",
-                "music.metadata".to_owned()
+                "music.metadata".to_owned(),
+                None
             ),
-            ("nuclear.nuclear-plugin-dash", "music.charts".to_owned()),
+            (
+                "nuclear.nuclear-plugin-dash",
+                "music.charts".to_owned(),
+                None
+            ),
+            (
+                "nuclear.nuclear-plugin-miniplayer",
+                String::new(),
+                Some("Adds a mini player to Nuclear; Raygun has its own")
+            ),
+            (
+                "nuclear.nuclear-plugin-listenbrainz",
+                String::new(),
+                Some("Scrobbles what Nuclear plays to ListenBrainz; Raygun doesn't scrobble yet")
+            ),
         ],
-        "plugins Raygun can't run, or without a download, are left out"
+        "plugins without a download are left out; ones Raygun can't call say what they do"
     );
     let lrclib = &index.extensions[0];
     assert_eq!(lrclib.format, repo::PackageFormat::Nuclear);
@@ -586,6 +624,46 @@ fn reads_nuclears_plugin_registry_as_a_repository() {
     assert_eq!(
         repo::package_url(&base, lrclib).unwrap().as_str(),
         "https://github.com/NuclearPlayer/nuclear-plugin-lrclib/releases/download/v0.1.0/plugin.zip"
+    );
+}
+
+#[test]
+fn packages_that_provide_nothing_are_not_for_raygun() {
+    let listed = |provides: serde_json::Value| {
+        json!({
+            "formatVersion": 1, "name": "Mixed",
+            "extensions": [{
+                "id": "dev.example.empty", "name": "Empty", "version": "1.0.0", "apiVersion": 1,
+                "provides": provides, "package": "packages/empty.zip",
+                "sha256": "ab".repeat(32), "size": 10,
+            }],
+        })
+        .to_string()
+    };
+    let index = repo::parse_index(&listed(json!([]))).unwrap();
+    assert_eq!(
+        index.extensions[0].not_for_raygun.as_deref(),
+        Some(crate::purpose::NOTHING_CALLABLE)
+    );
+    let index = repo::parse_index(&listed(json!(["lyrics"]))).unwrap();
+    assert_eq!(index.extensions[0].not_for_raygun, None);
+    // One added on its own (Sources → Add) is judged the same way.
+    let manifest = r#"{"id":"dev.example.empty","name":"Empty","version":"1.0.0","apiVersion":1,
+        "runtime":"js","entry":"dist/index.js","provides":[]}"#;
+    let bytes = zip(&[
+        ("raygun-extension.json", manifest.as_bytes()),
+        ("dist/index.js", b"// nothing"),
+    ]);
+    let entry = package::entry_of(&bytes, "https://example.org/empty.zip").unwrap();
+    assert_eq!(
+        entry.not_for_raygun.as_deref(),
+        Some(crate::purpose::NOTHING_CALLABLE)
+    );
+    assert_eq!(
+        package::entry_of(&good_package(), "https://example.org/pkg.zip")
+            .unwrap()
+            .not_for_raygun,
+        None
     );
 }
 
@@ -702,6 +780,7 @@ fn site_entry(bytes: &[u8], sites: &[&str]) -> RepoEntry {
         permissions: RepoPermissions::default(),
         package: "packages/dev.example.site-1.0.0.zip".into(),
         sites: sites.iter().map(|site| (*site).to_owned()).collect(),
+        not_for_raygun: None,
         ..entry_for(bytes)
     }
 }

@@ -221,10 +221,25 @@ async fn nuclear_registry_survey() {
     // `NUCLEAR_PLUGINS_DIR` keeps the packages (`<id>-<version>.zip`) between runs.
     let kept = std::env::var_os("NUCLEAR_PLUGINS_DIR").map(std::path::PathBuf::from);
     let registry_url = reqwest::Url::parse(REGISTRY).unwrap();
-    let index = crate::repo::parse_index(
+    let mut index = crate::repo::parse_index(
         &String::from_utf8(download(registry_url.clone()).await.unwrap()).unwrap(),
     )
     .unwrap();
+    // Plugins that only change Nuclear itself are listed as not for Raygun, never installed.
+    for entry in index
+        .extensions
+        .iter()
+        .filter(|entry| entry.not_for_raygun.is_some())
+    {
+        println!(
+            "not for Raygun: {} ({})",
+            entry.name,
+            entry.not_for_raygun.as_deref().unwrap_or_default()
+        );
+    }
+    index
+        .extensions
+        .retain(|entry| entry.not_for_raygun.is_none());
     println!("{} plugins Raygun can run", index.extensions.len());
 
     // Installed as the app installs them: downloaded, checked, converted.

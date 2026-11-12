@@ -57,10 +57,18 @@ export const NO_FILTER: CatalogFilter = {
   repoId: null,
 };
 
+/** A catalogue entry that would do nothing in Raygun: it's never installed or counted as one. */
+export const isNotForRaygun = (entry: Pick<CatalogEntry, 'unsupportedKind'>) =>
+  entry.unsupportedKind === 'notForRaygun';
+
+/** An update that can be installed. */
+const isUpdate = (entry: CatalogEntry) => entry.state === 'updateAvailable' && !entry.unsupported;
+
+/** One that would do nothing in Raygun is only listed under All, saying why. */
 const shows = (entry: CatalogEntry, show: CatalogShow) =>
   show === 'all' ||
-  (show === 'notInstalled' && entry.state === 'available') ||
-  (show === 'updates' && entry.state === 'updateAvailable');
+  (show === 'notInstalled' && entry.state === 'available' && !isNotForRaygun(entry)) ||
+  (show === 'updates' && isUpdate(entry));
 
 const matches = (entry: CatalogEntry, filter: CatalogFilter, show: CatalogShow) => {
   const query = filter.query.trim().toLowerCase();
@@ -99,11 +107,7 @@ export const filterCatalog = (
 
 /** How many of the catalog's entries can be updated. */
 export const updateCount = (catalog: RepoCatalog[] | undefined) =>
-  (catalog ?? []).reduce(
-    (count, listing) =>
-      count + listing.entries.filter((entry) => entry.state === 'updateAvailable').length,
-    0,
-  );
+  (catalog ?? []).reduce((count, listing) => count + listing.entries.filter(isUpdate).length, 0);
 
 /** The kinds and languages present, for the filter controls. */
 export const catalogFacets = (catalog: RepoCatalog[]) => {

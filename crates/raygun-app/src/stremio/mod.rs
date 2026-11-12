@@ -354,24 +354,41 @@ impl StremioService {
     pub async fn addons(&self) -> Result<Vec<StremioAddon>, String> {
         let health = self.health_now().await;
         let now = now_ms();
-        Ok(self
-            .loaded()
-            .await?
+        let loaded = self.loaded().await?;
+        // Whether one does anything here depends on the others (who opens its catalogues).
+        let manifests: Vec<Manifest> = loaded
+            .iter()
+            .filter_map(|loaded| loaded.manifest().cloned())
+            .collect();
+        let others: Vec<&Manifest> = manifests.iter().collect();
+        Ok(loaded
             .into_iter()
             .map(|loaded| {
                 let failing = health
                     .get(&loaded.row.id)
                     .is_some_and(|health| health.failing(now));
-                self.addon_view(loaded, failing)
+                self.addon_view(loaded, failing, &others)
             })
             .collect())
     }
 
-    fn addon_view(&self, loaded: Loaded, failing: bool) -> StremioAddon {
+    /// The manifests of the addons added, for judging another beside them.
+    async fn added_manifests(&self) -> Result<Vec<Manifest>, String> {
+        Ok(self
+            .loaded()
+            .await?
+            .iter()
+            .filter_map(|loaded| loaded.manifest().cloned())
+            .collect())
+    }
+
+    fn addon_view(&self, loaded: Loaded, failing: bool, others: &[&Manifest]) -> StremioAddon {
         let Loaded { row, manifest } = loaded;
         match manifest {
             Ok(manifest) => StremioAddon {
                 adult: self.is_adult(&row.id, &manifest),
+                not_for_raygun: manifest.not_for_raygun(others),
+                config: config_fields(&manifest, &row.transport_url),
                 id: row.id,
                 provides: provides(&manifest),
                 configure_url: (manifest.configurable || manifest.configuration_required)
@@ -412,6 +429,8 @@ impl StremioService {
                 enabled: row.enabled,
                 failing: true,
                 error: Some(error),
+                not_for_raygun: None,
+                config: Vec::new(),
             },
         }
     }
@@ -453,39 +472,86 @@ impl StremioService {
             manifest: None,
             fetched_at: None,
         };
+        let manifests = self.added_manifests().await?;
+        let others: Vec<&Manifest> = manifests.iter().collect();
         Ok(self.addon_view(
             Loaded {
                 row,
                 manifest: Ok(manifest),
             },
             false,
+            &others,
         ))
     }
 
     /// Adds an addon by its address, after reading its manifest. An addon already added under
-    /// another address (set up again on its website) gets the new address, in its place.
+    /// another address (set up again on its website) gets the new address, in its place. One
+    /// that would do nothing here isn't added, saying why.
     pub async fn add(&self, url: &str) -> Result<StremioAddon, String> {
         let url = protocol::normalize_addon_url(url)?;
         let (manifest, text) = self.fetch_manifest(&url).await?;
         if manifest.configuration_required {
+            return Err(if manifest.config.is_empty() {
+                format!(
+                    "{} needs to be set up on its website first: choose Set up, then add the address it gives you",
+                    manifest.name
+                )
+            } else {
+                format!("{} needs to be set up first: choose Set up", manifest.name)
+            });
+        }
+        self.add_read(url, manifest, text).await
+    }
+
+    /// Sets up the addon at `url` with `values` for the settings its manifest asks for (the
+    /// Stremio addon SDK's `config`), as the SDK's own page would, and adds it at the address
+    /// that makes, in place of the same addon added before. Optional settings may stay empty.
+    pub async fn add_configured(
+        &self,
+        url: &str,
+        values: &[raygun_model::StremioConfigValue],
+    ) -> Result<StremioAddon, String> {
+        let url = protocol::normalize_addon_url(url)?;
+        let (manifest, _) = self.fetch_manifest(&url).await?;
+        if manifest.config.is_empty() {
             return Err(format!(
-                "{} needs to be set up on its website first: choose Set up, then add the address it gives you",
+                "{} is set up on its website: choose Set up, then add the address it gives you",
                 manifest.name
             ));
         }
+        let configured = protocol::configured_url(&url, &manifest.config, values)?;
+        let (manifest, text) = self.fetch_manifest(&configured).await?;
+        self.add_read(configured, manifest, text).await
+    }
+
+    /// Adds the addon at `url`, whose manifest was just read.
+    async fn add_read(
+        &self,
+        url: String,
+        manifest: Manifest,
+        text: String,
+    ) -> Result<StremioAddon, String> {
+        let loaded = self.loaded().await?;
+        let others: Vec<&Manifest> = loaded.iter().filter_map(Loaded::manifest).collect();
+        if let Some(reason) = manifest.not_for_raygun(&others) {
+            return Err(raygun_ext_host::purpose::message(&reason));
+        }
         let db = self.db();
-        let same = self.loaded().await?.into_iter().find(|loaded| {
-            loaded.row.transport_url != url
-                && loaded
-                    .manifest()
-                    .is_some_and(|known| known.id == manifest.id)
-        });
+        let same = loaded
+            .iter()
+            .find(|loaded| {
+                loaded.row.transport_url != url
+                    && loaded
+                        .manifest()
+                        .is_some_and(|known| known.id == manifest.id)
+            })
+            .map(|loaded| loaded.row.id.clone());
         let id = match same {
-            Some(loaded) => {
-                store::replace_url(&db, &loaded.row.id, &url, &text, now_ms())
+            Some(id) => {
+                store::replace_url(&db, &id, &url, &text, now_ms())
                     .await
                     .map_err(to_message)?;
-                loaded.row.id
+                id
             }
             None => store::add(&db, &url, &text, now_ms())
                 .await
@@ -1841,6 +1907,32 @@ impl StremioService {
     fn db(&self) -> Arc<raygun_db::Db> {
         self.app.state::<AppDb>().0.clone()
     }
+}
+
+/// The settings an addon asks for, each with its value in the address it's at (when that holds a
+/// setup), for Raygun's form.
+fn config_fields(
+    manifest: &Manifest,
+    transport_url: &str,
+) -> Vec<raygun_model::StremioConfigField> {
+    let current = protocol::config_in_url(transport_url);
+    let set_up = !current.is_empty();
+    manifest
+        .config
+        .iter()
+        .map(|field| raygun_model::StremioConfigField {
+            value: current
+                .iter()
+                .find(|value| value.key == field.key)
+                .map(|value| value.value.clone())
+                // A ticked box is the only one sent: one left out of a setup was off.
+                .or_else(|| {
+                    (set_up && field.kind == raygun_model::StremioConfigKind::Checkbox)
+                        .then(String::new)
+                }),
+            ..field.clone()
+        })
+        .collect()
 }
 
 /// What an addon provides, as the Addons page lists it: catalogs by type with how many, details

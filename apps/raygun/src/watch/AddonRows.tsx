@@ -11,10 +11,12 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useContentRating } from '../extensions/contentRating';
+import { NotForRaygunNote, RemoveUnused } from '../extensions/NotForRaygun';
 import { RatingHint } from '../extensions/RatingHint';
 import { AdultMark } from '../shell/AdultMark';
 import { SelectCheck } from '../shell/BulkSwitch';
@@ -24,7 +26,9 @@ import type { OverflowItem } from '../shell/OverflowMenu';
 import { Picture } from '../shell/Picture';
 import { SourceIssue } from '../shell/SourceIssue';
 import type { BulkSelection } from '../shell/useBulkSelection';
+import { AddonConfigSheet } from './AddonConfig';
 import {
+  hasConfigForm,
   useAddAddon,
   useConfigureAddon,
   useRemoveAddon,
@@ -87,7 +91,9 @@ export const ProvidesChips: FC<{ addon: StremioAddon }> = ({ addon }) => {
 /**
  * An installed addon (Sources → Addons): what it provides, whether it's off or failing, its
  * switch, and its menu (order, on and off, setup, 18+, copy, remove). `onMove` is left out while
- * the list is narrowed, since the order is the whole list's.
+ * the list is narrowed, since the order is the whole list's. Setting it up opens Raygun's own
+ * form when its manifest declares its settings, else its website. One that does nothing in
+ * Raygun says why and offers Remove in place of its switch.
  */
 export const AddonItem: FC<{
   addon: StremioAddon;
@@ -102,8 +108,14 @@ export const AddonItem: FC<{
   const remove = useRemoveAddon();
   const setEnabled = useSetAddonEnabled();
   const configure = useConfigureAddon();
+  const [settingUp, setSettingUp] = useState(false);
   const error = remove.error ?? setEnabled.error ?? configure.error;
   const rating = useContentRating();
+  const setUp = hasConfigForm(addon)
+    ? () => setSettingUp(true)
+    : addon.configureUrl
+      ? () => configure.mutate(addon.url)
+      : null;
   const items: OverflowItem[] = [
     ...(onMove && !first
       ? [{ label: t('watch.moveUp'), icon: ArrowUp, onSelect: () => onMove(-1) }]
@@ -116,9 +128,7 @@ export const AddonItem: FC<{
       icon: addon.enabled ? PowerOff : Power,
       onSelect: () => setEnabled.mutate({ id: addon.id, enabled: !addon.enabled }),
     },
-    ...(addon.configureUrl
-      ? [{ label: t('watch.setUp'), icon: Settings2, onSelect: () => configure.mutate(addon.url) }]
-      : []),
+    ...(setUp ? [{ label: t('watch.setUp'), icon: Settings2, onSelect: setUp }] : []),
     ...rating.menuItems('addons', addon.id, addon.adult),
     {
       label: t('watch.copyAddress'),
@@ -161,8 +171,12 @@ export const AddonItem: FC<{
           </SourceIssue>
         ) : (
           <>
-            {addon.description && (
-              <span className="text-muted line-clamp-2 text-xs">{addon.description}</span>
+            {addon.notForRaygun ? (
+              <NotForRaygunNote reason={addon.notForRaygun} />
+            ) : (
+              addon.description && (
+                <span className="text-muted line-clamp-2 text-xs">{addon.description}</span>
+              )
             )}
             <ProvidesChips addon={addon} />
           </>
@@ -170,14 +184,24 @@ export const AddonItem: FC<{
         {error && <SourceIssue compact>{error.message}</SourceIssue>}
       </div>
       <div className="flex shrink-0 items-center">
-        <OnOffSwitch
-          checked={addon.enabled}
-          label={t('sources.switch', { name: addon.name })}
-          disabled={setEnabled.isPending}
-          onChange={(on) => setEnabled.mutate({ id: addon.id, enabled: on })}
-        />
+        {addon.notForRaygun ? (
+          <RemoveUnused
+            name={addon.name}
+            tone="bg-background"
+            busy={remove.isPending}
+            onRemove={() => remove.mutate(addon.id)}
+          />
+        ) : (
+          <OnOffSwitch
+            checked={addon.enabled}
+            label={t('sources.switch', { name: addon.name })}
+            disabled={setEnabled.isPending}
+            onChange={(on) => setEnabled.mutate({ id: addon.id, enabled: on })}
+          />
+        )}
         <OverflowMenu label={t('watch.addonActions', { name: addon.name })} items={items} />
       </div>
+      {settingUp && <AddonConfigSheet addon={addon} onClose={() => setSettingUp(false)} />}
     </li>
   );
 };

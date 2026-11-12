@@ -1,7 +1,9 @@
 import { commands } from '@raygun/bindings';
 import type {
+  StremioAddon,
   StremioCatalogInfo,
   StremioCatalogRow,
+  StremioConfigValue,
   StremioExtraValue,
   StremioPlayRequest,
 } from '@raygun/bindings';
@@ -185,6 +187,10 @@ export const useStremioSuggestions = () =>
 export const useAddonPreview = () =>
   useMutation({ mutationFn: (url: string) => unwrapResult(commands.stremioPreview(url)) });
 
+/** An addon has Raygun's own setup form when its manifest declares the settings it takes. */
+export const hasConfigForm = (addon: Pick<StremioAddon, 'config'>) =>
+  (addon.config?.length ?? 0) > 0;
+
 /** Opens an addon's setup page in the browser. */
 export const useConfigureAddon = () =>
   useMutation({ mutationFn: (url: string) => unwrapResult(commands.stremioConfigure(url)) });
@@ -200,6 +206,15 @@ const useAddonChange = <T, V>(mutationFn: (value: V) => Promise<T>) => {
 
 export const useAddAddon = () =>
   useAddonChange((url: string) => unwrapResult(commands.stremioAdd(url)));
+
+/**
+ * Sets up an addon with the settings its manifest asks for (Raygun's own form), then adds it at
+ * the address that makes, in place of the same addon added before.
+ */
+export const useAddConfiguredAddon = () =>
+  useAddonChange(({ url, values }: { url: string; values: StremioConfigValue[] }) =>
+    unwrapResult(commands.stremioAddConfigured(url, values)),
+  );
 
 export const useRemoveAddon = () =>
   useAddonChange((id: string) => unwrapResult(commands.stremioRemove(id)));

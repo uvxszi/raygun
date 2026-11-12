@@ -168,6 +168,7 @@ pub fn parse(json: &str) -> Option<RepoIndex> {
                 size: 0,
                 format: PackageFormat::Miru,
                 sites: Vec::new(),
+                not_for_raygun: None,
                 id,
             })
         })();

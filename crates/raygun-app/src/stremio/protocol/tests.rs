@@ -597,3 +597,219 @@ fn ratings_name_their_sites_and_link_imdb() {
     );
     assert!(parse_ratings(&json!({}), "kitsu:1", None).is_empty());
 }
+
+/// An addon manifest with these resources, types and catalogue types.
+fn manifest_of(id: &str, resources: Value, types: &[&str], catalogs: &[&str]) -> Manifest {
+    let catalogs: Vec<Value> = catalogs
+        .iter()
+        .enumerate()
+        .map(|(index, kind)| json!({ "type": kind, "id": format!("c{index}"), "name": "List" }))
+        .collect();
+    parse_manifest(&json!({
+        "id": id, "name": id, "version": "1.0.0",
+        "resources": resources, "types": types, "catalogs": catalogs,
+    }))
+    .unwrap()
+}
+
+#[test]
+fn addons_raygun_reads_nothing_from_are_not_for_raygun() {
+    let collection = manifest_of("addons.list", json!(["addon_catalog"]), &["movie"], &[]);
+    assert_eq!(
+        collection.not_for_raygun(&[]).as_deref(),
+        Some(
+            "Only lists other Stremio addons, which Raygun doesn't read: add those addons themselves"
+        )
+    );
+    let unknown = manifest_of("odd", json!(["calendar"]), &["movie"], &[]);
+    assert_eq!(
+        unknown.not_for_raygun(&[]).as_deref(),
+        Some("Offers only calendar, which Raygun doesn't read")
+    );
+    // Only catalogues of a type nothing here opens or plays.
+    let music = manifest_of(
+        "music.lists",
+        json!(["catalog"]),
+        &["music"],
+        &["music", "music"],
+    );
+    assert_eq!(
+        music.not_for_raygun(&[]).as_deref(),
+        Some("Only lists catalogs of music, which no addon here opens or plays")
+    );
+    // Another addon giving details for that type opens them.
+    let music_meta = manifest_of("music.meta", json!(["meta", "stream"]), &["music"], &[]);
+    assert_eq!(music.not_for_raygun(&[&music_meta]), None);
+    // Itself doesn't count.
+    assert!(music.not_for_raygun(&[&music]).is_some());
+    // Lists of films open through the details and streams of other addons, as in Stremio.
+    let films = manifest_of("films.lists", json!(["catalog"]), &["movie"], &["movie"]);
+    assert_eq!(films.not_for_raygun(&[]), None);
+    let empty = manifest_of("empty.lists", json!(["catalog"]), &["movie"], &[]);
+    assert_eq!(
+        empty.not_for_raygun(&[]).as_deref(),
+        Some("Lists no catalogs, so it has nothing to show")
+    );
+    for useful in [
+        manifest_of("streams", json!(["stream"]), &["movie"], &[]),
+        manifest_of("subtitles", json!(["subtitles"]), &["movie", "series"], &[]),
+        manifest_of(
+            "details",
+            json!(["catalog", "meta"]),
+            &["music"],
+            &["music"],
+        ),
+        parse_manifest(&cinemeta()).unwrap(),
+    ] {
+        assert_eq!(useful.not_for_raygun(&[]), None, "{}", useful.id);
+    }
+}
+
+/// An SDK addon's settings, as its manifest declares them.
+fn configurable() -> Manifest {
+    parse_manifest(&json!({
+        "id": "org.example.configurable", "name": "Configurable", "version": "1.0.0",
+        "resources": ["stream"], "types": ["movie"],
+        "behaviorHints": { "configurable": true, "configurationRequired": true },
+        "config": [
+            { "key": "apiKey", "type": "text", "title": "API key", "required": true },
+            { "key": "region", "type": "text", "title": "Region (optional)", "required": true },
+            { "key": "proxy", "type": "text", "title": "Proxy" },
+            { "key": "limit", "type": "number", "title": "Limit", "default": 5, "required": "false" },
+            { "key": "secret", "type": "password", "required": false },
+            { "key": "hdOnly", "type": "checkbox", "title": "HD only", "default": "checked" },
+            { "key": "lowFirst", "type": "checkbox", "title": "Low first" },
+            { "key": "quality", "type": "select", "title": "Quality", "options": ["1080p", "720p"] },
+            { "key": "sort", "type": "select", "options": ["size", "seeds"], "default": "seeds" },
+            { "key": "nothing", "type": "select" },
+            { "key": "broken", "type": "slider" },
+            { "type": "text", "title": "No key" },
+            { "key": "apiKey", "type": "text", "title": "Twice" }
+        ]
+    }))
+    .unwrap()
+}
+
+#[test]
+fn only_required_settings_are_required() {
+    let config = configurable().config;
+    let shown: Vec<(&str, StremioConfigKind, &str, bool)> = config
+        .iter()
+        .map(|field| {
+            (
+                field.key.as_str(),
+                field.kind,
+                field.title.as_str(),
+                field.required,
+            )
+        })
+        .collect();
+    use StremioConfigKind::{Checkbox, Number, Password, Select, Text};
+    assert_eq!(
+        shown,
+        [
+            ("apiKey", Text, "API key", true),
+            // "(optional)" in its title wins over `required`.
+            ("region", Text, "Region (optional)", false),
+            // No `required` is the SDK's `false`.
+            ("proxy", Text, "Proxy", false),
+            ("limit", Number, "Limit", false),
+            // The title falls back on the key.
+            ("secret", Password, "secret", false),
+            ("hdOnly", Checkbox, "HD only", false),
+            ("lowFirst", Checkbox, "Low first", false),
+            ("quality", Select, "Quality", false),
+            ("sort", Select, "sort", false),
+        ],
+        "fields without a key, of a type the SDK doesn't draw, or a select without choices, are \
+         left out; a key comes once"
+    );
+    assert_eq!(config[3].default.as_deref(), Some("5"));
+}
+
+fn values(pairs: &[(&str, &str)]) -> Vec<StremioConfigValue> {
+    pairs
+        .iter()
+        .map(|(key, value)| StremioConfigValue {
+            key: (*key).to_owned(),
+            value: (*value).to_owned(),
+        })
+        .collect()
+}
+
+#[test]
+fn configured_addresses_are_built_as_the_sdk_builds_them() {
+    let fields = configurable().config;
+    let address = "https://addon.example.org/manifest.json";
+    // Optional settings stay empty: they're sent empty, as the SDK's form sends them; ticked
+    // boxes are sent as `on` and unticked ones left out; selects send their default or first
+    // choice; untouched fields keep their defaults.
+    let url = configured_url(
+        address,
+        &fields,
+        &values(&[("apiKey", "k&y/1"), ("region", ""), ("hdOnly", "on")]),
+    )
+    .unwrap();
+    let json = r#"{"apiKey":"k&y/1","region":"","proxy":"","limit":"5","secret":"","hdOnly":"on","quality":"1080p","sort":"seeds"}"#;
+    assert_eq!(
+        url,
+        format!("https://addon.example.org/{}/manifest.json", encode(json))
+    );
+    assert!(url.starts_with("https://addon.example.org/%7B%22apiKey%22%3A%22k%26y%2F1%22"));
+    // A required one can't be left empty.
+    assert_eq!(
+        configured_url(address, &fields, &values(&[("apiKey", "  ")])),
+        Err("Fill in API key".to_owned())
+    );
+    assert_eq!(
+        configured_url(
+            address,
+            &fields,
+            &values(&[("apiKey", "k"), ("limit", "many")])
+        ),
+        Err("Limit takes a number".to_owned())
+    );
+    // Unticking a box ticked by default, and a choice that isn't an option.
+    let url = configured_url(
+        address,
+        &fields,
+        &values(&[
+            ("apiKey", "k"),
+            ("hdOnly", ""),
+            ("lowFirst", "on"),
+            ("sort", "nope"),
+        ]),
+    )
+    .unwrap();
+    let mut read: Vec<(String, String)> = config_in_url(&url)
+        .into_iter()
+        .map(|value| (value.key, value.value))
+        .collect();
+    read.sort();
+    let mut sent = extras(&[
+        ("apiKey", "k"),
+        ("region", ""),
+        ("proxy", ""),
+        ("limit", "5"),
+        ("secret", ""),
+        ("lowFirst", "on"),
+        ("quality", "1080p"),
+        ("sort", "seeds"),
+    ]);
+    sent.sort();
+    assert_eq!(read, sent, "a setup in the address reads back");
+    // Set up again: the setup in the address is replaced, not nested.
+    let again = configured_url(&url, &fields, &values(&[("apiKey", "new")])).unwrap();
+    assert!(again.starts_with("https://addon.example.org/%7B%22apiKey%22%3A%22new%22"));
+    assert_eq!(again.matches("manifest.json").count(), 1);
+    // An addon in a folder of its own keeps it.
+    let nested = configured_url(
+        "https://host.example.org/addons/films/manifest.json",
+        &fields,
+        &values(&[("apiKey", "k")]),
+    )
+    .unwrap();
+    assert!(nested.starts_with("https://host.example.org/addons/films/%7B"));
+    assert!(config_in_url(address).is_empty());
+    assert!(config_in_url("https://host.example.org/providers=a|b/manifest.json").is_empty());
+}

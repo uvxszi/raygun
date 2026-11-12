@@ -540,7 +540,11 @@ fn read(answer: &Fetched, base: &Url) -> Option<Reading> {
                 bytes: bytes.to_vec(),
             }));
         }
-        return kodi::index_address(bytes, &answer.url).map(Reading::Follow);
+        // A Kodi repository's own add-on names its index; any other add-on says why it can't be
+        // added (a source Raygun can't run, or a skin, service or program not for Raygun).
+        return kodi::index_address(bytes, &answer.url)
+            .map(Reading::Follow)
+            .or_else(|| kodi::refusal(bytes).map(Reading::Refused));
     }
     let text = if bytes.starts_with(&[0x1f, 0x8b]) {
         kodi::unpack(bytes).ok()?
@@ -645,8 +649,11 @@ fn read_xml(answer: &Fetched, text: &str, base: &Url) -> Option<Reading> {
             })),
             Err(error) => Some(Reading::Refused(error.to_string())),
         },
-        // A Kodi repository shared as its own add-on names its index.
-        "addon" => kodi::index_address(text.as_bytes(), &answer.url).map(Reading::Follow),
+        // A Kodi repository shared as its own add-on names its index; another add-on says why it
+        // can't be added.
+        "addon" => kodi::index_address(text.as_bytes(), &answer.url)
+            .map(Reading::Follow)
+            .or_else(|| kodi::refusal(text.as_bytes()).map(Reading::Refused)),
         // Subsonic's ping in XML (servers that answer in XML whatever `f` asks for).
         "subsonic-response" => Some(Reading::Found(subsonic_at(base))),
         "feed" if is_opds(answer, text) => Some(Reading::Found(Found::Server {
@@ -1237,6 +1244,19 @@ mod tests {
             look(&landing, "films.example").await,
             Found::Addon { url, .. } if url == "https://films.example/manifest.json"
         ));
+    }
+
+    #[tokio::test]
+    async fn kodi_addons_on_their_own_say_why_they_cant_be_added() {
+        let skin = r#"<?xml version="1.0"?><addon id="skin.example" name="Example" version="1.0.0">
+<extension point="xbmc.gui.skin"/></addon>"#;
+        let table = Table::default().with("https://kodi.example/skin.example/addon.xml", skin);
+        assert_eq!(
+            detect(&table, "https://kodi.example/skin.example/addon.xml")
+                .await
+                .unwrap_err(),
+            "Not for Raygun: A skin for Kodi's own screens; Raygun has its own look"
+        );
     }
 
     #[tokio::test]

@@ -631,3 +631,60 @@ async fn nuclear_registry_live_installs_and_runs_a_plugin() {
     assert_eq!(found.error, None);
     assert!(!found.tracks.is_empty());
 }
+
+/// A plugin's files as a zip would hold them: its `package.json` and an entry.
+fn plugin_files(package: serde_json::Value, code: &str) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("package.json".to_owned(), package.to_string()),
+        ("src/index.ts".to_owned(), code.to_owned()),
+    ])
+}
+
+#[test]
+fn plugins_that_only_change_nuclear_are_not_for_raygun() {
+    for name in ["musicbrainz", "lrclib", "kugou", "discogs"] {
+        assert_eq!(nuclear::not_for_raygun(&fixture(name)), None, "{name}");
+    }
+    let mini_player = plugin_files(
+        json!({ "name": "nuclear-plugin-mini-player", "description": "Always on top",
+                "nuclear": { "displayName": "Mini Player", "categories": ["other"] } }),
+        "export default { onLoad(api) { api.Shell.openWindow('mini'); } };",
+    );
+    assert_eq!(
+        nuclear::not_for_raygun(&mini_player).as_deref(),
+        Some("Adds a mini player to Nuclear; Raygun has its own")
+    );
+    let scrobbler = plugin_files(
+        json!({ "name": "nuclear-plugin-lastfm-scrobbler",
+                "nuclear": { "displayName": "Last.fm", "category": "scrobbling" } }),
+        "export default { onEnable(api) { api.Events.on('play', () => {}); } };",
+    );
+    assert_eq!(
+        nuclear::not_for_raygun(&scrobbler).as_deref(),
+        Some("Scrobbles what Nuclear plays to Last.fm; Raygun doesn't scrobble yet")
+    );
+    let theme = plugin_files(
+        json!({ "name": "nuclear-theme-midnight", "keywords": ["theme"],
+                "nuclear": { "displayName": "Midnight" } }),
+        "export default {};",
+    );
+    assert_eq!(
+        nuclear::not_for_raygun(&theme).as_deref(),
+        Some("Changes how Nuclear looks; Raygun has its own look")
+    );
+    // Its categories don't say, but its code registers a provider Raygun runs (as the converter
+    // reads it): it's converted.
+    let registers = plugin_files(
+        json!({ "name": "nuclear-plugin-omni", "nuclear": { "categories": ["other"] } }),
+        "export default { onLoad(api) { api.Providers.register({ kind: 'streaming', id: 'omni' }); } };",
+    );
+    assert_eq!(nuclear::not_for_raygun(&registers), None);
+    // Not a plugin at all: the converter says why.
+    assert_eq!(
+        nuclear::not_for_raygun(&BTreeMap::from([(
+            "index.ts".to_owned(),
+            "export default {};".to_owned()
+        )])),
+        None
+    );
+}

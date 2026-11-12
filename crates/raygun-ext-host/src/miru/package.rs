@@ -135,6 +135,7 @@ pub fn entry_of(bytes: &[u8], url: &url::Url) -> Option<RepoEntry> {
         size: bytes.len() as u64,
         format: crate::repo::PackageFormat::Miru,
         sites: Vec::new(),
+        not_for_raygun: None,
     })
 }
 

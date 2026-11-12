@@ -8,7 +8,10 @@
 //! `xbmcplugin`, `xbmcaddon`, `xbmcvfs`) and the `script.module.*` libraries they import, which
 //! Raygun doesn't have. So a repository is read and its plugins (video, music and picture
 //! sources) are listed with what they offer, marked as not installable
-//! ([`UNSUPPORTED`]); everything else (skins, services, libraries, scripts) is left out.
+//! ([`UNSUPPORTED`]). Skins, services, programs, screensavers and the like are listed as not for
+//! Raygun, saying what they do in Kodi ([`PURPOSES`]); libraries, resources (languages, images,
+//! sounds), repositories and the player's own parts are left out, as what other add-ons need
+//! rather than add-ons people pick.
 
 use std::io::{Cursor, Read};
 
@@ -24,6 +27,47 @@ pub const UNSUPPORTED: &str = "Kodi add-ons are Python programs, which Raygun ca
 /// Largest index read once unpacked (Kodi's own repository is about 12 MB).
 const MAX_INDEX_BYTES: u64 = 32 * 1024 * 1024;
 
+/// What Kodi add-ons that aren't content sources do, by their extension point (or the start of
+/// it), as the catalogue says why they're not for Raygun.
+const PURPOSES: &[(&str, &str)] = &[
+    (
+        "xbmc.gui.skin",
+        "A skin for Kodi's own screens; Raygun has its own look",
+    ),
+    ("xbmc.python.script", "A program that runs inside Kodi"),
+    ("xbmc.service", "A background service for Kodi"),
+    ("xbmc.ui.screensaver", "A screensaver for Kodi"),
+    (
+        "xbmc.player.musicviz",
+        "A visualization for Kodi's music player",
+    ),
+    ("xbmc.python.weather", "Weather for Kodi's home screen"),
+    (
+        "xbmc.subtitle.module",
+        "Finds subtitles for Kodi's player; Raygun's come from its own sources",
+    ),
+    (
+        "xbmc.python.lyrics",
+        "Finds lyrics for Kodi's player; Raygun's come from its own sources",
+    ),
+    ("kodi.context.item", "Adds items to Kodi's menus"),
+    (
+        "xbmc.webinterface",
+        "A web remote for Kodi; Raygun has its own remote",
+    ),
+    (
+        "xbmc.metadata.scraper.",
+        "Fills Kodi's library with details; Raygun gets them from its own sources",
+    ),
+    ("xbmc.pvrclient", "Live TV for Kodi's TV screens"),
+    ("kodi.pvrclient", "Live TV for Kodi's TV screens"),
+    ("kodi.gameclient", "A game emulator for Kodi"),
+];
+/// A plugin whose `<provides>` names no content (`executable`, `game`): a program in Kodi.
+const PROGRAM: &str = "A program that runs inside Kodi";
+/// An add-on on its own that other add-ons use (a library, a language, pictures).
+const PART: &str = "A part other Kodi add-ons use, not an add-on of its own";
+
 /// One `<addon>`, as far as Raygun reads it.
 #[derive(Debug, Default)]
 struct Addon {
@@ -31,6 +75,8 @@ struct Addon {
     name: String,
     version: String,
     provider: Option<String>,
+    /// Its extension points, in order (`xbmc.python.pluginsource`, `xbmc.gui.skin`...).
+    points: Vec<String>,
     /// The `xbmc.python.pluginsource` extension's `<provides>`: `video`, `audio`, `image`...
     plugin: Option<String>,
     /// The `xbmc.addon.repository` extension's index (`<info>`), for repository add-ons.
@@ -96,7 +142,14 @@ fn addons(text: &str) -> Vec<Addon> {
                             ..Addon::default()
                         });
                     }
-                    "extension" => point = attribute(&element, "point").unwrap_or_default(),
+                    "extension" => {
+                        point = attribute(&element, "point").unwrap_or_default();
+                        if let Some(addon) = current.as_mut()
+                            && !point.is_empty()
+                        {
+                            addon.points.push(point.clone());
+                        }
+                    }
                     "summary" | "description" => {
                         lang_english = attribute(&element, "lang")
                             .is_none_or(|lang| lang.to_ascii_lowercase().starts_with("en"));
@@ -204,6 +257,33 @@ fn kinds(provides: &str) -> Vec<String> {
     kinds
 }
 
+/// What an add-on that isn't a content source does in Kodi, when it's one people pick (a skin, a
+/// service, a program); `None` for a source, and for libraries, resources, repositories and the
+/// player's own parts.
+fn purpose(addon: &Addon) -> Option<&'static str> {
+    if addon
+        .plugin
+        .as_deref()
+        .is_some_and(|provides| !kinds(provides).is_empty())
+    {
+        return None;
+    }
+    addon.points.iter().find_map(|point| {
+        if point == "xbmc.python.pluginsource" {
+            return Some(PROGRAM);
+        }
+        PURPOSES
+            .iter()
+            .find(|(known, _)| {
+                point == known
+                    || (known.ends_with('.')
+                        && point.starts_with(known)
+                        && !point.ends_with(".library"))
+            })
+            .map(|(_, purpose)| *purpose)
+    })
+}
+
 /// Reads an `addons.xml`; `None` when the text isn't one.
 pub fn parse(text: &str) -> Option<RepoIndex> {
     if root_element(text)? != "addons" {
@@ -212,8 +292,14 @@ pub fn parse(text: &str) -> Option<RepoIndex> {
     let extensions = addons(text)
         .into_iter()
         .filter_map(|addon| {
-            let kinds = kinds(addon.plugin.as_deref()?);
-            if kinds.is_empty() || addon.id.contains(['/', '\\']) || addon.id.is_empty() {
+            let kinds = kinds(addon.plugin.as_deref().unwrap_or_default());
+            // Not a source: listed as not for Raygun when it's an add-on people pick.
+            let not_for_raygun = if kinds.is_empty() {
+                Some(purpose(&addon)?.to_owned())
+            } else {
+                None
+            };
+            if addon.id.contains(['/', '\\']) || addon.id.is_empty() {
                 return None;
             }
             let label: String = addon
@@ -263,6 +349,7 @@ pub fn parse(text: &str) -> Option<RepoIndex> {
                 size: 0,
                 format: PackageFormat::Kodi,
                 sites: Vec::new(),
+                not_for_raygun,
             })
         })
         .collect();
@@ -275,9 +362,9 @@ pub fn parse(text: &str) -> Option<RepoIndex> {
     })
 }
 
-/// The index a repository shared as its own add-on names: from its `addon.xml`, or from the
-/// `addon.xml` inside its zip. `None` for anything else.
-pub fn index_address(bytes: &[u8], from: &Url) -> Option<Url> {
+/// One add-on's `addon.xml`: the file itself, or the one inside its zip. `None` for anything
+/// else.
+fn addon_text(bytes: &[u8]) -> Option<String> {
     let text = if bytes.starts_with(b"PK") {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).ok()?;
         let name = (0..zip.len()).find_map(|index| {
@@ -295,14 +382,38 @@ pub fn index_address(bytes: &[u8], from: &Url) -> Option<Url> {
     } else {
         String::from_utf8_lossy(bytes).into_owned()
     };
-    if root_element(&text)? != "addon" {
-        return None;
-    }
+    (root_element(&text)? == "addon").then_some(text)
+}
+
+/// The index a repository shared as its own add-on names: from its `addon.xml`, or from the
+/// `addon.xml` inside its zip. `None` for anything else.
+pub fn index_address(bytes: &[u8], from: &Url) -> Option<Url> {
+    let text = addon_text(bytes)?;
     let info = addons(&text)
         .into_iter()
         .find_map(|addon| addon.repository_info)?;
     let url = from.join(&info).ok()?;
     matches!(url.scheme(), "http" | "https").then_some(url)
+}
+
+/// Why one add-on shared on its own (its `addon.xml` or zip) can't be added: a source is a
+/// Python program Raygun can't run ([`UNSUPPORTED`]); anything else isn't for Raygun, saying
+/// what it is. `None` for a repository's own add-on (its index is read instead) and for anything
+/// that isn't a Kodi add-on.
+pub fn refusal(bytes: &[u8]) -> Option<String> {
+    let addon = addons(&addon_text(bytes)?).into_iter().next()?;
+    if addon.repository_info.is_some() {
+        return None;
+    }
+    let source = addon
+        .plugin
+        .as_deref()
+        .is_some_and(|provides| !kinds(provides).is_empty());
+    Some(if source {
+        UNSUPPORTED.to_owned()
+    } else {
+        crate::purpose::message(purpose(&addon).unwrap_or(PART))
+    })
 }
 
 /// An index's text, unpacked when it's gzipped (`addons.xml.gz`).
@@ -352,18 +463,22 @@ mod tests {
     fn lists_plugins_as_not_installable() {
         let index = crate::repo::parse_index(INDEX).unwrap();
         assert!(index.name.is_empty(), "named after its address");
-        let ids: Vec<&str> = index
+        let ids: Vec<(&str, Option<&str>)> = index
             .extensions
             .iter()
-            .map(|entry| entry.id.as_str())
+            .map(|entry| (entry.id.as_str(), entry.not_for_raygun.as_deref()))
             .collect();
         assert_eq!(
             ids,
             [
-                "kodi.plugin.video.example.archive",
-                "kodi.plugin.audio.example.radio"
+                ("kodi.plugin.video.example.archive", None),
+                ("kodi.plugin.audio.example.radio", None),
+                (
+                    "kodi.skin.estuary",
+                    Some("A skin for Kodi's own screens; Raygun has its own look")
+                ),
             ],
-            "libraries and skins aren't content"
+            "libraries are left out; a skin isn't for Raygun"
         );
         let video = &index.extensions[0];
         assert_eq!(video.format, PackageFormat::Kodi);
@@ -383,6 +498,113 @@ mod tests {
         let radio = &index.extensions[1];
         assert_eq!(radio.version, "1.0.0");
         assert_eq!(radio.provides, ["music.stream", "video.source"]);
+        let skin = &index.extensions[2];
+        assert!(skin.provides.is_empty());
+        assert_eq!(skin.format, PackageFormat::Kodi);
+    }
+
+    /// Add-ons that aren't sources, as Kodi's own repository lists them.
+    const OTHERS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<addons>
+<addon id="service.subtitles.example" name="Example Subtitles" version="1.0.0">
+  <extension point="xbmc.subtitle.module" library="service.py"/>
+  <extension point="xbmc.addon.metadata"><summary lang="en_GB">Subtitles</summary></extension>
+</addon>
+<addon id="service.example.backup" name="Backup" version="2.0.1">
+  <extension point="xbmc.service" library="service.py"/>
+</addon>
+<addon id="script.example.tool" name="Tool" version="1.0.0">
+  <extension point="xbmc.python.script" library="default.py"><provides>executable</provides></extension>
+</addon>
+<addon id="plugin.program.example" name="Program" version="1.0.0">
+  <extension point="xbmc.python.pluginsource" library="default.py"><provides>executable</provides></extension>
+</addon>
+<addon id="screensaver.example" name="Stars" version="1.0.0"><extension point="xbmc.ui.screensaver" library="s.py"/></addon>
+<addon id="metadata.example.movies" name="Films DB" version="1.0.0"><extension point="xbmc.metadata.scraper.movies" library="s.xml"/></addon>
+<addon id="metadata.common.example" name="Scraper library" version="1.0.0"><extension point="xbmc.metadata.scraper.library" library="s.xml"/></addon>
+<addon id="context.example" name="Menu item" version="1.0.0"><extension point="kodi.context.item"/></addon>
+<addon id="resource.language.de_de" name="German" version="11.0.0"><extension point="kodi.resource.language"/></addon>
+<addon id="repository.example" name="Example repository" version="1.0.0"><extension point="xbmc.addon.repository"><dir><info>https://kodi.example.org/addons.xml</info></dir></extension></addon>
+</addons>"#;
+
+    #[test]
+    fn skins_services_and_programs_are_not_for_raygun() {
+        let index = crate::repo::parse_index(OTHERS).unwrap();
+        let listed: Vec<(&str, &str)> = index
+            .extensions
+            .iter()
+            .map(|entry| {
+                assert!(entry.provides.is_empty(), "{} calls nothing", entry.id);
+                (
+                    entry.id.as_str(),
+                    entry.not_for_raygun.as_deref().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (
+                    "kodi.service.subtitles.example",
+                    "Finds subtitles for Kodi's player; Raygun's come from its own sources"
+                ),
+                (
+                    "kodi.service.example.backup",
+                    "A background service for Kodi"
+                ),
+                (
+                    "kodi.script.example.tool",
+                    "A program that runs inside Kodi"
+                ),
+                (
+                    "kodi.plugin.program.example",
+                    "A program that runs inside Kodi"
+                ),
+                ("kodi.screensaver.example", "A screensaver for Kodi"),
+                (
+                    "kodi.metadata.example.movies",
+                    "Fills Kodi's library with details; Raygun gets them from its own sources"
+                ),
+                ("kodi.context.example", "Adds items to Kodi's menus"),
+            ],
+            "libraries, languages and repositories are what other add-ons need: left out"
+        );
+    }
+
+    #[test]
+    fn single_addons_say_why_they_cant_be_added() {
+        let skin = r#"<?xml version="1.0"?><addon id="skin.example" name="Example" version="1.0.0">
+<extension point="xbmc.gui.skin"/></addon>"#;
+        assert_eq!(
+            refusal(skin.as_bytes()).as_deref(),
+            Some("Not for Raygun: A skin for Kodi's own screens; Raygun has its own look")
+        );
+        let plugin = r#"<addon id="plugin.video.example" name="Films" version="1.0.0">
+<extension point="xbmc.python.pluginsource" library="addon.py"><provides>video</provides></extension></addon>"#;
+        let mut zipped = Vec::new();
+        {
+            use std::io::Write;
+            let mut zip = zip::ZipWriter::new(Cursor::new(&mut zipped));
+            zip.start_file(
+                "plugin.video.example/addon.xml",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zip.write_all(plugin.as_bytes()).unwrap();
+            zip.finish().unwrap();
+        }
+        assert_eq!(refusal(&zipped).as_deref(), Some(UNSUPPORTED));
+        let module = r#"<addon id="script.module.example" name="Library" version="1.0.0">
+<extension point="xbmc.python.module" library="lib"/></addon>"#;
+        assert_eq!(
+            refusal(module.as_bytes()),
+            Some(crate::purpose::message(PART))
+        );
+        let repository = r#"<addon id="repository.example" name="Example" version="1.0.0">
+<extension point="xbmc.addon.repository"><dir><info>https://kodi.example.org/addons.xml</info></dir></extension></addon>"#;
+        assert_eq!(refusal(repository.as_bytes()), None, "its index is read");
+        assert_eq!(refusal(INDEX.as_bytes()), None, "an index is no add-on");
+        assert_eq!(refusal(b"{}"), None);
     }
 
     #[test]
@@ -440,7 +662,15 @@ mod tests {
             .iter()
             .filter(|entry| entry.provides.iter().any(|kind| kind == "video.source"))
             .count();
-        println!("{} plugins, {videos} for video", index.extensions.len());
+        let others = index
+            .extensions
+            .iter()
+            .filter(|entry| entry.not_for_raygun.is_some())
+            .count();
+        println!(
+            "{} add-ons, {videos} for video, {others} not for Raygun",
+            index.extensions.len()
+        );
         assert!(videos > 10);
     }
 

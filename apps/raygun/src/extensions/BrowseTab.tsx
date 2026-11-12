@@ -13,7 +13,7 @@ import { useDragScroll } from '../shell/useDragScroll';
 import { VirtualRows } from '../shell/VirtualRows';
 import { rowsEqual } from '../shell/windowedRows';
 import type { RowProps } from '../shell/windowedRows';
-import { NO_FILTER, catalogFacets, filterCatalog } from './catalogFilters';
+import { NO_FILTER, catalogFacets, filterCatalog, isNotForRaygun } from './catalogFilters';
 import type { CatalogFilter, CatalogShow, ExtensionKind } from './catalogFilters';
 import { AdultMark } from '../shell/AdultMark';
 import { EntryInfo } from './EntryInfo';
@@ -126,11 +126,18 @@ const Filters: FC<{
   );
 };
 
-/** Another app's plugin Raygun lists but can't run (Kodi's add-ons) is never installable. */
+/**
+ * Another app's plugin Raygun lists but can't run (Kodi's add-ons), or one that would do nothing
+ * here (Not for Raygun), is never installable.
+ */
 const installable = (entry: CatalogEntry) =>
   !entry.unsupported && (entry.state === 'available' || entry.state === 'updateAvailable');
 
-/** Install or Update, at once (M46.7): what it may access is behind the info button beside it. */
+/**
+ * Install or Update, at once (M46.7): what it may access is behind the info button beside it.
+ * One Raygun can't install says so instead: "Not for Raygun" when it would do nothing here (why
+ * is under its name), else "Can't install".
+ */
 const EntryAction: FC<{
   entry: CatalogEntry;
   status: InstallStatus | undefined;
@@ -140,7 +147,9 @@ const EntryAction: FC<{
   const { t } = useTranslation();
   if (entry.unsupported) {
     return (
-      <span className="text-muted text-sm whitespace-nowrap">{t('extensions.cantInstall')}</span>
+      <span className="text-muted text-sm whitespace-nowrap">
+        {t(isNotForRaygun(entry) ? 'extensions.notForRaygun' : 'extensions.cantInstall')}
+      </span>
     );
   }
   if (status?.state === 'done') {
@@ -347,8 +356,9 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
     () => choosable.filter((entry) => selected.has(entryKey(entry))),
     [choosable, selected],
   );
+  // An update that can't be installed (one not for Raygun, say) isn't offered.
   const updates = useMemo(
-    () => shown.filter((entry) => entry.state === 'updateAvailable'),
+    () => shown.filter((entry) => entry.state === 'updateAvailable' && !entry.unsupported),
     [shown],
   );
   const repoNames = useMemo(
@@ -471,6 +481,7 @@ export const BrowseTab: FC<{ show?: CatalogShow }> = ({ show = 'all' }) => {
                 apk={
                   runSourceCode &&
                   Boolean(line.entry.unsupported) &&
+                  !isNotForRaygun(line.entry) &&
                   line.entry.id.startsWith('mihon.')
                 }
                 onToggle={toggle}

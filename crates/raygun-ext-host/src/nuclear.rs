@@ -40,6 +40,159 @@ pub struct Converted {
     pub report: Report,
 }
 
+/// What Nuclear plugins that give Raygun nothing to call do in Nuclear, by words in their name,
+/// description or tags; the first that matches says it ([`purpose`]).
+const PURPOSES: &[(&[&str], &str)] = &[
+    (
+        &["mini player", "miniplayer", "mini-player"],
+        "Adds a mini player to Nuclear; Raygun has its own",
+    ),
+    (&["discord"], "Shows what Nuclear plays on Discord"),
+    (
+        &["equalizer", "equaliser"],
+        "An equalizer for Nuclear; Raygun has its own in Settings → Sound",
+    ),
+    (
+        &["visualizer", "visualiser", "visualization", "visualisation"],
+        "Draws a visualizer in Nuclear's player",
+    ),
+    (
+        &["sleep timer"],
+        "Adds a sleep timer to Nuclear; Raygun's player has its own",
+    ),
+    (
+        &["shortcut", "hotkey", "media key", "keybind"],
+        "Adds shortcuts to Nuclear's player; Raygun has its own",
+    ),
+    (
+        &["notification"],
+        "Shows notifications from Nuclear; Raygun has its own",
+    ),
+    (
+        &["theme", "skin"],
+        "Changes how Nuclear looks; Raygun has its own look",
+    ),
+    (
+        &["mpris", "remote control"],
+        "Lets other apps control Nuclear; Raygun has its own remote",
+    ),
+];
+
+/// Services a Nuclear scrobbler may send plays to, by how its name or description writes them.
+const SCROBBLE_SERVICES: &[(&str, &str)] = &[
+    ("last.fm", "Last.fm"),
+    ("lastfm", "Last.fm"),
+    ("listenbrainz", "ListenBrainz"),
+    ("libre.fm", "Libre.fm"),
+    ("librefm", "Libre.fm"),
+    ("maloja", "Maloja"),
+];
+
+/// What a Nuclear plugin that gives Raygun nothing to call does in Nuclear, as the catalogue
+/// says why it's not for Raygun: a scrobbler names its service, then words in its name,
+/// description and tags pick one of [`PURPOSES`].
+pub fn purpose(
+    name: &str,
+    description: Option<&str>,
+    categories: &[String],
+    tags: &[String],
+) -> String {
+    let text = [name, description.unwrap_or_default()]
+        .into_iter()
+        .chain(tags.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    if categories.iter().any(|category| category == "scrobbling") || text.contains("scrobbl") {
+        return match SCROBBLE_SERVICES
+            .iter()
+            .find(|(written, _)| text.contains(written))
+        {
+            Some((_, service)) => {
+                format!("Scrobbles what Nuclear plays to {service}; Raygun doesn't scrobble yet")
+            }
+            None => "Scrobbles what Nuclear plays; Raygun doesn't scrobble yet".to_owned(),
+        };
+    }
+    PURPOSES
+        .iter()
+        .find(|(words, _)| words.iter().any(|word| text.contains(word)))
+        .map_or(
+            "Changes Nuclear's own player or screens; nothing Raygun can call",
+            |(_, purpose)| purpose,
+        )
+        .to_owned()
+}
+
+/// How Nuclear plugins register providers in their code (as the converter finds them).
+static REGISTERED: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(
+        r#"\bkind\s*:\s*['"](metadata|streaming|lyrics|dashboard|discovery|playlists)['"]"#,
+    )
+    .expect("a valid pattern")
+});
+
+/// Why a plugin, read from its unzipped sources before it's converted, isn't for Raygun: none of
+/// the categories its `package.json` names, nor the provider kinds its code registers, is one
+/// Raygun runs (as the converter decides). `None` when one is, or when it isn't a plugin the
+/// converter would read at all (the converter says why).
+pub fn not_for_raygun(files: &BTreeMap<String, String>) -> Option<String> {
+    let package_path = files
+        .keys()
+        .filter(|path| *path == "package.json" || path.ends_with("/package.json"))
+        .filter(|path| !path.contains("node_modules/"))
+        .min_by_key(|path| path.matches('/').count())?;
+    let root = &package_path[..package_path.len() - "package.json".len()];
+    let package: serde_json::Value = serde_json::from_str(files.get(package_path)?).ok()?;
+    let nuclear = package.get("nuclear");
+    let text = |value: Option<&serde_json::Value>| {
+        value.and_then(serde_json::Value::as_str).map(str::to_owned)
+    };
+    let texts = |value: Option<&serde_json::Value>| -> Vec<String> {
+        value
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let categories = match nuclear.and_then(|nuclear| nuclear.get("categories")) {
+        Some(listed) => texts(Some(listed)),
+        None => text(nuclear.and_then(|nuclear| nuclear.get("category")))
+            .into_iter()
+            .collect(),
+    };
+    let runs = |category: &str| crate::repo::nuclear_kind(category).is_some();
+    if categories.iter().any(|category| runs(category)) {
+        return None;
+    }
+    let registers = files.iter().any(|(path, source)| {
+        path.starts_with(root)
+            && !path.contains("node_modules/")
+            && SOURCE_SUFFIXES
+                .iter()
+                .any(|suffix| *suffix != ".json" && path.ends_with(suffix))
+            && REGISTERED
+                .captures_iter(source)
+                .any(|found| runs(&found[1]))
+    });
+    if registers {
+        return None;
+    }
+    let name = text(nuclear.and_then(|nuclear| nuclear.get("displayName")))
+        .or_else(|| text(package.get("name")))
+        .unwrap_or_default();
+    Some(purpose(
+        &name,
+        text(package.get("description")).as_deref(),
+        &categories,
+        &texts(package.get("keywords")),
+    ))
+}
+
 /// Text sources of a plugin zip, by path. Paths are checked like Raygun packages (no absolute
 /// paths, no `..`) and the total is capped.
 pub fn unzip_sources(bytes: &[u8]) -> Result<BTreeMap<String, String>, PackageError> {

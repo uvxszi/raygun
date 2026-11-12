@@ -15,7 +15,8 @@ import { RatingHint } from './RatingHint';
 import { KindChips } from './BrowseTab';
 import { EXTENSION_KINDS, kindsOf } from './catalogFilters';
 import type { ExtensionKind } from './catalogFilters';
-import { useExtensions } from './useExtensions';
+import { NotForRaygunNote, RemoveUnused } from './NotForRaygun';
+import { useExtensions, useUninstallExtension } from './useExtensions';
 import { SourceIssue } from '../shell/SourceIssue';
 import { OnOffSwitch } from '../shell/OnOffSwitch';
 import { BulkSwitchBar, SelectButton, SelectCheck } from '../shell/BulkSwitch';
@@ -36,6 +37,7 @@ export const InstalledTab: FC = () => {
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<ExtensionKind | null>(null);
   const menu = useExtensionMenuItems();
+  const uninstall = useUninstallExtension();
   const error = extensions.error;
   const all = useMemo(() => extensions.data ?? [], [extensions.data]);
   const kinds = useMemo(() => {
@@ -63,6 +65,7 @@ export const InstalledTab: FC = () => {
       {error && (
         <SourceIssue>{t('common.coreUnavailable', { message: error.message })}</SourceIssue>
       )}
+      {uninstall.error && <SourceIssue compact>{uninstall.error.message}</SourceIssue>}
       {extensions.data?.length === 0 && (
         <p className="text-muted text-sm">{t('extensions.noneInstalled')}</p>
       )}
@@ -112,7 +115,9 @@ export const InstalledTab: FC = () => {
                 {extension.adult && !showNsfw && (
                   <span className="text-muted text-xs">{t('extensions.nsfwHidden')}</span>
                 )}
-                {!switches.isEnabled(extension.id) ? (
+                {extension.notForRaygun ? (
+                  <NotForRaygunNote reason={extension.notForRaygun} className="line-clamp-2" />
+                ) : !switches.isEnabled(extension.id) ? (
                   <span className="text-muted truncate text-xs">
                     {t('sources.disabledNote', {
                       detail: extension.description ?? extension.version,
@@ -133,12 +138,21 @@ export const InstalledTab: FC = () => {
               label={t('menu.options', { name: extension.name })}
               items={() => menu(extension)}
             />
-            <OnOffSwitch
-              checked={switches.isEnabled(extension.id)}
-              label={t('sources.switch', { name: extension.name })}
-              disabled={switches.busy}
-              onChange={(on) => switches.setMany([extension.id], on)}
-            />
+            {/* Turning one that does nothing on or off means nothing: it's removed instead. */}
+            {extension.notForRaygun && extension.origin === 'installed' ? (
+              <RemoveUnused
+                name={extension.name}
+                busy={uninstall.isPending && uninstall.variables === extension.id}
+                onRemove={() => uninstall.mutate(extension.id)}
+              />
+            ) : (
+              <OnOffSwitch
+                checked={switches.isEnabled(extension.id)}
+                label={t('sources.switch', { name: extension.name })}
+                disabled={switches.busy}
+                onChange={(on) => switches.setMany([extension.id], on)}
+              />
+            )}
           </li>
         )}
       />

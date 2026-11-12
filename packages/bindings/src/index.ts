@@ -1691,6 +1691,12 @@ export const commands = {
 	 *  addon set up again under a new address takes the old one's place.
 	 */
 	stremioAdd: (url: string) => typedError<StremioAddon, string>(__TAURI_INVOKE("stremio_add", { url })),
+	/**
+	 *  Sets up the addon at `url` with values for the settings its manifest asks for (Raygun's own
+	 *  form, as the Stremio addon SDK's page makes the address) and adds it, in place of the same
+	 *  addon added before. Optional settings may stay empty.
+	 */
+	stremioAddConfigured: (url: string, values: StremioConfigValue[]) => typedError<StremioAddon, string>(__TAURI_INVOKE("stremio_add_configured", { url, values })),
 	stremioRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("stremio_remove", { id })),
 	/**  Turns an addon on or off; one that's off is asked for nothing. */
 	stremioSetEnabled: (id: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("stremio_set_enabled", { id, enabled })),
@@ -2913,9 +2919,11 @@ export type CatalogEntry = {
 	icon: string | null,
 	/**
 	 *  Why Raygun can't install it, for another app's plugins listed but not runnable (Kodi's
-	 *  Python add-ons); `None` when it can.
+	 *  Python add-ons) or ones that would do nothing here; `None` when it can.
 	 */
 	unsupported?: string | null,
+	/**  Which of those `unsupported` is: Raygun can't run it, or it isn't for Raygun at all. */
+	unsupportedKind?: UnsupportedKind | null,
 	/**
 	 *  Where a site-scripts extension's scripts would run in the websites browser: its match
 	 *  patterns, as its repository lists them (checked against the package at install).
@@ -3766,6 +3774,11 @@ export type ExtensionInfo_Deserialize = {
 	 *  (`https://*.youtube.com/*`).
 	 */
 	sites?: string[],
+	/**
+	 *  Why it does nothing in Raygun, when it loaded and gives Raygun nothing to call (no
+	 *  providers, no site scripts): the Installed list says so and offers Remove.
+	 */
+	notForRaygun?: string | null,
 };
 
 export type ExtensionInfo_Serialize = {
@@ -3810,6 +3823,11 @@ export type ExtensionInfo_Serialize = {
 	 *  (`https://*.youtube.com/*`).
 	 */
 	sites?: string[],
+	/**
+	 *  Why it does nothing in Raygun, when it loaded and gives Raygun nothing to call (no
+	 *  providers, no site scripts): the Installed list says so and offers Remove.
+	 */
+	notForRaygun?: string | null,
 };
 
 /**  One install in the queue. */
@@ -7355,6 +7373,16 @@ export type StremioAddon = {
 	needsSetup: boolean,
 	/**  It didn't answer lately: failed since it last worked, within three days. */
 	failing: boolean,
+	/**
+	 *  Why it does nothing in Raygun (it offers nothing Raygun reads); such an addon isn't
+	 *  added, and one added before is marked with Remove.
+	 */
+	notForRaygun?: string | null,
+	/**
+	 *  What it asks for to be set up, as its manifest's `config` declares it (the Stremio addon
+	 *  SDK's settings): Raygun's own form sets it up. Empty when it declares none.
+	 */
+	config?: StremioConfigField[],
 };
 
 /**  A catalog an addon offers, before anything is asked of it. */
@@ -7389,6 +7417,34 @@ export type StremioCatalogRow = {
 	genres: string[],
 	hasMore: boolean,
 	error: string | null,
+};
+
+/**  One setting a Stremio addon asks for (the SDK's `config` entry). */
+export type StremioConfigField = {
+	key: string,
+	kind: StremioConfigKind,
+	/**  Its title, or its key without one. */
+	title: string,
+	/**  What it starts as: a text, a select's choice, `checked` for a checkbox on. */
+	default: string | null,
+	/**  A select's choices. */
+	options: string[],
+	/**
+	 *  It can't stay empty: only a text, number or password field with `required: true` whose
+	 *  title doesn't say "(optional)".
+	 */
+	required: boolean,
+	/**  Its value in the addon's current address, when that address holds a setup. */
+	value: string | null,
+};
+
+/**  What kind of field a Stremio addon's setting is (the SDK's `config[].type`). */
+export type StremioConfigKind = "text" | "number" | "password" | "checkbox" | "select";
+
+/**  A value given for one of an addon's settings: a checkbox's is `on`, or none when it's off. */
+export type StremioConfigValue = {
+	key: string,
+	value: string,
 };
 
 export type StremioExtra = {
@@ -8350,6 +8406,19 @@ export type TtsVoices = {
  *  saved copies changed; carries the song's title.
  */
 export type UnavailableEvent = string;
+
+/**  Why a listed extension can't be installed (`CatalogEntry::unsupported`). */
+export type UnsupportedKind = 
+/**
+ *  Raygun can't run or convert it (yet): Kodi's Python add-ons, a Mihon extension whose code
+ *  didn't convert.
+ */
+"cantRun" | 
+/**
+ *  It would do nothing in Raygun: it adds nothing Raygun calls (a mini player for another
+ *  app, a theme, a scrobbler, a Kodi skin). The catalogue says "Not for Raygun".
+ */
+"notForRaygun";
 
 /**  A library title an update couldn't check. */
 export type UpdateFailure = {

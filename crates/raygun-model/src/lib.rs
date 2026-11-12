@@ -4148,6 +4148,11 @@ pub struct ExtensionInfo {
     #[serde(default)]
     #[specta(optional)]
     pub sites: Vec<String>,
+    /// Why it does nothing in Raygun, when it loaded and gives Raygun nothing to call (no
+    /// providers, no site scripts): the Installed list says so and offers Remove.
+    #[serde(default)]
+    #[specta(optional)]
+    pub not_for_raygun: Option<String>,
 }
 
 /// How much of a Nuclear plugin runs in Raygun (M17).
@@ -4354,15 +4359,31 @@ pub struct CatalogEntry {
     /// The icon the repository lists, through the cover cache (M46.2).
     pub icon: Option<String>,
     /// Why Raygun can't install it, for another app's plugins listed but not runnable (Kodi's
-    /// Python add-ons); `None` when it can.
+    /// Python add-ons) or ones that would do nothing here; `None` when it can.
     #[serde(default)]
     #[specta(optional)]
     pub unsupported: Option<String>,
+    /// Which of those `unsupported` is: Raygun can't run it, or it isn't for Raygun at all.
+    #[serde(default)]
+    #[specta(optional)]
+    pub unsupported_kind: Option<UnsupportedKind>,
     /// Where a site-scripts extension's scripts would run in the websites browser: its match
     /// patterns, as its repository lists them (checked against the package at install).
     #[serde(default)]
     #[specta(optional)]
     pub sites: Vec<String>,
+}
+
+/// Why a listed extension can't be installed (`CatalogEntry::unsupported`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum UnsupportedKind {
+    /// Raygun can't run or convert it (yet): Kodi's Python add-ons, a Mihon extension whose code
+    /// didn't convert.
+    CantRun,
+    /// It would do nothing in Raygun: it adds nothing Raygun calls (a mini player for another
+    /// app, a theme, a scrobbler, a Kodi skin). The catalogue says "Not for Raygun".
+    NotForRaygun,
 }
 
 /// What kind of server a connection is: servers people own, added by address and sign-in.
@@ -9135,6 +9156,54 @@ pub struct StremioAddon {
     pub needs_setup: bool,
     /// It didn't answer lately: failed since it last worked, within three days.
     pub failing: bool,
+    /// Why it does nothing in Raygun (it offers nothing Raygun reads); such an addon isn't
+    /// added, and one added before is marked with Remove.
+    #[serde(default)]
+    #[specta(optional)]
+    pub not_for_raygun: Option<String>,
+    /// What it asks for to be set up, as its manifest's `config` declares it (the Stremio addon
+    /// SDK's settings): Raygun's own form sets it up. Empty when it declares none.
+    #[serde(default)]
+    #[specta(optional)]
+    pub config: Vec<StremioConfigField>,
+}
+
+/// What kind of field a Stremio addon's setting is (the SDK's `config[].type`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StremioConfigKind {
+    Text,
+    Number,
+    Password,
+    Checkbox,
+    Select,
+}
+
+/// One setting a Stremio addon asks for (the SDK's `config` entry).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioConfigField {
+    pub key: String,
+    pub kind: StremioConfigKind,
+    /// Its title, or its key without one.
+    pub title: String,
+    /// What it starts as: a text, a select's choice, `checked` for a checkbox on.
+    pub default: Option<String>,
+    /// A select's choices.
+    pub options: Vec<String>,
+    /// It can't stay empty: only a text, number or password field with `required: true` whose
+    /// title doesn't say "(optional)".
+    pub required: bool,
+    /// Its value in the addon's current address, when that address holds a setup.
+    pub value: Option<String>,
+}
+
+/// A value given for one of an addon's settings: a checkbox's is `on`, or none when it's off.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioConfigValue {
+    pub key: String,
+    pub value: String,
 }
 
 /// One thing an addon offers: catalogs of a type (with how many), details of a type, streams,

@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use base64::Engine;
+use raygun_model::{StremioConfigField, StremioConfigKind, StremioConfigValue};
 use serde_json::{Value, json};
 
 /// Most items kept from one catalog page (some addons list every channel on one page).
@@ -37,6 +38,8 @@ pub struct Manifest {
     pub p2p: bool,
     pub configurable: bool,
     pub configuration_required: bool,
+    /// The settings it asks for (the Stremio addon SDK's `config`), in its order.
+    pub config: Vec<StremioConfigField>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -309,7 +312,269 @@ pub fn parse_manifest(value: &Value) -> Result<Manifest, String> {
         p2p: flag(hints, "p2p"),
         configurable: flag(hints, "configurable"),
         configuration_required: flag(hints, "configurationRequired"),
+        config: parse_config(value.get("config")),
     })
+}
+
+/// A manifest's `config`, as the Stremio addon SDK reads it (`landingTemplate`, the manifest's
+/// documentation): `key` and a `type` it draws (text, number, password, checkbox, select) or the
+/// field is left out; the title falls back on the key; a select's default is its first option.
+/// Only a text, number or password field marked `required: true` is required (the SDK's default
+/// is `false`), and one whose title says "(optional)" isn't, whatever it's marked.
+fn parse_config(value: Option<&Value>) -> Vec<StremioConfigField> {
+    let mut seen = HashSet::new();
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|field| {
+            let key = text(field.get("key"))?;
+            let kind = match text(field.get("type"))?.to_ascii_lowercase().as_str() {
+                "text" => StremioConfigKind::Text,
+                "number" => StremioConfigKind::Number,
+                "password" => StremioConfigKind::Password,
+                "checkbox" => StremioConfigKind::Checkbox,
+                "select" => StremioConfigKind::Select,
+                _ => return None,
+            };
+            let title = text(field.get("title")).unwrap_or_else(|| key.clone());
+            let options = texts(field.get("options"));
+            // A select without choices sends nothing.
+            if kind == StremioConfigKind::Select && options.is_empty() {
+                return None;
+            }
+            let marked = match field.get("required") {
+                Some(Value::Bool(required)) => *required,
+                Some(Value::String(required)) => required.trim().eq_ignore_ascii_case("true"),
+                _ => false,
+            };
+            let optional = title
+                .trim_end()
+                .to_ascii_lowercase()
+                .ends_with("(optional)");
+            let typed = matches!(
+                kind,
+                StremioConfigKind::Text | StremioConfigKind::Number | StremioConfigKind::Password
+            );
+            seen.insert(key.clone()).then(|| StremioConfigField {
+                default: text_or_number(field.get("default")),
+                required: typed && marked && !optional,
+                key,
+                kind,
+                title,
+                options,
+                value: None,
+            })
+        })
+        .collect()
+}
+
+/// The address an addon is set up at with `values`, as the SDK's configuration page makes it:
+/// `<its address>/<encodeURIComponent(JSON of the values)>/manifest.json`, the values in its
+/// fields' order. As the page's form sends them, a text, number or password field is sent as
+/// given (empty when left empty), a checkbox as `on` only when it's ticked, and a select as its
+/// choice (its default, else its first option, when none of its options is given). A field
+/// `values` leaves out keeps its default. A setup already in the address is replaced.
+pub fn configured_url(
+    transport_url: &str,
+    fields: &[StremioConfigField],
+    values: &[StremioConfigValue],
+) -> Result<String, String> {
+    let given = |key: &str| {
+        values
+            .iter()
+            .find(|value| value.key == key)
+            .map(|value| value.value.as_str())
+    };
+    let mut pairs: Vec<(&str, String)> = Vec::new();
+    for field in fields {
+        let value = given(&field.key);
+        match field.kind {
+            StremioConfigKind::Text | StremioConfigKind::Number | StremioConfigKind::Password => {
+                let value =
+                    value.map_or_else(|| field.default.clone().unwrap_or_default(), str::to_owned);
+                if field.required && value.trim().is_empty() {
+                    return Err(format!("Fill in {}", field.title.trim()));
+                }
+                if field.kind == StremioConfigKind::Number
+                    && !value.trim().is_empty()
+                    && value.trim().parse::<f64>().is_err()
+                {
+                    return Err(format!("{} takes a number", field.title.trim()));
+                }
+                pairs.push((&field.key, value));
+            }
+            StremioConfigKind::Checkbox => {
+                let on = value.map_or_else(
+                    || field.default.as_deref() == Some("checked"),
+                    |value| matches!(value, "on" | "true" | "checked"),
+                );
+                if on {
+                    pairs.push((&field.key, "on".to_owned()));
+                }
+            }
+            StremioConfigKind::Select => {
+                let chosen = value
+                    .filter(|value| field.options.iter().any(|option| option == value))
+                    .map(str::to_owned)
+                    .or_else(|| field.default.clone().filter(|value| !value.is_empty()))
+                    .or_else(|| field.options.first().cloned())
+                    .unwrap_or_default();
+                pairs.push((&field.key, chosen));
+            }
+        }
+    }
+    // JSON.stringify of the form's entries, in its order.
+    let json = format!(
+        "{{{}}}",
+        pairs
+            .iter()
+            .map(|(key, value)| format!("{}:{}", json!(key), json!(value)))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    Ok(format!(
+        "{}/{}{MANIFEST_PATH}",
+        unconfigured_base(transport_url),
+        encode(&json)
+    ))
+}
+
+/// The setup an addon's address holds (`/<JSON>/manifest.json`, as [`configured_url`] makes
+/// it), as the values each key has; empty when it holds none.
+pub fn config_in_url(transport_url: &str) -> Vec<StremioConfigValue> {
+    let Some(object) = config_segment(transport_url).and_then(|text| {
+        serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|value| value.as_object().cloned())
+    }) else {
+        return Vec::new();
+    };
+    object
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let value = match value {
+                Value::String(text) => text,
+                Value::Number(number) => number.to_string(),
+                Value::Bool(true) => "on".to_owned(),
+                _ => return None,
+            };
+            Some(StremioConfigValue { key, value })
+        })
+        .collect()
+}
+
+/// The decoded segment before the manifest's name, when it's a JSON object (a setup).
+fn config_segment(transport_url: &str) -> Option<String> {
+    let url = url::Url::parse(transport_url).ok()?;
+    let mut segments: Vec<&str> = url.path_segments()?.collect();
+    if segments.pop()? != MANIFEST_PATH.trim_start_matches('/') {
+        return None;
+    }
+    let segment = segments.pop()?;
+    let decoded = percent_decode(segment);
+    decoded.trim_start().starts_with('{').then_some(decoded)
+}
+
+/// An addon's address without the setup in it: its own folder, where the SDK reads a setup from
+/// the path segment that follows.
+fn unconfigured_base(transport_url: &str) -> String {
+    let base = base_url(transport_url);
+    if config_segment(transport_url).is_some()
+        && let Some((folder, _)) = base.rsplit_once('/')
+    {
+        return folder.to_owned();
+    }
+    base
+}
+
+/// `%XX` escapes as UTF-8 text (`decodeURIComponent`); others are kept as they are.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let hex = |at: usize| bytes.get(at).and_then(|byte| (*byte as char).to_digit(16));
+        match (bytes[index], hex(index + 1), hex(index + 2)) {
+            (b'%', Some(high), Some(low)) => {
+                out.push((high * 16 + low) as u8);
+                index += 3;
+            }
+            (byte, _, _) => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The resources Raygun asks addons for.
+const READ_RESOURCES: [&str; 4] = ["catalog", "meta", "stream", "subtitles"];
+/// Content types other addons commonly give details and streams for (Cinemeta's movies and
+/// series, channels, live TV, and anime that Kitsu's addon opens), so a catalogue of them is
+/// worth listing on its own.
+const OPENED_TYPES: [&str; 5] = ["movie", "series", "channel", "tv", "anime"];
+
+impl Manifest {
+    /// Why this addon would do nothing in Raygun, with `others` added beside it: it offers none
+    /// of the resources Raygun reads (only other addons' lists, say), or only catalogues of types
+    /// nothing opens (no addon here gives details or streams for them). `None` when it's of use.
+    pub fn not_for_raygun(&self, others: &[&Manifest]) -> Option<String> {
+        let read: Vec<&str> = self
+            .resources
+            .iter()
+            .map(|resource| resource.name.as_str())
+            .filter(|name| READ_RESOURCES.contains(name))
+            .collect();
+        if read.is_empty() {
+            let offered: Vec<&str> = self
+                .resources
+                .iter()
+                .map(|resource| resource.name.as_str())
+                .collect();
+            return Some(if offered.iter().all(|name| *name == "addon_catalog") {
+                "Only lists other Stremio addons, which Raygun doesn't read: add those addons \
+                 themselves"
+                    .to_owned()
+            } else {
+                format!(
+                    "Offers only {}, which Raygun doesn't read",
+                    offered.join(", ")
+                )
+            });
+        }
+        if read.iter().any(|name| *name != "catalog") {
+            return None;
+        }
+        if self.catalogs.is_empty() {
+            return Some("Lists no catalogs, so it has nothing to show".to_owned());
+        }
+        let opened = |kind: &str| {
+            OPENED_TYPES.contains(&kind)
+                || others.iter().any(|other| {
+                    other.id != self.id
+                        && ["meta", "stream"].iter().any(|resource| {
+                            other
+                                .resource_types(resource)
+                                .iter()
+                                .any(|known| known == kind)
+                        })
+                })
+        };
+        let mut kinds: Vec<&str> = Vec::new();
+        for catalog in &self.catalogs {
+            if !kinds.contains(&catalog.kind.as_str()) {
+                kinds.push(&catalog.kind);
+            }
+        }
+        (!kinds.iter().any(|kind| opened(kind))).then(|| {
+            format!(
+                "Only lists catalogs of {}, which no addon here opens or plays",
+                kinds.join(", ")
+            )
+        })
+    }
 }
 
 fn parse_catalog(catalog: &Value) -> Option<Catalog> {
