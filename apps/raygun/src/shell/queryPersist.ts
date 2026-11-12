@@ -43,6 +43,9 @@ const VOLATILE = new Set([
   'incognito',
   // Rust keeps dictionary answers; theirs hold proxy links that last one run.
   'dictionary',
+  // Search's answers: Rust keeps what may be kept; times and rates move on, and some sources'
+  // answers mustn't be stored.
+  'answers',
   // Offline Mode and Data Saver are Rust's to say on every start.
   'network',
   // What to continue watching and the history follow the player, which saves after this cache

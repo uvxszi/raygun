@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AnswerCard } from '../answers/AnswerCard';
 import { BookCard } from '../audiobooks/BookRow';
 import { useBookDirectory } from '../audiobooks/useAudiobooks';
 import type { Medium } from '../manga/medium';
@@ -198,12 +199,14 @@ const PodcastPreview: FC<{ query: string }> = ({ query }) => {
 /**
  * Search → All: a little of everything, each section leading to its full results. Before
  * anything is typed it shows what's popular: addons' catalogs, top podcasts, sources' popular
- * titles.
+ * titles. A question or a calculation gets its answer above them, once it's ready.
  */
 export const AllResults: FC<{
   query: string;
   onType: (type: SearchType, view?: SearchView) => void;
-}> = ({ query, onType }) => {
+  /** Asks the Answers pill something an answer names. */
+  onAsk?: (query: string) => void;
+}> = ({ query, onType, onAsk }) => {
   const { t } = useTranslation();
   const blank = query.trim() === '';
   const sections = [
@@ -258,6 +261,13 @@ export const AllResults: FC<{
   return (
     <div data-testid="all-results" className="flex flex-col gap-8">
       {blank && <p className="text-muted text-sm">{t('search.popularHint')}</p>}
+      {!blank && (
+        <AnswerCard
+          query={query}
+          onMore={() => onType('answers')}
+          onAsk={(next) => (onAsk ? onAsk(next) : onType('answers'))}
+        />
+      )}
       {sections.map((section, index) => (
         <Section key={section.title} title={section.title} onMore={section.more}>
           {index < drawn && section.body}

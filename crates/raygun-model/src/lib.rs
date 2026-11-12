@@ -6,9 +6,11 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+mod answers;
 mod dictionary;
 mod years;
 
+pub use answers::*;
 pub use dictionary::*;
 pub use years::year_range_label;
 
@@ -244,6 +246,9 @@ pub struct Settings {
     /// Word lookups in the book reader.
     #[serde(default)]
     pub dictionary: DictionaryPrefs,
+    /// Answers to questions and calculations in Search.
+    #[serde(default)]
+    pub answers: AnswersPrefs,
     /// Sources that didn't answer lately go to the end of Browse and Search (M46.9).
     pub failing_sources_last: bool,
     /// The Browse tab opened without one in the address: a `LAYOUT_BROWSE_TABS` id, Browse all
@@ -3090,6 +3095,7 @@ impl Default for Settings {
             lyrics_translation: LyricsTranslationPrefs::default(),
             reader_ai: ReaderAiPrefs::default(),
             dictionary: DictionaryPrefs::default(),
+            answers: AnswersPrefs::default(),
             failing_sources_last: true,
             browse_start_tab: browse_start_tab(),
             search_filter: SearchFilterPrefs::default(),
@@ -3180,6 +3186,7 @@ impl Settings {
             SettingChange::LyricsCache(prefs) => self.lyrics_cache = prefs,
             SettingChange::ReaderAi(prefs) => self.reader_ai = prefs,
             SettingChange::Torrents(prefs) => self.torrents = prefs,
+            SettingChange::Answers(prefs) => self.answers = prefs,
             SettingChange::Dictionary(prefs) => {
                 self.dictionary = DictionaryPrefs {
                     language: prefs.language.trim().to_owned(),
@@ -3291,6 +3298,7 @@ pub enum SettingChange {
     ReaderAi(ReaderAiPrefs),
     Torrents(TorrentPrefs),
     Dictionary(DictionaryPrefs),
+    Answers(AnswersPrefs),
     #[serde(rename = "youtube")]
     YouTube(YouTubePrefs),
 }
@@ -3367,6 +3375,7 @@ impl SettingChange {
             Self::ReaderAi(_) => "readerAi",
             Self::Torrents(_) => "torrents",
             Self::Dictionary(_) => "dictionary",
+            Self::Answers(_) => "answers",
             Self::YouTube(_) => "youtube",
         }
     }
@@ -3402,6 +3411,7 @@ impl SettingChange {
             | Self::LibraryDisplay(_)
             | Self::Privacy(_)
             | Self::Notifications(_)
+            | Self::Answers(_)
             | Self::YouTube(_) => Ok(()),
             Self::LyricsCache(prefs) if prefs.forget_after_days > 3650 => {
                 Err("Lyrics can be kept for at most ten years".into())

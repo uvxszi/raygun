@@ -13,6 +13,7 @@ import {
 import type { FC, MouseEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AnswersResults } from '../answers/AnswersResults';
 import { AllResults } from './AllResults';
 import { CatalogSearch, LazySourceRow, RankedResults } from './CatalogSearch';
 import { LibraryMatches } from './LibraryMatches';
@@ -210,6 +211,8 @@ type ResultsProps = {
   /** Video sources that bring their own pill. */
   pills: MangaSource[];
   onType: OnType;
+  /** Searches other words in a kind (an answer's related question). */
+  onSearch: (query: string, type: SearchType) => void;
 };
 
 /**
@@ -217,7 +220,15 @@ type ResultsProps = {
  * a tap at once and this follows (`SearchPanel`); within Videos, its own pills answer at once
  * and what they lead to follows here.
  */
-const SearchResultsView: FC<ResultsProps> = ({ query, type, view, pill, pills, onType }) => {
+const SearchResultsView: FC<ResultsProps> = ({
+  query,
+  type,
+  view,
+  pill,
+  pills,
+  onType,
+  onSearch,
+}) => {
   const blank = query.trim() === '';
   const musicView = viewIn<MusicView>('music', view);
   const videoView = viewIn<VideoView>('video', view);
@@ -231,9 +242,11 @@ const SearchResultsView: FC<ResultsProps> = ({ query, type, view, pill, pills, o
   const onVideoView = useCallback((next: VideoView) => onType('video', next), [onType]);
   const onSite = useCallback((id: string) => onType('video', undefined, id), [onType]);
   const onLibrary = useCallback(() => onType('library'), [onType]);
+  const onAsk = useCallback((next: string) => onSearch(next, 'answers'), [onSearch]);
   return (
     <>
-      {type === 'all' && <AllResults query={query} onType={onType} />}
+      {type === 'all' && <AllResults query={query} onType={onType} onAsk={onAsk} />}
+      {type === 'answers' && <AnswersResults query={query} onAsk={onAsk} />}
       {type === 'music' && <MusicResults query={query} view={musicView} onView={onMusicView} />}
       {type === 'video' && (
         <VideoPillRow
@@ -322,6 +335,14 @@ export const SearchPanel: FC<{
   }, [onType]);
   const onKind = useCallback<OnType>(
     (next, nextView, nextPill) => latestOnType.current(next, nextView, nextPill),
+    [],
+  );
+  const latestOnSearch = useRef(onSearch);
+  useLayoutEffect(() => {
+    latestOnSearch.current = onSearch;
+  }, [onSearch]);
+  const onSearchKind = useCallback(
+    (next: string, kind: SearchType) => latestOnSearch.current(next, kind),
     [],
   );
   // What plays from here shows "Playing from" this search.
@@ -419,6 +440,7 @@ export const SearchPanel: FC<{
               pill={sameKind ? pill : shown.pill}
               pills={pills}
               onType={onKind}
+              onSearch={onSearchKind}
             />
           </div>
         )}

@@ -43,6 +43,7 @@ const CALLS = {
     optional: ['similarArtists', 'topTracks', 'newReleases', 'radio'],
   },
   dictionary: { required: ['define'], optional: [] },
+  answers: { required: ['answer'], optional: [] },
   'manga.source': {
     required: ['popular', 'search', 'details', 'chapters', 'pages'],
     optional: ['latest', 'filters'],

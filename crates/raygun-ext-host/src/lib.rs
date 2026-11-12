@@ -2,6 +2,7 @@
 //! registry and the QuickJS (`js`) runtime with the host API.
 
 pub mod activity;
+pub mod answers;
 pub mod audiobook;
 pub mod browser_check;
 mod content;

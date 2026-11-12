@@ -34,6 +34,8 @@ pub enum CacheKind {
     Dictionary,
     /// SponsorBlock's parts of YouTube videos, kept a day and swept after a month unused.
     SponsorBlock,
+    /// Search's answers looked up online (facts, summaries) and the exchange rates.
+    Answers,
 }
 
 impl CacheKind {
@@ -52,6 +54,7 @@ impl CacheKind {
             Self::Torrents => "torrents",
             Self::Dictionary => "dictionary",
             Self::SponsorBlock => "sponsorblock",
+            Self::Answers => "answers",
         }
     }
 }

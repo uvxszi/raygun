@@ -14,8 +14,13 @@ use tokio::sync::Semaphore;
 /// Sent with every request: Wikimedia's User-Agent policy wants the client named, with a way to
 /// reach its makers.
 pub fn user_agent() -> String {
+    user_agent_for("dictionary lookups")
+}
+
+/// [`user_agent`] for another use of the same APIs (`answers in Search`).
+pub fn user_agent_for(purpose: &str) -> String {
     format!(
-        "Raygun/{} (https://github.com/uvxszi/raygun; dictionary lookups) reqwest",
+        "Raygun/{} (https://github.com/uvxszi/raygun; {purpose}) reqwest",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -56,10 +61,16 @@ struct Host {
 pub struct Polite {
     client: reqwest::Client,
     hosts: Mutex<HashMap<String, Host>>,
+    agent: String,
 }
 
 impl Polite {
     pub fn new() -> Result<Self, String> {
+        Self::with_agent(user_agent())
+    }
+
+    /// Requests sent with `agent` as their User-Agent.
+    pub fn with_agent(agent: String) -> Result<Self, String> {
         let client = raygun_net::client_builder()
             .timeout(TIMEOUT)
             .build()
@@ -67,6 +78,7 @@ impl Polite {
         Ok(Self {
             client,
             hosts: Mutex::new(HashMap::new()),
+            agent,
         })
     }
 
@@ -133,7 +145,7 @@ impl Polite {
         let sent = self
             .client
             .get(url)
-            .header(reqwest::header::USER_AGENT, user_agent())
+            .header(reqwest::header::USER_AGENT, &self.agent)
             .header(reqwest::header::ACCEPT, accept)
             .header(reqwest::header::ACCEPT_ENCODING, "gzip")
             .send()

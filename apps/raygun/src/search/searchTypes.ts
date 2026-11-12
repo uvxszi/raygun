@@ -1,8 +1,16 @@
-/** What a search looks through: everything, one kind of media, or what you already have. Podcasts
- * are a pill of Music since M46.25. */
-export type SearchType = 'all' | 'music' | 'video' | 'manga' | 'novel' | 'library';
+/** What a search looks through: everything, one kind of media, what you already have, or answers
+ * to a question or calculation. Podcasts are a pill of Music since M46.25. */
+export type SearchType = 'all' | 'music' | 'video' | 'manga' | 'novel' | 'library' | 'answers';
 
-export const SEARCH_TYPES: SearchType[] = ['all', 'music', 'video', 'manga', 'novel', 'library'];
+export const SEARCH_TYPES: SearchType[] = [
+  'all',
+  'music',
+  'video',
+  'manga',
+  'novel',
+  'library',
+  'answers',
+];
 
 export const isSearchType = (value: unknown): value is SearchType =>
   typeof value === 'string' && (SEARCH_TYPES as string[]).includes(value);
