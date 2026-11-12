@@ -1,4 +1,4 @@
-import type { SubtitleMode, SubtitleStyle, VideoCodec } from '@raygun/bindings';
+import type { SettingChange, SubtitleMode, SubtitleStyle, VideoCodec } from '@raygun/bindings';
 import { useParams } from '@tanstack/react-router';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -20,7 +20,6 @@ import {
   parseSpeeds,
   SKIP_WAIT_SECONDS,
   SUBTITLE_EDGES,
-  SUBTITLE_FONTS,
   SUBTITLE_MAX_WIDTH,
   SUBTITLE_MODES,
   TAP_ACTIONS,
@@ -44,10 +43,12 @@ import { resetKeys } from '../settings/resets';
 import type { SettingsReset } from '../settings/resets';
 import { useFoundPref } from '../settings/useSettingsSearch';
 import { useResetToDefaults } from '../settings/useResetToDefaults';
+import { SubtitleFontRow } from '../settings/SubtitleFontRow';
 import { SubtitlePreview } from '../settings/SubtitlePreview';
-import { useSettings, useUpdateSetting } from '../settings/useSettings';
+import { useSettings, useUpdateSetting, useUpdateSettings } from '../settings/useSettings';
 import { TopBar } from '../shell/TopBar';
 import { useIsPhone } from '../shell/useIsDesktop';
+import { useSubtitleFamily } from '../video/subtitleLook';
 import { ORIGINAL_AUDIO } from '../video/trackPicking';
 
 /** Matches `SEEK_SECONDS` in raygun-model. */
@@ -124,7 +125,12 @@ const pageReset =
     const fresh = withDefaults(defaults.videoPlayer);
     const value = { ...withDefaults(current.videoPlayer) };
     for (const field of fields) Object.assign(value, { [field]: fresh[field] });
-    return [{ key: 'videoPlayer', value }, ...resetKeys(...keys)(current, defaults)];
+    // The subtitles' device font (kept to the device) goes with their style.
+    const font: SettingChange[] =
+      page === 'subtitles' && current.fonts?.subtitles
+        ? [{ key: 'fonts', value: { ...current.fonts, subtitles: '' } }]
+        : [];
+    return [{ key: 'videoPlayer', value }, ...resetKeys(...keys)(current, defaults), ...font];
   };
 
 type ScreenProps = {
@@ -340,9 +346,24 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
 }) => {
   const { t } = useTranslation();
   const update = useUpdateSetting();
+  const updateMany = useUpdateSettings();
+  const fonts = useSettings().data?.fonts;
+  const family = useSubtitleFamily();
   const style = prefs.subtitleStyle;
   const setStyle = (change: Partial<SubtitleStyle>) =>
     set({ subtitleStyle: { ...style, ...change } });
+  // The device's font for subtitles goes with the rest of the style.
+  const resetStyle = () => {
+    const value = { ...prefs, subtitleStyle: DEFAULT_SUBTITLE_STYLE };
+    if (fonts?.subtitles) {
+      updateMany.mutate([
+        { key: 'videoPlayer', value },
+        { key: 'fonts', value: { ...fonts, subtitles: '' } },
+      ]);
+    } else {
+      set({ subtitleStyle: DEFAULT_SUBTITLE_STYLE });
+    }
+  };
   // Unset follows the older switch, as Rust reads it.
   const mode: SubtitleMode = prefs.subtitleMode ?? (autoSubtitles ? 'always' : 'foreign');
   return (
@@ -399,7 +420,7 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
       </PrefGroup>
       <PrefGroup title={t('settings.player.style')}>
         <li className="px-1 py-2">
-          <SubtitlePreview style={style} />
+          <SubtitlePreview style={style} family={family} />
         </li>
         <PrefSize
           title={t('settings.player.subtitleSize')}
@@ -412,16 +433,7 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           disabled={busy}
           onChange={(size) => setStyle({ size })}
         />
-        <PrefChoice
-          title={t('settings.player.subtitleFont')}
-          value={style.font}
-          disabled={busy}
-          options={SUBTITLE_FONTS.map((value) => ({
-            value,
-            label: t(`settings.player.fonts.${value}`),
-          }))}
-          onChange={(font) => setStyle({ font })}
-        />
+        <SubtitleFontRow title={t('settings.player.subtitleFont')} />
         <PrefSwitch
           title={t('settings.player.bold')}
           checked={style.bold}
@@ -501,7 +513,7 @@ const SubtitlesScreen: FC<ScreenProps & { autoSubtitles: boolean; subtitleLangua
           <button
             type="button"
             disabled={busy}
-            onClick={() => set({ subtitleStyle: DEFAULT_SUBTITLE_STYLE })}
+            onClick={resetStyle}
             className="text-primary hover:bg-surface w-full rounded-xl px-1 py-3 text-left font-medium disabled:opacity-60"
           >
             {t('settings.player.resetStyle')}

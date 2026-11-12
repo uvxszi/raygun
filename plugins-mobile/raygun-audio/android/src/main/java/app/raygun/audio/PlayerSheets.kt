@@ -72,8 +72,13 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         val tracks = host.tracks.list(C.TRACK_TYPE_AUDIO)
         val sheet = PlayerSheet(host, label("audio", "Audio"))
         if (tracks.isEmpty()) sheet.row(label("off", "Off"), onClick = null)
+        // Two "English" tracks read "English" and "English 2", their channels under them.
+        val shown = distinctTracks(
+            tracks.mapIndexed { index, track -> host.tracks.facts(track, index + 1, host.tracks.audioDetail(track)) },
+            ::numbered,
+        )
         tracks.forEachIndexed { index, track ->
-            sheet.row(host.tracks.name(track, index + 1), host.tracks.audioDetail(track), host.tracks.chosen(track)) {
+            sheet.row(shown[index].name, shown[index].detail, host.tracks.chosen(track)) {
                 host.tracks.select(C.TRACK_TYPE_AUDIO, track)
                 host.state.audio = track.choice()
                 host.remember(JSONObject().put("audio", track.choice().toJson()))
@@ -124,11 +129,57 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         sheet.show()
     }
 
-    /** A track to list, filed under its language so the viewer's languages come first. */
-    private class Choice(val language: String?, val add: () -> Unit)
+    /**
+     * A track to list, filed under its language so the viewer's languages come first, with the
+     * name that tells it apart and what goes under it ([distinctTracks]).
+     */
+    private class Choice(val language: String?, val shown: ShownTrack, val selected: Boolean, val pick: () -> Unit)
+
+    /** Adds `list` as rows, the viewer's languages first, each language's tracks together. */
+    private fun PlayerSheet.choices(list: List<Choice>) {
+        byLanguages(list, host.languages.listed) { it.language }.forEach { choice ->
+            row(choice.shown.name, choice.shown.detail, choice.selected) { choice.pick() }
+        }
+    }
+
+    /** "English 2": a name numbered among others alike ([distinctTracks]). */
+    private fun numbered(name: String, number: Int): String =
+        host.label("numberedTrack", "{n} {of}", name, number.toString())
+
+    /**
+     * A subtitle track's name, with where it comes from under it: a file's addon or own name
+     * ("Subtitle file" when neither is known), or the video itself.
+     */
+    private fun textFacts(track: TrackRef, ordinal: Int): TrackFacts {
+        val sidecar = host.sidecarOf(track.format)
+        val source = if (sidecar == null) label("inTheVideo", "In the video") else sidecar.source
+        val facts = host.tracks.facts(track, ordinal, source)
+        return if (facts.detail == null && sidecar != null) facts.copy(detail = label("subtitleFile", "Subtitle file")) else facts
+    }
+
+    /**
+     * The video's subtitle tracks and files as the list shows them, in its order (the viewer's
+     * languages first), each named apart from the others: "English", "English (SDH)",
+     * "English 2". The saved AI subtitles are left out while the ones being made show.
+     */
+    private fun namedTextTracks(): List<Pair<TrackRef, ShownTrack>> {
+        val live = host.liveTracks
+        val tracks = host.tracks.list(C.TRACK_TYPE_TEXT).mapIndexedNotNull { index, track ->
+            if (live.hides(track)) null else track to textFacts(track, index + 1)
+        }
+        val listed = byLanguages(tracks, host.languages.listed) { it.first.language }
+        val shown = distinctTracks(listed.map { it.second }, ::numbered)
+        return listed.mapIndexed { index, (track, _) -> track to shown[index] }
+    }
+
+    /** AI subtitles and translations once they have lines or are being made, named apart. */
+    private fun namedLiveTracks(detail: (LiveTrack) -> String?): List<Pair<LiveTrack, ShownTrack>> {
+        val tracks = host.liveTracks.tracks.values.filter { it.shown }
+        val shown = distinctTracks(tracks.map { TrackFacts(liveName(it), detail = detail(it)) }, ::numbered)
+        return tracks.mapIndexed { index, track -> track to shown[index] }
+    }
 
     private fun mainSubtitles(sheet: PlayerSheet) {
-        val tracks = host.tracks.list(C.TRACK_TYPE_TEXT)
         val live = host.liveTracks
         // What adds subtitles comes first, as buttons of its own (each opens its sheet): the list
         // below only holds subtitles to show.
@@ -144,12 +195,13 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 translate()
             },
         ))
-        // Delay and style: what is changed most while watching.
+        // Delay and style: what is changed most while watching. The style is a card of its own,
+        // with a sample, so it doesn't read as one more track.
         sheet.delayField(host, host.state.subtitleDelayMs) { delay ->
             host.setSubtitleDelay(delay)
             drawSubtitles()
         }
-        sheet.row(label("style", "Style")) { style() }
+        sheet.styleCard(host, host.prefs.style) { style() }
 
         sheet.header(label("subtitles", "Subtitles"))
         val off = host.tracks.textOff() && live.primary == null
@@ -162,28 +214,23 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         }
         // The video's tracks and files, then AI subtitles and translations once there are lines
         // or they're being made; the viewer's languages first, each language's tracks together.
-        val choices = tracks.mapIndexedNotNull { index, track ->
-            // The saved AI subtitles while the ones being made show.
-            if (live.hides(track)) return@mapIndexedNotNull null
-            Choice(track.language) {
-                sheet.row(host.tracks.name(track, index + 1), selected = !off && live.primary == null && host.tracks.chosen(track)) {
-                    live.show(null)
-                    host.tracks.select(C.TRACK_TYPE_TEXT, track)
-                    host.state.subtitleOff = false
-                    host.state.subtitle = track.choice()
-                    host.remember(JSONObject().put("subtitle", track.choice().toJson()))
-                    drawSubtitles()
-                }
-            }
-        } + live.tracks.values.filter { it.shown }.map { track ->
-            Choice(track.language) {
-                sheet.row(liveName(track), liveDetail(track), selected = live.primary == track.id) {
-                    live.show(track.id)
-                    drawSubtitles()
-                }
+        val own = namedTextTracks().map { (track, shown) ->
+            Choice(track.language, shown, !off && live.primary == null && host.tracks.chosen(track)) {
+                live.show(null)
+                host.tracks.select(C.TRACK_TYPE_TEXT, track)
+                host.state.subtitleOff = false
+                host.state.subtitle = track.choice()
+                host.remember(JSONObject().put("subtitle", track.choice().toJson()))
+                drawSubtitles()
             }
         }
-        byLanguages(choices, host.languages.listed) { it.language }.forEach { it.add() }
+        val made = namedLiveTracks(::liveDetail).map { (track, shown) ->
+            Choice(track.language, shown, live.primary == track.id) {
+                live.show(track.id)
+                drawSubtitles()
+            }
+        }
+        sheet.choices(own + made)
     }
 
     /** The second subtitles: a subtitle file or a track being made, shown at the top. */
@@ -196,23 +243,29 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.remember(JSONObject().put("secondarySubtitle", JSONObject.NULL))
             drawSubtitles()
         }
-        val seconds = host.sidecars.mapIndexedNotNull { index, sidecar ->
+        val files = host.sidecars.mapIndexedNotNull { index, sidecar ->
             if (live.isAiFile(sidecar) && live.aiListed) return@mapIndexedNotNull null
-            val name = trackName(sidecar.label, sidecar.language, languageName(sidecar.language))
-                ?: label("track", "Track {n}", (index + 1).toString())
-            Choice(sidecar.language ?: sidecar.label) {
-                sheet.row(name, selected = second == sidecar) {
-                    host.loadSecond(sidecar)
-                    host.remember(JSONObject().put("secondarySubtitle", sidecar.choice().toJson()))
-                    drawSubtitles()
-                }
+            val facts = trackFacts(
+                sidecar.label,
+                sidecar.language,
+                languageName(sidecar.language),
+                emptyList(),
+                { host.label(it.key, it.fallback) },
+                sidecar.source,
+            ) ?: TrackFacts(label("track", "Track {n}", (index + 1).toString()))
+            Triple(sidecar.language ?: sidecar.label, sidecar, facts)
+        }.let { byLanguages(it, host.languages.listed) { file -> file.first } }
+        val fileNames = distinctTracks(files.map { it.third }, ::numbered)
+        val seconds = files.mapIndexed { index, (language, sidecar, _) ->
+            Choice(language, fileNames[index], second == sidecar) {
+                host.loadSecond(sidecar)
+                host.remember(JSONObject().put("secondarySubtitle", sidecar.choice().toJson()))
+                drawSubtitles()
             }
-        } + live.tracks.values.filter { it.shown }.map { track ->
-            Choice(track.language) {
-                sheet.row(liveName(track), selected = secondLive == track.id) {
-                    host.second.showLive(track.id)
-                    drawSubtitles()
-                }
+        } + namedLiveTracks { null }.map { (track, shown) ->
+            Choice(track.language, shown, secondLive == track.id) {
+                host.second.showLive(track.id)
+                drawSubtitles()
             }
         }
         if (seconds.isEmpty()) {
@@ -220,7 +273,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             // second: the video's own are read by the player one at a time.
             sheet.row(label("secondNone", "No subtitle files for this video"), onClick = null)
         }
-        byLanguages(seconds, host.languages.listed) { it.language }.forEach { it.add() }
+        sheet.choices(seconds)
     }
 
     // ---- AI subtitles: transcribing and translating as the video plays ----
@@ -457,13 +510,16 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
                 "These subtitles are part of the video and can't be read as text: pick a subtitle file, or transcribe with AI",
             )
         }
-        return host.tracks.name(selected, 1) to null
+        return shownName(selected) to null
     }
 
+    /** A subtitle track's name as the list shows it ("English 2"). */
+    private fun shownName(track: TrackRef): String =
+        namedTextTracks().firstOrNull { (listed, _) -> listed.group == track.group && listed.index == track.index }
+            ?.second?.name ?: host.tracks.name(track, 1)
+
     /** The subtitle file the selected track came from; null for the video's own tracks. */
-    private fun mainSidecar(track: TrackRef): Sidecar? = host.sidecars.firstOrNull {
-        it.label == track.format.label && (it.language == track.format.language || sameLanguage(it.language, track.format.language))
-    }
+    private fun mainSidecar(track: TrackRef): Sidecar? = host.sidecarOf(track.format)
 
     /** Reads the main subtitles (a file, off the main thread) and asks Rust to translate them. */
     private fun startTranslation(translator: String) {
@@ -480,7 +536,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
         }
         if (sidecar == null) return
         host.showHint(label("translating", "Translating…"))
-        val name = host.tracks.name(selected, 1)
+        val name = shownName(selected)
         thread(name = "raygun-translate") {
             val result = runCatching { SubtitleFiles.lines(SubtitleFiles.parse(SubtitleFiles.read(host, sidecar.uri), sidecar.mime)) }
             host.runOnUiThread {
@@ -514,6 +570,13 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
     fun style() {
         val look = host.prefs.style
         val sheet = PlayerSheet(host, label("style", "Style"))
+        // The system's caption families, each name in its own font; the lines change at once,
+        // the second subtitles too.
+        sheet.header(label("font", "Font"))
+        sheet.fontChips(host, look.font) { font ->
+            host.updateStyle(look.copy(font = font))
+            style()
+        }
         sheet.stepper(label("size", "Size"), "${look.size}%", listOf(
             "−" to { host.updateStyle(look.copy(size = (look.size - 10).coerceAtLeast(50))); style() },
             "+" to { host.updateStyle(look.copy(size = (look.size + 10).coerceAtMost(200))); style() },
@@ -724,7 +787,7 @@ internal class PlayerSheets(private val host: VideoPlayerActivity) {
             host.setSubtitleMode(SUBTITLE_MODES[picked])
             settings()
         }
-        sheet.row(label("style", "Style")) { style() }
+        sheet.styleCard(host, prefs.style) { style() }
 
         // Yours, the video's own, then the languages this video has.
         sheet.header(label("audioLanguage", "Audio language"))

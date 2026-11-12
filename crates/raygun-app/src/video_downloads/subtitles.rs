@@ -133,6 +133,7 @@ mod tests {
             lang: (!lang.is_empty()).then(|| lang.into()),
             label: None,
             format: None,
+            source: None,
         }
     }
 

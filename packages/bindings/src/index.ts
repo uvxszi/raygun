@@ -3981,6 +3981,11 @@ export type FontPrefs = {
 	interface?: string,
 	/**  The book reader's text, over its Serif or Sans. */
 	reading?: string,
+	/**
+	 *  The desktop video player's subtitles, over Settings → Video player's font
+	 *  (`SubtitleFont`); Android's player draws them in the system's own families.
+	 */
+	subtitles?: string,
 };
 
 /**  Subtitles found for a video in the player (M46.33). */
@@ -7569,7 +7574,22 @@ export type StremioVideo = {
 /**  The edge drawn around subtitle text. */
 export type SubtitleEdge = "none" | "outline" | "shadow" | "raised" | "depressed";
 
-export type SubtitleFont = "default" | "sans" | "serif" | "mono";
+/**
+ *  The typeface subtitles are drawn in: the families Android's own caption settings offer, each
+ *  drawn on desktop by the nearest font there (`settings/playerOptions.ts`). A font installed on
+ *  the device goes in front of it on desktop (`FontPrefs::subtitles`).
+ */
+export type SubtitleFont = "default" | "sans" | "serif" | "mono" | 
+/**  Narrower letters (Android's `sans-serif-condensed`). */
+"condensed" | 
+/**  A typewriter's (`serif-monospace`). */
+"serifMono" | 
+/**  Handwritten-looking (`casual`). */
+"casual" | 
+/**  Joined script (`cursive`). */
+"cursive" | 
+/**  Capitals only, small ones for small letters (`sans-serif-smallcaps`). */
+"smallCaps";
 
 /**
  *  When the video player turns subtitles on by itself, in the first subtitle language a video
@@ -8722,6 +8742,11 @@ export type VideoSubtitle = {
 	label: string | null,
 	/**  `srt`, `vtt`, `ass` or `ttml`; guessed from the URL when missing. */
 	format: string | null,
+	/**
+	 *  Where it comes from, shown under its name in the players' lists: the addon that found
+	 *  it, or the file's own name.
+	 */
+	source?: string | null,
 };
 
 /**

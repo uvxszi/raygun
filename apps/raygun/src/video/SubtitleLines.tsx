@@ -4,30 +4,9 @@ import type { CSSProperties, FC } from 'react';
 import { cssColor } from '../settings/playerOptions';
 import { subtitleFontPx } from './pictureBox';
 import type { PictureBox } from './pictureBox';
+import { edgeShadow, subtitleFontCss } from './subtitleLook';
 import { subtitlePlacement, subtitleSlide } from './subtitlePlacement';
 import type { SubtitlePlace } from './subtitlePlacement';
-
-const FONTS: Record<Required<SubtitleStyle>['font'], string> = {
-  default: 'inherit',
-  sans: 'ui-sans-serif, system-ui, sans-serif',
-  serif: 'ui-serif, Georgia, serif',
-  mono: 'ui-monospace, Consolas, monospace',
-};
-
-const edgeShadow = (edge: Required<SubtitleStyle>['edge'], color: string) => {
-  switch (edge) {
-    case 'outline':
-      return `-2px -2px 0 ${color}, 2px -2px 0 ${color}, -2px 2px 0 ${color}, 2px 2px 0 ${color}, 0 0 3px ${color}`;
-    case 'shadow':
-      return `3px 3px 4px ${color}`;
-    case 'raised':
-      return `-1px -1px 0 ${color}`;
-    case 'depressed':
-      return `1px 1px 0 ${color}`;
-    default:
-      return 'none';
-  }
-};
 
 type Props = {
   lines: string[];
@@ -41,6 +20,8 @@ type Props = {
   at?: SubtitlePlace;
   /** Where the picture shows; null before the player has a size. */
   box?: PictureBox | null;
+  /** A font of the device's picked for subtitles, in front of the style's own font. */
+  family?: string | null;
 };
 
 /**
@@ -49,14 +30,14 @@ type Props = {
  * rounded corners. Showing and hiding the controls slides the lines (a transform) rather than
  * placing them again, so they keep their size and wrapping.
  */
-export const SubtitleLines: FC<Props> = ({ lines, style, lifted, at = 'bottom', box }) => {
+export const SubtitleLines: FC<Props> = ({ lines, style, lifted, at = 'bottom', box, family }) => {
   if (lines.length === 0) return null;
   const textStyle: CSSProperties = {
-    fontFamily: FONTS[style.font],
+    ...subtitleFontCss(style.font, family),
     fontWeight: style.bold ? 700 : 500,
     fontStyle: style.italic ? 'italic' : 'normal',
     color: cssColor(style.textColor),
-    textShadow: edgeShadow(style.edge, cssColor(style.edgeColor)),
+    textShadow: edgeShadow(style.edge, cssColor(style.edgeColor), 2),
     backgroundColor: cssColor(style.backgroundColor),
     fontSize:
       box && box.height > 0

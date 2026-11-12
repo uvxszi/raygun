@@ -19,6 +19,13 @@ export type EngineTrack = {
   forced?: boolean;
   /** Commentary or audio description. */
   extra?: boolean;
+  /** Subtitles for the deaf and hard of hearing, or closed captions. */
+  sdh?: boolean;
+  commentary?: boolean;
+  /** Audio description. */
+  description?: boolean;
+  /** An audio track's channels as its playlist says them ("2", "6"). */
+  channels?: string | null;
 };
 
 export type MediaEngine = {
@@ -256,6 +263,8 @@ const attachHls = async (
         language: track.lang ?? null,
         original: track.default,
         extra: describes(track.characteristics),
+        description: describes(track.characteristics),
+        channels: track.channels ?? null,
       })),
     audioTrack: () => hls.audioTrack,
     setAudioTrack: (id) => {
@@ -268,6 +277,8 @@ const attachHls = async (
         language: track.lang ?? null,
         original: track.default,
         forced: track.forced,
+        // Apple's `public.accessibility.describes-music-and-sound`: SDH.
+        sdh: Boolean(track.characteristics?.includes('describes-music-and-sound')),
       })),
     setTextTrack: (id) => {
       hls.subtitleTrack = id;
@@ -406,16 +417,21 @@ const attachDash = async (
   const tracks = (type: 'audio' | 'text') =>
     player.getTracksFor(type).map((track, index) => {
       const roles = values(track.roles);
+      const commentary = roles.includes('commentary');
+      const description =
+        roles.includes('description') ||
+        values(track.accessibility).some((value) => value === 'description' || value === '1');
       return {
         id: index,
         label: track.labels[0]?.text || track.lang || `#${index + 1}`,
         language: track.lang,
         original: roles.includes('main'),
         forced: roles.includes('forced-subtitle'),
-        extra:
-          roles.includes('commentary') ||
-          roles.includes('description') ||
-          values(track.accessibility).some((value) => value === 'description' || value === '1'),
+        extra: commentary || description,
+        commentary,
+        description,
+        // Captions (DASH's role for subtitles with the sounds too).
+        sdh: type === 'text' && roles.includes('caption'),
       };
     });
   return {
