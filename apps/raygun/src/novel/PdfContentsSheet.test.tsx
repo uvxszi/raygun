@@ -36,7 +36,7 @@ const CONTENTS: PdfContentsEntry[] = [
   { title: 'The wreck', chapterId: 'c2', page: 1, pageNumber: 4, level: 1 },
 ];
 
-const chapter = (id: 'c1' | 'c2'): NovelChapter => ({
+const chapter = (id: 'c1' | 'c2', contents = CONTENTS): NovelChapter => ({
   titleId: 't1',
   title: 'Lighthouses of the North',
   chapter: info(id),
@@ -48,7 +48,7 @@ const chapter = (id: 'c1' | 'c2'): NovelChapter => ({
     firstPage: id === 'c1' ? 1 : 3,
     readerMode: 'pagedLtr',
     ownReaderMode: 'pagedLtr',
-    contents: CONTENTS,
+    contents,
   },
 });
 
@@ -110,11 +110,79 @@ describe('A PDF book’s contents', () => {
     return screen.findByRole('dialog', { name: 'Contents' });
   };
 
+  /** The book's one list: its contents, and no chapter list beside them. */
+  const expectOneList = (reader: HTMLElement) => {
+    expect(within(reader).getAllByRole('button', { name: 'Contents' })).toHaveLength(1);
+    expect(within(reader).queryByRole('button', { name: 'Chapters' })).not.toBeInTheDocument();
+  };
+
+  it('lists the chapters with the outline in the page view, in place of a chapter list', async () => {
+    const user = userEvent.setup();
+    // Front matter before the first bookmark: a chapter of its own, already read.
+    commands.mangaChapters.mockResolvedValue(
+      ok([{ ...info('c0'), name: 'Front matter', read: true }, info('c1'), info('c2')]),
+    );
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    await within(reader).findAllByTestId('manga-page');
+    expectOneList(reader);
+
+    const dialog = await openContents(reader);
+    const front = await within(dialog).findByTestId('pdf-contents-chapter');
+    expect(front).toHaveTextContent('Front matter');
+    expect(within(front).getByLabelText('Read')).toBeInTheDocument();
+    // Chapters the bookmarks lead into are their bookmarks: no rows of their own.
+    expect(within(dialog).getAllByTestId('pdf-contents-chapter')).toHaveLength(1);
+    expect(within(dialog).getByRole('button', { name: 'Lighthouses, page 1' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await user.click(front);
+    await waitFor(() => expect(commands.novelChapter).toHaveBeenLastCalledWith('t1', 'c0'));
+    expect(screen.queryByRole('dialog', { name: 'Contents' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the one list for a document without bookmarks, in the text view too', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('raygun.pdfView.t1', 'text');
+    commands.novelChapter.mockImplementation(async (_title: string, id: string) => {
+      const opened = chapter(id === 'c2' ? 'c2' : 'c1', []);
+      // The next chapter was left on its second page.
+      return ok(id === 'c2' ? { ...opened, chapter: { ...opened.chapter, lastPage: 1 } } : opened);
+    });
+    commands.mangaChapters.mockResolvedValue(ok([info('c1'), info('c2')]));
+    await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('novel-reader');
+    await within(reader).findByText('The keeper climbed the stairs.');
+    expectOneList(reader);
+
+    const dialog = await openContents(reader);
+    await waitFor(() =>
+      expect(
+        within(dialog)
+          .getAllByTestId('pdf-contents-chapter')
+          .map((row) => row.textContent),
+      ).toEqual(['Part c1', 'Part c2']),
+    );
+    expect(within(dialog).getByRole('button', { name: 'Part c1' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    // Another chapter opens at its start, not where it was left.
+    scrolled = [];
+    await user.click(within(dialog).getByRole('button', { name: 'Part c2' }));
+    await waitFor(() => expect(commands.novelPdfText).toHaveBeenCalledWith('t1', 'c2'));
+    const next = await screen.findByTestId('novel-reader');
+    expect(await within(next).findByText('Storms')).toBeInTheDocument();
+    expect(scrolled).not.toContain(within(next).getByText('2.1 The wreck').closest('h2'));
+  });
+
   it('lists the whole outline as a tree in the page view and opens bookmarks anywhere', async () => {
     const user = userEvent.setup();
     await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
     const reader = await screen.findByTestId('manga-reader');
     await within(reader).findAllByTestId('manga-page');
+    expectOneList(reader);
 
     let dialog = await openContents(reader);
     // The part being read is marked and its branch open; other branches are closed.
@@ -160,6 +228,7 @@ describe('A PDF book’s contents', () => {
     await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
     const reader = await screen.findByTestId('novel-reader');
     await within(reader).findByText('The keeper climbed the stairs.');
+    expectOneList(reader);
 
     let dialog = await openContents(reader);
     const rows = within(within(dialog).getByTestId('pdf-contents'))

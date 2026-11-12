@@ -118,7 +118,7 @@ describe('The manga reader', () => {
     await vi.waitFor(() => expect(indicator).toHaveTextContent('Page 2 of 4'));
     // The second's top leaves too, without the line crossing anything new.
     scrolled = 200;
-    fireEvent.scroll(screen.getByTestId('page-content'));
+    fireEvent.scroll(within(reader).getByTestId('webtoon-scroller'));
     await vi.waitFor(() => expect(indicator).toHaveTextContent('Page 3 of 4'));
   });
 
@@ -182,7 +182,8 @@ describe('The manga reader', () => {
     await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
     const reader = await screen.findByTestId('manga-reader');
     await within(reader).findAllByTestId('webtoon-page');
-    const main = screen.getByTestId('page-content');
+    // The strip scrolls in the reader's own screen, not the page area.
+    const main = within(reader).getByTestId('webtoon-scroller');
     Object.defineProperty(main, 'clientHeight', { configurable: true, value: 800 });
     main.scrollBy = vi.fn();
     vi.spyOn(main, 'getBoundingClientRect').mockReturnValue({
@@ -256,7 +257,7 @@ describe('The manga reader', () => {
     expect(page.style.transform).toBe('scale(2)');
     fireEvent.touchEnd(reader, { touches: [finger(50)] });
     expect(page.style.transform).toBe('');
-    expect(within(reader).getByTestId('manga-page').style.width).toBe('200%');
+    expect(within(reader).getByTestId('manga-page').style.width).toBe('200cqw');
   });
 
   it('shows a chapter without pages as such', async () => {
@@ -278,6 +279,39 @@ describe('The manga reader', () => {
     expect(within(bar).getByTestId('reader-progress')).toBeInTheDocument();
   });
 
+  it('offers paged left to right above right to left, in the reader and its settings', async () => {
+    const user = userEvent.setup();
+    commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
+    await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+    const reader = await screen.findByTestId('manga-reader');
+    const labels = (group: HTMLElement) =>
+      within(group)
+        .getAllByRole('radio')
+        .map((option) => option.textContent);
+
+    await user.click(await within(reader).findByRole('button', { name: 'Reading mode' }));
+    const modes = await screen.findByRole('radiogroup', { name: 'Reading mode' });
+    await vi.waitFor(() =>
+      expect(labels(modes)).toEqual([
+        'Default (Vertical strip)',
+        'Vertical strip',
+        'Paged, left to right',
+        'Paged, right to left',
+      ]),
+    );
+    await user.keyboard('{Escape}');
+
+    await user.click(within(reader).getByRole('button', { name: 'Display' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Display' });
+    await user.click(within(sheet).getByRole('button', { name: /Default reading mode/ }));
+    const defaults = await screen.findByRole('radiogroup', { name: 'Default reading mode' });
+    expect(labels(defaults)).toEqual([
+      'Vertical strip',
+      'Paged, left to right',
+      'Paged, right to left',
+    ]);
+  });
+
   it('hides the progress when it is turned off', async () => {
     withReader({ barProgress: false });
     commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
@@ -293,14 +327,15 @@ describe('The manga reader', () => {
     expect(within(reader).getByTestId('page-number')).toHaveTextContent('1 / 3');
   });
 
-  it('keeps the zoom and mode buttons on desktop', async () => {
+  it('keeps the zoom buttons on desktop, and the reading mode only in the top bar', async () => {
     commands.appInfo.mockResolvedValue({ ...ANDROID_INFO, platform: 'windows' });
     commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 3)));
     await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
     const reader = await screen.findByTestId('manga-reader');
     const bar = await within(reader).findByTestId('reader-bar');
     expect(await within(bar).findByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
-    expect(within(bar).getByRole('button', { name: 'Reading mode' })).toBeInTheDocument();
+    expect(within(bar).queryByRole('button', { name: 'Reading mode' })).not.toBeInTheDocument();
+    expect(within(reader).getAllByRole('button', { name: 'Reading mode' })).toHaveLength(1);
     // Its bars cover the page area only, beside the rail and the side panel.
     const header = within(reader).getByRole('button', { name: 'Close reader' }).closest('header');
     for (const overlay of [bar.closest('footer'), header]) {
@@ -314,17 +349,28 @@ describe('The manga reader', () => {
     await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
     const reader = await screen.findByTestId('manga-reader');
     const strip = await within(reader).findByTestId('webtoon-strip');
-    // A share of what holds it (never the viewport's 100vw), with nothing added beside it.
-    expect(strip.style.width).toBe('min(100%, 48rem)');
+    // A share of the reader's own screen (never the viewport's 100vw), with nothing beside it.
+    expect(strip.style.width).toBe('min(100cqw, 48rem)');
     expect(strip.className).not.toMatch(/\b(p|px|pl|pr|m|ml|mr)-\d/);
     expect(strip.style.transform).toBe('');
     for (const page of within(reader).getAllByTestId('manga-page')) {
       expect(page).toHaveClass('w-full');
     }
-    // The reader cancels the page area's padding and draws no scrollbar there (styles.css).
+    // The screen: the page area's whole size, fixed and black, drawing no scrollbar on touch
+    // screens (styles.css); its scroller is what the strip is sized by.
     expect(reader).toHaveAttribute('data-edge-reader');
-    expect(reader).toHaveClass('-mx-4');
-    expect(screen.getByTestId('page-content')).toHaveClass('px-4');
+    const viewport = within(reader).getByTestId('reader-viewport');
+    expect(viewport).toHaveClass(
+      'fixed',
+      'bg-black',
+      'top-[var(--app-bar,0px)]',
+      'bottom-0',
+      'left-[var(--main-left,0px)]',
+      'right-[var(--main-right,0px)]',
+    );
+    const scroller = within(viewport).getByTestId('webtoon-scroller');
+    expect(scroller).toHaveAttribute('data-reader-scroll');
+    expect(scroller).toHaveClass('[container-type:size]', 'overflow-auto');
   });
 
   it('fits a paged page to the width exactly', async () => {
@@ -334,65 +380,139 @@ describe('The manga reader', () => {
     const reader = await screen.findByTestId('manga-reader');
     const paged = await within(reader).findByTestId('paged-reader');
     await vi.waitFor(() => expect(paged).toHaveAttribute('data-scale', 'fitWidth'));
-    expect(within(paged).getByTestId('manga-page').style.width).toBe('100%');
-    expect(paged).toHaveClass('w-full');
+    expect(within(paged).getByTestId('manga-page').style.width).toBe('100cqw');
+    expect(paged).toHaveClass('w-full', 'h-full', '[container-type:size]');
   });
 
   describe('double taps', () => {
+    /** A scroller `size` big, scrolling over content `content` big. */
+    const sized = (
+      element: HTMLElement,
+      size: { width: number; height: number },
+      content: { width: number; height: number },
+    ) => {
+      const scrolled = { left: 0, top: 0 };
+      const define = (name: string, value: number) =>
+        Object.defineProperty(element, name, { configurable: true, value });
+      define('clientWidth', size.width);
+      define('clientHeight', size.height);
+      define('scrollWidth', content.width);
+      define('scrollHeight', content.height);
+      Object.defineProperty(element, 'scrollLeft', {
+        configurable: true,
+        get: () => scrolled.left,
+        set: (value: number) => (scrolled.left = value),
+      });
+      Object.defineProperty(element, 'scrollTop', {
+        configurable: true,
+        get: () => scrolled.top,
+        set: (value: number) => (scrolled.top = value),
+      });
+      return scrolled;
+    };
+    const doubleTap = (target: HTMLElement, clientX: number, clientY: number) => {
+      fireEvent.click(target, { clientX, clientY });
+      fireEvent.click(target, { clientX, clientY });
+    };
+
     const mountStrip = async () => {
       commands.mangaChapter.mockResolvedValue(ok(chapter('webtoon', 3)));
       await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
       const reader = await screen.findByTestId('manga-reader');
       const strip = await within(reader).findByTestId('webtoon-strip');
-      const main = screen.getByTestId('page-content');
-      const scrolled = { left: 0, top: 0 };
-      Object.defineProperty(main, 'scrollLeft', {
-        configurable: true,
-        get: () => scrolled.left,
-        set: (value: number) => (scrolled.left = value),
-      });
-      Object.defineProperty(main, 'scrollTop', {
-        configurable: true,
-        get: () => scrolled.top,
-        set: (value: number) => (scrolled.top = value),
-      });
+      const main = within(reader).getByTestId('webtoon-scroller');
+      // A 400 × 800 screen over the strip zoomed twice: 800 wide and 4000 tall.
+      const scrolled = sized(main, { width: 400, height: 800 }, { width: 800, height: 4000 });
       main.scrollBy = vi.fn();
       vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 2000));
-      const doubleTap = (clientX: number, clientY: number) => {
-        fireEvent.click(strip, { clientX, clientY });
-        fireEvent.click(strip, { clientX, clientY });
-      };
-      return { strip, main, scrolled, doubleTap };
+      return { reader, strip, main, scrolled };
     };
 
     it('zooms in about twice, anchored at the point tapped, then back to the fit', async () => {
-      const { strip, main, scrolled, doubleTap } = await mountStrip();
-      doubleTap(100, 200);
-      expect(strip.style.width.replace(/ /g, '')).toBe('calc(min(100%,48rem)*2)');
+      const { strip, main, scrolled } = await mountStrip();
+      doubleTap(strip, 100, 200);
+      expect(strip.style.width.replace(/ /g, '')).toBe('calc(min(100cqw,48rem)*2)');
       // The tapped point stays under the finger: it moved from (100, 200) to (200, 400).
       expect(scrolled).toEqual({ left: 100, top: 200 });
 
-      doubleTap(150, 300);
-      expect(strip.style.width).toBe('min(100%, 48rem)');
+      doubleTap(strip, 150, 300);
+      expect(strip.style.width).toBe('min(100cqw, 48rem)');
       // Neither tap of a double tap scrolls or turns anything.
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(main.scrollBy).not.toHaveBeenCalled();
     });
 
+    it('stops at the strip’s edges rather than scrolling past them', async () => {
+      const { strip, main } = await mountStrip();
+      // Only 100 px to scroll sideways: the point near the right edge can't stay put.
+      const scrolled = sized(main, { width: 400, height: 800 }, { width: 500, height: 4000 });
+      doubleTap(strip, 380, 200);
+      expect(scrolled).toEqual({ left: 100, top: 200 });
+    });
+
+    it('zooms the strip alone: the room above it and the chapter’s end keep their size', async () => {
+      const { reader, strip } = await mountStrip();
+      const end = within(reader).getByTestId('chapter-end');
+      const lead = within(reader).getByTestId('webtoon-lead');
+      // Outside the zoomed column, the end held at the screen's left edge and width.
+      expect(strip).not.toContainElement(end);
+      expect(strip).not.toContainElement(lead);
+      expect(end).toHaveClass('sticky', 'left-0', 'w-[100cqw]');
+      expect(end).toHaveTextContent('End of Chapter c1');
+      // The room above a page shorter than the screen centres it, following the zoom.
+      const room = lead.style.height;
+      expect(room).toContain('100cqh');
+      doubleTap(strip, 100, 200);
+      expect(strip.style.width.replace(/ /g, '')).toBe('calc(min(100cqw,48rem)*2)');
+      expect(lead.style.height).toContain('100cqh');
+      expect(lead.style.height).not.toBe(room);
+      expect(end).toHaveClass('w-[100cqw]');
+      expect(end.style.width).toBe('');
+      expect(within(reader).getByTestId('reader-viewport')).toContainElement(end);
+    });
+
     it('goes back to the fit when zoomed by other means', async () => {
       const user = userEvent.setup();
-      const { strip, doubleTap } = await mountStrip();
+      const { strip } = await mountStrip();
       await user.keyboard('{Control>}={/Control}');
-      expect(strip.style.width.replace(/ /g, '')).toBe('calc(min(100%,48rem)*1.1)');
-      doubleTap(100, 200);
-      expect(strip.style.width).toBe('min(100%, 48rem)');
+      expect(strip.style.width.replace(/ /g, '')).toBe('calc(min(100cqw,48rem)*1.1)');
+      doubleTap(strip, 100, 200);
+      expect(strip.style.width).toBe('min(100cqw, 48rem)');
     });
 
     it('treats taps far apart as two taps', async () => {
       const { strip } = await mountStrip();
       fireEvent.click(strip, { clientX: 20, clientY: 20 });
       fireEvent.click(strip, { clientX: 380, clientY: 700 });
-      expect(strip.style.width).toBe('min(100%, 48rem)');
+      expect(strip.style.width).toBe('min(100cqw, 48rem)');
+    });
+
+    it('zooms a short wide page evenly, about the point tapped, as far as its edges', async () => {
+      commands.mangaChapter.mockResolvedValue(ok(chapter('pagedLtr', 2)));
+      await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
+      const reader = await screen.findByTestId('manga-reader');
+      const paged = await within(reader).findByTestId('paged-reader');
+      const page = within(paged).getByTestId('manga-page');
+      // A strip three times as wide as it's tall.
+      Object.defineProperty(page, 'naturalWidth', { configurable: true, value: 1200 });
+      Object.defineProperty(page, 'naturalHeight', { configurable: true, value: 400 });
+      fireEvent.load(page);
+      const fit = 'min(1200px,100cqw,100cqh*3)';
+      await vi.waitFor(() => expect(page.style.width.replace(/ /g, '')).toBe(fit));
+      // On a 400 × 800 screen the strip is 400 × 133 in its middle; zoomed it's 800 × 267, still
+      // in the middle top to bottom, scrolling only sideways.
+      const scrolled = sized(paged, { width: 400, height: 800 }, { width: 800, height: 800 });
+      vi.spyOn(page, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 333, 400, 133));
+      doubleTap(paged, 100, 380);
+      expect(page.style.width.replace(/ /g, '')).toBe(`calc(${fit}*2)`);
+      expect(scrolled).toEqual({ left: 100, top: 0 });
+      // The chapter's end is never zoomed: it takes the page's place at its own size.
+      await userEvent.keyboard('{End}{ArrowRight}');
+      const end = await within(reader).findByTestId('chapter-end');
+      expect(within(reader).queryByTestId('manga-page')).not.toBeInTheDocument();
+      expect(end).toHaveClass('h-full');
+      expect(end).not.toHaveAttribute('style');
+      expect(within(reader).getByTestId('reader-viewport')).toContainElement(end);
     });
   });
 
@@ -497,7 +617,7 @@ describe('The manga reader', () => {
       await AppShellWrapper.mount('/manga/read?title=t1&chapter=c1');
       const reader = await screen.findByTestId('manga-reader');
       const strip = await within(reader).findByTestId('webtoon-strip');
-      const main = screen.getByTestId('page-content');
+      const main = within(reader).getByTestId('webtoon-scroller');
       Object.defineProperty(main, 'clientHeight', { configurable: true, value: 900 });
       main.scrollBy = vi.fn();
       rect(main);

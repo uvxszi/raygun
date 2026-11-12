@@ -15,8 +15,8 @@ type ReaderImageProps = {
   className?: string;
   style?: CSSProperties;
   imageRef?: (element: HTMLImageElement | null) => void;
-  /** The page's width over its height, once it's loaded. */
-  onRatio?: (index: number, ratio: number) => void;
+  /** The page's width over its height, and its own width in pixels, once it's loaded. */
+  onRatio?: (index: number, ratio: number, width: number) => void;
   /** A long press or right click: the page's actions. */
   onMenu: (index: number) => void;
 };
@@ -78,7 +78,9 @@ const ReaderImageView: FC<ReaderImageProps> = ({
           rememberShown(src);
           revealDecoded(image);
           const { naturalWidth, naturalHeight } = image;
-          if (naturalWidth > 0 && naturalHeight > 0) onRatio?.(index, naturalWidth / naturalHeight);
+          if (naturalWidth > 0 && naturalHeight > 0) {
+            onRatio?.(index, naturalWidth / naturalHeight, naturalWidth);
+          }
         }}
         onError={() => setState('failed')}
         onContextMenu={(event) => {
