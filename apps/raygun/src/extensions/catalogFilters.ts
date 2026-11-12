@@ -151,12 +151,14 @@ export const repoFormat = (entries: CatalogEntry[]): RepoFormat | 'raygun' => {
 /**
  * What a repository holds: how many extensions of each kind (an extension with several kinds
  * counts in each), and how many are another app's format (Nuclear plugins, Shosetsu and Miru
- * scripts, LNReader plugins, Kodi add-ons).
+ * scripts, LNReader plugins, Kodi add-ons). Ones not for Raygun (a Kodi skin, a Nuclear mini
+ * player) hold nothing for it and aren't counted.
  */
 export const repoContents = (entries: CatalogEntry[]) => {
   const kinds = new Map<ExtensionKind, number>();
   const formats = new Map<RepoFormat, number>();
   for (const entry of entries) {
+    if (isNotForRaygun(entry)) continue;
     for (const kind of kindsOf(entry)) kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
     const format = formatOf(entry);
     if (format) formats.set(format, (formats.get(format) ?? 0) + 1);
