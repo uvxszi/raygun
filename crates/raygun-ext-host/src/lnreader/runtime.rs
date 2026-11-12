@@ -52,10 +52,17 @@ pub(crate) fn install(
     hooks: Hooks,
     filename: &str,
 ) -> Result<(), String> {
-    natives(ctx, hooks).map_err(|error| error.to_string())?;
-    eval_script(ctx, PRELUDE, "lnreader:prelude", false)?;
+    install_web(ctx, hooks)?;
     eval_script(ctx, &prepared.code, filename, false)
         .map_err(|error| format!("The LNReader plugin stopped with an error: {error}"))
+}
+
+/// The natives and the prelude alone: the web a plugin finds (timers, base64, `URL`, `Headers`,
+/// `fetch`, cheerio and the other libraries `__lnrRequire` hands out). The Nuvio runtime
+/// (`crate::nuvio`) builds on them too.
+pub(crate) fn install_web(ctx: &Ctx<'_>, hooks: Hooks) -> Result<(), String> {
+    natives(ctx, hooks).map_err(|error| error.to_string())?;
+    eval_script(ctx, PRELUDE, "lnreader:prelude", false)
 }
 
 fn envelope<T: serde::Serialize>(result: Result<T, String>) -> String {
@@ -201,8 +208,12 @@ struct RawSetting {
 }
 
 /// Records a setting the plugin declares, as Raygun shows settings: a switch for `Switch`, a
-/// choice of labels for `Select`, text otherwise. Declaring a key again replaces it.
-fn register_setting(settings: &RefCell<Vec<SettingDef>>, json: &str) -> Result<(), String> {
+/// choice of labels for `Select`, text otherwise. Declaring a key again replaces it. (A Nuvio
+/// provider's `onSettings` fields are declared the same way.)
+pub(crate) fn register_setting(
+    settings: &RefCell<Vec<SettingDef>>,
+    json: &str,
+) -> Result<(), String> {
     let raw: RawSetting =
         serde_json::from_str(json).map_err(|error| format!("invalid setting: {error}"))?;
     let key = raw.key.trim().to_owned();

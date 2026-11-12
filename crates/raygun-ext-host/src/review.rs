@@ -19,7 +19,7 @@ use crate::host::{
 use crate::manga::{self, MANGA_SOURCE};
 use crate::novel::{NOVEL_SOURCE, PassageBlock, parse_passage};
 use crate::podcast::{PODCAST_DIRECTORY, parse_results};
-use crate::video::{self, VIDEO_SOURCE};
+use crate::video::{self, STREAMS_TIMEOUT, VIDEO_SOURCE, VIDEO_STREAMS};
 use crate::{CATALOG_SEARCH_TIMEOUT, INTERACTIVE_TIMEOUT};
 
 /// How long the app gives a call that no tighter limit covers (`HostConfig::call_timeout`).
@@ -95,6 +95,7 @@ const FILTER: &str = "a kind (select, tags or toggle), a key of letters, digits,
                       most 40), and options for select and tags";
 const SERVER: &str = "an id";
 const VIDEO: &str = "an http(s) url (or youtube:<11-character id>)";
+const STREAM: &str = "an http(s) url (or a magnet link with format torrent)";
 const PODCAST: &str = "a title and an http(s) feedUrl";
 const BOOK: &str = "a title, and an http(s) feedUrl or an id";
 const BOOK_CHAPTER: &str = "an http(s) audioUrl";
@@ -283,6 +284,11 @@ pub fn review(kind: &str, method: &str, answer: &Value) -> Option<Review> {
             video::parse_videos(value).len()
         }),
         (VIDEO_SOURCE, "comments") => comments(answer),
+        (VIDEO_STREAMS, "streams") => {
+            listing("streams", STREAM, answer, Some("streams"), |value| {
+                video::parse_provided_streams(value).len()
+            })
+        }
         (PODCAST_DIRECTORY, "search" | "top") => {
             let review = listing("podcasts", PODCAST, answer, None, |value| {
                 parse_results(value).len()
@@ -336,6 +342,7 @@ pub fn time_limit(kind: &str, method: &str) -> Duration {
         )
         | (MUSIC_CHARTS, "tagSongs")
         | (VIDEO_SOURCE, "comments") => INTERACTIVE_TIMEOUT,
+        (VIDEO_STREAMS, _) => STREAMS_TIMEOUT,
         // A search row, or the popular titles it shows before anything is typed.
         (MANGA_SOURCE | NOVEL_SOURCE | VIDEO_SOURCE, "search" | "popular") => {
             CATALOG_SEARCH_TIMEOUT
@@ -772,8 +779,8 @@ mod tests {
         )))
         .unwrap();
         let kinds = kinds.as_object().unwrap();
-        // Fourteen kinds of providers, and site scripts (`crate::site`), which have no calls.
-        assert_eq!(kinds.len(), 15);
+        // Fifteen kinds of providers, and site scripts (`crate::site`), which have no calls.
+        assert_eq!(kinds.len(), 16);
         assert!(
             kinds["site.scripts"]["required"]
                 .as_array()
@@ -807,5 +814,24 @@ mod tests {
             time_limit(AUDIOBOOK_DIRECTORY, "chapters"),
             INTERACTIVE_TIMEOUT
         );
+        assert_eq!(time_limit(VIDEO_STREAMS, "streams"), STREAMS_TIMEOUT);
+    }
+
+    #[test]
+    fn streams_keep_what_plays() {
+        let review = review(
+            VIDEO_STREAMS,
+            "streams",
+            &json!({ "streams": [
+                { "url": "https://archive.org/download/x/x.mp4", "name": "Archive 480p", "quality": 480 },
+                { "url": "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10", "format": "torrent" },
+                { "url": "ftp://archive.org/x.mp4" },
+                { "name": "No address" },
+            ] }),
+        )
+        .unwrap();
+        assert_eq!((review.given, review.kept), (4, 2));
+        assert_eq!(review.dropped, [2, 3]);
+        assert_eq!(review.what, "streams");
     }
 }

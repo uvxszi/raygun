@@ -60,8 +60,8 @@ change it. Providers are known as `<id>/<provider id>`.
 
 The kinds of every provider the script registers: `music.metadata`, `music.stream`, `lyrics`,
 `music.charts`, `music.tags`, `music.info`, `music.recommend`, `manga.source`, `novel.source`,
-`video.source`, `podcast.directory`, `audiobook.directory`. Raygun refuses to register a provider
-whose kind isn't listed.
+`video.source`, `video.streams`, `podcast.directory`, `audiobook.directory`. Raygun refuses to
+register a provider whose kind isn't listed.
 
 ### `permissions.net`
 

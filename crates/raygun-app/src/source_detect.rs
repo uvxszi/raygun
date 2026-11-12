@@ -109,6 +109,34 @@ enum Reading {
     /// A Mihon store (`index.min.json`, `repo.json`, `index.pb`), read with the files it names
     /// ([`mihon_store`]).
     Mihon(Box<Fetched>),
+    /// A Stremio addon that only lists other addons, read with its lists ([`addon_collection`]).
+    Addons(Box<Fetched>, Box<Manifest>),
+}
+
+/// An addon that only lists other addons, as the repository of them it stands for
+/// (`stremio::addon_catalogs`). The repository is the addon's manifest.
+async fn addon_collection<F: Fetch>(
+    fetch: &F,
+    answer: &Fetched,
+    manifest: &Manifest,
+) -> Result<Found, String> {
+    let address = protocol::normalize_addon_url(answer.url.as_str())?;
+    let index =
+        crate::stremio::addon_catalogs::read(&address, manifest, |list: String| async move {
+            let url = Url::parse(&list).map_err(|error| error.to_string())?;
+            let next = fetch.get(&url).await?;
+            if next.ok() && !next.truncated {
+                Ok(next.body)
+            } else {
+                Err(format!("{url} answered HTTP {}", next.status))
+            }
+        })
+        .await?;
+    Ok(Found::Repository {
+        url: Url::parse(&address).map_err(|error| error.to_string())?,
+        format: PackageFormat::Stremio,
+        index,
+    })
 }
 
 /// A Mihon store, followed to its extensions as adding it does (`raygun_ext_host::mihon::load`:
@@ -213,6 +241,9 @@ async fn look_at<F: Fetch>(fetch: &F, asked: &Url, answer: Fetched) -> Result<Fo
             }
             Some(Reading::Refused(message)) => refused = Some(message),
             Some(Reading::Mihon(store)) => return mihon_store(fetch, &store).await,
+            Some(Reading::Addons(answer, manifest)) => {
+                return addon_collection(fetch, &answer, &manifest).await;
+            }
             None => {}
         }
     }
@@ -503,6 +534,9 @@ async fn first_found<F: Fetch>(fetch: &F, places: &[Place]) -> Option<Result<Fou
                     refused.get_or_insert(message);
                 }
                 Some(Reading::Mihon(store)) => return Some(mihon_store(fetch, &store).await),
+                Some(Reading::Addons(answer, manifest)) => {
+                    return Some(addon_collection(fetch, &answer, &manifest).await);
+                }
                 None => {}
             }
         }
@@ -517,6 +551,9 @@ async fn follow<F: Fetch>(fetch: &F, url: &Url) -> Option<Result<Found, String>>
         Reading::Found(found) => Some(Ok(found)),
         Reading::Refused(message) => Some(Err(message)),
         Reading::Mihon(store) => Some(mihon_store(fetch, &store).await),
+        Reading::Addons(answer, manifest) => {
+            Some(addon_collection(fetch, &answer, &manifest).await)
+        }
         Reading::Follow(_) => None,
     }
 }
@@ -683,6 +720,10 @@ fn read_json(answer: &Fetched, text: &str, base: &Url) -> Option<Reading> {
     // A Stremio manifest: an addon is added by its web address.
     if has("id") && has("resources") && matches!(answer.url.scheme(), "http" | "https") {
         return Some(match protocol::parse_manifest(&value) {
+            // A collection of other addons: the repository of them it stands for.
+            Ok(manifest) if manifest.only_lists_addons() => {
+                Reading::Addons(Box::new(answer.clone()), Box::new(manifest))
+            }
             Ok(manifest) => match protocol::normalize_addon_url(answer.url.as_str()) {
                 Ok(url) => Reading::Found(Found::Addon {
                     url,
@@ -794,6 +835,7 @@ fn source_format(format: PackageFormat) -> SourceFormat {
         PackageFormat::Kodi => SourceFormat::Kodi,
         PackageFormat::Mihon => SourceFormat::Mihon,
         PackageFormat::Stremio => SourceFormat::Stremio,
+        PackageFormat::Nuvio => SourceFormat::Nuvio,
     }
 }
 
@@ -1310,6 +1352,35 @@ mod tests {
             repository(&found).0.as_str(),
             "https://r.example/repo/index.json"
         );
+    }
+
+    #[tokio::test]
+    async fn nuvio_repositories_are_found_by_their_manifest() {
+        let nuvio = json!({ "name": "Public Domain Films", "version": "1.0.0",
+            "scrapers": [{ "id": "archive", "name": "Internet Archive", "version": "1.0.0",
+              "filename": "providers/archive.js", "supportedTypes": ["movie"] }] })
+        .to_string();
+        let table = Table::default()
+            .with("https://nuvio.example/repo/manifest.json", nuvio.clone())
+            .with(
+                "https://raw.githubusercontent.com/films/providers/HEAD/manifest.json",
+                nuvio,
+            );
+        for typed in [
+            "https://nuvio.example/repo/manifest.json",
+            // The repository's folder, as Nuvio takes it: its manifest beside it.
+            "https://nuvio.example/repo",
+            "nuvio.example/repo/",
+        ] {
+            let found = look(&table, typed).await;
+            let (url, format, index) = repository(&found);
+            assert_eq!(url.as_str(), "https://nuvio.example/repo/manifest.json");
+            assert_eq!(format, PackageFormat::Nuvio);
+            assert_eq!(index.extensions[0].id, "nuvio.archive");
+            assert_eq!(source_format(format), SourceFormat::Nuvio);
+        }
+        let found = look(&table, "https://github.com/films/providers").await;
+        assert_eq!(repository(&found).1, PackageFormat::Nuvio);
     }
 
     #[tokio::test]

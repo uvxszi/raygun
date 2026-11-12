@@ -7044,8 +7044,13 @@ export type SourceFilter =
 
 /**  Which app's format a repository or an extension is in. */
 export type SourceFormat = "raygun" | "nuclear" | "shosetsu" | "miru" | "lnreader" | "kodi" | "mihon" | 
-/**  A Stremio addon listed in a repository. */
-"stremio";
+/**
+ *  A Stremio addon listed in a repository, or an addon that lists other addons (its
+ *  `addon_catalog`), read as a repository of them.
+ */
+"stremio" | 
+/**  A Nuvio repository (`manifest.json` with `scrapers`) or one of its providers. */
+"nuvio";
 
 /**
  *  A list queued: how many of its addresses joined the queue, how many were left out as already

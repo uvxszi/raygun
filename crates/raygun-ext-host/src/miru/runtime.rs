@@ -20,8 +20,9 @@ use crate::js::{err, eval_script, ok};
 use crate::manifest::{SettingDef, SettingKind};
 
 const PRELUDE: &str = include_str!("prelude.js");
-/// crypto-js (MIT), the build Miru bundles; evaluated only for scripts that use it.
-const CRYPTO_JS: &str = include_str!("../../assets/crypto-js.min.js");
+/// crypto-js (MIT), the build Miru bundles; evaluated only for scripts that use it (Nuvio
+/// providers' too, `crate::nuvio`).
+pub(crate) const CRYPTO_JS: &str = include_str!("../../assets/crypto-js.min.js");
 /// The name Miru's rewrite gives the script's class.
 const CLASS: &str = "__MiruSource";
 /// Most settings one script may register, and the longest key and label kept.

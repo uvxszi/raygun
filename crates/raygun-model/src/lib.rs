@@ -4482,8 +4482,11 @@ pub enum SourceFormat {
     LnReader,
     Kodi,
     Mihon,
-    /// A Stremio addon listed in a repository.
+    /// A Stremio addon listed in a repository, or an addon that lists other addons (its
+    /// `addon_catalog`), read as a repository of them.
     Stremio,
+    /// A Nuvio repository (`manifest.json` with `scrapers`) or one of its providers.
+    Nuvio,
 }
 
 /// An address read before it's added (Sources → Add), and what adding it brought.

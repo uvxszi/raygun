@@ -287,6 +287,31 @@ describe('Sources', () => {
     expect(within(sheet).getByRole('button', { name: 'Look up' })).toBeEnabled();
   });
 
+  it('shows a Nuvio repository’s providers as video sources', async () => {
+    const user = userEvent.setup();
+    commands.sourcesDetect.mockResolvedValue(
+      ok(
+        detected({
+          kind: 'repository',
+          format: 'nuvio',
+          url: 'https://films.example/providers/manifest.json',
+          name: 'Public Domain Films',
+          entries: [entry('nuvio.archive', ['video.streams'])],
+        }),
+      ),
+    );
+    const sheet = await openAddSheet(user);
+    await lookUp(user, sheet, 'films.example/providers');
+    const card = await within(sheet).findByRole('region', {
+      name: 'Looks like a Nuvio repository: Public Domain Films',
+    });
+    expect(
+      within(within(card).getByRole('list', { name: 'What Public Domain Films holds' }))
+        .getAllByRole('listitem')
+        .map((chip) => chip.textContent),
+    ).toEqual(['Video sources · 1', 'Nuvio providers · 1']);
+  });
+
   it('signs in to a server it found', async () => {
     const user = userEvent.setup();
     commands.sourcesDetect.mockResolvedValue(

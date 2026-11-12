@@ -137,6 +137,22 @@
       "comments": { "id": "", "page": null }
     }
   },
+  "video.streams": {
+    "label": "Streams for films and series found elsewhere, by their TMDB or IMDb ids",
+    "required": ["streams"],
+    "optional": [],
+    "args": {
+      "streams": {
+        "type": "movie",
+        "tmdbId": "10331",
+        "imdbId": "tt0063350",
+        "season": null,
+        "episode": null,
+        "title": "Night of the Living Dead",
+        "year": 1968
+      }
+    }
+  },
   "podcast.directory": {
     "label": "Podcasts to find and follow",
     "required": ["search"],

@@ -56,6 +56,7 @@ const CALLS = {
     required: ['popular', 'search', 'details', 'episodes', 'servers', 'videos'],
     optional: ['latest', 'filters', 'comments'],
   },
+  'video.streams': { required: ['streams'], optional: [] },
   'podcast.directory': { required: ['search'], optional: ['top'] },
   'audiobook.directory': {
     required: ['search', 'popular'],

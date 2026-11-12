@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Streams of public-domain feature films on the Internet Archive, for films other sources list.",
+  "website": "https://archive.org/details/feature_films",
+  "provides": ["video.streams"],
+  "permissions": { "net": ["archive.org"] },
+  "contentRating": "safe"
+}

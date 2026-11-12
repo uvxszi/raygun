@@ -1586,6 +1586,14 @@ impl ExtensionService {
                 .insert(url.to_owned(), (from, Arc::new(store)));
             return Ok(self.indexes.lock().unwrap().put(url, index));
         }
+        // A Stremio addon that only lists other addons: the repository of them it stands for.
+        if let Some(manifest) = crate::stremio::addon_catalogs::collection(&bytes) {
+            let index = crate::stremio::addon_catalogs::read(url, &manifest, |list| async move {
+                self.download(&list, MAX_INDEX_BYTES).await
+            })
+            .await?;
+            return Ok(self.indexes.lock().unwrap().put(url, index));
+        }
         // Kodi's indexes come gzipped as often as not (`addons.xml.gz`). Parsing a large index
         // takes a while: off the async workers.
         let index = tauri::async_runtime::spawn_blocking(move || {
@@ -1852,6 +1860,11 @@ impl ExtensionService {
                 let script = raygun_ext_host::lnreader::package::verify_script(&bytes, entry)
                     .map_err(|error| error.to_string())?;
                 raygun_ext_host::lnreader::package::package(entry, script)
+                    .map_err(|error| error.to_string())?
+            }
+            PackageFormat::Nuvio => {
+                let script = raygun_ext_host::nuvio::package::verify_script(&bytes)?;
+                raygun_ext_host::nuvio::package::package(entry, script)
                     .map_err(|error| error.to_string())?
             }
             PackageFormat::Kodi => {

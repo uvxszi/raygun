@@ -13,7 +13,7 @@
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
@@ -762,6 +762,20 @@ fn show_memory_key(scope: &str, title: &str) -> Option<String> {
 
 /// Marks the links whose names say they're another episode than `numbers` give, and puts them
 /// last in their group.
+/// An episode's links as a session takes them: those naming another episode marked (addons
+/// that search by name can answer with another season's files), and a season's torrent without
+/// a file index opening the episode's file.
+fn episode_links(groups: &mut [Group], numbers: &[video_match::EpisodeNumber]) {
+    mark_mismatches(groups, numbers);
+    for link in groups.iter_mut().flat_map(|group| group.links.iter_mut()) {
+        link.request.url = raygun_torrent::with_episodes(
+            &link.request.url,
+            link.request.format.as_deref(),
+            numbers,
+        );
+    }
+}
+
 pub fn mark_mismatches(groups: &mut [Group], numbers: &[video_match::EpisodeNumber]) {
     if numbers.is_empty() {
         return;
@@ -1627,26 +1641,88 @@ impl VideoSessions {
                 let waiting = Group::resolving("addons".into(), self.label("addons", "Addons"));
                 self.set_groups(generation, vec![waiting]).await;
                 let stremio = self.app.state::<std::sync::Arc<StremioService>>();
-                let mut groups = match stremio.playable(&target, &language).await {
-                    Ok(groups) => groups,
-                    Err(error) => vec![Group::finished(
-                        "addons".into(),
-                        self.label("addons", "Addons"),
-                        Vec::new(),
-                        Some(error),
-                    )],
+                // Stream providers (`video.streams`: Nuvio's) are asked beside the addons; each
+                // one's streams join the session as they come, once the addons' are in place.
+                let ask = stremio.provider_ask(&target).await;
+                let providers: Vec<(String, String)> = ask
+                    .as_ref()
+                    .map(|ask| {
+                        ask.providers
+                            .iter()
+                            .map(|provider| (provider.id.clone(), provider.name.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                // Answers that come before the addons' are kept until those are in place; then
+                // they get the subtitle addons' tracks the addons' links got.
+                let placed = AtomicBool::new(false);
+                let early: Mutex<Vec<raygun_model::StremioStreamGroup>> = Mutex::new(Vec::new());
+                let numbers = &episode.numbers;
+                let provider_group = async |answer: raygun_model::StremioStreamGroup| {
+                    let mut group = stremio.provider_group(answer, &target, &language).await;
+                    episode_links(std::slice::from_mut(&mut group), numbers);
+                    group
                 };
-                // Addons that search by name can answer with another season's files.
-                mark_mismatches(&mut groups, &episode.numbers);
-                // A season's torrent without a file index opens the episode's file.
-                for link in groups.iter_mut().flat_map(|group| group.links.iter_mut()) {
-                    link.request.url = raygun_torrent::with_episodes(
-                        &link.request.url,
-                        link.request.format.as_deref(),
-                        &episode.numbers,
-                    );
-                }
-                self.set_groups(generation, groups).await;
+                let addons = async {
+                    let mut groups = match stremio.playable(&target, &language).await {
+                        Ok(groups) => groups,
+                        Err(error) => vec![Group::finished(
+                            "addons".into(),
+                            self.label("addons", "Addons"),
+                            Vec::new(),
+                            Some(error),
+                        )],
+                    };
+                    episode_links(&mut groups, numbers);
+                    let mut answered: Vec<Group> = Vec::new();
+                    loop {
+                        let kept = std::mem::take(&mut *early.lock().expect("early poisoned"));
+                        if kept.is_empty() {
+                            break;
+                        }
+                        for answer in kept {
+                            answered.push(provider_group(answer).await);
+                        }
+                    }
+                    // Providers still finding streams wait in place.
+                    for (provider, name) in &providers {
+                        groups.push(
+                            answered
+                                .iter()
+                                .find(|group| group.id == *provider)
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    Group::resolving(provider.clone(), name.clone())
+                                }),
+                        );
+                    }
+                    placed.store(true, Ordering::SeqCst);
+                    self.set_groups(generation, groups).await;
+                };
+                let provided = async {
+                    let Some(ask) = ask else {
+                        return;
+                    };
+                    let (placed, early, provider_group) = (&placed, &early, &provider_group);
+                    stremio
+                        .provider_answers(ask, |answer| async move {
+                            if !self.is_current(generation) {
+                                return;
+                            }
+                            if !placed.load(Ordering::SeqCst) {
+                                early.lock().expect("early poisoned").push(answer);
+                                return;
+                            }
+                            let group = provider_group(answer).await;
+                            let links = match &group.state {
+                                GroupState::Failed(error) => Err(error.clone()),
+                                _ => Ok(group.links),
+                            };
+                            self.update_group(generation, &group.id, links).await;
+                        })
+                        .await;
+                };
+                futures_util::future::join(addons, provided).await;
             }
         }
     }

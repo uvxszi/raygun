@@ -33,6 +33,9 @@ pub struct Manifest {
     pub id_prefixes: Option<Vec<String>>,
     pub resources: Vec<Resource>,
     pub catalogs: Vec<Catalog>,
+    /// Lists of other addons it offers (`addonCatalogs`, answered by its `addon_catalog`
+    /// resource), as Stremio's own addon collections are.
+    pub addon_catalogs: Vec<Catalog>,
     pub adult: bool,
     /// Its streams are torrents.
     pub p2p: bool,
@@ -297,6 +300,15 @@ pub fn parse_manifest(value: &Value) -> Result<Manifest, String> {
     if resources.is_empty() {
         return Err(format!("{name} doesn't offer anything Raygun can use"));
     }
+    let mut seen = HashSet::new();
+    let addon_catalogs: Vec<Catalog> = value
+        .get("addonCatalogs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(parse_catalog)
+        .filter(|catalog| seen.insert((catalog.kind.clone(), catalog.id.clone())))
+        .collect();
     let hints = value.get("behaviorHints");
     Ok(Manifest {
         id,
@@ -308,6 +320,7 @@ pub fn parse_manifest(value: &Value) -> Result<Manifest, String> {
         id_prefixes: optional_texts(value.get("idPrefixes")),
         resources,
         catalogs,
+        addon_catalogs,
         adult: flag(hints, "adult"),
         p2p: flag(hints, "p2p"),
         configurable: flag(hints, "configurable"),
@@ -534,8 +547,7 @@ impl Manifest {
                 .map(|resource| resource.name.as_str())
                 .collect();
             return Some(if offered.iter().all(|name| *name == "addon_catalog") {
-                "Only lists other Stremio addons, which Raygun doesn't read: add those addons \
-                 themselves"
+                "Only lists other Stremio addons: add its address in Sources to choose from them"
                     .to_owned()
             } else {
                 format!(
@@ -575,6 +587,57 @@ impl Manifest {
             )
         })
     }
+}
+
+impl Manifest {
+    /// Whether it's a collection of other addons and nothing else Raygun reads: its addon
+    /// catalogs are read as a repository of addons (Sources → Add), each added on its own.
+    pub fn only_lists_addons(&self) -> bool {
+        !self.addon_catalogs.is_empty()
+            && self.has_resource("addon_catalog")
+            && !self
+                .resources
+                .iter()
+                .any(|resource| READ_RESOURCES.contains(&resource.name.as_str()))
+    }
+}
+
+/// One addon an addon catalog lists: where its manifest is, and what it says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedAddon {
+    pub transport_url: String,
+    pub manifest: Manifest,
+}
+
+/// An `addon_catalog` answer (`{ addons: [{ transportName, transportUrl, manifest }] }`, as
+/// stremio-core's `DescriptorPreview`s): the addons served over HTTP with a manifest Raygun
+/// reads, each address once.
+pub fn parse_addon_catalog(value: &Value) -> Vec<ListedAddon> {
+    let mut seen = HashSet::new();
+    value
+        .get("addons")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|addon| {
+            let transport = text(addon.get("transportName"));
+            if transport.as_deref().is_some_and(|name| name != "http") {
+                return None;
+            }
+            let address = http(addon.get("transportUrl"))?;
+            let transport_url = if is_legacy(&address) {
+                address
+            } else {
+                normalize_addon_url(&address).ok()?
+            };
+            let manifest = parse_manifest(addon.get("manifest")?).ok()?;
+            seen.insert(transport_url.clone()).then_some(ListedAddon {
+                transport_url,
+                manifest,
+            })
+        })
+        .take(MAX_ITEMS)
+        .collect()
 }
 
 fn parse_catalog(catalog: &Value) -> Option<Catalog> {
@@ -958,8 +1021,14 @@ fn preview(item: &Value, fallback_kind: &str) -> Option<MetaPreview> {
         poster_shape: text(item.get("posterShape"))
             .filter(|shape| matches!(shape.as_str(), "poster" | "landscape" | "square"))
             .unwrap_or_else(|| "poster".into()),
+        // Newer addons give only the release date (`released`): its year is what's shown.
         release_info: text_or_number(item.get("releaseInfo"))
-            .or_else(|| text_or_number(item.get("year"))),
+            .or_else(|| text_or_number(item.get("year")))
+            .or_else(|| {
+                text(item.get("released"))
+                    .and_then(|date| date.get(..4).map(str::to_owned))
+                    .filter(|year| year.bytes().all(|byte| byte.is_ascii_digit()))
+            }),
         rating: text_or_number(item.get("imdbRating")),
     })
 }
@@ -992,6 +1061,9 @@ pub struct Video {
     pub streams: Vec<Stream>,
     /// The IMDb episode it is (`imdb_id`, `imdbSeason`, `imdbEpisode`: anime addons map theirs).
     pub imdb: Option<(String, Option<u32>, Option<u32>)>,
+    /// When a live channel's scheduled show is on (its program guide: `startTime`, `endTime`),
+    /// as Unix ms.
+    pub airs: Option<(i64, i64)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1018,6 +1090,11 @@ pub struct Meta {
     pub tmdb_id: Option<String>,
     /// A live channel (`behaviorHints.isLive`, or the `tv` type).
     pub live: bool,
+    /// A live channel whose videos are its program guide (`behaviorHints.hasScheduledVideos`,
+    /// shows with `startTime` and `endTime`, from addons that are EPG providers): it plays as
+    /// itself, and these are the streams of the show on now (stremio-core's "stable playback
+    /// identity independent of its schedule"). Its `videos` are left empty.
+    pub live_streams: Vec<Stream>,
 }
 
 /// Link categories that never hold a rating.
@@ -1155,8 +1232,31 @@ fn parse_video(video: &Value) -> Option<Video> {
                 number(video.get("imdbEpisode")),
             )
         }),
+        airs: text(video.get("startTime"))
+            .and_then(|start| release_ms(&start))
+            .zip(text(video.get("endTime")).and_then(|end| release_ms(&end))),
         id,
     })
+}
+
+/// The show a live channel's program guide has on at `now` (else the latest that started, else
+/// the first): its streams are the channel's.
+fn on_air(videos: &[Video], now: i64) -> Option<&Video> {
+    let started = |video: &&Video| video.airs.is_some_and(|(start, _)| start <= now);
+    videos
+        .iter()
+        .find(|video| {
+            video
+                .airs
+                .is_some_and(|(start, end)| start <= now && now < end)
+        })
+        .or_else(|| {
+            videos
+                .iter()
+                .filter(started)
+                .max_by_key(|video| video.airs.map(|(start, _)| start))
+        })
+        .or_else(|| videos.first())
 }
 
 /// stremio-core's video order: numbered episodes by season (specials, season 0, last) and number,
@@ -1207,6 +1307,8 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
         .filter_map(|trailer| text(trailer.get("ytId")))
         .collect();
     if trailers.is_empty() {
+        // `{ source, type }` as the SDK documents them, or Stream objects (`{ ytId }`), which
+        // the SDK says they become.
         trailers = meta
             .get("trailers")
             .and_then(Value::as_array)
@@ -1215,7 +1317,7 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
             .filter(|trailer| {
                 text(trailer.get("type")).is_none_or(|kind| kind.eq_ignore_ascii_case("trailer"))
             })
-            .filter_map(|trailer| text(trailer.get("source")))
+            .filter_map(|trailer| text(trailer.get("source")).or_else(|| text(trailer.get("ytId"))))
             .collect();
     }
     let mut seen = HashSet::new();
@@ -1228,6 +1330,19 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
         .filter(|video| seen.insert(video.id.clone()))
         .collect();
     sort_videos(&mut videos);
+    // A channel's program guide isn't episodes: the channel plays as itself, with the streams
+    // of the show on now.
+    let scheduled = flag(meta.get("behaviorHints"), "hasScheduledVideos")
+        || (!videos.is_empty() && videos.iter().all(|video| video.airs.is_some()));
+    let live_streams = if scheduled {
+        let streams = on_air(&videos, chrono::Utc::now().timestamp_millis())
+            .map(|video| video.streams.clone())
+            .unwrap_or_default();
+        videos.clear();
+        streams
+    } else {
+        Vec::new()
+    };
     let names = |key: &str| -> Vec<String> {
         match meta.get(key) {
             Some(Value::String(list)) => list
@@ -1238,6 +1353,28 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
                 .collect(),
             other => texts(other),
         }
+    };
+    // The SDK deprecates `genres`, `cast` and `director` for links (`{ name, category, url }`):
+    // newer addons give them only that way.
+    let linked = |categories: &[&str]| -> Vec<String> {
+        let mut found: Vec<String> = Vec::new();
+        for link in meta
+            .get("links")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let category = text(link.get("category"))
+                .unwrap_or_default()
+                .to_lowercase();
+            if categories.contains(&category.as_str())
+                && let Some(name) = text(link.get("name"))
+                && !found.contains(&name)
+            {
+                found.push(name);
+            }
+        }
+        found
     };
     let hints = meta.get("behaviorHints");
     let imdb_id = imdb(meta.get("imdb_id"))
@@ -1252,23 +1389,28 @@ pub fn parse_meta(value: &Value, kind: &str) -> Option<Meta> {
         background: http(meta.get("background")),
         logo: http(meta.get("logo")),
         description: text(meta.get("description")),
-        genres: {
-            let genres = texts(meta.get("genres"));
-            if genres.is_empty() {
-                texts(meta.get("genre"))
-            } else {
-                genres
-            }
-        },
+        genres: [texts(meta.get("genres")), texts(meta.get("genre"))]
+            .into_iter()
+            .find(|genres| !genres.is_empty())
+            .unwrap_or_else(|| linked(&["genres", "genre"])),
         runtime: text_or_number(meta.get("runtime")),
-        cast: names("cast").into_iter().take(12).collect(),
-        director: names("director"),
+        cast: Some(names("cast"))
+            .filter(|cast| !cast.is_empty())
+            .unwrap_or_else(|| linked(&["cast", "actor", "actors", "stars"]))
+            .into_iter()
+            .take(12)
+            .collect(),
+        director: [names("director"), names("directors")]
+            .into_iter()
+            .find(|directors| !directors.is_empty())
+            .unwrap_or_else(|| linked(&["directors", "director"])),
         trailer_yt_ids: trailers,
         videos,
         default_video_id: hints.and_then(|hints| text(hints.get("defaultVideoId"))),
         imdb_id,
         tmdb_id,
-        live: flag(hints, "isLive") || preview.kind == "tv",
+        live: scheduled || flag(hints, "isLive") || preview.kind == "tv",
+        live_streams,
         preview,
     })
 }
@@ -1498,10 +1640,26 @@ fn parse_stream(stream: &Value) -> Option<Stream> {
             None => return None,
         }
     };
+    // `behaviorHints.countryWhitelist`: the countries it plays in (ISO 3166-1 alpha-3), said
+    // under its description, as Raygun doesn't know where the device is.
+    let countries: Vec<String> = hints
+        .and_then(|hints| hints.get("countryWhitelist"))
+        .map(|list| texts(Some(list)))
+        .unwrap_or_default()
+        .iter()
+        .map(|country| country.to_uppercase())
+        .collect();
+    let description = text(stream.get("description")).or_else(|| text(stream.get("title")));
+    let description = if countries.is_empty() {
+        description
+    } else {
+        let only = format!("Only in {}", countries.join(", "));
+        Some(description.map_or_else(|| only.clone(), |text| format!("{text}\n{only}")))
+    };
     Some(Stream {
         source,
         name,
-        description: text(stream.get("description")).or_else(|| text(stream.get("title"))),
+        description,
         headers: request_headers(stream),
         subtitles: parse_subtitles(stream),
         binge_group: hint_text("bingeGroup"),

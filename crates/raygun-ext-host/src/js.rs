@@ -116,12 +116,12 @@ impl Limits {
 }
 
 /// Whether an extension runs code written for another app (a converted Nuclear plugin, a Miru
-/// script, an LNReader plugin, a converted Mihon source).
+/// script, an LNReader plugin, a converted Mihon source, a Nuvio provider).
 pub(crate) fn is_converted(manifest: &Manifest) -> bool {
     manifest.nuclear.is_some()
         || matches!(
             manifest.runtime,
-            Runtime::Miru | Runtime::LnReader | Runtime::Mihon
+            Runtime::Miru | Runtime::LnReader | Runtime::Mihon | Runtime::Nuvio
         )
 }
 
@@ -309,6 +309,14 @@ impl JsExtension {
             Runtime::Mihon => Some(crate::mihon::runtime::Prepared::new(&code)?),
             _ => None,
         };
+        // A Nuvio provider is wrapped as Nuvio evaluates it, after the globals Nuvio gives.
+        let nuvio = match manifest.runtime {
+            Runtime::Nuvio => Some(crate::nuvio::runtime::Prepared::new(
+                &code,
+                manifest.nuvio.as_ref(),
+            )?),
+            _ => None,
+        };
         let memory_limit = limits.memory_for(&manifest);
         let cpu_budget = limits.cpu_budget_for(&manifest);
         let policy = Arc::new(manifest.net.clone());
@@ -388,6 +396,16 @@ impl JsExtension {
                 eval_script(&ctx, PRELUDE, "raygun:prelude", true)?;
                 if let (Some(prepared), Some(hooks)) = (&mihon, mihon_hooks) {
                     return crate::mihon::runtime::install(&ctx, prepared, hooks, &filename);
+                }
+                if let Some(prepared) = &nuvio {
+                    return crate::nuvio::runtime::install(
+                        &ctx,
+                        prepared,
+                        crate::nuvio::runtime::Hooks {
+                            settings: registered,
+                        },
+                        &filename,
+                    );
                 }
                 match (&miru, &lnreader) {
                     (Some(prepared), _) => crate::miru::runtime::install(
