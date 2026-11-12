@@ -3994,6 +3994,19 @@ pub fn tts_voices() -> raygun_model::TtsVoices {
     crate::tts::voice_list()
 }
 
+/// Reads books in the voice's language with `key`'s voice (`<model>/<voice>`; none: the device's
+/// own voices) from now on. One that isn't downloaded is downloaded first (progress arrives as
+/// `AiModelEvent`s) and chosen once it's here, unless another voice was chosen meanwhile. How it
+/// ended: `installed` (chosen), `downloading` (already on its way), or `cancelled`.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_use_voice(
+    app: tauri::AppHandle,
+    key: Option<String>,
+) -> Result<raygun_model::AiModelState, String> {
+    crate::tts::use_voice(&app, key).await
+}
+
 /// The language a book is read aloud in: the one chosen for it, and the one it says it's in.
 #[tauri::command]
 #[specta::specta]

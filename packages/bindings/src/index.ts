@@ -1121,6 +1121,13 @@ export const commands = {
 } | null>("tts_now"),
 	/**  The voices this device can download to read aloud with. */
 	ttsVoices: () => __TAURI_INVOKE<TtsVoices>("tts_voices"),
+	/**
+	 *  Reads books in the voice's language with `key`'s voice (`<model>/<voice>`; none: the device's
+	 *  own voices) from now on. One that isn't downloaded is downloaded first (progress arrives as
+	 *  `AiModelEvent`s) and chosen once it's here, unless another voice was chosen meanwhile. How it
+	 *  ended: `installed` (chosen), `downloading` (already on its way), or `cancelled`.
+	 */
+	ttsUseVoice: (key: string | null) => typedError<AiModelState, string>(__TAURI_INVOKE("tts_use_voice", { key })),
 	/**  The language a book is read aloud in: the one chosen for it, and the one it says it's in. */
 	ttsLanguage: (titleId: string) => __TAURI_INVOKE<TtsLanguage>("tts_language", { titleId }),
 	/**  Reads a book aloud in `language` (none: its own); a reading of it goes on in it at once. */

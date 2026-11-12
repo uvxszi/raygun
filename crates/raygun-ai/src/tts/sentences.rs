@@ -15,10 +15,11 @@ const ABBREVIATIONS: &[&str] = &[
 ];
 
 /// Abbreviations a full stop ends the sentence after unless a number follows (`No. 5`, `Vol.
-/// III`).
+/// III`, a letter's `Dec. 11th`).
 const NUMBERED: &[&str] = &[
     "no", "nr", "vol", "ch", "chap", "bk", "pt", "sect", "sec", "art", "op", "ep", "sc", "fig",
-    "p", "pp", "ca", "approx",
+    "p", "pp", "ca", "approx", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept",
+    "oct", "nov", "dec",
 ];
 
 /// The sentences of `text` as byte ranges, trimmed of the spaces around them; pieces with no
@@ -135,6 +136,67 @@ fn trimmed(text: &str, range: Range<usize>) -> Option<Range<usize>> {
     (start < end && text[start..end].chars().any(char::is_alphanumeric)).then_some(start..end)
 }
 
+/// Shortest piece [`piece_end`] cuts: a voice takes about as long to start a shorter one as to
+/// read it.
+const MIN_PIECE: usize = 24;
+
+/// Where the first piece of `text` a voice makes on its own ends (a byte offset; `text.len()`
+/// when it all fits in `limit` characters): after the last comma, semicolon, colon or dash that
+/// leaves a piece within the limit, else after the first one when that's not far past it, else
+/// (for a text over twice the limit) at a space. Pieces are made one at a time, so a long
+/// sentence starts sooner and takes less memory while it's made; the voice pauses at the marks
+/// anyway.
+pub fn piece_end(text: &str, limit: usize) -> usize {
+    let length = text.chars().count();
+    if length <= limit.max(MIN_PIECE) {
+        return text.len();
+    }
+    // Places after a mark (and the quotes closing on it) with at least MIN_PIECE characters
+    // before and some after: (byte offset, characters before).
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut marks = Vec::new();
+    for (index, (_, c)) in chars.iter().enumerate() {
+        if !is_pause_mark(*c) {
+            continue;
+        }
+        let mut after = index + 1;
+        while chars.get(after).is_some_and(|(_, c)| is_closer(*c)) {
+            after += 1;
+        }
+        let wide = matches!(c, '，' | '、' | '；' | '：');
+        let spaced = chars.get(after).is_some_and(|(_, c)| c.is_whitespace());
+        if !(wide || spaced || matches!(c, '—' | '–')) {
+            continue;
+        }
+        if after >= MIN_PIECE && length - after >= MIN_PIECE / 2 {
+            marks.push((chars.get(after).map_or(text.len(), |(at, _)| *at), after));
+        }
+    }
+    let within = marks.iter().rev().find(|(_, count)| *count <= limit);
+    let near = marks.first().filter(|(_, count)| *count <= limit * 2);
+    if let Some((at, _)) = within.or(near) {
+        return *at;
+    }
+    // No mark to cut at: whole when not much longer, else at the last space before the limit.
+    if length <= limit * 2 {
+        return text.len();
+    }
+    chars
+        .iter()
+        .enumerate()
+        .take(limit + 1)
+        .skip(MIN_PIECE)
+        .filter(|(_, (_, c))| c.is_whitespace())
+        .map(|(_, (at, _))| *at)
+        .next_back()
+        .unwrap_or(text.len())
+}
+
+/// Marks a voice pauses at within a sentence.
+fn is_pause_mark(c: char) -> bool {
+    matches!(c, ',' | ';' | ':' | '—' | '–' | '，' | '、' | '；' | '：')
+}
+
 /// A sentence longer than [`MAX_SENTENCE`] in pieces: cut after the last comma, semicolon,
 /// colon or dash that leaves a piece of at least a third of the limit, else at the last space,
 /// else at the limit.
@@ -231,6 +293,15 @@ mod tests {
             ]
         );
         assert_eq!(split("Read Vol. I."), vec!["Read Vol. I."]);
+        // A letter's date line; a month ending a sentence still ends it.
+        assert_eq!(
+            split("St. Petersburgh, Dec. 11th, 17—. You will rejoice."),
+            vec!["St. Petersburgh, Dec. 11th, 17—.", "You will rejoice."]
+        );
+        assert_eq!(
+            split("It snowed in Dec. Then it rained."),
+            vec!["It snowed in Dec.", "Then it rained."]
+        );
         assert_eq!(
             split("\"Help!\" he cried. Nobody came."),
             vec!["\"Help!\" he cried.", "Nobody came."]
@@ -253,6 +324,73 @@ mod tests {
     fn leaves_out_pieces_without_words() {
         assert_eq!(split("* * *"), Vec::<&str>::new());
         assert_eq!(split("End. — . Start."), vec!["End.", "Start."]);
+    }
+
+    /// `text` in the pieces [`piece_end`] cuts it into with `limit`.
+    fn pieces(text: &str, limit: usize) -> Vec<&str> {
+        let mut out = Vec::new();
+        let mut rest = text;
+        while !rest.is_empty() {
+            let end = piece_end(rest, limit);
+            out.push(&rest[..end]);
+            rest = rest[end..].trim_start();
+        }
+        out
+    }
+
+    #[test]
+    fn cuts_pieces_where_voices_pause() {
+        let long = "There, Margaret, the sun is for ever visible, its broad disk just skirting the \
+                    horizon and diffusing a perpetual splendour; there snow and frost are banished, \
+                    and, sailing over a calm sea, we may be wafted to a land surpassing in wonders.";
+        assert_eq!(
+            pieces(long, 80),
+            vec![
+                "There, Margaret, the sun is for ever visible,",
+                "its broad disk just skirting the horizon and diffusing a perpetual splendour;",
+                "there snow and frost are banished, and, sailing over a calm sea,",
+                "we may be wafted to a land surpassing in wonders."
+            ]
+        );
+        // Short enough: whole.
+        assert_eq!(
+            pieces("It was late, and cold.", 80),
+            vec!["It was late, and cold."]
+        );
+        // A long first clause is cut after it when it isn't far past the limit, else at a space.
+        let clause = "I am already far north of London and as I walk in the streets of Petersburgh, \
+                      I feel a cold northern breeze.";
+        assert_eq!(
+            pieces(clause, 60),
+            vec![
+                "I am already far north of London and as I walk in the streets of Petersburgh,",
+                "I feel a cold northern breeze."
+            ]
+        );
+        // Far longer than the limit with no mark: at spaces, every word kept.
+        let unmarked = "word ".repeat(40);
+        let cut = pieces(unmarked.trim_end(), 60);
+        assert!(cut.len() > 2);
+        assert!(
+            cut.iter().all(|piece| piece.chars().count() <= 120),
+            "{cut:?}"
+        );
+        assert_eq!(cut[0].chars().count(), 59);
+        assert_eq!(cut.join(" ").split_whitespace().count(), 40);
+        // A little over it with no mark to cut at, or only a tiny head or tail: whole.
+        let yes = "Yes, I would like to go there with you tomorrow if the weather holds.";
+        assert_eq!(pieces(yes, 40), vec![yes]);
+        let said = "We may be wafted to a land surpassing in wonders and in beauty, he said.";
+        assert_eq!(pieces(said, 60), vec![said]);
+        // Chinese commas need no space after them.
+        let chinese = format!("{}，{}。", "甲".repeat(30), "乙".repeat(30));
+        assert_eq!(
+            pieces(&chinese, 40),
+            vec![
+                format!("{}，", "甲".repeat(30)),
+                format!("{}。", "乙".repeat(30))
+            ]
+        );
     }
 
     #[test]

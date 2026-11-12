@@ -1,5 +1,5 @@
 import { commands } from '@raygun/bindings';
-import type { ReadAloudPrefs, TtsVoice } from '@raygun/bindings';
+import type { AiModel, ReadAloudPrefs, TtsVoice } from '@raygun/bindings';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AudioLines } from 'lucide-react';
 import type { FC } from 'react';
@@ -7,15 +7,13 @@ import { useTranslation } from 'react-i18next';
 
 import { useAiModels } from '../../ai/useAi';
 import { unwrapResult } from '../../lib/commandResult';
+import { CancelButton, DownloadBar } from '../../settings/ai/ModelRows';
+import { downloadPercent } from '../../settings/ai/modelUse';
 import { PrefChoice, PrefLink, PrefSlider, PrefSwitch } from '../../settings/prefs';
+import { Problem } from '../../settings/Problem';
 import { useSettings, useUpdateSetting } from '../../settings/useSettings';
 import { DEFAULT_PREFS } from '../useNovel';
-
-/** A language tag's primary language (`pt-BR` → `pt`; Norwegian's tags as `nb`), as Rust keys it. */
-const primaryLanguage = (tag: string) => {
-  const primary = (tag.split(/[-_]/)[0] ?? '').toLowerCase();
-  return primary === 'no' || primary === 'nn' ? 'nb' : primary;
-};
+import { primaryLanguage, useChooseVoice, voiceState, voiceStateText } from './voiceChoice';
 
 /** A language's name in the app's language (`de` → German). */
 const languageName = (tag: string, locale: string) => {
@@ -30,6 +28,36 @@ const languageName = (tag: string, locale: string) => {
 const DEVICE = 'device';
 /** The book's own language, in the language choice. */
 const AUTO = 'auto';
+
+/** A voice (or the voice engine) on its way: its progress, and Cancel. */
+const VoiceDownload: FC<{
+  model: AiModel;
+  /** It brings the voice just chosen, which reads once it's here. */
+  chosen: boolean;
+}> = ({ model, chosen }) => {
+  const { t } = useTranslation();
+  const percent = downloadPercent(model) ?? 0;
+  return (
+    <li aria-label={t('novel.readAloudOptions.downloadingVoice', { name: model.name })}>
+      <div className="flex items-center gap-2 px-1 py-2">
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="font-medium">
+            {t('novel.readAloudOptions.downloadingVoice', { name: model.name })}
+          </span>
+          <span className="text-muted text-sm">
+            {chosen
+              ? t('novel.readAloudOptions.readsOnceHere', { percent })
+              : t('ai.onDevice.progress', { percent })}
+          </span>
+        </span>
+        <CancelButton model={model} />
+      </div>
+      <div className="px-1 pb-2">
+        <DownloadBar model={model} />
+      </div>
+    </li>
+  );
+};
 
 /** The language a book is read aloud in: the one chosen for it, and the one it says it's in. */
 const useBookLanguage = (titleId: string) =>
@@ -79,12 +107,25 @@ export const ReadAloudOptions: FC<{
   const language = chosen ?? auto;
   const primary = language ? primaryLanguage(language) : null;
 
-  // Voices: the device's, and the downloaded ones that speak the language.
-  const installed = (voice: TtsVoice) =>
-    models.find((model) => model.id === voice.modelId)?.installed ?? false;
-  const downloaded = (catalogue?.voices ?? []).filter(
-    (voice) => installed(voice) && (!primary || primaryLanguage(voice.language) === primary),
+  // Voices: the device's, the downloaded ones that speak the language, then the ones that could
+  // be downloaded for it (for the app's language while the book's isn't known).
+  const runtimeId = catalogue?.runtimeId;
+  const choose = useChooseVoice(runtimeId);
+  const state = (voice: TtsVoice) => voiceState(voice, models, runtimeId);
+  const speaks = (voice: TtsVoice, tag: string | null) =>
+    !tag || primaryLanguage(voice.language) === tag;
+  const voices = catalogue?.voices ?? [];
+  const downloaded = voices.filter(
+    (voice) => state(voice).kind === 'installed' && speaks(voice, primary),
   );
+  // Only where downloaded voices run (the voice engine is made for this device).
+  const offered = runtimeId
+    ? voices.filter(
+        (voice) =>
+          state(voice).kind !== 'installed' &&
+          speaks(voice, primary ?? primaryLanguage(i18n.language)),
+      )
+    : [];
   const engine = prefs?.engine ?? 'system';
   const ofEngine = downloaded.filter((voice) => voice.engine === engine);
   const chosenVoice = primary ? prefs?.voices?.[primary] : undefined;
@@ -92,26 +133,35 @@ export const ReadAloudOptions: FC<{
     engine === 'system'
       ? undefined
       : (ofEngine.find((voice) => voice.key === chosenVoice) ?? ofEngine[0]);
+  const hint = (voice: TtsVoice) =>
+    [
+      t(`ai.readAloud.engines.${voice.engine}`),
+      name(voice.language),
+      voiceStateText(state(voice), t),
+    ]
+      .filter(Boolean)
+      .join(' · ');
   const voiceOptions = [
     { value: DEVICE, label: t('novel.readAloudOptions.deviceVoice') },
-    ...downloaded.map((voice) => ({
+    ...[...downloaded, ...offered].map((voice) => ({
       value: voice.key,
       label: voice.name,
-      hint: [t(`ai.readAloud.engines.${voice.engine}`), name(voice.language)].join(' · '),
+      hint: hint(voice),
     })),
   ];
   const chooseVoice = (key: string) => {
     if (key === DEVICE) {
-      save({ engine: 'system' });
+      choose.mutate(null);
       return;
     }
-    const voice = downloaded.find((candidate) => candidate.key === key);
-    if (!voice) return;
-    save({
-      engine: voice.engine,
-      voices: { ...prefs?.voices, [primaryLanguage(voice.language)]: voice.key },
-    });
+    const voice = voices.find((candidate) => candidate.key === key);
+    if (voice) choose.mutate(voice);
   };
+  // Voices (and the engine) on their way: each reads once it's here.
+  const arriving = models.filter(
+    (model) => (model.kind === 'tts' || model.id === runtimeId) && downloadPercent(model) !== null,
+  );
+  const failed = choose.error && choose.variables;
 
   // Languages: those voices speak, and the book's.
   const tags = new Set(
@@ -153,6 +203,26 @@ export const ReadAloudOptions: FC<{
         }
         onChange={chooseVoice}
       />
+      {arriving.map((model) => (
+        <VoiceDownload
+          key={model.id}
+          model={model}
+          chosen={
+            choose.isPending &&
+            Boolean(choose.variables) &&
+            (choose.variables?.modelId === model.id || model.id === runtimeId)
+          }
+        />
+      ))}
+      {failed && (
+        <li className="px-1 pb-2">
+          <Problem
+            title={t('ai.downloadFailed', { name: failed.name })}
+            detail={choose.error.message}
+            onRetry={() => choose.mutate(failed)}
+          />
+        </li>
+      )}
       <PrefSlider
         title={t('novel.speed')}
         value={reader.ttsRate ?? 10}

@@ -78,13 +78,31 @@ const voice = (id: string, name: string, language: string): TtsVoice => ({
   gender: 'female',
 });
 
-/** Settings that keep what's saved, as Rust does. */
-const withSettings = (settings: Settings) => {
+/**
+ * Settings that keep what's saved, as Rust does; choosing one of `voices` reads its language with
+ * it, as Rust does once it's downloaded.
+ */
+const withSettings = (settings: Settings, voices: TtsVoice[] = []) => {
   let current = settings;
   commands.settingsGet.mockImplementation(async () => ok(current));
   commands.settingsUpdate.mockImplementation(async (change: SettingChange) => {
     current = { ...current, [change.key]: change.value };
     return ok(current);
+  });
+  commands.ttsUseVoice.mockImplementation(async (key: string | null) => {
+    const chosen = voices.find((candidate) => candidate.key === key);
+    const prefs = current.readAloud;
+    current = {
+      ...current,
+      readAloud: chosen
+        ? {
+            ...prefs,
+            engine: chosen.engine,
+            voices: { ...prefs.voices, [chosen.language.slice(0, 2)]: chosen.key },
+          }
+        : { ...prefs, engine: 'system' },
+    };
+    return ok('installed' as const);
   });
   return () => current;
 };
@@ -261,18 +279,19 @@ describe('Reading aloud in the book reader', () => {
   });
 
   it('sets the voice, speed, pitch, volume, language and numerals in the reader', async () => {
-    const saved = withSettings({
-      ...DEFAULT_SETTINGS,
-      readAloud: { engine: 'kokoro', voices: {}, pitch: 10, volume: 100 },
-    });
-    commands.ttsVoices.mockResolvedValue({
-      runtimeId: 'sherpa-onnx',
-      voices: [
-        voice('af_heart', 'Heart', 'en-US'),
-        voice('bf_emma', 'Emma', 'en-GB'),
-        voice('ef_dora', 'Dora', 'es'),
-      ],
-    });
+    const voices = [
+      voice('af_heart', 'Heart', 'en-US'),
+      voice('bf_emma', 'Emma', 'en-GB'),
+      voice('ef_dora', 'Dora', 'es'),
+    ];
+    const saved = withSettings(
+      {
+        ...DEFAULT_SETTINGS,
+        readAloud: { engine: 'kokoro', voices: {}, pitch: 10, volume: 100 },
+      },
+      voices,
+    );
+    commands.ttsVoices.mockResolvedValue({ runtimeId: 'sherpa-onnx', voices });
     commands.aiModels.mockResolvedValue([MODEL]);
     commands.ttsLanguage.mockResolvedValue({ chosen: null, book: 'en' });
     const reader = await openReader();
@@ -286,19 +305,21 @@ describe('Reading aloud in the book reader', () => {
     const voiceRow = await within(options).findByRole('button', { name: /^Voice/ });
     await waitFor(() => expect(voiceRow).toHaveTextContent('Heart'));
     await user().click(voiceRow);
-    const voices = await screen.findByRole('radiogroup', { name: 'Voice' });
+    const choices = await screen.findByRole('radiogroup', { name: 'Voice' });
     expect(
-      within(voices)
+      within(choices)
         .getAllByRole('radio')
         .map((radio) => radio.textContent),
     ).toEqual(["Device's voice", 'HeartKokoro · American English', 'EmmaKokoro · British English']);
-    await user().click(within(voices).getByRole('radio', { name: /^Emma/ }));
+    await user().click(within(choices).getByRole('radio', { name: /^Emma/ }));
+    expect(commands.ttsUseVoice).toHaveBeenCalledWith('kokoro-multi/bf_emma');
     await waitFor(() =>
       expect(saved().readAloud).toMatchObject({
         engine: 'kokoro',
         voices: { en: 'kokoro-multi/bf_emma' },
       }),
     );
+    await waitFor(() => expect(voiceRow).toHaveTextContent('Emma'));
 
     // Volume and pitch save when let go; Rust applies them to the reading.
     const volume = within(options).getByRole('slider', { name: 'Volume' });
@@ -331,6 +352,110 @@ describe('Reading aloud in the book reader', () => {
     expect(everywhere).toBeDisabled();
     await user().click(within(options).getByRole('switch', { name: 'Detect language changes' }));
     await waitFor(() => expect(saved().readAloud.detectLanguages).toBe(true));
+  });
+
+  it('offers voices before they are downloaded and reads with one once it is here', async () => {
+    const piper: TtsVoice = {
+      key: 'piper-gb/alba',
+      modelId: 'piper-gb',
+      engine: 'piper',
+      name: 'Alba',
+      language: 'en-GB',
+      gender: 'female',
+    };
+    const voices = [voice('af_heart', 'Heart', 'en-US'), piper, voice('ef_dora', 'Dora', 'es')];
+    const saved = withSettings(DEFAULT_SETTINGS, voices);
+    commands.ttsVoices.mockResolvedValue({ runtimeId: 'sherpa-runtime', voices });
+    const runtime: AiModel = {
+      ...MODEL,
+      id: 'sherpa-runtime',
+      name: 'Voice engine',
+      kind: 'runtime',
+      sizeBytes: 52_428_800,
+      installed: false,
+    };
+    const alba: AiModel = {
+      ...MODEL,
+      id: 'piper-gb',
+      name: 'Piper: Alba',
+      engine: 'piper',
+      sizeBytes: 67_108_864,
+      installed: false,
+    };
+    let models = [{ ...MODEL, installed: false }, alba, runtime];
+    commands.aiModels.mockImplementation(async () => models);
+    commands.ttsLanguage.mockResolvedValue({ chosen: null, book: 'en' });
+    // Rust downloads the voice, then chooses it.
+    let downloaded = () => {};
+    const chooses = commands.ttsUseVoice.getMockImplementation();
+    commands.ttsUseVoice.mockImplementation(
+      (key: string | null) =>
+        new Promise((resolve) => {
+          downloaded = () => resolve(chooses?.(key));
+        }),
+    );
+    const reader = await openReader();
+    await user().click(within(reader).getByRole('button', { name: 'Text settings' }));
+    const panel = within(reader).getByRole('dialog', { name: 'Text settings' });
+    await user().click(within(panel).getByRole('tab', { name: 'Read aloud' }));
+    const options = within(panel).getByRole('list', { name: 'Reading aloud' });
+
+    // The book's language's voices, each with what it takes (the voice engine comes with it).
+    const voiceRow = await within(options).findByRole('button', { name: /^Voice/ });
+    await user().click(voiceRow);
+    const choices = await screen.findByRole('radiogroup', { name: 'Voice' });
+    await waitFor(() =>
+      expect(
+        within(choices)
+          .getAllByRole('radio')
+          .map((radio) => radio.textContent),
+      ).toEqual([
+        "Device's voice",
+        'HeartKokoro · American English · Not downloaded · 336 MB',
+        'AlbaPiper · British English · Not downloaded · 114 MB',
+      ]),
+    );
+    await user().click(within(choices).getByRole('radio', { name: /^Alba/ }));
+    expect(commands.ttsUseVoice).toHaveBeenCalledWith('piper-gb/alba');
+
+    // On its way: its progress in the options, with Cancel.
+    emitEvent('aiModelEvent', {
+      id: 'piper-gb',
+      state: 'downloading',
+      receivedBytes: 33_554_432,
+      totalBytes: 67_108_864,
+      error: null,
+    });
+    const arriving = await within(options).findByRole('listitem', {
+      name: 'Downloading Piper: Alba',
+    });
+    expect(arriving).toHaveTextContent("50% · reads once it's here");
+    expect(
+      within(arriving).getByRole('button', { name: 'Cancel downloading Piper: Alba' }),
+    ).toBeInTheDocument();
+
+    // Here: Rust chooses it, and the reader shows it reading.
+    models = [
+      { ...MODEL, installed: false },
+      { ...alba, installed: true },
+      { ...runtime, installed: true },
+    ];
+    await act(async () => {
+      downloaded();
+      emitEvent('aiModelEvent', {
+        id: 'piper-gb',
+        state: 'installed',
+        receivedBytes: 67_108_864,
+        totalBytes: 67_108_864,
+        error: null,
+      });
+      emitEvent('settingsChangedEvent', 'readAloud');
+    });
+    await waitFor(() => expect(saved().readAloud.engine).toBe('piper'));
+    await waitFor(() => expect(voiceRow).toHaveTextContent('Alba'));
+    expect(
+      within(options).queryByRole('listitem', { name: 'Downloading Piper: Alba' }),
+    ).not.toBeInTheDocument();
   });
 
   it('opens the same options from the reading-aloud bar, beside the AI button', async () => {

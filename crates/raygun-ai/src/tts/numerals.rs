@@ -321,7 +321,12 @@ impl<'a> Context<'a> {
         let single = word.chars().count() == 1;
         let capitalized = previous.text.chars().next().is_some_and(char::is_uppercase);
         // "the Letter X", "the Book I Read": a letter, or the pronoun.
-        if single && (keyword.no_letters || self.determiner_before(self.index - 1)) {
+        if single && self.determiner_before(self.index - 1) {
+            return None;
+        }
+        // "Letter I" is the first of a book's letters only as a title: a heading, or a line it
+        // starts ("LETTER I.", "Letter V: To Mrs. Saville"); elsewhere "letter X" is the letter.
+        if single && keyword.no_letters && !self.titles_with(capitalized) {
             return None;
         }
         let lower_numeral = word.chars().all(char::is_lowercase);
@@ -348,6 +353,16 @@ impl<'a> Context<'a> {
             ordinal: rules.ordinals,
             expansion: keyword.expansion,
         })
+    }
+
+    /// Whether the numbering word before the numeral and the numeral title the text: a heading's
+    /// ("Frankenstein — Letter I"), or heading a line of their own ("LETTER I.", "Letter V: To
+    /// Mrs. Saville"), capitalized, with only a mark or the end after the numeral.
+    fn titles_with(&self, capitalized: bool) -> bool {
+        let ends = matches!(self.next(), Next::End | Next::Mark { .. });
+        let keyword_first =
+            self.index == 1 && no_letters_or_quotes(&self.text[..self.words[0].start]);
+        capitalized && ends && (self.heading || keyword_first)
     }
 
     /// A numeral heading a title: "IV. The Storm", "I: Origins", "II — Home"; in other text only
@@ -1310,6 +1325,61 @@ mod tests {
         for (text, read_as) in cases {
             assert_eq!(read(text, false, TITLES), read_as, "{text}");
         }
+    }
+
+    /// Frankenstein's headings as Project Gutenberg's editions set them: the 1818 text (book 84)
+    /// numbers in digits, the 1831 ones (books 41445, 42324) in capitals with Roman numerals, and
+    /// Standard Ebooks' as "Letter I"; as headings, and as the line a letter starts with.
+    #[test]
+    fn reads_frankensteins_headings() {
+        let headings = [
+            ("Letter 1", "Letter 1"),
+            ("Letter 4", "Letter 4"),
+            ("Chapter 1", "Chapter 1"),
+            ("Chapter 24", "Chapter 24"),
+            ("Letter I", "Letter one"),
+            ("Letter IV", "Letter four"),
+            ("LETTER I.", "LETTER one."),
+            ("LETTER II.", "LETTER two."),
+            ("LETTER IV.", "LETTER four."),
+            ("Letter V: To Mrs. Saville", "Letter five: To Mrs. Saville"),
+            ("Frankenstein — Letter I", "Frankenstein — Letter one"),
+            ("Chapter I", "Chapter one"),
+            ("CHAPTER I.", "CHAPTER one."),
+            ("CHAPTER XXIV.", "CHAPTER twenty-four."),
+            ("Chapter XXIV", "Chapter twenty-four"),
+        ];
+        for (text, read_as) in headings {
+            assert_eq!(read(text, true, TITLES), read_as, "heading {text}");
+        }
+        // A title set as a paragraph, alone or starting the letter's first line.
+        for (text, read_as) in [
+            ("LETTER I.", "LETTER one."),
+            ("Letter I", "Letter one"),
+            (
+                "LETTER I. To Mrs. Saville, England.",
+                "LETTER one. To Mrs. Saville, England.",
+            ),
+            ("CHAPTER XXIV.", "CHAPTER twenty-four."),
+        ] {
+            assert_eq!(read(text, false, TITLES), read_as, "paragraph {text}");
+        }
+        let ordinals = Rules {
+            ordinals: true,
+            ..TITLES
+        };
+        assert_eq!(read("LETTER I.", true, ordinals), "LETTER the first.");
+        // Letters of the alphabet stay letters.
+        for text in [
+            "He wrote the letter I sent.",
+            "the Letter X",
+            "a capital Letter I.",
+            "Letter X marks the spot.",
+            "“Letter I.”",
+        ] {
+            assert_eq!(read(text, false, EVERYWHERE), text, "{text}");
+        }
+        assert_eq!(read("The Letter X", true, TITLES), "The Letter X");
     }
 
     #[test]

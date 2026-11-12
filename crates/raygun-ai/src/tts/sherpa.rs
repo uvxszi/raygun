@@ -480,7 +480,8 @@ mod tests {
 
     /// Reads a sentence with a real runtime and voices: `SHERPA_RUNTIME` (a runtime folder:
     /// the libraries and `espeak-ng-data`), `PIPER_MODEL` (a folder with `model.onnx` and
-    /// `tokens.txt`) and/or `KOKORO_MODEL` (Kokoro's files); `TTS_OUT` keeps WAV files to hear.
+    /// `tokens.txt`) and/or `KOKORO_MODEL` (Kokoro's files; `KOKORO_FILE` names its model,
+    /// `model.onnx` unless set); `TTS_OUT` keeps WAV files to hear.
     /// `cargo test -p raygun-ai --release -- --ignored speaks_live --nocapture`
     #[test]
     #[ignore = "needs a downloaded voice engine and voices"]
@@ -509,7 +510,7 @@ mod tests {
         }
         if let Ok(dir) = std::env::var("KOKORO_MODEL") {
             let setup = TtsSetup {
-                model: "model.int8.onnx".into(),
+                model: std::env::var("KOKORO_FILE").unwrap_or_else(|_| "model.onnx".into()),
                 tokens: "tokens.txt".into(),
                 voices_file: Some("voices.bin".into()),
                 lexicon: vec!["lexicon-us-en.txt".into(), "lexicon-zh.txt".into()],
@@ -560,6 +561,98 @@ mod tests {
                     let path = Path::new(&out).join(format!("{engine:?}-{speaker}.wav"));
                     let _ = std::fs::write(path, wav(&speech));
                 }
+            }
+        }
+    }
+
+    /// How fast voices read on this machine, by thread count: each sentence's real-time factor
+    /// (time to make it ÷ its length), a long sentence whole and its first piece alone as the app
+    /// cuts it when nothing waits to be heard (the wait before reading starts), and how long
+    /// opening takes. `SHERPA_RUNTIME` and `PIPER_MODEL` / `KOKORO_MODEL` as for [`speaks_live`];
+    /// `TTS_THREADS` lists the counts (the app's choice for this device unless set).
+    /// `cargo test -p raygun-ai --release -- --ignored speed_live --nocapture`
+    #[test]
+    #[ignore = "needs a downloaded voice engine and voices"]
+    fn speed_live() {
+        const SENTENCES: [&str; 4] = [
+            "Letter one.",
+            "I am already far north of London, and as I walk in the streets of Petersburgh, I \
+             feel a cold northern breeze play upon my cheeks.",
+            "Do you understand this feeling?",
+            "There, Margaret, the sun is for ever visible, its broad disk just skirting the \
+             horizon and diffusing a perpetual splendour; there snow and frost are banished, \
+             and, sailing over a calm sea, we may be wafted to a land surpassing in wonders and \
+             in beauty every region hitherto discovered on the habitable globe.",
+        ];
+        let runtime_dir = std::env::var("SHERPA_RUNTIME").expect("SHERPA_RUNTIME");
+        let runtime = Runtime::load(Path::new(&runtime_dir)).expect("runtime");
+        let threads: Vec<u32> = std::env::var("TTS_THREADS")
+            .unwrap_or_else(|_| super::super::threads().to_string())
+            .split(',')
+            .filter_map(|count| count.trim().parse().ok())
+            .collect();
+        let mut voices = Vec::new();
+        if let Ok(dir) = std::env::var("PIPER_MODEL") {
+            let setup = TtsSetup {
+                model: "model.onnx".into(),
+                tokens: "tokens.txt".into(),
+                ..TtsSetup::default()
+            };
+            voices.push((Engine::Piper, dir, setup, 0));
+        }
+        if let Ok(dir) = std::env::var("KOKORO_MODEL") {
+            let model = std::env::var("KOKORO_FILE").unwrap_or_else(|_| "model.onnx".into());
+            let lexicon = if Path::new(&dir).join("lexicon-us-en.txt").is_file() {
+                vec!["lexicon-us-en.txt".into(), "lexicon-zh.txt".into()]
+            } else {
+                Vec::new()
+            };
+            let setup = TtsSetup {
+                model,
+                tokens: "tokens.txt".into(),
+                voices_file: Some("voices.bin".into()),
+                lexicon,
+                ..TtsSetup::default()
+            };
+            voices.push((Engine::Kokoro, dir, setup, 3));
+        }
+        assert!(!voices.is_empty(), "set PIPER_MODEL and/or KOKORO_MODEL");
+        let long = SENTENCES[3];
+        // As `raygun-app`'s `tts/voices.rs` cuts it with nothing waiting (its `SHORT_PIECE`).
+        let first_clause = &long[..super::super::sentences::piece_end(long, 60)];
+        for (engine, dir, setup, speaker) in voices {
+            for &count in &threads {
+                let started = std::time::Instant::now();
+                let voice =
+                    Synthesizer::open(runtime.clone(), engine, Path::new(&dir), &setup, count)
+                        .expect("voice");
+                let opened = started.elapsed().as_secs_f64();
+                let first_call = std::time::Instant::now();
+                let _ = voice.generate("Hello.", speaker, 1.0, None);
+                let warm_up = first_call.elapsed().as_secs_f64();
+                let timed = |text: &str| {
+                    let started = std::time::Instant::now();
+                    let speech = voice.generate(text, speaker, 1.0, None).expect("speech");
+                    let seconds = speech.samples.len() as f64 / f64::from(speech.sample_rate);
+                    (started.elapsed().as_secs_f64(), seconds)
+                };
+                let (mut made, mut heard) = (0.0, 0.0);
+                let mut each = Vec::new();
+                for text in SENTENCES {
+                    let (took, seconds) = timed(text);
+                    made += took;
+                    heard += seconds;
+                    each.push(format!("{:.2}", took / seconds));
+                }
+                let (long_took, long_seconds) = timed(long);
+                let (clause_took, clause_seconds) = timed(first_clause);
+                println!(
+                    "{engine:?} {count} threads: opened {opened:.2} s, first call {warm_up:.2} s, \
+                     RTF {:.3} (each {}); the long sentence ({long_seconds:.1} s) takes \
+                     {long_took:.2} s, its first piece ({clause_seconds:.1} s) {clause_took:.2} s",
+                    made / heard,
+                    each.join(" "),
+                );
             }
         }
     }

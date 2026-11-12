@@ -122,7 +122,10 @@ const VOICES = {
   ],
 };
 
-/** Settings kept as Rust keeps them: changes answer with the whole new set. */
+/**
+ * Settings kept as Rust keeps them: changes answer with the whole new set, and a voice chosen
+ * reads its language (as it does in Rust once it's downloaded).
+ */
 const withSettings = (settings: Settings) => {
   let current = settings;
   commands.settingsGet.mockImplementation(async () => ok(current));
@@ -133,6 +136,21 @@ const withSettings = (settings: Settings) => {
   commands.settingsUpdateMany.mockImplementation(async (changes: SettingChange[]) => {
     for (const change of changes) current = { ...current, [change.key]: change.value };
     return ok(current);
+  });
+  commands.ttsUseVoice.mockImplementation(async (key: string | null) => {
+    const chosen = VOICES.voices.find((candidate) => candidate.key === key);
+    if (chosen) {
+      const prefs = current.readAloud;
+      current = {
+        ...current,
+        readAloud: {
+          ...prefs,
+          engine: chosen.engine,
+          voices: { ...prefs.voices, [chosen.language.slice(0, 2)]: chosen.key },
+        },
+      };
+    }
+    return ok('installed' as const);
   });
   return () => current;
 };
@@ -401,18 +419,26 @@ describe('Settings → AI', () => {
     const kristin = within(english).getByRole('radio', { name: 'Read English with Kristin' });
     expect(kristin).toBeChecked();
     await user.click(within(english).getByRole('radio', { name: 'Read English with Alba' }));
+    expect(commands.ttsUseVoice).toHaveBeenCalledWith('piper-en-gb-alba-medium/alba');
     await waitFor(() =>
       expect(saved().readAloud.voices).toEqual({ en: 'piper-en-gb-alba-medium/alba' }),
     );
     await user.click(within(english).getByRole('button', { name: 'Hear Kristin' }));
     expect(commands.ttsPreview).toHaveBeenCalledWith('piper-en-us-kristin-medium/kristin', 'en-US');
 
-    // Another language: its voices download in place, and can't be picked before.
+    // Another language: its voices say what they take (the voice engine comes with the first)
+    // and are chosen by downloading them, or downloaded on their own.
     await user.click(within(group).getByRole('button', { name: /^Language/ }));
     await user.click(await screen.findByRole('radio', { name: 'German' }));
     const german = await within(group).findByRole('list', { name: 'German voices' });
-    expect(within(german).getByRole('radio', { name: 'Read German with Thorsten' })).toBeDisabled();
-    await user.click(within(german).getByRole('button', { name: `Download ${THORSTEN.name}` }));
+    expect(within(german).getByRole('listitem', { name: 'Thorsten' })).toHaveTextContent(
+      'Not downloaded · 35 MB',
+    );
+    await user.click(within(german).getByRole('radio', { name: 'Read German with Thorsten' }));
+    expect(commands.ttsUseVoice).toHaveBeenCalledWith(`${THORSTEN.id}/thorsten`);
+    await user.click(
+      await within(german).findByRole('button', { name: `Download ${THORSTEN.name}` }),
+    );
     expect(commands.aiModelDownload).toHaveBeenCalledWith(THORSTEN.id);
 
     // Kokoro's voices are one download.

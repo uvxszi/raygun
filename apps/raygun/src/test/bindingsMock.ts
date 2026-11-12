@@ -677,6 +677,7 @@ export const bindingsMock = {
     ttsStep: vi.fn(),
     ttsNow: vi.fn(),
     ttsVoices: vi.fn(),
+    ttsUseVoice: vi.fn(),
     ttsLanguage: vi.fn(),
     ttsSetLanguage: vi.fn(),
     ttsPreview: vi.fn(),

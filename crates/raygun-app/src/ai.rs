@@ -525,6 +525,21 @@ impl AiService {
             .then(|| models::model_dir(&self.models_dir, &model))
     }
 
+    /// The catalogue's models of `kind` whose folder holds files of an earlier catalogue (it names
+    /// other files now): nothing reads them, and they're downloaded again to be used.
+    pub fn outdated_of_kind(&self, kind: &str) -> Vec<String> {
+        models::catalog()
+            .into_iter()
+            .filter(|model| {
+                model.kind == kind
+                    && models::model_dir(&self.models_dir, model).is_dir()
+                    && !models::is_installed(&self.models_dir, model)
+                    && !self.is_downloading(&model.id)
+            })
+            .map(|model| model.id)
+            .collect()
+    }
+
     /// The catalogue's models of `kind` installed on this device, with their folders.
     pub fn installed_of_kind(&self, kind: &str) -> Vec<(ModelInfo, PathBuf)> {
         models::catalog()
