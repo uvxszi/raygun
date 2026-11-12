@@ -65,7 +65,7 @@ const HEALTH_KEY: &str = "stremio.addonHealth";
 /// How long an addon whose manifest couldn't be fetched isn't asked again (pages would wait).
 const MANIFEST_RETRY_MS: i64 = 5 * 60 * 1000;
 /// Longest a stream provider (`video.streams`) may take for a title, as long as an addon.
-const PROVIDER_TIMEOUT: Duration = REQUEST_TIMEOUT;
+const PROVIDER_TIMEOUT: Duration = raygun_ext_host::video::STREAMS_TIMEOUT;
 /// How long the subtitle addons' tracks found for a session's addons are kept for the stream
 /// providers' links that answer after them.
 const EXTRA_SUBTITLES_MS: i64 = 2 * 60 * 1000;

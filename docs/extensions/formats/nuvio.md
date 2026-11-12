@@ -65,7 +65,8 @@ device's memory) and gets twice the CPU time of a Raygun extension.
 
 ## What it's asked
 
-The provider becomes a `video.streams` source. For a movie or an episode of a title from the
+The provider becomes a [`video.streams`](../video-streams.md) source, the kind Raygun's own
+extensions can provide too. For a movie or an episode of a title from the
 Stremio addons (Cinemeta's, say), Raygun calls `getStreams(tmdbId, mediaType, season, episode)`:
 
 - `tmdbId` is the title's TMDB id when its details give it (Cinemeta's `moviedb_id`, a `tmdb:`

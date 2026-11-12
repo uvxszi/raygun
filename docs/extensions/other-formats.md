@@ -11,6 +11,7 @@ Each format is documented by the project that made it.
 | Nuclear plugins        | Song search, streams and lyrics, converted at install | Extension repositories: Nuclear's plugin registry       | [Nuclear](https://github.com/NuclearPlayer/plugin-registry) |
 | Miru extensions        | Video, comics and book sources                        | Extension repositories: a Miru repository's address     | [Miru](https://github.com/miru-project/miru-app)            |
 | Stremio addons         | Films and series: catalogues, streams, subtitles      | Browse → Sources → Addons, by the addon's address       | [Stremio](https://github.com/Stremio/stremio-addon-sdk)     |
+| Nuvio providers        | Streams for films and series, as `video.streams`      | Sources → Add: a Nuvio repository's `manifest.json`     | [Nuvio](https://github.com/tapframe/NuvioStreaming)         |
 
 Raygun reads a Shosetsu, Nuclear or Miru repository as it is: add its address as you would one of
 Raygun's own. A Raygun repository may list packages of these formats too, by their `format`

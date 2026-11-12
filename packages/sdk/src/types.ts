@@ -662,6 +662,56 @@ export type VideoSourceProvider = ProviderBase & {
   }): Promise<{ comments: VideoComment[]; next?: string | null }>;
 };
 
+// ---- Streams for films and series found elsewhere ----
+
+/**
+ * What a `video.streams` provider is asked: a movie or an episode of a title another source
+ * lists (a Stremio addon's catalogue), by the ids it's known by. Ids it isn't known by are null.
+ */
+export type VideoStreamsQuery = {
+  type: 'movie' | 'series';
+  /** TMDB's id (digits), when the title's details give it. */
+  tmdbId: string | null;
+  /** IMDb's (`tt…`). */
+  imdbId: string | null;
+  /** An episode's season and number, as TMDB and IMDb count them; null for a movie. */
+  season: number | null;
+  episode: number | null;
+  /** The title's name and year, for sources that look titles up by them. */
+  title: string | null;
+  year: number | null;
+};
+
+/** One stream of a movie or an episode; `headers` are sent with every request the player makes. */
+export type VideoStream = {
+  /** http(s); a magnet link (or a `.torrent` address) with `format: 'torrent'`. */
+  url: string;
+  /** The picker's first line: the source and the quality ("Archive 1080p"). */
+  name?: string;
+  /** More about it: the file's name, its size, its language. */
+  description?: string;
+  /** The picture's height in pixels (a whole number), or as written ("1080p", "4K"). */
+  quality?: number | string;
+  /** The file's size in bytes, or as written ("1.4 GB"). */
+  size?: number | string;
+  /** Streaming manifests, and torrents; leave it out (or `progressive`) for a plain video file. */
+  format?: 'hls' | 'dash' | 'progressive' | 'torrent';
+  headers?: Record<string, string>;
+  subtitles?: VideoSubtitle[];
+};
+
+/**
+ * Streams for films and series that other sources list: a movie or an episode by its TMDB or
+ * IMDb id, and its streams. Raygun asks every one for the movie or episode playing; each one's
+ * streams are a source of their own in the play session and on the title's page, beside the
+ * Stremio addons'. Nuvio's providers run as these.
+ */
+export type VideoStreamsProvider = ProviderBase & {
+  kind: 'video.streams';
+  /** At most 100 streams; none says the source doesn't have it. */
+  streams(args: VideoStreamsQuery): Promise<{ streams: VideoStream[] }>;
+};
+
 /**
  * Recommendations (M46.20) for Made for You and song radios: artists like an artist, an artist's
  * best-known songs, their latest releases, and radios. Every call is optional; Raygun asks
@@ -903,7 +953,8 @@ export type Provider =
   | MangaSourceProvider
   | NovelSourceProvider
   | PodcastDirectoryProvider
-  | VideoSourceProvider;
+  | VideoSourceProvider
+  | VideoStreamsProvider;
 export type ProviderKind = Provider['kind'];
 
 // ---- Host API ----

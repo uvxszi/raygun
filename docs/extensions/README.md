@@ -32,6 +32,7 @@ a legal site. `raygun-ext init --kind <kind>` creates that example as a new exte
 | [`manga.source`](manga-source.md)               | Comics: lists, search, chapters, pages                          | Pepper&Carrot            |
 | [`novel.source`](novel-source.md)               | Books: lists, search, chapters, their text                      | Project Gutenberg        |
 | [`video.source`](video-source.md)               | Films and series: lists, search, episodes, videos               | Internet Archive         |
+| [`video.streams`](video-streams.md)             | Streams for films and series other sources list                 | Internet Archive         |
 | [`podcast.directory`](podcast-directory.md)     | Podcasts to find and follow                                     | NASA, LibriVox           |
 | [`audiobook.directory`](audiobook-directory.md) | Audiobooks to find, with their chapters                         | LibriVox                 |
 | [`dictionary`](dictionary.md)                   | Words looked up in the book reader                              | Free Dictionary API      |

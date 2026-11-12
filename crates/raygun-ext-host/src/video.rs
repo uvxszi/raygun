@@ -269,6 +269,9 @@ fn video_of(video: &Value) -> Option<VideoLink> {
 /// extension written for it. Their streams play beside the addons' in a play session.
 pub const VIDEO_STREAMS: &str = "video.streams";
 
+/// How long a `video.streams` provider has for a title: as long as a Stremio addon's request.
+pub const STREAMS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// Most streams one `video.streams` provider may give for a title.
 const MAX_PROVIDED_STREAMS: usize = 100;
 /// Longest name and description kept.
