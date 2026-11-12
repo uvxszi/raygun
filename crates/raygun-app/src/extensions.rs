@@ -893,6 +893,18 @@ impl ExtensionService {
             .await
     }
 
+    /// A YouTube live stream's HLS playlist from Raygun's YouTube module, asked through an
+    /// installed YouTube source (`extension_id`): the video player plays live YouTube links with it.
+    pub async fn youtube_live(
+        &self,
+        extension_id: &str,
+        video: &str,
+        limit: std::time::Duration,
+    ) -> Result<raygun_ext_host::youtube::LiveStream, raygun_ext_host::CallError> {
+        let _ready = self.loading.read().await;
+        self.host.youtube_live(extension_id, video, limit).await
+    }
+
     /// The stream sources searches use now: not turned off, nor left out as 18+.
     pub async fn stream_provider_ids(&self) -> std::collections::HashSet<String> {
         let _ready = self.loading.read().await;

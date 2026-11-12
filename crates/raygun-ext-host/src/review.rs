@@ -533,6 +533,12 @@ fn passage(answer: &Value) -> Review {
                 "{formulas} formulas (MathML or TeX), drawn as MathML"
             ));
         }
+        let code = count(|block| matches!(block, PassageBlock::Code(_)));
+        if code > 0 {
+            review
+                .notes
+                .push(format!("{code} code blocks (<pre>), kept line by line"));
+        }
     }
     review
 }

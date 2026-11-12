@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use raygun_model::{FilterOption, FilterValue, SourceFilter};
+use raygun_model::{FilterOption, FilterValue, LiveNow, SourceFilter};
 use serde_json::Value;
 
 use crate::ExtensionHost;
@@ -25,6 +25,8 @@ const MEDIA_TYPES: [&str; 4] = ["movie", "series", "anime", "other"];
 const FORBIDDEN_HEADERS: [&str; 4] = ["host", "content-length", "connection", "transfer-encoding"];
 /// Most authors a listed title keeps: a card has room for a line of them.
 const MAX_LISTED_AUTHORS: usize = 6;
+/// The longest line kept under a listed title.
+const MAX_SUBTITLE: usize = 120;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MangaSummary {
@@ -37,6 +39,10 @@ pub struct MangaSummary {
     pub authors: Vec<String>,
     /// Marked adult by the source; hidden while NSFW content is off (M35).
     pub nsfw: bool,
+    /// On the air now (a video source's live stream), with its viewers and start when said.
+    pub live: Option<LiveNow>,
+    /// A short line under the title, such as a live stream's channel and what it streams.
+    pub subtitle: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -294,6 +300,9 @@ pub(crate) fn parse_listing(value: &Value) -> MangaListing {
                         cover_headers: headers(item.get("coverHeaders")),
                         authors: listed_authors(item.get("authors")),
                         nsfw: item.get("nsfw").and_then(Value::as_bool).unwrap_or(false),
+                        live: live_now(item),
+                        subtitle: text(item.get("subtitle"))
+                            .map(|line| line.chars().take(MAX_SUBTITLE).collect()),
                     })
                 })
                 .collect()
@@ -341,6 +350,25 @@ pub(crate) fn parse_details(value: &Value, requested: &str) -> Option<MangaDetai
             .and_then(Value::as_i64)
             .filter(|year| (1800..=2200).contains(year))
             .map(|year| year as i32),
+    })
+}
+
+/// A listed item marked `live: true`: its `viewers` (a whole number) and `startedAt` (Unix ms)
+/// when the source gives them.
+fn live_now(item: &Value) -> Option<LiveNow> {
+    if item.get("live").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    Some(LiveNow {
+        viewers: item
+            .get("viewers")
+            .and_then(Value::as_f64)
+            .filter(|viewers| viewers.is_finite() && *viewers >= 0.0)
+            .map(|viewers| viewers.min(f64::from(u32::MAX)) as u32),
+        started_at: item
+            .get("startedAt")
+            .and_then(Value::as_f64)
+            .filter(|ms| ms.is_finite() && *ms > 0.0),
     })
 }
 
@@ -630,6 +658,49 @@ mod tests {
         assert!(authors[2].is_empty());
         assert!(authors[3].is_empty(), "neither a list nor text");
         assert_eq!(authors[4], ["A", "B", "C", "D", "E", "F"]);
+    }
+
+    #[test]
+    fn listed_live_streams_keep_their_viewers_start_and_line() {
+        let listing = parse_listing(&json!({
+            "items": [
+                {
+                    "id": "chess", "title": "Blitz with viewers", "live": true,
+                    "viewers": 12_345, "startedAt": 1_762_819_200_000_i64,
+                    "subtitle": " ChessChannel · Chess ",
+                },
+                { "id": "quiet", "title": "Just started", "live": true, "viewers": -3 },
+                { "id": "vod", "title": "Last week's stream", "viewers": 900, "live": "yes" },
+                { "id": "huge", "title": "Big", "live": true, "viewers": 1e12, "startedAt": "now" },
+            ],
+        }));
+        let items = &listing.items;
+        assert_eq!(
+            items[0].live,
+            Some(LiveNow {
+                viewers: Some(12_345),
+                started_at: Some(1_762_819_200_000.0),
+            })
+        );
+        assert_eq!(
+            items[0].subtitle.as_deref(),
+            Some("ChessChannel · Chess"),
+            "trimmed"
+        );
+        assert_eq!(
+            items[1].live,
+            Some(LiveNow::default()),
+            "live without a usable count"
+        );
+        assert_eq!(items[2].live, None, "only `live: true` marks a stream live");
+        assert_eq!(items[2].subtitle, None);
+        assert_eq!(
+            items[3].live,
+            Some(LiveNow {
+                viewers: Some(u32::MAX),
+                started_at: None,
+            })
+        );
     }
 
     #[test]

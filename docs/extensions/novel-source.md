@@ -55,7 +55,8 @@ words ("x squared plus 1"):
   plain attributes are kept; `mfenced` becomes the row it stands for.
 - TeX between `$$…$$` or `\[…\]` (a formula on its own line) and `\(…\)` or `$…$` (in the line).
   A single `$` counts only when it opens before a non-space, closes after one and isn't followed
-  by a digit, so prices stay words. TeX inside `<code>` and `<pre>` stays as written.
+  by a digit, so prices stay words. TeX inside `<code>`, `<pre>` and monospaced text stays as
+  written.
 - MathJax's `<script type="math/tex">` (and `; mode=display`), `math/mml` scripts, and
   `<span class="math">` holding bare TeX.
 - KaTeX's and MathJax's rendered boxes (`.katex`, `mjx-container`, `.MathJax`) and MediaWiki's
@@ -64,6 +65,15 @@ words ("x squared plus 1"):
 `<sup>` and `<sub>` stay raised and lowered (`x²`, `H₂O`). Pictures of formulas stay pictures,
 except those whose `alt` is their TeX (MediaWiki's fallback pictures, `class="latex"`), which are
 drawn from it.
+
+### Code
+
+A `<pre>` is a code block: its lines and spacing as written, in a monospaced font, scrolling
+sideways in its own box. Highlighters' markup is fine (only its text is kept), and their line
+numbers are left out. The language a highlighter names in its classes (`mw-highlight-lang-latex`,
+`language-python`, `highlight-python`, `brush: ruby`, `sourceCode haskell`) shows over the block.
+Reading aloud passes over code. A `<pre>` holding running prose (a plain-text chapter) reads as
+paragraphs instead.
 
 ### PDF chapters
 

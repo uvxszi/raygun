@@ -1,0 +1,16 @@
+{
+  "id": "dev.raygun.peertube",
+  "name": "PeerTube",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Videos from PeerTube, the federated video platform, found through Sepia Search (Framasoft's index of the instances listed on joinpeertube.org) and played from the instance that hosts each one. Only videos their uploaders publish under a Creative Commons licence or dedicate to the public domain; no live streams. It reaches any public host, since videos live on many instances.",
+  "author": "Raygun",
+  "website": "https://sepiasearch.org",
+  "provides": ["video.source"],
+  "permissions": {
+    "net": ["*"]
+  },
+  "contentRating": "suggestive"
+}

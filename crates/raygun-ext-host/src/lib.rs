@@ -49,6 +49,8 @@ mod nuclear_survey;
 #[cfg(test)]
 mod nuclear_tests;
 #[cfg(test)]
+mod open_sources_more_tests;
+#[cfg(test)]
 mod open_sources_tests;
 #[cfg(test)]
 mod repo_tests;
@@ -56,6 +58,8 @@ mod repo_tests;
 mod setup_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod twitch_tests;
 
 pub use content::{ContentFilter, without_adult_sources};
 pub use heap::{Budget, HeapPool, HeapUse, device_memory};

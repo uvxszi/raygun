@@ -295,7 +295,7 @@ impl DictionaryService {
     }
 
     /// The language a book says it's written in: an imported EPUB's own, or its source's.
-    async fn book_language(&self, title_id: &str) -> Option<String> {
+    pub(crate) async fn book_language(&self, title_id: &str) -> Option<String> {
         if let Some(known) = self
             .book_languages
             .lock()

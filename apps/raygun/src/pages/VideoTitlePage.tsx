@@ -11,7 +11,6 @@ import {
   LoaderCircle,
   Play,
   RefreshCw,
-  SearchCheck,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FC, ReactNode } from 'react';
@@ -19,7 +18,7 @@ import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
 import { MangaCover } from '../manga/MangaCover';
-import { OtherSources } from '../manga/OtherSources';
+import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { useKnownCard } from '../manga/knownCard';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
@@ -500,15 +499,7 @@ export const VideoTitlePage: FC = () => {
       {/* The same title (and season) elsewhere, when this source is slow or gone. A video
           site's videos (YouTube, PeerTube) aren't a catalogue's titles. */}
       {view.sourceId !== LOCAL_VIDEO && !siteSource && (
-        <button
-          type="button"
-          aria-expanded={finding}
-          onClick={() => setFinding(!finding)}
-          className="bg-surface hover:bg-primary/15 flex items-center gap-2 self-start rounded-full px-4 py-2 text-sm font-medium"
-        >
-          <SearchCheck aria-hidden size={16} />
-          {t('otherSources.find')}
-        </button>
+        <FindInOtherSourcesButton open={finding} onToggle={() => setFinding(!finding)} />
       )}
       {finding && (
         <OtherSources

@@ -311,6 +311,16 @@ pub async fn apply_live(app: &tauri::AppHandle, settings: &Settings, changed: Op
     if player && before.is_some() {
         crate::video::settings_changed(app).await;
     }
+    // Reading aloud goes on with a new voice, speed, pitch or volume from where it is.
+    let read_aloud = differs("readAloud", &|before| {
+        before.read_aloud == settings.read_aloud
+    }) || differs("novelReader", &|before| {
+        before.novel_reader.tts_rate == settings.novel_reader.tts_rate
+    });
+    if read_aloud && before.is_some() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { crate::tts::settings_changed(&app).await });
+    }
     if differs("network", &|before| before.network == settings.network) {
         crate::network_mode::apply(app, &settings.network);
     }

@@ -3,6 +3,7 @@ import type {
   NovelChapter,
   NovelReaderPrefs,
   NovelTheme,
+  PdfContentsEntry,
   TextBlock,
   TextPart,
 } from '@raygun/bindings';
@@ -14,14 +15,15 @@ import {
   ChevronRight,
   FileImage,
   ListOrdered,
+  ListTree,
   LoaderCircle,
-  Minus,
+  LocateFixed,
   Pause,
   Play,
-  Plus,
   RotateCcw,
   SkipBack,
   SkipForward,
+  SlidersHorizontal,
   Square,
   Type,
   Volume2,
@@ -53,8 +55,15 @@ import { useSystemBars } from '../manga/reader/useSystemBars';
 import { useWakeLock } from '../manga/reader/useWakeLock';
 import { useReaderDisplay } from '../manga/readerDisplay';
 import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
+import { inSideScroller } from '../novel/code';
+import { CodeBlock } from '../novel/CodeBlock';
 import { MathFormula } from '../novel/MathFormula';
+import { outlineBlock } from '../novel/pdfContents';
+import { PdfContentsSheet } from '../novel/PdfContentsSheet';
 import { PdfPagesView } from '../novel/PdfPagesView';
+import { ReadAloudOptions } from '../novel/readAloud/ReadAloudOptions';
+import { textOffsetAt } from '../novel/readAloud/textOffset';
+import { useFollowReading } from '../novel/readAloud/useFollowReading';
 import { ReaderAiButton } from '../readerAi/ReaderAi';
 import { useNovelAi } from '../readerAi/useReaderAi';
 import {
@@ -76,6 +85,7 @@ import {
 import { SizeField } from '../settings/prefs';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { useBackLayer } from '../shell/backLayers';
+import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 
 /** Progress is saved this long after reading stops moving. */
@@ -157,7 +167,11 @@ const SpokenText: FC<{ text: string; sentence?: SpokenRange }> = ({ text, senten
   return (
     <>
       {text.slice(0, sentence.start)}
-      <mark data-testid="spoken-sentence" className="bg-primary/25 rounded-sm text-current">
+      <mark
+        data-testid="spoken-sentence"
+        data-spoken=""
+        className="bg-primary/25 rounded-sm text-current"
+      >
         {text.slice(sentence.start, sentence.end)}
       </mark>
       {text.slice(sentence.end)}
@@ -218,6 +232,10 @@ const Block: FC<{
           <MathFormula mathml={block.mathml} text={block.text} speech={block.speech} display />
         </div>
       );
+    case 'code':
+      return (
+        <CodeBlock text={block.text} language={block.language} index={index} register={register} />
+      );
     default:
       return (
         <p
@@ -241,44 +259,6 @@ const Block: FC<{
   }
 };
 
-/** A row of −/value/+ buttons for one preference. */
-const Stepper: FC<{
-  label: string;
-  value: string;
-  onLess: () => void;
-  onMore: () => void;
-  lessDisabled: boolean;
-  moreDisabled: boolean;
-}> = ({ label, value, onLess, onMore, lessDisabled, moreDisabled }) => {
-  const { t } = useTranslation();
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-sm">{label}</span>
-      <span className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-label={t('novel.less', { label })}
-          disabled={lessDisabled}
-          onClick={onLess}
-          className="bg-background grid size-9 place-items-center rounded-full disabled:opacity-40"
-        >
-          <Minus aria-hidden size={16} />
-        </button>
-        <span className="w-12 text-center text-sm tabular-nums">{value}</span>
-        <button
-          type="button"
-          aria-label={t('novel.more', { label })}
-          disabled={moreDisabled}
-          onClick={onMore}
-          className="bg-background grid size-9 place-items-center rounded-full disabled:opacity-40"
-        >
-          <Plus aria-hidden size={16} />
-        </button>
-      </span>
-    </div>
-  );
-};
-
 const choiceClass = (pressed: boolean) =>
   `flex-1 rounded-lg px-3 py-2 text-sm ${pressed ? 'bg-primary/20 text-primary font-semibold' : 'bg-background'}`;
 
@@ -292,18 +272,62 @@ const Choice: FC<{ pressed: boolean; onClick: () => void; children: ReactNode }>
   </button>
 );
 
-const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPrefs) => void }> = ({
-  prefs,
-  onChange,
-}) => {
+/** The reader's options: the text's, or reading aloud's. */
+type PanelTab = 'text' | 'readAloud';
+
+const PrefsPanel: FC<{
+  prefs: NovelReaderPrefs;
+  onChange: (prefs: NovelReaderPrefs) => void;
+  /** Reading aloud is there: its options get a tab. */
+  speech: boolean;
+  tab: PanelTab;
+  onTab: (tab: PanelTab) => void;
+  titleId: string;
+  /** The language being read aloud now. */
+  readingLanguage: string | null;
+}> = ({ prefs, onChange, speech, tab, onTab, titleId, readingLanguage }) => {
   const { t } = useTranslation();
   const set = (patch: Partial<NovelReaderPrefs>) => onChange({ ...prefs, ...patch });
+  const shown = speech ? tab : 'text';
   return (
     <div
       role="dialog"
       aria-label={t('novel.textSettings')}
-      className="bg-surface fixed top-[calc(var(--app-bar,0px)+4rem+var(--safe-top))] right-[calc(var(--main-right,0px)+max(0.5rem,var(--safe-right)))] left-[calc(var(--main-left,0px)+max(0.5rem,var(--safe-left)))] z-40 mx-auto flex max-w-md flex-col gap-3 rounded-xl p-4 shadow-xl"
+      className="bg-surface fixed top-[calc(var(--app-bar,0px)+4rem+var(--safe-top))] right-[calc(var(--main-right,0px)+max(0.5rem,var(--safe-right)))] left-[calc(var(--main-left,0px)+max(0.5rem,var(--safe-left)))] z-40 mx-auto flex max-h-[calc(100dvh-var(--app-bar,0px)-5rem-var(--safe-top)-var(--safe-bottom))] max-w-md flex-col gap-3 overflow-y-auto overscroll-contain rounded-xl p-4 shadow-xl"
     >
+      {speech && (
+        <div role="tablist" aria-label={t('novel.textSettings')} className="flex gap-2">
+          {(['text', 'readAloud'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={shown === value}
+              onClick={() => onTab(value)}
+              className={choiceClass(shown === value)}
+            >
+              {t(`novel.panelTabs.${value}`)}
+            </button>
+          ))}
+        </div>
+      )}
+      {shown === 'readAloud' ? (
+        <ReadAloudOptions titleId={titleId} readingLanguage={readingLanguage} />
+      ) : (
+        <TextPrefs prefs={prefs} set={set} />
+      )}
+    </div>
+  );
+};
+
+/** The text's options: size, spacing, typeface, width, indent, alignment, colours, layout. */
+const TextPrefs: FC<{
+  prefs: NovelReaderPrefs;
+  set: (patch: Partial<NovelReaderPrefs>) => void;
+}> = ({ prefs, set }) => {
+  const { t } = useTranslation();
+  return (
+    <>
       <SizeField
         title={t('novel.fontSize')}
         unit="px"
@@ -368,14 +392,6 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
           );
         })}
       </div>
-      <Stepper
-        label={t('novel.speed')}
-        value={`${((prefs.ttsRate ?? 10) / 10).toFixed(1)}×`}
-        onLess={() => set({ ttsRate: (prefs.ttsRate ?? 10) - 2 })}
-        onMore={() => set({ ttsRate: (prefs.ttsRate ?? 10) + 2 })}
-        lessDisabled={(prefs.ttsRate ?? 10) <= 6}
-        moreDisabled={(prefs.ttsRate ?? 10) >= 20}
-      />
       <div className="flex gap-2">
         <Choice pressed={!prefs.paged} onClick={() => set({ paged: false })}>
           {t('novel.scroll')}
@@ -385,7 +401,7 @@ const PrefsPanel: FC<{ prefs: NovelReaderPrefs; onChange: (prefs: NovelReaderPre
         </Choice>
       </div>
       <ReaderSettingsLink />
-    </div>
+    </>
   );
 };
 
@@ -404,8 +420,11 @@ const ChapterView: FC<{
   speaking: number | null;
   /** The sentence of that block being read aloud. */
   sentence?: SpokenRange;
-  /** Reads aloud from a block (a long press, or a tap while reading). */
-  onSpeakFrom?: (index: number) => void;
+  /**
+   * Reads aloud from a block (a long press, a tap while reading, Read aloud from here), from the
+   * sentence at `offset` in its text when the place is known.
+   */
+  onSpeakFrom?: (index: number, offset?: number | null) => void;
   /** Blocks' texts as the AI layers translated them, by index. */
   translated: Map<number, string>;
   /**
@@ -413,6 +432,13 @@ const ChapterView: FC<{
    * page view.
    */
   pageStarts?: number[];
+  /**
+   * A block to bring into view (a bookmark picked in the contents), where the chapter opens when
+   * given as it opens; again whenever `nonce` changes.
+   */
+  goTo?: { block: number; nonce: number } | null;
+  /** Called once `goTo` is shown. */
+  onGoToShown?: () => void;
 }> = ({
   data,
   prefs,
@@ -427,6 +453,8 @@ const ChapterView: FC<{
   onSpeakFrom,
   translated,
   pageStarts,
+  goTo,
+  onGoToShown,
 }) => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -550,6 +578,7 @@ const ChapterView: FC<{
         ? pageStarts[Math.min(askedPage, pageStarts.length - 1)]
         : undefined;
   const resumeAt =
+    goTo?.block ??
     searched ??
     (data.chapter.read
       ? 0
@@ -679,30 +708,33 @@ const ChapterView: FC<{
     chapterId,
   ]);
 
-  // Keeps the paragraph being read aloud in view.
-  useEffect(() => {
-    if (speaking === null) return;
-    const element = refs.current[speaking];
-    if (!element) return;
-    if (!prefs.paged) {
-      // Only when it's off screen (or under the bars), so reading along isn't jumpy. Smooth
-      // scrolling is skipped: Android's WebView drops it inside the app's scrolling container.
-      const box = element.getBoundingClientRect();
-      const hidden = box.top < 80 || box.top > window.innerHeight - 200;
-      if (hidden) element.scrollIntoView?.({ block: 'start' });
-      return;
-    }
+  /** The page an element is on (paged mode). */
+  const pageOf = (element: HTMLElement) => {
     const container = pagesRef.current;
     const width = pageWidth();
-    if (!container || width === 0) return;
+    if (!container || width === 0) return null;
     const left = container.getBoundingClientRect().left - container.scrollLeft;
-    const target = Math.floor((element.getBoundingClientRect().left - left) / width);
-    if (target !== page) showPage(target);
-    // Only a new paragraph moves the view.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speaking]);
+    return Math.floor((element.getBoundingClientRect().left - left) / width);
+  };
+
+  // Keeps the sentence being read aloud in view: the column glides to it (Android's WebView drops
+  // smooth `scrollIntoView` in the app's scrolling container), or its page is turned to; the
+  // reader's own scrolling or page turns hold that a while.
+  const scroller = useCallback(() => scrollRef.current?.closest('main') ?? null, []);
+  const following = useFollowReading({
+    paged: prefs.paged,
+    speaking,
+    sentenceStart: sentence?.start,
+    blockElement: (index) => refs.current[index] ?? null,
+    scroller,
+    showPageOf: (element) => {
+      const target = pageOf(element);
+      if (target !== null && target !== page) showPage(target);
+    },
+  });
 
   const forward = () => {
+    following.hold();
     if (page < pageCount - 1) {
       showPage(page + 1);
       return;
@@ -710,7 +742,11 @@ const ChapterView: FC<{
     finish();
     onNext();
   };
-  const back = () => (page <= 0 ? onPrevious() : showPage(page - 1));
+  const back = () => {
+    following.hold();
+    if (page <= 0) onPrevious();
+    else showPage(page - 1);
+  };
 
   // ---- Choosing where reading aloud starts ----
   const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
@@ -732,6 +768,12 @@ const ChapterView: FC<{
     press.current = null;
   };
 
+  /** Where in block `index`'s text a point on screen is, while it shows its own text. */
+  const offsetAt = (index: number, x: number, y: number) => {
+    const element = refs.current[index];
+    return element && !translated.has(index) ? textOffsetAt(element, x, y) : null;
+  };
+
   /** Whether an event happened on the text, not in a lookup drawn over it. */
   const fromText = (event: { currentTarget: EventTarget; target: EventTarget }) =>
     (event.currentTarget as Node).contains(event.target as Node);
@@ -742,13 +784,15 @@ const ChapterView: FC<{
           cancelPress();
           const index = blockOf(event.target);
           if (index === null) return;
+          const { clientX: x, clientY: y } = event;
           press.current = {
-            x: event.clientX,
-            y: event.clientY,
+            x,
+            y,
             timer: setTimeout(() => {
               press.current = null;
               longPressed.current = true;
-              onSpeakFrom(index);
+              // From the sentence held down.
+              onSpeakFrom(index, offsetAt(index, x, y));
             }, LONG_PRESS_MS),
           };
         },
@@ -788,7 +832,7 @@ const ChapterView: FC<{
     forgetSelection();
   }, [forgetSelection]);
 
-  /** Swallows the click ending a long press; while reading, a tapped paragraph is read next. */
+  /** Swallows the click ending a long press, closing a lookup or ending a selection. */
   const handledTap = (event: MouseEvent<HTMLElement>) => {
     // The lookup and its sheets are in the text's tree but drawn elsewhere: not the reader's taps.
     if (!fromText(event)) return true;
@@ -805,23 +849,37 @@ const ChapterView: FC<{
       longPressed.current = false;
       return true;
     }
-    if (speaking !== null && onSpeakFrom) {
-      const index = blockOf(event.target);
-      if (index !== null) {
-        onSpeakFrom(index);
-        return true;
-      }
-    }
     return false;
   };
 
+  /**
+   * While reading aloud, a tap on the text reads from the sentence tapped; one on the sentence
+   * being read shows or hides the bars, as a tap does otherwise. Whether it read from there.
+   */
+  const jumpTo = (event: MouseEvent<HTMLElement>) => {
+    if (speaking === null || !onSpeakFrom) return false;
+    const index = blockOf(event.target);
+    if (index === null) return false;
+    const offset = offsetAt(index, event.clientX, event.clientY);
+    const onSentence =
+      index === speaking &&
+      sentence !== undefined &&
+      offset !== null &&
+      offset >= sentence.start &&
+      offset < sentence.end;
+    if (onSentence) return false;
+    onSpeakFrom(index, offset);
+    return true;
+  };
+
+  // Pages turn from the sides while reading aloud too; the middle reads from the sentence tapped.
   const onPageClick = (event: MouseEvent<HTMLDivElement>) => {
     if (handledTap(event)) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - rect.left) / Math.max(rect.width, 1);
     if (x < 1 / 3) back();
     else if (x > 2 / 3) forward();
-    else onToggleChrome();
+    else if (!jumpTo(event)) onToggleChrome();
   };
 
   // Keys: arrows, Space and Page Up/Down turn pages, or scroll the column a screen at a time.
@@ -847,7 +905,9 @@ const ChapterView: FC<{
   }, []);
 
   const onTouchStart = (event: TouchEvent) => {
-    swipeStart.current = fromText(event) ? (event.touches[0]?.clientX ?? null) : null;
+    // Code and wide formulas scroll sideways under the finger instead.
+    swipeStart.current =
+      fromText(event) && !inSideScroller(event.target) ? (event.touches[0]?.clientX ?? null) : null;
   };
   const onTouchEnd = (event: TouchEvent) => {
     const start = swipeStart.current;
@@ -874,7 +934,7 @@ const ChapterView: FC<{
     <div
       ref={endRef}
       data-testid="novel-end"
-      className="flex break-inside-avoid flex-col items-center gap-3 py-10 text-center"
+      className="book-text flex break-inside-avoid flex-col items-center gap-3 py-10 text-center"
     >
       <p className="text-muted text-sm">{t('manga.endOf', { name: data.chapter.name })}</p>
       <button
@@ -903,6 +963,20 @@ const ChapterView: FC<{
     const left = container.getBoundingClientRect().left - container.scrollLeft;
     showPage(Math.floor((element.getBoundingClientRect().left - left) / width));
   };
+
+  // A bookmark picked in the contents, once per pick (one the chapter opened with is where it
+  // opened, `resumeAt`); then it's forgotten.
+  const shownGoTo = useRef(goTo?.nonce ?? null);
+  const onGoTo = useEffectEvent((block: number | null) => {
+    if (block !== null) showBlock(block);
+    onGoToShown?.();
+  });
+  useEffect(() => {
+    if (!goTo) return;
+    const fresh = shownGoTo.current !== goTo.nonce;
+    shownGoTo.current = goTo.nonce;
+    onGoTo(fresh ? goTo.block : null);
+  }, [goTo]);
 
   /** A place a search in the book found: in this chapter, or another opened there. */
   const openPlace = (place: BookPlace) => {
@@ -938,9 +1012,11 @@ const ChapterView: FC<{
           onReadAloud={
             onSpeakFrom && lookup.block !== null
               ? () => {
-                  const block = lookup.block;
+                  const { block, offset } = lookup;
                   closeLookup();
-                  if (block !== null) onSpeakFrom(block);
+                  // From the sentence the selection starts in.
+                  if (block !== null)
+                    onSpeakFrom(block, translated.has(block) ? null : (offset ?? null));
                 }
               : undefined
           }
@@ -959,6 +1035,26 @@ const ChapterView: FC<{
     </>
   );
   const selectable = lookups ? 'selectable' : 'select-none';
+  // Shown while the reader moved away from what's being read.
+  const backToReading = following.held && (
+    <div className="pointer-events-none fixed top-[calc(var(--app-bar,0px)+4.75rem+var(--safe-top))] right-[var(--main-right,0px)] left-[var(--main-left,0px)] z-30 flex justify-center">
+      <button
+        type="button"
+        // Drawn over the text, in its tree: not a tap on the text.
+        onClick={(event) => {
+          event.stopPropagation();
+          following.backToReading();
+        }}
+        onPointerDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
+        onTouchEnd={(event) => event.stopPropagation()}
+        className="bg-primary text-background pointer-events-auto flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold shadow-lg"
+      >
+        <LocateFixed aria-hidden size={16} />
+        {t('novel.backToReading')}
+      </button>
+    </div>
+  );
 
   const blocks = data.blocks.map((block, index) => (
     <Block
@@ -989,6 +1085,7 @@ const ChapterView: FC<{
         className={`mx-auto h-[calc(100dvh-var(--app-bar,0px))] overflow-hidden outline-none ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
       >
         <div
+          className="book-text"
           style={{
             ...textStyle,
             height: '100%',
@@ -1002,6 +1099,7 @@ const ChapterView: FC<{
           {endCard}
         </div>
         {lookupLayer}
+        {backToReading}
       </div>
     );
   }
@@ -1011,19 +1109,21 @@ const ChapterView: FC<{
       data-testid="novel-scroll"
       role="presentation"
       onClick={(event) => {
-        if (!handledTap(event)) onToggleChrome();
+        if (!handledTap(event) && !jumpTo(event)) onToggleChrome();
       }}
       {...textHandlers}
-      className={`px-5 pt-20 pb-24 ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2]`}
+      // Never wider than the page: what can't wrap scrolls in its own box (bookText.css).
+      className={`overflow-x-clip px-5 pt-20 pb-24 ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2]`}
     >
       <article
         style={textStyle}
-        className={`mx-auto ${prefs.width === 'wide' ? 'max-w-3xl lg:max-w-4xl' : 'max-w-xl lg:max-w-2xl'}`}
+        className={`book-text mx-auto ${prefs.width === 'wide' ? 'max-w-3xl lg:max-w-4xl' : 'max-w-xl lg:max-w-2xl'}`}
       >
         {blocks}
       </article>
       {endCard}
       {lookupLayer}
+      {backToReading}
     </div>
   );
 };
@@ -1079,13 +1179,37 @@ export const NovelReaderPage: FC = () => {
   }, []);
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
+  const [panelTab, setPanelTab] = useState<PanelTab>('text');
   // Back closes the text settings before it leaves the reader.
   useBackLayer(chrome && panel, () => setPanel(false));
+  /** The reading-aloud bar's options button while its options are open. */
+  const [speechOptions, setSpeechOptions] = useState<HTMLElement | null>(null);
   /** The chapter list's button while the list is open. */
   const [chapterList, setChapterList] = useState<HTMLElement | null>(null);
+  /** A PDF book's contents: their button while they're open, and the page then being read. */
+  const [contents, setContents] = useState<{ anchor: HTMLElement; pageNumber: number } | null>(
+    null,
+  );
+  /** A bookmark picked in a PDF book's contents, until its chapter's text shows it. */
+  const [bookmark, setBookmark] = useState<{
+    chapterId: string;
+    page: number;
+    title: string;
+    nonce: number;
+  } | null>(null);
+  const forgetBookmark = useCallback(() => setBookmark(null), []);
   const [progress, setProgress] = useState({ fraction: 0, label: '' });
   const [speechNotice, setSpeechNotice] = useState<string | null>(null);
   const data = pdf ? textChapter : loaded.data;
+  // Where the bookmark leads in the text, once its chapter's text is here.
+  const bookmarkBlock = useMemo(() => {
+    const pageStarts = pdfText.data?.pageStarts;
+    if (!bookmark || !data || !pageStarts || bookmark.chapterId !== data.chapter.id) return null;
+    return {
+      block: outlineBlock(data.blocks, pageStarts, bookmark.page, bookmark.title),
+      nonce: bookmark.nonce,
+    };
+  }, [bookmark, data, pdfText.data]);
   const error = loaded.error ?? (pdf ? pdfText.error : null);
   const theme = THEMES[prefs.theme ?? 'app'];
   useWakeLock((prefs.keepScreenOn ?? true) && data !== undefined);
@@ -1121,44 +1245,50 @@ export const NovelReaderPage: FC = () => {
   const novelAi = useNovelAi(data?.chapter.id ?? '', data?.blocks ?? NO_BLOCKS, resumeBlock);
   const readingRef = useRef(false);
   const dataRef = useRef(data);
+  // Speed, pitch, volume and voice are settings Rust applies to the reading as they change.
   const rate = prefs.ttsRate ?? 10;
-  const rateRef = useRef(rate);
+  /** The language being read, as reading aloud reports it. */
+  const [readingLanguage, setReadingLanguage] = useState<string | null>(null);
   /** Set when a chapter ended aloud: the next one starts reading once it loads. */
   const continueAloud = useRef(false);
-  /** Why another voice reads than the one set, said once per start. */
-  const noticeShown = useRef(false);
+  /** Why another voice reads than the one set: each reason is said once per start. */
+  const noticeShown = useRef<string | null>(null);
   useEffect(() => {
     dataRef.current = data;
-    rateRef.current = rate;
   });
 
   /**
-   * Reads `chapter` aloud from block `first`. With `resume`, where the chapter was left aloud
-   * goes first when it's around there (Rust keeps it, to the sentence and word).
+   * Reads `chapter` aloud from block `first` (from the sentence at `offset` in its text, when a
+   * place was picked). With `resume`, where the chapter was left aloud goes first when it's
+   * around there (Rust keeps it, to the sentence and word).
    */
-  const speakFrom = useCallback((chapter: NovelChapter, first: number, resume: boolean) => {
-    const paragraphs = speechParagraphs(chapter.blocks, 0);
-    if (!paragraphs.some((paragraph) => paragraph.id >= first)) return;
-    noticeShown.current = false;
-    setPaused(false);
-    void unwrapResult(
-      commands.ttsSpeak({
-        chapterId: chapter.chapter.id,
-        title: chapter.title,
-        chapter: chapter.chapter.name,
-        paragraphs,
-        from: first,
-        resume,
-        rate: rateRef.current / 10,
-      }),
-    ).catch((error: unknown) => {
-      readingRef.current = false;
-      setReading(false);
-      setSpeaking(null);
-      setSentence(undefined);
-      setSpeechNotice(error instanceof Error ? error.message : String(error));
-    });
-  }, []);
+  const speakFrom = useCallback(
+    (chapter: NovelChapter, first: number, resume: boolean, offset?: number | null) => {
+      const paragraphs = speechParagraphs(chapter.blocks, 0);
+      if (!paragraphs.some((paragraph) => paragraph.id >= first)) return;
+      noticeShown.current = null;
+      setPaused(false);
+      void unwrapResult(
+        commands.ttsSpeak({
+          chapterId: chapter.chapter.id,
+          titleId: chapter.titleId,
+          title: chapter.title,
+          chapter: chapter.chapter.name,
+          paragraphs,
+          from: first,
+          ...(offset === null || offset === undefined ? {} : { offset }),
+          resume,
+        }),
+      ).catch((error: unknown) => {
+        readingRef.current = false;
+        setReading(false);
+        setSpeaking(null);
+        setSentence(undefined);
+        setSpeechNotice(error instanceof Error ? error.message : String(error));
+      });
+    },
+    [],
+  );
 
   /** Reading aloud's state on screen goes; Rust's session is left as it is. */
   const readingEnded = useCallback(() => {
@@ -1192,9 +1322,9 @@ export const NovelReaderPage: FC = () => {
     void (paused ? commands.ttsResume() : commands.ttsPause());
   };
 
-  /** Reads aloud from a chosen block. */
+  /** Reads aloud from a chosen block, from the sentence at `offset` in it when it's known. */
   const readFrom = useCallback(
-    (index: number) => {
+    (index: number, offset?: number | null) => {
       const chapter = dataRef.current;
       if (!chapter) return;
       readingRef.current = true;
@@ -1203,7 +1333,7 @@ export const NovelReaderPage: FC = () => {
       setSpeaking(index);
       setSentence(undefined);
       position.current = index;
-      speakFrom(chapter, index, false);
+      speakFrom(chapter, index, false, offset);
     },
     [speakFrom],
   );
@@ -1219,17 +1349,24 @@ export const NovelReaderPage: FC = () => {
       // Late reports of the chapter left while the next one loads are about nothing on screen.
       if (!readingRef.current || continueAloud.current) return;
       if (payload.chapterId !== dataRef.current?.chapter.id) return;
+      if (payload.language) setReadingLanguage(payload.language);
       const notice = payload.notice;
-      if (notice && !noticeShown.current && notice.kind !== 'engineFailed') {
-        noticeShown.current = true;
+      const key = notice ? JSON.stringify(notice) : null;
+      if (notice && key !== noticeShown.current && notice.kind !== 'engineFailed') {
+        noticeShown.current = key;
+        const language = 'language' in notice && notice.language;
         setSpeechNotice(
-          notice.kind !== 'noVoice'
+          notice.kind === 'voiceFailed'
             ? t('novel.voiceFailed')
-            : notice.language
-              ? t('novel.noDownloadedVoice', {
-                  language: languageName(notice.language, i18n.language),
-                })
-              : t('novel.noVoiceDownloaded'),
+            : notice.kind === 'otherVoice'
+              ? language
+                ? t('novel.otherVoice', { language: languageName(language, i18n.language) })
+                : t('novel.otherVoiceUnknown')
+              : language
+                ? t('novel.noDownloadedVoice', {
+                    language: languageName(language, i18n.language),
+                  })
+                : t('novel.noVoiceDownloaded'),
         );
       }
       switch (payload.state) {
@@ -1276,12 +1413,6 @@ export const NovelReaderPage: FC = () => {
     }
   }, [data, speakFrom]);
 
-  // A new speed applies from the sentence being read.
-  useEffect(() => {
-    const chapter = dataRef.current;
-    if (readingRef.current && chapter) speakFrom(chapter, position.current, true);
-  }, [rate, speakFrom]);
-
   // Leaving the reader stops speech (the place is kept for next time).
   useEffect(
     () => () => {
@@ -1310,6 +1441,30 @@ export const NovelReaderPage: FC = () => {
       void commands.ttsStop();
     }
     void navigate({ search: { title, chapter: chapterId }, replace: true });
+  };
+
+  /**
+   * A bookmark picked in a PDF book's contents: the heading it names in the text (else its page's
+   * start), in this chapter (reading aloud goes on from there), or in the chapter opened for it.
+   */
+  const openBookmark = (entry: PdfContentsEntry) => {
+    setContents(null);
+    setBookmark((last) => ({
+      chapterId: entry.chapterId,
+      page: entry.page,
+      title: entry.title,
+      nonce: (last?.nonce ?? 0) + 1,
+    }));
+    const pageStarts = pdfText.data?.pageStarts;
+    if (data && entry.chapterId === data.chapter.id) {
+      if (readingRef.current && pageStarts) {
+        readFrom(outlineBlock(data.blocks, pageStarts, entry.page, entry.title));
+      }
+      return;
+    }
+    stopReading();
+    setPanel(false);
+    void navigate({ search: { title, chapter: entry.chapterId }, replace: true });
   };
   const onProgress = useCallback(
     (fraction: number, label: string) => setProgress({ fraction, label }),
@@ -1371,6 +1526,24 @@ export const NovelReaderPage: FC = () => {
               <FileImage aria-hidden size={21} />
             </button>
           )}
+          {pdf && pdf.contents.length > 0 && (
+            <button
+              type="button"
+              aria-label={t('pdf.contents')}
+              aria-haspopup="dialog"
+              aria-expanded={contents !== null}
+              onClick={(event) => {
+                setPanel(false);
+                const at = pdfText.data ? blockAt(pdfText.data.pageStarts, position.current) : 0;
+                setContents(
+                  contents ? null : { anchor: event.currentTarget, pageNumber: pdf.firstPage + at },
+                );
+              }}
+              className="hover:bg-background grid size-11 shrink-0 place-items-center rounded-full"
+            >
+              <ListTree aria-hidden size={21} />
+            </button>
+          )}
           {data && (
             <button
               type="button"
@@ -1401,6 +1574,11 @@ export const NovelReaderPage: FC = () => {
         <PrefsPanel
           prefs={prefs}
           onChange={(next) => updateSetting.mutate({ key: 'novelReader', value: next })}
+          speech={Boolean(speechAvailable.data)}
+          tab={panelTab}
+          onTab={setPanelTab}
+          titleId={data?.titleId ?? title}
+          readingLanguage={readingLanguage}
         />
       )}
       {error && (
@@ -1447,69 +1625,103 @@ export const NovelReaderPage: FC = () => {
           sentence={sentence}
           onSpeakFrom={speechAvailable.data ? readFrom : undefined}
           translated={novelAi.texts}
+          goTo={bookmarkBlock}
+          onGoToShown={forgetBookmark}
         />
       )}
       {data && (chrome || reading || speechNotice) && (
         // The reader's bottom controls, one above another so none covers another: the AI
-        // button (bottom right), reading aloud's controls, then the chapter bar.
+        // button (bottom right) beside reading aloud's controls while they fit side by side
+        // (above them only when they don't), then the chapter bar.
         <div className="pointer-events-none fixed left-[var(--main-left,0px)] right-[var(--main-right,0px)] bottom-0 z-30 flex flex-col items-center gap-2 pt-2 pr-[calc(0.75rem+var(--safe-right))] pb-[calc(0.75rem+var(--safe-bottom))] pl-[calc(0.75rem+var(--safe-left))]">
-          {chrome && (
-            <div className="pointer-events-auto flex w-full justify-end">
-              <ReaderAiButton medium="novel" busy={novelAi.busy} error={novelAi.error} />
-            </div>
-          )}
-          {reading && (
+          {(chrome || reading) && (
+            // Right to left: the AI button keeps its place at the right end; when the bar
+            // doesn't fit beside it, the row wraps and the button goes above.
             <div
-              role="toolbar"
-              aria-label={t('novel.speechControls')}
-              className="bg-surface/95 pointer-events-auto flex max-w-full shrink-0 items-center justify-center gap-1 rounded-full px-2 py-1 shadow-lg backdrop-blur"
+              data-testid="reader-bottom-row"
+              className="@container flex w-full flex-row-reverse flex-wrap items-end gap-2"
             >
-              <button
-                type="button"
-                aria-label={t('novel.previousParagraph')}
-                onClick={() => stepTo(-1)}
-                className="grid size-10 place-items-center rounded-full"
-              >
-                <SkipBack aria-hidden size={18} />
-              </button>
-              <button
-                type="button"
-                aria-label={t(paused ? 'novel.resumeReading' : 'novel.pauseReading')}
-                aria-pressed={paused}
-                onClick={togglePause}
-                className="bg-primary text-background grid size-11 place-items-center rounded-full"
-              >
-                {paused ? <Play aria-hidden size={18} /> : <Pause aria-hidden size={18} />}
-              </button>
-              <button
-                type="button"
-                aria-label={t('novel.nextParagraph')}
-                onClick={() => stepTo(1)}
-                className="grid size-10 place-items-center rounded-full"
-              >
-                <SkipForward aria-hidden size={18} />
-              </button>
-              <button
-                type="button"
-                aria-label={t('novel.replayParagraph')}
-                onClick={() => stepTo(0)}
-                className="grid size-10 place-items-center rounded-full"
-              >
-                <RotateCcw aria-hidden size={18} />
-              </button>
-              <button
-                type="button"
-                aria-label={`${t('novel.speed')}: ${(rate / 10).toFixed(1)}×`}
-                onClick={() =>
-                  updateSetting.mutate({
-                    key: 'novelReader',
-                    value: { ...prefs, ttsRate: SPEEDS.find((speed) => speed > rate) ?? SPEEDS[0] },
-                  })
-                }
-                className="min-w-12 rounded-full px-2 text-sm font-semibold tabular-nums"
-              >
-                {(rate / 10).toFixed(1)}×
-              </button>
+              {chrome && (
+                <div className="pointer-events-auto shrink-0">
+                  <ReaderAiButton medium="novel" busy={novelAi.busy} error={novelAi.error} />
+                </div>
+              )}
+              {reading && (
+                <div className="flex min-w-0 grow justify-center">
+                  <div
+                    role="toolbar"
+                    aria-label={t('novel.speechControls')}
+                    className="bg-surface/95 pointer-events-auto flex max-w-full shrink-0 items-center justify-center gap-0.5 rounded-full px-1.5 py-1 shadow-lg backdrop-blur"
+                  >
+                    <button
+                      type="button"
+                      aria-label={t('novel.previousParagraph')}
+                      onClick={() => stepTo(-1)}
+                      className="grid size-10 place-items-center rounded-full"
+                    >
+                      <SkipBack aria-hidden size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t(paused ? 'novel.resumeReading' : 'novel.pauseReading')}
+                      aria-pressed={paused}
+                      onClick={togglePause}
+                      className="bg-primary text-background grid size-11 place-items-center rounded-full"
+                    >
+                      {paused ? <Play aria-hidden size={18} /> : <Pause aria-hidden size={18} />}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('novel.nextParagraph')}
+                      onClick={() => stepTo(1)}
+                      className="grid size-10 place-items-center rounded-full"
+                    >
+                      <SkipForward aria-hidden size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('novel.replayParagraph')}
+                      onClick={() => stepTo(0)}
+                      className="grid size-10 place-items-center rounded-full"
+                    >
+                      <RotateCcw aria-hidden size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`${t('novel.speed')}: ${(rate / 10).toFixed(1)}×`}
+                      onClick={() =>
+                        updateSetting.mutate({
+                          key: 'novelReader',
+                          value: {
+                            ...prefs,
+                            ttsRate: SPEEDS.find((speed) => speed > rate) ?? SPEEDS[0],
+                          },
+                        })
+                      }
+                      className="min-w-11 rounded-full px-1.5 text-sm font-semibold tabular-nums"
+                    >
+                      {(rate / 10).toFixed(1)}×
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('novel.readAloudOptions.open')}
+                      aria-haspopup="dialog"
+                      aria-expanded={speechOptions !== null}
+                      onClick={(event) =>
+                        setSpeechOptions(speechOptions ? null : event.currentTarget)
+                      }
+                      className="grid size-10 place-items-center rounded-full"
+                    >
+                      <SlidersHorizontal aria-hidden size={18} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {chrome && reading && (
+                // On wide screens, as wide as the AI button on the other side: the bar stays in
+                // the middle.
+                <span aria-hidden className="hidden size-12 shrink-0 @min-[26rem]:block" />
+              )}
             </div>
           )}
           {speechNotice && (
@@ -1568,6 +1780,16 @@ export const NovelReaderPage: FC = () => {
           )}
         </div>
       )}
+      {data && reading && speechOptions && (
+        <Sheet
+          title={t('novel.readAloudOptions.title')}
+          anchor={speechOptions}
+          popoverWidth={360}
+          onClose={() => setSpeechOptions(null)}
+        >
+          <ReadAloudOptions titleId={data.titleId} readingLanguage={readingLanguage} />
+        </Sheet>
+      )}
       {data && chapterList && (
         <ChapterListSheet
           medium="novel"
@@ -1579,6 +1801,15 @@ export const NovelReaderPage: FC = () => {
             go(chapterId);
           }}
           onClose={() => setChapterList(null)}
+        />
+      )}
+      {pdf && contents && (
+        <PdfContentsSheet
+          contents={pdf.contents}
+          pageNumber={contents.pageNumber}
+          anchor={contents.anchor}
+          onPick={openBookmark}
+          onClose={() => setContents(null)}
         />
       )}
     </section>

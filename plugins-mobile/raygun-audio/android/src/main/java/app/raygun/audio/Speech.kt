@@ -1,6 +1,7 @@
 package app.raygun.audio
 
 import android.content.Context
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
@@ -66,18 +67,30 @@ class Speech(private val context: Context) {
         NativeBridge.tts(JSONObject().put("state", state).put("id", id).toString())
     }
 
+    /** A sentence to read: its id in reports, and the language of a passage in another one. */
+    class Item(val id: String, val text: String, val language: String?)
+
     /**
-     * Replaces what is being read with [items] (id and text pairs), at [rate] and [pitch] (1 =
-     * normal), in [language] (a BCP 47 tag) when the engine has it, else in its own language.
+     * Replaces what is being read with [items], at [rate] and [pitch] (1 = normal) and [volume]
+     * (0–1), in [language] (a BCP 47 tag) when the engine has it, else in its own language. A
+     * passage in another language is read in it (each utterance takes the language set when it's
+     * queued).
      */
-    fun speak(items: List<Pair<String, String>>, rate: Float, pitch: Float, language: String?): Boolean {
+    fun speak(items: List<Item>, rate: Float, pitch: Float, volume: Float, language: String?): Boolean {
         val tts = engine?.takeIf { ready == true } ?: return false
         tts.setSpeechRate(rate)
         tts.setPitch(pitch)
         useLanguage(tts, language)
-        items.forEachIndexed { index, (id, text) ->
+        var current = language
+        val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume.coerceIn(0f, 1f)) }
+        items.forEachIndexed { index, item ->
+            val wanted = item.language?.takeIf { it.isNotBlank() } ?: language
+            if (wanted != current) {
+                useLanguage(tts, wanted)
+                current = wanted
+            }
             val mode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-            tts.speak(text, mode, null, id)
+            tts.speak(item.text, mode, params, item.id)
         }
         return true
     }

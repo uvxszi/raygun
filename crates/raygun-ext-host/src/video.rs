@@ -201,6 +201,10 @@ pub fn parse_videos(value: &Value) -> Vec<VideoLink> {
 /// magnet link, played by the app's torrent engine once torrents are turned on.
 pub const TORRENT: &str = "torrent";
 
+/// The format of a web page that plays the video in the site's own player (a site whose terms
+/// allow only its embeddable player, such as Twitch's): opened in Raygun's browser.
+pub const PAGE: &str = "page";
+
 /// A torrent's link: a web address or a magnet link.
 fn torrent_link(value: Option<&Value>) -> Option<String> {
     url(value).or_else(|| text(value).filter(|link| link.starts_with("magnet:?")))
@@ -219,12 +223,13 @@ fn videos_of(list: &Value) -> Vec<VideoLink> {
             let format = video
                 .get("format")
                 .and_then(Value::as_str)
-                .filter(|format| matches!(*format, "hls" | "dash" | TORRENT))
+                .filter(|format| matches!(*format, "hls" | "dash" | TORRENT | PAGE))
                 .map(str::to_owned);
-            let link = if format.as_deref() == Some(TORRENT) {
-                torrent_link(video.get("url"))
-            } else {
-                url(video.get("url")).or_else(|| youtube_link(video.get("url")))
+            let link = match format.as_deref() {
+                Some(TORRENT) => torrent_link(video.get("url")),
+                // A page opens in Raygun's browser: https only.
+                Some(PAGE) => url(video.get("url")).filter(|page| page.starts_with("https://")),
+                _ => url(video.get("url")).or_else(|| youtube_link(video.get("url"))),
             };
             Some(VideoLink {
                 url: link?,
@@ -427,6 +432,20 @@ mod tests {
             (Some("SD"), None),
             "an impossible height is ignored"
         );
+    }
+
+    #[test]
+    fn pages_that_play_in_the_sites_own_player_are_https_addresses() {
+        let videos = parse_videos(&json!({
+            "videos": [
+                { "url": "https://player.twitch.tv/?channel=example&parent=twitch.tv", "format": "page", "live": true },
+                { "url": "http://player.example/watch", "format": "page" },
+                { "url": "youtube:dQw4w9WgXcQ", "format": "page" },
+            ]
+        }));
+        assert_eq!(videos.len(), 1, "plain http and other schemes are dropped");
+        assert_eq!(videos[0].format.as_deref(), Some(PAGE));
+        assert!(videos[0].live);
     }
 
     #[test]

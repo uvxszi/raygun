@@ -8,7 +8,8 @@
 //! answers `{ pdf }`). Either way the chapter comes with [`PdfChapter`]: its pages drawn by the
 //! stream proxy (`raygun_net::pdf`), read like a comic's, and its text on request
 //! ([`NovelService::pdf_text`]) for the text view, reading aloud and search. Progress is then the
-//! page reached.
+//! page reached. Its contents are a book's whole outline, each bookmark with the chapter and page
+//! it leads to ([`pdf_contents`]), which the page and text views both list.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -121,6 +122,32 @@ pub(crate) fn pdf_chapters(outline: &[OutlineEntry], count: usize) -> Vec<(Strin
         .into_iter()
         .zip(ends)
         .map(|((first, name), last)| (name, first, last.max(first)))
+        .collect()
+}
+
+/// A PDF's bookmarks as the reader's contents, in the outline's order: each with the chapter
+/// holding its page and the page within it. `chapters` are page runs (from 0) that don't overlap;
+/// bookmarks on pages none of them holds are left out.
+pub(crate) fn pdf_contents(
+    outline: Vec<OutlineEntry>,
+    chapters: &[(String, std::ops::Range<usize>)],
+) -> Vec<PdfContentsEntry> {
+    let mut sorted: Vec<&(String, std::ops::Range<usize>)> = chapters.iter().collect();
+    sorted.sort_by_key(|(_, range)| range.start);
+    outline
+        .into_iter()
+        .filter_map(|entry| {
+            // The last chapter starting at or before the page, if it reaches that far.
+            let after = sorted.partition_point(|(_, range)| range.start <= entry.page);
+            let (chapter_id, range) = sorted.get(after.checked_sub(1)?)?;
+            range.contains(&entry.page).then(|| PdfContentsEntry {
+                title: entry.title,
+                chapter_id: chapter_id.clone(),
+                page: (entry.page - range.start) as u32,
+                page_number: entry.page as u32 + 1,
+                level: entry.level,
+            })
+        })
         .collect()
 }
 
@@ -467,7 +494,12 @@ impl NovelService {
             .await?
         } else if context.title.fields.source_id == LOCAL_PDF {
             let place = self.local_pdf_place(&context.title, &context.unit.fields.remote_id)?;
-            pdf = Some(self.pdf_chapter(place, &context.title).await?);
+            // The book's chapters share its document: its whole outline is the contents.
+            let chapters = self.local_pdf_chapters(title_id).await?;
+            pdf = Some(
+                self.pdf_chapter(place, &context.title, unit_id, Some(chapters))
+                    .await?,
+            );
             Vec::new()
         } else {
             let passage = self
@@ -480,7 +512,10 @@ impl NovelService {
                 .await?;
             if let [PassageBlock::Pdf(reference)] = passage.as_slice() {
                 let place = self.web_pdf_place(title_id, unit_id, reference).await;
-                pdf = Some(self.pdf_chapter(place, &context.title).await?);
+                pdf = Some(
+                    self.pdf_chapter(place, &context.title, unit_id, None)
+                        .await?,
+                );
                 Vec::new()
             } else {
                 passage
@@ -548,9 +583,29 @@ impl NovelService {
                 text: formula.text,
                 speech: formula.speech,
             },
+            PassageBlock::Code(code) => TextBlock::Code {
+                text: code.text,
+                language: code.language,
+            },
             // A PDF passage is read as pages (`chapter`).
             PassageBlock::Pdf(_) => return None,
         })
+    }
+
+    /// An imported PDF's chapters: each with its pages in the document (from 0).
+    async fn local_pdf_chapters(
+        &self,
+        title_id: &str,
+    ) -> Result<Vec<(String, std::ops::Range<usize>)>, String> {
+        Ok(titles::units(&self.catalog.db(), title_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .filter_map(|unit| {
+                let (first, last) = pages_of(&unit.fields.remote_id)?;
+                Some((unit.id, first.saturating_sub(1) as usize..last as usize))
+            })
+            .collect())
     }
 
     /// An imported PDF's chapter: its document and the pages its id names.
@@ -622,8 +677,15 @@ impl NovelService {
     }
 
     /// What the reader needs of a PDF chapter: its pages (the document opened, a web one fetched
-    /// first), and the bookmarks among them.
-    async fn pdf_chapter(&self, place: PdfPlace, title: &TitleRow) -> Result<PdfChapter, String> {
+    /// first), and the bookmarks: those of every chapter of `chapters` (a book's, which share its
+    /// document), else this chapter's own.
+    async fn pdf_chapter(
+        &self,
+        place: PdfPlace,
+        title: &TitleRow,
+        unit_id: &str,
+        chapters: Option<Vec<(String, std::ops::Range<usize>)>>,
+    ) -> Result<PdfChapter, String> {
         let pdfs = self.pdfs();
         let document = pdfs.document(&place.token).await.map_err(String::from)?;
         let count = document.page_count();
@@ -635,15 +697,8 @@ impl NovelService {
         let outline = tauri::async_runtime::spawn_blocking(move || document.outline())
             .await
             .map_err(to_message)?;
-        let contents = outline
-            .into_iter()
-            .filter(|entry| range.contains(&entry.page))
-            .map(|entry| PdfContentsEntry {
-                title: entry.title,
-                page: (entry.page - range.start) as u32,
-                level: entry.level,
-            })
-            .collect();
+        let chapters = chapters.unwrap_or_else(|| vec![(unit_id.to_owned(), range.clone())]);
+        let contents = pdf_contents(outline, &chapters);
         let default_mode = match crate::settings::load(&self.catalog.db()).await {
             Ok(settings) => settings.manga_reader.default_mode,
             Err(_) => raygun_model::MangaReaderPrefs::default().default_mode,
@@ -696,15 +751,7 @@ impl NovelService {
             .is_some_and(|title| title.fields.source_id == LOCAL_PDF);
         // A book's chapters share its document: each hit goes to the chapter holding its page.
         let chapters: Vec<(String, std::ops::Range<usize>)> = if local {
-            titles::units(&db, title_id)
-                .await
-                .map_err(to_message)?
-                .into_iter()
-                .filter_map(|unit| {
-                    let (first, last) = pages_of(&unit.fields.remote_id)?;
-                    Some((unit.id, first.saturating_sub(1) as usize..last as usize))
-                })
-                .collect()
+            self.local_pdf_chapters(title_id).await?
         } else {
             vec![(unit_id.to_owned(), clamp(&place.range, count))]
         };
@@ -943,6 +990,97 @@ mod tests {
         assert_eq!(
             named(&pdf_chapters(&book, 6)),
             [("First", 0, 2), ("Second", 3, 5)]
+        );
+    }
+
+    /// The contents both of a book's views list: the whole outline, each bookmark with the chapter
+    /// holding its page, as `pdf_chapters` made the chapters.
+    #[test]
+    fn a_pdf_books_contents_lead_into_every_chapter() {
+        let outline = vec![
+            entry("Preface", 4, 0),
+            entry("Chapter 1", 10, 0),
+            entry("1.1 Sets", 12, 1),
+            entry("1.2 Maps", 10, 1),
+            entry("Chapter 2", 30, 0),
+            entry("Index", 99, 0),
+        ];
+        let chapters: Vec<(String, std::ops::Range<usize>)> = pdf_chapters(&outline, 60)
+            .into_iter()
+            .enumerate()
+            .map(|(index, (_, first, last))| (format!("u{index}"), first..last + 1))
+            .rev()
+            .collect();
+        let shown: Vec<(String, String, u32, u32, u32)> = pdf_contents(outline, &chapters)
+            .into_iter()
+            .map(|entry| {
+                (
+                    entry.title,
+                    entry.chapter_id,
+                    entry.page,
+                    entry.page_number,
+                    entry.level,
+                )
+            })
+            .collect();
+        let row = |title: &str, chapter: &str, page, number, level| {
+            (title.to_owned(), chapter.to_owned(), page, number, level)
+        };
+        assert_eq!(
+            shown,
+            [
+                row("Preface", "u1", 0, 5, 0),
+                row("Chapter 1", "u2", 0, 11, 0),
+                row("1.1 Sets", "u2", 2, 13, 1),
+                row("1.2 Maps", "u2", 0, 11, 1),
+                row("Chapter 2", "u3", 0, 31, 0),
+            ],
+            "in the outline's order; the index lies past the last page"
+        );
+        // A source's chapter: only the bookmarks among its own pages.
+        let own = pdf_contents(
+            vec![entry("Before", 1, 0), entry("Inside", 6, 0)],
+            &[("c".to_owned(), 5..9)],
+        );
+        assert_eq!(own.len(), 1);
+        assert_eq!((own[0].page, own[0].page_number), (1, 7));
+    }
+
+    /// A real book's chapters and contents, as both of its views list them (Think Python 2e,
+    /// greenteapress.com/thinkpython2/thinkpython2.pdf, has 21 chapters of sections):
+    /// `PDF_FILE=<a PDF> cargo test -p raygun-app --lib -- --ignored pdf_book_contents_live --nocapture`.
+    #[test]
+    #[ignore = "reads the PDF that PDF_FILE names"]
+    fn pdf_book_contents_live() {
+        let path = std::env::var("PDF_FILE").expect("PDF_FILE names a PDF with an outline");
+        let document = Document::open(Path::new(&path)).unwrap();
+        let count = document.page_count();
+        let outline = document.outline();
+        assert!(!outline.is_empty(), "the book has an outline");
+        let chapters: Vec<(String, std::ops::Range<usize>)> = pdf_chapters(&outline, count)
+            .into_iter()
+            .enumerate()
+            .map(|(index, (name, first, last))| {
+                println!("chapter u{index}: {name}, pages {}–{}", first + 1, last + 1);
+                (format!("u{index}"), first..last + 1)
+            })
+            .collect();
+        let contents = pdf_contents(outline.clone(), &chapters);
+        assert_eq!(contents.len(), outline.len(), "every bookmark is listed");
+        for entry in &contents {
+            let (_, range) = chapters
+                .iter()
+                .find(|(id, _)| *id == entry.chapter_id)
+                .unwrap();
+            let page = range.start + entry.page as usize;
+            assert!(range.contains(&page), "{entry:?}");
+            assert_eq!(page + 1, entry.page_number as usize);
+        }
+        println!(
+            "{} bookmarks over {} chapters; first {:?}",
+            contents.len(),
+            chapters.len(),
+            contents.first()
         );
     }
 

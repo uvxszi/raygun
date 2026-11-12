@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useEffectEvent, useRef } from 'react';
 import type { RefObject } from 'react';
 
+import { textOffsetOf } from '../novel/readAloud/textOffset';
+
 /** Where a selection is on screen, in the window's coordinates. */
 export type SelectionBox = { top: number; bottom: number; left: number; right: number };
 
@@ -11,6 +13,8 @@ export type WordSelection = {
   box: SelectionBox;
   /** The block (`data-block`) the selection starts in, when it's in one. */
   block: number | null;
+  /** Where in that block's text the selection starts (UTF-16), for reading aloud from there. */
+  offset?: number | null;
 };
 
 /**
@@ -39,7 +43,8 @@ export const readSelection = (root: HTMLElement | null): WordSelection | null =>
     range.startContainer.nodeType === Node.ELEMENT_NODE
       ? (range.startContainer as Element)
       : range.startContainer.parentElement;
-  const block = start?.closest<HTMLElement>('[data-block]')?.dataset.block;
+  const blockElement = start?.closest<HTMLElement>('[data-block]');
+  const block = blockElement?.dataset.block;
   return {
     text,
     box: {
@@ -49,6 +54,9 @@ export const readSelection = (root: HTMLElement | null): WordSelection | null =>
       right: rect?.right ?? 0,
     },
     block: block === undefined ? null : Number(block),
+    offset: blockElement
+      ? textOffsetOf(blockElement, range.startContainer, range.startOffset)
+      : null,
   };
 };
 

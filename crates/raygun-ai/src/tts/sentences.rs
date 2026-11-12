@@ -14,8 +14,12 @@ const ABBREVIATIONS: &[&str] = &[
     "sra", "srta", "z.b", "bzw", "usw",
 ];
 
-/// Abbreviations a full stop ends the sentence after unless a number follows (`No. 5`).
-const NUMBERED: &[&str] = &["no", "nr", "vol", "ch", "fig", "p", "pp", "ca", "approx"];
+/// Abbreviations a full stop ends the sentence after unless a number follows (`No. 5`, `Vol.
+/// III`).
+const NUMBERED: &[&str] = &[
+    "no", "nr", "vol", "ch", "chap", "bk", "pt", "sect", "sec", "art", "op", "ep", "sc", "fig",
+    "p", "pp", "ca", "approx",
+];
 
 /// The sentences of `text` as byte ranges, trimmed of the spaces around them; pieces with no
 /// letter or digit (`* * *`) are left out.
@@ -78,7 +82,34 @@ fn continues(text: &str, chars: &[(usize, char)], index: usize, after: usize, ma
     // An initial (`J. R. R. Tolkien`), or a known abbreviation.
     (word.chars().count() == 1 && word.chars().all(char::is_alphabetic))
         || ABBREVIATIONS.contains(&word.as_str())
-        || (NUMBERED.contains(&word.as_str()) && next_word.is_some_and(|c| c.is_ascii_digit()))
+        || (NUMBERED.contains(&word.as_str())
+            && (next_word.is_some_and(|c| c.is_ascii_digit())
+                || numeral_follows(text, chars, after)))
+}
+
+/// Whether a Roman numeral comes next (`Vol. III`, `No. IV.`): two letters or more, or a single
+/// one ending the clause (`No. I won't` is an answer).
+fn numeral_follows(text: &str, chars: &[(usize, char)], after: usize) -> bool {
+    let Some(start) = chars[after..]
+        .iter()
+        .find(|(_, c)| !c.is_whitespace())
+        .map(|(at, _)| *at)
+    else {
+        return false;
+    };
+    let rest = &text[start..];
+    let length = rest
+        .find(|c: char| !c.is_alphabetic())
+        .unwrap_or(rest.len());
+    let word = &rest[..length];
+    if super::numerals::numeral_value(word).is_none() {
+        return false;
+    }
+    let clause_ends = rest[length..]
+        .chars()
+        .next()
+        .is_none_or(|c| !c.is_whitespace() && !c.is_alphanumeric());
+    word.chars().count() >= 2 || clause_ends
 }
 
 fn is_terminator(c: char) -> bool {
@@ -189,6 +220,17 @@ mod tests {
             split("See No. 5 there. I said no. Then I left."),
             vec!["See No. 5 there.", "I said no.", "Then I left."]
         );
+        // Roman numerals after numbering abbreviations, but not the pronoun after an answer.
+        assert_eq!(
+            split("See Vol. III for that. It is in Ch. IV. No. I won't."),
+            vec![
+                "See Vol. III for that.",
+                "It is in Ch. IV.",
+                "No.",
+                "I won't."
+            ]
+        );
+        assert_eq!(split("Read Vol. I."), vec!["Read Vol. I."]);
         assert_eq!(
             split("\"Help!\" he cried. Nobody came."),
             vec!["\"Help!\" he cried.", "Nobody came."]

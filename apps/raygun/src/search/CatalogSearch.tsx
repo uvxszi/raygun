@@ -61,9 +61,12 @@ const toGridItems = (items: MangaCard[], fromListing?: string) =>
     coverUrl: item.coverUrl,
     inLibrary: item.inLibrary,
     ...(item.adult ? { adult: true } : {}),
+    ...(item.subtitle ? { subtitle: item.subtitle } : {}),
     ...(item.fromListing && fromListing ? { subtitle: fromListing } : {}),
     // A book without a cover gets one drawn with them.
     ...(item.authors?.length ? { authors: item.authors } : {}),
+    // A live stream is marked live, with its viewers.
+    ...(item.live ? { live: item.live } : {}),
   }));
 
 /** One source's first results in a global search, as a short row. */

@@ -56,11 +56,54 @@ export { server };
 ```
 
 - `url` is `http(s)`, or `youtube:<11-character id>` to play in YouTube's embedded player.
-- `format` is `hls` or `dash` for streaming manifests; leave it out for a plain file.
+- `format` is `hls` or `dash` for streaming manifests; leave it out for a plain file. `page` is an
+  https web page that plays the video in its site's own player, for a site whose terms allow only
+  its embeddable player (Twitch's): Raygun opens it in its browser instead of its player, and
+  never downloads it.
+- `live: true` marks a live stream: the player starts at its live edge, shows how far behind it
+  plays, and keeps no place to resume; a live stream isn't downloaded.
 - `headers` (a Referer, a User-Agent) are sent with every request the player makes.
 - `subtitles` are WebVTT or SubRip files.
 - A server has at most 50 videos, a video 50 subtitles and 100 chapters; an episode has at most
   50 servers.
+
+### Live streams
+
+A listed title can be a channel on the air: `live: true` marks its card live, with `viewers`
+(a whole number) and `startedAt` (Unix ms) when the site says, and `subtitle` (at most 120
+characters) is a line under its title, such as the channel and what it streams. A channel's
+`details` describe it; its `episodes` can start with the stream on the air, then its past
+broadcasts and clips, each played by its own servers.
+
+```ts
+import type { MangaSummary } from '@raygun/sdk';
+
+const onTheAir: MangaSummary = {
+  id: 'chesschannel',
+  title: 'Blitz with viewers',
+  coverUrl: 'https://img.example/live/chesschannel-640x360.jpg',
+  subtitle: 'ChessChannel · Chess',
+  live: true,
+  viewers: 12_345,
+  startedAt: Date.parse('2026-11-11T18:00:00Z'),
+};
+
+export { onTheAir };
+```
+
+### Raygun's Twitch source
+
+Raygun's repository folder (`repo/`) has a Twitch source (`dev.raygun.twitch`) that Paraline,
+which lists only open sources, doesn't. It reads Twitch's official API (Helix) with the Client ID
+and Client Secret of an application you register at `dev.twitch.tv/console` (any name; the
+redirect address `http://localhost` will do), entered in its settings: what's live now by
+viewers, live streams by category and language, channel search, and each channel's page with its
+stream, past broadcasts, highlights and top clips. Twitch's developer agreement requires its
+embeddable player for all Twitch video, and Twitch's embeds load only in https pages, so every
+episode is a `page`: Twitch's page for it (with the chat) or Twitch's pop-out player, opened in
+Raygun's browser. Install it with Browse → Sources → Add and its package's address:
+`https://raw.githubusercontent.com/uvxszi/raygun/main/repo/packages/dev.raygun.twitch-1.0.0.zip`
+(a newer version has its number in the name).
 
 ### Comments
 

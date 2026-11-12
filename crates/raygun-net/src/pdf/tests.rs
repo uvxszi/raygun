@@ -183,3 +183,142 @@ async fn the_store_draws_and_searches_local_documents() {
         "a web document never registered"
     );
 }
+
+/// A PDF of `pages` blank 300×400 pt pages whose outline is `outline` (title, page from 0, level),
+/// shaped as LaTeX's hyperref writes a book's: each bookmark a GoTo action to a named destination,
+/// the names in the catalog's `/Dests` name tree, split into two leaves with their `/Limits`.
+fn book_pdf(pages: usize, outline: &[(&str, usize, u32)]) -> Vec<u8> {
+    // 1 catalog, 2 page tree, 3 outline root, 4 name tree root, 5 and 6 its leaves, then the
+    // pages, then the bookmarks.
+    let page_id = |page: usize| 7 + page;
+    let item_id = |index: usize| 7 + pages + index;
+    let name = |index: usize| format!("section.{index:03}");
+    let parent = |index: usize| {
+        (0..index)
+            .rev()
+            .find(|before| outline[*before].2 < outline[index].2)
+    };
+    let children = |of: Option<usize>| -> Vec<usize> {
+        (0..outline.len())
+            .filter(|index| parent(*index) == of)
+            .collect()
+    };
+    let links = |of: Option<usize>| {
+        let kids = children(of);
+        match (kids.first(), kids.last()) {
+            (Some(first), Some(last)) => format!(
+                "/First {} 0 R /Last {} 0 R /Count {}",
+                item_id(*first),
+                item_id(*last),
+                kids.len()
+            ),
+            _ => String::new(),
+        }
+    };
+    let leaf = |range: std::ops::Range<usize>| {
+        let names: String = range
+            .clone()
+            .map(|index| {
+                format!(
+                    "({}) [{} 0 R /XYZ 0 400 null] ",
+                    name(index),
+                    page_id(outline[index].1)
+                )
+            })
+            .collect();
+        format!(
+            "<< /Names [{names}] /Limits [({}) ({})] >>",
+            name(range.start),
+            name(range.end - 1)
+        )
+    };
+    let middle = outline.len() / 2;
+    let mut objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 3 0 R /Names << /Dests 4 0 R >> >>".to_owned(),
+        format!(
+            "<< /Type /Pages /Kids [{}] /Count {pages} >>",
+            (0..pages)
+                .map(|page| format!("{} 0 R", page_id(page)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        format!("<< /Type /Outlines {} >>", links(None)),
+        "<< /Kids [5 0 R 6 0 R] >>".to_owned(),
+        leaf(0..middle),
+        leaf(middle..outline.len()),
+    ];
+    objects.extend(
+        (0..pages).map(|_| "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] >>".to_owned()),
+    );
+    for (index, (title, _, _)) in outline.iter().enumerate() {
+        let siblings = children(parent(index));
+        let at = siblings
+            .iter()
+            .position(|sibling| *sibling == index)
+            .unwrap();
+        let mut item = format!(
+            "<< /Title ({title}) /Parent {} 0 R /A << /S /GoTo /D ({}) >> {}",
+            parent(index).map_or(3, item_id),
+            name(index),
+            links(Some(index))
+        );
+        if at > 0 {
+            item.push_str(&format!(" /Prev {} 0 R", item_id(siblings[at - 1])));
+        }
+        if let Some(next) = siblings.get(at + 1) {
+            item.push_str(&format!(" /Next {} 0 R", item_id(*next)));
+        }
+        item.push_str(" >>");
+        objects.push(item);
+    }
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(format!("{} 0 obj\n{object}\nendobj\n", index + 1).as_bytes());
+    }
+    let xref = pdf.len();
+    pdf.extend_from_slice(
+        format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+    );
+    for offset in offsets {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    pdf
+}
+
+/// A book's outline as a textbook typeset with LaTeX has it (Think Python's: chapters and their
+/// sections, pages of front matter before the first), its destinations found in a name tree that
+/// is split into leaves.
+#[test]
+fn a_books_bookmarks_lead_through_a_split_name_tree() {
+    let outline = [
+        ("Preface", 2, 0),
+        ("The way of the program", 4, 0),
+        ("What is a program?", 4, 1),
+        ("Running Python", 5, 1),
+        ("Variables, expressions and statements", 7, 0),
+        ("Assignment statements", 7, 1),
+        ("Order of operations", 8, 1),
+        ("Glossary", 9, 2),
+    ];
+    let document = Document::from_bytes(book_pdf(10, &outline)).expect("the generated book opens");
+    assert_eq!(document.page_count(), 10);
+    let read: Vec<(String, usize, u32)> = document
+        .outline()
+        .into_iter()
+        .map(|entry| (entry.title, entry.page, entry.level))
+        .collect();
+    let wanted: Vec<(String, usize, u32)> = outline
+        .iter()
+        .map(|(title, page, level)| ((*title).to_owned(), *page, *level))
+        .collect();
+    assert_eq!(read, wanted);
+}

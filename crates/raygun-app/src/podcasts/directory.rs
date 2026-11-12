@@ -116,6 +116,93 @@ pub fn after(found: Vec<Found>, earlier: &[Found]) -> Vec<Found> {
         .collect()
 }
 
+/// The copies of a book at every source (Find in other sources): the books whose title answers
+/// `title` (all of its words, at least), by the same author when both say, closest first. Unlike
+/// [`merge`], each source's copy stays (two sources sharing a recording both show); a feed shows
+/// once, and `own_feed` (the book itself) not at all.
+pub fn elsewhere(
+    pages: Vec<(String, BookPage)>,
+    title: &str,
+    author: Option<&str>,
+    own_feed: &str,
+) -> Vec<Found> {
+    let wanted = titles::book(title, None);
+    let query = words(&wanted.title);
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let author = author.map(str::trim).filter(|author| !author.is_empty());
+    let mut ranked: Vec<(u32, usize, usize, Found)> = Vec::new();
+    for (source_index, (source, page)) in pages.into_iter().enumerate() {
+        for (place, book) in page.books.into_iter().enumerate() {
+            if book.feed_url == own_feed {
+                continue;
+            }
+            let name = titles::book(&book.title, book.author.as_deref());
+            // The whole title, its start, or every word of it in the book's title.
+            let score = score_title(&name, &query);
+            if score < TITLE_ANSWERS {
+                continue;
+            }
+            if let (Some(wanted), Some(found)) = (author, name.author.as_deref())
+                && !author_agrees(wanted, found)
+            {
+                continue;
+            }
+            ranked.push((
+                score,
+                source_index,
+                place,
+                Found {
+                    name,
+                    book,
+                    source: source.clone(),
+                },
+            ));
+        }
+    }
+    ranked.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    let mut found: Vec<Found> = Vec::with_capacity(ranked.len());
+    for (_, _, _, book) in ranked {
+        if !found
+            .iter()
+            .any(|known| known.book.feed_url == book.book.feed_url)
+        {
+            found.push(book);
+        }
+    }
+    found
+}
+
+/// A book's title answers a title from this score up ([`score`]'s: every word of it in the
+/// book's title).
+const TITLE_ANSWERS: u32 = 50;
+
+/// [`score`] by the title alone: an author's words don't make a title answer.
+fn score_title(name: &BookName, query: &[String]) -> u32 {
+    score(
+        &BookName {
+            author: None,
+            ..name.clone()
+        },
+        query,
+    )
+}
+
+/// Whether two bylines name the same writer as far as their words tell: one of them has a word
+/// of three letters or more ("Shelley") the other has, however each is written ("Mary
+/// Wollstonecraft Shelley", "Shelley, Mary").
+fn author_agrees(one: &str, other: &str) -> bool {
+    let words_of = |name: &str| -> Vec<String> {
+        words(&titles::person(name).unwrap_or_else(|| name.to_owned()))
+            .into_iter()
+            .filter(|word| word.chars().count() >= 3)
+            .collect()
+    };
+    let (one, other) = (words_of(one), words_of(other));
+    one.is_empty() || other.is_empty() || one.iter().any(|word| other.contains(word))
+}
+
 /// The words of a query or title, for matching: letters and digits, lower case.
 fn words(text: &str) -> Vec<String> {
     text.split(|ch: char| !ch.is_alphanumeric())
@@ -284,6 +371,75 @@ mod tests {
             Some("jane austen"),
         );
         assert_eq!(by_author[0].name.title, "Persuasion");
+    }
+
+    #[test]
+    fn elsewhere_keeps_each_sources_copy_of_the_book_and_leaves_its_own_out() {
+        let own = "https://librivox.org/rss/42";
+        let librivox = page(
+            vec![
+                book("Frankenstein", "Mary Wollstonecraft Shelley", own),
+                book(
+                    "Frankenstein (version 2)",
+                    "Mary Wollstonecraft Shelley",
+                    "https://librivox.org/rss/2817",
+                ),
+                book(
+                    "Frankenstein; or, the Modern Prometheus",
+                    "Mary Shelley",
+                    "https://librivox.org/rss/9001",
+                ),
+                // Another writer's book of the same name, and books that merely mention it.
+                book(
+                    "Frankenstein",
+                    "Someone Else",
+                    "https://librivox.org/rss/77",
+                ),
+                book(
+                    "Young Frankenstein Stories",
+                    "Mary Shelley",
+                    "https://x.org/rss/5",
+                ),
+                book("Dracula", "Bram Stoker", "https://librivox.org/rss/3"),
+            ],
+            false,
+        );
+        let loyal = page(
+            vec![book(
+                "Frankenstein",
+                "Shelley, Mary",
+                "https://www.loyalbooks.com/book/frankenstein/feed",
+            )],
+            false,
+        );
+        let found = elsewhere(
+            vec![("LibriVox".into(), librivox), ("Loyal Books".into(), loyal)],
+            "Frankenstein",
+            Some("Mary Shelley"),
+            own,
+        );
+        let feeds: Vec<&str> = found
+            .iter()
+            .map(|book| book.book.feed_url.as_str())
+            .collect();
+        assert_eq!(
+            feeds,
+            [
+                "https://www.loyalbooks.com/book/frankenstein/feed",
+                "https://librivox.org/rss/2817",
+                "https://librivox.org/rss/9001",
+                "https://x.org/rss/5",
+            ],
+            "the same title first (the first recording before version 2), each source's copy, \
+             never the book's own feed or another writer's book"
+        );
+        assert_eq!(found[0].source, "Loyal Books");
+        assert!(elsewhere(Vec::new(), "  ", None, own).is_empty());
+        assert!(author_agrees(
+            "Mary Shelley",
+            "Shelley, Mary Wollstonecraft"
+        ));
+        assert!(!author_agrees("Mary Shelley", "Bram Stoker"));
     }
 
     #[test]

@@ -11,7 +11,15 @@ import { unwrapResult } from '../../lib/commandResult';
 import { formatBytes } from '../../lib/formatBytes';
 import { DEFAULT_PREFS } from '../../novel/useNovel';
 import { Problem } from '../Problem';
-import { PrefAction, PrefBlock, PrefChoice, PrefGroup, PrefInfo, PrefSlider } from '../prefs';
+import {
+  PrefAction,
+  PrefBlock,
+  PrefChoice,
+  PrefGroup,
+  PrefInfo,
+  PrefSlider,
+  PrefSwitch,
+} from '../prefs';
 import { useSettings, useUpdateSetting } from '../useSettings';
 import { CancelButton, DownloadBar, ModelDownloadRow, ModelRow } from './ModelRows';
 import { downloadPercent } from './modelUse';
@@ -156,7 +164,8 @@ const VoiceRow: FC<{
 /**
  * Reading aloud: what reads books aloud (the device's own voices, or Piper's or Kokoro's voices
  * downloaded here with the engine that runs them), the voice each language is read with, the
- * speed and pitch, and a preview. The reader's speed is the same setting.
+ * speed, pitch and volume, language changes and Roman numerals, and a preview. The reader's own
+ * options set the same settings.
  */
 export const ReadAloudSection: FC = () => {
   const { t, i18n } = useTranslation();
@@ -273,6 +282,37 @@ export const ReadAloudSection: FC = () => {
         format={(value) => `${(value / 10).toFixed(1)}×`}
         disabled={!prefs}
         onChange={(pitch) => save({ pitch })}
+      />
+      <PrefSlider
+        title={t('ai.readAloud.volume')}
+        value={prefs?.volume ?? 100}
+        min={10}
+        max={100}
+        step={5}
+        format={(value) => `${value}%`}
+        disabled={!prefs}
+        onChange={(volume) => save({ volume })}
+      />
+      <PrefSwitch
+        title={t('novel.readAloudOptions.detectLanguages')}
+        summary={t('novel.readAloudOptions.detectLanguagesHint')}
+        checked={prefs?.detectLanguages ?? false}
+        disabled={!prefs}
+        onChange={(detectLanguages) => save({ detectLanguages })}
+      />
+      <PrefSwitch
+        title={t('novel.readAloudOptions.romanTitles')}
+        summary={t('novel.readAloudOptions.romanTitlesHint')}
+        checked={prefs?.romanTitles ?? true}
+        disabled={!prefs}
+        onChange={(romanTitles) => save({ romanTitles })}
+      />
+      <PrefSwitch
+        title={t('novel.readAloudOptions.romanEverywhere')}
+        summary={t('novel.readAloudOptions.romanEverywhereHint')}
+        checked={(prefs?.romanTitles ?? true) && (prefs?.romanEverywhere ?? false)}
+        disabled={!prefs || !(prefs.romanTitles ?? true)}
+        onChange={(romanEverywhere) => save({ romanEverywhere })}
       />
       {engine === 'system' && (
         <PrefAction

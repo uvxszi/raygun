@@ -44,5 +44,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Style sheets whose rules tests read.
+    css: { include: [/novel\/bookText\.css/] },
   },
 });

@@ -7,6 +7,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CategoryPicker } from '../manga/CategoryPicker';
+import { FindInOtherSourcesButton, OtherSources } from '../manga/OtherSources';
 import { ResumeFab, TitleHero } from '../shell/TitleHero';
 import { TopBar, TopBarAction } from '../shell/TopBar';
 import { useDragScroll } from '../shell/useDragScroll';
@@ -276,6 +277,7 @@ export const WatchTitlePage: FC = () => {
     }
   };
   const [expanded, setExpanded] = useState(false);
+  const [finding, setFinding] = useState(false);
   const view = meta.data;
   const client = useQueryClient();
   // The catalogue's card for it (M46.40): its name and poster at once, and when addons fail.
@@ -541,6 +543,19 @@ export const WatchTitlePage: FC = () => {
         <SourceIssue>
           {(trailer.error ?? setWatched.error ?? setInLibrary.error ?? watch.error)?.message}
         </SourceIssue>
+      )}
+      {/* The same title (and season) at the video sources, when the addons have no stream. */}
+      {!view.live && (
+        <FindInOtherSourcesButton open={finding} onToggle={() => setFinding(!finding)} />
+      )}
+      {finding && (
+        <OtherSources
+          medium="video"
+          title={view.name}
+          sourceId="stremio"
+          titleId={view.titleId ?? undefined}
+          inLibrary={view.inLibrary}
+        />
       )}
       {hasEpisodes && <Episodes meta={view} downloads={downloads} onPick={pick} />}
       {!wide && <ResumeFab label={playLabel} onClick={playNow} />}

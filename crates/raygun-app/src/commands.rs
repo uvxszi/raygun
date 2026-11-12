@@ -1702,7 +1702,9 @@ pub async fn youtube_link(text: String) -> Result<Option<raygun_model::YouTubeLi
     Ok(Some(crate::ytdlp::describe(&client, link).await))
 }
 
-/// Plays a YouTube video from an address typed in Search, in YouTube's embed (M46.47).
+/// Plays a YouTube video from an address typed in Search, in YouTube's embed (M46.47). A live
+/// stream plays in Raygun's player instead when an installed YouTube source can ask for its
+/// playlist (`video::youtube_live_request`; anything else is told apart by YouTube's answer).
 #[tauri::command]
 #[specta::specta]
 pub async fn youtube_play(
@@ -1711,7 +1713,22 @@ pub async fn youtube_play(
     title: String,
     channel: Option<String>,
 ) -> Result<(), String> {
-    crate::video::play_youtube(&app, &video_id, &title, channel).await
+    let link = format!("{}{video_id}", crate::video::YOUTUBE_LINK);
+    let request = raygun_model::VideoRequest {
+        key: format!("url:{link}"),
+        title,
+        subtitle: channel,
+        poster: None,
+        url: link,
+        headers: std::collections::BTreeMap::new(),
+        format: None,
+        subtitles: Vec::new(),
+        group: None,
+        chapters: Vec::new(),
+        anime: None,
+        live: true,
+    };
+    crate::video::play(&app, request).await
 }
 
 /// Raygun's newest release next to this copy (M46.47); `refresh` asks GitHub now.
@@ -1947,6 +1964,25 @@ pub async fn audiobook_directory(
         .await
 }
 
+/// The same book at the audiobook sources (Find in other sources): every source's copy whose
+/// title answers `title`, by the same author when both say, without the book's own feed.
+#[tauri::command]
+#[specta::specta]
+pub async fn audiobooks_elsewhere(
+    app: tauri::AppHandle,
+    podcasts: Podcasts<'_>,
+    title: String,
+    author: Option<String>,
+    feed_url: String,
+) -> Result<Vec<raygun_model::AudiobookResult>, String> {
+    let skip = crate::search_filter::current(&app).await.no_adult;
+    raygun_ext_host::without_adult_sources(
+        skip,
+        podcasts.audiobooks_elsewhere(&title, author.as_deref(), &feed_url),
+    )
+    .await
+}
+
 /// Downloads every chapter of a book not downloaded yet, two at a time; returns how many were
 /// queued (M46.48).
 #[tauri::command]
@@ -2144,6 +2180,41 @@ pub async fn reader_ai_translate(
     request: raygun_model::ReaderAiTranslateRequest,
 ) -> Result<Vec<String>, String> {
     reader_ai.translate(request).await
+}
+
+/// Words translated on their own (a selection in a book, a title to search for elsewhere): from
+/// a language or detected, by this device or a translator from Settings → AI; says who translated
+/// and what the words were read as.
+#[tauri::command]
+#[specta::specta]
+pub async fn text_translate(
+    app: tauri::AppHandle,
+    request: raygun_model::TextTranslateRequest,
+) -> Result<raygun_model::TextTranslation, String> {
+    crate::text_translation::translate(&app, request).await
+}
+
+/// The languages and translator picked last for translating a book's selections, else any
+/// book's.
+#[tauri::command]
+#[specta::specta]
+pub async fn text_translate_choice(
+    app: tauri::AppHandle,
+    title_id: Option<String>,
+) -> Result<Option<raygun_model::TranslateChoice>, String> {
+    crate::text_translation::choice(&app, title_id.as_deref()).await
+}
+
+/// Remembers the languages and translator picked for a book's selections (and as the last
+/// choice); nothing is kept while incognito is on.
+#[tauri::command]
+#[specta::specta]
+pub async fn text_translate_remember(
+    app: tauri::AppHandle,
+    title_id: Option<String>,
+    choice: raygun_model::TranslateChoice,
+) -> Result<(), String> {
+    crate::text_translation::remember(&app, title_id.as_deref(), choice).await
 }
 
 /// A file of an installed model the readers run themselves (Anime4K's shaders).
@@ -3921,6 +3992,24 @@ pub fn tts_now(app: tauri::AppHandle) -> Option<raygun_model::TtsUpdate> {
 #[specta::specta]
 pub fn tts_voices() -> raygun_model::TtsVoices {
     crate::tts::voice_list()
+}
+
+/// The language a book is read aloud in: the one chosen for it, and the one it says it's in.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_language(app: tauri::AppHandle, title_id: String) -> raygun_model::TtsLanguage {
+    crate::tts::language_of(&app, &title_id).await
+}
+
+/// Reads a book aloud in `language` (none: its own); a reading of it goes on in it at once.
+#[tauri::command]
+#[specta::specta]
+pub async fn tts_set_language(
+    app: tauri::AppHandle,
+    title_id: String,
+    language: Option<String>,
+) -> Result<(), String> {
+    crate::tts::set_language(&app, &title_id, language).await
 }
 
 /// Reads a sample sentence with a downloaded voice (`key`, `<model>/<voice>`) or, without one,

@@ -84,6 +84,7 @@ mod sponsorblock;
 mod startup;
 mod stremio;
 mod system_ui;
+mod text_translation;
 mod torrents;
 mod tts;
 mod updates;
@@ -256,6 +257,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::audiobook_open,
             commands::audiobook_play,
             commands::audiobook_directory,
+            commands::audiobooks_elsewhere,
             commands::audiobook_download,
             commands::podcast_continue_listening,
             commands::captions,
@@ -271,6 +273,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::reader_ai_support,
             commands::reader_ai_page_text,
             commands::reader_ai_translate,
+            commands::text_translate,
+            commands::text_translate_choice,
+            commands::text_translate_remember,
             commands::ai_model_text,
             commands::spoken_item,
             commands::music_track_tags,
@@ -423,6 +428,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::tts_step,
             commands::tts_now,
             commands::tts_voices,
+            commands::tts_language,
+            commands::tts_set_language,
             commands::tts_preview,
             commands::tts_stop,
             commands::ai_providers,

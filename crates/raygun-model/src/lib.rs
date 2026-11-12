@@ -5645,7 +5645,7 @@ pub enum MangaBrowseMode {
 }
 
 /// A title in a source's catalogue.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaCard {
     pub source_id: String,
@@ -5666,9 +5666,29 @@ pub struct MangaCard {
     /// saved (none for videos). A book without a cover gets one drawn with them.
     #[serde(default)]
     pub authors: Vec<String>,
+    /// On the air now: a video source's live stream (its card is marked live, with its viewers).
+    #[serde(default)]
+    #[specta(optional)]
+    pub live: Option<LiveNow>,
+    /// A short line under the title, as the listing gives it (a live stream's channel and game).
+    #[serde(default)]
+    #[specta(optional)]
+    pub subtitle: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// A live stream as a source's listing describes it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveNow {
+    /// People watching now, as the source counts them.
+    #[serde(default)]
+    pub viewers: Option<u32>,
+    /// When it went live, Unix ms.
+    #[serde(default)]
+    pub started_at: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MangaListingPage {
     pub items: Vec<MangaCard>,
@@ -7687,6 +7707,15 @@ pub enum TextBlock {
         /// The formula in words, for reading aloud.
         speech: String,
     },
+    /// Code, or other text set out line by line, as written: its lines (`\n` between them) and
+    /// spacing kept, shown in a monospaced font. Reading aloud passes over code.
+    Code {
+        text: String,
+        /// The language a highlighter named (`latex`, `python`), in lower case.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(optional)]
+        language: Option<String>,
+    },
 }
 
 impl TextBlock {
@@ -7753,7 +7782,8 @@ pub struct PdfChapter {
     /// How the pages are read: the title's own mode, else the comics reader's default.
     pub reader_mode: ReaderMode,
     pub own_reader_mode: Option<ReaderMode>,
-    /// The document's bookmarks within the chapter.
+    /// The document's bookmarks, in its order: an imported book's whole outline (the same in
+    /// every chapter), a source's chapter only those among its pages.
     pub contents: Vec<PdfContentsEntry>,
 }
 
@@ -7762,8 +7792,12 @@ pub struct PdfChapter {
 #[serde(rename_all = "camelCase")]
 pub struct PdfContentsEntry {
     pub title: String,
-    /// The page it leads to, from 0, in the chapter's pages.
+    /// The chapter holding the page it leads to.
+    pub chapter_id: String,
+    /// The page it leads to, from 0, in that chapter's pages.
     pub page: u32,
+    /// The document's own number of that page, from 1.
+    pub page_number: u32,
     /// 0 for the top level.
     pub level: u32,
 }
@@ -7816,14 +7850,22 @@ pub struct ImportedTitle {
 pub struct TtsParagraph {
     pub id: u32,
     pub text: String,
+    /// A title (a heading block): Roman numerals heading it are read as numbers.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub heading: bool,
 }
 
-/// What reading aloud is asked to read (`tts_speak`).
+/// What reading aloud is asked to read (`tts_speak`). Speed, pitch, volume and voice are the
+/// settings' (`NovelReaderPrefs::tts_rate`, `ReadAloudPrefs`), applied as they change.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TtsRequest {
     /// The chapter read: reports name it, and where reading stopped is kept for it.
     pub chapter_id: String,
+    /// The book: the language chosen for it (`tts_set_language`), else the one it says it's in.
+    #[serde(default)]
+    pub title_id: String,
     /// The book's and the chapter's names, for the notification.
     pub title: String,
     pub chapter: String,
@@ -7831,11 +7873,23 @@ pub struct TtsRequest {
     pub paragraphs: Vec<TtsParagraph>,
     /// The paragraph reading starts from.
     pub from: u32,
+    /// Where in paragraph `from` reading starts (UTF-16, a tap or a selection): from the
+    /// sentence holding it.
+    #[serde(default)]
+    pub offset: Option<u32>,
     /// Started by the Read aloud button: where this chapter was left aloud, when it's around
     /// `from`, goes on from its sentence (and word) instead.
     pub resume: bool,
-    /// Speed, 1 = normal.
-    pub rate: f64,
+}
+
+/// The language a book is read aloud in (the reader's options).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsLanguage {
+    /// Chosen for the book (BCP 47); none: Auto.
+    pub chosen: Option<String>,
+    /// The language the book says it's in (its EPUB's, or its source's), which Auto reads in.
+    pub book: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -7858,6 +7912,8 @@ pub enum TtsState {
 pub enum TtsNotice {
     /// No downloaded voice speaks the book's language: the device's own voice reads it.
     NoVoice { language: Option<String> },
+    /// No voice here speaks `language` (the book's, or a passage's): another voice reads it.
+    OtherVoice { language: Option<String> },
     /// The downloaded voice couldn't be used: the device's own voice reads it.
     VoiceFailed,
     /// The voice engine stopped (no voice for the language, or it was taken away).
@@ -7874,6 +7930,10 @@ pub struct TtsUpdate {
     pub start: u32,
     pub end: u32,
     pub notice: Option<TtsNotice>,
+    /// The language the book is read in (BCP 47), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub language: Option<String>,
 }
 
 /// One piece for a speech engine: `id` names it in reports (`:end` on the very last one).
@@ -7881,19 +7941,28 @@ pub struct TtsUpdate {
 pub struct SpeechLine {
     pub id: String,
     pub text: String,
+    /// A passage in another language than the rest (BCP 47).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub language: Option<String>,
 }
 
 /// What the webview's speech engine does on desktop (M46.6).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SpeechCommand {
-    /// Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal),
-    /// in `language` when it has a voice for it, after stopping anything playing.
+    /// Speaks `items` in order with the system's voices at `rate` and `pitch` (1 is normal) and
+    /// `volume` (0–1), in `language` when it has a voice for it, after stopping anything playing.
     Speak {
         items: Vec<SpeechLine>,
         rate: f64,
         pitch: f64,
+        volume: f64,
         language: Option<String>,
+    },
+    /// The clips' volume (0–1), at once.
+    Volume {
+        volume: f64,
     },
     /// Plays speech a downloaded voice made after the clips before it: 16-bit mono PCM as
     /// base64. `id` comes back in reports as it starts.
@@ -7934,7 +8003,8 @@ impl ReadAloudEngine {
     }
 }
 
-/// How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`).
+/// How books are read aloud; the speed is the reader's (`NovelReaderPrefs::tts_rate`). Set in
+/// Settings → AI → Reading aloud and in the reader's options.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ReadAloudPrefs {
@@ -7944,7 +8014,20 @@ pub struct ReadAloudPrefs {
     pub voices: std::collections::BTreeMap<String, String>,
     /// Pitch in tenths, 5–20 (0.5–2).
     pub pitch: u32,
+    /// Volume in percent, within [`READ_ALOUD_VOLUMES`].
+    pub volume: u32,
+    /// Long passages clearly in another language than the book's are read in that language.
+    pub detect_languages: bool,
+    /// Roman numerals in titles ("Chapter IV", a heading "II.") are read as numbers.
+    pub roman_titles: bool,
+    /// Also wherever one is clearly a numeral ("Henry VIII", "World War II").
+    pub roman_everywhere: bool,
+    /// Numbered titles as ordinals ("Chapter the fourth").
+    pub roman_ordinals: bool,
 }
+
+/// Read-aloud volumes offered, in percent.
+pub const READ_ALOUD_VOLUMES: std::ops::RangeInclusive<u32> = 10..=100;
 
 impl Default for ReadAloudPrefs {
     fn default() -> Self {
@@ -7952,6 +8035,11 @@ impl Default for ReadAloudPrefs {
             engine: ReadAloudEngine::System,
             voices: std::collections::BTreeMap::new(),
             pitch: 10,
+            volume: 100,
+            detect_languages: false,
+            roman_titles: true,
+            roman_everywhere: false,
+            roman_ordinals: false,
         }
     }
 }
@@ -7960,6 +8048,9 @@ impl ReadAloudPrefs {
     pub fn validate(&self) -> Result<(), String> {
         if !(5..=20).contains(&self.pitch) {
             return Err("pitch is between 5 and 20 tenths".to_owned());
+        }
+        if !READ_ALOUD_VOLUMES.contains(&self.volume) {
+            return Err("volume is between 10 and 100 percent".to_owned());
         }
         if self.voices.len() > 200
             || self
@@ -8012,6 +8103,9 @@ pub enum AiProviderKind {
     /// An OpenAI-compatible transcription server (faster-whisper-server, whisper.cpp): only
     /// transcribes.
     WhisperServer,
+    /// Google's Cloud Translation API (Basic, v2) with the user's API key. Its translations are
+    /// shown with Google's attribution.
+    Google,
 }
 
 impl AiProviderKind {
@@ -8027,7 +8121,7 @@ impl AiProviderKind {
 
     /// Whether it works without a key.
     pub fn key_optional(self) -> bool {
-        !matches!(self, Self::Claude | Self::Deepl)
+        !matches!(self, Self::Claude | Self::Deepl | Self::Google)
     }
 
     /// Whether a provider of this kind, with or without a key, can translate.
@@ -8048,6 +8142,59 @@ pub struct AiProvider {
     pub has_key: bool,
     /// The key's last four characters.
     pub key_hint: Option<String>,
+}
+
+/// Words to translate on their own (a selection in a book, a title to search for elsewhere):
+/// from a language or detected, into one, with a translator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TextTranslateRequest {
+    pub text: String,
+    /// The language it's written in, a BCP 47 tag; empty to detect it.
+    #[serde(default)]
+    pub from: String,
+    pub to: String,
+    /// Who translates: empty for this device (its models picked by language), an AI catalogue
+    /// translation model (this device, that model first), or `ai:<provider id>`.
+    #[serde(default)]
+    pub translator: String,
+    /// What the text is likely in when `from` is empty (the dictionary's answer, the book's
+    /// language): said back when the translator doesn't tell.
+    #[serde(default)]
+    pub hint: String,
+}
+
+/// Words translated, and how.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TextTranslation {
+    pub text: String,
+    /// The language it was translated from: the one asked, else the one detected (by the
+    /// translator, else from the hint or the words); empty when unknown.
+    pub from: String,
+    /// `from` was detected rather than asked.
+    pub detected: bool,
+    pub to: String,
+    /// The translator, as asked (empty for this device's choice).
+    pub translator: String,
+    /// A provider's name; empty for this device.
+    pub translator_name: String,
+    /// A provider's kind; `None` for this device.
+    pub kind: Option<AiProviderKind>,
+    /// This device's models it went through, in turn.
+    pub models: Vec<String>,
+}
+
+/// The languages and translator picked last for translating a selection: a book's own, else the
+/// last anywhere.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslateChoice {
+    /// Empty: detect.
+    pub from: String,
+    pub to: String,
+    /// As [`TextTranslateRequest::translator`].
+    pub translator: String,
 }
 
 /// A provider to add (no `id`) or change.

@@ -1,0 +1,103 @@
+{
+  "metadata": {
+    "channelMetadataRenderer": {
+      "title": "Lofi Girl",
+      "externalId": "UCSJ4gkVC6NrvII8umztf0Ow",
+      "avatar": {
+        "thumbnails": [
+          {
+            "url": "https://yt3.googleusercontent.com/REcZL_LGu0DaDaC-G7VIbN0uE_5l-i_dw6ZvOETRnY3pRhUmfkOq6C1MLephPZkV4VSzQAhEi_4=s900-c-k-c0x00ffffff-no-rj",
+            "width": 900,
+            "height": 900
+          }
+        ]
+      }
+    }
+  },
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "title": "Home",
+            "endpoint": {
+              "commandMetadata": {
+                "webCommandMetadata": {
+                  "url": "/@LofiGirl/featured"
+                }
+              },
+              "browseEndpoint": {
+                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+                "params": "EghmZWF0dXJlZPIGBAoCMgA%3D"
+              }
+            }
+          }
+        },
+        {
+          "tabRenderer": {
+            "title": "Videos",
+            "endpoint": {
+              "commandMetadata": {
+                "webCommandMetadata": {
+                  "url": "/@LofiGirl/videos"
+                }
+              },
+              "browseEndpoint": {
+                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+                "params": "EgZ2aWRlb3PyBgQKAjoA"
+              }
+            }
+          }
+        },
+        {
+          "tabRenderer": {
+            "title": "Shorts",
+            "endpoint": {
+              "commandMetadata": {
+                "webCommandMetadata": {
+                  "url": "/@LofiGirl/shorts"
+                }
+              },
+              "browseEndpoint": {
+                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+                "params": "EgZzaG9ydHPyBgUKA5oBAA%3D%3D"
+              }
+            }
+          }
+        },
+        {
+          "tabRenderer": {
+            "title": "Live",
+            "endpoint": {
+              "commandMetadata": {
+                "webCommandMetadata": {
+                  "url": "/@LofiGirl/streams"
+                }
+              },
+              "browseEndpoint": {
+                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+                "params": "EgdzdHJlYW1z8gYECgJ6AA%3D%3D"
+              }
+            }
+          }
+        },
+        {
+          "tabRenderer": {
+            "title": "Releases",
+            "endpoint": {
+              "commandMetadata": {
+                "webCommandMetadata": {
+                  "url": "/@LofiGirl/releases"
+                }
+              },
+              "browseEndpoint": {
+                "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+                "params": "EghyZWxlYXNlc_IGBQoDsgEA"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

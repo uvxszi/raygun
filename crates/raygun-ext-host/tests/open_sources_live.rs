@@ -1991,3 +1991,159 @@ async fn open_sources_live_listenbrainz() {
     println!("jazz radio: {:?}", names(songs));
     assert!(songs.len() >= 8);
 }
+
+// ---- Internet Archive books, open webcomics, PeerTube ----
+
+const ARCHIVE_BOOKS: &str = "dev.raygun.archive-books/books";
+const WEBCOMICS: &str = "dev.raygun.open-webcomics/webcomics";
+const PEERTUBE: &str = "dev.raygun.peertube/videos";
+
+#[tokio::test]
+#[ignore = "needs network access to archive.org"]
+async fn open_sources_live_archive_books() {
+    let host = host().await;
+    let popular = host
+        .manga_list(ARCHIVE_BOOKS, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_listing("most read", &popular);
+    assert!(popular.has_next_page);
+    let latest = host
+        .manga_list(ARCHIVE_BOOKS, MangaList::Latest, 1)
+        .await
+        .unwrap();
+    assert_listing("recently added", &latest);
+    let found = host
+        .manga_search(ARCHIVE_BOOKS, "pride and prejudice", 1)
+        .await
+        .unwrap();
+    assert_listing("search pride and prejudice", &found);
+    let french = host
+        .manga_search_filtered(
+            ARCHIVE_BOOKS,
+            "",
+            1,
+            &BTreeMap::from([
+                ("language".to_owned(), select("fre")),
+                ("library".to_owned(), select("toronto")),
+            ]),
+        )
+        .await
+        .unwrap();
+    assert_listing("French books from Canadian libraries", &french);
+
+    for id in [&popular.items[0].id, &found.items[0].id] {
+        let details = host.manga_details(ARCHIVE_BOOKS, id).await.unwrap();
+        let description = details.description.unwrap_or_default();
+        println!(
+            "{id}: {:?} by {:?}\n{description}",
+            details.title, details.authors
+        );
+        assert!(description.contains("Public domain in the United States"));
+        let chapters = host.manga_chapters(ARCHIVE_BOOKS, id).await.unwrap();
+        assert!(!chapters.is_empty());
+        let blocks = host
+            .novel_passage(ARCHIVE_BOOKS, &chapters[0].id)
+            .await
+            .unwrap();
+        let [PassageBlock::Pdf(pdf)] = blocks.as_slice() else {
+            panic!("{id}: not a PDF: {blocks:?}");
+        };
+        assert_served(id, &pdf.url, &pdf.headers).await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs network access to www.sandraandwoo.com and turnoff.us"]
+async fn open_sources_live_open_webcomics() {
+    let host = host().await;
+    let popular = host
+        .manga_list(WEBCOMICS, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_listing("series", &popular);
+    for (series, at_least) in [("sandra-and-woo", 1300), ("turnoff", 300)] {
+        let details = host.manga_details(WEBCOMICS, series).await.unwrap();
+        assert!(
+            details
+                .description
+                .unwrap_or_default()
+                .contains("Licence: Creative Commons")
+        );
+        let chapters = host.manga_chapters(WEBCOMICS, series).await.unwrap();
+        println!(
+            "{series}: {} strips, newest {:?}",
+            chapters.len(),
+            chapters.first().map(|chapter| &chapter.name)
+        );
+        assert!(chapters.len() >= at_least, "{series}: {}", chapters.len());
+        for chapter in [chapters.first().unwrap(), chapters.last().unwrap()] {
+            let pages = host.manga_pages(WEBCOMICS, &chapter.id).await.unwrap();
+            assert!(!pages.is_empty(), "{}", chapter.id);
+            assert_served(&chapter.id, &pages[0].url, &pages[0].headers).await;
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs network access to sepiasearch.org and PeerTube instances"]
+async fn open_sources_live_peertube() {
+    let host = host().await;
+    let popular = host
+        .manga_list(PEERTUBE, MangaList::Popular, 1)
+        .await
+        .unwrap();
+    assert_listing("trending", &popular);
+    assert!(popular.has_next_page);
+    let latest = host
+        .manga_list(PEERTUBE, MangaList::Latest, 1)
+        .await
+        .unwrap();
+    assert_listing("newest", &latest);
+    let films = host
+        .manga_search_filtered(
+            PEERTUBE,
+            "blender",
+            1,
+            &BTreeMap::from([
+                ("licence".to_owned(), select("commercial")),
+                ("category".to_owned(), select("2")),
+            ]),
+        )
+        .await
+        .unwrap();
+    assert_listing("Blender films anyone may use", &films);
+
+    // Instances go down now and then: the first few videos that answer.
+    let mut played = 0;
+    for item in films.items.iter().chain(&popular.items).take(8) {
+        let details = match host.manga_details(PEERTUBE, &item.id).await {
+            Ok(details) => details,
+            Err(error) => {
+                println!("{}: {error}", item.id);
+                continue;
+            }
+        };
+        let description = details.description.unwrap_or_default();
+        assert!(description.contains("Licence: "), "{description}");
+        let servers = host.video_servers(PEERTUBE, &item.id).await.unwrap();
+        let videos = servers[0].videos.as_ref().expect("resolved at once");
+        println!(
+            "{} ({}): {:?}",
+            details.title,
+            servers[0].name,
+            videos
+                .iter()
+                .map(|video| (&video.label, video.subtitles.len()))
+                .collect::<Vec<_>>()
+        );
+        assert_served(&item.id, &videos[0].url, &videos[0].headers).await;
+        let comments = host.video_comments(PEERTUBE, &item.id, None).await.unwrap();
+        println!("  {} comments", comments.comments.len());
+        played += 1;
+        if played == 3 {
+            break;
+        }
+    }
+    assert!(played >= 2, "only {played} videos answered");
+}

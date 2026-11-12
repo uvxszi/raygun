@@ -47,7 +47,10 @@ export const saveNovelProgress = (chapterId: string, offset: number, total: numb
 
 /** Characters a block adds to the chapter's text (what progress offsets count). */
 const blockLength = (block: TextBlock) =>
-  block.kind === 'paragraph' || block.kind === 'heading' || block.kind === 'math'
+  block.kind === 'paragraph' ||
+  block.kind === 'heading' ||
+  block.kind === 'math' ||
+  block.kind === 'code'
     ? block.text.length
     : 0;
 
@@ -73,12 +76,13 @@ export const blockAt = (starts: number[], offset: number) => {
 
 /**
  * The paragraphs of a chapter from `first` on, as speech gets them (block index and text):
- * formulas in words.
+ * formulas in words; titles say so (their Roman numerals are read as numbers).
  */
 export const speechParagraphs = (blocks: TextBlock[], first: number) =>
   blocks.flatMap((block, index) => {
     const text = index >= first ? spokenText(block) : null;
-    return text ? [{ id: index, text }] : [];
+    if (!text) return [];
+    return [block.kind === 'heading' ? { id: index, text, heading: true } : { id: index, text }];
   });
 
 /** A PDF chapter's text, read from its pages (with where each page starts). */

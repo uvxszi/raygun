@@ -303,6 +303,45 @@ describe('Stremio addons in Watch', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('finds the title at the video sources, beside the addons', async () => {
+    const user = userEvent.setup();
+    commands.stremioMeta.mockResolvedValue(ok(MOVIE));
+    const films = {
+      id: 'dev.example/films',
+      name: 'Public Films',
+      extensionId: 'dev.example',
+      enabled: true,
+    };
+    commands.videoSources.mockResolvedValue(ok([films]));
+    commands.catalogGlobalSearch.mockResolvedValue(
+      ok([
+        {
+          source: films,
+          items: [
+            {
+              sourceId: films.id,
+              id: 'matrix',
+              title: 'The Matrix',
+              coverUrl: null,
+              inLibrary: false,
+            },
+          ],
+          hasNextPage: false,
+          error: null,
+        },
+      ]),
+    );
+    commands.videoTitle.mockResolvedValue({ status: 'error' as const, error: 'gone' });
+    await AppShellWrapper.mount('/watch/title?type=movie&id=tt0133093');
+    const page = await screen.findByTestId('watch-title-page');
+    await user.click(within(page).getByRole('button', { name: 'Find in other sources' }));
+    const section = await screen.findByTestId('other-sources');
+    expect(await within(section).findByText('Public Films')).toBeInTheDocument();
+    expect(commands.catalogGlobalSearch).toHaveBeenCalledWith('video', 'The Matrix', [films.id]);
+    // A video has no author to ask for.
+    expect(within(section).queryByRole('textbox', { name: 'Author' })).not.toBeInTheDocument();
+  });
+
   it('plays a movie a catalog lists by another id by the id its details give', async () => {
     const user = userEvent.setup();
     // A TMDB addon's movie: its page goes by TMDB's id, its streams by IMDb's.

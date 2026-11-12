@@ -306,7 +306,7 @@ const LayerRow: FC<RowProps> = ({
 };
 
 /** The models this device's translator needs for `to` and hasn't downloaded. */
-const DeviceTranslatorNeeded: FC<{ to: string }> = ({ to }) => {
+export const DeviceTranslatorNeeded: FC<{ to: string }> = ({ to }) => {
   const options = useQuery({
     queryKey: ['readerAi', 'device', to],
     queryFn: () => commands.videoSubtitlesTranslators(to),

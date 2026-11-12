@@ -172,7 +172,7 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
         <p className="text-muted text-sm">{t('manga.nothingFound')}</p>
       )}
       <SelectionScope>
-        <MangaGrid items={items} medium={medium} />
+        <MangaGrid items={items} medium={medium} landscape={Boolean(source?.searchPill)} />
         <LoadMore
           hasNextPage={list.hasNextPage}
           fetching={list.isFetchingNextPage}

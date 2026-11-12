@@ -1,19 +1,9 @@
 import { commands } from '@raygun/bindings';
 import type { DictionaryLookup, DictionaryMeaning } from '@raygun/bindings';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
-import {
-  Copy,
-  ExternalLink,
-  Languages,
-  LoaderCircle,
-  RotateCcw,
-  Search,
-  Volume2,
-  X,
-} from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Copy, ExternalLink, LoaderCircle, RotateCcw, Search, Volume2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { CSSProperties, FC, ReactNode } from 'react';
+import type { CSSProperties, FC } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -21,12 +11,13 @@ import { nativeName } from '../i18n/languages';
 import { unwrapResult } from '../lib/commandResult';
 import { copyText } from '../music/mediaMenu';
 import { OfflineNote } from '../network/OfflineNote';
-import { useReaderAiLayers } from '../readerAi/useReaderAi';
 import { useBackLayer } from '../shell/backLayers';
 import { safeInsets } from '../shell/safeArea';
 import { showToast } from '../shell/toastStore';
 import { useWideScreen } from '../shell/useWideScreen';
+import { ActionButton } from './ActionButton';
 import { playPronunciation, stopPronunciation } from './pronunciation';
+import { SelectionTranslate } from './SelectionTranslate';
 import { isLookupText } from './useWordSelection';
 import type { SelectionBox, WordSelection } from './useWordSelection';
 
@@ -184,71 +175,6 @@ const Meaning: FC<{
     </section>
   );
 };
-
-/** The words translated with the reader's translator (the book's AI layers', else this
- * device's choice), into the layer's language or the app's. */
-const TranslateRow: FC<{ text: string; from: string; appLanguage: string }> = ({
-  text,
-  from,
-  appLanguage,
-}) => {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const layer = useReaderAiLayers('novel').layers.find((layer) => layer.to);
-  const to = layer?.to || appLanguage;
-  const translate = useMutation({
-    mutationFn: () =>
-      unwrapResult(
-        commands.readerAiTranslate({ texts: [text], from, to, model: layer?.model ?? '' }),
-      ).then((texts) => texts[0] ?? ''),
-  });
-  if (to.split('-')[0] === from.split('-')[0] && !layer) return null;
-  if (translate.isIdle) {
-    return (
-      <ActionButton icon={Languages} onClick={() => translate.mutate()}>
-        {t('dictionary.translate')}
-      </ActionButton>
-    );
-  }
-  return (
-    <div className="bg-background/60 basis-full rounded-xl px-3 py-2 text-sm" role="status">
-      <span className="text-muted block text-xs">
-        {t('dictionary.translationInto', { language: nativeName(to) })}
-      </span>
-      {translate.isPending && (
-        <LoaderCircle aria-label={t('dictionary.translating')} className="animate-spin" size={16} />
-      )}
-      {translate.data && <span className="selectable">{translate.data}</span>}
-      {translate.error && (
-        <span className="flex flex-col gap-1">
-          <span className="text-muted">{translate.error.message}</span>
-          <button
-            type="button"
-            onClick={() => void navigate({ to: '/settings/ai', hash: 'translation' })}
-            className="text-primary self-start text-xs font-semibold"
-          >
-            {t('dictionary.setUpTranslation')}
-          </button>
-        </span>
-      )}
-    </div>
-  );
-};
-
-const ActionButton: FC<{
-  icon: typeof Copy;
-  onClick: () => void;
-  children: ReactNode;
-}> = ({ icon: Icon, onClick, children }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="bg-background/60 hover:bg-background inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium"
-  >
-    <Icon aria-hidden size={15} />
-    {children}
-  </button>
-);
 
 /** Who answered, with the licence their text comes under and a link to the full entry. */
 const Credits: FC<{ lookup: DictionaryLookup }> = ({ lookup }) => {
@@ -493,10 +419,11 @@ export const WordLookup: FC<WordLookupProps> = ({
             {t('dictionary.online')}
           </ActionButton>
         )}
-        <TranslateRow
+        <SelectionTranslate
           key={query}
           text={query}
-          from={data?.language ?? ''}
+          hint={data?.language ?? ''}
+          titleId={titleId}
           appLanguage={appLanguage}
         />
       </div>

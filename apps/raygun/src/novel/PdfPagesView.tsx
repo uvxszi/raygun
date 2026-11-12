@@ -11,6 +11,7 @@ import { PageReader } from '../manga/reader/PageReader';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SHEET_FIELD, SHEET_INPUT, TextField } from '../shell/TextField';
+import { PdfContentsSheet } from './PdfContentsSheet';
 import { NOVEL, novelChapterQuery, saveNovelProgress } from './useNovel';
 
 const buttonClass = 'hover:bg-background grid size-11 shrink-0 place-items-center rounded-full';
@@ -89,39 +90,10 @@ const PdfSearchSheet: FC<{
   );
 };
 
-/** The document's bookmarks within the chapter, indented by level. */
-const PdfContentsSheet: FC<{
-  pdf: PdfChapter;
-  onPick: (page: number) => void;
-  onClose: () => void;
-}> = ({ pdf, onPick, onClose }) => {
-  const { t } = useTranslation();
-  return (
-    <Sheet title={t('pdf.contents')} onClose={onClose}>
-      <ul className="-mx-2 flex flex-col">
-        {pdf.contents.map((entry, index) => (
-          <li key={`${entry.page}:${index}`}>
-            <button
-              type="button"
-              onClick={() => onPick(entry.page)}
-              style={{ paddingLeft: `${0.75 + Math.min(entry.level, 6) * 1}rem` }}
-              className="hover:bg-background flex w-full items-baseline gap-3 rounded-xl py-2 pr-3 text-left"
-            >
-              <span className="min-w-0 flex-1 text-sm">{entry.title}</span>
-              <span className="text-muted shrink-0 text-xs tabular-nums">
-                {pdf.firstPage + entry.page}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Sheet>
-  );
-};
-
 /**
  * A PDF chapter read as its pages, in the page reader (zoom, page turns, the AI layers), with its
- * text a tap away, a search through the document and its bookmarks. Progress is the page reached.
+ * text a tap away, a search through the document and its contents (the same as the text view's).
+ * Progress is the page reached.
  */
 export const PdfPagesView: FC<{
   data: NovelChapter;
@@ -136,8 +108,11 @@ export const PdfPagesView: FC<{
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [searching, setSearching] = useState(false);
-  const [contents, setContents] = useState(false);
+  /** The contents' button while they're open. */
+  const [contents, setContents] = useState<HTMLElement | null>(null);
   const [jump, setJump] = useState<{ page: number; nonce: number } | null>(goTo ?? null);
+  /** The page in view, from 0 in the chapter. */
+  const [page, setPage] = useState(0);
   const pages: MangaChapterPages = useMemo(
     () => ({
       titleId: data.titleId,
@@ -165,6 +140,7 @@ export const PdfPagesView: FC<{
   const show = (page: number) => setJump((last) => ({ page, nonce: (last?.nonce ?? 0) + 1 }));
   const open = (place: PdfPlace) => {
     setSearching(false);
+    setContents(null);
     if (place.chapterId === data.chapter.id) show(place.page);
     else onGo(place.chapterId, place.page);
   };
@@ -181,6 +157,7 @@ export const PdfPagesView: FC<{
         saveProgress={saveNovelProgress}
         onLeave={onLeave}
         goTo={jump}
+        onPage={setPage}
         actions={
           <>
             <button
@@ -197,7 +174,8 @@ export const PdfPagesView: FC<{
                 type="button"
                 aria-label={t('pdf.contents')}
                 aria-haspopup="dialog"
-                onClick={() => setContents(true)}
+                aria-expanded={contents !== null}
+                onClick={(event) => setContents(contents ? null : event.currentTarget)}
                 className={buttonClass}
               >
                 <ListTree aria-hidden size={21} />
@@ -224,12 +202,11 @@ export const PdfPagesView: FC<{
       )}
       {contents && (
         <PdfContentsSheet
-          pdf={pdf}
-          onPick={(page) => {
-            setContents(false);
-            show(page);
-          }}
-          onClose={() => setContents(false)}
+          contents={pdf.contents}
+          pageNumber={pdf.firstPage + page}
+          anchor={contents}
+          onPick={(entry) => open({ chapterId: entry.chapterId, page: entry.page })}
+          onClose={() => setContents(null)}
         />
       )}
     </>

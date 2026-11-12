@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
-use super::{Thumbnail, Video, VideoKind};
+use super::{LiveVideo, Thumbnail, Video, VideoKind};
 
 /// How deep the walks go: YouTube nests its renderers a dozen levels down, never this far.
 const MAX_DEPTH: usize = 48;
@@ -684,6 +684,260 @@ pub(crate) fn details(answer: &Value) -> Details {
                 (digits.len() == 8).then_some(digits)
             }),
     }
+}
+
+// ---- Live streams ----
+
+/// A live stream's playlist (HLS, every quality) in a `player` answer.
+pub(crate) fn hls_manifest(answer: &Value) -> Option<String> {
+    answer
+        .pointer("/streamingData/hlsManifestUrl")
+        .and_then(text)
+        .filter(|url| url.starts_with("https://"))
+        .map(str::to_owned)
+}
+
+/// Whether a `player` answer is of a stream on the air now.
+pub(crate) fn is_live(answer: &Value) -> bool {
+    answer
+        .pointer("/videoDetails/isLive")
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// Whether a `player` answer is of a live stream at all: on the air, coming up or streamed before.
+pub(crate) fn is_live_content(answer: &Value) -> bool {
+    answer
+        .pointer("/videoDetails/isLiveContent")
+        .and_then(Value::as_bool)
+        == Some(true)
+        || answer
+            .pointer("/playabilityStatus/liveStreamability")
+            .is_some()
+}
+
+/// The people watching a live stream, as youtube.com counts them in English: "23,849 watching",
+/// "3.6K watching", "1.2M watching".
+pub(crate) fn watching(text: &str) -> Option<u64> {
+    static WATCHING: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)^\s*([\d.,]+)\s*([KMB])?\s+watching").expect("valid watching pattern")
+    });
+    let found = WATCHING.captures(text)?;
+    let number: f64 = found.get(1)?.as_str().replace(',', "").parse().ok()?;
+    let scale = match found.get(2).map(|unit| unit.as_str().to_ascii_uppercase()) {
+        Some(unit) if unit == "K" => 1e3,
+        Some(unit) if unit == "M" => 1e6,
+        Some(unit) if unit == "B" => 1e9,
+        _ => 1.0,
+    };
+    let count = (number * scale).round();
+    (count.is_finite() && count >= 0.0).then_some(count as u64)
+}
+
+/// A youtube.com video renderer on a live listing (search, the Live page, older channel pages).
+fn live_video_row(renderer: &Value) -> Option<LiveVideo> {
+    let id = renderer
+        .get("videoId")
+        .and_then(text)
+        .filter(|id| super::is_video_id(id))?
+        .to_owned();
+    let title = renderer.get("title").and_then(text_of)?;
+    let byline = ["longBylineText", "ownerText", "shortBylineText"]
+        .iter()
+        .find_map(|key| renderer.get(*key));
+    let channel = byline.and_then(text_of);
+    let channel_id = byline
+        .and_then(|byline| byline.pointer("/runs/0/navigationEndpoint/browseEndpoint/browseId"))
+        .and_then(text)
+        .map(str::to_owned);
+    let overlay_styles: Vec<&str> = renderer
+        .get("thumbnailOverlays")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|overlay| {
+            overlay
+                .pointer("/thumbnailOverlayTimeStatusRenderer/style")
+                .and_then(Value::as_str)
+        })
+        .collect();
+    let badged_live = renderer
+        .get("badges")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|badge| {
+            badge
+                .pointer("/metadataBadgeRenderer/style")
+                .and_then(Value::as_str)
+                == Some("BADGE_STYLE_TYPE_LIVE_NOW")
+        });
+    let live = badged_live || overlay_styles.contains(&"LIVE");
+    let upcoming = !live
+        && (renderer.get("upcomingEventData").is_some() || overlay_styles.contains(&"UPCOMING"));
+    let viewers = live
+        .then(|| {
+            ["viewCountText", "shortViewCountText"]
+                .iter()
+                .filter_map(|key| renderer.get(*key).and_then(text_of))
+                .find_map(|count| watching(&count))
+        })
+        .flatten();
+    let thumbnails = thumbnails_in(renderer.pointer("/thumbnail/thumbnails"));
+    Some(LiveVideo {
+        thumbnail_url: thumbnails.last().map(|picture| picture.url.clone()),
+        id,
+        title,
+        channel,
+        channel_id,
+        live,
+        upcoming,
+        viewers,
+        thumbnails,
+    })
+}
+
+/// A newer lockup card on a live listing (a channel's Live tab): a "LIVE" badge, then "3.6K
+/// watching", or "Streamed 4 years ago" for one streamed before.
+fn live_lockup_row(lockup: &Value) -> Option<LiveVideo> {
+    if lockup.get("contentType").and_then(Value::as_str) != Some("LOCKUP_CONTENT_TYPE_VIDEO") {
+        return None;
+    }
+    let id = lockup
+        .get("contentId")
+        .and_then(text)
+        .filter(|id| super::is_video_id(id))?
+        .to_owned();
+    let metadata = lockup.pointer("/metadata/lockupMetadataViewModel")?;
+    let title = metadata.get("title").and_then(text_of)?;
+    let parts: Vec<String> = metadata
+        .pointer("/metadata/contentMetadataViewModel/metadataRows")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|row| {
+            row.get("metadataParts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(|part| part.get("text").and_then(text_of))
+        .collect();
+    let badges = all_under(lockup, "thumbnailBadgeViewModel");
+    let live = badges.iter().any(|badge| {
+        badge.get("badgeStyle").and_then(Value::as_str)
+            == Some("THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE")
+            || badge.get("text").and_then(Value::as_str) == Some("LIVE")
+    });
+    let upcoming = !live
+        && (badges
+            .iter()
+            .any(|badge| badge.get("text").and_then(Value::as_str) == Some("UPCOMING"))
+            || parts
+                .iter()
+                .any(|part| part.starts_with("Scheduled for") || part.ends_with(" waiting")));
+    let viewers = live
+        .then(|| parts.iter().find_map(|part| watching(part)))
+        .flatten();
+    let channel = parts
+        .iter()
+        .find(|part| {
+            !is_label(part)
+                && watching(part).is_none()
+                && !part.ends_with(" ago")
+                && !part.ends_with(" waiting")
+                && !part.starts_with("Streamed ")
+                && !part.starts_with("Scheduled for")
+        })
+        .map(|name| without_topic(name))
+        .filter(|name| !name.is_empty());
+    let thumbnails =
+        thumbnails_in(lockup.pointer("/contentImage/thumbnailViewModel/image/sources"));
+    Some(LiveVideo {
+        thumbnail_url: thumbnails.last().map(|picture| picture.url.clone()),
+        id,
+        title,
+        channel,
+        channel_id: None,
+        live,
+        upcoming,
+        viewers,
+        thumbnails,
+    })
+}
+
+/// Every video on a live listing, in order, each once: what's on the air, coming up, or was
+/// streamed before, wherever the page nests them.
+pub(crate) fn live_videos(answer: &Value) -> Vec<LiveVideo> {
+    fn walk(value: &Value, depth: usize, found: &mut Vec<LiveVideo>) {
+        if depth > MAX_DEPTH {
+            return;
+        }
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    let row = match key.as_str() {
+                        "videoRenderer" | "gridVideoRenderer" => live_video_row(child),
+                        "lockupViewModel" => live_lockup_row(child),
+                        _ => {
+                            walk(child, depth + 1, found);
+                            continue;
+                        }
+                    };
+                    if let Some(row) = row
+                        && !found.iter().any(|seen| seen.id == row.id)
+                    {
+                        found.push(row);
+                    }
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    walk(item, depth + 1, found);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    walk(answer, 0, &mut found);
+    found
+}
+
+/// A channel page's name and picture.
+pub(crate) fn channel_header(page: &Value) -> (Option<String>, Option<String>) {
+    let metadata = page.pointer("/metadata/channelMetadataRenderer");
+    let title = metadata
+        .and_then(|metadata| metadata.get("title"))
+        .and_then(text)
+        .map(str::to_owned);
+    let avatar = metadata
+        .map(|metadata| thumbnails_in(metadata.pointer("/avatar/thumbnails")))
+        .and_then(|pictures| pictures.last().map(|picture| picture.url.clone()));
+    (title, avatar)
+}
+
+/// The browse parameters of a channel page's Live tab (its address ends in `/streams`).
+pub(crate) fn streams_tab(page: &Value) -> Option<String> {
+    all_under(page, "tabRenderer").into_iter().find_map(|tab| {
+        let endpoint = tab.get("endpoint")?;
+        let url = endpoint
+            .pointer("/commandMetadata/webCommandMetadata/url")
+            .and_then(Value::as_str)?;
+        url.ends_with("/streams")
+            .then(|| endpoint.pointer("/browseEndpoint/params").and_then(text))
+            .flatten()
+            .map(str::to_owned)
+    })
+}
+
+/// The channel `navigation/resolve_url` names for an address (`UC…`).
+pub(crate) fn resolved_channel(answer: &Value) -> Option<String> {
+    answer
+        .pointer("/endpoint/browseEndpoint/browseId")
+        .and_then(text)
+        .filter(|id| super::is_channel_id(id))
+        .map(str::to_owned)
 }
 
 /// The visitor token in YouTube's service worker data (`www.youtube.com/sw.js_data`): the

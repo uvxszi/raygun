@@ -96,6 +96,17 @@ fn paragraphs(blocks: &[PassageBlock]) -> usize {
         .count()
 }
 
+/// The code blocks of a chapter, with their languages.
+fn code_of(blocks: &[PassageBlock]) -> Vec<(&str, Option<&str>)> {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            PassageBlock::Code(code) => Some((code.text.as_str(), code.language.as_deref())),
+            _ => None,
+        })
+        .collect()
+}
+
 fn text_of(blocks: &[PassageBlock]) -> String {
     blocks
         .iter()
@@ -230,6 +241,25 @@ async fn open_books_live_wikibooks() {
     let (blocks, html) = read(&host, WIKIBOOKS, chapter(&haskell, "Recursion")).await;
     assert!(paragraphs(&blocks) > 10);
     assert!(html.contains("<pre"), "code blocks stay");
+    let code = code_of(&blocks);
+    assert!(
+        code.iter()
+            .any(|(text, language)| *language == Some("haskell") && text.contains('\n'))
+    );
+
+    // The LaTeX book's examples are code blocks line by line, not paragraphs of TeX.
+    let latex = host.manga_chapters(WIKIBOOKS, "LaTeX").await.unwrap();
+    print_chapters("LaTeX", &latex);
+    let (blocks, _) = read(&host, WIKIBOOKS, chapter(&latex, "Document Structure")).await;
+    let code = code_of(&blocks);
+    println!("{} code blocks, first {:?}", code.len(), code.first());
+    assert!(code.iter().any(|(text, language)| {
+        *language == Some("latex") && text.contains("\\documentclass{report}\n\\usepackage{color}")
+    }));
+    assert!(
+        !text_of(&blocks).contains("\\documentclass{report} \\usepackage{color}"),
+        "no example runs together into a paragraph"
+    );
 }
 
 #[tokio::test]
@@ -389,6 +419,12 @@ async fn open_books_live_green_tea_press() {
     let (blocks, html) = read(&host, GREEN_TEA_PRESS, chapter(&python, "2. Variables")).await;
     assert!(paragraphs(&blocks) > 10);
     assert!(html.contains("<pre"));
+    assert!(
+        code_of(&blocks)
+            .iter()
+            .any(|(_, language)| *language == Some("python")),
+        "Jupyter's cells are Python code"
+    );
     let text = text_of(&blocks);
     for left_out in ["Colab", "Copyright 2024", "Bookshop", "Show code cell"] {
         assert!(!text.contains(left_out), "{left_out:?} is left out");

@@ -21,6 +21,10 @@ pub(crate) const WEB_VERSION: &str = "2.20261028.01.00";
 /// YouTube Music's Songs and Videos search chips.
 pub(crate) const SONGS: &str = "EgWKAQIIAWoKEAkQBRAKEAMQBA==";
 pub(crate) const VIDEOS: &str = "EgWKAQIQAWoKEAkQChAFEAMQBA==";
+/// youtube.com's search filter for streams on the air now (Features → Live).
+pub(crate) const LIVE_FILTER: &str = "EgJAAQ==";
+/// YouTube's Live page: the streams it features now, by topic.
+pub(crate) const LIVE_PAGE: &str = "UC4R8DWoMoI7CAwX8_LjQHig";
 
 /// How long one InnerTube request may take.
 const API_TIMEOUT: Duration = Duration::from_secs(8);

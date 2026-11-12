@@ -208,8 +208,9 @@ describe('Word lookups in the book reader', () => {
           { id: 2, text: 'Rain fell on the panes.' },
         ]),
         from: 1,
+        // From the sentence the selection starts in.
+        offset: 9,
         resume: false,
-        rate: 1,
       }),
     );
     expect(screen.queryByTestId('word-lookup')).not.toBeInTheDocument();
@@ -283,5 +284,139 @@ describe('Word lookups in the book reader', () => {
     expect(commands.settingsUpdate).toHaveBeenLastCalledWith(
       expect.objectContaining({ value: expect.objectContaining({ enabled: false }) }),
     );
+  });
+});
+
+const GOOGLE = {
+  id: 'g',
+  kind: 'google' as const,
+  name: 'Google Translate',
+  baseUrl: null,
+  model: null,
+  hasKey: true,
+  keyHint: '1234',
+};
+
+/** Opens the word panel on "dreary" in the first chapter. */
+const lookUpDreary = async () => {
+  await AppShellWrapper.mount('/novel/read?title=t1&chapter=c1');
+  const reader = await screen.findByTestId('novel-reader');
+  const paragraph = await within(reader).findByText('It was a dreary night of November.');
+  select(paragraph, 'dreary');
+  return screen.findByTestId('word-lookup', {}, { timeout: 2000 });
+};
+
+describe('Translating a selection', () => {
+  beforeEach(() => {
+    AppShellWrapper.seedCore();
+    Element.prototype.scrollIntoView = vi.fn();
+    commands.novelChapter.mockResolvedValue(ok(CHAPTER));
+    commands.dictionaryLookup.mockResolvedValue(ok(DREARY));
+    commands.aiProviders.mockResolvedValue(ok([GOOGLE]));
+    commands.textTranslate.mockClear();
+    commands.textTranslateRemember.mockClear();
+    commands.textTranslateChoice.mockClear();
+    commands.textTranslate.mockImplementation(
+      async (request: { text: string; from?: string; to: string; translator?: string }) =>
+        ok({
+          text: `[${request.to}] ${request.text}`,
+          from: request.from || 'en',
+          detected: !request.from,
+          to: request.to,
+          translator: request.translator ?? '',
+          translatorName: request.translator === 'ai:g' ? 'Google Translate' : '',
+          kind: request.translator === 'ai:g' ? ('google' as const) : null,
+          models: request.translator === 'ai:g' ? [] : ['opus-mt-en-de'],
+        }),
+    );
+  });
+
+  afterEach(() => {
+    window.getSelection()?.removeAllRanges();
+  });
+
+  it('translates from the detected language into one picked, with the translator picked', async () => {
+    const user = userEvent.setup();
+    const lookup = await lookUpDreary();
+    await user.click(within(lookup).getByRole('button', { name: 'Translate' }));
+    const panel = within(await within(lookup).findByTestId('selection-translation'));
+    // The book is in English, as the app: nothing is sent until another language is picked.
+    expect(panel.getByText(/The words are in English already/)).toBeInTheDocument();
+    expect(commands.textTranslate).not.toHaveBeenCalled();
+    expect(panel.getByRole('combobox', { name: 'Translate from' })).toHaveValue('');
+
+    await user.selectOptions(panel.getByRole('combobox', { name: 'Translate into' }), 'de');
+    expect(await panel.findByText('[de] dreary')).toBeInTheDocument();
+    expect(commands.textTranslate).toHaveBeenLastCalledWith({
+      text: 'dreary',
+      from: '',
+      to: 'de',
+      translator: '',
+      hint: 'en',
+    });
+    expect(panel.getByText(/^Translated on this device/)).toBeInTheDocument();
+    expect(panel.getByRole('option', { name: 'Detected: English' })).toBeInTheDocument();
+    expect(commands.textTranslateRemember).toHaveBeenLastCalledWith('t1', {
+      from: '',
+      to: 'de',
+      translator: '',
+    });
+
+    // Google's translations say so, beside them.
+    await user.selectOptions(panel.getByRole('combobox', { name: 'Translator' }), 'ai:g');
+    expect(await panel.findByText('Translated by Google Translate')).toBeInTheDocument();
+    expect(panel.getByTestId('google-attribution')).toHaveTextContent(
+      'Powered by Google Translate',
+    );
+    expect(commands.textTranslate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ translator: 'ai:g', to: 'de' }),
+    );
+
+    // Swapping takes the detected language as the one to translate into.
+    await user.click(panel.getByRole('button', { name: 'Swap languages' }));
+    await vi.waitFor(() =>
+      expect(commands.textTranslate).toHaveBeenLastCalledWith(
+        expect.objectContaining({ from: 'de', to: 'en', translator: 'ai:g' }),
+      ),
+    );
+    expect(commands.textTranslateRemember).toHaveBeenLastCalledWith('t1', {
+      from: 'de',
+      to: 'en',
+      translator: 'ai:g',
+    });
+  });
+
+  it("starts from the book's remembered choice, asking Google as its terms say", async () => {
+    const user = userEvent.setup();
+    commands.textTranslateChoice.mockResolvedValue(ok({ from: '', to: 'ja', translator: 'ai:g' }));
+    const lookup = await lookUpDreary();
+    expect(commands.textTranslateChoice).toHaveBeenCalledWith('t1');
+    await user.click(await within(lookup).findByRole('button', { name: 'Translate with Google' }));
+    const panel = within(await within(lookup).findByTestId('selection-translation'));
+    expect(await panel.findByText('[ja] dreary')).toBeInTheDocument();
+    expect(commands.textTranslate).toHaveBeenCalledWith({
+      text: 'dreary',
+      from: '',
+      to: 'ja',
+      translator: 'ai:g',
+      hint: 'en',
+    });
+    expect(panel.getByRole('combobox', { name: 'Translator' })).toHaveValue('ai:g');
+  });
+
+  it('shows why a translation failed and where to set translation up', async () => {
+    const user = userEvent.setup();
+    commands.textTranslateChoice.mockResolvedValue(ok({ from: '', to: 'de', translator: 'ai:g' }));
+    commands.textTranslate.mockResolvedValue({
+      status: 'error' as const,
+      error: 'Google Translate is limiting requests — try later\nUser Rate Limit Exceeded',
+    });
+    const lookup = await lookUpDreary();
+    await user.click(await within(lookup).findByRole('button', { name: 'Translate with Google' }));
+    const panel = within(await within(lookup).findByTestId('selection-translation'));
+    expect(
+      await panel.findByText('Google Translate is limiting requests — try later'),
+    ).toBeInTheDocument();
+    expect(panel.getByRole('button', { name: 'Set up translation' })).toBeInTheDocument();
   });
 });
