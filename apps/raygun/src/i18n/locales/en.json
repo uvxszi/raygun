@@ -495,7 +495,10 @@
       "relevant": "Relevant",
       "movies": "Movies",
       "series": "Series",
-      "sources": "Sources"
+      "sources": "Sources",
+      "sourcesOf_one": "{{title}}: {{count}} source",
+      "sourcesOf_other": "{{title}}: {{count}} sources",
+      "copyNamed": "{{source}} · {{title}}"
     },
     "topResult": "Top result",
     "kind": {

@@ -570,6 +570,34 @@ describe.skipIf(!ENV.RAYGUN_PERF)('switching Search pills', { timeout: 900_000 }
     await profiled();
   });
 
+  it("arranges Videos' addons", async () => {
+    await mount('/browse?tab=search&type=video&q=dark');
+    const best = '[data-testid="video-kind"] [data-testid="stremio-card"]';
+    const bySource =
+      '[data-testid="video-results"] section:not([data-testid="video-kind"]) [data-testid="stremio-card"]';
+    await waitFor(() => expect(query(best)).toBe(true), { timeout: 120_000 });
+    await visit([
+      { tap: tapPill(ARRANGE_PILL, 'By source'), rows: bySource },
+      { tap: tapPill(ARRANGE_PILL, 'Best matches'), rows: best },
+    ]);
+
+    const profiled = await profile('videos');
+    for (const [name, rows, back, backRows] of [
+      ['By source', bySource, 'Best matches', best],
+      ['Best matches', best, 'By source', bySource],
+    ] as const) {
+      const runs: Switch[] = [];
+      for (let turn = 0; turn < RUNS; turn++) {
+        await visit([{ tap: tapPill(ARRANGE_PILL, back), rows: backRows }]);
+        runs.push(
+          await timeSwitch(button(ARRANGE_PILL, name), arrangePill(name), () => query(rows)),
+        );
+      }
+      await note(`Videos: ${back} → ${name}: ${shown(bestOf(runs))}, ${count(rows)} results drawn`);
+    }
+    await profiled();
+  });
+
   it('arranges Comics and opens Custom sources', async () => {
     await mount('/browse?tab=search&type=manga&q=dark');
     const best = '[data-testid="ranked-results"] [data-testid="manga-card"]';
