@@ -10,6 +10,7 @@ import { ConfirmButton } from '../shell/ConfirmButton';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
 import { EmptyState } from '../shell/EmptyState';
+import { Picture } from '../shell/Picture';
 import { formatBytes } from './episodeLabel';
 import {
   downloadShare,
@@ -93,12 +94,7 @@ const Row: FC<{ item: VideoDownloadItem; paused: boolean }> = ({ item, paused })
           className="relative w-24 shrink-0 overflow-hidden rounded-lg"
         >
           {item.poster ? (
-            <img
-              src={item.poster}
-              alt=""
-              loading="lazy"
-              className="aspect-video w-full object-cover"
-            />
+            <Picture src={item.poster} className="bg-background aspect-video w-full" />
           ) : (
             <span className="bg-background text-muted grid aspect-video w-full place-items-center">
               {item.state !== 'done' && <Clapperboard aria-hidden size={18} />}

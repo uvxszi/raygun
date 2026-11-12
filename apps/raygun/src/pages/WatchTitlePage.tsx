@@ -293,13 +293,17 @@ export const WatchTitlePage: FC = () => {
       ),
     [client, id],
   );
-  const knownHero = known && (
-    <TitleHero
-      art={known.poster}
-      cover={<StremioPoster url={known.poster} className="w-full rounded-xl shadow-lg" />}
-      title={known.name}
-    />
-  );
+  // As the details' header will be (the same cover, the backdrop's room kept while they load),
+  // so nothing jumps when they come and a new cover fades in over the list's.
+  const knownHero = (loading: boolean) =>
+    known && (
+      <TitleHero
+        art={known.poster}
+        backdropPending={loading}
+        cover={<StremioPoster url={known.poster} className="w-full shadow-lg" />}
+        title={known.name}
+      />
+    );
 
   // A saved title opened from storage (no addon answered) has no addon to name.
   const top = (
@@ -315,7 +319,7 @@ export const WatchTitlePage: FC = () => {
     return (
       <section data-testid="watch-title-page" className="flex flex-col gap-5">
         {top}
-        {knownHero}
+        {knownHero(false)}
         <SourceIssue>{meta.error.message}</SourceIssue>
       </section>
     );
@@ -324,7 +328,7 @@ export const WatchTitlePage: FC = () => {
     return (
       <section data-testid="watch-title-page" className="flex flex-col gap-5">
         {top}
-        {knownHero}
+        {knownHero(true)}
         <LoaderCircle
           aria-label={t('watch.loading')}
           className="text-muted mx-auto my-12 animate-spin"

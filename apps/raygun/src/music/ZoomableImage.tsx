@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { FC, PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { fadingImage } from '../shell/imageMemory';
+
 const MIN_SCALE = 1;
 const MAX_SCALE = 8;
 const STEP = 1.5;
@@ -117,6 +119,7 @@ export const ZoomableImage: FC<{
 
   const button =
     'bg-surface/80 hover:bg-surface grid size-9 place-items-center rounded-full backdrop-blur disabled:opacity-40';
+  const fading = fadingImage(src, true);
 
   return (
     <div className="relative">
@@ -142,12 +145,15 @@ export const ZoomableImage: FC<{
           src={src}
           alt={alt}
           draggable={false}
-          onLoad={(event) =>
+          // Fades in once loaded and decoded, unless it has shown before.
+          {...fading}
+          onLoad={(event) => {
+            fading.onLoad(event);
             onLoad?.({
               width: event.currentTarget.naturalWidth,
               height: event.currentTarget.naturalHeight,
-            })
-          }
+            });
+          }}
           onError={onError}
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
           className="max-h-full max-w-full object-contain will-change-transform"

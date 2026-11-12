@@ -2,6 +2,7 @@ import type { TextPart } from '@raygun/bindings';
 import { Fragment } from 'react';
 import type { FC, ReactNode } from 'react';
 
+import { fadingImage } from '../shell/imageMemory';
 import { MathFormula } from './MathFormula';
 import { markedIn, spokenPlaces } from './spoken';
 import './bookText.css';
@@ -58,7 +59,7 @@ const PartView: FC<{ part: TextPart; mark: { from: number; to: number } | null }
       return content;
     }
     case 'image':
-      return <img src={part.url} alt="" loading="lazy" className="book-part-image" />;
+      return <img src={part.url} alt="" {...fadingImage(part.url)} className="book-part-image" />;
     default:
       return withMark(part.text, mark);
   }

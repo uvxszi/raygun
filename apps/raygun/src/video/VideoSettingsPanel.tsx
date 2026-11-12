@@ -46,7 +46,7 @@ export const VideoSettingsPanel: FC<{ onClose: () => void; page?: PlayerSettings
       data-testid="video-settings-panel"
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
-      className="bg-background text-foreground absolute inset-y-4 right-4 z-20 flex w-[min(32rem,calc(100%-2rem))] flex-col overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/10 select-text"
+      className="bg-background text-foreground motion-pop absolute inset-y-4 right-4 z-20 flex w-[min(32rem,calc(100%-2rem))] flex-col overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/10 select-text"
     >
       <header className="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
         {page && (

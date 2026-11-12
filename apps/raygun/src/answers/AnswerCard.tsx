@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { Picture } from '../shell/Picture';
 import { useEngineName } from './answerText';
 import { AnswerValue } from './AnswerValue';
 import { AnswerCredits, CopyButton } from './AnswerView';
@@ -27,10 +28,11 @@ export const AnswerCard: FC<AnswerCardProps> = ({ query, onMore, onAsk }) => {
   const answer = answers.data?.question ? answers.data.answers[0] : undefined;
   if (!answer) return null;
   return (
+    // It comes once the answer is ready, over the results: it fades in rather than popping in.
     <section
       data-testid="answer-card"
       aria-label={t('answers.card')}
-      className="bg-surface flex flex-col gap-2 rounded-2xl p-4"
+      className="bg-surface motion-fade flex flex-col gap-2 rounded-2xl p-4"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-col gap-1">
@@ -45,12 +47,7 @@ export const AnswerCard: FC<AnswerCardProps> = ({ query, onMore, onAsk }) => {
       </div>
       <div className="flex gap-3">
         {answer.imageUrl && (
-          <img
-            src={answer.imageUrl}
-            alt=""
-            loading="lazy"
-            className="h-16 w-16 shrink-0 rounded-xl object-cover"
-          />
+          <Picture src={answer.imageUrl} className="bg-background/40 size-16 shrink-0 rounded-xl" />
         )}
         <div className="flex min-w-0 flex-col gap-1">
           <p className="text-xl font-semibold break-words" data-testid="answer-card-result">

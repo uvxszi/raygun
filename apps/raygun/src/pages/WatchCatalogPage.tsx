@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { StremioCard } from '../watch/StremioRow';
 import { useStremioCatalog, useStremioCatalogs } from '../watch/useStremio';
 import { PageHeader } from './PageHeader';
+import { appearItems } from '../shell/appear';
 import { LoadMore } from '../shell/LoadMore';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useDragScroll } from '../shell/useDragScroll';
@@ -93,16 +94,20 @@ const CatalogGrid: FC<{ catalog: StremioCatalogInfo; extra: StremioExtraValue[] 
       {pages.data && unique.length === 0 && (
         <p className="text-muted text-sm">{t('watch.catalogEmpty')}</p>
       )}
-      <ul
-        aria-label={catalog.name}
-        className={`grid gap-3 ${landscape ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6'}`}
-      >
-        {unique.slice(0, shown).map((item) => (
-          <li key={item.id}>
-            <StremioCard item={item} />
-          </li>
-        ))}
-      </ul>
+      {/* Drawn once the first page came, so its posters come in rather than pop in. */}
+      {unique.length > 0 && (
+        <ul
+          aria-label={catalog.name}
+          {...appearItems(true)}
+          className={`grid gap-3 ${landscape ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6'}`}
+        >
+          {unique.slice(0, shown).map((item) => (
+            <li key={item.id}>
+              <StremioCard item={item} />
+            </li>
+          ))}
+        </ul>
+      )}
       <LoadMore
         hasNextPage={more || pages.hasNextPage}
         fetching={pages.isFetchingNextPage}

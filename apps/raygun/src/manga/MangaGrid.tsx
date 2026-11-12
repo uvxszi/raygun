@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useCoverSheetStore } from '../music/coverSheetStore';
 import { useSettings } from '../settings/useSettings';
+import { appearItems } from '../shell/appear';
 import { MenuButton } from '../shell/MenuButton';
 import { SourceTag } from '../shell/SourceTag';
 import { CARD_MENU_CLASS, CardPlayButton } from './CardPlayButton';
@@ -60,7 +61,12 @@ const MangaGridView: FC<{
   medium?: Medium;
   /** Wide 16:9 thumbnails in wider columns (M46.45: video sites). */
   landscape?: boolean;
-}> = ({ items, medium = 'manga', landscape = false }) => {
+  /**
+   * What a source answered, drawn once it came: the first screenful of covers comes in one after
+   * another (shell/appear), once; more pages just show.
+   */
+  appear?: boolean;
+}> = ({ items, medium = 'manga', landscape = false, appear = false }) => {
   const { t } = useTranslation();
   const settings = useSettings().data;
   const menu = useTitleCardMenu();
@@ -129,6 +135,7 @@ const MangaGridView: FC<{
   return (
     <>
       <ul
+        {...(appear ? appearItems(true) : {})}
         className={COVER_GRID_CLASS}
         style={
           landscape

@@ -39,7 +39,7 @@ export const PlayerPanel: FC<Props> = ({
       aria-label={title}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
-      className={`absolute right-3 z-20 flex flex-col overflow-hidden rounded-2xl bg-neutral-900/95 shadow-2xl ring-1 ring-white/10 backdrop-blur ${
+      className={`motion-pop absolute right-3 z-20 flex flex-col overflow-hidden rounded-2xl bg-neutral-900/95 shadow-2xl ring-1 ring-white/10 backdrop-blur ${
         wide ? 'max-h-[min(75%,36rem)] w-[44rem]' : 'max-h-[min(60%,34rem)] w-80'
       } max-w-[calc(100%-1.5rem)] ${at === 'top' ? 'top-16' : 'bottom-24'}`}
     >

@@ -54,8 +54,9 @@ export const LoadMore: FC<LoadMoreProps> = ({ hasNextPage, fetching, onLoad, lab
 
   if (!hasNextPage) return null;
   if (auto) {
+    // The spinner's room is kept, so the list's end doesn't jump as each page starts and ends.
     return (
-      <div ref={sentinel} className="flex justify-center py-3">
+      <div ref={sentinel} className="flex h-12 items-center justify-center">
         {fetching && (
           <LoaderCircle aria-label={t('manga.loading')} className="text-muted animate-spin" />
         )}

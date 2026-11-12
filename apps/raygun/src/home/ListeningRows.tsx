@@ -26,6 +26,7 @@ import {
   useTopPodcasts,
 } from '../podcasts/usePodcasts';
 import { AlbumTile } from '../search/MusicFinds';
+import { SkeletonSwap } from '../shell/SkeletonSwap';
 import { useInView } from '../shell/useInView';
 import { HomeCarousel, HomeSection, RowSkeleton } from './HomeSection';
 
@@ -198,7 +199,7 @@ export const PopularPodcastsSection: FC<{ id: string }> = ({ id }) => {
         all={{ to: '/browse', search: { tab: 'search', type: 'music', view: 'podcasts' } }}
         testId="home-popular-podcasts"
       >
-        {shows.length > 0 ? (
+        <SkeletonSwap ready={shows.length > 0} skeleton={<RowSkeleton card="w-28 sm:w-32" />}>
           <HomeCarousel>
             {shows.slice(0, SHOWN).map((show) => (
               <li key={show.feedUrl} className="relative w-28 shrink-0 sm:w-32">
@@ -238,9 +239,7 @@ export const PopularPodcastsSection: FC<{ id: string }> = ({ id }) => {
               </li>
             ))}
           </HomeCarousel>
-        ) : (
-          <RowSkeleton card="w-28 sm:w-32" />
-        )}
+        </SkeletonSwap>
       </HomeSection>
     </div>
   );

@@ -111,7 +111,7 @@ export const SelectionBar: FC = () => {
         role="toolbar"
         aria-label={t('search.select.actions')}
         data-testid="search-selection-bar"
-        className="bg-surface sticky bottom-2 z-30 mt-2 flex w-full items-center gap-1 rounded-2xl p-1 shadow-xl"
+        className="bg-surface motion-rise sticky bottom-2 z-30 mt-2 flex w-full items-center gap-1 rounded-2xl p-1 shadow-xl"
       >
         {action(t('search.select.clear'), X, clear)}
         <span aria-live="polite" className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">

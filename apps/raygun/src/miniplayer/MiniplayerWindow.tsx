@@ -150,8 +150,8 @@ export const MiniplayerWindow: FC = () => {
 
       <div className="relative min-h-0 flex-1 p-3 pt-7">
         <div className="relative h-full w-full overflow-hidden rounded-lg">
+          {/* The next song's artwork fades in over this one's. */}
           <Artwork
-            key={item?.artworkUrl ?? 'none'}
             url={item?.artworkUrl ?? null}
             className="h-full w-full object-cover"
             iconSize={56}

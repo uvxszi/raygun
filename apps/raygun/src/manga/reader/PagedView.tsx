@@ -10,6 +10,7 @@ import type {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { rememberShown } from '../../shell/imageMemory';
 import { pageIdentity } from './drawnPages';
 import { ReaderImage } from './ReaderImage';
 
@@ -54,9 +55,10 @@ const usePreload = (pages: string[], current: number, ahead: number) => {
       const image = new Image();
       image.decoding = 'async';
       image.src = url;
-      // Decoded now, off the main thread, so turning to it shows it at once.
+      // Decoded now, off the main thread, so turning to it shows it at once (without fading in:
+      // it's ready).
       const decoded = image.decode?.();
-      void decoded?.catch(() => undefined);
+      void decoded?.then(() => rememberShown(url)).catch(() => undefined);
       kept.push(image);
     }
     return () => {

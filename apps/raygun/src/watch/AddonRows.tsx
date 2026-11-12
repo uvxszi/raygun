@@ -21,6 +21,7 @@ import { SelectCheck } from '../shell/BulkSwitch';
 import { OnOffSwitch } from '../shell/OnOffSwitch';
 import { OverflowMenu } from '../shell/OverflowMenu';
 import type { OverflowItem } from '../shell/OverflowMenu';
+import { Picture } from '../shell/Picture';
 import { SourceIssue } from '../shell/SourceIssue';
 import type { BulkSelection } from '../shell/useBulkSelection';
 import {
@@ -31,17 +32,19 @@ import {
   useStremioSuggestions,
 } from './useStremio';
 
-export const AddonLogo: FC<{ url: string | null }> = ({ url }) =>
-  url ? (
-    <img src={url} alt="" loading="lazy" className="size-10 shrink-0 rounded-lg object-contain" />
-  ) : (
-    <span
-      aria-hidden
-      className="bg-background text-muted grid size-10 shrink-0 place-items-center rounded-lg"
-    >
-      <Puzzle size={20} />
-    </span>
-  );
+/** An addon's logo, fading in, or a puzzle piece without one (or when it fails to load). */
+export const AddonLogo: FC<{ url: string | null }> = ({ url }) => (
+  <Picture
+    src={url}
+    fit="object-contain"
+    placeholder={
+      <span className="bg-background text-muted grid size-full place-items-center">
+        <Puzzle size={20} />
+      </span>
+    }
+    className="size-10 shrink-0 rounded-lg"
+  />
+);
 
 const chipClass = 'bg-background rounded-full px-2.5 py-0.5 text-xs';
 

@@ -166,7 +166,7 @@ const ChapterActions: FC<{
         role="toolbar"
         aria-label={t('chapters.actions')}
         data-testid="chapter-actions"
-        className="bg-surface sticky bottom-2 z-30 mt-auto flex w-full justify-around rounded-2xl p-1 shadow-xl"
+        className="bg-surface motion-rise sticky bottom-2 z-30 mt-auto flex w-full justify-around rounded-2xl p-1 shadow-xl"
       >
         {action(t('library.select.markRead'), BookCheck, () =>
           setRead.mutate({ chapterIds: ids, read: true }, finish),

@@ -45,12 +45,12 @@ export const LocalNetworkSheet: FC<LocalNetworkSheetProps> = ({ reason, onGrante
   const error = request.error ?? openSettings.error;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] sm:items-center">
+    <div className="motion-fade fixed inset-0 z-50 flex items-end justify-center bg-black/60 pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] sm:items-center">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="local-network-title"
-        className="bg-surface flex w-full max-w-md flex-col gap-4 rounded-t-2xl px-5 pt-5 pb-[calc(1.25rem+var(--safe-bottom))] sm:rounded-2xl"
+        className="bg-surface motion-rise flex w-full max-w-md flex-col gap-4 rounded-t-2xl px-5 pt-5 pb-[calc(1.25rem+var(--safe-bottom))] sm:rounded-2xl"
       >
         <div className="flex items-center gap-3">
           <span

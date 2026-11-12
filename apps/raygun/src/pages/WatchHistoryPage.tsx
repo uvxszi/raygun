@@ -8,6 +8,7 @@ import { groupByDay, useDayLabel } from '../manga/groupByDay';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { EmptyState, Loading } from '../shell/EmptyState';
 import { MenuButton } from '../shell/MenuButton';
+import { Picture } from '../shell/Picture';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useContinueMenu } from '../watch/continueMenu';
 import { ContinueSelectionBar, PickCircle } from '../watch/ContinueSelection';
@@ -17,26 +18,18 @@ import type { ContinueSelection } from '../watch/useContinueSelection';
 import { useResumeVideo, useWatchHistory } from '../watch/useWatch';
 import { PageHeader } from './PageHeader';
 
-/** The poster, or a plain frame when there's none or it can't load (offline). */
-const Poster: FC<{ url: string | null }> = ({ url }) => {
-  const [failed, setFailed] = useState(false);
-  return url && !failed ? (
-    <img
-      src={url}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className="aspect-video w-20 shrink-0 rounded object-cover"
-    />
-  ) : (
-    <span
-      aria-hidden
-      className="bg-background text-muted grid aspect-video w-20 shrink-0 place-items-center rounded"
-    >
-      <Clapperboard size={18} />
-    </span>
-  );
-};
+/** The poster, fading in, or a plain frame when there's none or it can't load (offline). */
+const Poster: FC<{ url: string | null }> = ({ url }) => (
+  <Picture
+    src={url}
+    placeholder={
+      <span className="bg-background text-muted grid size-full place-items-center">
+        <Clapperboard size={18} />
+      </span>
+    }
+    className="aspect-video w-20 shrink-0 rounded"
+  />
+);
 
 /** A row: a tap resumes it, ⋮ has the rest; a long press, its circle or Ctrl/Shift-click picks it. */
 const HistoryRow: FC<{

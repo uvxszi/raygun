@@ -5,6 +5,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { copyText } from '../music/mediaMenu';
+import { Picture } from '../shell/Picture';
 import { showToast } from '../shell/toastStore';
 import { formatAnswerDate, openAnswerPage, useEngineName } from './answerText';
 import { AnswerValue } from './AnswerValue';
@@ -162,11 +163,9 @@ export const AnswerView: FC<AnswerViewProps> = ({ answer, onAsk }) => {
       {answer.summary && (
         <div className="flex gap-3">
           {answer.imageUrl && (
-            <img
+            <Picture
               src={answer.imageUrl}
-              alt=""
-              loading="lazy"
-              className="h-24 w-24 shrink-0 rounded-xl object-cover"
+              className="bg-background/40 size-24 shrink-0 rounded-xl"
             />
           )}
           <p className="selectable text-sm leading-relaxed whitespace-pre-line">{answer.summary}</p>

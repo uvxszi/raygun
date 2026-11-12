@@ -7,6 +7,7 @@ import type { FC, Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { creditedArtists } from '../music/artists';
+import { Picture } from '../shell/Picture';
 import { Sheet } from '../shell/Sheet';
 import { CaptionsView } from './CaptionsView';
 import { trackQueryFor, useLyricsFor } from './lyricsQuery';
@@ -232,7 +233,11 @@ export const ArtistCard: FC<{ credit: string | null }> = ({ credit }) => {
     >
       <span className="relative block w-full">
         {image ? (
-          <img src={image} alt="" className="aspect-[16/10] w-full object-cover object-top" />
+          <Picture
+            src={image}
+            fit="object-cover object-top"
+            className="bg-background/40 aspect-[16/10] w-full"
+          />
         ) : (
           <span className="block h-12" />
         )}

@@ -51,9 +51,9 @@ const HeldArtwork: FC<MediaArtProps> = ({ item, artworkClassName, iconSize, onTa
   const { t } = useTranslation();
   const cover = item.artworkUrl ? { url: item.artworkUrl, title: coverTitle(item) } : null;
   const hold = useCoverHold({ cover, onTap });
+  // One picture for every song: the next song's artwork fades in over this one's.
   const artwork = (
     <Artwork
-      key={item.artworkUrl ?? 'none'}
       url={item.artworkUrl}
       // Another source's cover when its own is missing or fails, as the bar and the song's row
       // show it.

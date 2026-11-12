@@ -136,8 +136,10 @@ const PhoneBar: FC<BarProps> = ({ item }) => {
           style={{ x: swipe.contentX, opacity: swipe.contentOpacity }}
           className="flex min-w-0 flex-1 items-center gap-[min(0.75rem,3cqw)] text-left will-change-transform"
         >
+          {/* A song thrown in by a swipe comes with its own artwork; the next song played
+              otherwise fades in over this one's. */}
           <Artwork
-            key={`${shown.id}:${shown.artworkUrl ?? 'none'}`}
+            key={swipe.card}
             url={shown.artworkUrl}
             fallback={songCover(shown)}
             className="size-[min(2.5rem,12cqw)] shrink-0 rounded-md"
@@ -185,8 +187,8 @@ const WideBar: FC<BarProps> = ({ item }) => {
             onClick={() => openSheet()}
             className="flex min-w-0 items-center gap-3 text-left"
           >
+            {/* The next song's artwork fades in over this one's. */}
             <Artwork
-              key={item.artworkUrl ?? 'none'}
               url={item.artworkUrl}
               fallback={songCover(item)}
               className="size-12 shrink-0 rounded-md"

@@ -21,6 +21,7 @@ import { useHasProvider } from '../extensions/useExtensions';
 import { NoSources } from '../search/NoSources';
 import { searchLink } from '../search/searchTypes';
 import { NeedsSetupNote } from '../shell/NeedsSetupNote';
+import { Picture } from '../shell/Picture';
 import { useSourcesSetup } from '../sources/useSourcesSetup';
 import {
   chartKey,
@@ -90,11 +91,9 @@ export const BrowseTile: FC<TileProps> = ({
         {title}
       </span>
       {image ? (
-        <img
+        <Picture
           src={image}
-          alt=""
-          loading="lazy"
-          className="absolute -right-3 -bottom-1 size-[42%] rotate-[25deg] rounded object-cover shadow-[0_2px_8px_rgba(0,0,0,0.45)]"
+          className="absolute -right-3 -bottom-1 size-[42%] rotate-[25deg] rounded shadow-[0_2px_8px_rgba(0,0,0,0.45)]"
         />
       ) : (
         Icon && (

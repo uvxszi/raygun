@@ -91,7 +91,7 @@ export const OverflowMenu: FC<{ items: OverflowItem[]; label?: string }> = ({ it
         <ul
           id={menuId}
           role="menu"
-          className="bg-surface absolute top-12 right-0 z-40 flex min-w-56 flex-col rounded-xl py-2 shadow-xl"
+          className="bg-surface motion-pop absolute top-12 right-0 z-40 flex min-w-56 flex-col rounded-xl py-2 shadow-xl"
         >
           {items.map((item) => {
             const askingHere = asking === item.label && Boolean(item.confirm);

@@ -85,7 +85,8 @@ const CoverSheetBody: FC<{ cover: CoverToSave; onClose: () => void }> = ({ cover
             }}
           />
         ) : (
-          <div aria-hidden className="bg-background h-[50vh] animate-pulse rounded-xl" />
+          // As tall as the picture's frame, so the sheet doesn't jump when it comes.
+          <div aria-hidden className="bg-background h-[min(60vh,40rem)] animate-pulse rounded-xl" />
         )}
         <p className="text-muted text-center text-xs">
           {size ? t('cover.size', { width: size.width, height: size.height }) : cover.title}

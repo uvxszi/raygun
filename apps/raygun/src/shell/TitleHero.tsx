@@ -5,16 +5,23 @@ import { useTranslation } from 'react-i18next';
 
 import { useCoverHold } from '../music/useCoverHold';
 import { AdultMark } from './AdultMark';
+import { Picture } from './Picture';
 import { SourceTag } from './SourceTag';
 
 /**
  * A title screen's header (Mihon's and CloudStream's): a blurred copy of the art behind the
- * cover, title, facts and genres.
+ * cover, title, facts and genres. Its pictures fade in, and a better one (the details' cover
+ * after the list's) fades in over the one shown (shell/Picture).
  */
 export const TitleHero: FC<{
   art: string | null;
   /** A wide backdrop shown sharp above the header (movies and series). */
   backdrop?: string | null;
+  /**
+   * A backdrop may still come (the details are loading): its room is kept, the art blurred in
+   * it, so the header doesn't jump down when it comes, and it fades in there.
+   */
+  backdropPending?: boolean;
   cover: ReactNode;
   title: string;
   facts?: (string | number | null | undefined | false)[];
@@ -34,6 +41,7 @@ export const TitleHero: FC<{
 }> = ({
   art,
   backdrop,
+  backdropPending = false,
   cover,
   title,
   facts = [],
@@ -53,27 +61,39 @@ export const TitleHero: FC<{
   const backdropHold = useCoverHold({
     cover: backdrop ? { url: backdrop, title: t('cover.backdropName', { title }) } : null,
   });
+  const wide = Boolean(backdrop) || backdropPending;
+  const blurredArt = art && (
+    <Picture src={art} eager className="size-full scale-110 opacity-35 blur-2xl" />
+  );
   return (
     <div className="relative isolate -mx-4 -mt-2 overflow-hidden px-4 pt-2 pb-4 lg:-mx-10 lg:px-10">
-      {backdrop && (
+      {wide && (
         // At most about half the window (M46.34), so the title, facts and Play show at once.
         <div
           aria-hidden
-          data-testid="title-backdrop"
+          data-testid={backdrop ? 'title-backdrop' : 'title-backdrop-pending'}
           {...backdropHold.props}
           className="cover-hold relative -mx-4 -mt-2 h-[min(56.25vw,52vh)] lg:-mx-10"
         >
-          <img src={backdrop} alt="" className="size-full object-cover object-[50%_25%]" />
+          {/* The art, blurred, under the backdrop until it has faded in. */}
+          <Picture
+            src={backdrop}
+            eager
+            fit="object-cover object-[50%_25%]"
+            placeholder={blurredArt}
+            keepPlaceholder
+            className="size-full"
+          />
           <div className="to-background absolute inset-0 bg-gradient-to-b from-transparent from-30%" />
         </div>
       )}
-      {art && !backdrop && (
+      {art && !wide && (
         <div aria-hidden className="absolute inset-0 -z-10">
-          <img src={art} alt="" className="size-full scale-110 object-cover opacity-35 blur-2xl" />
+          {blurredArt}
           <div className="from-background/40 to-background absolute inset-0 bg-gradient-to-b" />
         </div>
       )}
-      <header className={`relative flex gap-4 ${backdrop ? '-mt-20' : ''}`}>
+      <header className={`relative flex gap-4 ${wide ? '-mt-20' : ''}`}>
         <div className={`shrink-0 ${wideCover ? 'w-40 sm:w-64' : 'w-28 sm:w-36'}`}>
           {art ? (
             <button

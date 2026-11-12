@@ -108,7 +108,7 @@ export const PodcastPickActions: FC<{
       role="toolbar"
       aria-label={t(books ? 'audiobooks.select.actions' : 'podcasts.select.actions')}
       data-testid="podcast-pick-actions"
-      className="bg-surface sticky bottom-2 z-30 mt-auto flex w-full justify-around no-scrollbar overflow-x-auto rounded-2xl p-1 shadow-xl"
+      className="bg-surface motion-rise sticky bottom-2 z-30 mt-auto flex w-full justify-around no-scrollbar overflow-x-auto rounded-2xl p-1 shadow-xl"
     >
       {button(t('menu.playNext'), ListPlus, () => queue(true))}
       {button(t('menu.addToQueue'), ListEnd, () => queue(false))}

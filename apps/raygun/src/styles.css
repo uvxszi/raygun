@@ -301,6 +301,27 @@
 :root:is([data-motion='reduced'], [data-motion='off']) {
   scroll-behavior: auto !important;
 }
+/* A spinner shows only after a moment, fading in: a load quicker than that never flashes one.
+   Reduced keeps it still and Off shows it at once. */
+@keyframes raygun-show-late {
+  0%,
+  55% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:is([data-motion='lively'], [data-motion='calm']) .animate-spin {
+    animation:
+      var(--animate-spin),
+      raygun-show-late 360ms linear backwards;
+  }
+}
+:root[data-motion='reduced'] .animate-spin {
+  animation: raygun-show-late 360ms linear backwards !important;
+}
 :root[data-motion='off'] *,
 :root[data-motion='off'] *::before,
 :root[data-motion='off'] *::after {
@@ -474,26 +495,171 @@
   row-gap: clamp(0.125rem, 0.6svh, 0.375rem);
 }
 
+/* Pictures (shell/Picture): a frame of a set size that its pictures fill. One fades in once it has
+   loaded and decoded (`data-fade` until `data-loaded`); a new one fades in over the one before
+   (`data-under`, kept until it's covered); one that's gone fades out over the placeholder
+   (`data-leaving`). A picture seen before this run, and Reduced or Off motion, show at once. Only
+   opacity changes, so nothing is laid out again. Plain `<img data-fade>`s (a book's pictures, the
+   readers' pages) fade in the same way. */
+:root {
+  --picture-fade: 220ms;
+}
+:root[data-motion='calm'] {
+  --picture-fade: 150ms;
+}
+@layer components {
+  .picture {
+    position: relative;
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  /* No picture at all: the placeholder alone, in the middle. */
+  .picture[data-empty] {
+    display: grid;
+    place-items: center;
+  }
+}
+.picture > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.picture > img[data-under] {
+  z-index: -1;
+}
+.picture > .picture-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  display: grid;
+  place-items: center;
+}
+img[data-fade]:not([data-loaded]),
+.picture > img[data-leaving] {
+  opacity: 0;
+}
+/* A placeholder kept under the picture (a drawn book cover) goes once the picture covers it,
+   transparent corners included. */
+.picture > img[data-loaded]:not([data-leaving]) ~ .picture-placeholder[data-kept] {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:is([data-motion='lively'], [data-motion='calm']) :is(.picture > img, img[data-fade]) {
+    transition: opacity var(--picture-fade) ease-out;
+  }
+  :root:is([data-motion='lively'], [data-motion='calm'])
+    .picture
+    > img[data-loaded]:not([data-leaving])
+    ~ .picture-placeholder[data-kept] {
+    transition: visibility 0s linear var(--picture-fade);
+  }
+}
+
+/* What a source answered, coming in once it loaded (shell/appear): a list's or grid's first
+   screenful fades in one after another, cards rising a little; then (`data-appeared`, when the
+   list's own animation ends) rows drawn later just show. A skeleton fades out over what replaced
+   it (shell/SkeletonSwap), the cards showing through. Only where things may move, and only
+   opacity and transform, so nothing is laid out again. */
+@keyframes raygun-appear {
+  from {
+    opacity: 0;
+    transform: translateY(var(--appear-rise, 0px));
+  }
+}
+@keyframes raygun-appear-hold {
+  to {
+    --appear-held: 1;
+  }
+}
+[data-appear='rise'] {
+  --appear-rise: 0.5rem;
+}
+:root[data-motion='calm'] [data-appear='rise'] {
+  --appear-rise: 0.25rem;
+}
+[data-appear] > :nth-child(2) {
+  --appear-step: 1;
+}
+[data-appear] > :nth-child(3) {
+  --appear-step: 2;
+}
+[data-appear] > :nth-child(4) {
+  --appear-step: 3;
+}
+[data-appear] > :nth-child(5) {
+  --appear-step: 4;
+}
+[data-appear] > :nth-child(6) {
+  --appear-step: 5;
+}
+[data-appear] > :nth-child(7) {
+  --appear-step: 6;
+}
+[data-appear] > :nth-child(8) {
+  --appear-step: 7;
+}
+[data-appear] > :nth-child(9) {
+  --appear-step: 8;
+}
+[data-appear] > :nth-child(10) {
+  --appear-step: 9;
+}
+[data-appear] > :nth-child(11) {
+  --appear-step: 10;
+}
+[data-appear] > :nth-child(12) {
+  --appear-step: 11;
+}
+.skeleton-leaving {
+  position: absolute;
+  inset: 0;
+  overflow-x: visible;
+  overflow-y: clip;
+  pointer-events: none;
+  opacity: 0;
+}
+.skeleton-leaving .animate-pulse {
+  animation: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:is([data-motion='lively'], [data-motion='calm']) [data-appear]:not([data-appeared]) {
+    animation: raygun-appear-hold 700ms;
+  }
+  :root:is([data-motion='lively'], [data-motion='calm'])
+    [data-appear]:not([data-appeared])
+    > :nth-child(-n + 12) {
+    animation: raygun-appear calc(var(--motion-time) * 1.4) cubic-bezier(0.2, 0.8, 0.2, 1)
+      calc(var(--appear-step, 0) * 30ms) backwards;
+  }
+  /* From full to nothing as it's drawn: a transition, so it ends even while animations wait
+     (the page under the full player, Raygun in the background). */
+  :root:is([data-motion='lively'], [data-motion='calm']) .skeleton-leaving {
+    transition: opacity calc(var(--motion-time) * 1.4) ease-out;
+  }
+  @starting-style {
+    :root:is([data-motion='lively'], [data-motion='calm']) .skeleton-leaving {
+      opacity: 1;
+    }
+  }
+  /* A page opened (the shell's <main>, a new page's element) fades in rather than popping in;
+     the same page drawn again with new content doesn't. */
+  :root:is([data-motion='lively'], [data-motion='calm']) [data-pages] > * {
+    animation: raygun-fade-in var(--motion-time) ease-out;
+  }
+}
+
 /* A cover drawn for a book without one (manga/BookCover), under its own until that loads (a
-   loaded cover hides it, transparent corners included): set like a printed cover by the cover's
-   own width (the frame is the container), the title near the top (below the badges and the menu
-   button), a rule, the author at the foot, on colours of the title's own with a darker spine and
-   a thin frame. Too narrow for words: the first letter. */
+   loaded cover hides it): set like a printed cover by the cover's own width (the frame is the
+   container), the title near the top (below the badges and the menu button), a rule, the author
+   at the foot, on colours of the title's own with a darker spine and a thin frame. Too narrow for
+   words: the first letter. */
 .book-frame {
   container-type: inline-size;
   position: relative;
   overflow: hidden;
-}
-.book-frame > img {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.book-frame > img[data-loaded] + .book-cover {
-  visibility: hidden;
 }
 .book-cover {
   position: absolute;

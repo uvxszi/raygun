@@ -19,6 +19,7 @@ import { feedKey, pageKey, useHidden } from '../music/hidden';
 import { chartKey, useMusicCharts, useTagSummary, useTagVocabulary } from '../music/useDiscovery';
 import { useSourceHealth } from '../search/sourceHealth';
 import { sourceSearchOptions } from '../search/useCatalogSearch';
+import { SkeletonSwap } from '../shell/SkeletonSwap';
 import { useInView } from '../shell/useInView';
 import { HomeCarousel, HomeSection, RowSkeleton } from './HomeSection';
 import { CARD_MENU_CLASS, CardPlayButton } from '../manga/CardPlayButton';
@@ -173,7 +174,7 @@ export const AudiobooksSection: FC<{ id: string }> = ({ id }) => {
         all={{ to: '/audiobooks' }}
         testId="home-audiobooks"
       >
-        {list.length > 0 ? (
+        <SkeletonSwap ready={list.length > 0} skeleton={<RowSkeleton card="w-32 sm:w-40" />}>
           <HomeCarousel tight>
             {list.slice(0, TITLES).map((book) => (
               <BookCard
@@ -199,9 +200,7 @@ export const AudiobooksSection: FC<{ id: string }> = ({ id }) => {
               />
             ))}
           </HomeCarousel>
-        ) : (
-          <RowSkeleton card="w-32 sm:w-40" />
-        )}
+        </SkeletonSwap>
       </HomeSection>
     </div>
   );
@@ -266,7 +265,10 @@ export const PopularTitlesSection: FC<{ id: string; medium: Medium }> = ({ id, m
         all={{ to: '/browse', search: { tab: 'search', type: medium } }}
         testId={`home-popular-${medium}`}
       >
-        {items.length > 0 ? (
+        <SkeletonSwap
+          ready={items.length > 0}
+          skeleton={<RowSkeleton card={card} shape="poster" />}
+        >
           <HomeCarousel>
             {items.slice(0, TITLES).map((item) => {
               const title = {
@@ -311,9 +313,7 @@ export const PopularTitlesSection: FC<{ id: string; medium: Medium }> = ({ id, m
               );
             })}
           </HomeCarousel>
-        ) : (
-          <RowSkeleton card={card} shape="poster" />
-        )}
+        </SkeletonSwap>
       </HomeSection>
     </div>
   );

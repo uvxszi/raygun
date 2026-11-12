@@ -221,9 +221,11 @@ export const AppShell: FC = () => {
           <SideRail />
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex min-h-0 flex-1">
+              {/* A page opened fades in, briefly (styles.css `[data-pages]`). */}
               <main
                 ref={mainRef}
                 data-testid="page-content"
+                data-pages=""
                 className="min-w-0 flex-1 overflow-y-auto px-4 pt-[var(--safe-top)] pb-4 lg:px-10"
               >
                 <Outlet />

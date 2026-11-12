@@ -252,18 +252,18 @@ export const VideoTitlePage: FC = () => {
   );
   // What the list already showed (M46.38), while the page loads or when the source fails.
   const known = useKnownCard('video', source, id);
+  // The cover as the details' header draws it, so a better one fades in over the list's.
+  const heroCover = (url: string | null | undefined) =>
+    siteSource ? (
+      <MangaCover url={url} video landscape className="w-full rounded-xl shadow-lg" />
+    ) : (
+      <StremioPoster url={url ?? null} className="w-full shadow-lg" />
+    );
   const knownHero = known && (
     <TitleHero
       art={known.coverUrl}
       wideCover={siteSource}
-      cover={
-        <MangaCover
-          url={known.coverUrl}
-          video
-          landscape={siteSource}
-          className="w-full rounded-xl shadow-lg"
-        />
-      }
+      cover={heroCover(known.coverUrl)}
       title={known.title}
     />
   );
@@ -379,18 +379,7 @@ export const VideoTitlePage: FC = () => {
       <TitleHero
         art={view.coverUrl}
         wideCover={siteSource}
-        cover={
-          siteSource ? (
-            <MangaCover
-              url={view.coverUrl}
-              video
-              landscape
-              className="w-full rounded-xl shadow-lg"
-            />
-          ) : (
-            <StremioPoster url={view.coverUrl} className="w-full shadow-lg" />
-          )
-        }
+        cover={heroCover(view.coverUrl)}
         title={view.title}
         adult={view.adult}
         facts={[

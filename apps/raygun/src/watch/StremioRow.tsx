@@ -1,7 +1,6 @@
 import type { StremioCatalogInfo, StremioCatalogRow, StremioItem } from '@raygun/bindings';
 import { Link } from '@tanstack/react-router';
 import { CheckSquare, ChevronRight, Clapperboard } from 'lucide-react';
-import { useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -11,6 +10,8 @@ import type { CardTitle } from '../manga/titleMenu';
 import { AdultMark } from '../shell/AdultMark';
 import { Carousel } from '../shell/Carousel';
 import { MenuButton } from '../shell/MenuButton';
+import { Picture } from '../shell/Picture';
+import { SkeletonSwap } from '../shell/SkeletonSwap';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SourceTag } from '../shell/SourceTag';
 import { useDrawnCount } from '../shell/useDrawnCount';
@@ -26,33 +27,20 @@ const ASPECT: Record<string, string> = {
   square: 'aspect-square',
 };
 
-/** A poster in the shape its catalog asks for, or a placeholder (also when it fails to load);
- * full width unless sized. */
+/** A poster in the shape its catalog asks for, fading in, or a placeholder (also when it fails
+ * to load); full width unless sized. */
 export const StremioPoster: FC<{ url: string | null; shape?: string; className?: string }> = ({
   url,
   shape = 'poster',
   className = 'w-full',
-}) => {
-  const [failed, setFailed] = useState<string | null>(null);
-  const aspect = ASPECT[shape] ?? 'aspect-[2/3]';
-  return url && failed !== url ? (
-    <img
-      src={url}
-      alt=""
-      loading="lazy"
-      draggable={false}
-      onError={() => setFailed(url)}
-      className={`bg-surface rounded-lg object-cover ${aspect} ${className}`}
-    />
-  ) : (
-    <span
-      aria-hidden
-      className={`bg-surface text-muted grid place-items-center rounded-lg ${aspect} ${className}`}
-    >
-      <Clapperboard size={28} />
-    </span>
-  );
-};
+}) => (
+  <Picture
+    src={url}
+    draggable={false}
+    placeholder={<Clapperboard size={28} />}
+    className={`bg-surface text-muted rounded-lg ${ASPECT[shape] ?? 'aspect-[2/3]'} ${className}`}
+  />
+);
 
 /** A Stremio item as a card's title (saved ones are `stremio` titles with `<type>:<id>`). */
 const stremioCard = (item: StremioItem): CardTitle => ({
@@ -256,15 +244,16 @@ export const StremioCatalogRowView: FC<{
         {page.error.message}
       </SourceIssue>
     );
-  } else if (page.data) {
-    body =
-      items.length === 0 ? (
-        <p className="text-muted text-sm">{t('watch.catalogEmpty')}</p>
-      ) : (
-        <Cards items={items} />
-      );
   } else {
-    body = <Placeholder />;
+    body = (
+      <SkeletonSwap ready={Boolean(page.data)} skeleton={<Placeholder />}>
+        {items.length === 0 ? (
+          <p className="text-muted text-sm">{t('watch.catalogEmpty')}</p>
+        ) : (
+          <Cards items={items} />
+        )}
+      </SkeletonSwap>
+    );
   }
   return (
     <section ref={ref} aria-label={title} className="flex flex-col gap-2">

@@ -7,7 +7,7 @@ import { useState } from 'react';
 import type { FC } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
-import { imageLoading } from '../shell/imageMemory';
+import { Picture } from '../shell/Picture';
 
 type ArtworkProps = {
   url: string | null | undefined;
@@ -24,7 +24,11 @@ type ArtworkProps = {
   eager?: boolean;
 };
 
-/** Album art, or a placeholder when there is none or it fails to load. */
+/**
+ * Album art, or a placeholder when there is none or it fails to load. It fades in, and a new
+ * cover (the next song's, one found elsewhere, an edited one) fades in over the one before
+ * (shell/Picture).
+ */
 export const Artwork: FC<ArtworkProps> = ({
   url,
   className = '',
@@ -44,24 +48,14 @@ export const Artwork: FC<ArtworkProps> = ({
     retry: false,
   });
   const shown = ownFailed ? (other.data ?? null) : url;
-  if (!shown || failedUrls.includes(shown)) {
-    return (
-      <span
-        aria-hidden
-        className={`bg-surface text-muted grid aspect-square place-items-center ${className}`}
-      >
-        <Icon size={iconSize} />
-      </span>
-    );
-  }
   return (
-    <img
-      src={shown}
-      data-testid="artwork-image"
-      alt=""
-      {...imageLoading(shown, eager)}
-      onError={() => setFailedUrls((failed) => [...failed, shown])}
-      className={`bg-surface aspect-square object-cover ${className}`}
+    <Picture
+      src={shown && !failedUrls.includes(shown) ? shown : null}
+      testId="artwork-image"
+      eager={eager}
+      onFailed={(failed) => setFailedUrls((list) => [...list, failed])}
+      placeholder={<Icon size={iconSize} />}
+      className={`bg-surface text-muted aspect-square ${className}`}
     />
   );
 };

@@ -4,6 +4,7 @@ import type { CSSProperties, FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PageTextOverlay } from '../../readerAi/PageTextOverlay';
+import { rememberShown, revealDecoded, wasShown } from '../../shell/imageMemory';
 import { pageIdentity } from './drawnPages';
 import { usePageAi } from '../../readerAi/useReaderAi';
 import { useSteadyPicture } from './steadyPicture';
@@ -53,6 +54,9 @@ const ReaderImageView: FC<ReaderImageProps> = ({
     ai.src ?? withAttempt(url, attempt),
     state === 'loaded',
   );
+  // Decided once for the page: a picture swapped in later (the layers') replaces it on the same
+  // element, already shown.
+  const [fadeIn] = useState(() => !wasShown(src));
   return (
     <>
       <img
@@ -65,10 +69,15 @@ const ReaderImageView: FC<ReaderImageProps> = ({
         src={src}
         alt={t('manga.pageAlt', { page: index + 1 })}
         decoding="async"
+        // A page fades in once decoded (styles.css), unless it has shown before.
+        data-fade={fadeIn ? '' : undefined}
         draggable={false}
         onLoad={(event) => {
           setState('loaded');
-          const { naturalWidth, naturalHeight } = event.currentTarget;
+          const image = event.currentTarget;
+          rememberShown(src);
+          revealDecoded(image);
+          const { naturalWidth, naturalHeight } = image;
           if (naturalWidth > 0 && naturalHeight > 0) onRatio?.(index, naturalWidth / naturalHeight);
         }}
         onError={() => setState('failed')}

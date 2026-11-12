@@ -160,7 +160,7 @@ export const AppMenu: FC<{ groups: AppMenuGroup[]; onOpen?: () => void }> = ({
                   }}
                   role="menu"
                   aria-label={group.label}
-                  className="bg-surface absolute top-0 left-full z-[91] ml-1 flex w-64 flex-col rounded-lg p-1 shadow-2xl ring-1 shadow-black/40 ring-white/10"
+                  className="bg-surface motion-pop absolute top-0 left-full z-[91] ml-1 flex w-64 flex-col rounded-lg p-1 shadow-2xl ring-1 shadow-black/40 ring-white/10"
                 >
                   {group.items.map((item, index) =>
                     item.kind === 'separator' ? (

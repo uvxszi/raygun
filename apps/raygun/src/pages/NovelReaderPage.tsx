@@ -86,6 +86,7 @@ import {
 import { SizeField } from '../settings/prefs';
 import { useSettings, useUpdateSetting } from '../settings/useSettings';
 import { useBackLayer } from '../shell/backLayers';
+import { fadingImage } from '../shell/imageMemory';
 import { Sheet } from '../shell/Sheet';
 import { SourceIssue } from '../shell/SourceIssue';
 
@@ -177,7 +178,8 @@ const Block: FC<{
           data-block={index}
           src={block.url}
           alt=""
-          loading="lazy"
+          // Fades in once it has loaded and decoded.
+          {...fadingImage(block.url)}
           className="mx-auto my-[1em] max-h-[80vh] max-w-full break-inside-avoid"
         />
       );
@@ -262,7 +264,7 @@ const PrefsPanel: FC<{
     <div
       role="dialog"
       aria-label={t('novel.textSettings')}
-      className="bg-surface fixed top-[calc(var(--app-bar,0px)+4rem+var(--safe-top))] right-[calc(var(--main-right,0px)+max(0.5rem,var(--safe-right)))] left-[calc(var(--main-left,0px)+max(0.5rem,var(--safe-left)))] z-40 mx-auto flex max-h-[calc(100dvh-var(--app-bar,0px)-5rem-var(--safe-top)-var(--safe-bottom))] max-w-md flex-col gap-3 overflow-y-auto overscroll-contain rounded-xl p-4 shadow-xl"
+      className="bg-surface motion-pop fixed top-[calc(var(--app-bar,0px)+4rem+var(--safe-top))] right-[calc(var(--main-right,0px)+max(0.5rem,var(--safe-right)))] left-[calc(var(--main-left,0px)+max(0.5rem,var(--safe-left)))] z-40 mx-auto flex max-h-[calc(100dvh-var(--app-bar,0px)-5rem-var(--safe-top)-var(--safe-bottom))] max-w-md flex-col gap-3 overflow-y-auto overscroll-contain rounded-xl p-4 shadow-xl"
     >
       {speech && (
         <div role="tablist" aria-label={t('novel.textSettings')} className="flex gap-2">

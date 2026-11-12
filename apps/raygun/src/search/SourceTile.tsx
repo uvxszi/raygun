@@ -2,12 +2,18 @@ import { Check } from 'lucide-react';
 import { memo } from 'react';
 import type { FC, SyntheticEvent } from 'react';
 
+import { imageLoading, rememberShown, revealDecoded, wasShown } from '../shell/imageMemory';
+
 /**
- * The source's letter shows until its icon has loaded, and stays when the icon doesn't load
- * (marked on the element itself: tiles keep no state).
+ * The source's letter shows until its icon has loaded and faded in over it (styles.css, a
+ * `.picture` frame), and stays when the icon doesn't load (marked on the element itself: tiles
+ * keep no state).
  */
 const iconShown = (event: SyntheticEvent<HTMLImageElement>) => {
-  event.currentTarget.parentElement?.setAttribute('data-icon', 'shown');
+  const image = event.currentTarget;
+  const src = image.getAttribute('src');
+  if (src) rememberShown(src);
+  revealDecoded(image);
 };
 const iconBroken = (event: SyntheticEvent<HTMLImageElement>) => {
   event.currentTarget.style.display = 'none';
@@ -64,24 +70,28 @@ const SourceTileView: FC<SourceTileProps> = ({
   >
     <span
       aria-hidden
-      className={`group/icon relative size-8 shrink-0 ${on ? '' : 'opacity-50 grayscale'}`}
+      className={`picture size-8 shrink-0 rounded-lg ${on ? '' : 'opacity-50 grayscale'}`}
     >
-      <span className="bg-primary/15 text-primary absolute inset-0 grid place-items-center rounded-lg text-sm font-semibold group-data-[icon=shown]/icon:invisible">
-        {name.slice(0, 1).toUpperCase()}
-      </span>
       {icon && (
         <img
           src={icon}
           alt=""
-          // Only the rows near the screen are drawn; their icons load as they come.
-          loading="lazy"
-          decoding="async"
+          // Only the rows near the screen are drawn; their icons load as they come (at once
+          // when seen before, without fading in again).
+          loading={imageLoading(icon).loading}
+          decoding={wasShown(icon) ? 'sync' : 'async'}
+          data-fade={wasShown(icon) ? undefined : ''}
           draggable={false}
           onLoad={iconShown}
           onError={iconBroken}
-          className="absolute inset-0 size-full rounded-lg object-contain"
+          className="rounded-lg object-contain"
         />
       )}
+      <span data-kept="" className="picture-placeholder">
+        <span className="bg-primary/15 text-primary grid size-full place-items-center rounded-lg text-sm font-semibold">
+          {name.slice(0, 1).toUpperCase()}
+        </span>
+      </span>
     </span>
     <span className="line-clamp-2 min-h-[2lh] w-full text-2xs leading-tight tracking-tight break-words hyphens-auto">
       {name}

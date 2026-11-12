@@ -57,7 +57,7 @@ export const EpisodeSelectionBar: FC<{
   const button =
     'hover:bg-background flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium disabled:opacity-50';
   return (
-    <div className="bg-surface sticky bottom-2 z-30 flex flex-col gap-2 rounded-2xl p-2 shadow-xl">
+    <div className="bg-surface motion-rise sticky bottom-2 z-30 flex flex-col gap-2 rounded-2xl p-2 shadow-xl">
       <div
         role="toolbar"
         aria-label={t('watch.selectEpisodes')}

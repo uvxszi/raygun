@@ -55,6 +55,8 @@ export const useBarSwipe = ({ item, incoming, act }: Options) => {
   const contentX = useMotionValue(0);
   const contentOpacity = useMotionValue(1);
   const [shown, setShown] = useState<Shown | null>(null);
+  /** Counts the songs a swipe brought in: each is a card of its own, not a change of artwork. */
+  const [card, setCard] = useState(0);
   const press = useRef<Press | null>(null);
   const dragged = useRef(false);
   const running = useRef<AnimationPlaybackControls[]>([]);
@@ -98,7 +100,10 @@ export const useBarSwipe = ({ item, incoming, act }: Options) => {
     const mine = ++turn.current;
     const coming = incoming(direction) ?? item;
     setShown({ item, from: item.id, coming, landed: false });
-    const land = () => setShown({ item: coming, from: item.id, coming, landed: true });
+    const land = () => {
+      setShown({ item: coming, from: item.id, coming, landed: true });
+      if (coming.id !== item.id) setCard((count) => count + 1);
+    };
     const level = motionLevel();
     if (level === 'off') {
       contentX.set(0);
@@ -175,6 +180,7 @@ export const useBarSwipe = ({ item, incoming, act }: Options) => {
       if (shown && !shown.landed) {
         turn.current++;
         setShown({ ...shown, item: shown.coming, landed: true });
+        if (shown.coming.id !== shown.item.id) setCard((count) => count + 1);
       }
     }
     if (held.axis === 'x') contentX.set(dx);
@@ -208,6 +214,8 @@ export const useBarSwipe = ({ item, incoming, act }: Options) => {
     contentOpacity,
     /** The song the bar shows: the playing one, or the one a swipe throws out or brings in. */
     shownItem: shown?.item ?? item,
+    /** Changes when a swipe brings a song in (a key: its artwork is drawn afresh, not faded). */
+    card,
     /** Whether the last press moved (a drag, not a tap). */
     dragged,
     handlers: {

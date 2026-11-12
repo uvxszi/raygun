@@ -11,6 +11,7 @@ import { DownloadSongButton } from '../music/DownloadSongButton';
 import { NoSources } from '../search/NoSources';
 import { usePlaylistFinds } from '../search/useMusicFinds';
 import { playResults } from '../search/useOnlineSearch';
+import { Picture } from '../shell/Picture';
 import { SourceIssue } from '../shell/SourceIssue';
 import { YtDlpJobCard } from './YtDlpJobs';
 import { useYouTubeLink, useYtDlpActions, useYtDlpJobs, useYtDlpStatus } from './useYtDlp';
@@ -73,14 +74,15 @@ const LinkCard: FC<{ link: YouTubeLink; query: string }> = ({ link, query }) => 
     <section
       aria-label={t('youtube.link')}
       data-testid="youtube-link"
-      className="bg-surface flex flex-col gap-3 rounded-2xl p-3"
+      // It comes once the address is read, over the results: it fades in.
+      className="bg-surface motion-fade flex flex-col gap-3 rounded-2xl p-3"
     >
       <div className="flex gap-3">
         {link.thumbnailUrl && (
-          <img
+          <Picture
             src={link.thumbnailUrl}
-            alt=""
-            className="aspect-video w-36 shrink-0 rounded-lg object-cover sm:w-48"
+            eager
+            className="bg-background/40 aspect-video w-36 shrink-0 rounded-lg sm:w-48"
           />
         )}
         <div className="flex min-w-0 flex-col gap-0.5">

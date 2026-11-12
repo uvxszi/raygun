@@ -12,6 +12,7 @@ import { useHidden } from '../music/hidden';
 import { CardMenu } from '../shell/CardMenu';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { PinArt } from '../shell/RailPins';
+import { SkeletonSwap } from '../shell/SkeletonSwap';
 import { useQuickAccessItems } from '../shell/useQuickAccessItems';
 import { pageKey } from '../shell/useRail';
 import { useOpenWebsite } from '../websites/useWebsites';
@@ -187,10 +188,8 @@ export const QuickAccessSection: FC<{ id: string }> = ({ id }) => {
       testId="quick-access-row"
     >
       <div className="flex flex-col gap-2">
-        {quick.quick.isPending ? (
-          <RowSkeleton card="w-32" />
-        ) : (
-          items.length > 0 && (
+        <SkeletonSwap ready={!quick.quick.isPending} skeleton={<RowSkeleton card="w-32" />}>
+          {items.length > 0 && (
             <HomeCarousel>
               {items.map((item) => (
                 <QuickAccessCard
@@ -204,8 +203,8 @@ export const QuickAccessSection: FC<{ id: string }> = ({ id }) => {
                 />
               ))}
             </HomeCarousel>
-          )
-        )}
+          )}
+        </SkeletonSwap>
         <LatestFavorites favorites={favorites} />
       </div>
     </HomeSection>

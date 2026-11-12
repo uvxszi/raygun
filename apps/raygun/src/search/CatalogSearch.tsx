@@ -49,6 +49,7 @@ import type { FilterValues } from './useCatalogSearch';
 import { LoadMore } from '../shell/LoadMore';
 import { useSettings } from '../settings/useSettings';
 import { NeedsSetupNote } from '../shell/NeedsSetupNote';
+import { SkeletonSwap } from '../shell/SkeletonSwap';
 import { SourceIssue } from '../shell/SourceIssue';
 import { useSourcesSetup } from '../sources/useSourcesSetup';
 
@@ -159,27 +160,40 @@ const LazySourceRowView: FC<{
   const search = useSourceSearch(medium, source.id, query, seen);
   useHealthReport(source.id, search.error, search.data);
   const more = useMemo(() => (onMore ? () => onMore(source.id) : undefined), [onMore, source.id]);
+  const heading = (
+    <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
+      <span className="truncate">{source.name}</span>
+      {source.adult && <AdultMark />}
+    </h3>
+  );
+  const waiting = !search.data && !search.error && !search.isSuccess;
   return (
     <div ref={ref} data-testid="source-row">
-      {search.data ? (
-        <SourceRow result={search.data} medium={medium} limit={limit} onMore={more} />
-      ) : (
-        <section aria-label={source.name} aria-busy={!search.error} className="flex flex-col gap-2">
-          <h3 className="text-muted flex min-w-0 items-center gap-1 text-sm font-medium">
-            <span className="truncate">{source.name}</span>
-            {source.adult && <AdultMark />}
-          </h3>
-          {search.error ? (
-            <SourceIssue compact source={source.name} onRetry={() => void search.refetch()}>
-              {search.error.message}
-            </SourceIssue>
-          ) : search.isSuccess ? (
-            <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
-          ) : (
+      {/* The placeholders fade out over the covers that replace them. */}
+      <SkeletonSwap
+        ready={!waiting}
+        skeleton={
+          <section aria-label={source.name} aria-busy className="flex flex-col gap-2">
+            {heading}
             <RowPlaceholder count={Math.min(limit ?? 6, 6)} />
-          )}
-        </section>
-      )}
+          </section>
+        }
+      >
+        {search.data ? (
+          <SourceRow result={search.data} medium={medium} limit={limit} onMore={more} />
+        ) : (
+          <section aria-label={source.name} className="flex flex-col gap-2">
+            {heading}
+            {search.error ? (
+              <SourceIssue compact source={source.name} onRetry={() => void search.refetch()}>
+                {search.error.message}
+              </SourceIssue>
+            ) : (
+              <p className="text-muted text-xs">{t('search.providerEmpty')}</p>
+            )}
+          </section>
+        )}
+      </SkeletonSwap>
     </div>
   );
 };
@@ -320,7 +334,8 @@ export const RankedResults: FC<{
   return (
     <div data-testid="ranked-results" className="flex flex-col gap-3">
       {answered < sources.length && (
-        <p role="status" className="text-muted flex items-center gap-2 text-sm">
+        // Figures of one width: the line doesn't jiggle as each source answers.
+        <p role="status" className="text-muted flex items-center gap-2 text-sm tabular-nums">
           <LoaderCircle aria-hidden size={14} className="animate-spin" />
           {t('search.sourcesAnswered', { done: answered, count: sources.length })}
         </p>
@@ -330,7 +345,13 @@ export const RankedResults: FC<{
           {query.trim() ? t('search.noResults', { query }) : t('search.providerEmpty')}
         </p>
       )}
-      {ranked.length > 0 && <MangaGrid medium={medium} items={items} />}
+      {/* Answers stream in and are ranked as they come: the grid fades in as a whole once the
+          first came (cards moving to their places would make one after another stutter). */}
+      {ranked.length > 0 && (
+        <div className="motion-fade">
+          <MangaGrid medium={medium} items={items} />
+        </div>
+      )}
       {limit === undefined && ranked.length > cap && (
         <button
           type="button"
@@ -470,6 +491,7 @@ const SourceSearch: FC<{
       )}
       {items.length > 0 && (
         <MangaGrid
+          appear
           medium={medium}
           landscape={landscape}
           items={toGridItems(items, listed ? undefined : t('search.fromListing'))}

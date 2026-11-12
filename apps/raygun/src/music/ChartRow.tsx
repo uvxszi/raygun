@@ -13,6 +13,7 @@ import { useChartSongs } from './useDiscovery';
 import { Carousel } from '../shell/Carousel';
 import { NowPlayingBars } from '../player/NowPlayingBars';
 import { usePlayingMatch } from '../player/usePlayingMatch';
+import { SkeletonSwap } from '../shell/SkeletonSwap';
 import { SourceIssue } from '../shell/SourceIssue';
 import { SongMarks } from './SongMarks';
 import { TrackMoreButton } from '../collections/TrackMoreButton';
@@ -134,13 +135,11 @@ export const HomeChartRow: FC<{ chart: MusicChart | null; title: string; homeId:
         source={chart?.provider.name}
         testId="chart-row"
       >
-        {left.length > 0 ? (
+        <SkeletonSwap ready={left.length > 0} skeleton={<RowSkeleton card={CARD} />}>
           <HomeCarousel tight>
             <SongCards songs={list} home limit={ROW_SONGS} />
           </HomeCarousel>
-        ) : (
-          <RowSkeleton card={CARD} />
-        )}
+        </SkeletonSwap>
       </HomeSection>
     </div>
   );
@@ -180,12 +179,12 @@ export const ChartRow: FC<{ chart: MusicChart; title?: string }> = ({ chart, tit
           <SourceIssue compact source={chart.provider.name} onRetry={() => void songs.refetch()}>
             {songs.error.message}
           </SourceIssue>
-        ) : list.length > 0 ? (
-          <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
-            <SongCards songs={list} limit={ROW_SONGS} />
-          </Carousel>
         ) : (
-          <RowSkeleton card={CARD} />
+          <SkeletonSwap ready={list.length > 0} skeleton={<RowSkeleton card={CARD} />}>
+            <Carousel className="-mx-4 gap-1 px-2 lg:-mx-2">
+              <SongCards songs={list} limit={ROW_SONGS} />
+            </Carousel>
+          </SkeletonSwap>
         )}
       </section>
     </div>

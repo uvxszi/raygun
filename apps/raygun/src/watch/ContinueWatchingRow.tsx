@@ -8,6 +8,7 @@ import { CARD_MENU_CLASS, CardPlayButton } from '../manga/CardPlayButton';
 import { Carousel } from '../shell/Carousel';
 import type { MenuItem } from '../shell/contextMenuStore';
 import { MenuButton } from '../shell/MenuButton';
+import { Picture } from '../shell/Picture';
 import { SourceIssue } from '../shell/SourceIssue';
 import { entryPage } from './continueEntry';
 import { useContinueMenu } from './continueMenu';
@@ -17,22 +18,13 @@ import { useContinueSelection, usePickGestures } from './useContinueSelection';
 import type { ContinueSelection } from './useContinueSelection';
 import { useContinueWatching, useResumeVideo } from './useWatch';
 
-/** The poster, or a placeholder when there's none or it can't load (offline). */
-const Poster: FC<{ url: string | null }> = ({ url }) => {
-  const [failed, setFailed] = useState(false);
-  return url && !failed ? (
-    <img
-      src={url}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className="bg-surface aspect-video w-full object-cover"
-    />
-  ) : (
-    // The card's play button sits in the middle, so the placeholder stays plain.
-    <span aria-hidden className="bg-surface block aspect-video w-full" />
-  );
-};
+/**
+ * The poster, fading in, or a plain frame when there's none or it can't load (offline): the
+ * card's play button sits in the middle.
+ */
+const Poster: FC<{ url: string | null }> = ({ url }) => (
+  <Picture src={url} className="bg-surface aspect-video w-full" />
+);
 
 /**
  * A video started and not finished: the play button resumes it, the rest of the card opens its

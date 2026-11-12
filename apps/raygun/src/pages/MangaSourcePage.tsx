@@ -172,7 +172,10 @@ export const MangaSourcePage: FC<{ medium?: Medium }> = ({ medium = 'manga' }) =
         <p className="text-muted text-sm">{t('manga.nothingFound')}</p>
       )}
       <SelectionScope>
-        <MangaGrid items={items} medium={medium} landscape={Boolean(source?.searchPill)} />
+        {/* Drawn once the first page came, so its covers come in rather than pop in. */}
+        {items.length > 0 && (
+          <MangaGrid appear items={items} medium={medium} landscape={Boolean(source?.searchPill)} />
+        )}
         <LoadMore
           hasNextPage={list.hasNextPage}
           fetching={list.isFetchingNextPage}
