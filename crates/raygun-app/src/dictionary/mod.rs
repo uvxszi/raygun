@@ -15,11 +15,11 @@
 //! up before opens offline.
 
 mod book_search;
-mod cache;
+pub(crate) mod cache;
 mod forms;
 mod free_dictionary;
 mod merge;
-mod polite;
+pub(crate) mod polite;
 #[cfg(test)]
 mod tests;
 mod wiktionary;

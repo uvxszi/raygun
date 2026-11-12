@@ -2932,6 +2932,11 @@ mod tests {
                 include_str!("../../../extensions/gutenberg-audiobooks/dist/index.js"),
                 &["audiobook.directory"][..],
             ),
+            (
+                include_str!("../../../extensions/wolfram-alpha/raygun-extension.json"),
+                include_str!("../../../extensions/wolfram-alpha/dist/index.js"),
+                &["answers"][..],
+            ),
         ] {
             let manifest = raygun_ext_host::Manifest::parse(manifest).unwrap();
             assert_eq!(manifest.provides, kinds, "{}", manifest.id);

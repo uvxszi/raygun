@@ -308,6 +308,11 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         paths.cache(raygun_paths::CacheKind::Dictionary),
     )?);
+    // Search's answers: computed here, or looked up and kept on the device.
+    app.manage(crate::answers::AnswersService::new(
+        app.handle().clone(),
+        paths.cache(raygun_paths::CacheKind::Answers),
+    )?);
     // Covers from other sources when one's missing or fails (M46.40), and looked for in the
     // background for library songs without one.
     app.manage(crate::cover_fallback::CoverFallbacks::new(

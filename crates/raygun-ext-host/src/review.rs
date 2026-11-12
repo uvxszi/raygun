@@ -7,6 +7,7 @@ use std::time::Duration;
 use raygun_model::{MediaSource, ProviderInfo};
 use serde_json::{Value, json};
 
+use crate::answers::{self, ANSWERS};
 use crate::audiobook::{self, AUDIOBOOK_DIRECTORY};
 use crate::dictionary::{self, DICTIONARY};
 use crate::host::{
@@ -99,6 +100,7 @@ const BOOK: &str = "a title, and an http(s) feedUrl or an id";
 const BOOK_CHAPTER: &str = "an http(s) audioUrl";
 const COMMENT: &str = "an author and a text";
 const ENTRY: &str = "a word, and a meaning with a definition";
+const ANSWER: &str = "a result (text, or { text, tex })";
 
 /// How the app reads `method`'s answer from a provider of `kind`; `None` for a call the app never
 /// makes.
@@ -315,6 +317,9 @@ pub fn review(kind: &str, method: &str, answer: &Value) -> Option<Review> {
         (DICTIONARY, "define") => listing("entries", ENTRY, answer, Some("entries"), |value| {
             dictionary::parse_entries(value, "en").len()
         }),
+        (ANSWERS, "answer") => listing("answers", ANSWER, answer, Some("answers"), |value| {
+            answers::parse_answers(value, "review/provider", "Review").len()
+        }),
         _ => return None,
     };
     Some(review)
@@ -325,7 +330,8 @@ pub fn time_limit(kind: &str, method: &str) -> Duration {
     match (kind, method) {
         (MUSIC_METADATA, "album" | "playlist") => CALL_TIMEOUT,
         (
-            MUSIC_METADATA | MUSIC_STREAM | LYRICS | MUSIC_INFO | AUDIOBOOK_DIRECTORY | DICTIONARY,
+            MUSIC_METADATA | MUSIC_STREAM | LYRICS | MUSIC_INFO | AUDIOBOOK_DIRECTORY | DICTIONARY
+            | ANSWERS,
             _,
         )
         | (MUSIC_CHARTS, "tagSongs")
@@ -729,8 +735,8 @@ mod tests {
         )))
         .unwrap();
         let kinds = kinds.as_object().unwrap();
-        // Thirteen kinds of providers, and site scripts (`crate::site`), which have no calls.
-        assert_eq!(kinds.len(), 14);
+        // Fourteen kinds of providers, and site scripts (`crate::site`), which have no calls.
+        assert_eq!(kinds.len(), 15);
         assert!(
             kinds["site.scripts"]["required"]
                 .as_array()

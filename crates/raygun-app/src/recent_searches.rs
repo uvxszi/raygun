@@ -12,7 +12,9 @@ pub const KEPT: usize = 30;
 /// Longest query kept, in characters.
 const MAX_CHARS: usize = 200;
 /// Search's kinds; anything else is kept as `all`.
-const KINDS: [&str; 6] = ["all", "music", "video", "manga", "novel", "library"];
+const KINDS: [&str; 7] = [
+    "all", "music", "video", "manga", "novel", "library", "answers",
+];
 
 /// One change at a time, so two searches remembered together both stay.
 static WRITING: Mutex<()> = Mutex::const_new(());

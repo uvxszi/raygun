@@ -85,6 +85,14 @@
       "define": { "word": "", "language": "en" }
     }
   },
+  "answers": {
+    "label": "Answers to questions and calculations in Search",
+    "required": ["answer"],
+    "optional": [],
+    "args": {
+      "answer": { "query": "", "language": "en", "card": false }
+    }
+  },
   "manga.source": {
     "label": "Comics: lists, search, chapters and pages",
     "required": ["popular", "search", "details", "chapters", "pages"],

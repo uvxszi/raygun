@@ -668,6 +668,8 @@ export const bindingsMock = {
     dictionaryLookup: vi.fn(),
     dictionarySources: vi.fn(),
     dictionaryOpenPage: vi.fn(),
+    answersAsk: vi.fn(),
+    answersOpenPage: vi.fn(),
     ttsAvailable: vi.fn(),
     ttsSpeak: vi.fn(),
     ttsPause: vi.fn(),
@@ -1550,6 +1552,19 @@ export const seedBindings = () => {
       issues: [],
     }),
   );
+  // Nothing typed is a question unless a test says so.
+  commands.answersAsk.mockImplementation(async (request: { query: string }) =>
+    ok({
+      query: request.query,
+      question: false,
+      answers: [],
+      related: [],
+      offline: false,
+      needsTranslator: false,
+      issues: [],
+    }),
+  );
+  commands.answersOpenPage.mockResolvedValue(ok(null));
   commands.novelImportEpub.mockResolvedValue(ok({ sourceId: 'local.epub', novelId: 'abc' }));
   commands.ttsAvailable.mockResolvedValue(ok(false));
   commands.ttsSpeak.mockResolvedValue(ok(null));

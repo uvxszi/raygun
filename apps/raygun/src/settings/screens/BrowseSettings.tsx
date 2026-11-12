@@ -3,6 +3,7 @@ import { EyeOff, Package, Puzzle } from 'lucide-react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AnswersSettings } from '../../answers/AnswersSettings';
 import { useExtensions } from '../../extensions/useExtensions';
 import { useLayout } from '../../layout/useLayout';
 import { autoRegion } from '../../music/useDiscovery';
@@ -239,6 +240,7 @@ export const BrowseSettings: FC = () => {
         <ManualBrowserChecks />
         <RunSourceCode />
       </PrefGroup>
+      <AnswersSettings />
       <PrefGroup title={t('discover.charts')}>
         <PrefChoice<string>
           title={t('discover.region')}

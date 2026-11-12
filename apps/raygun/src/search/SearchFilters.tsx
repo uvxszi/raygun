@@ -66,6 +66,7 @@ const filterGroups = (
         { key: 'novel', title: t('search.type.novel'), rows: books },
       ];
     case 'library':
+    case 'answers':
       return [];
   }
 };

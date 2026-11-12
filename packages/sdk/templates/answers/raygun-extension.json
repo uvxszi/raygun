@@ -1,0 +1,13 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "The weather now in a place, from Open-Meteo (CC BY 4.0), for questions typed in Search.",
+  "website": "https://open-meteo.com",
+  "provides": ["answers"],
+  "permissions": { "net": ["api.open-meteo.com", "geocoding-api.open-meteo.com"] },
+  "contentRating": "safe"
+}

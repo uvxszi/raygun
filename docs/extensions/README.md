@@ -35,6 +35,7 @@ a legal site. `raygun-ext init --kind <kind>` creates that example as a new exte
 | [`podcast.directory`](podcast-directory.md)     | Podcasts to find and follow                                     | NASA, LibriVox           |
 | [`audiobook.directory`](audiobook-directory.md) | Audiobooks to find, with their chapters                         | LibriVox                 |
 | [`dictionary`](dictionary.md)                   | Words looked up in the book reader                              | Free Dictionary API      |
+| [`answers`](answers.md)                         | Answers to questions and calculations in Search                 | Open-Meteo               |
 | [`site.scripts`](site-scripts.md)               | Scripts and styles for websites opened in Raygun's browser      | Wikipedia                |
 
 One extension may provide several kinds; it lists them all in its manifest's `provides`.

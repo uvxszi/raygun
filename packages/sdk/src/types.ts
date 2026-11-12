@@ -812,7 +812,85 @@ export type DictionaryProvider = ProviderBase & {
   define(args: { word: string; language: string }): Promise<{ entries: DictionaryEntry[] }>;
 };
 
+// ---- Answers: questions and calculations typed in Search ----
+
+/** Text with a formula: TeX that Raygun turns into MathML, `text` for copying and screen readers. */
+export type AnswerFormula = {
+  /** `\frac{1}{2}`, `x = \pm \sqrt{2}`. */
+  tex: string;
+  /** The formula as plain text; the TeX when left out. */
+  text?: string;
+  /** Asking this tells more about the value (a director's name). */
+  query?: string | null;
+};
+
+/** What an answer is; `other` when left out. */
+export type AnswerKind =
+  | 'calculation'
+  | 'conversion'
+  | 'currency'
+  | 'percentage'
+  | 'numberBase'
+  | 'statistics'
+  | 'algebra'
+  | 'constant'
+  | 'date'
+  | 'time'
+  | 'fact'
+  | 'summary'
+  | 'definition'
+  | 'translation'
+  | 'other';
+
+/** One answer to a question. */
+export type AnswerItem = {
+  kind?: AnswerKind;
+  /** How the words were read ("weather in Paris, France"). */
+  interpretation?: string | AnswerFormula | null;
+  /** The answer. Required. */
+  result: string | AnswerFormula;
+  /** The result is rounded (shown with ≈). */
+  approximate?: boolean;
+  /** Other forms of the result, other facts. */
+  rows?: { label: string; value: string | AnswerFormula }[];
+  /** A paragraph about it; line breaks are kept. */
+  summary?: string | null;
+  /** A picture; http(s) only. */
+  imageUrl?: string | null;
+  /** Where to read more; http(s) only. */
+  url?: string | null;
+  /** Who the answer comes from, with its licence. Shown with the answer. */
+  credits?: {
+    name: string;
+    url?: string | null;
+    license?: string | null;
+    licenseUrl?: string | null;
+  }[];
+  /** When the value stands: `2026-11-11`, `2026-11-11T14:30`, `2026`. */
+  asOf?: string | null;
+  /** What Copy puts on the clipboard; the result's text when left out. */
+  copy?: string | null;
+};
+
+/**
+ * Answers to what's typed in Search, beside Raygun's own engines (its calculator, units, dates,
+ * Wikidata, Wikipedia, dictionaries). The Answers pill asks every provider for every query;
+ * Search → All asks with `card: true` only when the words read as a question nothing else
+ * answered: answer quickly then, and only when sure. Answer `{ answers: [] }` for words this
+ * provider doesn't answer. Raygun doesn't keep these answers. Questions come as typed;
+ * `language` is the app's (BCP 47).
+ */
+export type AnswersProvider = ProviderBase & {
+  kind: 'answers';
+  answer(args: {
+    query: string;
+    language: string;
+    card: boolean;
+  }): Promise<{ answers: AnswerItem[] }>;
+};
+
 export type Provider =
+  | AnswersProvider
   | AudiobookDirectoryProvider
   | DictionaryProvider
   | MusicRecommendProvider

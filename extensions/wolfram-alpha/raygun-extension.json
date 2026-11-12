@@ -1,0 +1,26 @@
+{
+  "id": "dev.raygun.wolfram-alpha",
+  "name": "Wolfram|Alpha",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Answers from Wolfram|Alpha in Search's Answers, each linked to its page on wolframalpha.com, under Wolfram|Alpha's API terms (products.wolframalpha.com/api/termsofuse). Needs your own AppID, created free for non-commercial use at developer.wolframalpha.com and entered in this source's settings. Results and information from Wolfram|Alpha are not a certified or definitive source of information that can be relied on for legal, financial, medical, life-safety or any other critical purposes.",
+  "author": "Raygun",
+  "website": "https://www.wolframalpha.com",
+  "provides": ["answers"],
+  "permissions": {
+    "net": ["api.wolframalpha.com"]
+  },
+  "contentRating": "safe",
+  "settings": [
+    { "key": "appId", "type": "text", "label": "AppID", "required": true },
+    {
+      "key": "units",
+      "type": "select",
+      "label": "Units",
+      "options": ["metric", "nonmetric"],
+      "default": "metric"
+    }
+  ]
+}

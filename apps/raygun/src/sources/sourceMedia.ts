@@ -33,6 +33,7 @@ const DATA_KINDS = new Set([
   'stremio.subtitles',
   'stremio.meta',
   'dictionary',
+  'answers',
 ]);
 
 /** Whether a provider kind is data (as well as being for what `mediaOfKind` says). */

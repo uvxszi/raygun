@@ -1464,6 +1464,8 @@ export const commands = {
 	readerAi?: ReaderAiPrefs,
 	/**  Word lookups in the book reader. */
 	dictionary?: DictionaryPrefs,
+	/**  Answers to questions and calculations in Search. */
+	answers?: AnswersPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**
@@ -1719,6 +1721,10 @@ export const commands = {
 	 *  chapters and the one open (`chapter_id`).
 	 */
 	novelSearchBook: (titleId: string, chapterId: string | null, query: string) => typedError<BookSearch, string>(__TAURI_INVOKE("novel_search_book", { titleId, chapterId, query })),
+	/**  Answers to a question or calculation typed in Search. */
+	answersAsk: (request: AnswerRequest) => typedError<Answers, string>(__TAURI_INVOKE("answers_ask", { request })),
+	/**  Opens an answer's page (an article, a source) in Raygun's browser. */
+	answersOpenPage: (url: string) => typedError<null, string>(__TAURI_INVOKE("answers_open_page", { url })),
 	/**  Turns Offline Mode on or off: while it's on, Raygun sends nothing over the network. */
 	networkSetOffline: (offline: boolean) => typedError<NetworkStatus, string>(__TAURI_INVOKE("network_set_offline", { offline })),
 	/**  Every permission Raygun uses on this device, and where it stands. */
@@ -2079,6 +2085,170 @@ export type AnimeEpisode = {
 	 */
 	kitsuId?: number | null,
 	anilistId?: number | null,
+};
+
+/**  One answer to a question. */
+export type Answer = {
+	/**
+	 *  Who answered: `raygun` (computed on this device), `wikidata`, `wikipedia`, `dictionary`,
+	 *  `translation`, `ecb`, or an extension's `<extension>/<provider>`.
+	 */
+	engine: string,
+	/**  Empty for Raygun's own engines, which the app names itself. */
+	engineName: string,
+	kind: AnswerKind,
+	/**  How the words were read ("Input interpretation"). */
+	interpretation: AnswerText | null,
+	result: AnswerText,
+	/**  The result is rounded. */
+	approximate: boolean,
+	/**  Other forms of the result, other facts. */
+	rows: AnswerRow[],
+	/**  The result in other units. */
+	units: AnswerUnit[],
+	/**  A paragraph about it (a Wikipedia article's start). */
+	summary: string | null,
+	/**  A picture, through Raygun's cover proxy. */
+	imageUrl: string | null,
+	/**  Where to read more. */
+	url: string | null,
+	credits: AnswerCredit[],
+	/**  When the value stands (a population's count, the exchange rates' day). */
+	asOf: AnswerDate | null,
+	/**  Plain text Copy puts on the clipboard. */
+	copy: string,
+	/**  This device's copy of an earlier answer. */
+	kept: boolean,
+};
+
+/**  Who an answer comes from. */
+export type AnswerCredit = {
+	name: string,
+	url: string | null,
+	/**  `CC0`, `CC BY-SA 4.0`… */
+	license: string | null,
+	licenseUrl: string | null,
+};
+
+/**  A date shown in the app's language. */
+export type AnswerDate = {
+	/**
+	 *  `2027-01-01`, `-0500-01-01` before the common era; with a time of day,
+	 *  `2027-01-01T15:30` (the clock time where it's said, no offset).
+	 */
+	iso: string,
+	precision: AnswerDatePrecision,
+};
+
+/**  How much of a date is known. */
+export type AnswerDatePrecision = "century" | "decade" | "year" | "month" | "day" | 
+/**  A day and a time of day. */
+"minute";
+
+/**  What an answer is. */
+export type AnswerKind = "calculation" | "conversion" | "currency" | "percentage" | "numberBase" | "statistics" | "algebra" | "constant" | "date" | "time" | "fact" | "summary" | "definition" | "translation" | "other";
+
+/**  A formula, drawn by the webview from MathML. */
+export type AnswerMath = {
+	/**  `<math>…</math>`: MathML elements and attributes only. */
+	mathml: string,
+	/**  The formula as text (its TeX, or a linear form). */
+	text: string,
+	/**  The formula in words, for screen readers. */
+	speech: string,
+};
+
+/**  A question asked in Search. */
+export type AnswerRequest = {
+	query: string,
+	/**
+	 *  For Search → All's card: answered only when the words read as a question or a
+	 *  calculation, by the quick engines. Otherwise it's the Answers pill: every engine, and
+	 *  more about each answer.
+	 */
+	card?: boolean,
+	/**  The app's language (BCP 47): the language of facts' names and of summaries. */
+	language: string,
+	/**  This device's time zone (IANA, `Europe/Paris`), for dates and times. */
+	timeZone?: string | null,
+	/**  Minutes east of UTC now, for when the zone isn't known. */
+	utcOffsetMinutes?: number,
+	/**  Asks the online engines again, even when this device kept a recent answer. */
+	refresh?: boolean,
+};
+
+/**  One line of an answer: another form of the result, another fact. */
+export type AnswerRow = {
+	/**
+	 *  What the app names in its language (`decimal`, `fraction`, `words`, `rate`…); empty when
+	 *  `label` is shown as it is.
+	 */
+	key: string,
+	/**  The name in English, or as an engine gave it. */
+	label: string,
+	value: AnswerText,
+};
+
+/**  Something else to ask. */
+export type AnswerSuggestion = {
+	label: string,
+	query: string,
+};
+
+/**
+ *  Text in an answer: maybe a formula or a date the app shows its own way, maybe something to
+ *  ask about next.
+ */
+export type AnswerText = {
+	/**  Always set: what's copied, and shown when the formula or date can't be. */
+	text: string,
+	math: AnswerMath | null,
+	date: AnswerDate | null,
+	/**  Asking this tells more about it (a director's name: who they are). */
+	query: string | null,
+};
+
+/**  The result in another unit, for the units toggle. */
+export type AnswerUnit = {
+	/**  As written after a number (`ft`, `°C`, `EUR`). */
+	symbol: string,
+	/**  `metric`, `imperial` (US customary and imperial units) or empty. */
+	system: string,
+	value: AnswerText,
+};
+
+/**  What the answer engines said about a query. */
+export type Answers = {
+	query: string,
+	/**
+	 *  The words read as a question, a calculation or a conversion: Search → All shows its card
+	 *  only then.
+	 */
+	question: boolean,
+	/**  Best first. */
+	answers: Answer[],
+	related: AnswerSuggestion[],
+	/**  Online engines weren't asked: Offline Mode, or the setting is off. */
+	offline: boolean,
+	/**  A translation was asked for, but no translator is set up (Settings → AI). */
+	needsTranslator: boolean,
+	/**  Engines that had trouble, one sentence each. */
+	issues: string[],
+};
+
+/**  Answers in Search (Settings → Browse). */
+export type AnswersPrefs = {
+	/**
+	 *  Search → All shows an answer above the results when the words are a question, a
+	 *  calculation or a conversion.
+	 */
+	inAll?: boolean,
+	/**
+	 *  Facts, summaries, definitions and exchange rates are looked up online (Wikidata,
+	 *  Wikipedia, Wiktionary, the European Central Bank); off, only what this device computes or
+	 *  kept from before is shown.
+	 */
+	online?: boolean,
 };
 
 /**  Build and runtime facts about the running app. */
@@ -6239,7 +6409,7 @@ export type ServerKind = "jellyfin" | "emby" | "subsonic" | "audiobookshelf" | "
  */
 export type SettingChange = { key: "theme"; value: Theme } | { key: "language"; value: string } | { key: "mangaUpdateHours"; value: number } | { key: "novelReader"; value: NovelReaderPrefs } | { key: "showNsfw"; value: boolean } | { key: "explicitMusic"; value: boolean } | { key: "contentOverrides"; value: ContentOverrides } | { key: "accent"; value: Accent } | { key: "startScreen"; value: StartScreen } | { key: "navLabels"; value: NavLabels } | { key: "coverStyle"; value: CoverStyle } | { key: "unreadBadges"; value: boolean } | { key: "downloadBadges"; value: boolean } | { key: "resumeVideos"; value: boolean } | { key: "watchedPercent"; value: number } | { key: "seekSeconds"; value: number } | { key: "autoSubtitles"; value: boolean } | { key: "subtitleLanguage"; value: string } | { key: "autoplayNext"; value: boolean } | { key: "nextPromptSeconds"; value: number } | 
 /**  Boxed: much larger than the other settings. */
-{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "youtube"; value: YouTubePrefs };
+{ key: "videoPlayer"; value: VideoPlayerPrefs } | { key: "libraryDisplay"; value: LibraryDisplayPrefs } | { key: "save"; value: SavePrefs } | { key: "cache"; value: CachePrefs } | { key: "websites"; value: WebsitePrefs } | { key: "layout"; value: LayoutPrefs } | { key: "accentColor"; value: string } | { key: "coverSize"; value: number } | { key: "mangaReader"; value: MangaReaderPrefs } | { key: "playerView"; value: PlayerViewPrefs } | { key: "scrollbars"; value: ScrollbarStyle } | { key: "motion"; value: MotionLevel } | { key: "trackTables"; value: TrackTablePrefs } | { key: "panels"; value: PanelPrefs } | { key: "colors"; value: CustomColors } | { key: "disabledSources"; value: string[] } | { key: "autoLoad"; value: AutoLoadPrefs } | { key: "windowFrame"; value: WindowFrame } | { key: "zoom"; value: number } | { key: "textSize"; value: number } | { key: "fonts"; value: FontPrefs } | { key: "discovery"; value: DiscoveryPrefs } | { key: "failingSourcesLast"; value: boolean } | { key: "browseStartTab"; value: string } | { key: "searchFilter"; value: SearchFilterPrefs } | { key: "searchListings"; value: SearchListingsPrefs } | { key: "manualBrowserChecks"; value: boolean } | { key: "runSourceCode"; value: boolean } | { key: "userAgent"; value: string } | { key: "sound"; value: SoundPrefs } | { key: "keepMusicPlaying"; value: boolean } | { key: "resumeOnStart"; value: boolean } | { key: "checkUpdates"; value: boolean } | { key: "downloadsInBatterySaver"; value: boolean } | { key: "downloadsPopover"; value: number } | { key: "audioQuality"; value: AudioQualityPrefs } | { key: "network"; value: NetworkPrefs } | { key: "rail"; value: RailPrefs } | { key: "transcription"; value: TranscriptionPrefs } | { key: "readAloud"; value: ReadAloudPrefs } | { key: "privacy"; value: PrivacyPrefs } | { key: "notifications"; value: NotificationPrefs } | { key: "hidden"; value: HiddenPrefs } | { key: "lyricsCache"; value: LyricsCachePrefs } | { key: "lyricsTranslation"; value: LyricsTranslationPrefs } | { key: "readerAi"; value: ReaderAiPrefs } | { key: "torrents"; value: TorrentPrefs } | { key: "dictionary"; value: DictionaryPrefs } | { key: "answers"; value: AnswersPrefs } | { key: "youtube"; value: YouTubePrefs };
 
 export type SettingKind = "text" | "number" | "boolean" | "select";
 
@@ -6367,6 +6537,8 @@ export type Settings = {
 	readerAi?: ReaderAiPrefs,
 	/**  Word lookups in the book reader. */
 	dictionary?: DictionaryPrefs,
+	/**  Answers to questions and calculations in Search. */
+	answers?: AnswersPrefs,
 	/**  Sources that didn't answer lately go to the end of Browse and Search (M46.9). */
 	failingSourcesLast: boolean,
 	/**

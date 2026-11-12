@@ -182,6 +182,11 @@ opt-level = 3
 [profile.dev.package.png]
 opt-level = 3
 
+# Search's calculator (fend: arbitrary-precision numbers) answers within a fraction of a second
+# only optimized, in the debug builds the emulator runs too.
+[profile.dev.package.fend-core]
+opt-level = 3
+
 # Panics unwind, never abort (M46.7): on Windows, Lua's errors (Shosetsu scripts, mlua) travel as
 # SEH unwinds through Rust frames, and with `panic = "abort"` any script error ended the whole app.
 # Unwinding also lets a panic stop one worker thread instead of the process.

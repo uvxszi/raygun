@@ -267,6 +267,7 @@ export const SETTINGS_INDEX: IndexedSetting[] = [
     'settings.autoLoad.cooldown',
     'sources.userAgent',
   ),
+  ...on('browse', 'answers.settings.title')('answers.settings.inAll', 'answers.settings.online'),
   ...on('browse', 'discover.charts')('discover.region', 'discover.tagSongsTitle'),
   ...on('browse', 'websites.title')('websites.blockAds', 'websites.blockPopups', 'websites.list'),
 

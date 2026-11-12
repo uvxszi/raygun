@@ -301,7 +301,7 @@ describe('Search by type', () => {
       within(kinds)
         .getAllByRole('tab')
         .map((tab) => tab.textContent),
-    ).toEqual(['All', 'Audio', 'Videos', 'Comics', 'Books', 'Your library']);
+    ).toEqual(['All', 'Audio', 'Videos', 'Comics', 'Books', 'Your library', 'Answers']);
     const pills = await screen.findByRole('group', { name: 'What to find' });
     await within(pills).findByRole('button', { name: 'Open Videos' });
 

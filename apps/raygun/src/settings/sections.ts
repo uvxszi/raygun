@@ -195,6 +195,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
       'userAgent',
       'discovery',
       'websites',
+      'answers',
     ),
   },
   {
