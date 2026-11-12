@@ -9,6 +9,13 @@ import { useTranslation } from 'react-i18next';
 import { useAiModels, useDeleteAiModel, useDownloadAiModel } from '../../ai/useAi';
 import { unwrapResult } from '../../lib/commandResult';
 import { formatBytes } from '../../lib/formatBytes';
+import {
+  primaryLanguage,
+  useChooseVoice,
+  voiceState,
+  voiceStateText,
+} from '../../novel/readAloud/voiceChoice';
+import type { VoiceState } from '../../novel/readAloud/voiceChoice';
 import { DEFAULT_PREFS } from '../../novel/useNovel';
 import { Problem } from '../Problem';
 import {
@@ -27,12 +34,6 @@ import { downloadPercent } from './modelUse';
 const ENGINES: ReadAloudEngine[] = ['system', 'piper', 'kokoro'];
 const ICON_BUTTON =
   'hover:bg-surface grid size-10 shrink-0 place-items-center rounded-full disabled:opacity-60';
-
-/** A language tag's primary language (`pt-BR` → `pt`; Norwegian's tags as `nb`), as Rust keys it. */
-const primaryLanguage = (tag: string) => {
-  const primary = (tag.split(/[-_]/)[0] ?? '').toLowerCase();
-  return primary === 'no' || primary === 'nn' ? 'nb' : primary;
-};
 
 /** A language's name in the app's language. */
 const languageName = (tag: string, locale: string) => {
@@ -55,15 +56,19 @@ const voiceInUse = (
   voices.find((voice) => voice.key === chosen && installed(voice)) ??
   voices.find((voice) => installed(voice));
 
-/** One voice: chosen for its language, heard, and (Piper's, one model each) downloaded. */
+/**
+ * One voice: chosen for its language (one not downloaded yet is downloaded, then chosen), heard,
+ * and (Piper's, one model each) downloaded or removed.
+ */
 const VoiceRow: FC<{
   voice: TtsVoice;
   model: AiModel | undefined;
+  state: VoiceState;
   /** Its model is its own (Piper), so the row downloads and removes it. */
   ownModel: boolean;
   chosen: boolean;
   onChoose: () => void;
-}> = ({ voice, model, ownModel, chosen, onChoose }) => {
+}> = ({ voice, model, state, ownModel, chosen, onChoose }) => {
   const { t, i18n } = useTranslation();
   const download = useDownloadAiModel();
   const remove = useDeleteAiModel();
@@ -76,16 +81,12 @@ const VoiceRow: FC<{
   const details = [
     language,
     voice.gender ? t(`ai.readAloud.${voice.gender === 'female' ? 'female' : 'male'}`) : null,
-    ownModel && model ? formatBytes(model.sizeBytes ?? 0) : null,
-    percent !== null
-      ? t('ai.onDevice.progress', { percent })
-      : installed
-        ? chosen
-          ? t('ai.readAloud.inUse', {
-              language: languageName(primaryLanguage(voice.language), i18n.language),
-            })
-          : null
-        : t('ai.readAloud.downloadFirst'),
+    voiceStateText(state, t) ?? (ownModel && model ? formatBytes(model.sizeBytes ?? 0) : null),
+    state.kind === 'installed' && chosen
+      ? t('ai.readAloud.inUse', {
+          language: languageName(primaryLanguage(voice.language), i18n.language),
+        })
+      : null,
   ].filter(Boolean);
 
   return (
@@ -99,7 +100,7 @@ const VoiceRow: FC<{
             name: voice.name,
           })}
           checked={chosen}
-          disabled={!installed}
+          disabled={state.kind === 'downloading'}
           onChange={onChoose}
           className="accent-primary size-5 shrink-0"
         />
@@ -204,6 +205,8 @@ export const ReadAloudSection: FC = () => {
   const inUse = language ? voiceInUse(shown, installed, prefs?.voices?.[language]) : undefined;
   // Kokoro's voices are one model; each of Piper's is its own.
   const shared = engine === 'kokoro' ? shown[0] && modelOf(shown[0]) : undefined;
+  const choose = useChooseVoice(voices?.runtimeId);
+  const failed = choose.error && choose.variables;
 
   return (
     <PrefGroup id="read-aloud" title={t('ai.readAloud.title')} summary={t('ai.readAloud.about')}>
@@ -255,12 +258,20 @@ export const ReadAloudSection: FC = () => {
                   key={voice.key}
                   voice={voice}
                   model={modelOf(voice)}
+                  state={voiceState(voice, models, voices?.runtimeId)}
                   ownModel={engine === 'piper'}
                   chosen={voice.key === inUse?.key}
-                  onChoose={() => save({ voices: { ...prefs?.voices, [language]: voice.key } })}
+                  onChoose={() => choose.mutate(voice)}
                 />
               ))}
             </ul>
+            {failed && (
+              <Problem
+                title={t('ai.downloadFailed', { name: failed.name })}
+                detail={choose.error.message}
+                onRetry={() => choose.mutate(failed)}
+              />
+            )}
           </PrefBlock>
         </>
       )}

@@ -13,6 +13,7 @@
 //! as numbers (`raygun_ai::tts::numerals`). Speed, pitch, volume and voice changes apply to the
 //! reading at once ([`settings_changed`]), from the sentence (or word) being read.
 
+mod choice;
 mod session;
 mod voices;
 
@@ -57,6 +58,8 @@ pub struct ReadAloud {
     #[cfg_attr(target_os = "android", allow(dead_code))]
     webview_speech: AtomicBool,
     voices: voices::Voices,
+    /// A voice chosen before it was downloaded, to read once it's here.
+    pending: Mutex<Option<choice::Pending>>,
 }
 
 /// What the service handles in order.
@@ -240,6 +243,7 @@ pub fn install(app: &AppHandle) {
         reports: sender,
         webview_speech: AtomicBool::new(false),
         voices: voices::Voices::default(),
+        pending: Mutex::new(None),
     });
     app.manage(service.clone());
     tauri::async_runtime::spawn(async move {
@@ -258,6 +262,25 @@ pub fn install(app: &AppHandle) {
     {
         let app = app.clone();
         tauri_plugin_raygun_audio::set_tts_handler(move |json| report(&app, &json));
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        remove_outdated_voices(&app).await;
+    });
+}
+
+/// Voices downloaded from an earlier catalogue (v1.9.1's int8 builds, slower than the full ones
+/// it names now) are let go: nothing reads them, and they're downloaded again to be used.
+async fn remove_outdated_voices(app: &AppHandle) {
+    let Some(ai) = app.try_state::<crate::ai::AiService>() else {
+        return;
+    };
+    for id in ai.outdated_of_kind("tts") {
+        match ai.delete_model(&id).await {
+            Ok(()) => tracing::info!(model = %id, "outdated voice removed"),
+            Err(error) => tracing::warn!(model = %id, %error, "outdated voice not removed"),
+        }
     }
 }
 
@@ -410,6 +433,16 @@ pub fn voice_list() -> TtsVoices {
         })
         .collect();
     TtsVoices { runtime_id, voices }
+}
+
+/// Reads books in `key`'s language with that voice (none: the device's own voices), downloading
+/// it first when it isn't here (`choice.rs`).
+pub async fn use_voice(
+    app: &AppHandle,
+    key: Option<String>,
+) -> Result<raygun_model::AiModelState, String> {
+    let service = service(app).ok_or("Reading aloud isn't ready")?;
+    service.use_voice(key).await
 }
 
 /// Reads a sample sentence with `key`'s voice (none: the device's own), in `language`.

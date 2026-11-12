@@ -430,6 +430,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::tts_step,
             commands::tts_now,
             commands::tts_voices,
+            commands::tts_use_voice,
             commands::tts_language,
             commands::tts_set_language,
             commands::tts_preview,

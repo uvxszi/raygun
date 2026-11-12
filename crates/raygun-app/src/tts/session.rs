@@ -362,6 +362,121 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_title_a_chapter_starts_with_as_a_number() {
+        // Frankenstein's 1831 edition at Project Gutenberg: each letter starts with its title.
+        let items = utterances(
+            &[
+                heading(0, "LETTER I."),
+                paragraph(1, "To Mrs. Saville, England."),
+                paragraph(2, "St. Petersburgh, Dec. 11th, 17—."),
+                heading(3, "CHAPTER XXIV."),
+                paragraph(4, "LETTER IV."),
+            ],
+            &ENGLISH,
+        );
+        let spoken: Vec<&str> = items.iter().map(|item| item.spoken.as_str()).collect();
+        assert_eq!(
+            spoken,
+            vec![
+                "LETTER one.",
+                "To Mrs. Saville, England.",
+                "St. Petersburgh, Dec. 11th, 17—.",
+                "CHAPTER twenty-four.",
+                "LETTER four.",
+            ]
+        );
+        assert_eq!(items[0].text, "LETTER I.");
+    }
+
+    /// Frankenstein from Project Gutenberg as the reader gets it, through the Gutenberg source:
+    /// book 84 (the 1818 text, numbered in digits) and the 1831 editions (41445, 42324, numbered
+    /// "LETTER I."), each chapter's titles read without Roman numerals.
+    /// `cargo test -p raygun-app --lib -- --ignored frankenstein_live --nocapture`
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs network access to gutenberg.org"]
+    async fn frankenstein_live() {
+        use raygun_ext_host::novel::PassageBlock;
+        use raygun_ext_host::{ExtensionHost, ExtensionSource, HostConfig};
+
+        const GUTENBERG: &str = "dev.raygun.gutenberg/gutenberg";
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+        let host = ExtensionHost::start(HostConfig::default()).unwrap();
+        host.load(vec![ExtensionSource::installed(dir.join("gutenberg"))])
+            .await;
+        let numeral = |word: &str| {
+            let word = word.trim_matches(|c: char| !c.is_alphanumeric());
+            raygun_ai::tts::numerals::numeral_value(word).is_some()
+        };
+        for book in ["84", "41445", "42324"] {
+            let chapters = host.manga_chapters(GUTENBERG, book).await.unwrap();
+            println!(
+                "book {book}: {} chapters: {:?}",
+                chapters.len(),
+                chapters
+                    .iter()
+                    .map(|chapter| chapter.name.as_str())
+                    .collect::<Vec<_>>()
+            );
+            let numbered: Vec<_> = chapters
+                .iter()
+                .filter(|chapter| {
+                    let name = chapter.name.to_lowercase();
+                    name.contains("letter")
+                        || name.contains("chapter")
+                        || name.contains("prometheus")
+                })
+                .take(6)
+                .collect();
+            assert!(
+                !numbered.is_empty(),
+                "book {book} has no letters or chapters"
+            );
+            for chapter in numbered {
+                let blocks = host.novel_passage(GUTENBERG, &chapter.id).await.unwrap();
+                let paragraphs: Vec<TtsParagraph> = blocks
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, block)| {
+                        let text = block.plain()?;
+                        Some(TtsParagraph {
+                            id: index as u32,
+                            heading: matches!(block, PassageBlock::Heading(_)),
+                            text,
+                        })
+                    })
+                    .collect();
+                let items = utterances(&paragraphs, &ENGLISH);
+                let titles: Vec<&Utterance> = items
+                    .iter()
+                    .filter(|item| {
+                        let lower = item.text.to_lowercase();
+                        (lower.starts_with("letter") || lower.starts_with("chapter"))
+                            && item.text.split_whitespace().count() <= 4
+                    })
+                    .collect();
+                for title in &titles {
+                    println!(
+                        "  {:?}: {:?} → {:?}",
+                        chapter.name, title.text, title.spoken
+                    );
+                    let after = title.spoken.split_whitespace().nth(1).unwrap_or_default();
+                    assert!(
+                        !numeral(after),
+                        "book {book}: {:?} is read as {:?}",
+                        title.text,
+                        title.spoken
+                    );
+                }
+                assert!(
+                    !titles.is_empty(),
+                    "book {book}: {:?} starts with no title",
+                    chapter.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn reads_long_passages_in_their_language_only_when_asked() {
         let french = "Il était une fois un roi qui avait une fille, et elle était plus belle que \
                       le soleil. Je ne sais pas ce qu'il fait dans la maison, mais il ne veut pas \
