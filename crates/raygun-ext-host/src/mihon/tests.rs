@@ -140,6 +140,50 @@ fn proto_store() -> Vec<u8> {
 }
 
 #[test]
+fn extensions_without_sources_are_not_for_raygun() {
+    let extension = |name: &str, sources: Vec<StoreSource>| StoreExtension {
+        name: name.to_owned(),
+        pkg: format!("eu.kanade.tachiyomi.extension.en.{}", name.to_lowercase()),
+        apk: format!("https://store.example/apk/{name}.apk"),
+        icon: None,
+        lib_version: "1.4".to_owned(),
+        version_code: 1,
+        version_name: "1.4.1".to_owned(),
+        content: ContentWarning::Safe,
+        sources,
+    };
+    let store = index::Store {
+        name: "Example store".to_owned(),
+        extensions: vec![
+            extension("Empty", Vec::new()),
+            extension(
+                "Comics",
+                vec![StoreSource {
+                    id: "1".to_owned(),
+                    name: "Comics".to_owned(),
+                    lang: "en".to_owned(),
+                    base_url: "https://comics.example".to_owned(),
+                }],
+            ),
+        ],
+        ..index::Store::default()
+    };
+    let repo = index::to_repo_index(&store).unwrap();
+    let marks: Vec<(&str, Option<&str>)> = repo
+        .extensions
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry.not_for_raygun.as_deref()))
+        .collect();
+    assert_eq!(
+        marks,
+        [
+            ("mihon.en.empty", Some(index::NO_SOURCES)),
+            ("mihon.en.comics", None),
+        ]
+    );
+}
+
+#[test]
 fn reads_a_protobuf_store_as_catalogue_entries() {
     let bytes = proto_store();
     assert!(index::detect(&bytes));
