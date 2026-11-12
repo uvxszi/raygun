@@ -74,7 +74,10 @@ fn assert_listing(label: &str, listing: &MangaListing) {
 fn paragraphs(blocks: &[PassageBlock]) -> usize {
     blocks
         .iter()
-        .filter(|block| matches!(block, PassageBlock::Paragraph(text) if text.len() > 40))
+        .filter(|block| {
+            !matches!(block, PassageBlock::Heading(_))
+                && block.plain().is_some_and(|text| text.len() > 40)
+        })
         .count()
 }
 
@@ -288,9 +291,9 @@ async fn open_sources_live_wikisource() {
     );
     assert!(paragraphs(&text) > 5);
     assert!(
-        !text.iter().any(
-            |block| matches!(block, PassageBlock::Paragraph(text) if text.contains("public domain"))
-        ),
+        !text.iter().any(|block| block
+            .plain()
+            .is_some_and(|text| text.contains("public domain"))),
         "the licence box is left out"
     );
 
@@ -1401,6 +1404,18 @@ fn formulas(blocks: &[PassageBlock]) -> usize {
             PassageBlock::Math(_) => 1,
             PassageBlock::Rich(parts) => parts
                 .iter()
+                .filter(|part| matches!(part, Part::Math(_)))
+                .count(),
+            PassageBlock::Item(item) => item
+                .parts
+                .iter()
+                .filter(|part| matches!(part, Part::Math(_)))
+                .count(),
+            PassageBlock::Table(table) => table
+                .rows
+                .iter()
+                .flatten()
+                .flat_map(|cell| &cell.parts)
                 .filter(|part| matches!(part, Part::Math(_)))
                 .count(),
             _ => 0,

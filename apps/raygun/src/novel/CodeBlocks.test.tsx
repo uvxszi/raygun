@@ -6,7 +6,7 @@ import { AppShellWrapper } from '../shell/AppShell.test-wrapper';
 import { DEFAULT_SETTINGS, bindingsMock } from '../test/bindingsMock';
 import BOOK_TEXT_CSS from './bookText.css?raw';
 import { codeReadsAsWords, inSideScroller, languageLabel } from './code';
-import { spokenText } from './mathml';
+import { spokenText } from './spoken';
 
 vi.mock('@raygun/bindings', async () => (await import('../test/bindingsMock')).bindingsMock);
 

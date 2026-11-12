@@ -4244,6 +4244,17 @@ export type LinkCandidate = {
 	tag: string | null,
 };
 
+/**  A list item's mark, or an indented paragraph's depth ([`TextBlock::Paragraph`]'s `list`). */
+export type ListMark = {
+	/**
+	 *  `•` (`◦`, `▪` deeper down), or the item's number or letter with its point (`3.`); empty
+	 *  for a further paragraph of an item, or an indented paragraph.
+	 */
+	marker: string,
+	/**  1 for a list in the text, 2 for a list inside an item, and so on. */
+	depth: number,
+};
+
 /**  An episode or a book to go on with, for Home's Continue listening (M46.48). */
 export type ListeningItem = {
 	kind: SpokenKind,
@@ -7638,6 +7649,33 @@ export type SystemMotion =
 /**  Remove animations, or an animator scale of 0: nothing moves. */
 "off";
 
+/**  One cell of a [`TextBlock::Table`]. */
+export type TableCell = TableCell_Serialize | TableCell_Deserialize;
+
+/**  One cell of a [`TextBlock::Table`]. */
+export type TableCell_Deserialize = {
+	/**  The cell's text in parts; `\n` in a text part breaks a line. */
+	parts: TextPart_Deserialize[],
+	/**  A header cell: of the table's head, or naming its row. */
+	header?: boolean,
+	/**  The columns the cell takes, when more than one. */
+	colspan?: number | null,
+	/**  The rows the cell takes, when more than one. */
+	rowspan?: number | null,
+};
+
+/**  One cell of a [`TextBlock::Table`]. */
+export type TableCell_Serialize = {
+	/**  The cell's text in parts; `\n` in a text part breaks a line. */
+	parts: TextPart_Serialize[],
+	/**  A header cell: of the table's head, or naming its row. */
+	header?: boolean,
+	/**  The columns the cell takes, when more than one. */
+	colspan?: number | null,
+	/**  The rows the cell takes, when more than one. */
+	rowspan?: number | null,
+};
+
 /**  A tag across the user's saved songs, with how many have it (M46.9). */
 export type TagCount = {
 	name: string,
@@ -7715,13 +7753,15 @@ export type TextBlock = TextBlock_Serialize | TextBlock_Deserialize;
 /**  One block of a novel chapter: text structure only, never source HTML. */
 export type TextBlock_Deserialize = ({ kind: "paragraph"; text: string; 
 /**
- *  The paragraph in parts when it holds formulas or raised or lowered text; `text` is
- *  then its plain form (formulas as their text), which progress, search, translation
- *  and exports read.
+ *  The paragraph in parts when it holds formulas, raised or lowered text or text set in
+ *  italics, bold or code; `text` is then its plain form (formulas as their text), which
+ *  progress, search, translation and exports read.
  */
-parts?: TextPart[] | null }) & { language?: never; mathml?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { language?: never; mathml?: never; parts?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { language?: never; mathml?: never; parts?: never; speech?: never; text?: never; url?: never } | 
+parts?: TextPart_Deserialize[] | null; 
+/**  Set on a list item's paragraph, or an indented one: its mark and how deep it is. */
+list?: ListMark | null }) & { caption?: never; language?: never; mathml?: never; rows?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { caption?: never; language?: never; list?: never; mathml?: never; parts?: never; rows?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { caption?: never; language?: never; list?: never; mathml?: never; parts?: never; rows?: never; speech?: never; text?: never; url?: never } | 
 /**  Through the local image proxy. */
-({ kind: "image"; url: string }) & { language?: never; mathml?: never; parts?: never; speech?: never; text?: never } | 
+({ kind: "image"; url: string }) & { caption?: never; language?: never; list?: never; mathml?: never; parts?: never; rows?: never; speech?: never; text?: never } | 
 /**  A formula on a line of its own. */
 ({ kind: "math"; 
 /**  `<math>…</math>`: MathML elements and attributes only. */
@@ -7729,25 +7769,32 @@ mathml: string;
 /**  The formula as text (its TeX, or a linear form such as `x² + 1`). */
 text: string; 
 /**  The formula in words, for reading aloud. */
-speech: string }) & { language?: never; parts?: never; url?: never } | 
+speech: string }) & { caption?: never; language?: never; list?: never; parts?: never; rows?: never; url?: never } | 
 /**
  *  Code, or other text set out line by line, as written: its lines (`\n` between them) and
  *  spacing kept, shown in a monospaced font. Reading aloud passes over code.
  */
 ({ kind: "code"; text: string; 
 /**  The language a highlighter named (`latex`, `python`), in lower case. */
-language?: string | null }) & { mathml?: never; parts?: never; speech?: never; url?: never };
+language?: string | null }) & { caption?: never; list?: never; mathml?: never; parts?: never; rows?: never; speech?: never; url?: never } | 
+/**
+ *  A table of data: rows of cells, header cells marked. `text` is its plain form (its
+ *  caption, then a line a row, cells a tab apart), which progress, search and exports read.
+ */
+({ kind: "table"; text: string; rows: TableCell_Deserialize[][]; caption?: TextPart_Deserialize[] | null }) & { language?: never; list?: never; mathml?: never; parts?: never; speech?: never; url?: never };
 
 /**  One block of a novel chapter: text structure only, never source HTML. */
 export type TextBlock_Serialize = ({ kind: "paragraph"; text: string; 
 /**
- *  The paragraph in parts when it holds formulas or raised or lowered text; `text` is
- *  then its plain form (formulas as their text), which progress, search, translation
- *  and exports read.
+ *  The paragraph in parts when it holds formulas, raised or lowered text or text set in
+ *  italics, bold or code; `text` is then its plain form (formulas as their text), which
+ *  progress, search, translation and exports read.
  */
-parts?: TextPart[] | null }) & { language?: never; mathml?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { language?: never; mathml?: never; parts?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { language?: never; mathml?: never; parts?: never; speech?: never; text?: never; url?: never } | 
+parts?: TextPart_Serialize[] | null; 
+/**  Set on a list item's paragraph, or an indented one: its mark and how deep it is. */
+list?: ListMark | null }) & { caption?: never; language?: never; mathml?: never; rows?: never; speech?: never; url?: never } | ({ kind: "heading"; text: string }) & { caption?: never; language?: never; list?: never; mathml?: never; parts?: never; rows?: never; speech?: never; url?: never } | ({ kind: "separator" }) & { caption?: never; language?: never; list?: never; mathml?: never; parts?: never; rows?: never; speech?: never; text?: never; url?: never } | 
 /**  Through the local image proxy. */
-({ kind: "image"; url: string }) & { language?: never; mathml?: never; parts?: never; speech?: never; text?: never } | 
+({ kind: "image"; url: string }) & { caption?: never; language?: never; list?: never; mathml?: never; parts?: never; rows?: never; speech?: never; text?: never } | 
 /**  A formula on a line of its own. */
 ({ kind: "math"; 
 /**  `<math>…</math>`: MathML elements and attributes only. */
@@ -7755,23 +7802,54 @@ mathml: string;
 /**  The formula as text (its TeX, or a linear form such as `x² + 1`). */
 text: string; 
 /**  The formula in words, for reading aloud. */
-speech: string }) & { language?: never; parts?: never; url?: never } | 
+speech: string }) & { caption?: never; language?: never; list?: never; parts?: never; rows?: never; url?: never } | 
 /**
  *  Code, or other text set out line by line, as written: its lines (`\n` between them) and
  *  spacing kept, shown in a monospaced font. Reading aloud passes over code.
  */
 ({ kind: "code"; text: string; 
 /**  The language a highlighter named (`latex`, `python`), in lower case. */
-language?: string | null }) & { mathml?: never; parts?: never; speech?: never; url?: never };
+language?: string | null }) & { caption?: never; list?: never; mathml?: never; parts?: never; rows?: never; speech?: never; url?: never } | 
+/**
+ *  A table of data: rows of cells, header cells marked. `text` is its plain form (its
+ *  caption, then a line a row, cells a tab apart), which progress, search and exports read.
+ */
+({ kind: "table"; text: string; rows: TableCell_Serialize[][]; caption?: TextPart_Serialize[] | null }) & { language?: never; list?: never; mathml?: never; parts?: never; speech?: never; url?: never };
 
 /**  One part of a paragraph that holds more than plain text. */
-export type TextPart = { kind: "text"; text: string } | 
+export type TextPart = TextPart_Serialize | TextPart_Deserialize;
+
+/**  One part of a paragraph that holds more than plain text. */
+export type TextPart_Deserialize = ({ kind: "text"; text: string }) & { bold?: never; code?: never; italic?: never; mathml?: never; speech?: never; url?: never } | 
 /**  Raised text: an exponent, a footnote mark. */
-{ kind: "sup"; text: string } | 
+({ kind: "sup"; text: string }) & { bold?: never; code?: never; italic?: never; mathml?: never; speech?: never; url?: never } | 
 /**  Lowered text: an index, a chemical formula's count. */
-{ kind: "sub"; text: string } | 
+({ kind: "sub"; text: string }) & { bold?: never; code?: never; italic?: never; mathml?: never; speech?: never; url?: never } | 
 /**  A formula in the line. */
-{ kind: "math"; mathml: string; text: string; speech: string };
+({ kind: "math"; mathml: string; text: string; speech: string }) & { bold?: never; code?: never; italic?: never; url?: never } | 
+/**  Text set apart: in italics, bold or as code (a monospaced font), or several at once. */
+({ kind: "styled"; text: string; italic?: boolean; bold?: boolean; code?: boolean }) & { mathml?: never; speech?: never; url?: never } | 
+/**
+ *  A picture in a table's cell (a symbol, what an example typesets), through the local
+ *  image proxy.
+ */
+({ kind: "image"; url: string }) & { bold?: never; code?: never; italic?: never; mathml?: never; speech?: never; text?: never };
+
+/**  One part of a paragraph that holds more than plain text. */
+export type TextPart_Serialize = ({ kind: "text"; text: string }) & { bold?: never; code?: never; italic?: never; mathml?: never; speech?: never; url?: never } | 
+/**  Raised text: an exponent, a footnote mark. */
+({ kind: "sup"; text: string }) & { bold?: never; code?: never; italic?: never; mathml?: never; speech?: never; url?: never } | 
+/**  Lowered text: an index, a chemical formula's count. */
+({ kind: "sub"; text: string }) & { bold?: never; code?: never; italic?: never; mathml?: never; speech?: never; url?: never } | 
+/**  A formula in the line. */
+({ kind: "math"; mathml: string; text: string; speech: string }) & { bold?: never; code?: never; italic?: never; url?: never } | 
+/**  Text set apart: in italics, bold or as code (a monospaced font), or several at once. */
+({ kind: "styled"; text: string; italic?: boolean; bold?: boolean; code?: boolean }) & { mathml?: never; speech?: never; url?: never } | 
+/**
+ *  A picture in a table's cell (a symbol, what an example typesets), through the local
+ *  image proxy.
+ */
+({ kind: "image"; url: string }) & { bold?: never; code?: never; italic?: never; mathml?: never; speech?: never; text?: never };
 
 /**
  *  Words to translate on their own (a selection in a book, a title to search for elsewhere):

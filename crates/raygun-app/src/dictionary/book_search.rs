@@ -109,7 +109,8 @@ pub fn search_blocks(
         let text = match block {
             TextBlock::Paragraph { text, .. }
             | TextBlock::Heading { text }
-            | TextBlock::Code { text, .. } => text,
+            | TextBlock::Code { text, .. }
+            | TextBlock::Table { text, .. } => text,
             _ => continue,
         };
         for (start, end) in matches_in(text, query) {

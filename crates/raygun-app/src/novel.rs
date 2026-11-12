@@ -17,11 +17,11 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use raygun_db::titles::{self, TitleFields, TitleRow, UnitFields};
-use raygun_ext_host::novel::{NOVEL_SOURCE, Part, PassageBlock, html_blocks};
+use raygun_ext_host::novel::{NOVEL_SOURCE, Part, PassageBlock, Table, html_blocks};
 use raygun_model::{
-    MangaBrowseMode, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
+    ListMark, MangaBrowseMode, MangaLibraryEntry, MangaListingPage, MangaSource, MangaTitleView,
     NovelChapter, PdfChapter, PdfChapterText, PdfContentsEntry, PdfSearchHit, ReaderMode,
-    TextBlock, TextPart,
+    TableCell, TextBlock, TextPart,
 };
 use raygun_net::pdf::{Document, OutlineEntry, PdfRef, page_range};
 use raygun_net::{ImageLinks, PdfStore};
@@ -450,23 +450,23 @@ impl NovelService {
         }
         Ok(blocks
             .into_iter()
-            .filter_map(|block| match block {
-                PassageBlock::Image(url) => {
-                    let url = url::Url::parse(&url).ok()?;
-                    if url.host_str() != Some(BOOK_HOST) {
-                        return self.block(PassageBlock::Image(url.to_string()));
-                    }
-                    let inside = epub::resolve("", url.path().trim_start_matches('/'))?;
-                    Some(TextBlock::Image {
-                        url: self
-                            .catalog
-                            .images
-                            .local(&format!("{BOOKS}/{hash}/{}", epub::safe_url_path(&inside))),
-                    })
-                }
-                block => self.block(block),
-            })
+            .filter_map(|block| self.block_in(block, Some(hash)))
             .collect())
+    }
+
+    /// A picture's address as the reader loads it: an imported book's own picture (`book` is its
+    /// folder) from its unpacked files as a `/local` link, others through the image proxy.
+    fn picture(&self, url: &str, book: Option<&str>) -> Option<String> {
+        let parsed = url::Url::parse(url).ok()?;
+        if parsed.host_str() != Some(BOOK_HOST) {
+            return Some(self.catalog.images.link(url, &Default::default()));
+        }
+        let inside = epub::resolve("", parsed.path().trim_start_matches('/'))?;
+        Some(self.catalog.images.local(&format!(
+            "{BOOKS}/{}/{}",
+            book?,
+            epub::safe_url_path(&inside)
+        )))
     }
 
     pub async fn set_in_library(&self, title_id: &str, in_library: bool) -> Result<(), String> {
@@ -567,17 +567,30 @@ impl NovelService {
     }
 
     fn block(&self, block: PassageBlock) -> Option<TextBlock> {
+        self.block_in(block, None)
+    }
+
+    /// A passage's block as the reader gets it; pictures of an imported book (`book` is its
+    /// folder) load from its files.
+    fn block_in(&self, block: PassageBlock, book: Option<&str>) -> Option<TextBlock> {
+        let picture = |url: &str| self.picture(url, book);
         Some(match block {
             PassageBlock::Paragraph(text) => TextBlock::paragraph(text),
             PassageBlock::Heading(text) => TextBlock::Heading { text },
             PassageBlock::Separator => TextBlock::Separator,
             PassageBlock::Image(url) => TextBlock::Image {
-                url: self.catalog.images.link(&url, &Default::default()),
+                url: picture(&url)?,
             },
-            PassageBlock::Rich(parts) => TextBlock::Paragraph {
-                text: raygun_ext_host::novel::plain_text(&parts),
-                parts: Some(parts.into_iter().map(text_part).collect()),
-            },
+            PassageBlock::Rich(parts) => paragraph_block(parts, None, &picture),
+            PassageBlock::Item(item) => paragraph_block(
+                item.parts,
+                Some(ListMark {
+                    marker: item.marker,
+                    depth: item.depth,
+                }),
+                &picture,
+            ),
+            PassageBlock::Table(table) => table_block(table, &picture),
             PassageBlock::Math(formula) => TextBlock::Math {
                 mathml: formula.mathml,
                 text: formula.text,
@@ -923,9 +936,12 @@ fn is_pdf_file(path: &Path) -> bool {
     raygun_net::pdf::is_pdf(&head[..read])
 }
 
+/// How a picture's address becomes one the reader loads (`None`: it can't be shown).
+type PictureLink<'a> = dyn Fn(&str) -> Option<String> + 'a;
+
 /// A paragraph's part as the reader gets it.
-fn text_part(part: Part) -> TextPart {
-    match part {
+fn text_part(part: Part, picture: &PictureLink<'_>) -> Option<TextPart> {
+    Some(match part {
         Part::Text(text) => TextPart::Text { text },
         Part::Sup(text) => TextPart::Sup { text },
         Part::Sub(text) => TextPart::Sub { text },
@@ -934,6 +950,63 @@ fn text_part(part: Part) -> TextPart {
             text: formula.text,
             speech: formula.speech,
         },
+        Part::Styled(styled) => TextPart::Styled {
+            text: styled.text,
+            italic: styled.italic,
+            bold: styled.bold,
+            code: styled.code,
+        },
+        Part::Image(url) => TextPart::Image {
+            url: picture(&url)?,
+        },
+    })
+}
+
+fn text_parts(parts: Vec<Part>, picture: &PictureLink<'_>) -> Vec<TextPart> {
+    parts
+        .into_iter()
+        .filter_map(|part| text_part(part, picture))
+        .collect()
+}
+
+/// A paragraph as the reader gets it: its plain text, with its parts when it holds more than
+/// plain text.
+fn paragraph_block(
+    parts: Vec<Part>,
+    list: Option<ListMark>,
+    picture: &PictureLink<'_>,
+) -> TextBlock {
+    let text = raygun_ext_host::novel::plain_text(&parts);
+    let plain = parts.iter().all(|part| matches!(part, Part::Text(_)));
+    TextBlock::Paragraph {
+        text,
+        parts: (!plain).then(|| text_parts(parts, picture)),
+        list,
+    }
+}
+
+/// A table of data as the reader gets it.
+fn table_block(table: Table, picture: &PictureLink<'_>) -> TextBlock {
+    let text = table.plain();
+    let caption = (!table.caption.is_empty()).then(|| text_parts(table.caption, picture));
+    let rows = table
+        .rows
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .map(|cell| TableCell {
+                    parts: text_parts(cell.parts, picture),
+                    header: cell.header,
+                    colspan: (cell.colspan > 1).then_some(cell.colspan),
+                    rowspan: (cell.rowspan > 1).then_some(cell.rowspan),
+                })
+                .collect()
+        })
+        .collect();
+    TextBlock::Table {
+        text,
+        rows,
+        caption,
     }
 }
 

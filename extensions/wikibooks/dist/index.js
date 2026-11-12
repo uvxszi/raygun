@@ -1,4 +1,4 @@
-// dev.raygun.wikibooks 1.0.0. Built by raygun-ext from src/index.ts; do not edit.
+// dev.raygun.wikibooks 1.1.0. Built by raygun-ext from src/index.ts; do not edit.
 "use strict";
 (() => {
   // ../../packages/sdk/src/index.ts
@@ -397,11 +397,16 @@
     const seen = /* @__PURE__ */ new Set();
     return links.filter((link) => !seen.has(link.title) && seen.add(link.title)).map((link, index) => ({ id: link.title, name: link.label, number: index + 1 }));
   };
-  var cleanPage = (html) => dropElements(
-    html.replace(/<!--[\s\S]*?-->/g, ""),
-    (_tag, attributes) => classes(attributes).some(
-      (name) => DROPPED_CLASSES.has(name) || name.startsWith("mbox-") || // Pictures of formulas, shown only where MathML can't be: the MathML stays.
-      name.startsWith("mwe-math-fallback")
+  var PLACEHOLDER = /''([^'<>\n]{1,60})''/g;
+  var LATEX_CODE = /<code\b[^>]*\bmw-highlight-lang-(?:latex|tex)\b[^>]*>[\s\S]*?<\/code>/g;
+  var placeholders = (html) => html.replace(LATEX_CODE, (code) => code.replace(PLACEHOLDER, "<i>$1</i>"));
+  var cleanPage = (html) => placeholders(
+    dropElements(
+      html.replace(/<!--[\s\S]*?-->/g, ""),
+      (_tag, attributes) => classes(attributes).some(
+        (name) => DROPPED_CLASSES.has(name) || name.startsWith("mbox-") || // Pictures of formulas, shown only where MathML can't be: the MathML stays.
+        name.startsWith("mwe-math-fallback")
+      )
     )
   );
   var pick = (filters2, key, options) => {

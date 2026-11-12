@@ -230,6 +230,92 @@ fn epubs_are_well_formed_books() {
     assert!(plain.contains("* * *"));
 }
 
+/// Tables, list items and text set apart go into an EPUB as XHTML that reads back alike.
+#[test]
+fn tables_lists_and_styles_go_into_books() {
+    use raygun_ext_host::novel::{PassageBlock, html_blocks};
+    use raygun_model::{ListMark, TableCell, TextPart};
+
+    let text_part = |text: &str| TextPart::Text { text: text.into() };
+    let typed = |text: &str, italic: bool| TextPart::Styled {
+        text: text.into(),
+        italic,
+        bold: false,
+        code: true,
+    };
+    let cell = |parts: Vec<TextPart>, header: bool| TableCell {
+        parts,
+        header,
+        colspan: None,
+        rowspan: None,
+    };
+    let mut book = book();
+    book.chapters[0].blocks = vec![
+        TextBlock::Paragraph {
+            text: "First step".into(),
+            parts: None,
+            list: Some(ListMark {
+                marker: "1.".into(),
+                depth: 1,
+            }),
+        },
+        TextBlock::Table {
+            text: "Command\tLevel\n\\part{part}\t-1".into(),
+            rows: vec![
+                vec![
+                    cell(vec![text_part("Command")], true),
+                    TableCell {
+                        colspan: Some(2),
+                        ..cell(vec![text_part("Level")], true)
+                    },
+                ],
+                vec![
+                    cell(
+                        vec![
+                            typed("\\part{", false),
+                            typed("part", true),
+                            typed("}", false),
+                        ],
+                        false,
+                    ),
+                    cell(vec![text_part("-1\nor less")], false),
+                ],
+            ],
+            caption: None,
+        },
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("book.epub");
+    let mut file = std::fs::File::create(&path).unwrap();
+    write_epub(&mut file, &book).unwrap();
+    drop(file);
+    let mut archive = zip::ZipArchive::new(Cursor::new(std::fs::read(&path).unwrap())).unwrap();
+    let mut chapter = String::new();
+    archive
+        .by_name("OEBPS/chapters/0001.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter)
+        .unwrap();
+    assert!(chapter.contains("<p class=\"item\" style=\"margin-left: 1.5em\">1. First step</p>"));
+    assert!(chapter.contains("<th colspan=\"2\">Level</th>"));
+    assert!(chapter.contains("<code>\\part{</code><i><code>part</code></i><code>}</code>"));
+    assert!(chapter.contains("<td>-1<br/>or less</td>"));
+    // Read back as Raygun reads an imported book: the table is a table again.
+    let blocks = html_blocks(&chapter, None);
+    let table = blocks
+        .iter()
+        .find_map(|block| match block {
+            PassageBlock::Table(table) => Some(table),
+            _ => None,
+        })
+        .expect("the table reads back");
+    assert_eq!(table.plain(), "Command\tLevel\n\\part{part}\t-1 or less");
+    assert_eq!(table.rows[0][1].colspan, 2);
+    let plain = text(&book);
+    assert!(plain.contains("1. First step\n\n"));
+    assert!(plain.contains("Command\tLevel\n\\part{part}\t-1"));
+}
+
 #[test]
 fn a_folder_chosen_for_the_export_wins_over_the_settings_one() {
     use raygun_model::{

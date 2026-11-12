@@ -58,39 +58,109 @@ fn body_blocks(chapter: &BookChapter) -> &[TextBlock] {
 
 /// Whether a chapter holds formulas (its document is then marked `mathml`).
 fn has_math(chapter: &BookChapter) -> bool {
+    let in_parts = |parts: &[TextPart]| {
+        parts
+            .iter()
+            .any(|part| matches!(part, TextPart::Math { .. }))
+    };
     chapter.blocks.iter().any(|block| match block {
         TextBlock::Math { .. } => true,
         TextBlock::Paragraph {
             parts: Some(parts), ..
-        } => parts
-            .iter()
-            .any(|part| matches!(part, TextPart::Math { .. })),
+        } => in_parts(parts),
+        TextBlock::Table { rows, .. } => rows.iter().flatten().any(|cell| in_parts(&cell.parts)),
         _ => false,
     })
 }
 
-/// A paragraph's parts as XHTML: formulas as their MathML (already well-formed MathML only).
+/// Parts as XHTML: formulas as their MathML (already well-formed MathML only), text set apart
+/// in its elements, line breaks (a table cell's) as `<br/>`.
 fn parts_xhtml(parts: &[TextPart]) -> String {
+    let text = |text: &str| escape(text).replace('\n', "<br/>");
     parts
         .iter()
         .map(|part| match part {
-            TextPart::Text { text } => escape(text),
-            TextPart::Sup { text } => format!("<sup>{}</sup>", escape(text)),
-            TextPart::Sub { text } => format!("<sub>{}</sub>", escape(text)),
+            TextPart::Text { text: words } => text(words),
+            TextPart::Sup { text: words } => format!("<sup>{}</sup>", text(words)),
+            TextPart::Sub { text: words } => format!("<sub>{}</sub>", text(words)),
             TextPart::Math { mathml, .. } => mathml.clone(),
+            TextPart::Styled {
+                text: words,
+                italic,
+                bold,
+                code,
+            } => {
+                let mut out = text(words);
+                for (set, element) in [(*code, "code"), (*italic, "i"), (*bold, "b")] {
+                    if set {
+                        out = format!("<{element}>{out}</{element}>");
+                    }
+                }
+                out
+            }
+            // Pictures aren't downloaded with the text (as the chapters' own).
+            TextPart::Image { .. } => String::new(),
         })
         .collect()
+}
+
+/// A table as XHTML, its cells' spans kept.
+fn table_xhtml(rows: &[Vec<raygun_model::TableCell>], caption: Option<&[TextPart]>) -> String {
+    let mut out = String::from("<table>\n");
+    if let Some(caption) = caption {
+        out.push_str(&format!("<caption>{}</caption>\n", parts_xhtml(caption)));
+    }
+    for row in rows {
+        out.push_str("<tr>");
+        for cell in row {
+            let element = if cell.header { "th" } else { "td" };
+            let mut spans = String::new();
+            if let Some(columns) = cell.colspan {
+                spans.push_str(&format!(" colspan=\"{columns}\""));
+            }
+            if let Some(rows) = cell.rowspan {
+                spans.push_str(&format!(" rowspan=\"{rows}\""));
+            }
+            out.push_str(&format!(
+                "<{element}{spans}>{}</{element}>",
+                parts_xhtml(&cell.parts)
+            ));
+        }
+        out.push_str("</tr>\n");
+    }
+    out.push_str("</table>\n");
+    out
+}
+
+/// A list item's paragraph (or an indented one) as XHTML: set in by its depth, after its mark.
+fn item_xhtml(mark: &raygun_model::ListMark, content: &str) -> String {
+    let marker = if mark.marker.is_empty() {
+        String::new()
+    } else {
+        format!("{} ", escape(&mark.marker))
+    };
+    format!(
+        "<p class=\"item\" style=\"margin-left: {}em\">{marker}{content}</p>\n",
+        f32::from(mark.depth) * 1.5
+    )
 }
 
 fn chapter_xhtml(chapter: &BookChapter, language: &str) -> String {
     let mut body = format!("<h2>{}</h2>\n", escape(&chapter.title));
     for block in body_blocks(chapter) {
         match block {
-            TextBlock::Paragraph {
-                parts: Some(parts), ..
-            } => body.push_str(&format!("<p>{}</p>\n", parts_xhtml(parts))),
-            TextBlock::Paragraph { text, .. } => {
-                body.push_str(&format!("<p>{}</p>\n", escape(text)))
+            TextBlock::Paragraph { text, parts, list } => {
+                let content = match parts {
+                    Some(parts) => parts_xhtml(parts),
+                    None => escape(text),
+                };
+                match list {
+                    Some(mark) => body.push_str(&item_xhtml(mark, &content)),
+                    None => body.push_str(&format!("<p>{content}</p>\n")),
+                }
+            }
+            TextBlock::Table { rows, caption, .. } => {
+                body.push_str(&table_xhtml(rows, caption.as_deref()))
             }
             TextBlock::Heading { text } => body.push_str(&format!("<h3>{}</h3>\n", escape(text))),
             TextBlock::Separator => body.push_str("<hr/>\n"),
@@ -115,6 +185,9 @@ fn chapter_xhtml(chapter: &BookChapter, language: &str) -> String {
 const STYLE: &str = "body { margin: 0 5%; line-height: 1.5; }\n\
     h2 { text-align: center; margin: 1.5em 0; }\n\
     p { margin: 0 0 0.8em; text-indent: 1.2em; }\n\
+    p.item { text-indent: 0; }\n\
+    table { border-collapse: collapse; margin: 0.8em 0; }\n\
+    th, td { border: 1px solid #999; padding: 0.2em 0.5em; text-align: left; vertical-align: top; }\n\
     hr { margin: 1.5em 25%; }\n\
     div.formula { text-align: center; margin: 0.8em 0; overflow-x: auto; }\n\
     pre { margin: 0.8em 0; font-size: 0.85em; white-space: pre-wrap; overflow-wrap: anywhere; }\n";
@@ -268,7 +341,21 @@ pub fn text(book: &Book) -> String {
         out.push_str(&format!("\n\n{}\n\n", chapter.title));
         for block in body_blocks(chapter) {
             match block {
+                TextBlock::Paragraph {
+                    text,
+                    list: Some(mark),
+                    ..
+                } => {
+                    let indent = "  ".repeat(usize::from(mark.depth.saturating_sub(1)));
+                    let marker = if mark.marker.is_empty() {
+                        "  ".to_owned()
+                    } else {
+                        format!("{} ", mark.marker)
+                    };
+                    out.push_str(&format!("{indent}{marker}{text}\n\n"));
+                }
                 TextBlock::Paragraph { text, .. } => out.push_str(&format!("{text}\n\n")),
+                TextBlock::Table { text, .. } => out.push_str(&format!("{text}\n\n")),
                 TextBlock::Heading { text } => out.push_str(&format!("{text}\n\n")),
                 TextBlock::Separator => out.push_str("* * *\n\n"),
                 TextBlock::Image { .. } => {}

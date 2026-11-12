@@ -1,11 +1,105 @@
 /*
  * The book reader's text, scrolled or in pages. Nothing in it is wider than its column, so the
  * page never scrolls sideways: a word longer than a line (a web address, a long name) breaks where
- * it has to, and only such words; code and formulas wider than the column scroll in their own
- * boxes; pictures are no wider than the column (`max-w-full` on them).
+ * it has to, and only such words; code, formulas and tables wider than the column scroll in their
+ * own boxes; pictures are no wider than the column (`max-w-full` on them).
  */
 .book-text {
   overflow-wrap: anywhere;
+}
+
+/* Code in the line: the monospaced font of code blocks, on a tint. */
+.book-inline-code {
+  padding: 0.05em 0.25em;
+  border-radius: 0.3em;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-family:
+    ui-monospace, 'Cascadia Mono', 'Roboto Mono', 'Droid Sans Mono', Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  /* A table cell's code keeps its lines. */
+  white-space: pre-wrap;
+  unicode-bidi: isolate;
+}
+
+/*
+ * A list item's paragraph (or an indented one): set in by its depth (`--item-depth`), its mark in
+ * the space before it. The mark is drawn, not written, so it isn't in the text that's selected,
+ * searched or read aloud.
+ */
+.book-item {
+  position: relative;
+  margin-inline-start: calc(var(--item-depth, 1) * 1.6em);
+  /* A list's items are closer together than paragraphs. */
+  margin-block-end: 0.45em;
+  text-indent: 0;
+}
+
+.book-item[data-marker]::before {
+  content: attr(data-marker);
+  position: absolute;
+  inset-inline-end: calc(100% + 0.45em);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * A table of data: as wide as its cells need, at most the column; a wider one scrolls sideways in
+ * its own box. Cells wrap at spaces only (so a table that can't fit scrolls rather than breaking
+ * its words apart) and keep their own line breaks.
+ */
+.book-table {
+  margin: 0.4em 0 1em;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  break-inside: avoid;
+}
+
+.book-table table {
+  border-collapse: collapse;
+  font-size: 0.92em;
+  line-height: 1.4;
+  text-indent: 0;
+}
+
+.book-table caption {
+  padding: 0 0 0.35em;
+  font-weight: 600;
+  text-align: start;
+}
+
+.book-table th,
+.book-table td {
+  padding: 0.3em 0.6em;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  overflow-wrap: normal;
+  text-align: start;
+  vertical-align: top;
+  white-space: pre-line;
+}
+
+.book-table th {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  font-weight: 600;
+}
+
+/* A cell's picture (a symbol, what an example typesets) at its own size, kept small. */
+.book-part-image {
+  display: inline-block;
+  max-width: 20em;
+  max-height: 12em;
+  vertical-align: middle;
+}
+
+/*
+ * In pages, a box that scrolls can't continue on the next page: a code block or a table taller
+ * than a page scrolls down in its own box instead of being cut off at the page's foot.
+ */
+.book-pages .book-code pre,
+.book-pages .book-table {
+  max-height: calc(100dvh - var(--app-bar, 0px) - 12rem);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 /* Code: its own lines and spacing in a monospaced font, at the reader's text size. */

@@ -41,10 +41,26 @@ const asText: Passage = {
 export const examples = [asHtml, asText];
 ```
 
-No source HTML reaches the reader. Raygun keeps paragraphs, headings, horizontal rules and
-`http(s)` pictures and drops everything else: scripts, styles, forms, frames and the site's
-layout. Send the chapter's own part of the page, not the whole page with its menus. A passage is
-at most 2 MB of text; an empty one fails ("has no text for this chapter").
+No source HTML reaches the reader. Raygun keeps paragraphs, headings, horizontal rules,
+`http(s)` pictures, lists and tables, and text set in italics (`<i>`, `<em>`, `font-style:
+italic`), bold (`<b>`, `<strong>`) or as code (`<code>`, `<kbd>`, monospaced text), and drops
+everything else: scripts, styles, forms, frames and the site's layout. Send the chapter's own part
+of the page, not the whole page with its menus. A passage is at most 2 MB of text; an empty one
+fails ("has no text for this chapter").
+
+### Lists and tables
+
+List items keep their marks (bullets, or numbers and letters as `<ol>`'s `start`, `type` and
+`<li value>` say) and how deep they are; `<dd>` and `<blockquote>` are set in the same way.
+
+A table of data (two rows and two columns or more) is shown as a table: header cells (`<th>`, or
+the cells of `<thead>`), `colspan` and `rowspan`, its `<caption>`, and in its cells their text in
+italics, bold and code, formulas, line breaks and small pictures. A table that only lays its
+contents out is read through as blocks instead: one of a single row or column (a code example
+beside what it typesets), one whose cells hold code blocks, tables or headings, a gallery
+(pictures in half its cells or more), or one marked `role="presentation"`. A wide table scrolls
+sideways in its own box. Reading aloud says a table a row at a time, each cell after its column's
+header ("Level: 0").
 
 ### Formulas
 
@@ -62,9 +78,10 @@ words ("x squared plus 1"):
 - KaTeX's and MathJax's rendered boxes (`.katex`, `mjx-container`, `.MathJax`) and MediaWiki's
   `.mwe-math-element`: the MathML inside is used, not the drawing or the fallback picture.
 
-`<sup>` and `<sub>` stay raised and lowered (`x²`, `H₂O`). Pictures of formulas stay pictures,
-except those whose `alt` is their TeX (MediaWiki's fallback pictures, `class="latex"`), which are
-drawn from it.
+`<sup>` and `<sub>` stay raised and lowered (`x²`, `H₂O`). A formula alone in its paragraph
+(MediaWiki's indented `:<math>` lines) is set on a line of its own. Pictures of formulas stay
+pictures, except those whose `alt` is their TeX (MediaWiki's fallback pictures, `class="latex"`),
+which are drawn from it.
 
 ### Code
 

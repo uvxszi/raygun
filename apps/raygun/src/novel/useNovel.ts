@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 
 import { unwrapResult } from '../lib/commandResult';
-import { spokenText } from './mathml';
+import { spokenText } from './spoken';
 
 export const NOVEL = 'novel';
 
@@ -50,7 +50,8 @@ const blockLength = (block: TextBlock) =>
   block.kind === 'paragraph' ||
   block.kind === 'heading' ||
   block.kind === 'math' ||
-  block.kind === 'code'
+  block.kind === 'code' ||
+  block.kind === 'table'
     ? block.text.length
     : 0;
 

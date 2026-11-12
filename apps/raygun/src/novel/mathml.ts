@@ -1,7 +1,3 @@
-import type { TextBlock, TextPart } from '@raygun/bindings';
-
-import { codeReadsAsWords } from './code';
-
 /**
  * Formulas in book text arrive as MathML Rust already rebuilt from an allowlist; it's checked
  * again here before it's drawn, against the same allowlist: MathML elements and their attributes
@@ -118,29 +114,4 @@ export const safeMath = (markup: string): Element | null => {
   clean(holder);
   const kept = holder.querySelector('math');
   return kept ? document.importNode(kept, true) : null;
-};
-
-/** A paragraph's parts as reading aloud says them: formulas in words. */
-export const spokenParts = (parts: TextPart[]) =>
-  parts
-    .map((part) => (part.kind === 'math' ? ` ${part.speech} ` : part.text))
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-/** What reading aloud says for a block, or `null` for one it skips (pictures, rules, code). */
-export const spokenText = (block: TextBlock): string | null => {
-  switch (block.kind) {
-    case 'paragraph':
-      return block.parts ? spokenParts(block.parts) : block.text;
-    case 'heading':
-      return block.text;
-    case 'math':
-      return block.speech;
-    case 'code':
-      // Verse set out line by line is read; code would be read sign by sign.
-      return codeReadsAsWords(block) ? block.text : null;
-    default:
-      return null;
-  }
 };

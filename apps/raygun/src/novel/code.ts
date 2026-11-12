@@ -52,11 +52,11 @@ export const codeReadsAsWords = (block: { text: string; language?: string | null
 };
 
 /** The boxes in the text that scroll sideways when wider than the column. */
-const SIDE_SCROLLERS = '.book-code pre, .math-formula';
+const SIDE_SCROLLERS = '.book-code pre, .math-formula, .book-table';
 
 /**
- * Whether a touch starts in a box that scrolls sideways (code, a wide formula): its swipes scroll
- * it, they don't turn the page.
+ * Whether a touch starts in a box that scrolls sideways (code, a wide formula, a wide table): its
+ * swipes scroll it, they don't turn the page.
  */
 export const inSideScroller = (target: EventTarget | null) => {
   const box = target instanceof Element ? target.closest(SIDE_SCROLLERS) : null;

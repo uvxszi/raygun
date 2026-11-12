@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use raygun_ext_host::manga::{MangaChapter, MangaList, MangaListing};
-use raygun_ext_host::novel::{NOVEL_SOURCE, PassageBlock};
+use raygun_ext_host::novel::{NOVEL_SOURCE, Part, PassageBlock, Table};
 use raygun_ext_host::{ExtensionHost, HostConfig, discover_installed};
 use raygun_model::{ExtensionStatus, FilterValue};
 
@@ -89,10 +89,16 @@ fn chapter<'a>(chapters: &'a [MangaChapter], name: &str) -> &'a MangaChapter {
         .unwrap_or_else(|| panic!("no chapter named {name:?}"))
 }
 
+/// Paragraphs of some length: plain, in parts (italics, code, formulas) or of a list.
 fn paragraphs(blocks: &[PassageBlock]) -> usize {
     blocks
         .iter()
-        .filter(|block| matches!(block, PassageBlock::Paragraph(text) if text.len() > 40))
+        .filter(|block| {
+            matches!(
+                block,
+                PassageBlock::Paragraph(_) | PassageBlock::Rich(_) | PassageBlock::Item(_)
+            ) && block.plain().is_some_and(|text| text.len() > 40)
+        })
         .count()
 }
 
@@ -107,13 +113,20 @@ fn code_of(blocks: &[PassageBlock]) -> Vec<(&str, Option<&str>)> {
         .collect()
 }
 
+/// The text of a chapter's paragraphs, headings and list items, a line each.
 fn text_of(blocks: &[PassageBlock]) -> String {
     blocks
         .iter()
-        .filter_map(|block| match block {
-            PassageBlock::Paragraph(text) | PassageBlock::Heading(text) => Some(text.as_str()),
-            _ => None,
+        .filter(|block| {
+            matches!(
+                block,
+                PassageBlock::Paragraph(_)
+                    | PassageBlock::Heading(_)
+                    | PassageBlock::Rich(_)
+                    | PassageBlock::Item(_)
+            )
         })
+        .filter_map(PassageBlock::plain)
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -260,6 +273,173 @@ async fn open_books_live_wikibooks() {
         !text_of(&blocks).contains("\\documentclass{report} \\usepackage{color}"),
         "no example runs together into a paragraph"
     );
+}
+
+/// The tables of a chapter.
+fn tables_of(blocks: &[PassageBlock]) -> Vec<&Table> {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            PassageBlock::Table(table) => Some(table),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every part of a chapter: its paragraphs', list items' and tables' cells'.
+fn parts_of(blocks: &[PassageBlock]) -> Vec<&Part> {
+    blocks
+        .iter()
+        .flat_map(|block| -> Box<dyn Iterator<Item = &Part> + '_> {
+            match block {
+                PassageBlock::Rich(parts) => Box::new(parts.iter()),
+                PassageBlock::Item(item) => Box::new(item.parts.iter()),
+                PassageBlock::Table(table) => Box::new(
+                    table
+                        .caption
+                        .iter()
+                        .chain(table.rows.iter().flatten().flat_map(|cell| &cell.parts)),
+                ),
+                _ => Box::new(std::iter::empty()),
+            }
+        })
+        .collect()
+}
+
+/// The LaTeX book read as its pages are meant: tables of commands as tables (code and italic
+/// placeholders kept in their cells, nothing run into one line a cell), examples as code
+/// blocks, formulas as MathML, and no wikitext left over.
+#[tokio::test]
+#[ignore = "needs network access to en.wikibooks.org"]
+async fn open_books_live_wikibooks_latex() {
+    let host = host().await;
+    let latex = host.manga_chapters(WIKIBOOKS, "LaTeX").await.unwrap();
+    print_chapters("LaTeX", &latex);
+    // MediaWiki's italics, `''name''`; a double prime (`a''`) is TeX.
+    let wikitext = regex::Regex::new(r"''[A-Za-z][^'\n]{0,40}''").unwrap();
+    for name in ["Document Structure", "Mathematics", "Tables"] {
+        let (blocks, _) = read(&host, WIKIBOOKS, chapter(&latex, name)).await;
+        let tables = tables_of(&blocks);
+        let code = code_of(&blocks);
+        let parts = parts_of(&blocks);
+        let formulas = blocks
+            .iter()
+            .filter(|block| matches!(block, PassageBlock::Math(_)))
+            .count()
+            + parts
+                .iter()
+                .filter(|part| matches!(part, Part::Math(_)))
+                .count();
+        println!(
+            "{name}: {} tables ({}), {} code blocks, {} formulas, {} items",
+            tables.len(),
+            tables
+                .iter()
+                .map(|table| format!(
+                    "{}×{}",
+                    table.rows.len(),
+                    table.rows.iter().map(Vec::len).max().unwrap_or(0)
+                ))
+                .collect::<Vec<_>>()
+                .join(", "),
+            code.len(),
+            formulas,
+            blocks
+                .iter()
+                .filter(|block| matches!(block, PassageBlock::Item(_)))
+                .count()
+        );
+        for table in tables.iter().take(2) {
+            println!("{}\n", table.plain());
+        }
+        assert!(!tables.is_empty(), "{name} has tables of data");
+        assert!(
+            code.iter()
+                .filter(|(_, language)| *language == Some("latex"))
+                .count()
+                > 5,
+            "{name}'s examples are LaTeX code blocks"
+        );
+        assert!(
+            parts
+                .iter()
+                .any(|part| matches!(part, Part::Styled(styled) if styled.code)),
+            "{name}'s commands in the text are code"
+        );
+        // No wikitext italics left in what's shown.
+        let shown = text_of(&blocks)
+            + "\n"
+            + &tables
+                .iter()
+                .map(|table| table.plain())
+                .collect::<Vec<_>>()
+                .join("\n");
+        assert!(
+            !wikitext.is_match(&shown),
+            "{name} shows MediaWiki's quotes: {:?}",
+            wikitext.find(&shown).map(|found| found.as_str())
+        );
+        // A table's cells don't come one to a paragraph.
+        for table in &tables {
+            let first_cell = table.rows[1][0].plain();
+            assert!(
+                !blocks.iter().any(|block| matches!(
+                    block,
+                    PassageBlock::Paragraph(text) if !first_cell.is_empty() && *text == first_cell
+                )),
+                "{name}: {first_cell:?} is a paragraph too"
+            );
+        }
+        match name {
+            "Document Structure" => {
+                let sectioning = tables
+                    .iter()
+                    .find(|table| {
+                        table.rows[0]
+                            .iter()
+                            .map(|cell| cell.plain())
+                            .eq(["Command", "Level", "Comment"])
+                    })
+                    .expect("the sectioning commands' table");
+                assert!(sectioning.rows[0].iter().all(|cell| cell.header));
+                let chapter_row = sectioning
+                    .rows
+                    .iter()
+                    .find(|row| row[0].plain() == "\\chapter{chapter}")
+                    .expect("\\chapter's row, its placeholder without quotes");
+                assert_eq!(chapter_row[1].plain(), "0");
+                assert!(chapter_row[0].parts.iter().any(|part| matches!(
+                    part,
+                    Part::Styled(styled) if styled.italic && styled.code && styled.text == "chapter"
+                )));
+            }
+            "Mathematics" => {
+                assert!(formulas > 100, "the formulas are MathML");
+                assert!(
+                    blocks.iter().any(
+                        |block| matches!(block, PassageBlock::Math(formula) if formula.display)
+                    ),
+                    "formulas on lines of their own"
+                );
+                assert!(
+                    tables.iter().any(|table| table
+                        .rows
+                        .iter()
+                        .flatten()
+                        .flat_map(|cell| &cell.parts)
+                        .any(|part| matches!(part, Part::Math(_)))),
+                    "tables of symbols hold their formulas"
+                );
+            }
+            _ => {
+                assert!(
+                    code.iter()
+                        .any(|(text, _)| text.contains("\\begin{tabular}") && text.contains('&')),
+                    "the tabular examples are code"
+                );
+            }
+        }
+    }
 }
 
 #[tokio::test]

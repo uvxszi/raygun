@@ -1,10 +1,18 @@
 //! `novel.source` providers (M31): the catalogue calls of `manga.source` (same shapes, same
 //! checks) plus `passage`, a chapter's text. Source HTML never reaches the app: it becomes plain
-//! blocks here (paragraphs, headings, separators, images). Formulas (MathML or TeX, [`crate::math`])
-//! and raised or lowered text make a paragraph's parts; a formula on its own line is a block.
+//! blocks here (paragraphs, headings, separators, images). Formulas (MathML or TeX,
+//! [`crate::math`]), raised or lowered text and text set in italics, bold or code make a
+//! paragraph's parts; a formula on its own line (or alone in its paragraph) is a block.
 //! Preformatted text (`<pre>`: code examples, verse set out by hand) is a code block that keeps its
-//! lines and spacing, with the language a highlighter names; TeX in it stays as written. A passage
-//! may instead be a PDF document (`{ pdf }`), which the readers show as pages.
+//! lines and spacing, with the language a highlighter names; TeX in it stays as written. List
+//! items (and indented lines, `<dd>`, `<blockquote>`) are paragraphs with their mark and depth. A
+//! table of data is a table block (rows of cells, [`tables`]); a table that only lays its contents
+//! out (a code example beside its result) is read through. A passage may instead be a PDF document
+//! (`{ pdf }`), which the readers show as pages.
+
+#[cfg(test)]
+mod structure_tests;
+mod tables;
 
 use raygun_net::pdf::PdfRef;
 use scraper::{Html, Node};
@@ -13,6 +21,7 @@ use serde_json::Value;
 
 use crate::ExtensionHost;
 use crate::math::{Formula, TextPiece, is_math, split_tex};
+pub use tables::{Table, TableCell};
 
 pub const NOVEL_SOURCE: &str = "novel.source";
 
@@ -69,6 +78,38 @@ pub enum PassageBlock {
     Pdf(PdfRef),
     /// Code, or other text set out line by line (`<pre>`), as written.
     Code(CodeBlock),
+    /// A paragraph of a list item, or an indented one (`<dd>`, `<blockquote>`).
+    Item(ListItem),
+    /// A table of data: rows of cells.
+    Table(Table),
+}
+
+impl PassageBlock {
+    /// The block's text as plain text, for the blocks that hold text.
+    pub fn plain(&self) -> Option<String> {
+        match self {
+            Self::Paragraph(text) | Self::Heading(text) => Some(text.clone()),
+            Self::Rich(parts) => Some(plain_text(parts)),
+            Self::Item(item) => Some(plain_text(&item.parts)),
+            Self::Math(formula) => Some(formula.text.clone()),
+            Self::Code(code) => Some(code.text.clone()),
+            Self::Table(table) => Some(table.plain()),
+            Self::Separator | Self::Image(_) | Self::Pdf(_) => None,
+        }
+    }
+}
+
+/// A [`PassageBlock::Item`]: a list item's paragraph (or a further one of the same item), or an
+/// indented paragraph.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListItem {
+    /// `•` (`◦`, `▪` deeper down), or the item's number or letter with its point (`3.`, `c.`);
+    /// empty for a further paragraph of an item, or an indented paragraph.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub marker: String,
+    /// 1 for a list in the text, 2 for a list inside an item, and so on.
+    pub depth: u8,
+    pub parts: Vec<Part>,
 }
 
 /// A [`PassageBlock::Code`] block.
@@ -91,6 +132,34 @@ pub enum Part {
     /// Lowered text (`<sub>`): an index, a chemical formula's count.
     Sub(String),
     Math(Formula),
+    /// Text set apart: in italics (`<i>`, `<em>`), bold (`<b>`, `<strong>`) or as code (`<code>`,
+    /// a monospaced font), or several at once.
+    Styled(Styled),
+    /// A picture in a table's cell (a symbol, what an example typesets): its http(s) address.
+    /// Elsewhere a picture is a block of its own.
+    Image(String),
+}
+
+/// A [`Part::Styled`] run of text.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Styled {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub italic: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bold: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub code: bool,
+}
+
+impl Styled {
+    fn marks(&self) -> Marks {
+        Marks {
+            italic: self.italic,
+            bold: self.bold,
+            code: self.code,
+        }
+    }
 }
 
 impl Part {
@@ -102,7 +171,81 @@ impl Part {
             Self::Sup(text) => crate::math::raised_text(text),
             Self::Sub(text) => crate::math::lowered_text(text),
             Self::Math(formula) => formula.text.clone(),
+            Self::Styled(styled) => styled.text.clone(),
+            Self::Image(_) => String::new(),
         }
+    }
+
+    /// How many bytes of text the part holds.
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Math(formula) => formula.mathml.len() + formula.text.len(),
+            Self::Text(text) | Self::Sup(text) | Self::Sub(text) | Self::Image(text) => text.len(),
+            Self::Styled(styled) => styled.text.len(),
+        }
+    }
+}
+
+/// How text is set: in italics, bold, as code.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Marks {
+    italic: bool,
+    bold: bool,
+    code: bool,
+}
+
+impl Marks {
+    const BOLD: Self = Self {
+        italic: false,
+        bold: true,
+        code: false,
+    };
+    const CODE: Self = Self {
+        italic: false,
+        bold: false,
+        code: true,
+    };
+
+    fn plain(self) -> bool {
+        self == Self::default()
+    }
+
+    fn part(self, text: String) -> Part {
+        if self.plain() {
+            Part::Text(text)
+        } else {
+            Part::Styled(Styled {
+                text,
+                italic: self.italic,
+                bold: self.bold,
+                code: self.code,
+            })
+        }
+    }
+}
+
+/// What an element sets its text in: `<i>`, `<em>`, `<cite>`, `<dfn>` and `<var>` in italics,
+/// `<b>` and `<strong>` bold, code elements and monospaced text as code; a `style` may say italic
+/// or bold too.
+fn marks_of(element: &scraper::node::Element) -> Marks {
+    let name = element.name();
+    let style: String = element
+        .attr("style")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .collect();
+    let weight = style
+        .split(';')
+        .find_map(|rule| rule.strip_prefix("font-weight:"))
+        .unwrap_or_default();
+    Marks {
+        italic: matches!(name, "i" | "em" | "cite" | "dfn" | "var")
+            || style.contains("font-style:italic")
+            || style.contains("font-style:oblique"),
+        bold: matches!(name, "b" | "strong")
+            || matches!(weight, "bold" | "bolder" | "600" | "700" | "800" | "900"),
+        code: is_code(element) && name != "var",
     }
 }
 
@@ -118,6 +261,16 @@ impl ExtensionHost {
         provider: &str,
         chapter_id: &str,
     ) -> Result<Vec<PassageBlock>, String> {
+        Ok(self.novel_passage_kept(provider, chapter_id).await?.0)
+    }
+
+    /// A chapter's text as blocks, with the part of the source's answer they were read from
+    /// ([`passage_source`]), which a download keeps so that it's read afresh each time.
+    pub async fn novel_passage_kept(
+        &self,
+        provider: &str,
+        chapter_id: &str,
+    ) -> Result<(Vec<PassageBlock>, Option<Value>), String> {
         let value = self
             .call(
                 provider,
@@ -133,8 +286,22 @@ impl ExtensionHost {
                 self.provider_name(provider)
             ));
         }
-        Ok(blocks)
+        Ok((blocks, passage_source(&value)))
     }
+}
+
+/// What of a `passage` answer its blocks are read from: its HTML with its `baseUrl`, or its
+/// text; nothing for a PDF document (kept as its file). [`parse_passage`] reads it again.
+pub fn passage_source(value: &Value) -> Option<Value> {
+    if crate::manga::parse_pdf(value).is_some() {
+        return None;
+    }
+    if let Some(html) = value.get("html").and_then(Value::as_str) {
+        let base = value.get("baseUrl").and_then(Value::as_str);
+        return Some(serde_json::json!({ "html": html, "baseUrl": base }));
+    }
+    let text = value.get("text").and_then(Value::as_str)?;
+    Some(serde_json::json!({ "text": text }))
 }
 
 /// Blocks from a `passage` answer: `pdf` (the chapter is a PDF document), `html` (with `baseUrl`
@@ -355,6 +522,19 @@ fn walk_children(
                             builder.push_formula(formula);
                             continue;
                         }
+                        if builder.cell {
+                            // A table's picture stays in its cell; one without an address to load
+                            // it from leaves its words.
+                            match element.attr("src").and_then(|src| resolve(src, base)) {
+                                Some(source) => builder.push_part(Part::Image(source)),
+                                None => {
+                                    if let Some(alt) = tables::picture_words(element) {
+                                        builder.push_text(&format!(" {alt} "));
+                                    }
+                                }
+                            }
+                            continue;
+                        }
                         let source = element.attr("src").and_then(|src| resolve(src, base));
                         if let Some(source) = source {
                             builder.flush();
@@ -400,17 +580,54 @@ fn walk_children(
                             builder.push(PassageBlock::Heading(text.join(" ")));
                         }
                     }
+                    "table" if !builder.cell && tables::is_data_table(child, element) => {
+                        builder.push_table(child, base);
+                    }
+                    "ul" | "ol" | "menu" => {
+                        builder.flush();
+                        builder.lists.push(List::of(element, builder.lists.len()));
+                        walk(child, base, builder);
+                        builder.lists.pop();
+                        builder.flush();
+                    }
+                    "li" => {
+                        builder.flush();
+                        let marker = match builder.lists.last_mut() {
+                            Some(list) => list.next_marker(element),
+                            None => BULLETS[0].to_owned(),
+                        };
+                        builder.item(Some(marker), |builder| {
+                            builder.with_marks(marks_of(element), |builder| {
+                                walk(child, base, builder);
+                            });
+                        });
+                    }
+                    "dd" | "blockquote" => {
+                        builder.flush();
+                        builder.item(None, |builder| {
+                            builder.with_marks(marks_of(element), |builder| {
+                                walk(child, base, builder);
+                            });
+                        });
+                    }
+                    // A term a definition explains.
+                    "dt" => {
+                        builder.flush();
+                        builder.with_marks(Marks::BOLD, |builder| walk(child, base, builder));
+                        builder.flush();
+                    }
                     _ if BLOCKS.contains(&name) => {
                         builder.flush();
-                        walk(child, base, builder);
+                        builder.with_marks(marks_of(element), |builder| {
+                            walk(child, base, builder);
+                        });
                         builder.flush();
                     }
-                    _ if is_code(element) => {
-                        builder.code += 1;
-                        walk(child, base, builder);
-                        builder.code -= 1;
+                    _ => {
+                        builder.with_marks(marks_of(element), |builder| {
+                            walk(child, base, builder);
+                        });
                     }
-                    _ => walk(child, base, builder),
                 }
             }
             _ => walk(child, base, builder),
@@ -689,18 +906,273 @@ fn resolve(src: &str, base: Option<&url::Url>) -> Option<String> {
     matches!(resolved.scheme(), "http" | "https").then(|| resolved.to_string())
 }
 
+/// The bullets of unnumbered lists, by how deep the list is (the last for any deeper).
+const BULLETS: [&str; 3] = ["•", "◦", "▪"];
+/// How deep list items and indented paragraphs go at most.
+const MAX_ITEM_DEPTH: u8 = 8;
+
+/// How a list marks its items.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Numbering {
+    /// A bullet, by how deep the list is.
+    Bullet(usize),
+    Decimal,
+    LowerAlpha,
+    UpperAlpha,
+    LowerRoman,
+    UpperRoman,
+    Unmarked,
+}
+
+/// A list the walk is in.
+#[derive(Debug)]
+struct List {
+    numbering: Numbering,
+    /// The next item's number.
+    next: i64,
+}
+
+impl List {
+    /// A `<ul>` or `<ol>` (`depth` lists inside others): numbered as its `type` or
+    /// `list-style-type` says, from its `start`.
+    fn of(element: &scraper::node::Element, depth: usize) -> Self {
+        let style: String = element
+            .attr("style")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .split_whitespace()
+            .collect();
+        let named = style
+            .split(';')
+            .find_map(|rule| {
+                rule.strip_prefix("list-style-type:")
+                    .or_else(|| rule.strip_prefix("list-style:"))
+            })
+            .unwrap_or_default();
+        let kind = element.attr("type").map(str::trim).unwrap_or_default();
+        let ordered = element.name() == "ol";
+        let numbering = if named.contains("none") || kind.eq_ignore_ascii_case("none") {
+            Numbering::Unmarked
+        } else if named.contains("lower-alpha") || named.contains("lower-latin") || kind == "a" {
+            Numbering::LowerAlpha
+        } else if named.contains("upper-alpha") || named.contains("upper-latin") || kind == "A" {
+            Numbering::UpperAlpha
+        } else if named.contains("lower-roman") || kind == "i" {
+            Numbering::LowerRoman
+        } else if named.contains("upper-roman") || kind == "I" {
+            Numbering::UpperRoman
+        } else if named.contains("decimal") || (ordered && !named.contains("disc")) {
+            Numbering::Decimal
+        } else {
+            Numbering::Bullet(depth)
+        };
+        let next = element
+            .attr("start")
+            .and_then(|start| start.trim().parse().ok())
+            .unwrap_or(1);
+        Self { numbering, next }
+    }
+
+    /// The mark of the list's next item (`<li value>` sets its number).
+    fn next_marker(&mut self, item: &scraper::node::Element) -> String {
+        if let Some(value) = item
+            .attr("value")
+            .and_then(|value| value.trim().parse().ok())
+        {
+            self.next = value;
+        }
+        let number = self.next;
+        self.next = self.next.saturating_add(1);
+        match self.numbering {
+            Numbering::Bullet(depth) => BULLETS[depth.min(BULLETS.len() - 1)].to_owned(),
+            Numbering::Unmarked => String::new(),
+            Numbering::Decimal => format!("{number}."),
+            Numbering::LowerAlpha => format!("{}.", letters(number)),
+            Numbering::UpperAlpha => format!("{}.", letters(number).to_uppercase()),
+            Numbering::LowerRoman => format!("{}.", roman(number)),
+            Numbering::UpperRoman => format!("{}.", roman(number).to_uppercase()),
+        }
+    }
+}
+
+/// `1` → `a`, `26` → `z`, `27` → `aa`; numbers below 1 as they are.
+fn letters(number: i64) -> String {
+    if number < 1 {
+        return number.to_string();
+    }
+    let mut left = number;
+    let mut out = Vec::new();
+    while left > 0 {
+        left -= 1;
+        out.push(char::from(b'a' + (left % 26) as u8));
+        left /= 26;
+    }
+    out.iter().rev().collect()
+}
+
+/// `4` → `iv`; numbers Roman numerals don't write as they are.
+fn roman(number: i64) -> String {
+    const NUMERALS: [(i64, &str); 13] = [
+        (1000, "m"),
+        (900, "cm"),
+        (500, "d"),
+        (400, "cd"),
+        (100, "c"),
+        (90, "xc"),
+        (50, "l"),
+        (40, "xl"),
+        (10, "x"),
+        (9, "ix"),
+        (5, "v"),
+        (4, "iv"),
+        (1, "i"),
+    ];
+    if !(1..4000).contains(&number) {
+        return number.to_string();
+    }
+    let mut left = number;
+    let mut out = String::new();
+    for (value, numeral) in NUMERALS {
+        while left >= value {
+            out.push_str(numeral);
+            left -= value;
+        }
+    }
+    out
+}
+
+/// What stands for a part that isn't text when spaces around it are weighed.
+const OBJECT: char = '\u{fffc}';
+
+impl Part {
+    fn last_char(&self) -> Option<char> {
+        match self {
+            Self::Text(text) => text.chars().next_back(),
+            Self::Styled(styled) => styled.text.chars().next_back(),
+            Self::Sup(_) | Self::Sub(_) | Self::Math(_) | Self::Image(_) => Some(OBJECT),
+        }
+    }
+}
+
+/// Parts made tidy: spaces at a styled run's edges belong to the text around it, neighbours set
+/// alike join, whitespace is one space at a time (none beside a line break or at the ends), and
+/// empty parts go. Code set out line by line (from `<pre>`, in a table's cell) keeps its spacing.
+fn tidy_parts(parts: Vec<Part>) -> Vec<Part> {
+    let mut spread = Vec::with_capacity(parts.len());
+    for part in parts {
+        let Part::Styled(mut styled) = part else {
+            spread.push(part);
+            continue;
+        };
+        if styled.code && styled.text.contains('\n') {
+            spread.push(Part::Styled(styled));
+            continue;
+        }
+        let length = styled.text.len();
+        let start = length - styled.text.trim_start_matches(' ').len();
+        let end = styled.text.trim_end_matches(' ').len().max(start);
+        if start > 0 {
+            spread.push(Part::Text(" ".into()));
+        }
+        if end > start {
+            styled.text.truncate(end);
+            styled.text.drain(..start);
+            spread.push(Part::Styled(styled));
+        }
+        if end < length {
+            spread.push(Part::Text(" ".into()));
+        }
+    }
+    let mut joined: Vec<Part> = Vec::with_capacity(spread.len());
+    for part in spread {
+        match (joined.last_mut(), part) {
+            (Some(Part::Text(last)), Part::Text(text)) => last.push_str(&text),
+            (Some(Part::Styled(last)), Part::Styled(styled)) if last.marks() == styled.marks() => {
+                last.text.push_str(&styled.text)
+            }
+            (_, part) => joined.push(part),
+        }
+    }
+    let mut tidy = Vec::with_capacity(joined.len());
+    let mut previous: Option<char> = None;
+    for part in joined {
+        let Part::Text(text) = part else {
+            previous = part.last_char().or(previous);
+            tidy.push(part);
+            continue;
+        };
+        let mut kept = String::with_capacity(text.len());
+        for char in text.chars() {
+            match char {
+                ' ' if matches!(previous, None | Some(' ' | '\n')) => continue,
+                '\n' if matches!(previous, None | Some('\n')) => continue,
+                '\n' => {
+                    if kept.ends_with(' ') {
+                        kept.pop();
+                    }
+                    kept.push('\n');
+                }
+                other => kept.push(other),
+            }
+            previous = Some(char);
+        }
+        if !kept.is_empty() {
+            tidy.push(Part::Text(kept));
+        }
+    }
+    while let Some(Part::Text(last)) = tidy.last_mut() {
+        let end = last.trim_end_matches([' ', '\n']).len();
+        last.truncate(end);
+        if !last.is_empty() {
+            break;
+        }
+        tidy.pop();
+    }
+    tidy
+}
+
+/// A table cell's text in parts, `\n` between its lines.
+fn cell_parts(
+    cell: ego_tree::NodeRef<'_, Node>,
+    base: Option<&url::Url>,
+    depth: usize,
+) -> Vec<Part> {
+    let mut inner = Builder {
+        cell: true,
+        depth,
+        ..Builder::default()
+    };
+    let marks = cell.value().as_element().map(marks_of).unwrap_or_default();
+    inner.with_marks(marks, |inner| walk(cell, base, inner));
+    inner.close_run();
+    tidy_parts(inner.parts)
+}
+
 #[derive(Default)]
 struct Builder {
     blocks: Vec<PassageBlock>,
-    /// Text since the paragraph's last part.
+    /// The run of text being written, all of it set alike (`run_marks`).
     current: String,
-    /// The paragraph's parts so far, when it has more than text.
+    run_marks: Marks,
+    /// The paragraph's parts before the run.
     parts: Vec<Part>,
     bytes: usize,
-    /// Inside code: TeX stays as written.
+    /// Inside code: TeX stays as written, and text is set as code.
     code: u32,
+    /// Inside italic or bold text.
+    italic: u32,
+    bold: u32,
     /// How many elements deep the walk is.
     depth: usize,
+    /// The lists the walk is in, innermost last.
+    lists: Vec<List>,
+    /// How many list items (and indented blocks) the walk is in.
+    items: u8,
+    /// The mark of the list item whose first paragraph comes next.
+    marker: Option<String>,
+    /// Reading a table's cell: what would end a paragraph breaks a line instead, and blocks
+    /// become lines of the cell's text.
+    cell: bool,
 }
 
 impl Builder {
@@ -708,25 +1180,101 @@ impl Builder {
         self.blocks.len() >= MAX_BLOCKS || self.bytes >= MAX_TEXT_BYTES
     }
 
-    /// Whether a space may come next: after something, and not after a space.
+    fn marks(&self) -> Marks {
+        Marks {
+            italic: self.italic > 0,
+            bold: self.bold > 0,
+            code: self.code > 0,
+        }
+    }
+
+    /// Runs `inside` with text set as `marks` say, besides how it's set already.
+    fn with_marks(&mut self, marks: Marks, inside: impl FnOnce(&mut Self)) {
+        self.italic += u32::from(marks.italic);
+        self.bold += u32::from(marks.bold);
+        self.code += u32::from(marks.code);
+        inside(self);
+        self.italic -= u32::from(marks.italic);
+        self.bold -= u32::from(marks.bold);
+        self.code -= u32::from(marks.code);
+    }
+
+    /// Runs `inside` as a list item (with its mark) or an indented block (`None`): its
+    /// paragraphs become items. In a table's cell, it's a line of its own, after its mark.
+    fn item(&mut self, marker: Option<String>, inside: impl FnOnce(&mut Self)) {
+        if self.cell {
+            self.line_break();
+            if let Some(marker) = marker.filter(|marker| !marker.is_empty()) {
+                self.push_run(&marker, Marks::default());
+                self.push_run(" ", Marks::default());
+            }
+            inside(self);
+            self.line_break();
+            return;
+        }
+        self.flush();
+        // An indented block's first paragraph keeps the mark of the item it begins.
+        if marker.is_some() {
+            self.marker = marker;
+        }
+        self.items = self.items.saturating_add(1);
+        inside(self);
+        self.flush();
+        self.items -= 1;
+        // An item without text of its own drops its mark.
+        self.marker = None;
+    }
+
+    /// The last character written, a part that isn't text standing as [`OBJECT`].
+    fn last_char(&self) -> Option<char> {
+        self.current
+            .chars()
+            .next_back()
+            .or_else(|| self.parts.last().and_then(Part::last_char))
+    }
+
+    /// Whether a space may come next: after something, and not after a space or a line break.
     fn wants_space(&self) -> bool {
-        match self.current.chars().next_back() {
-            Some(last) => last != ' ',
-            None => !self.parts.is_empty(),
+        self.last_char()
+            .is_some_and(|last| last != ' ' && last != '\n')
+    }
+
+    /// Adds `text` as it is, set as `marks` say.
+    fn push_run(&mut self, text: &str, marks: Marks) {
+        if marks != self.run_marks {
+            self.close_run();
+            self.run_marks = marks;
+        }
+        self.current.push_str(text);
+    }
+
+    /// The run of text written so far becomes a part.
+    fn close_run(&mut self) {
+        if !self.current.is_empty() {
+            let text = std::mem::take(&mut self.current);
+            self.parts.push(self.run_marks.part(text));
+        }
+    }
+
+    /// Breaks the line of a table cell's text: after something, once.
+    fn line_break(&mut self) {
+        if self.last_char().is_some_and(|last| last != '\n') {
+            self.push_run("\n", Marks::default());
         }
     }
 
     /// Adds text, collapsing whitespace runs to one space.
     fn push_text(&mut self, text: &str) {
+        let marks = self.marks();
         for (index, word) in text.split_whitespace().enumerate() {
             let starts_with_space = index > 0 || text.starts_with(char::is_whitespace);
             if starts_with_space && self.wants_space() {
-                self.current.push(' ');
+                self.push_run(" ", marks);
             }
-            self.current.push_str(word);
+            self.push_run(word, marks);
         }
         if text.ends_with(char::is_whitespace) && self.wants_space() {
-            self.current.push(' ');
+            self.push_run(" ", marks);
         }
     }
 
@@ -785,54 +1333,99 @@ impl Builder {
         self.push(PassageBlock::Code(CodeBlock { text, language }));
     }
 
+    /// A table of data, its cells read in parts.
+    fn push_table(&mut self, table: ego_tree::NodeRef<'_, Node>, base: Option<&url::Url>) {
+        self.flush();
+        let depth = self.depth + 1;
+        let budget = MAX_TEXT_BYTES.saturating_sub(self.bytes);
+        if let Some(table) = tables::build(table, |cell| cell_parts(cell, base, depth), budget) {
+            self.bytes += table.bytes();
+            self.push(PassageBlock::Table(table));
+        }
+    }
+
     /// A part of the paragraph that isn't plain text.
     fn push_part(&mut self, part: Part) {
-        if !self.current.is_empty() {
-            self.parts
-                .push(Part::Text(std::mem::take(&mut self.current)));
-        }
+        self.close_run();
         self.parts.push(part);
     }
 
+    /// Ends the paragraph: a paragraph block (an item in a list), or a formula's own block when
+    /// it's alone. In a table's cell, ends the line instead.
     fn flush(&mut self) {
-        if self.parts.is_empty() {
-            let text = self.current.trim();
-            if !text.is_empty() {
-                let text = text.to_owned();
-                self.bytes += text.len();
-                self.blocks.push(PassageBlock::Paragraph(text));
-            }
-            self.current.clear();
+        if self.cell {
+            self.line_break();
             return;
         }
-        if !self.current.is_empty() {
-            self.parts
-                .push(Part::Text(std::mem::take(&mut self.current)));
-        }
-        let mut parts = std::mem::take(&mut self.parts);
-        if let Some(Part::Text(first)) = parts.first_mut() {
-            *first = first.trim_start().to_owned();
-        }
-        if let Some(Part::Text(last)) = parts.last_mut() {
-            *last = last.trim_end().to_owned();
-        }
-        parts.retain(|part| !matches!(part, Part::Text(text) if text.is_empty()));
+        self.close_run();
+        let parts = tidy_parts(std::mem::take(&mut self.parts));
         if parts.is_empty() {
             return;
         }
-        self.bytes += parts
-            .iter()
-            .map(|part| match part {
-                Part::Math(formula) => formula.mathml.len() + formula.text.len(),
-                Part::Text(text) | Part::Sup(text) | Part::Sub(text) => text.len(),
-            })
-            .sum::<usize>();
-        self.blocks.push(PassageBlock::Rich(parts));
+        self.bytes += parts.iter().map(Part::bytes).sum::<usize>();
+        let marked = self
+            .marker
+            .as_ref()
+            .is_some_and(|marker| !marker.is_empty());
+        let mut parts = match <[Part; 1]>::try_from(parts) {
+            // A formula alone in its paragraph (MediaWiki's indented `:<math>` lines) is set on a
+            // line of its own.
+            Ok([Part::Math(mut formula)]) if !marked => {
+                formula.display = true;
+                self.blocks.push(PassageBlock::Math(formula));
+                return;
+            }
+            Ok(one) => one.into(),
+            Err(parts) => parts,
+        };
+        if self.items > 0 {
+            let marker = self.marker.take().unwrap_or_default();
+            self.blocks.push(PassageBlock::Item(ListItem {
+                marker,
+                depth: self.items.min(MAX_ITEM_DEPTH),
+                parts,
+            }));
+            return;
+        }
+        if parts.iter().all(|part| matches!(part, Part::Text(_))) {
+            let text = parts.drain(..).map(|part| part.plain()).collect();
+            self.blocks.push(PassageBlock::Paragraph(text));
+        } else {
+            self.blocks.push(PassageBlock::Rich(parts));
+        }
     }
 
     fn push(&mut self, block: PassageBlock) {
-        if !self.full() {
+        if self.cell {
+            self.push_into_cell(block);
+        } else if !self.full() {
             self.blocks.push(block);
+        }
+    }
+
+    /// A block met in a table's cell, as lines of its text: a heading in bold, code as code, a
+    /// formula as it is; pictures and rules stay out.
+    fn push_into_cell(&mut self, block: PassageBlock) {
+        let line = |builder: &mut Self, part: Part| {
+            builder.line_break();
+            builder.push_part(part);
+            builder.line_break();
+        };
+        match block {
+            PassageBlock::Heading(text) => {
+                self.line_break();
+                self.with_marks(Marks::BOLD, |builder| builder.push_text(&text));
+                self.line_break();
+            }
+            PassageBlock::Paragraph(text) => {
+                self.line_break();
+                self.push_text(&text);
+                self.line_break();
+            }
+            PassageBlock::Math(formula) => line(self, Part::Math(formula)),
+            PassageBlock::Code(code) => line(self, Marks::CODE.part(code.text)),
+            PassageBlock::Separator => self.line_break(),
+            _ => {}
         }
     }
 
@@ -869,18 +1462,40 @@ mod tests {
             <p>   </p>
             <ul><li>First</li><li>Second</li></ul>
         "#;
+        let styled = |text: &str, italic: bool| {
+            Part::Styled(Styled {
+                text: text.into(),
+                italic,
+                bold: !italic,
+                code: false,
+            })
+        };
+        let item = |text: &str| {
+            Item(ListItem {
+                marker: "•".into(),
+                depth: 1,
+                parts: vec![Part::Text(text.into())],
+            })
+        };
         assert_eq!(
             html_blocks(html, base.as_ref()),
             [
                 Heading("Chapter 1".into()),
-                paragraph("It was a dreary night of November."),
+                Rich(vec![
+                    Part::Text("It was a ".into()),
+                    styled("dreary", true),
+                    Part::Text(" night of November.".into()),
+                ]),
                 paragraph("Line one"),
                 paragraph("Line two"),
-                paragraph("Inline text joined"),
+                Rich(vec![
+                    Part::Text("Inline text ".into()),
+                    styled("joined", false)
+                ]),
                 Separator,
                 Image("https://www.gutenberg.org/cache/epub/84/images/fig1.jpg".into()),
-                paragraph("First"),
-                paragraph("Second"),
+                item("First"),
+                item("Second"),
             ]
         );
     }
@@ -939,7 +1554,13 @@ mod tests {
         assert_eq!(
             parts[2..],
             [
-                Part::Text(" be the square of H".into()),
+                Part::Text(" be ".into()),
+                Part::Styled(Styled {
+                    text: "the".into(),
+                    italic: true,
+                    ..Styled::default()
+                }),
+                Part::Text(" square of H".into()),
                 Part::Sub("2".into()),
                 Part::Text("O".into()),
                 Part::Sup("1".into()),
@@ -986,10 +1607,21 @@ mod tests {
             </td></tr></tbody></table>
             <p>You can pass several options to a package, each separated by a comma.</p>
         "#;
+        let typed = |text: &str| {
+            Part::Styled(Styled {
+                text: text.into(),
+                code: true,
+                ..Styled::default()
+            })
+        };
         assert_eq!(
             html_blocks(html, None),
             [
-                paragraph("For example, to use the color package, you would type:"),
+                Rich(vec![
+                    Part::Text("For example, to use the ".into()),
+                    typed("color"),
+                    Part::Text(" package, you would type:".into()),
+                ]),
                 code(
                     "\\documentclass{report}\n\\usepackage{color}\n\n\\begin{document}\n...\n\\end{document}",
                     Some("latex")
@@ -1002,12 +1634,24 @@ mod tests {
     #[test]
     fn tex_in_code_and_typewriter_text_stays_as_written() {
         let html = r#"<p>Type <code>$x^2$</code>, <tt>\(a\)</tt> or <span style="font-family: monospace">$$y$$</span> for maths; <code class="mw-highlight mw-highlight-lang-latex"><span class="k">\[</span> z <span class="k">\]</span></code> too.</p>"#;
+        let blocks = html_blocks(html, None);
+        let [Rich(parts)] = blocks.as_slice() else {
+            panic!("one paragraph in parts: {blocks:?}");
+        };
         assert_eq!(
-            html_blocks(html, None),
-            [paragraph(
-                r"Type $x^2$, \(a\) or $$y$$ for maths; \[ z \] too."
-            )]
+            plain_text(parts),
+            r"Type $x^2$, \(a\) or $$y$$ for maths; \[ z \] too."
         );
+        // All of it is code: no formula.
+        let typed: Vec<&str> = parts
+            .iter()
+            .filter_map(|part| match part {
+                Part::Styled(styled) if styled.code => Some(styled.text.as_str()),
+                Part::Math(_) => panic!("a formula in code: {parts:?}"),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(typed, ["$x^2$", r"\(a\)", "$$y$$", r"\[ z \]"]);
     }
 
     #[test]
@@ -1113,8 +1757,8 @@ b = 2</pre></div></td></tr></table>"#;
 
     #[test]
     fn renderers_boxes_give_their_formula_once() {
-        let katex = r#"<p><span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base">a</span></span></span></p>"#;
-        let mathjax = r#"<p><span class="MathJax" id="MathJax-Element-1-Frame"><nobr>x2</nobr></span><script type="math/tex" id="MathJax-Element-1">x^2</script></p>"#;
+        let katex = r#"<p><span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base">a</span></span></span> in a line</p>"#;
+        let mathjax = r#"<p><span class="MathJax" id="MathJax-Element-1-Frame"><nobr>x2</nobr></span><script type="math/tex" id="MathJax-Element-1">x^2</script> in a line</p>"#;
         let bare =
             r#"<p><span class="math">\alpha + 1</span> and <span class="math">Menu</span></p>"#;
         for (html, text) in [(katex, "a"), (mathjax, "x^2"), (bare, r"\alpha + 1")] {
@@ -1131,6 +1775,11 @@ b = 2</pre></div></td></tr></table>"#;
                 .collect();
             assert_eq!(formulas, [text], "{html}");
         }
+        // Alone in its paragraph, the formula is set on a line of its own.
+        let alone = katex.replace(" in a line", "");
+        assert!(
+            matches!(&html_blocks(&alone, None)[..], [Math(formula)] if formula.text == "a" && formula.display)
+        );
         assert_eq!(
             plain_text(match &html_blocks(bare, None)[0] {
                 Rich(parts) => parts,

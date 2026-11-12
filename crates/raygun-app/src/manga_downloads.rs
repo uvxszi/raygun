@@ -32,6 +32,9 @@ const FOLDER: &str = "manga";
 const NOVEL_FOLDER: &str = "novel";
 /// A downloaded novel chapter's blocks, in its folder.
 const PASSAGE_FILE: &str = "passage.json";
+/// What the source answered for it (`html` and `baseUrl`, or `text`), which is read afresh: what
+/// Raygun makes of a page (tables, code, formulas) improves without downloading it again.
+const SOURCE_FILE: &str = "source.json";
 /// A downloaded PDF chapter's document, and (comics) which of its pages are the chapter's.
 const PDF_FILE: &str = "document.pdf";
 const PDF_PAGES_FILE: &str = "pdf.json";
@@ -315,10 +318,10 @@ impl MangaDownloadService {
             .await
             .map_err(failed)?;
         self.changed(&row.unit_id);
-        let passage = {
+        let (passage, source) = {
             let extensions = self.app.state::<Arc<ExtensionService>>();
             let (_ready, host) = extensions.ready().await;
-            host.novel_passage(source_id, remote_id)
+            host.novel_passage_kept(source_id, remote_id)
                 .await
                 .map_err(Failure::Error)?
         };
@@ -344,6 +347,13 @@ impl MangaDownloadService {
         tokio::fs::write(partial.join(PASSAGE_FILE), json)
             .await
             .map_err(io)?;
+        if let Some(source) = source {
+            let json =
+                serde_json::to_vec(&source).map_err(|error| Failure::Error(error.to_string()))?;
+            tokio::fs::write(partial.join(SOURCE_FILE), json)
+                .await
+                .map_err(io)?;
+        }
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::rename(&partial, &dir).await.map_err(io)?;
         Ok(1)
@@ -360,7 +370,18 @@ impl MangaDownloadService {
         if row.state != manga_downloads::DONE {
             return None;
         }
-        let file = self.novel_dir(title_id, chapter_id).join(PASSAGE_FILE);
+        let dir = self.novel_dir(title_id, chapter_id);
+        // The source's own answer is read again, as well as Raygun reads pages now; chapters
+        // downloaded before it was kept have only their blocks.
+        if let Ok(bytes) = tokio::fs::read(dir.join(SOURCE_FILE)).await
+            && let Ok(source) = serde_json::from_slice::<serde_json::Value>(&bytes)
+        {
+            let blocks = raygun_ext_host::novel::parse_passage(&source);
+            if !blocks.is_empty() {
+                return Some(blocks);
+            }
+        }
+        let file = dir.join(PASSAGE_FILE);
         match tokio::fs::read(&file).await {
             Ok(bytes) => serde_json::from_slice(&bytes).ok(),
             Err(_) => {

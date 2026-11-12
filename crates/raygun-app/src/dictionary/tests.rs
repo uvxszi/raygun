@@ -625,12 +625,20 @@ fn a_book_search_finds_whole_words_case_and_accents_aside() {
             text: "It was a happy day, and everyone in the village knew it would be a happy one."
                 .to_owned(),
             parts: None,
+            list: None,
+        },
+        // A table's cells are found too.
+        TextBlock::Table {
+            text: "Mood\tDay\nhappy\tMonday".to_owned(),
+            rows: Vec::new(),
+            caption: None,
         },
     ];
     let mut hits = Vec::new();
     let more = book_search::search_blocks("c1", "One", &blocks, "happy", &mut hits);
     assert!(!more);
-    assert_eq!(hits.len(), 2);
+    assert_eq!(hits.len(), 3);
+    assert_eq!(hits[2].block, 3);
     assert_eq!(hits[0].block, 2);
     assert_eq!(hits[0].matched, "happy");
     assert_eq!(hits[0].before, "It was a ");

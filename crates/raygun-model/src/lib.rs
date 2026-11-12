@@ -7693,12 +7693,16 @@ pub enum BackupOutcome {
 pub enum TextBlock {
     Paragraph {
         text: String,
-        /// The paragraph in parts when it holds formulas or raised or lowered text; `text` is
-        /// then its plain form (formulas as their text), which progress, search, translation
-        /// and exports read.
+        /// The paragraph in parts when it holds formulas, raised or lowered text or text set in
+        /// italics, bold or code; `text` is then its plain form (formulas as their text), which
+        /// progress, search, translation and exports read.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[specta(optional)]
         parts: Option<Vec<TextPart>>,
+        /// Set on a list item's paragraph, or an indented one: its mark and how deep it is.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(optional)]
+        list: Option<ListMark>,
     },
     Heading {
         text: String,
@@ -7726,6 +7730,15 @@ pub enum TextBlock {
         #[specta(optional)]
         language: Option<String>,
     },
+    /// A table of data: rows of cells, header cells marked. `text` is its plain form (its
+    /// caption, then a line a row, cells a tab apart), which progress, search and exports read.
+    Table {
+        text: String,
+        rows: Vec<Vec<TableCell>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(optional)]
+        caption: Option<Vec<TextPart>>,
+    },
 }
 
 impl TextBlock {
@@ -7734,8 +7747,40 @@ impl TextBlock {
         Self::Paragraph {
             text: text.into(),
             parts: None,
+            list: None,
         }
     }
+}
+
+/// A list item's mark, or an indented paragraph's depth ([`TextBlock::Paragraph`]'s `list`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ListMark {
+    /// `•` (`◦`, `▪` deeper down), or the item's number or letter with its point (`3.`); empty
+    /// for a further paragraph of an item, or an indented paragraph.
+    pub marker: String,
+    /// 1 for a list in the text, 2 for a list inside an item, and so on.
+    pub depth: u8,
+}
+
+/// One cell of a [`TextBlock::Table`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TableCell {
+    /// The cell's text in parts; `\n` in a text part breaks a line.
+    pub parts: Vec<TextPart>,
+    /// A header cell: of the table's head, or naming its row.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub header: bool,
+    /// The columns the cell takes, when more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub colspan: Option<u16>,
+    /// The rows the cell takes, when more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub rowspan: Option<u16>,
 }
 
 /// One part of a paragraph that holds more than plain text.
@@ -7758,6 +7803,24 @@ pub enum TextPart {
         mathml: String,
         text: String,
         speech: String,
+    },
+    /// Text set apart: in italics, bold or as code (a monospaced font), or several at once.
+    Styled {
+        text: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[specta(optional)]
+        italic: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[specta(optional)]
+        bold: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[specta(optional)]
+        code: bool,
+    },
+    /// A picture in a table's cell (a symbol, what an example typesets), through the local
+    /// image proxy.
+    Image {
+        url: String,
     },
 }
 

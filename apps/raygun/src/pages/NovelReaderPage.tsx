@@ -5,7 +5,6 @@ import type {
   NovelTheme,
   PdfContentsEntry,
   TextBlock,
-  TextPart,
 } from '@raygun/bindings';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
@@ -29,7 +28,6 @@ import {
   Volume2,
 } from 'lucide-react';
 import {
-  Fragment,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -38,7 +36,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { FC, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react';
+import type { CSSProperties, FC, MouseEvent, PointerEvent, ReactNode, TouchEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { BookSearchSheet } from '../dictionary/BookSearchSheet';
@@ -64,6 +62,9 @@ import { PdfPagesView } from '../novel/PdfPagesView';
 import { ReadAloudOptions } from '../novel/readAloud/ReadAloudOptions';
 import { textOffsetAt } from '../novel/readAloud/textOffset';
 import { useFollowReading } from '../novel/readAloud/useFollowReading';
+import { TableBlock } from '../novel/TableBlock';
+import { SpokenText, TextParts } from '../novel/TextParts';
+import type { SpokenRange } from '../novel/TextParts';
 import { ReaderAiButton } from '../readerAi/ReaderAi';
 import { useNovelAi } from '../readerAi/useReaderAi';
 import {
@@ -128,26 +129,6 @@ const ownKeys = (event: globalThis.KeyboardEvent) => {
 /** A chapter not loaded yet has no blocks to translate. */
 const NO_BLOCKS: TextBlock[] = [];
 
-/** A paragraph's parts: text, raised and lowered text, formulas in the line. */
-const Parts: FC<{ parts: TextPart[] }> = ({ parts }) => (
-  <>
-    {parts.map((part, index) => {
-      switch (part.kind) {
-        case 'sup':
-          return <sup key={index}>{part.text}</sup>;
-        case 'sub':
-          return <sub key={index}>{part.text}</sub>;
-        case 'math':
-          return (
-            <MathFormula key={index} mathml={part.mathml} text={part.text} speech={part.speech} />
-          );
-        default:
-          return <Fragment key={index}>{part.text}</Fragment>;
-      }
-    })}
-  </>
-);
-
 /** A language's name in the app's language (`de` → German), or nothing. */
 const languageName = (tag: string | null, locale: string) => {
   if (!tag) return '';
@@ -156,27 +137,6 @@ const languageName = (tag: string | null, locale: string) => {
   } catch {
     return tag;
   }
-};
-
-/** The sentence being read aloud: UTF-16 offsets into its paragraph's text. */
-type SpokenRange = { start: number; end: number };
-
-/** A plain paragraph's text with the sentence being read aloud marked. */
-const SpokenText: FC<{ text: string; sentence?: SpokenRange }> = ({ text, sentence }) => {
-  if (!sentence || sentence.end <= sentence.start || sentence.end > text.length) return text;
-  return (
-    <>
-      {text.slice(0, sentence.start)}
-      <mark
-        data-testid="spoken-sentence"
-        data-spoken=""
-        className="bg-primary/25 rounded-sm text-current"
-      >
-        {text.slice(sentence.start, sentence.end)}
-      </mark>
-      {text.slice(sentence.end)}
-    </>
-  );
 };
 
 const Block: FC<{
@@ -236,26 +196,35 @@ const Block: FC<{
       return (
         <CodeBlock text={block.text} language={block.language} index={index} register={register} />
       );
-    default:
+    case 'table':
+      return <TableBlock block={block} index={index} active={active} register={register} />;
+    default: {
+      const spoken = active ? sentence : undefined;
+      // A list item's mark is drawn before it (bookText.css), never written into its text.
+      const list = block.list;
       return (
         <p
           ref={ref}
           data-block={index}
+          data-marker={list?.marker || undefined}
           aria-current={active || undefined}
           style={{
-            ...indentStyle(indent),
+            ...(list
+              ? ({ '--item-depth': Math.max(1, list.depth) } as CSSProperties)
+              : indentStyle(indent)),
             ...(justify ? { textAlign: 'justify', hyphens: 'auto' } : {}),
           }}
-          className={`mb-[0.9em] ${highlight}`}
+          className={`mb-[0.9em] ${list ? 'book-item' : ''} ${highlight}`}
         >
           {translated ??
             (block.parts ? (
-              <Parts parts={block.parts} />
+              <TextParts parts={block.parts} sentence={spoken} />
             ) : (
-              <SpokenText text={block.text} sentence={active ? sentence : undefined} />
+              <SpokenText text={block.text} sentence={spoken} />
             ))}
         </p>
       );
+    }
   }
 };
 
@@ -758,7 +727,10 @@ const ChapterView: FC<{
     const index = element ? Number((element as HTMLElement).dataset.block) : NaN;
     const block = data.blocks[index];
     return block &&
-      (block.kind === 'paragraph' || block.kind === 'heading' || block.kind === 'math')
+      (block.kind === 'paragraph' ||
+        block.kind === 'heading' ||
+        block.kind === 'math' ||
+        block.kind === 'table')
       ? index
       : null;
   };
@@ -768,10 +740,15 @@ const ChapterView: FC<{
     press.current = null;
   };
 
-  /** Where in block `index`'s text a point on screen is, while it shows its own text. */
+  /**
+   * Where in block `index`'s text a point on screen is, while it shows its own text (a table is
+   * read row by row, in words of its own: from its start).
+   */
   const offsetAt = (index: number, x: number, y: number) => {
     const element = refs.current[index];
-    return element && !translated.has(index) ? textOffsetAt(element, x, y) : null;
+    return element && !translated.has(index) && data.blocks[index]?.kind !== 'table'
+      ? textOffsetAt(element, x, y)
+      : null;
   };
 
   /** Whether an event happened on the text, not in a lookup drawn over it. */
@@ -1014,9 +991,14 @@ const ChapterView: FC<{
               ? () => {
                   const { block, offset } = lookup;
                   closeLookup();
-                  // From the sentence the selection starts in.
+                  // From the sentence the selection starts in (a table from its start).
                   if (block !== null)
-                    onSpeakFrom(block, translated.has(block) ? null : (offset ?? null));
+                    onSpeakFrom(
+                      block,
+                      translated.has(block) || data.blocks[block]?.kind === 'table'
+                        ? null
+                        : (offset ?? null),
+                    );
                 }
               : undefined
           }
@@ -1085,7 +1067,7 @@ const ChapterView: FC<{
         className={`mx-auto h-[calc(100dvh-var(--app-bar,0px))] overflow-hidden outline-none ${selectable} [-webkit-touch-callout:none] lg:[--reader-scale:1.2] ${chrome ? 'pt-16 pb-16' : 'pt-6 pb-6'}`}
       >
         <div
-          className="book-text"
+          className="book-text book-pages"
           style={{
             ...textStyle,
             height: '100%',

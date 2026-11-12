@@ -518,22 +518,59 @@ fn passage(answer: &Value) -> Review {
     if !blocks.is_empty() {
         review.notes.push(format!(
             "{} paragraphs, {} headings, {} pictures, {} separators",
-            count(|block| matches!(block, PassageBlock::Paragraph(_) | PassageBlock::Rich(_))),
+            count(|block| matches!(
+                block,
+                PassageBlock::Paragraph(_) | PassageBlock::Rich(_) | PassageBlock::Item(_)
+            )),
             count(|block| matches!(block, PassageBlock::Heading(_))),
             count(|block| matches!(block, PassageBlock::Image(_))),
             count(|block| matches!(block, PassageBlock::Separator)),
         ));
+        let math = |parts: &[crate::novel::Part]| {
+            parts
+                .iter()
+                .filter(|part| matches!(part, crate::novel::Part::Math(_)))
+                .count()
+        };
         let formulas = blocks
             .iter()
             .map(|block| match block {
                 PassageBlock::Math(_) => 1,
-                PassageBlock::Rich(parts) => parts
+                PassageBlock::Rich(parts) => math(parts),
+                PassageBlock::Item(item) => math(&item.parts),
+                PassageBlock::Table(table) => table
+                    .rows
                     .iter()
-                    .filter(|part| matches!(part, crate::novel::Part::Math(_)))
-                    .count(),
+                    .flatten()
+                    .map(|cell| math(&cell.parts))
+                    .sum(),
                 _ => 0,
             })
             .sum::<usize>();
+        let items = count(|block| matches!(block, PassageBlock::Item(_)));
+        if items > 0 {
+            review
+                .notes
+                .push(format!("{items} of them list items or indented"));
+        }
+        let tables: Vec<String> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                PassageBlock::Table(table) => Some(format!(
+                    "{}×{}",
+                    table.rows.len(),
+                    table.rows.iter().map(Vec::len).max().unwrap_or(0)
+                )),
+                _ => None,
+            })
+            .collect();
+        if !tables.is_empty() {
+            review.notes.push(format!(
+                "{} tables of data (rows × cells: {})",
+                tables.len(),
+                tables.join(", ")
+            ));
+        }
         if formulas > 0 {
             review.notes.push(format!(
                 "{formulas} formulas (MathML or TeX), drawn as MathML"

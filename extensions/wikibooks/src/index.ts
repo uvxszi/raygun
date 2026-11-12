@@ -556,15 +556,30 @@ const chapterList = async (id: string): Promise<MangaChapter[]> => {
     .map((link, index) => ({ id: link.title, name: link.label, number: index + 1 }));
 };
 
+/** A placeholder in MediaWiki's italics, `''name''`, as it stays inside highlighted code. */
+const PLACEHOLDER = /''([^'<>\n]{1,60})''/g;
+/** Code highlighted as LaTeX in the line (`{{LaTeX/LaTeX|code=…}}`). */
+const LATEX_CODE = /<code\b[^>]*\bmw-highlight-lang-(?:latex|tex)\b[^>]*>[\s\S]*?<\/code>/g;
+
+/**
+ * MediaWiki leaves wikitext inside highlighted code as written, so the LaTeX book's placeholders
+ * (`\chapter{''title''}`, meant in italics) keep their quotes on the site: they're italics again.
+ * In LaTeX, `''` only closes a quotation, so a word between two pairs is never meant as written.
+ */
+const placeholders = (html: string) =>
+  html.replace(LATEX_CODE, (code) => code.replace(PLACEHOLDER, '<i>$1</i>'));
+
 /** The page's own text: no navigation, notices or edit links; maths and code as they are. */
 const cleanPage = (html: string) =>
-  dropElements(html.replace(/<!--[\s\S]*?-->/g, ''), (_tag, attributes) =>
-    classes(attributes).some(
-      (name) =>
-        DROPPED_CLASSES.has(name) ||
-        name.startsWith('mbox-') ||
-        // Pictures of formulas, shown only where MathML can't be: the MathML stays.
-        name.startsWith('mwe-math-fallback'),
+  placeholders(
+    dropElements(html.replace(/<!--[\s\S]*?-->/g, ''), (_tag, attributes) =>
+      classes(attributes).some(
+        (name) =>
+          DROPPED_CLASSES.has(name) ||
+          name.startsWith('mbox-') ||
+          // Pictures of formulas, shown only where MathML can't be: the MathML stays.
+          name.startsWith('mwe-math-fallback'),
+      ),
     ),
   );
 

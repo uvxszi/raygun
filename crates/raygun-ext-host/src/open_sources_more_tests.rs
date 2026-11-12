@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use crate::fixture_tests::{json_response, serve};
 use crate::manga::MangaList;
-use crate::novel::PassageBlock;
+use crate::novel::{Part, PassageBlock};
 use crate::{ExtensionHost, ExtensionSource, HostConfig};
 
 /// The requests a fixture server saw, as their paths and queries.
@@ -879,4 +879,100 @@ async fn peertube_lists_openly_licensed_videos_and_plays_them_from_their_instanc
         .await
         .unwrap_err();
     assert!(odd.contains("no such video"), "{odd}");
+}
+
+// ---- Wikibooks ----
+
+const WIKIBOOKS: &str = "dev.raygun.wikibooks/books";
+
+/// `LaTeX/Document_Structure` as MediaWiki renders it: the book's navigation box, a highlighted
+/// example, and the sectioning commands' table, whose placeholders are in wikitext italics that
+/// MediaWiki leaves as written inside highlighted code.
+const DOCUMENT_STRUCTURE: &str = r#"<div class="mw-content-ltr mw-parser-output" lang="en" dir="ltr"><table class="wikitable collapsible noprint"><tbody><tr><th>LaTeX</th></tr><tr><td><a href="/wiki/LaTeX/Basics" title="LaTeX/Basics">Basics</a></td></tr></tbody></table>
+<p>The area between <code class="mw-highlight mw-highlight-lang-latex mw-content-ltr" dir="ltr"><span class="k">\documentclass</span><span class="nb">{</span>...<span class="nb">}</span></code> and the document is the <i>preamble</i>.
+</p>
+<table style="margin-top: 1.5em; margin-bottom: 1.5em">
+<tbody><tr>
+<td style="padding-left:3em;">
+<div class="mw-highlight mw-highlight-lang-latex mw-content-ltr" dir="ltr"><pre><span></span><span class="k">\documentclass</span><span class="nb">{</span>article<span class="nb">}</span>
+<span class="k">\begin</span><span class="nb">{</span>document<span class="nb">}</span>
+<span class="k">\end</span><span class="nb">{</span>document<span class="nb">}</span>
+</pre></div>
+</td></tr></tbody></table>
+<table class="wikitable">
+<tbody><tr>
+<th>Command
+</th>
+<th width="10%">Level
+</th>
+<th>Comment
+</th></tr>
+<tr>
+<td><code class="mw-highlight mw-highlight-lang-latex mw-content-ltr" dir="ltr"><span class="k">\part</span><span class="nb">{</span>''part''<span class="nb">}</span></code>
+</td>
+<td style="text-align: center">-1
+</td>
+<td>not in letters
+</td></tr>
+<tr>
+<td><code class="mw-highlight mw-highlight-lang-latex mw-content-ltr" dir="ltr"><span class="k">\chapter</span><span class="nb">{</span>''chapter''<span class="nb">}</span></code>
+</td>
+<td style="text-align: center">0
+</td>
+<td>only books and reports
+</td></tr></tbody></table>
+<p>A quotation closes with <code class="mw-highlight mw-highlight-lang-latex">''</code> and a double prime is <code class="mw-highlight mw-highlight-lang-latex">a''</code>.</p>
+</div>"#;
+
+#[tokio::test]
+async fn wikibooks_reads_tables_of_commands_with_their_placeholders_in_italics() {
+    let (app, asked) = recording(|address| {
+        if address.contains("action=parse") {
+            json_response(
+                StatusCode::OK,
+                json!({ "parse": { "title": "LaTeX/Document Structure", "text": DOCUMENT_STRUCTURE } }),
+            )
+        } else {
+            json_response(StatusCode::NOT_FOUND, json!({}))
+        }
+    });
+    let address = serve(app);
+    let host = local_host("wikibooks", &["https://en.wikibooks.org"], address).await;
+    let blocks = host
+        .novel_passage(WIKIBOOKS, "LaTeX/Document Structure")
+        .await
+        .unwrap();
+    // The rendered page, not its wikitext.
+    assert!(last_query(&asked, "/w/api.php").contains("action=parse"));
+    // The navigation box is left out; the example is LaTeX code, line by line.
+    assert!(
+        !blocks
+            .iter()
+            .any(|block| block.plain().is_some_and(|text| text.contains("Basics")))
+    );
+    assert!(blocks.iter().any(|block| matches!(
+        block,
+        PassageBlock::Code(code) if code.language.as_deref() == Some("latex")
+            && code.text == "\\documentclass{article}\n\\begin{document}\n\\end{document}"
+    )));
+    let table = blocks
+        .iter()
+        .find_map(|block| match block {
+            PassageBlock::Table(table) => Some(table),
+            _ => None,
+        })
+        .expect("the commands' table");
+    assert_eq!(
+        table.plain(),
+        "Command\tLevel\tComment\n\\part{part}\t-1\tnot in letters\n\\chapter{chapter}\t0\tonly books and reports"
+    );
+    assert!(table.rows[2][0].parts.iter().any(|part| matches!(
+        part,
+        Part::Styled(styled) if styled.italic && styled.code && styled.text == "chapter"
+    )));
+    // Quotes TeX means stay as written.
+    assert_eq!(
+        blocks.last().and_then(PassageBlock::plain).as_deref(),
+        Some("A quotation closes with '' and a double prime is a''.")
+    );
 }
