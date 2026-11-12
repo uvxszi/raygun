@@ -155,3 +155,20 @@ fn letters_from_math_alphabets_read_plainly() {
     assert_eq!(speech::raised("k+1"), "^(k+1)");
     assert_eq!(speech::lowered("12"), "₁₂");
 }
+
+#[test]
+fn tex_spaces_are_spaces_not_entity_text() {
+    for tex in [r"3.1\ \mathrm{miles}", r"a~b", r"5\text{ km}"] {
+        let formula = Formula::from_tex(tex, false).unwrap();
+        assert!(
+            !formula.mathml.contains("nbsp"),
+            "{tex}: {}",
+            formula.mathml
+        );
+        assert!(
+            !formula.speech.contains("nbsp"),
+            "{tex}: {}",
+            formula.speech
+        );
+    }
+}

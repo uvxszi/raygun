@@ -316,6 +316,9 @@ impl Formula {
         };
         let mut markup = String::new();
         pulldown_latex::push_mathml(&mut markup, events.into_iter(), config).ok()?;
+        // pulldown-latex writes the spaces of `\ `, `~` and `\text{ }` as the text "&nbsp;",
+        // which its writer escapes again: read them as the no-break spaces they are.
+        let markup = markup.replace("&amp;nbsp;", "&#160;");
         let mut formula = Self::from_markup(&markup)?;
         formula.display = display;
         formula.text = tex.split_whitespace().collect::<Vec<_>>().join(" ");
