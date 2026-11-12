@@ -231,6 +231,31 @@ export const commands = {
 	 *  connected with its sign-in (`servers_add`).
 	 */
 	sourcesAdd: (address: string) => typedError<DetectedSource, string>(__TAURI_INVOKE("sources_add", { address })),
+	/**  Sources → Add several: the addresses queued, as they're looked at and added. */
+	sourcesQueueStatus: () => __TAURI_INVOKE<SourceQueueStatus>("sources_queue_status"),
+	/**
+	 *  Queues a list of addresses, one a line (blank lines and `#` comments left out, each address
+	 *  once); they're looked at and added one after another in the background.
+	 */
+	sourcesQueueAdd: (text: string) => __TAURI_INVOKE<SourceQueueAdded>("sources_queue_add", { text }),
+	/**
+	 *  The addresses in a text file picked for the list; a file that's a source itself stands for its
+	 *  own path.
+	 */
+	sourcesQueueReadFile: (path: string) => typedError<string[], string>(__TAURI_INVOKE("sources_queue_read_file", { path })),
+	/**
+	 *  The first address of a list on the local network, while Android 17's access to it is needed
+	 *  and not given; `null` when none is.
+	 */
+	sourcesQueueLocalAddress: (text: string) => typedError<string | null, string>(__TAURI_INVOKE("sources_queue_local_address", { text })),
+	/**  Calls off an address waiting or being looked at, or every one when none is named. */
+	sourcesQueueCancel: (id: number | null) => __TAURI_INVOKE<SourceQueueStatus>("sources_queue_cancel", { id }),
+	/**  Queues the failed addresses again. */
+	sourcesQueueRetry: () => __TAURI_INVOKE<SourceQueueStatus>("sources_queue_retry"),
+	/**  Forgets an address that ended, or every one when none is named. */
+	sourcesQueueDismiss: (id: number | null) => __TAURI_INVOKE<SourceQueueStatus>("sources_queue_dismiss", { id }),
+	/**  A server of the list was connected with its sign-in. */
+	sourcesQueueSignedIn: (id: number) => __TAURI_INVOKE<SourceQueueStatus>("sources_queue_signed_in", { id }),
 	/**
 	 *  Shows the system's file or folder picker for a field that takes a link or a path; `null`
 	 *  when nothing was picked. On Android the item is copied into Raygun's data folder.
@@ -1962,6 +1987,7 @@ export const events = {
 	songCaptureEvent: makeEvent<SongCaptureEvent>("song-capture-event"),
 	songDownloadProgressEvent: makeEvent<SongDownloadProgressEvent>("song-download-progress-event"),
 	songDownloadsEvent: makeEvent<SongDownloadsEvent>("song-downloads-event"),
+	sourceQueueEvent: makeEvent<SourceQueueEvent>("source-queue-event"),
 	sourcesSetupEvent: makeEvent<SourcesSetupEvent>("sources-setup-event"),
 	speechCommandEvent: makeEvent<SpeechCommandEvent_Deserialize>("speech-command-event"),
 	syncChangedEvent: makeEvent<SyncChangedEvent>("sync-changed-event"),
@@ -6988,6 +7014,84 @@ export type SourceFilter =
 export type SourceFormat = "raygun" | "nuclear" | "shosetsu" | "miru" | "lnreader" | "kodi" | "mihon" | 
 /**  A Stremio addon listed in a repository. */
 "stremio";
+
+/**
+ *  A list queued: how many of its addresses joined the queue, how many were left out as already
+ *  in it (or twice in the list), and how many didn't fit.
+ */
+export type SourceQueueAdded = {
+	queued: number,
+	duplicates: number,
+	overLimit: number,
+	status: SourceQueueStatus,
+};
+
+/**  Sources → Add several changed: an address was queued, looked at, added or ended otherwise. */
+export type SourceQueueEvent = SourceQueueStatus;
+
+/**  One address of the list. */
+export type SourceQueueItem = {
+	/**  Tells it from the others while Raygun runs. */
+	id: number,
+	/**  As pasted, trimmed. */
+	address: string,
+	state: SourceQueueState,
+	/**  What it turned out to be, once looked at. */
+	kind: DetectedKind | null,
+	format: SourceFormat | null,
+	server: ServerKind | null,
+	name: string | null,
+	/**  What it's added by; a server's address, for its sign-in. */
+	url: string | null,
+	/**  Where a Stremio addon that needs setting up is set up. */
+	configureUrl: string | null,
+	/**  Why it wasn't added: a sentence, then the details. */
+	error: string | null,
+	/**  The list it came with; ones waiting for the person stay listed with later lists. */
+	batch: number,
+};
+
+/**
+ *  Where an address of a list added in Sources → Add is (several at once, one after another in
+ *  the order pasted).
+ */
+export type SourceQueueState = 
+/**  Waiting its turn. */
+"waiting" | 
+/**  Being looked at: what it is, and whether this device has it. */
+"checking" | 
+/**  Being added: the repository or the addon added, the extension installed. */
+"adding" | "added" | 
+/**  This device has it: the addon, the repository, the extension at this version, the server. */
+"alreadyAdded" | 
+/**  A server, connected with a sign-in that waits for the person; the rest went on. */
+"needsSignIn" | 
+/**  A Stremio addon to set up on its website first; the address it then gives is added. */
+"needsSetup" | "failed" | "cancelled";
+
+/**  Sources → Add several: the addresses queued, looked at and added one at a time. */
+export type SourceQueueStatus = {
+	/**  Counts from 1; 0 before the first list. */
+	batch: number,
+	/**  In the order pasted. */
+	items: SourceQueueItem[],
+	/**  This list's addresses, cancelled ones included, then how many of them ended each way. */
+	total: number,
+	added: number,
+	alreadyAdded: number,
+	needsSignIn: number,
+	needsSetup: number,
+	failed: number,
+	cancelled: number,
+	/**  Something waits, is looked at or added, or the extensions installed load. */
+	running: boolean,
+	/**  Offline Mode holds what waits until it ends. */
+	paused: boolean,
+	/**  The extensions installed load (once, when nothing is left). */
+	loading: boolean,
+	/**  What's looked at or added now: its name once known, else its address. */
+	current: string | null,
+};
 
 /**  A source in play order, with how it did. */
 export type SourceRank = {

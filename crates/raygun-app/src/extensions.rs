@@ -1207,6 +1207,18 @@ impl ExtensionService {
         entry: &RepoEntry,
         bytes: &[u8],
     ) -> Result<Vec<ExtensionInfo>, String> {
+        self.install_file_unloaded(url, entry, bytes).await?;
+        Ok(self.reload().await)
+    }
+
+    /// [`Self::install_file`] without loading it: a list of sources loads every extension it
+    /// installed once, at its end.
+    pub async fn install_file_unloaded(
+        &self,
+        url: &reqwest::Url,
+        entry: &RepoEntry,
+        bytes: &[u8],
+    ) -> Result<(), String> {
         {
             let _changing = self.changing.lock().await;
             let verified = match entry.format {
@@ -1271,7 +1283,7 @@ impl ExtensionService {
             .map_err(|error| error.to_string())?;
             tracing::info!(extension = %entry.id, version = %entry.version, from = %url, "extension installed from its file");
         }
-        Ok(self.reload().await)
+        Ok(())
     }
 
     /// The extensions on this device by id, for marking a repository's entries. Their icons and

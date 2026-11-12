@@ -812,6 +812,82 @@ fn extension_installs_beside_downloads_add_their_summary() {
     assert_eq!(finished.text, "Downloaded · 2 installed");
 }
 
+/// A list of sources being added, its items in these states.
+fn source_list(states: &[raygun_model::SourceQueueState]) -> raygun_model::SourceQueueStatus {
+    use raygun_model::SourceQueueState as State;
+    let items: Vec<raygun_model::SourceQueueItem> = states
+        .iter()
+        .enumerate()
+        .map(|(index, state)| raygun_model::SourceQueueItem {
+            id: index as u32 + 1,
+            address: format!("s{index}.example"),
+            state: *state,
+            kind: None,
+            format: None,
+            server: None,
+            name: (*state != State::Waiting).then(|| format!("Source {index}")),
+            url: None,
+            configure_url: None,
+            error: (*state == State::Failed)
+                .then(|| "Couldn't reach s.example\nconnection refused".to_owned()),
+            batch: 1,
+        })
+        .collect();
+    let count = |state: State| states.iter().filter(|s| **s == state).count() as u32;
+    let running = states
+        .iter()
+        .any(|state| matches!(state, State::Waiting | State::Checking | State::Adding));
+    raygun_model::SourceQueueStatus {
+        batch: 1,
+        total: states.len() as u32,
+        added: count(State::Added),
+        already_added: count(State::AlreadyAdded),
+        needs_sign_in: count(State::NeedsSignIn),
+        needs_setup: count(State::NeedsSetup),
+        failed: count(State::Failed),
+        cancelled: count(State::Cancelled),
+        running,
+        paused: false,
+        loading: false,
+        current: items
+            .iter()
+            .find(|item| matches!(item.state, State::Checking | State::Adding))
+            .and_then(|item| item.name.clone()),
+        items,
+    }
+}
+
+#[test]
+fn a_list_of_sources_shows_its_place_then_its_summary() {
+    use raygun_model::SourceQueueState as State;
+    let mut tracker = Tracker::default();
+    let status = source_list(&[State::Added, State::Checking, State::Waiting]);
+    let update = tracker.update(0.0, &[source_queue(&status).unwrap()]);
+    let summary = update.plan.summary.expect("a notification");
+    assert_eq!(summary.title, "Adding sources · 2 of 3");
+    assert_eq!(summary.text, "Source 1 · Checking");
+    assert!(update.plan.foreground);
+    assert_eq!(summary.actions[0].id, "cancel");
+    assert_eq!(summary.actions[0].keys, ["sources:list-1"]);
+
+    let status = source_list(&[State::Added, State::Failed, State::NeedsSignIn]);
+    let update = tracker.update(1_000.0, &[source_queue(&status).unwrap()]);
+    assert!(update.plan.summary.is_none());
+    let finished = update.finished.expect("a summary");
+    assert_eq!(finished.title, "Sources added");
+    assert_eq!(finished.text, "1 added · 1 to sign in to · 1 failed");
+    assert_eq!(finished.route, "/sources");
+    assert_eq!(finished.actions[0].id, "retry");
+    assert_eq!(finished.actions[0].keys, ["sources:list-1"]);
+
+    // One address: its name, and the issue's sentence.
+    let lone = source_queue(&source_list(&[State::Failed])).unwrap();
+    assert_eq!(lone.title, "Source 0 wasn't added");
+    assert_eq!(lone.subtitle.as_deref(), Some("Couldn't reach s.example"));
+    // Cancelled before anything ended: nothing to say.
+    assert!(source_queue(&source_list(&[State::Cancelled, State::Cancelled])).is_none());
+}
+
 /// What a desktop notification reports when clicked: its action and the notification it showed.
 fn clicked(action: &str, extra: serde_json::Value) -> tauri_plugin_notification::ActionPerformed {
     serde_json::from_value(serde_json::json!({

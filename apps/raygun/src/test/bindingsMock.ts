@@ -12,6 +12,7 @@ import type {
   ExtensionInfo,
   SourceSetup,
   ExtensionInstallStatus,
+  SourceQueueStatus,
   FollowedArtist,
   PermissionPrompt,
   IncognitoStatus,
@@ -74,6 +75,7 @@ type EventPayloads = {
   extensionsChangedEvent: ExtensionInfo[];
   sourcesSetupEvent: SourceSetup[];
   extensionInstallsEvent: ExtensionInstallStatus;
+  sourceQueueEvent: SourceQueueStatus;
   searchProgressEvent: SearchProgress;
   syncChangedEvent: number;
   mangaUpdateEvent: MangaUpdateStatus;
@@ -340,6 +342,22 @@ export const NO_INSTALLS: ExtensionInstallStatus = {
   phase: null,
 };
 
+export const NO_SOURCE_LIST: SourceQueueStatus = {
+  batch: 0,
+  items: [],
+  total: 0,
+  added: 0,
+  alreadyAdded: 0,
+  needsSignIn: 0,
+  needsSetup: 0,
+  failed: 0,
+  cancelled: 0,
+  running: false,
+  paused: false,
+  loading: false,
+  current: null,
+};
+
 export const bindingsMock = {
   commands: {
     appInfo: vi.fn(),
@@ -541,6 +559,14 @@ export const bindingsMock = {
     browserCheckOpen: vi.fn(),
     sourcesDetect: vi.fn(),
     sourcesAdd: vi.fn(),
+    sourcesQueueStatus: vi.fn(),
+    sourcesQueueAdd: vi.fn(),
+    sourcesQueueReadFile: vi.fn(),
+    sourcesQueueLocalAddress: vi.fn(),
+    sourcesQueueCancel: vi.fn(),
+    sourcesQueueRetry: vi.fn(),
+    sourcesQueueDismiss: vi.fn(),
+    sourcesQueueSignedIn: vi.fn(),
     filesPick: vi.fn(),
     extensionRepos: vi.fn(),
     extensionRepoAdd: vi.fn(),
@@ -878,6 +904,7 @@ export const bindingsMock = {
     extensionsChangedEvent: makeEvent('extensionsChangedEvent'),
     sourcesSetupEvent: makeEvent('sourcesSetupEvent'),
     extensionInstallsEvent: makeEvent('extensionInstallsEvent'),
+    sourceQueueEvent: makeEvent('sourceQueueEvent'),
     searchProgressEvent: makeEvent('searchProgressEvent'),
     syncChangedEvent: makeEvent('syncChangedEvent'),
     mangaUpdateEvent: makeEvent('mangaUpdateEvent'),
@@ -1363,6 +1390,23 @@ export const seedBindings = () => {
   );
   commands.sourcesDetect.mockResolvedValue({ status: 'error', error: 'not mocked' });
   commands.sourcesAdd.mockResolvedValue({ status: 'error', error: 'not mocked' });
+  for (const name of [
+    'sourcesQueueStatus',
+    'sourcesQueueCancel',
+    'sourcesQueueRetry',
+    'sourcesQueueDismiss',
+    'sourcesQueueSignedIn',
+  ] as const) {
+    commands[name].mockResolvedValue(NO_SOURCE_LIST);
+  }
+  commands.sourcesQueueAdd.mockResolvedValue({
+    queued: 0,
+    duplicates: 0,
+    overLimit: 0,
+    status: NO_SOURCE_LIST,
+  });
+  commands.sourcesQueueReadFile.mockResolvedValue(ok([]));
+  commands.sourcesQueueLocalAddress.mockResolvedValue(ok(null));
   commands.filesPick.mockResolvedValue(ok(null));
   commands.extensionRepos.mockResolvedValue(ok([]));
   commands.extensionRepoAdd.mockResolvedValue(ok([]));

@@ -3934,7 +3934,64 @@
       "installed": "Installed",
       "version": "Version",
       "trust": "Only add sources you trust: their extensions can reach the sites they list.",
-      "byHand": "Connect a server by hand"
+      "byHand": "Connect a server by hand",
+      "modes": "How many to add",
+      "mode": {
+        "one": "One address",
+        "several": "Several"
+      },
+      "several": {
+        "label": "Addresses",
+        "placeholder": "One address a line, such as\nhttps://example.org/index.json\nhttps://example.org/manifest.json",
+        "hint": "One address a line, anything One address takes: repositories, extensions, addons, servers. Blank lines and lines starting with # are skipped, and each address is added once. Or choose a text file that lists them.",
+        "addAll": "Add all",
+        "queued_one": "{{count}} address queued: it's added even with this closed",
+        "queued_other": "{{count}} addresses queued: they're added one after another, even with this closed",
+        "nothingNew": "Nothing new to queue",
+        "duplicates_one": "{{count}} was already in the list",
+        "duplicates_other": "{{count}} were already in the list",
+        "overLimit_one": "{{count}} didn't fit: add it once the list is through",
+        "overLimit_other": "{{count}} didn't fit: add them once the list is through"
+      }
+    },
+    "queue": {
+      "title": "Adding several sources",
+      "items": "Addresses being added",
+      "progress": "Adding sources · {{position}} of {{total}}",
+      "offline": "Waiting for Offline mode to end",
+      "loading": "Loading the extensions added",
+      "now": "Now: {{name}}",
+      "count": {
+        "added": "{{count}} added",
+        "alreadyAdded": "{{count}} added already",
+        "needsSignIn_one": "{{count}} needs a sign-in",
+        "needsSignIn_other": "{{count}} need a sign-in",
+        "needsSetup_one": "{{count}} needs setting up",
+        "needsSetup_other": "{{count}} need setting up",
+        "failed": "{{count}} failed",
+        "cancelled": "{{count}} cancelled"
+      },
+      "state": {
+        "waiting": "Waiting",
+        "checking": "Looking at it…",
+        "adding": "Adding…",
+        "added": "Added",
+        "alreadyAdded": "Added already",
+        "needsSignIn": "Needs a sign-in",
+        "needsSetup": "Set it up on its website, then add the address it gives",
+        "failed": "Not added",
+        "cancelled": "Cancelled"
+      },
+      "kind": {
+        "addon": "Stremio addon",
+        "extension": "Extension"
+      },
+      "cancelAll": "Cancel all",
+      "retryFailed": "Retry failed",
+      "clear": "Clear",
+      "cancel": "Cancel {{name}}",
+      "dismiss": "Remove {{name}} from the list",
+      "signIn": "Sign in"
     },
     "detected": {
       "addon": "Looks like a Stremio addon: {{name}}",

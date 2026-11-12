@@ -249,7 +249,7 @@ fn checked(found: Found) -> Result<Found, String> {
 /// The addresses `typed` may be: as typed, Stremio's `stremio://` as https, a path on this
 /// computer as a file, and without a scheme `https://` and then `http://` (servers and addons
 /// on a home network rarely have certificates).
-fn addresses(typed: &str) -> Result<Vec<Url>, String> {
+pub(crate) fn addresses(typed: &str) -> Result<Vec<Url>, String> {
     let not_one = || format!("“{typed}” isn't an address");
     let fragmentless = |mut url: Url| {
         url.set_fragment(None);
@@ -957,6 +957,17 @@ impl SourceDetector {
     /// Adds what `address` is, as it was found when looked at (or now): an addon, a repository,
     /// an extension. Answers with what it now is.
     pub async fn add(&self, address: &str) -> Result<DetectedSource, String> {
+        let found = self.add_found(address, true).await?;
+        self.view(&found).await
+    }
+
+    /// Adds what `address` is for a list (`source_queue`): an extension is installed without
+    /// loading, as the list loads every one it installed once, at its end.
+    pub async fn add_in_list(&self, address: &str) -> Result<(), String> {
+        self.add_found(address, false).await.map(|_| ())
+    }
+
+    async fn add_found(&self, address: &str, load: bool) -> Result<Found, String> {
         let remembered = self
             .recent
             .lock()
@@ -975,8 +986,13 @@ impl SourceDetector {
             Found::Repository { url, .. } => {
                 self.extensions().add_repo(url.as_str()).await?;
             }
-            Found::Extension { url, entry, bytes } => {
+            Found::Extension { url, entry, bytes } if load => {
                 self.extensions().install_file(url, entry, bytes).await?;
+            }
+            Found::Extension { url, entry, bytes } => {
+                self.extensions()
+                    .install_file_unloaded(url, entry, bytes)
+                    .await?;
             }
             Found::Server { .. } => {
                 return Err("Sign in to connect this server".to_owned());
@@ -987,7 +1003,7 @@ impl SourceDetector {
             .expect("recent looks poisoned")
             .remove(address.trim());
         tracing::info!(address = %address.trim(), "source added");
-        self.view(&found).await
+        Ok(found)
     }
 
     /// What was found, as the UI shows it, marked against what this device has.

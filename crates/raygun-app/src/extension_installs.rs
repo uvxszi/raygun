@@ -38,7 +38,7 @@ fn install_gap() -> std::time::Duration {
 }
 
 /// Whether an install failed because the host asked to slow down.
-fn rate_limited(error: &str) -> bool {
+pub(crate) fn rate_limited(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     error.contains("429")
         || error.contains("too many requests")

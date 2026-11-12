@@ -1,6 +1,6 @@
 //! Downloads in the system's notifications, in one place for every kind: songs, videos, chapters,
-//! podcast episodes, exports, AI models, Raygun's own update, yt-dlp's jobs and extension
-//! installs.
+//! podcast episodes, exports, AI models, Raygun's own update, yt-dlp's jobs, extension installs
+//! and lists of sources being added.
 //!
 //! Nothing here is called by the download services: it listens to the events they already send,
 //! reads their lists when one changes (at most once a second, coalescing the rest), and works out
@@ -31,7 +31,7 @@ use tokio::sync::Notify;
 use crate::events::{
     AiModelEvent, AppUpdateEvent, ExportEvent, ExtensionInstallsEvent, MangaDownloadsEvent,
     OpenRouteEvent, PodcastsChangedEvent, SongDownloadProgressEvent, SongDownloadsEvent,
-    VideoDownloadsEvent, WebsiteDownloadsEvent, YtDlpEvent,
+    SourceQueueEvent, VideoDownloadsEvent, WebsiteDownloadsEvent, YtDlpEvent,
 };
 use model::{Abilities, Download, Kind, Phase, Plan, Tracker, Unit};
 
@@ -42,7 +42,7 @@ const TICK: Duration = Duration::from_secs(1);
 /// stops it (an export notices at its next chapter), so the notification goes at once.
 const CANCEL_HIDES: Duration = Duration::from_secs(120);
 
-const ALL_KINDS: [Kind; 10] = [
+const ALL_KINDS: [Kind; 11] = [
     Kind::Songs,
     Kind::Videos,
     Kind::Chapters,
@@ -53,6 +53,7 @@ const ALL_KINDS: [Kind; 10] = [
     Kind::YtDlp,
     Kind::Files,
     Kind::Extensions,
+    Kind::Sources,
 ];
 
 /// Where a [`Notice`] goes on Android: its channel, which people can mute on its own.
@@ -285,6 +286,8 @@ impl DownloadNotices {
         let notices = self.clone();
         ExtensionInstallsEvent::listen(app, move |_| notices.touch(Kind::Extensions));
         let notices = self.clone();
+        SourceQueueEvent::listen(app, move |_| notices.touch(Kind::Sources));
+        let notices = self.clone();
         AiModelEvent::listen(app, move |event| {
             let progress = event.payload.0;
             {
@@ -414,6 +417,11 @@ impl DownloadNotices {
                     .into_iter()
                     .collect()
             }
+            Kind::Sources => state::<Arc<crate::source_queue::SourceQueue>>(&self.app)
+                .ok()
+                .and_then(|queue| model::source_queue(&queue.status()))
+                .into_iter()
+                .collect(),
         };
         let mut cancelled = self.cancelled.lock().expect("cancelled poisoned");
         let prefix = format!("{}:", kind.tag());
@@ -614,6 +622,15 @@ async fn act_on(app: &AppHandle, kind: Kind, id: &str, action: &str) -> Result<(
         }
         (Kind::Extensions, "retry") => {
             state::<Arc<crate::extension_installs::ExtensionInstalls>>(app)?.retry_failed();
+            Ok(())
+        }
+        // A list's Cancel calls off what waits; Retry queues its failures again.
+        (Kind::Sources, "cancel") => {
+            state::<Arc<crate::source_queue::SourceQueue>>(app)?.cancel(None);
+            Ok(())
+        }
+        (Kind::Sources, "retry") => {
+            state::<Arc<crate::source_queue::SourceQueue>>(app)?.retry();
             Ok(())
         }
         (Kind::Files, "cancel") => {
