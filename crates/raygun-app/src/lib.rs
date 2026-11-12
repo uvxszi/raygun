@@ -99,6 +99,7 @@ mod video_quality;
 mod video_session;
 mod video_sources;
 mod video_subtitles;
+mod web_views;
 mod website_downloads;
 mod websites;
 mod youtube_embed;

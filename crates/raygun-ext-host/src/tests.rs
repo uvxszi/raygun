@@ -514,6 +514,42 @@ async fn a_browser_check_opens_the_failed_request_and_its_pass_comes_back() {
         host.import_browser_cookies("../x", &page, &cookies, None)
             .is_err()
     );
+    // Pictures on the site go with the pass: its User-Agent and the extension's cookies there.
+    let headers =
+        host.passed_check_headers("dev.raygun.test/p", &format!("http://{address}/x.jpg"));
+    assert_eq!(
+        headers,
+        [
+            ("User-Agent".to_owned(), CHECKED_BROWSER.to_owned()),
+            ("Cookie".to_owned(), "cf_clearance=passed".to_owned()),
+        ]
+    );
+    assert!(
+        host.passed_check_headers("dev.raygun.test/p", "https://elsewhere.example/x.jpg")
+            .is_empty()
+    );
+}
+
+/// A script that reads an answer as a check itself ("Open in WebView to bypass site protection",
+/// as Mihon's sources say) opens the request it read, with the User-Agent it went with.
+#[tokio::test]
+async fn a_check_a_script_names_opens_the_request_it_read() {
+    let address = start_server();
+    let dir = tempfile::tempdir().unwrap();
+    let host = ExtensionHost::start(HostConfig {
+        storage_dir: Some(dir.path().to_owned()),
+        call_timeout: Duration::from_secs(10),
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let code = "raygun.providers.register({ kind: 'music.metadata', id: 'p', name: 'P', run: async (args) => { await raygun.http.fetch(args.url, { headers: { 'User-Agent': 'Source/1.0' } }); throw new Error('Open in WebView to bypass site protection'); } });";
+    host.load(vec![extension("dev.raygun.test", code)]).await;
+    let page = format!("http://{address}/page");
+    let error = run(&host, json!({ "url": page })).await.unwrap_err();
+    assert_eq!(error.kind(), Some(IssueKind::BotCheck), "{error}");
+    let check = host.browser_check(&error.to_string(), None).unwrap();
+    assert_eq!(check.url(), page);
+    assert_eq!(check.request.user_agent, "Source/1.0");
 }
 
 #[tokio::test]

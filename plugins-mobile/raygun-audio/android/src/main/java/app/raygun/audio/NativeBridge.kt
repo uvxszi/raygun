@@ -52,6 +52,18 @@ object NativeBridge {
     @JvmStatic
     external fun onWebsite(json: String)
 
+    /** A hidden web view's event (`{"id", "kind", …}`, see [HiddenViews]). */
+    @JvmStatic
+    external fun onWebView(json: String)
+
+    fun webView(json: String) {
+        try {
+            onWebView(json)
+        } catch (error: UnsatisfiedLinkError) {
+            Log.e("RaygunAudio", "Rust engine bridge is not linked", error)
+        }
+    }
+
     /** A download notification's button: `{"action", "keys"}`. */
     @JvmStatic
     external fun onNotificationAction(json: String)

@@ -40,6 +40,8 @@
     }
   }
   KT.error = (value) => (value instanceof Error ? value : new KotlinError(value));
+  /// Exceptions `catch (e: IOException)` doesn't take.
+  const NOT_IO = new Set(['WebViewTimeoutException', 'RenderProcessGoneException']);
   /// kotlinx.serialization reads raw control characters inside strings (a newline in a
   /// description); JavaScript's JSON refuses them, so they're escaped when it does.
   const escapeControls = (text) => {
@@ -78,6 +80,8 @@
   KT.caught = (error, type) => {
     if (error instanceof Return || error instanceof Jump) return false;
     const name = K.str(type).split('.').pop();
+    // Keiyoushi's web view failures are plain exceptions, never `IOException`s.
+    if (name === 'IOException' && error && NOT_IO.has(error.kind)) return false;
     if (
       ['Exception', 'Throwable', 'Error', 'RuntimeException', 'IOException', 'Any'].includes(name)
     )
@@ -4657,6 +4661,9 @@
   }
   const clientBuilder = (client) => {
     const builder = {
+      // Keiyoushi's `lib:cronet` (`cronet()`): Chrome's transport where the device has it, else
+      // OkHttp's. Raygun's requests have their own; the client stays as it is.
+      cronet: () => builder,
       // Keiyoushi's `rateLimit(permits, period = 1.seconds, shouldLimit = { true })` and
       // OkHttp's `rateLimit(permits, period, unit)`, by place or by name (`rateLimit(permits = 1,
       // period = 2.seconds) { it.host == host }`): requests `shouldLimit` takes wait their turn.
@@ -7529,30 +7536,715 @@
     Main: coroutineContext('Dispatchers.Main'),
     Unconfined: coroutineContext('Dispatchers.Unconfined'),
   };
-  /// Keiyoushi's web view helpers: Raygun has no web view, so a source driving one fails, naming
-  /// the page it would load: as a browser check when it passes one (which the person may pass by
-  /// hand: its cookies then go with the source's requests), else as a page that needs one.
-  const webViewNeeded = (page, baseUrl, check) => {
-    let host = '';
-    for (const address of [page, baseUrl]) {
-      if (host || address === null || address === undefined) continue;
-      try {
-        host = HttpUrl.parse(KT.str(address)).host ?? '';
-      } catch {
-        host = '';
-      }
+  // ---- Web views (Keiyoushi's `runWebView`: `crate::webview`, `mihon/views.rs`) ----
+
+  /// The host an address names, else ''.
+  const hostOf = (address) => {
+    if (address === null || address === undefined) return '';
+    try {
+      return HttpUrl.parse(KT.str(address)).host ?? '';
+    } catch {
+      return '';
     }
-    const site = host || 'the site';
+  };
+  /// Why a web view can't run, naming the page it would load: a browser check when the run passes
+  /// one (Raygun never does: the person may pass it by hand, and its cookies then go with the
+  /// source's requests), else a page that needs a web view where Raygun has none.
+  const webViewMissing = (page, baseUrl, check) => {
+    const site = hostOf(page) || hostOf(baseUrl) || 'the site';
     if (check)
-      throw new KotlinError(
-        `A browser check from ${site}: a bot check page the source passes in a web view`,
+      return new KotlinError(
+        `${site} answered with a browser check, which the source passes in a web view`,
         'IOException',
       );
-    throw new KotlinError(
-      `The source reads ${site} in a web view, which Raygun doesn't have`,
+    return new KotlinError(
+      `The source reads ${site} in a web view, which Raygun doesn't have here`,
       'IOException',
     );
   };
+  const webViewNeeded = (page, baseUrl, check) => {
+    throw webViewMissing(page, baseUrl, check);
+  };
+  /// What the native answers when the platform has no web views.
+  const NO_VIEWS = '[no-web-views]';
+  /// A duration's milliseconds (`10.seconds`, a number of ms), else `fallback`.
+  const durationMs = (value, fallback) => {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'number') return value;
+    if (typeof value.ms === 'number') return value.ms;
+    return fallback;
+  };
+  /// androidx.webkit's origin rules (`setOf(baseUrl)`), `*` when none were given.
+  const originRules = (value) => {
+    if (value === null || value === undefined) return ['*'];
+    const list = value instanceof Set || Array.isArray(value) ? [...value] : [value];
+    return list.map((rule) => KT.str(rule));
+  };
+  /// A call's arguments as written: positional ones, named ones, the trailing lambda.
+  const callParts = (args) => {
+    const all = [...args];
+    let lambda = null;
+    if (all.length && typeof all[all.length - 1] === 'function') lambda = all.pop();
+    let named = {};
+    if (all.length && all[all.length - 1] && all[all.length - 1][NAMED]) named = all.pop();
+    return { all, named, lambda };
+  };
+  /// Headers (a map, OkHttp's `Headers`, an object) as a plain object.
+  const headerObject = (headers) => {
+    const out = {};
+    if (headers === null || headers === undefined) return out;
+    const pairs =
+      headers instanceof Map
+        ? [...headers.entries()]
+        : headers instanceof Headers || headers instanceof HeadersBuilder
+          ? headers.pairs
+          : typeof headers === 'object'
+            ? Object.entries(headers).filter(([name]) => !name.startsWith('__'))
+            : [];
+    for (const [name, value] of pairs) {
+      if (value === null || value === undefined) continue;
+      const key = KT.str(name);
+      out[key] = out[key] === undefined ? KT.str(value) : `${out[key]}, ${KT.str(value)}`;
+    }
+    return out;
+  };
+  /// Android's `WebResourceResponse`: what an intercepted request is answered with.
+  const webResponse = ({ mime, encoding, status = 0, reason = '', headers = null, data }) => {
+    const response = {
+      __class: 'WebResourceResponse',
+      __classes: ['WebResourceResponse'],
+      mimeType: mime === null || mime === undefined ? null : KT.str(mime),
+      encoding: encoding === null || encoding === undefined ? null : KT.str(encoding),
+      statusCode: Number(status) || 0,
+      reasonPhrase: KT.str(reason ?? ''),
+      responseHeaders: headers,
+      data: data ?? null,
+      setStatusCodeAndReasonPhrase: (code, phrase) => {
+        response.statusCode = Number(code) || 0;
+        response.reasonPhrase = KT.str(phrase ?? '');
+        return KT.unit;
+      },
+      setResponseHeaders: (given) => {
+        response.responseHeaders = given;
+        return KT.unit;
+      },
+      setData: (given) => {
+        response.data = given;
+        return KT.unit;
+      },
+      setMimeType: (given) => {
+        response.mimeType = given === null ? null : KT.str(given);
+        return KT.unit;
+      },
+      setEncoding: (given) => {
+        response.encoding = given === null ? null : KT.str(given);
+        return KT.unit;
+      },
+    };
+    return response;
+  };
+  /// A response's body read whole: bytes, text, a stream or okio's source.
+  const dataBytes = async (data) => {
+    if (data instanceof Uint8Array || Array.isArray(data)) return u8Of(data);
+    if (typeof data === 'string') return u8Of(K.bin.utf8(data));
+    if (typeof data.u8Now === 'function') return data.u8Now();
+    if (typeof data.readBytes === 'function') return u8Of(await data.readBytes());
+    return u8Of(await streamBytes(data));
+  };
+  /// The answer the native takes for an intercepted request.
+  const answerOf = async (response) => {
+    const data = response.data ?? null;
+    const bytes = data === null ? null : await dataBytes(data);
+    return {
+      status: Number(response.statusCode ?? 0) || 0,
+      reason: KT.str(response.reasonPhrase ?? ''),
+      mime: response.mimeType ?? null,
+      encoding: response.encoding ?? null,
+      headers: headerObject(response.responseHeaders),
+      body: bytes === null ? '' : base64Of(bytes),
+      noBody: bytes === null,
+    };
+  };
+  /// Android's `WebResourceRequest`, as the view reported it.
+  const webRequest = (event) => ({
+    __class: 'WebResourceRequest',
+    __classes: ['WebResourceRequest'],
+    url: javaUri(event.url),
+    method: KT.str(event.method ?? 'GET'),
+    requestHeaders: new Map(Object.entries(event.headers ?? {})),
+    isForMainFrame: Boolean(event.mainFrame),
+    isRedirect: false,
+    hasGesture: false,
+  });
+  /// Keiyoushi's `proxyFetch`: what a proxied request goes as, or null for what it leaves to the
+  /// view (other methods, frames, stylesheets and fonts).
+  const proxyFetch = (method, path, accept, mainFrame) => {
+    const name = KT.str(path).toLowerCase();
+    const frame = !mainFrame && accept.startsWith('text/html,application/xhtml+xml');
+    if (
+      method !== 'GET' ||
+      frame ||
+      accept.startsWith('text/css') ||
+      ['.woff2', '.woff', '.ttf', '.otf'].some((end) => name.endsWith(end))
+    )
+      return null;
+    if (mainFrame) return Fetch.DOCUMENT;
+    if (['.js', '.mjs'].some((end) => name.endsWith(end))) return Fetch.SCRIPT;
+    if (accept.startsWith('image/')) return Fetch.IMAGE;
+    return Fetch.XHR;
+  };
+  const unsupported = (what) => new KotlinError(what, 'UnsupportedOperationException');
+
+  /// One run of `runWebView { … }`: the scope the source's block configures, then the view's
+  /// events dispatched to its hooks until it resolves, rejects or times out. The view opens with
+  /// what the block set up (settings, bridges, scripts, interception) at its first load.
+  const webViewRun = (timeoutMs) => {
+    const limit = Math.min(Math.max(timeoutMs, 1000), 60000);
+    const deadline = Date.now() + limit;
+    let id = null;
+    let settled = false;
+    let outcome = null;
+    let wake;
+    const settledPromise = new Promise((resolve) => {
+      wake = resolve;
+    });
+    let openedNow;
+    const opened = new Promise((resolve) => {
+      openedNow = resolve;
+    });
+    let firstLoad = null;
+    const hooks = { started: [], finished: [], errors: [] };
+    const bridges = new Map();
+    const scripts = [];
+    const polls = [];
+    /// Answers to intercepted requests on their way.
+    const pending = new Set();
+    const run = {
+      intercept: null,
+      settle: (ok, value) => {
+        if (settled) return KT.unit;
+        settled = true;
+        outcome = { ok, value: ok ? value : KT.error(value) };
+        wake();
+        return KT.unit;
+      },
+      /// A hook of the source's: what it throws rejects the run.
+      call: async (hook, args) => {
+        if (settled || typeof hook !== 'function') return;
+        try {
+          await hook(...args);
+        } catch (error) {
+          if (error instanceof Return) return;
+          run.settle(false, error);
+        }
+      },
+      load: (target) => {
+        if (firstLoad !== null)
+          throw new KotlinError(
+            'load already called on this WebViewScope',
+            'IllegalStateException',
+          );
+        firstLoad = target;
+        return KT.unit;
+      },
+      evaluate: (script, callback) => {
+        (async () => {
+          await opened;
+          if (settled || id === null) return;
+          let result;
+          try {
+            result = await K.webView('evaluate', {
+              id,
+              script,
+              waitMs: Math.max(1000, deadline - Date.now()),
+            });
+          } catch (error) {
+            if (typeof callback === 'function') run.settle(false, error);
+            return;
+          }
+          if (typeof callback === 'function') await run.call(callback, [result ?? 'null']);
+        })();
+        return KT.unit;
+      },
+      stop: () => {
+        if (id !== null) K.webView('stop', { id }).catch(() => {});
+        return KT.unit;
+      },
+      proxy: async (request, client, edit) => {
+        const empty = () => webResponse({ mime: null, encoding: null, data: null });
+        if (settled) return empty();
+        const headers = headerObject(request.requestHeaders);
+        const accept = Object.entries(headers).find(([name]) => /^accept$/i.test(name))?.[1] ?? '';
+        const url = KT.str(request.url);
+        const fetch = proxyFetch(
+          KT.str(request.method),
+          javaUri(url).path,
+          accept,
+          request.isForMainFrame,
+        );
+        if (fetch === null) return null;
+        const builder = new RequestBuilder().url(url);
+        for (const [name, value] of Object.entries(headers)) {
+          if (/^(if-none-match|if-modified-since)$/i.test(name)) continue;
+          builder.header(name, value);
+        }
+        builder.fetch(fetch);
+        if (typeof edit === 'function') await edit(builder);
+        let response;
+        try {
+          response = await client.newCall(builder.build()).execute();
+        } catch (error) {
+          if (request.isForMainFrame) run.settle(false, error);
+          return empty();
+        }
+        const code = response.code;
+        if (!((code >= 100 && code < 300) || (code >= 400 && code < 600))) {
+          if (request.isForMainFrame)
+            run.settle(false, new KotlinError(`HTTP ${code}`, 'IOException'));
+          return empty();
+        }
+        const kept = new Map();
+        for (const [name, value] of response.headers.pairs) {
+          if (/^(content-encoding|content-length|set-cookie)$/i.test(name)) continue;
+          kept.set(name, kept.has(name) ? `${kept.get(name)}, ${value}` : value);
+        }
+        const type = KT.str(response.header('Content-Type') ?? '');
+        const [mime, ...params] = type.split(';').map((part) => part.trim());
+        const charset = params.find((part) => /^charset=/i.test(part))?.slice(8) ?? null;
+        return webResponse({
+          mime: mime || null,
+          encoding: charset,
+          status: code,
+          reason: response.message || (code < 300 ? 'OK' : 'Error'),
+          headers: kept,
+          data: inputStream(await response.body.u8()),
+        });
+      },
+      /// An intercepted request: the source's hook answers it (null lets the view load it).
+      answer: (event) => {
+        const task = (async () => {
+          let response = null;
+          if (run.intercept !== null && !settled) {
+            try {
+              response = await run.intercept(webRequest(event));
+            } catch (error) {
+              if (!(error instanceof Return)) run.settle(false, error);
+              response = null;
+            }
+          }
+          let answer = null;
+          if (response) {
+            try {
+              answer = await answerOf(response);
+            } catch (error) {
+              run.settle(false, error);
+            }
+          }
+          if (id !== null)
+            await K.webView('answer', { id, request: event.request, response: answer }).catch(
+              () => {},
+            );
+        })();
+        pending.add(task);
+        task.then(() => pending.delete(task));
+      },
+      replyProxy: (event) => ({
+        __class: 'WebMessageReplyProxy',
+        __classes: ['WebMessageReplyProxy'],
+        sourceOrigin: event.origin ?? null,
+        isMainFrame: event.mainFrame ?? null,
+        postMessage: (message) => {
+          if (event.reply === null || event.reply === undefined || id === null)
+            return run.settle(
+              false,
+              unsupported(
+                'WebMessageReplyProxy.postMessage is not supported on this WebView (requires Chromium 116+)',
+              ),
+            );
+          K.webView('reply', { id, reply: event.reply, message: KT.str(message) }).catch(() => {});
+          return KT.unit;
+        },
+        evaluateJs: () =>
+          run.settle(
+            false,
+            unsupported(
+              'WebMessageReplyProxy.evaluateJs is not supported on this WebView (requires Chromium 146+)',
+            ),
+          ),
+      }),
+      dispatch: async (event) => {
+        switch (event.kind) {
+          case 'started':
+            for (const hook of [...hooks.started]) await run.call(hook, [event.url]);
+            break;
+          case 'finished':
+            for (const hook of [...hooks.finished]) await run.call(hook, [event.url]);
+            break;
+          case 'failed': {
+            const request = webRequest({ url: event.url, mainFrame: event.mainFrame });
+            const error = {
+              __class: 'WebResourceError',
+              __classes: ['WebResourceError'],
+              errorCode: event.code ?? -1,
+              description: KT.str(event.description ?? ''),
+            };
+            for (const hook of [...hooks.errors]) await run.call(hook, [request, error]);
+            break;
+          }
+          case 'message': {
+            const bridge = bridges.get(event.bridge);
+            if (bridge) await run.call(bridge.handler, [event.message, run.replyProxy(event)]);
+            break;
+          }
+          case 'request':
+            run.answer(event);
+            break;
+          case 'check':
+            run.settle(
+              false,
+              new KotlinError(
+                `${hostOf(event.url) || 'the site'} answered with a browser check in a web view`,
+                'IOException',
+              ),
+            );
+            break;
+          case 'gone':
+            run.settle(
+              false,
+              new KotlinError(
+                event.crashed
+                  ? 'WebView render process crashed'
+                  : 'WebView render process was killed',
+                'RenderProcessGoneException',
+              ),
+            );
+            break;
+          case 'closed':
+            run.settle(
+              false,
+              new KotlinError('The web view closed before it answered', 'IOException'),
+            );
+            break;
+          default:
+            break;
+        }
+      },
+      open: async (scope) => {
+        const page = firstLoad.url ?? firstLoad.baseUrl;
+        let answer;
+        try {
+          answer = await K.webView('open', {
+            page,
+            timeoutMs: Math.max(1000, deadline - Date.now()),
+            userAgent:
+              scope.userAgent === null || scope.userAgent === undefined
+                ? null
+                : KT.str(scope.userAgent),
+            javascript: KT.truthy(scope.javaScriptEnabled),
+            domStorage: KT.truthy(scope.domStorageEnabled),
+            blockImages: KT.truthy(scope.blockImages),
+            intercept: run.intercept !== null,
+            scripts: scripts
+              .filter((entry) => !entry.removed)
+              .map(({ script, origins }) => ({ script, origins })),
+            bridges: [...bridges.entries()].map(([name, { origins }]) => ({ name, origins })),
+          });
+        } catch (error) {
+          const message = KT.str(error?.message ?? error);
+          run.settle(
+            false,
+            message.startsWith(NO_VIEWS)
+              ? webViewMissing(page, null, false)
+              : new KotlinError(message, 'IOException'),
+          );
+          openedNow();
+          return;
+        }
+        id = answer.id;
+        scope.userAgent = answer.userAgent;
+        openedNow();
+        try {
+          if (firstLoad.url !== undefined)
+            await K.webView('load', { id, url: firstLoad.url, headers: firstLoad.headers });
+          else
+            await K.webView('loadData', {
+              id,
+              baseUrl: firstLoad.baseUrl,
+              data: firstLoad.data,
+              mime: firstLoad.mime,
+            });
+        } catch (error) {
+          run.settle(false, new KotlinError(KT.str(error?.message ?? error), 'IOException'));
+        }
+      },
+      loop: async () => {
+        while (!settled) {
+          const now = Date.now();
+          if (now >= deadline) return;
+          let wait = Math.min(deadline - now, 1000);
+          for (const poll of polls) wait = Math.min(wait, Math.max(0, poll.next - now));
+          if (id === null) {
+            await Promise.race([settledPromise, pause(Math.max(wait, 10))]);
+          } else {
+            const event = await Promise.race([
+              K.webView('next', { id, waitMs: Math.max(wait, 1) }),
+              settledPromise.then(() => null),
+            ]);
+            if (event && !settled) await run.dispatch(event);
+          }
+          const after = Date.now();
+          for (const poll of polls) {
+            if (settled) break;
+            if (after < poll.next) continue;
+            poll.next = after + poll.every;
+            await run.call(poll.block, []);
+          }
+        }
+      },
+      close: async () => {
+        openedNow();
+        if (id === null) return;
+        // Answers on their way reach the view first (one held until the run ends doesn't).
+        if (pending.size) await Promise.race([Promise.allSettled([...pending]), pause(300)]);
+        const closing = id;
+        id = null;
+        try {
+          await K.webView('close', { id: closing });
+        } catch {
+          // Closed already.
+        }
+      },
+      go: async (configure) => {
+        const scope = webViewScope(run);
+        try {
+          await configure(scope);
+        } catch (error) {
+          if (!(error instanceof Return)) run.settle(false, error);
+        }
+        try {
+          if (!settled && firstLoad !== null) await run.open(scope);
+          await run.loop();
+        } finally {
+          await run.close();
+        }
+        if (outcome && outcome.ok) return outcome.value;
+        if (outcome) throw outcome.value;
+        throw new KotlinError(
+          `Timed out waiting for WebView after ${Math.round(limit / 1000)}s`,
+          'WebViewTimeoutException',
+        );
+      },
+      hooks,
+      bridges,
+      scripts,
+      polls,
+    };
+    return run;
+  };
+  /// Keiyoushi's `WebViewScope`, over a run: settings set before the first load, hooks, the
+  /// page's scripts and messages, interception.
+  const webViewScope = (run) => {
+    const scope = {
+      __class: 'WebViewScope',
+      __classes: ['WebViewScope'],
+      javaScriptEnabled: true,
+      domStorageEnabled: true,
+      blockImages: false,
+      useWideViewPort: false,
+      loadWithOverviewMode: false,
+      userAgent: null,
+      originMatchedHeaderSupported: false,
+      resolve: (value) => run.settle(true, value),
+      reject: (error) => run.settle(false, error),
+      onPageStarted: (block) => {
+        run.hooks.started.push(block);
+        return KT.unit;
+      },
+      onPageFinished: (block) => {
+        run.hooks.finished.push(block);
+        return KT.unit;
+      },
+      onReceivedError: (block) => {
+        run.hooks.errors.push(block);
+        return KT.unit;
+      },
+      interceptRequest: (block) => {
+        if (run.intercept !== null)
+          throw new KotlinError('interceptRequest already registered', 'IllegalStateException');
+        run.intercept = block;
+        return KT.unit;
+      },
+      proxyRequest: (request, client, edit) => run.proxy(request, client, edit),
+      webMessageBridge: (...args) => {
+        const { all, named, lambda } = callParts(args);
+        const name = KT.str(all[0] ?? named.name);
+        const handler = lambda ?? named.handler ?? null;
+        const world = KT.str(all[2] ?? named.worldName ?? '');
+        if (run.bridges.has(name))
+          throw new KotlinError(
+            `Bridge '${name}' has already been registered on this WebView`,
+            'IllegalStateException',
+          );
+        if (world)
+          return run.settle(
+            false,
+            unsupported(
+              'webMessageBridge in a world requires JS_INJECTION_IN_FRAME_AND_WORLD (Chromium 146+)',
+            ),
+          );
+        run.bridges.set(name, {
+          origins: originRules(all[1] ?? named.allowedOriginRules),
+          handler,
+        });
+        return KT.unit;
+      },
+      injectAtDocumentStart: (...args) => {
+        const { all, named } = callParts(args);
+        const entry = {
+          script: KT.str(all[0] ?? named.script),
+          origins: originRules(all[1] ?? named.allowedOriginRules),
+          removed: false,
+        };
+        run.scripts.push(entry);
+        return {
+          __class: 'ScriptHandle',
+          __classes: ['ScriptHandle'],
+          remove: () => {
+            entry.removed = true;
+            return KT.unit;
+          },
+        };
+      },
+      addJavaScriptOnEvent: (...args) => {
+        const { all, named } = callParts(args);
+        const script = KT.str(all[0] ?? named.script);
+        const event = all[1] ?? named.event ?? null;
+        const world = KT.str(all[2] ?? named.worldName ?? '');
+        if (world) {
+          run.settle(
+            false,
+            unsupported(
+              'JS_INJECTION_IN_FRAME_AND_WORLD is not supported on this WebView (requires Chromium 146+)',
+            ),
+          );
+          return { __class: 'ScriptHandle', remove: () => KT.unit };
+        }
+        // DOCUMENT_END: once the document is parsed.
+        const code =
+          event && event.value === 1
+            ? `(() => { const run = () => {\n${script}\n}; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once: true }); else run(); })();`
+            : script;
+        return scope.injectAtDocumentStart(code, all[3] ?? named.allowedOriginRules ?? null);
+      },
+      loadUrl: (url, headers) =>
+        run.load({ url: KT.str(url), headers: headers ? headerObject(headers) : {} }),
+      loadData: (baseUrl, html, mimeType) =>
+        run.load({
+          baseUrl: KT.str(baseUrl),
+          data: KT.str(html ?? ''),
+          mime: KT.str(mimeType ?? 'text/html'),
+        }),
+      evaluateJs: (script, callback) => run.evaluate(KT.str(script), callback),
+      stopLoading: () => run.stop(),
+      poll: (...args) => {
+        const { all, named, lambda } = callParts(args);
+        const every = Math.max(10, durationMs(all[0] ?? named.interval, 500));
+        run.polls.push({ every, next: Date.now() + every, block: lambda ?? named.block });
+        return KT.unit;
+      },
+      withNativeWebView: () =>
+        run.settle(false, unsupported("Raygun's web views have no native view to hand over")),
+      setOriginMatchedHeader: () =>
+        run.settle(
+          false,
+          unsupported(
+            'CUSTOM_REQUEST_HEADERS is not supported on this WebView (requires Chromium 142+)',
+          ),
+        ),
+    };
+    return scope;
+  };
+  /// `runWebView(timeout) { … }` and `runWebViewBlocking(call, timeout) { … }`: a run, unless it
+  /// passes a browser check (the converter tells: `check`), which only the person does.
+  KT.webView = async (self, options, args, named_, configure) => {
+    const { check, blocking, page } = options;
+    if (check) {
+      let baseUrl = null;
+      try {
+        if (self && typeof self.get === 'function') baseUrl = await self.get('baseUrl');
+      } catch {
+        baseUrl = null;
+      }
+      throw webViewMissing(page, baseUrl, true);
+    }
+    const timeout = named_?.timeout ?? (blocking ? args[1] : args[0]);
+    return webViewRun(durationMs(timeout, 30000)).go(configure);
+  };
+  /// Keiyoushi's `getLocalStorage(url, key)`: the page's local storage, read in a view that loads
+  /// an empty page with `url` as its address (`url` itself isn't fetched).
+  const localStorageOf = async (url, key) => {
+    const missed = `${hostOf(url)} ${KT.str(key)}`;
+    if ((storageMisses.get(missed) ?? 0) > Date.now()) return null;
+    const run = webViewRun(10000);
+    let value = null;
+    try {
+      value = await run.go(async (scope) => {
+        scope.onPageFinished(() =>
+          scope.evaluateJs(`localStorage.getItem(${JSON.stringify(KT.str(key))})`, (found) =>
+            scope.resolve(jsonOf(KT.str(found ?? 'null'))),
+          ),
+        );
+        scope.loadData(url, '<link rel="icon" href="data:,">');
+      });
+    } catch (error) {
+      // Without web views, or when the view can't run: an empty storage.
+      if (!(error instanceof KotlinError && error.kind === 'IOException')) throw error;
+      value = null;
+    }
+    if (value === null || value === undefined) {
+      if (storageMisses.size > 64) storageMisses.clear();
+      storageMisses.set(missed, Date.now() + 5 * 60000);
+      return null;
+    }
+    return KT.str(value);
+  };
+  /// Java's `CountDownLatch`: `await` waits (at most its timeout) until counted down to zero.
+  const countDownLatch = (count) => {
+    let left = Math.max(0, Number(count) || 0);
+    let open;
+    const done = new Promise((resolve) => {
+      open = resolve;
+    });
+    if (left === 0) open();
+    return {
+      __class: 'CountDownLatch',
+      __classes: ['CountDownLatch'],
+      countDown: () => {
+        if (left > 0 && --left === 0) open();
+        return KT.unit;
+      },
+      get count() {
+        return left;
+      },
+      getCount: () => left,
+      await: async (timeout, unit) => {
+        if (timeout === undefined) {
+          await done;
+          return KT.unit;
+        }
+        const until = Date.now() + Number(timeout) * unitMsOf(unit);
+        while (left > 0) {
+          const wait = until - Date.now();
+          if (wait <= 0) return false;
+          await Promise.race([done, raygun.time.sleep(Math.min(wait, 1000))]);
+        }
+        return true;
+      },
+    };
+  };
+  /// Pages whose local storage had nothing for a key lately (by `origin key`): asked again after
+  /// five minutes, as each ask opens a web view and Raygun's views keep no session a person made.
+  const storageMisses = new Map();
   /// Android's preference widgets, made by settings screens the converter leaves out: they keep
   /// what's set on them and show nothing.
   const preferenceWidget = (kind) => {
@@ -8396,10 +9088,28 @@
     delay: ([ms]) => pause(ms),
     // Kotlin's `assert`: off, as the JVM runs without assertions.
     assert: () => KT.unit,
-    // Keiyoushi's web view helpers (above); a page's local storage is empty without one.
-    runWebView: ([page, baseUrl, check]) => webViewNeeded(page, baseUrl, check),
+    // Keiyoushi's web view helpers (above). The converter writes `runWebView { … }` as
+    // `KT.webView`; these are for what it can't (a block passed by reference). A Turnstile token
+    // is a check only the person passes.
+    runWebView: (args, named_, lambda) =>
+      lambda
+        ? KT.webView(null, { check: false, blocking: false, page: null }, args, named_, lambda)
+        : webViewNeeded(null, null, false),
+    runWebViewBlocking: (args, named_, lambda) =>
+      lambda
+        ? KT.webView(null, { check: true, blocking: true, page: null }, args, named_, lambda)
+        : webViewNeeded(null, null, true),
     getTurnstileToken: ([url], named_) => webViewNeeded(url ?? named_?.url, null, true),
-    getLocalStorage: () => null,
+    getLocalStorage: ([url, key], named_) => localStorageOf(url ?? named_?.url, key ?? named_?.key),
+    // Android's `WebResourceResponse(mime, encoding, data)` and its form with a status, a reason
+    // and headers.
+    WebResourceResponse: (args) => {
+      const [mime, encoding, ...rest] = args;
+      if (rest.length <= 1) return webResponse({ mime, encoding, data: rest[0] ?? null });
+      const [status, reason, headers, data] = rest;
+      return webResponse({ mime, encoding, status, reason, headers, data });
+    },
+    CountDownLatch: ([count]) => countDownLatch(count),
     // Settings screens' widgets and OkHttp's disk cache: nothing to show or keep.
     SwitchPreferenceCompat: () => preferenceWidget('SwitchPreferenceCompat'),
     CheckBoxPreference: () => preferenceWidget('CheckBoxPreference'),
@@ -8864,6 +9574,9 @@
     // `TimeZone.getOffset(date)`: milliseconds from UTC.
     getOffset: () => offset * 60000,
     getRawOffset: () => offset * 60000,
+    // `TimeZone.toZoneId()`, `ZoneId.toTimeZone()`: the same zone.
+    toZoneId: () => zone(offset),
+    toTimeZone: () => zone(offset),
   });
   const offsetOf = (value) => (value && typeof value.offset === 'number' ? value.offset : 0);
   const msOf = (value) =>
@@ -10459,6 +11172,11 @@
     ActivityManager: { MemoryInfo: () => memoryInfo() },
     // Android's PDF pages (`PdfRenderer(ParcelFileDescriptor.open(file, MODE_READ_ONLY))`).
     PdfRenderer: pdfRendererStatics,
+    // Keiyoushi's `InjectionEvent` (`addJavaScriptOnEvent`).
+    InjectionEvent: {
+      DOCUMENT_START: { __class: 'InjectionEvent', name: 'DOCUMENT_START', value: 0 },
+      DOCUMENT_END: { __class: 'InjectionEvent', name: 'DOCUMENT_END', value: 1 },
+    },
     ParcelFileDescriptor: {
       open: (file) => parcelFile(file),
       MODE_READ_ONLY: 268435456,
@@ -11355,8 +12073,13 @@
     };
     const D = {};
     const client = new Client(t);
+    // Mihon's `headersBuilder()`: the User-Agent (the one a check on the site was passed with,
+    // else the one sources send: one User-Agent for the source's requests, its web views and a
+    // check opened by hand) and the Referer.
     const defaultHeaders = async () => {
-      const builder = new HeadersBuilder().set('Referer', `${t.baseUrl}/`);
+      const builder = new HeadersBuilder()
+        .set('User-Agent', K.userAgent(t.baseUrl))
+        .set('Referer', `${t.baseUrl}/`);
       if (extensions.has('configureHeaders')) await extensions.get('configureHeaders')(builder);
       return builder;
     };

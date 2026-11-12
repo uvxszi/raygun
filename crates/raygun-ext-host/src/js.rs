@@ -147,6 +147,9 @@ struct Shared {
     content: ContentFilter,
     /// What requests met lately, newest last.
     net_log: RefCell<VecDeque<(Instant, NetEvent)>>,
+    /// The last request sent, as sent: a call that fails saying it met a check (its script read
+    /// the answer as one) opens it for the person.
+    last_sent: RefCell<Option<(Instant, CheckedRequest)>>,
     /// Calls (and the load) running now; requests stop once none is left to wait for them.
     calls: Cell<usize>,
     idle: Notify,
@@ -327,6 +330,7 @@ impl JsExtension {
             cpu_budget,
             content,
             net_log: RefCell::new(VecDeque::new()),
+            last_sent: RefCell::new(None),
             calls: Cell::new(0),
             idle: Notify::new(),
         });
@@ -356,20 +360,34 @@ impl JsExtension {
         let filename = format!("{}/{}", shared.manifest.id, shared.manifest.entry);
         let natives = shared.clone();
         let nuclear = shared.manifest.nuclear.is_some();
+        // A converted Mihon source's web views (`crate::mihon::views`): the checks they meet are
+        // noted as its requests' are, and their waits aren't the script's work.
+        let mihon_hooks = mihon.as_ref().map(|_| {
+            let noted = shared.clone();
+            let restarted = shared.clone();
+            crate::mihon::runtime::Hooks {
+                cookies: cookies.clone(),
+                extension_id: shared.manifest.id.clone(),
+                policy: shared.policy.clone(),
+                note_check: Rc::new(move |request: CheckedRequest, detail: String| {
+                    noted.note(NetEvent::Trouble(
+                        Trouble {
+                            kind: IssueKind::BotCheck,
+                            detail,
+                        },
+                        Some(Box::new(request)),
+                    ));
+                }),
+                restart: Rc::new(move || restarted.restart_budget()),
+            }
+        });
         shared.restart_budget();
         context
             .with(move |ctx| -> Result<(), String> {
                 install_natives(&ctx, natives).map_err(|error| error.to_string())?;
                 eval_script(&ctx, PRELUDE, "raygun:prelude", true)?;
-                if let Some(prepared) = &mihon {
-                    return crate::mihon::runtime::install(
-                        &ctx,
-                        prepared,
-                        crate::mihon::runtime::Hooks {
-                            cookies: cookies.clone(),
-                        },
-                        &filename,
-                    );
+                if let (Some(prepared), Some(hooks)) = (&mihon, mihon_hooks) {
+                    return crate::mihon::runtime::install(&ctx, prepared, hooks, &filename);
                 }
                 match (&miru, &lnreader) {
                     (Some(prepared), _) => crate::miru::runtime::install(
@@ -521,11 +539,20 @@ impl JsExtension {
                 }
                 None => message,
             };
+            // A script that read an answer as a check ("Open in WebView to bypass site
+            // protection") without one marked as such: the request it read is the check's.
+            let checked = met.checked.or_else(|| {
+                (issue::text_kind(&message) == Some(IssueKind::BotCheck))
+                    .then(|| self.shared.last_sent.borrow().clone())
+                    .flatten()
+                    .filter(|(at, _)| *at >= started)
+                    .map(|(_, request)| Box::new(request))
+            });
             Failure {
                 message,
                 trouble: met.trouble,
                 answered: met.answered,
-                checked: met.checked,
+                checked,
             }
         });
         self.collect_after(held_before).await;
@@ -1320,6 +1347,19 @@ async fn fetch(shared: &Shared, url: &str, options: &str) -> Result<FetchRespons
     } else if let Some(body) = options.body.clone() {
         request = request.body(body);
     }
+    *shared.last_sent.borrow_mut() = Some((
+        Instant::now(),
+        CheckedRequest::new(
+            &address,
+            method.as_str(),
+            options
+                .headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+            options.body.as_deref(),
+            &agent,
+        ),
+    ));
     // The request as sent, kept when a browser check answers it: the check window opens it.
     let checked = |trouble: &Trouble| {
         (trouble.kind == IssueKind::BotCheck).then(|| {

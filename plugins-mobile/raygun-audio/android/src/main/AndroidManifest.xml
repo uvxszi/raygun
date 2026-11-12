@@ -71,6 +71,12 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
+        <!-- Hidden web views converted sources drive (never shown), in their own process with
+             their own WebView data. -->
+        <service
+            android:name="app.raygun.audio.HiddenViewService"
+            android:process=":views"
+            android:exported="false" />
         <activity
             android:name="app.raygun.audio.WebsiteDataActivity"
             android:process=":web"

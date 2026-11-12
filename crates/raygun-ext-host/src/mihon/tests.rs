@@ -371,7 +371,7 @@ fn tells_stores_from_other_indexes() {
     );
 }
 
-fn extension(pkg: &str, base: &str) -> StoreExtension {
+pub(super) fn extension(pkg: &str, base: &str) -> StoreExtension {
     StoreExtension {
         name: "Fixture Comics".into(),
         pkg: pkg.into(),
@@ -390,7 +390,7 @@ fn extension(pkg: &str, base: &str) -> StoreExtension {
     }
 }
 
-fn sources(build: &str, files: &[(&str, &str)]) -> Sources {
+pub(super) fn sources(build: &str, files: &[(&str, &str)]) -> Sources {
     let mut map = BTreeMap::new();
     map.insert("build.gradle.kts".to_owned(), build.to_owned());
     for (path, text) in files {
@@ -523,7 +523,7 @@ fn refuses_what_it_cant_convert_with_the_reason() {
 }
 
 /// A converted extension with its sources pointed at `address`, loaded in a host of its own.
-async fn load_converted(
+pub(super) async fn load_converted(
     converted: &Converted,
     extension: &StoreExtension,
     address: SocketAddr,

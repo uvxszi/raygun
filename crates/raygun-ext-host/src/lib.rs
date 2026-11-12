@@ -34,6 +34,7 @@ pub mod shosetsu;
 pub mod site;
 mod storage;
 pub mod video;
+pub mod webview;
 pub mod youtube;
 
 #[cfg(test)]

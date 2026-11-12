@@ -139,6 +139,20 @@ pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWebsite(
     });
 }
 
+/// Called by `app.raygun.audio.NativeBridge.onWebView` on the hidden views' own thread.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_raygun_audio_NativeBridge_onWebView(
+    mut env: JNIEnv,
+    _class: JClass,
+    json: JString,
+) {
+    guarded(|| {
+        if let Ok(json) = env.get_string(&json) {
+            crate::deliver_web_view(json.into());
+        }
+    });
+}
+
 /// Called by `app.raygun.audio.NativeBridge.onNotificationAction` on the Android main thread.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_app_raygun_audio_NativeBridge_onNotificationAction(

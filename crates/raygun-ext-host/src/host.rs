@@ -1341,6 +1341,31 @@ impl ExtensionHost {
             .import(&url, cookies, user_agent))
     }
 
+    /// What carries a browser check passed by hand on `url`'s site for `provider`'s extension:
+    /// the User-Agent the pass holds for and the extension's cookies there (a pass is a cookie,
+    /// such as `cf_clearance`), for pictures Raygun fetches itself from the site. None without a
+    /// pass there.
+    pub(crate) fn passed_check_headers(&self, provider: &str, url: &str) -> Vec<(String, String)> {
+        let extension = provider.split_once('/').map_or(provider, |(id, _)| id);
+        let (Some(dir), Ok(url)) = (&self.shared.storage_dir, reqwest::Url::parse(url)) else {
+            return Vec::new();
+        };
+        if extension.is_empty() || extension.contains(['/', '\\']) || extension.starts_with('.') {
+            return Vec::new();
+        }
+        let jar = CookieJar::at(&dir.join(extension).join("cookies.json"));
+        let Some(agent) = jar.user_agent_for(&url) else {
+            return Vec::new();
+        };
+        let mut headers = vec![("User-Agent".to_owned(), agent)];
+        if let Some(cookies) = reqwest::cookie::CookieStore::cookies(&*jar, &url)
+            .and_then(|value| value.to_str().ok().map(str::to_owned))
+        {
+            headers.push(("Cookie".to_owned(), cookies));
+        }
+        headers
+    }
+
     /// Forgets `extension_id`'s browser checks and its sources' failures, so they're asked again
     /// at once.
     fn forget_failures(&self, extension_id: &str) {
