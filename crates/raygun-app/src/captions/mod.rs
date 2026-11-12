@@ -1491,6 +1491,7 @@ impl CaptionService {
             lang: None,
             label: Some("AI subtitles".into()),
             format: Some("vtt".into()),
+            source: None,
         })
     }
 

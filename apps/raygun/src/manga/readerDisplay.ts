@@ -38,16 +38,29 @@ export const READER_SIZE = { min: -70, max: 100, step: 5 } as const;
 /** `percent` more or less than `base` (a CSS length), never wider than what holds it. */
 export const sizedFrom = (base: string, percent: number) =>
   percent === 0 ? `min(100%, ${base})` : `min(100%, calc(${base} * ${1 + percent / 100}))`;
+/** `percent` more or less than `base`, never wider than the reader's screen (a size container). */
+const screenSized = (base: string, percent: number) =>
+  percent === 0 ? `min(100cqw, ${base})` : `min(100cqw, calc(${base} * ${1 + percent / 100}))`;
+
 /**
- * The strip's width: exactly its container's (the screen's, on phones) up to 768 px at the fit, then
- * zoomed. A percentage of the container rather than of the viewport, so a scrollbar or safe area
- * beside it never pushes the right edge off screen.
+ * The strip's width: exactly the reader's screen's (the screen's, on phones) up to 768 px at the
+ * fit, then zoomed. In the screen's own units (`cqw`, its scroller is the size container) rather
+ * than the viewport's, so a scrollbar or safe area beside it never pushes the right edge off
+ * screen, and a zoomed strip wider than the screen keeps its width.
  */
 export const stripWidth = (size: number, zoom: number) =>
-  zoom === 1 ? sizedFrom('48rem', size) : `calc(${sizedFrom('48rem', size)} * ${zoom})`;
+  zoom === 1 ? screenSized('48rem', size) : `calc(${screenSized('48rem', size)} * ${zoom})`;
+
+/**
+ * Room above the strip's first page (`ratio` its width over its height), so a page shorter than
+ * the reader's screen starts in its middle, as the paged modes show it; none for a taller page.
+ * Outside the zoomed strip, but following its zoom.
+ */
+export const stripLead = (size: number, zoom: number, ratio: number) =>
+  `max(0px, calc((100cqh - ${stripWidth(size, zoom)} / ${ratio}) / 2))`;
 
 /** The reading modes, in the order the reader offers them. */
-export const READER_MODES: ReaderMode[] = ['webtoon', 'pagedRtl', 'pagedLtr'];
+export const READER_MODES: ReaderMode[] = ['webtoon', 'pagedLtr', 'pagedRtl'];
 
 /** Zoom steps in the reader: Ctrl+scroll, Ctrl+plus/minus and the bar's buttons. */
 export const ZOOM_STEP = 0.1;

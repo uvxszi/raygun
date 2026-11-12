@@ -29,6 +29,7 @@ import { useSourceAnswers } from './useCatalogSearch';
 import { pill, SEARCH_TYPES, VIDEO_VIEWS, viewIn } from './searchTypes';
 import type { MusicView, SearchType, SearchView, VideoView } from './searchTypes';
 import { VideoResults } from './VideoResults';
+import type { VideoKind } from './VideoResults';
 import { SelectionScope } from '../select/Selectable';
 import { useSettings } from '../settings/useSettings';
 import { useDragScroll } from '../shell/useDragScroll';
@@ -67,9 +68,10 @@ const Section: FC<{ title: string; onMore?: () => void; children: ReactNode }> =
 };
 
 /**
- * Videos (M46.25): Relevant is the addons' movies and series, the video sources' best answers
- * and a few from each source with a pill of its own, each leading to its pill; Movies and Series
- * narrow the addons' rows; Sources searches the sources, chosen with Custom sources. Video
+ * Videos (M46.25): Relevant is the addons' titles (a section per kind, every addon's ranked
+ * together, or a row per addon By source), the video sources' best answers and a few from each
+ * source with a pill of its own, each leading to its pill; Movies and Series narrow the addons'
+ * titles to their kind; Sources searches the sources, chosen with Custom sources. Video
  * sources don't say what a result is until it's opened, so their answers stay under Movies and
  * Series too.
  */
@@ -103,6 +105,11 @@ const VideoSearchView: FC<{
     query,
   );
   const pillRows = answeredFirst(pills, (source) => answers(source.id));
+  // A kind's See all on Relevant opens its pill.
+  const onKind = useCallback(
+    (kind: VideoKind) => onView(kind === 'movie' ? 'movies' : 'series'),
+    [onView],
+  );
   return (
     <div className="flex flex-col gap-5">
       {view === 'sources' && (
@@ -111,7 +118,7 @@ const VideoSearchView: FC<{
       )}
       {view === 'relevant' && (
         <>
-          <VideoResults query={query} />
+          <VideoResults query={query} onKind={onKind} />
           {sources.length > 0 && (
             <Section title={t('search.fromSources')} onMore={() => onView('sources')}>
               <RankedResults

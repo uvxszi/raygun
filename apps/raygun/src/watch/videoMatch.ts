@@ -404,6 +404,15 @@ export const namesSeason = (info: TitleInfo) =>
 const compareKey = (base: string) =>
   base.replaceAll(' ', '').replaceAll('ou', 'o').replaceAll('uu', 'u');
 
+/**
+ * What `sameSeason` compares besides the year, as one key (`''` for a title without a base):
+ * titles with the same key are one show's same season once their years agree.
+ */
+export const seasonKey = (info: TitleInfo) =>
+  info.base === ''
+    ? ''
+    : `${compareKey(info.base)}|${info.finalSeason ? 'final' : (info.season ?? 1)}|${info.part ?? 1}`;
+
 /** The same season: number (none is the first), part (none is the first), final, years close. */
 export const sameSeason = (a: TitleInfo, b: TitleInfo) =>
   (a.year === null || b.year === null || Math.abs(a.year - b.year) <= 1) &&

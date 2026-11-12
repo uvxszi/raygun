@@ -7,6 +7,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.text.InputType
@@ -210,6 +211,106 @@ internal fun PlayerSheet.subtitleTools(host: VideoPlayerActivity, tools: List<Su
         row.addView(tile, LinearLayout.LayoutParams(0, -1, 1f).apply { if (index > 0) marginStart = context.dp(8) })
     }
     custom(row)
+}
+
+/**
+ * "Aa" as subtitles in `look` show it, over a grey like a picture's: its font, colours, edge and
+ * background, for the style card.
+ */
+private fun Context.styleSample(look: SubtitleLook): View {
+    val sample = TextView(this).apply {
+        text = "Aa"
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+        val flags = (if (look.bold) Typeface.BOLD else 0) or (if (look.italic) Typeface.ITALIC else 0)
+        typeface = subtitleTypeface(look.font, flags)
+        setTextColor(look.textColor)
+        val edge = look.edgeColor
+        when (look.edge) {
+            "outline" -> setShadowLayer(dp(2).toFloat(), 0f, 0f, edge)
+            "shadow" -> setShadowLayer(dp(2).toFloat(), dp(1).toFloat(), dp(1).toFloat(), edge)
+            "raised" -> setShadowLayer(1f, -dp(1).toFloat(), -dp(1).toFloat(), edge)
+            "depressed" -> setShadowLayer(1f, dp(1).toFloat(), dp(1).toFloat(), edge)
+        }
+        setPadding(dp(6), dp(1), dp(6), dp(1))
+        if (Color.alpha(look.backgroundColor) > 0) background = rounded(look.backgroundColor, dp(4).toFloat())
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+    return android.widget.FrameLayout(this).apply {
+        background = rounded(0xFF4A505A.toInt(), dp(8).toFloat())
+        setPadding(dp(10), dp(6), dp(10), dp(6))
+        addView(sample, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+}
+
+/**
+ * The subtitles' style as a card of its own, apart from the list of tracks to show (a row there
+ * read as one more language): a palette, "Style" with the font and size under it, and a sample
+ * of the lines as they look now. It opens the style.
+ */
+internal fun PlayerSheet.styleCard(host: VideoPlayerActivity, look: SubtitleLook, onClick: () -> Unit) {
+    val context: Context = host
+    val ripple = TypedValue().also { context.theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true) }
+    val name = host.label("style", "Style")
+    val summary = host.label("styleSummary", "{n} · {of}%", host.fontName(look.font), look.size.toString())
+    val card = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(context.dp(14), context.dp(10), context.dp(10), context.dp(10))
+        background = rounded(0x1FFFFFFF, context.dp(14).toFloat())
+        foreground = ContextCompat.getDrawable(context, ripple.resourceId)
+        isClickable = true
+        isFocusable = true
+        contentDescription = "$name. $summary"
+        setOnClickListener { onClick() }
+        addView(ImageView(context).apply {
+            setImageResource(R.drawable.raygun_ic_palette)
+            setColorFilter(Color.WHITE)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(context.dp(24), context.dp(24)))
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            addView(TextView(context).apply {
+                text = name
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                typeface = Typeface.DEFAULT_BOLD
+            })
+            addView(TextView(context).apply {
+                text = summary
+                setTextColor(0xB3FFFFFF.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = context.dp(14) })
+        addView(context.styleSample(look), LinearLayout.LayoutParams(-2, -2).apply { marginStart = context.dp(8) })
+    }
+    custom(LinearLayout(context).apply {
+        setPadding(context.dp(16), context.dp(8), context.dp(16), context.dp(4))
+        addView(card, LinearLayout.LayoutParams(-1, -2))
+    })
+}
+
+/** The subtitle fonts as pills, each name in its own font; the one in use filled. */
+internal fun PlayerSheet.fontChips(host: VideoPlayerActivity, current: String, onPick: (String) -> Unit) {
+    val context: Context = host
+    val line = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        setPadding(context.dp(12), context.dp(6), context.dp(20), context.dp(6))
+    }
+    // An unknown font (from a newer version) reads as the default.
+    val chosen = current.takeIf { it in SUBTITLE_FONTS } ?: "default"
+    SUBTITLE_FONTS.forEach { font ->
+        line.addView(context.pill(host.fontName(font), filled = font == chosen) { onPick(font) }.apply {
+            typeface = subtitleTypeface(font, Typeface.NORMAL)
+        })
+    }
+    custom(HorizontalScrollView(context).apply {
+        isHorizontalScrollBarEnabled = false
+        addView(line)
+    })
 }
 
 /**

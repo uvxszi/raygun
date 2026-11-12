@@ -99,6 +99,63 @@ describe('captions in the desktop player', () => {
     expect(names.slice(0, 5)).toEqual(['Off', 'English', 'English SDH', 'Español', 'Français']);
   });
 
+  it('names tracks in one language apart, where each comes from under it', async () => {
+    const { player } = await play({
+      subtitles: [
+        { ...track('en', 'English'), source: 'OpenSubtitles v3' },
+        { ...track('eng', 'eng'), source: 'OpenSubtitles v3' },
+        { ...track('en', 'English'), url: 'http://127.0.0.1:1/subtitle/other', source: 'SubDL' },
+        track('en', 'English Forced'),
+      ],
+      subtitleMode: 'never',
+    });
+    const panel = await openPanel(player);
+    const rows = within(panel)
+      .getAllByRole('menuitemradio')
+      .map((item) => Array.from(item.querySelectorAll('.truncate'), (line) => line.textContent));
+    // The tracks, then Find subtitles' own row.
+    expect(rows.slice(0, 5)).toEqual([
+      ['Off'],
+      ['English', 'OpenSubtitles v3'],
+      ['English 2', 'OpenSubtitles v3'],
+      ['English 3', 'SubDL'],
+      // Its own name tells it apart; a file without an addon still says it's a file.
+      ['English Forced', 'Subtitle file'],
+    ]);
+  });
+
+  it('opens the style from a card of its own, with a sample, not a row like the tracks', async () => {
+    const user = userEvent.setup();
+    const { player } = await play(WITH_ENGLISH);
+    const panel = await openPanel(player);
+    const card = within(panel).getByRole('button', { name: /^Style/ });
+    expect(card).toHaveTextContent('Default · 100%');
+    expect(within(card).getByTestId('subtitle-style-sample')).toHaveTextContent('Aa');
+    expect(within(panel).queryByRole('menuitemradio', { name: /Style/ })).toBeNull();
+    await user.click(card);
+    expect(await within(player).findByTestId('video-settings-panel')).toBeInTheDocument();
+    expect(within(player).getByRole('button', { name: /^Font/ })).toBeInTheDocument();
+  });
+
+  it('draws both subtitles in a font picked while they show', async () => {
+    const user = userEvent.setup();
+    const { player, video } = await play(WITH_ENGLISH);
+    // The same file second, at the top.
+    const panel = await openPanel(player);
+    await user.click(within(panel).getByRole('tab', { name: 'Second subtitles' }));
+    await user.click(within(panel).getByRole('menuitemradio', { name: /^English/ }));
+    playAt(video, 1.5);
+    await vi.waitFor(() => expect(within(player).getAllByText('Hello there')).toHaveLength(2));
+
+    update({ type: 'prefs', prefs: { subtitleStyle: { font: 'casual' } } });
+    await vi.waitFor(() => {
+      for (const line of within(player).getAllByText('Hello there')) {
+        expect(line.style.fontFamily).toMatch(/^casual, "Comic Sans MS"/);
+      }
+    });
+    expect(within(player).getByTestId('second-subtitle-lines')).toBeInTheDocument();
+  });
+
   it('adds subtitles with buttons of their own, apart from the list', async () => {
     const user = userEvent.setup();
     const { player } = await play();

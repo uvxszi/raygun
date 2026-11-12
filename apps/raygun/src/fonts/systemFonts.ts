@@ -8,7 +8,7 @@ import { usePlatform } from '../lib/usePlatform';
 
 export const FONTS_KEY = ['fonts', 'installed'] as const;
 
-export const FONT_DEFAULTS: FontPrefs = { interface: '', reading: '' };
+export const FONT_DEFAULTS: FontPrefs = { interface: '', reading: '', subtitles: '' };
 
 /** Raygun's own interface font: the system's. */
 export const INTERFACE_STACK = 'system-ui, sans-serif';

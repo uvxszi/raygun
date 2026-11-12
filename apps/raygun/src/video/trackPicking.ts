@@ -24,6 +24,13 @@ export type TrackOption = {
   forced?: boolean;
   /** Commentary or audio description: not played by itself. */
   extra?: boolean;
+  /** For the deaf and hard of hearing (SDH, closed captions). */
+  sdh?: boolean;
+  commentary?: boolean;
+  /** Audio description. */
+  description?: boolean;
+  /** Where it comes from (the addon that found it, its file's name), under its name. */
+  source?: string | null;
 };
 
 /** `audioLanguage` for the video's own track (`ORIGINAL_AUDIO` in raygun-model). */

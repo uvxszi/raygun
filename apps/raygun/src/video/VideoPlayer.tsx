@@ -72,13 +72,18 @@ import {
 } from './subtitleProgress';
 import { TimeBar } from './TimeBar';
 import { applyLoop, loopAround, wentRound } from './videoLoop';
+import { useSubtitleFamily } from './subtitleLook';
+import { channelsName, nameTracks, useTrackWords } from './trackNames';
 import {
+  byLanguages,
   choiceOf,
+  languageCode,
   languageOf,
   languagePrefs,
   listedLanguages,
   pickAudio,
   pickSubtitles,
+  shownTrackName,
 } from './trackPicking';
 import type { LanguageInput } from './trackPicking';
 import { useVideoPlayerStore } from './videoPlayerStore';
@@ -378,6 +383,9 @@ const VideoStage: FC<StageProps> = ({
   const { t, i18n } = useTranslation();
   const session = useVideoPlayerStore((state) => state.session);
   const prefs = useVideoPlayerStore((state) => state.prefs);
+  // A font of this device's picked for subtitles (Settings → Video player → Subtitles).
+  const subtitleFamily = useSubtitleFamily();
+  const trackWords = useTrackWords();
   const seekStepMs = useVideoPlayerStore((state) => state.seekStepMs);
   const appLanguage = useVideoPlayerStore((state) => state.appLanguage);
   const subtitleLanguage = useVideoPlayerStore((state) => state.subtitleLanguage);
@@ -519,7 +527,14 @@ const VideoStage: FC<StageProps> = ({
   // ---- What can be chosen ----
   const fileOptions: SubtitleOption[] = (request.subtitles ?? []).map((subtitle, index) => {
     const label = subtitle.label || subtitle.lang || t('videoPlayer.track', { n: index + 1 });
-    return { key: `file:${index}`, label, language: subtitle.lang, forced: /forced/i.test(label) };
+    return {
+      key: `file:${index}`,
+      label,
+      language: subtitle.lang,
+      forced: /forced/i.test(label),
+      // The addon that found it, or its file's name: under its name in the list.
+      source: subtitle.source ?? null,
+    };
   });
   const subtitleOptions = (current: MediaEngine | null): SubtitleOption[] => [
     ...(current?.textTracks() ?? []).map((track) => ({
@@ -528,6 +543,7 @@ const VideoStage: FC<StageProps> = ({
       language: track.language,
       original: track.original,
       forced: track.forced || /forced/i.test(track.label),
+      sdh: track.sdh,
     })),
     // The saved AI track is the live one when that's there (known by its address, whatever the
     // app's language names it).
@@ -619,10 +635,13 @@ const VideoStage: FC<StageProps> = ({
       option ?? (key === 'ai' ? { key, label: t('desktopPlayer.ai.track'), language: null } : null);
     remember({ subtitle: chosen ? choiceOf(chosen) : { off: true } });
   };
-  /** Subtitles read here (a file, or one found in the addons): a track of their own, shown. */
-  const addCues = (label: string, language: string | null, cues: Cue[]) => {
+  /**
+   * Subtitles read here (a file, or one found in the addons): a track of their own, shown;
+   * `source` (the file's name, the addon) goes under its name.
+   */
+  const addCues = (label: string, language: string | null, cues: Cue[], source: string | null) => {
     const key = `added:${added.length}`;
-    setAdded([...added, { key, label, language, cues }]);
+    setAdded([...added, { key, label, language, cues, source }]);
     setSubtitleKey(key);
     setLastSubtitle(key);
     engineRef.current?.setTextTrack(-1);
@@ -1160,6 +1179,13 @@ const VideoStage: FC<StageProps> = ({
   const originalCues = cuesOf(subtitleKey, loadedCues);
   // Lines changed by hand (M46.12) are kept for this episode and this track.
   const trackOption = subtitleOptions(engine).find((option) => option.key === subtitleKey);
+  // Its name as the subtitles list shows it ("English 2"), for Translate's "From".
+  const listedSubtitles = byLanguages(subtitleOptions(engine), listedLanguages(languageInput));
+  const trackName = trackOption
+    ? (nameTracks(listedSubtitles, trackWords, () => null)[
+        listedSubtitles.findIndex((option) => option.key === subtitleKey)
+      ]?.name ?? trackOption.label)
+    : null;
   const trackEditKey = trackOption ? editKey(id, trackOption.label, trackOption.language) : null;
   const trackEdits = trackEditKey ? (cueEdits[trackEditKey] ?? []) : [];
   const currentCues = applyCueEdits(originalCues, trackEdits);
@@ -1194,7 +1220,7 @@ const VideoStage: FC<StageProps> = ({
       return null;
     return {
       kind: 'cues',
-      label: trackOption?.label ?? null,
+      label: trackName,
       language: trackOption?.language ?? null,
       cues: toCaptions(currentCues),
     };
@@ -1241,6 +1267,18 @@ const VideoStage: FC<StageProps> = ({
     remainingMs <= promptWindowMs;
   const chapterNow = [...chapters].reverse().find((chapter) => chapter.startMs <= timeMs);
   const audioTracks = engine?.audioTracks() ?? [];
+  // Two "English" tracks read "English" and "English 2"; under each its language when its name
+  // doesn't say it, and its channels.
+  const audioNames = nameTracks(
+    audioTracks.map((track) => ({ ...track, key: String(track.id) })),
+    trackWords,
+    (track) => {
+      const code = languageCode(track.language);
+      const language =
+        code && languageCode(track.label) !== code ? shownTrackName(code, code) : null;
+      return [language, channelsName(track.channels)].filter(Boolean).join(' · ') || null;
+    },
+  );
   const qualities = engine?.qualities() ?? [];
   const busy = ((waiting && !seekHold) || loadingText !== null) && !notice;
   // Subtitles are sized and placed by the picture as it shows, not the window.
@@ -1289,12 +1327,14 @@ const VideoStage: FC<StageProps> = ({
       <SubtitleLines
         lines={lines}
         style={prefs.subtitleStyle}
+        family={subtitleFamily}
         lifted={controlsVisible}
         box={picture}
       />
       <SubtitleLines
         lines={secondLines}
         style={prefs.subtitleStyle}
+        family={subtitleFamily}
         lifted={controlsVisible}
         at="top"
         box={picture}
@@ -1608,13 +1648,15 @@ const VideoStage: FC<StageProps> = ({
             onAdd={addCues}
             delayMs={delayMs}
             onDelay={changeDelay}
+            style={prefs.subtitleStyle}
+            family={subtitleFamily}
             onStyle={() => setPanel('subtitleStyle')}
             second={secondKey}
             onSecond={setSecondKey}
             onAiStarted={() => selectSubtitle('ai')}
             onClose={onClose}
             translate={{
-              sourceName: trackOption?.label ?? null,
+              sourceName: trackName,
               blocked: translateBlocked,
               source: translateSource,
               defaultLanguage: subtitleLanguage || appLanguage || i18n.language,
@@ -1649,11 +1691,11 @@ const VideoStage: FC<StageProps> = ({
       )}
       {panel === 'audio' && (
         <PlayerPanel title={t('videoPlayer.audio')} onClose={() => setPanel(null)}>
-          {audioTracks.map((track) => (
+          {audioTracks.map((track, index) => (
             <PanelOption
               key={track.id}
-              label={track.label}
-              hint={track.language}
+              label={audioNames[index]?.name ?? track.label}
+              hint={audioNames[index]?.detail}
               selected={engine?.audioTrack() === track.id}
               onSelect={() => {
                 engineRef.current?.setAudioTrack(track.id);
@@ -1920,9 +1962,10 @@ const KeysPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
  */
 const FindSubtitles: FC<{
   videoKey: string;
-  onPick: (label: string, language: string | null, cues: Cue[]) => void;
+  onPick: (label: string, language: string | null, cues: Cue[], source: string | null) => void;
 }> = ({ videoKey, onPick }) => {
   const { t } = useTranslation();
+  const words = useTrackWords();
   const [found, setFound] = useState<FoundSubtitles | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1952,8 +1995,21 @@ const FindSubtitles: FC<{
       track.label ?? track.lang ?? t('desktopPlayer.find.track'),
       track.lang,
       parseSubtitles(text, track.format),
+      track.source ?? null,
     );
   };
+  // Many in one language ("English" from each addon, several from one): named apart, the addon
+  // under each.
+  const names = nameTracks(
+    (found?.tracks ?? []).map((track, index) => ({
+      key: String(index),
+      label: track.label ?? track.lang ?? t('desktopPlayer.find.track'),
+      language: track.lang,
+      source: track.source ?? null,
+    })),
+    words,
+    (option) => option.source,
+  );
   return (
     <>
       <PanelHeading>{t('desktopPlayer.find.title')}</PanelHeading>
@@ -1972,8 +2028,8 @@ const FindSubtitles: FC<{
           {found.tracks.map((track, index) => (
             <PanelOption
               key={`${track.url}-${index}`}
-              label={track.label ?? track.lang ?? t('desktopPlayer.find.track')}
-              hint={track.lang}
+              label={names[index]?.name ?? track.label ?? t('desktopPlayer.find.track')}
+              hint={names[index]?.detail ?? track.lang}
               onSelect={() => void pick(track)}
             />
           ))}

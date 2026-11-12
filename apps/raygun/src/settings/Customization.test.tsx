@@ -117,7 +117,8 @@ describe('Customization', () => {
     await user.click(await within(bar).findByRole('button', { name: 'Zoom in' }));
     expect(within(bar).getByRole('button', { name: 'Back to the fit' })).toHaveTextContent('110%');
     const page = within(reader).getByTestId('manga-page');
-    expect(page.style.width).toBe('110%');
+    // A share of the reader's own screen (the page isn't loaded: its shape isn't known yet).
+    expect(page.style.width).toBe('110cqw');
     await user.keyboard('{Control>}0{/Control}');
     expect(within(bar).getByRole('button', { name: 'Back to the fit' })).toHaveTextContent('100%');
 

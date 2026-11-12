@@ -25,6 +25,8 @@ import { AdultMark } from '../shell/AdultMark';
 import { matchesSearch } from '../shell/useListSearch';
 import { useDrawnCount } from '../shell/useDrawnCount';
 import { useInView } from '../shell/useInView';
+import { useGrouped } from './arrangement';
+import { ArrangeToggle } from './ArrangeToggle';
 import { CustomSourcesPill, SourceSwitchPanel } from './CustomSources';
 import { useCustomSources } from './useCustomSources';
 import { FailedSources } from './FailedSources';
@@ -419,16 +421,6 @@ const FIRST_SOURCE_ROWS = 4;
 /** The ranked list, drawn again only when what it searches changes (not as a switch shows). */
 const SearchedResults = memo(RankedResults);
 
-const groupKey = (medium: Medium) => `raygun.search.grouped.${medium}`;
-
-const readGrouped = (medium: Medium) => {
-  try {
-    return localStorage.getItem(groupKey(medium)) === '1';
-  } catch {
-    return false;
-  }
-};
-
 const SourceSearch: FC<{
   medium: Medium;
   sourceId: string;
@@ -539,17 +531,9 @@ export const CatalogSearch: FC<{
   const sources = { ...listed, data: kept };
   const choice = useCustomSources(medium, sources.data);
   const panelId = useId();
-  const [grouped, setGroupedState] = useState(() => readGrouped(medium));
+  const [grouped, setGrouped] = useGrouped(medium);
   const failures = useSourceHealth((state) => state.failures);
   const failingAtEnd = useSettings().data?.failingSourcesLast ?? true;
-  const setGrouped = (next: boolean) => {
-    setGroupedState(next);
-    try {
-      localStorage.setItem(groupKey(medium), next ? '1' : '0');
-    } catch {
-      // A per-device convenience.
-    }
-  };
   // Custom sources off: every source; on: the ones switched on (one alone, with its filters).
   const custom = !only && choice.custom;
   // The pills and the panel's switches answer a tap at once; the panel unfolds and the search
@@ -598,23 +582,7 @@ export const CatalogSearch: FC<{
   const relevant = !only && !asked.custom && !asked.grouped;
   // Best matches or By source, while more than one source searches.
   const arrange = sourceId === '' && searched.length > 1 && (
-    <div
-      role="group"
-      aria-label={t('search.arrange')}
-      className="bg-surface ml-auto flex rounded-full p-0.5 text-sm"
-    >
-      {([false, true] as const).map((byGroup) => (
-        <button
-          key={String(byGroup)}
-          type="button"
-          aria-pressed={grouped === byGroup}
-          onClick={() => setGrouped(byGroup)}
-          className={`rounded-full px-3 py-1 ${grouped === byGroup ? 'bg-primary/20 text-primary font-semibold' : 'text-muted'}`}
-        >
-          {t(byGroup ? 'search.bySource' : 'search.byResult')}
-        </button>
-      ))}
-    </div>
+    <ArrangeToggle grouped={grouped} onChange={setGrouped} />
   );
 
   return (

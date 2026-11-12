@@ -557,6 +557,8 @@ fn subtitle_tracks(
             lang: subtitle.language.clone(),
             label: subtitle.label.clone(),
             format: Some(subtitle.format.clone()),
+            // Under its name in the players' lists: several in one language tell apart by it.
+            source: Some(subtitle.name.clone()),
         })
         .collect()
 }

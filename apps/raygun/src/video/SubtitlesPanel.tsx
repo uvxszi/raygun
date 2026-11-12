@@ -1,14 +1,18 @@
-import { ArrowLeft, ChevronRight, FilePlus2, Languages, Sparkles } from 'lucide-react';
+import type { SubtitleStyle } from '@raygun/bindings';
+import { ArrowLeft, ChevronRight, FilePlus2, Languages, Palette, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import type { ComponentProps, FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { cssColor } from '../settings/playerOptions';
 import { AiSubtitles } from './AiSubtitles';
 import { PanelHeading, PanelOption } from './PlayerPanel';
+import { edgeShadow, subtitleFontCss } from './subtitleLook';
 import { parseSubtitles } from './subtitles';
 import type { Cue } from './subtitles';
 import { TranslateSubtitles } from './TranslateSubtitles';
-import { byLanguages, shownTrackName } from './trackPicking';
+import { fileLanguage, nameTracks, useTrackWords } from './trackNames';
+import { byLanguages } from './trackPicking';
 import type { TrackOption } from './trackPicking';
 
 /** A track the subtitles panel offers: the video's own, a file, AI subtitles, a translation. */
@@ -29,10 +33,14 @@ type Props = {
   languages: string[];
   selected: string | null;
   onSelect: (key: string | null) => void;
-  /** A subtitle file read here: it shows at once. */
-  onAdd: (label: string, language: string | null, cues: Cue[]) => void;
+  /** A subtitle file read here: it shows at once; `source` is the file's name. */
+  onAdd: (label: string, language: string | null, cues: Cue[], source: string | null) => void;
   delayMs: number;
   onDelay: (ms: number) => void;
+  /** How the subtitles look now, for the Style card's sample. */
+  style: Required<SubtitleStyle>;
+  /** A font of the device's picked for subtitles, in front of the style's own. */
+  family: string | null;
   /** Settings → Player → Subtitles (the style) over the video. */
   onStyle: () => void;
   second: string | null;
@@ -52,11 +60,45 @@ const TOOL =
   'flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl bg-white/10 px-2 py-2.5 text-center text-xs leading-tight font-medium hover:bg-white/15 focus-within:ring-1 focus-within:ring-white/40';
 
 /**
+ * "Aa" as the subtitles look now (font, colours, edge, background), over a grey like a
+ * picture's: the Style card's sample.
+ */
+const StyleSample: FC<{ style: Required<SubtitleStyle>; family: string | null }> = ({
+  style,
+  family,
+}) => (
+  <span
+    aria-hidden
+    data-testid="subtitle-style-sample"
+    className="grid shrink-0 place-items-center rounded-lg bg-slate-600 px-2.5 py-1.5"
+  >
+    <span
+      style={{
+        ...subtitleFontCss(style.font, family),
+        color: cssColor(style.textColor),
+        backgroundColor: cssColor(style.backgroundColor),
+        textShadow: edgeShadow(style.edge, cssColor(style.edgeColor), 1),
+        fontWeight: style.bold ? 700 : 500,
+        fontStyle: style.italic ? 'italic' : 'normal',
+        fontSize: '1.05rem',
+        lineHeight: 1.2,
+        padding: '0 0.25em',
+        borderRadius: '0.25em',
+      }}
+    >
+      Aa
+    </span>
+  </span>
+);
+
+/**
  * The subtitles panel (M46.33, after v1.6.0), in two tabs. **Subtitles**: what adds subtitles
  * first, as buttons of its own (a file, transcribing with AI, translating; the last two open in
- * the panel), then the delay and the style, then the subtitles to show with the viewer's
- * languages first. **Second subtitles**: a second track shown at the top of the picture. AI
- * subtitles and translations are listed once they have lines or are being made.
+ * the panel), then the delay and the style (a card of its own with a sample, apart from the
+ * tracks), then the subtitles to show with the viewer's languages first, each named apart from
+ * the others with where it comes from under it. **Second subtitles**: a second track shown at
+ * the top of the picture. AI subtitles and translations are listed once they have lines or are
+ * being made.
  */
 export const SubtitlesPanel: FC<Props> = ({
   videoKey,
@@ -70,6 +112,8 @@ export const SubtitlesPanel: FC<Props> = ({
   onAdd,
   delayMs,
   onDelay,
+  style,
+  family,
   onStyle,
   second,
   onSecond,
@@ -80,9 +124,20 @@ export const SubtitlesPanel: FC<Props> = ({
   editor,
 }) => {
   const { t } = useTranslation();
+  const words = useTrackWords();
   const [tool, setTool] = useState<'ai' | 'translate' | null>(null);
   const [tab, setTab] = useState<'main' | 'second'>('main');
   const listed = byLanguages(options, languages);
+  // Under each name: how far AI subtitles or a translation got, else where it comes from (a
+  // file without an addon or a name of its own is still a file).
+  const detail = (option: SubtitleOption) => {
+    if (option.hint) return option.hint;
+    if (option.key.startsWith('embedded:')) return t('desktopPlayer.inTheVideo');
+    if (option.source) return option.source;
+    return option.key.startsWith('file:') || option.key.startsWith('added:')
+      ? t('videoPlayer.subtitleFile')
+      : null;
+  };
 
   const tabs = (
     <div role="tablist" className="flex gap-2 px-2 pb-2">
@@ -106,6 +161,7 @@ export const SubtitlesPanel: FC<Props> = ({
   if (tab === 'second') {
     // The video's own tracks can't show second: the browser reads one text track at a time.
     const seconds = listed.filter((option) => !option.key.startsWith('embedded:'));
+    const names = nameTracks(seconds, words, detail);
     return (
       <>
         {tabs}
@@ -114,11 +170,11 @@ export const SubtitlesPanel: FC<Props> = ({
           selected={second === null}
           onSelect={() => onSecond(null)}
         />
-        {seconds.map((option) => (
+        {seconds.map((option, index) => (
           <PanelOption
             key={option.key}
-            label={shownTrackName(option.label, option.language)}
-            hint={option.hint ?? option.language}
+            label={names[index]?.name ?? option.label}
+            hint={names[index]?.detail}
             selected={option.key === second}
             onSelect={() => onSecond(option.key)}
           />
@@ -157,6 +213,7 @@ export const SubtitlesPanel: FC<Props> = ({
     );
   }
 
+  const names = nameTracks(listed, words, detail);
   return (
     <>
       {tabs}
@@ -172,9 +229,17 @@ export const SubtitlesPanel: FC<Props> = ({
               const file = event.target.files?.[0];
               if (!file) return;
               const extension = file.name.split('.').pop() ?? null;
+              // "Film.en.srt" says its language: it's named by it, the file under it.
               void file
                 .text()
-                .then((text) => onAdd(file.name, null, parseSubtitles(text, extension)));
+                .then((text) =>
+                  onAdd(
+                    file.name,
+                    fileLanguage(file.name),
+                    parseSubtitles(text, extension),
+                    file.name,
+                  ),
+                );
             }}
           />
         </label>
@@ -213,13 +278,24 @@ export const SubtitlesPanel: FC<Props> = ({
           {t('videoPlayer.reset')}
         </button>
       </div>
+      {/* The style is a card of its own, with a sample, so it doesn't read as one more track. */}
       <button
         type="button"
         onClick={onStyle}
-        className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-white/10"
+        className="mx-1 mt-2 mb-1 flex items-center gap-3 rounded-xl bg-white/10 px-3 py-2.5 text-left hover:bg-white/15 focus-visible:ring-1 focus-visible:ring-white/40 focus-visible:outline-none"
       >
-        <span className="flex-1">{t('videoPlayer.style')}</span>
-        <ChevronRight aria-hidden size={16} className="text-white/55" />
+        <Palette aria-hidden size={20} className="shrink-0" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm font-semibold">{t('videoPlayer.style')}</span>
+          <span className="truncate text-xs text-white/60">
+            {t('videoPlayer.styleSummary', {
+              n: family ?? t(`settings.player.fonts.${style.font}`),
+              of: style.size,
+            })}
+          </span>
+        </span>
+        <StyleSample style={style} family={family} />
+        <ChevronRight aria-hidden size={16} className="shrink-0 text-white/55" />
       </button>
       <PanelHeading>{t('videoPlayer.subtitles')}</PanelHeading>
       <PanelOption
@@ -227,14 +303,11 @@ export const SubtitlesPanel: FC<Props> = ({
         selected={selected === null}
         onSelect={() => onSelect(null)}
       />
-      {listed.map((option) => (
+      {listed.map((option, index) => (
         <PanelOption
           key={option.key}
-          label={shownTrackName(option.label, option.language)}
-          hint={
-            option.hint ??
-            (option.key.startsWith('embedded:') ? t('desktopPlayer.inTheVideo') : option.language)
-          }
+          label={names[index]?.name ?? option.label}
+          hint={names[index]?.detail}
           selected={option.key === selected}
           onSelect={() => onSelect(option.key)}
         />

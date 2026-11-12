@@ -1027,6 +1027,7 @@ mod tests {
             SettingChange::Fonts(FontPrefs {
                 interface: interface.into(),
                 reading: reading.into(),
+                subtitles: String::new(),
             })
         };
         let saved = update(&db, fonts(" Segoe UI Variable ", "Noto Serif"))
@@ -1035,6 +1036,14 @@ mod tests {
         assert_eq!(saved.fonts.interface, "Segoe UI Variable");
         assert_eq!(saved.fonts.reading, "Noto Serif");
         assert_eq!(load(&db).await.unwrap().fonts, saved.fonts);
+        let subtitles = |family: &str| {
+            SettingChange::Fonts(FontPrefs {
+                subtitles: family.into(),
+                ..FontPrefs::default()
+            })
+        };
+        let saved = update(&db, subtitles(" Comic Sans MS ")).await.unwrap();
+        assert_eq!(saved.fonts.subtitles, "Comic Sans MS");
         for bad in [
             "Arial\"; color: red",
             "Arial}",
@@ -1044,6 +1053,7 @@ mod tests {
         ] {
             assert!(update(&db, fonts(bad, "")).await.is_err(), "{bad}");
             assert!(update(&db, fonts("", bad)).await.is_err(), "{bad}");
+            assert!(update(&db, subtitles(bad)).await.is_err(), "{bad}");
         }
         let saved = update(&db, fonts("", "")).await.unwrap();
         assert_eq!(saved.fonts, FontPrefs::default(), "back to the defaults");

@@ -480,6 +480,7 @@ fn link_views(mut videos: Vec<VideoLink>, preferred: VideoResolution) -> Vec<Vid
                     label: track.label.or_else(|| track.lang.clone()),
                     lang: track.lang,
                     format: None,
+                    source: None,
                 })
                 .collect(),
         })

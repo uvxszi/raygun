@@ -67,7 +67,18 @@ export const MEDIA_KEY_ACTIONS: MediaKeyAction[] = ['switchEpisode', 'seek'];
 export const DECODERS: DecoderMode[] = ['auto', 'software'];
 export const VIDEO_CODECS: VideoCodec[] = ['auto', 'h264'];
 export const SUBTITLE_EDGES: SubtitleEdge[] = ['none', 'outline', 'shadow', 'raised', 'depressed'];
-export const SUBTITLE_FONTS: SubtitleFont[] = ['default', 'sans', 'serif', 'mono'];
+/** In the order Android's own caption settings list them (`SUBTITLE_FONTS` in the player). */
+export const SUBTITLE_FONTS: SubtitleFont[] = [
+  'default',
+  'sans',
+  'condensed',
+  'mono',
+  'serif',
+  'serifMono',
+  'casual',
+  'cursive',
+  'smallCaps',
+];
 export const SUBTITLE_MODES: SubtitleMode[] = ['foreign', 'always', 'never'];
 
 /** Colours offered for subtitles, as 0xAARRGGBB, named for the choices. */

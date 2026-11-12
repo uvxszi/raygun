@@ -41,6 +41,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
@@ -836,6 +837,8 @@ class VideoPlayerActivity : AppCompatActivity() {
                     // "English" as a language reads as `en`, so Media3 and the sheets agree.
                     Languages.code(language) ?: language,
                     label ?: language,
+                    // The addon that found it, or its file's name: under its name in the sheets.
+                    track.text("source"),
                 )
             }
         }
@@ -894,11 +897,13 @@ class VideoPlayerActivity : AppCompatActivity() {
             .setUserAgent(agent)
             .setDefaultRequestProperties(headers.filterKeys { !it.equals("User-Agent", true) })
             .setAllowCrossProtocolRedirects(true)
-        val subtitles = sidecars.map { sidecar ->
+        val subtitles = sidecars.mapIndexed { index, sidecar ->
             MediaItem.SubtitleConfiguration.Builder(sidecar.uri)
                 .setMimeType(sidecar.mime)
                 .setLanguage(sidecar.language)
                 .setLabel(sidecar.label)
+                // Its track is known by it ([sidecarOf]), several files in one language and name too.
+                .setId(sidecarId(index))
                 .build()
         }
         val item = MediaItem.Builder()
@@ -1260,12 +1265,6 @@ class VideoPlayerActivity : AppCompatActivity() {
     internal fun applySubtitleStyle() {
         if (!::subtitleView.isInitialized) return
         val look = prefs.style
-        val family = when (look.font) {
-            "sans" -> Typeface.SANS_SERIF
-            "serif" -> Typeface.SERIF
-            "mono" -> Typeface.MONOSPACE
-            else -> Typeface.DEFAULT
-        }
         val styleFlags = (if (look.bold) Typeface.BOLD else 0) or (if (look.italic) Typeface.ITALIC else 0)
         val caption = CaptionStyleCompat(
             look.textColor,
@@ -1274,7 +1273,8 @@ class VideoPlayerActivity : AppCompatActivity() {
             Color.TRANSPARENT,
             edgeType(look.edge),
             look.edgeColor,
-            Typeface.create(family, styleFlags),
+            // The system's caption families (`subtitleFamily`), on both subtitle views.
+            subtitleTypeface(look.font, styleFlags),
         )
         listOf(subtitleView, secondView).forEach { view ->
             view.setStyle(caption)
@@ -1754,9 +1754,22 @@ class VideoPlayerActivity : AppCompatActivity() {
         if (tracks.textOff()) return null
         val format = tracks.list(C.TRACK_TYPE_TEXT).firstOrNull { tracks.chosen(it) }?.format ?: return null
         val count = current.optJSONArray("subtitles")?.length() ?: 0
+        sidecarIndex(format.id)?.let { index -> return index.takeIf { it < count } }
         return sidecars.take(count).indexOfFirst {
             it.label == format.label && (it.language == format.language || sameLanguage(it.language, format.language))
         }.takeIf { it >= 0 }
+    }
+
+    /**
+     * The subtitle file a Media3 track came from, by the id it was given ([sidecarId]); else, for
+     * a track without an id, by its name and language. Null for the video's own tracks.
+     */
+    internal fun sidecarOf(format: Format): Sidecar? {
+        sidecarIndex(format.id)?.let { return sidecars.getOrNull(it) }
+        if (format.id != null) return null
+        return sidecars.firstOrNull {
+            it.label == format.label && (it.language == format.language || sameLanguage(it.language, format.language))
+        }
     }
 
     // ---- Session requests (M44) ----

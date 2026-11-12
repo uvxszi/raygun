@@ -1,11 +1,5 @@
 import { commands, events } from '@raygun/bindings';
-import type {
-  NovelChapter,
-  NovelReaderPrefs,
-  NovelTheme,
-  PdfContentsEntry,
-  TextBlock,
-} from '@raygun/bindings';
+import type { NovelChapter, NovelReaderPrefs, NovelTheme, TextBlock } from '@raygun/bindings';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import {
@@ -56,7 +50,8 @@ import { ReaderSettingsLink } from '../manga/ReaderSettingsLink';
 import { inSideScroller } from '../novel/code';
 import { CodeBlock } from '../novel/CodeBlock';
 import { MathFormula } from '../novel/MathFormula';
-import { outlineBlock } from '../novel/pdfContents';
+import { hasContents, outlineBlock } from '../novel/pdfContents';
+import type { ContentsPlace } from '../novel/pdfContents';
 import { PdfContentsSheet } from '../novel/PdfContentsSheet';
 import { PdfPagesView } from '../novel/PdfPagesView';
 import { ReadAloudOptions } from '../novel/readAloud/ReadAloudOptions';
@@ -1428,10 +1423,11 @@ export const NovelReaderPage: FC = () => {
   };
 
   /**
-   * A bookmark picked in a PDF book's contents: the heading it names in the text (else its page's
-   * start), in this chapter (reading aloud goes on from there), or in the chapter opened for it.
+   * A bookmark or a chapter picked in a PDF book's contents: the heading it names in the text
+   * (else its page's start), in this chapter (reading aloud goes on from there), or in the chapter
+   * opened for it.
    */
-  const openBookmark = (entry: PdfContentsEntry) => {
+  const openBookmark = (entry: ContentsPlace) => {
     setContents(null);
     setBookmark((last) => ({
       chapterId: entry.chapterId,
@@ -1510,7 +1506,8 @@ export const NovelReaderPage: FC = () => {
               <FileImage aria-hidden size={21} />
             </button>
           )}
-          {pdf && pdf.contents.length > 0 && (
+          {/* A PDF book's contents list its chapters too: the one list, as in its page view. */}
+          {pdf && data && hasContents(pdf.contents, data) && (
             <button
               type="button"
               aria-label={t('pdf.contents')}
@@ -1528,7 +1525,7 @@ export const NovelReaderPage: FC = () => {
               <ListTree aria-hidden size={21} />
             </button>
           )}
-          {data && (
+          {data && !pdf && (
             <button
               type="button"
               aria-label={t('reader.chapters.open')}
@@ -1787,9 +1784,11 @@ export const NovelReaderPage: FC = () => {
           onClose={() => setChapterList(null)}
         />
       )}
-      {pdf && contents && (
+      {pdf && data && contents && (
         <PdfContentsSheet
           contents={pdf.contents}
+          titleId={data.titleId}
+          chapterId={data.chapter.id}
           pageNumber={contents.pageNumber}
           anchor={contents.anchor}
           onPick={openBookmark}

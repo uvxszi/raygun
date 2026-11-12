@@ -37,6 +37,33 @@ export const titleScore = (title: string, query: string) => {
   return Math.round((40 * shared) / words.length);
 };
 
+/** An entry of one of several lists ranked as one: the entry and which list it came from. */
+export type RankedEntry<Item> = { item: Item; list: number };
+
+/**
+ * Several lists' entries in one order, the best answers to `query` first. Among equals an entry's
+ * place in its own list wins, then the lists' order; with nothing typed the lists take turns, so
+ * no one list fills the top. `titleOf` names an entry, `score` rates that name against the query.
+ */
+export const rankLists = <Item>(
+  lists: readonly (readonly Item[])[],
+  query: string,
+  titleOf: (item: Item) => string,
+  score: (title: string, query: string) => number = titleScore,
+): RankedEntry<Item>[] => {
+  const asked = query.trim() !== '';
+  const scored = lists.flatMap((items, list) =>
+    items.map((item, position) => ({
+      item,
+      list,
+      score: asked ? score(titleOf(item), query) : 0,
+      position,
+    })),
+  );
+  scored.sort((a, b) => b.score - a.score || a.position - b.position || a.list - b.list);
+  return scored.map(({ item, list }) => ({ item, list }));
+};
+
 /**
  * Every source's results in one list, the best answers to `query` first, each title once per
  * source. Among equals a source's own order wins, then the sources' order. With nothing typed
@@ -47,18 +74,10 @@ export const rankResults = (
   results: SourceSearchResult[],
   query: string,
   score: (title: string, query: string) => number = titleScore,
-): RankedCard[] => {
-  const scored = results.flatMap((result, sourceIndex) =>
-    result.items.map((card, position) => ({
-      card,
-      sourceName: result.source.name,
-      score: query.trim() ? score(card.title, query) : 0,
-      position,
-      sourceIndex,
-    })),
-  );
-  scored.sort(
-    (a, b) => b.score - a.score || a.position - b.position || a.sourceIndex - b.sourceIndex,
-  );
-  return scored.map(({ card, sourceName }) => ({ card, sourceName }));
-};
+): RankedCard[] =>
+  rankLists(
+    results.map((result) => result.items),
+    query,
+    (card) => card.title,
+    score,
+  ).map(({ item, list }) => ({ card: item, sourceName: results[list]?.source.name ?? '' }));

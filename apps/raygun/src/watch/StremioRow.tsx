@@ -5,7 +5,9 @@ import type { FC, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { CARD_MENU_CLASS, CardPlayButton } from '../manga/CardPlayButton';
+import { COVER_GRID_CLASS, coverGridStyle } from '../manga/coverGrid';
 import { usePlayTitle, useTitleCardMenu } from '../manga/titleMenu';
+import { useSettings } from '../settings/useSettings';
 import type { CardTitle } from '../manga/titleMenu';
 import { AdultMark } from '../shell/AdultMark';
 import { Carousel } from '../shell/Carousel';
@@ -79,11 +81,13 @@ export const StremioCard: FC<{ item: StremioItem; className?: string }> = ({ ite
   return <CardBody item={item} className={className} actions={actions} />;
 };
 
-const CardBody: FC<{ item: StremioItem; className?: string; actions: CardActions }> = ({
-  item,
-  className = '',
-  actions: { t, menu, play, pickable },
-}) => {
+const CardBody: FC<{
+  item: StremioItem;
+  className?: string;
+  actions: CardActions;
+  /** Under the card's lines: where it comes from (search). */
+  footer?: ReactNode;
+}> = ({ item, className = '', actions: { t, menu, play, pickable }, footer }) => {
   const name = item.name || item.id;
   // In search a card can be picked (M46.50): a long press, a right click or the circle on its top
   // left picks it, ⋮ on its top right opens the menu (with Select); the box around it then takes
@@ -137,6 +141,7 @@ const CardBody: FC<{ item: StremioItem; className?: string; actions: CardActions
             {[item.releaseInfo, item.rating && `★ ${item.rating}`].filter(Boolean).join(' · ')}
           </span>
         )}
+        {footer}
       </Link>
     </Selectable>
   );
@@ -175,26 +180,67 @@ const RowHeading: FC<{
   );
 };
 
+/** A card of a list: its title, and what shows under its lines (search: where it's from). */
+export type StremioListCard = { key: string; item: StremioItem; footer?: ReactNode };
+
 /** Cards a row draws at once (more than a screen's width), the rest of its 20 just after. */
 const FIRST_CARDS = 6;
+/** Covers a grid draws at once (a screenful), then as many more as each part is on the screen. */
+const FIRST_GRID_CARDS = 24;
+/** Wide thumbnails get wider columns (as video sites' in `MangaGrid`). */
+const LANDSCAPE_GRID = { gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 13rem), 1fr))' };
 
-const Cards: FC<{ items: StremioItem[] }> = ({ items }) => {
+/**
+ * Titles as cards: a row that pages sideways, or a grid of covers sized as the library's are.
+ * The cards share the list's menu and play hooks; the first are drawn with the list, the rest
+ * just after (`useDrawnCount`).
+ */
+export const StremioCardList: FC<{ cards: StremioListCard[]; layout?: 'row' | 'grid' }> = ({
+  cards,
+  layout = 'row',
+}) => {
   const actions = useCardActions();
-  const shown = items.slice(0, 20);
-  const drawn = useDrawnCount(shown.length, FIRST_CARDS, shown.length, shown[0]?.id ?? '');
+  const coverSize = useSettings().data?.coverSize ?? 0;
+  const grid = layout === 'grid';
+  const drawn = useDrawnCount(
+    cards.length,
+    grid ? FIRST_GRID_CARDS : FIRST_CARDS,
+    grid ? FIRST_GRID_CARDS : cards.length,
+    cards[0]?.key ?? '',
+  );
+  if (grid) {
+    const landscape =
+      cards.length > 0 && cards.every((card) => card.item.posterShape === 'landscape');
+    return (
+      <ul
+        className={COVER_GRID_CLASS}
+        style={landscape ? LANDSCAPE_GRID : coverGridStyle(coverSize)}
+      >
+        {cards.slice(0, drawn).map((card) => (
+          <li key={card.key}>
+            <CardBody item={card.item} actions={actions} footer={card.footer} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <Carousel className="-mx-4 gap-3 px-4 lg:mx-0 lg:px-0">
-      {shown.slice(0, drawn).map((item) => (
+      {cards.slice(0, drawn).map((card) => (
         <li
-          key={item.id}
-          className={item.posterShape === 'landscape' ? 'w-48 shrink-0' : 'w-28 shrink-0'}
+          key={card.key}
+          className={card.item.posterShape === 'landscape' ? 'w-48 shrink-0' : 'w-28 shrink-0'}
         >
-          <CardBody item={item} actions={actions} />
+          <CardBody item={card.item} actions={actions} footer={card.footer} />
         </li>
       ))}
     </Carousel>
   );
 };
+
+const Cards: FC<{ items: StremioItem[] }> = ({ items }) => (
+  <StremioCardList cards={items.slice(0, 20).map((item) => ({ key: item.id, item }))} />
+);
 
 /** Placeholder cards while a row loads, the size of the real ones. */
 const Placeholder: FC = () => (

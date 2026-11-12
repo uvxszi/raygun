@@ -1325,10 +1325,17 @@ impl StremioService {
                     extras,
                 );
                 let _permit = self.asking.acquire().await;
-                self.resource(addon, "subtitles", &url, REQUEST_TIMEOUT)
+                let name = addon.manifest().map(|manifest| manifest.name.clone());
+                let mut found = self
+                    .resource(addon, "subtitles", &url, REQUEST_TIMEOUT)
                     .await
                     .map(|value| protocol::parse_subtitles(&value))
-                    .unwrap_or_default()
+                    .unwrap_or_default();
+                // Named under each track, so several in one language tell apart.
+                for subtitle in &mut found {
+                    subtitle.source.clone_from(&name);
+                }
+                found
             })
             .collect::<Vec<_>>();
         let all = join_all(asks).await.into_iter().flatten().collect();
@@ -2237,6 +2244,7 @@ fn addon_subtitles(found: Vec<protocol::Subtitle>) -> Vec<VideoSubtitle> {
             label: subtitle.label.or_else(|| subtitle.lang.clone()),
             lang: subtitle.lang,
             format: None,
+            source: subtitle.source,
         })
         .collect()
 }
@@ -2374,6 +2382,7 @@ fn stream_view(stream: protocol::Stream) -> StremioStream {
                 label: subtitle.label.or_else(|| subtitle.lang.clone()),
                 lang: subtitle.lang,
                 format: None,
+                source: subtitle.source,
             })
             .collect(),
         filename: stream.filename,
