@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.eso",
+  "name": "ESO and NOIRLab",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Creative Commons Attribution 4.0: the European Southern Observatory's and NSF NOIRLab's videos (ESOcasts, Chasing Starlight, news releases, zooms, animations and fulldome films from the Very Large Telescope, ALMA, Gemini, Kitt Peak and the Rubin Observatory), credited as each video's page gives it; videos whose page names another licence are left out.",
+  "author": "Raygun",
+  "website": "https://www.eso.org/public/videos/",
+  "provides": ["video.source"],
+  "permissions": { "net": ["www.eso.org", "noirlab.edu"] },
+  "contentRating": "safe"
+}

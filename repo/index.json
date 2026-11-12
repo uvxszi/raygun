@@ -111,6 +111,28 @@
       "size": 6714
     },
     {
+      "id": "dev.raygun.eso",
+      "name": "ESO and NOIRLab",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Creative Commons Attribution 4.0: the European Southern Observatory's and NSF NOIRLab's videos (ESOcasts, Chasing Starlight, news releases, zooms, animations and fulldome films from the Very Large Telescope, ALMA, Gemini, Kitt Peak and the Rubin Observatory), credited as each video's page gives it; videos whose page names another licence are left out.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "www.eso.org",
+          "noirlab.edu"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.eso-1.0.0.zip",
+      "sha256": "565878e3b5d4f83eb02885c720c689b969979016d70856a28df4b1bf9659cd9a",
+      "size": 6815
+    },
+    {
       "id": "dev.raygun.europeana",
       "name": "Europeana",
       "version": "1.0.0",
@@ -173,6 +195,29 @@
       "package": "packages/dev.raygun.gnu-manuals-1.0.0.zip",
       "sha256": "1ad4a2561a90e91cdf278a4eef6ea60e94a6584b20d55eb279410954bca4ad70",
       "size": 10900
+    },
+    {
+      "id": "dev.raygun.great-78",
+      "name": "Great 78 Project",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain in the United States: 78 rpm records recorded more than 101 years ago (so published more than 100 years ago), from the Great 78 Project's transfers by George Blood L.P. for the Internet Archive and its partner libraries; later records are left out. Historical recordings, some with the prejudices of their time.",
+      "author": "Raygun",
+      "provides": [
+        "music.metadata",
+        "music.charts"
+      ],
+      "permissions": {
+        "net": [
+          "archive.org",
+          "*.archive.org"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.great-78-1.0.0.zip",
+      "sha256": "162231140fe15ac240244139062ec7da614f2dd962030062f92280a5840cf0f2",
+      "size": 4818
     },
     {
       "id": "dev.raygun.green-tea-press",
@@ -493,6 +538,27 @@
       "size": 3890
     },
     {
+      "id": "dev.raygun.nasa-svs",
+      "name": "NASA Scientific Visualization Studio",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain (NASA media): visualizations, animations and videos of Earth, the Sun, the planets and the universe from NASA Goddard's Scientific Visualization Studio, Goddard Media Studios and the Conceptual Image Lab, with captions; videos whose page names licensed music are left out.",
+      "author": "Raygun",
+      "provides": [
+        "video.source"
+      ],
+      "permissions": {
+        "net": [
+          "svs.gsfc.nasa.gov"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.nasa-svs-1.0.0.zip",
+      "sha256": "4c33cfea541be25c78e88ec2f3d4009eacaffbd3c411f1bac1356c480896f2d9",
+      "size": 5122
+    },
+    {
       "id": "dev.raygun.noutube",
       "name": "YouTube enhancements",
       "version": "1.0.0",
@@ -540,9 +606,9 @@
     {
       "id": "dev.raygun.open-webcomics",
       "name": "Open webcomics",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "apiVersion": 1,
-      "description": "Webcomics their authors publish under Creative Commons licences, every strip a chapter: Sandra and Woo by Oliver Knörzer and Powree (CC BY-NC-ND 3.0) and turnoff.us by Daniel Stori (CC BY-NC-SA 4.0).",
+      "description": "Webcomics their authors publish under Creative Commons licences, every strip a chapter: Sandra and Woo by Oliver Knörzer and Powree (CC BY-NC-ND 3.0), turnoff.us by Daniel Stori (CC BY-NC-SA 4.0) and MiniFantasyTheater by David Revoy (CC BY-SA 4.0).",
       "author": "Raygun",
       "provides": [
         "manga.source"
@@ -550,14 +616,15 @@
       "permissions": {
         "net": [
           "www.sandraandwoo.com",
-          "turnoff.us"
+          "turnoff.us",
+          "www.davidrevoy.com"
         ],
         "webview": false
       },
       "contentRating": "suggestive",
-      "package": "packages/dev.raygun.open-webcomics-1.0.0.zip",
-      "sha256": "11945078e80550f95645f32d6946c2d3bbfe852edb95855b91e9aa1b3a8674ae",
-      "size": 4646
+      "package": "packages/dev.raygun.open-webcomics-1.1.0.zip",
+      "sha256": "b3e1396e3b5830b09bad50b998a7254eff89b02d371c67fac42c8de22d4025d1",
+      "size": 5973
     },
     {
       "id": "dev.raygun.openstax",
@@ -706,6 +773,28 @@
       "package": "packages/dev.raygun.twitch-1.0.0.zip",
       "sha256": "59f97a755e557edb0624ae77afbe4060b6198fddf5d875c774fd4e9faac78e22",
       "size": 5670
+    },
+    {
+      "id": "dev.raygun.ucsb-cylinders",
+      "name": "UCSB Cylinder Audio Archive",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "description": "Public domain in the United States: wax and celluloid cylinder records released more than 100 years ago (1890s–1920s), from the UC Santa Barbara Library's Cylinder Audio Archive. Transfers of cylinders from before 1923 are free for any use; the library's transfers of later ones are under CC BY-NC 2.5 (credit: University of California, Santa Barbara Library). Historical recordings, some with the prejudices of their time.",
+      "author": "Raygun",
+      "provides": [
+        "music.metadata",
+        "music.charts"
+      ],
+      "permissions": {
+        "net": [
+          "cylinders.library.ucsb.edu"
+        ],
+        "webview": false
+      },
+      "contentRating": "safe",
+      "package": "packages/dev.raygun.ucsb-cylinders-1.0.0.zip",
+      "sha256": "48aec3a5928495c52ad5fdacc16506c2c1fd42409e7a1816373deeb40b0f108a",
+      "size": 3967
     },
     {
       "id": "dev.raygun.wikibooks",

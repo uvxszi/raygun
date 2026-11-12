@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.great-78",
+  "name": "Great 78 Project",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain in the United States: 78 rpm records recorded more than 101 years ago (so published more than 100 years ago), from the Great 78 Project's transfers by George Blood L.P. for the Internet Archive and its partner libraries; later records are left out. Historical recordings, some with the prejudices of their time.",
+  "author": "Raygun",
+  "website": "https://great78.archive.org/",
+  "provides": ["music.metadata", "music.charts"],
+  "permissions": { "net": ["archive.org", "*.archive.org"] },
+  "contentRating": "safe"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "dev.raygun.nasa-svs",
+  "name": "NASA Scientific Visualization Studio",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "runtime": "js",
+  "entry": "dist/index.js",
+  "description": "Public domain (NASA media): visualizations, animations and videos of Earth, the Sun, the planets and the universe from NASA Goddard's Scientific Visualization Studio, Goddard Media Studios and the Conceptual Image Lab, with captions; videos whose page names licensed music are left out.",
+  "author": "Raygun",
+  "website": "https://svs.gsfc.nasa.gov",
+  "provides": ["video.source"],
+  "permissions": { "net": ["svs.gsfc.nasa.gov"] },
+  "contentRating": "safe"
+}
